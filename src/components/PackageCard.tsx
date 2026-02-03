@@ -192,7 +192,10 @@ export function PackageCard({
     
     setIsDownloading(true);
     try {
-      const response = await fetch(pkg.brosurUrl);
+      // Use proxy to bypass CORS
+      const proxyUrl = `/brosur?url=${encodeURIComponent(pkg.brosurUrl)}`;
+      const response = await fetch(proxyUrl);
+      
       if (!response.ok) throw new Error('Fetch failed');
       
       const blob = await response.blob();
@@ -207,12 +210,13 @@ export function PackageCard({
       
       window.URL.revokeObjectURL(url);
     } catch {
-      // Fallback: open in new tab if fetch fails (CORS issue)
-      window.open(pkg.brosurUrl, '_blank');
+      // Fallback: show alert with direct link
+      alert(`Download gagal. Silakan buka link ini di browser:\n${pkg.brosurUrl}`);
     } finally {
       setIsDownloading(false);
     }
   };
+
 
 
   return (
