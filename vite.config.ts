@@ -41,7 +41,18 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp}'],
+        // Force new SW to take over immediately
+        skipWaiting: true,
+        clientsClaim: true,
+        // Don't cache API responses in SW
+        navigateFallbackDenylist: [/^\/api/],
+        runtimeCaching: [
+          {
+            urlPattern: /^\/api\/.*/i,
+            handler: 'NetworkOnly',
+          }
+        ]
       }
     })
   ],
