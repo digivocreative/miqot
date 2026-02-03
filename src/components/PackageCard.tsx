@@ -257,8 +257,7 @@ ${buildHotelList()}
 ${buildPricing()}
 
 _________________________
-*GRATIS Biaya Perlengkapan, Handling & Asuransi*
-Link: ${window.location.href}`;
+*GRATIS Biaya Perlengkapan, Handling & Asuransi*`;
 
 
     const encodedMessage = encodeURIComponent(message);
