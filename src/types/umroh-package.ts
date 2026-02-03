@@ -1,6 +1,6 @@
 /**
  * Type definitions for Alhijaz Indowisata Umroh Package API
- * API Endpoint: https://jadwal.alhijazindowisata-travel.co.id/jadwal/api-get/1448
+ * API Endpoint: https://jadwal.miqot.com/jadwal/api-get/1448
  */
 
 // ============================================

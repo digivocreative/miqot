@@ -64,7 +64,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://jadwal.alhijazindowisata-travel.co.id',
+        target: 'https://jadwal.miqot.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '/jadwal'),
         secure: false,
