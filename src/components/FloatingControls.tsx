@@ -190,7 +190,7 @@ export function FloatingControls({
         {/* Input Field */}
         <input
           ref={inputRef}
-          type="text"
+          type="search"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
@@ -199,6 +199,8 @@ export function FloatingControls({
             text-gray-900 placeholder-gray-400
             text-sm font-medium
             ${isSearchOpen ? 'block' : 'hidden'}
+            [&::-webkit-search-cancel-button]:appearance-none
+            [&::-webkit-search-decoration]:appearance-none
           `}
         />
 
@@ -206,16 +208,16 @@ export function FloatingControls({
         <button
           onClick={handleCloseSearch}
           className={`
-            flex items-center justify-center
-            w-8 h-8 rounded-full
+            flex items-center justify-center shrink-0
+            w-6 h-6 rounded-full
             bg-gray-100 hover:bg-gray-200
             text-gray-500 hover:text-gray-700
-            transition-colors flex-shrink-0
+            transition-colors
             ${isSearchOpen ? 'block' : 'hidden'}
           `}
           aria-label="Close search"
         >
-          <X size={16} />
+          <X size={14} className="leading-none" />
         </button>
       </div>
 
