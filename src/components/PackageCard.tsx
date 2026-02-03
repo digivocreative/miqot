@@ -183,12 +183,12 @@ export function PackageCard({
     onExpandChange?.(!isExpanded);
   };
 
-  // Handle Brosur download with fetch blob (for PWA cross-origin support)
+  // Handle Brosur download with WebP to PNG conversion
   const handleBrosurDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!pkg.brosurUrl || isDownloading) return;
     
-    const fileName = `Brosur-${pkg.nama.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-')}.webp`;
+    const fileName = `Brosur-${pkg.nama.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-')}.png`;
     
     setIsDownloading(true);
     try {
@@ -199,23 +199,80 @@ export function PackageCard({
       if (!response.ok) throw new Error('Fetch failed');
       
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      const blobUrl = window.URL.createObjectURL(blob);
       
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      // Convert WebP to PNG using canvas
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
       
-      window.URL.revokeObjectURL(url);
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => {
+          try {
+            // Create canvas with image dimensions
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('Canvas context not available');
+            
+            // Draw image to canvas
+            ctx.drawImage(img, 0, 0);
+            
+            // Convert to PNG blob
+            canvas.toBlob((pngBlob) => {
+              if (!pngBlob) {
+                reject(new Error('PNG conversion failed'));
+                return;
+              }
+              
+              // Download PNG
+              const pngUrl = window.URL.createObjectURL(pngBlob);
+              const link = document.createElement('a');
+              link.href = pngUrl;
+              link.download = fileName;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              
+              window.URL.revokeObjectURL(pngUrl);
+              resolve();
+            }, 'image/png');
+          } catch (err) {
+            reject(err);
+          }
+        };
+        img.onerror = () => reject(new Error('Image load failed'));
+        img.src = blobUrl;
+      });
+      
+      window.URL.revokeObjectURL(blobUrl);
     } catch {
-      // Fallback: show alert with direct link
-      alert(`Download gagal. Silakan buka link ini di browser:\n${pkg.brosurUrl}`);
+      // Fallback: try downloading original file
+      try {
+        const proxyUrl = `/brosur?url=${encodeURIComponent(pkg.brosurUrl)}`;
+        const response = await fetch(proxyUrl);
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = fileName.replace('.png', '.webp');
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } else {
+          alert(`Download gagal. Silakan buka link ini di browser:\n${pkg.brosurUrl}`);
+        }
+      } catch {
+        alert(`Download gagal. Silakan buka link ini di browser:\n${pkg.brosurUrl}`);
+      }
     } finally {
       setIsDownloading(false);
     }
   };
+
 
 
 
