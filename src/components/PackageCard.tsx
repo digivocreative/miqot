@@ -478,12 +478,12 @@ export function PackageCard({
               <span className="text-xs font-medium text-gray-600">Itinerary</span>
             </a>
 
-            {pkg.brosurUrl ? (
+            {pkg.brosurUrl && pkg.brosurUrl.length > 0 ? (
               <a
                 href={pkg.brosurUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                download
+                download={`Brosur-${pkg.nama.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-')}.webp`}
                 className="flex flex-col items-center justify-center py-3 px-4 rounded-xl border-2 transition-all border-gray-200 hover:border-emerald-300 hover:bg-emerald-50"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-gray-500 mb-1">
@@ -491,6 +491,7 @@ export function PackageCard({
                 </svg>
                 <span className="text-xs font-medium text-gray-600">Brosur</span>
               </a>
+
             ) : (
               <div className="flex flex-col items-center justify-center py-3 px-4 rounded-xl border-2 transition-all border-gray-100 opacity-50 cursor-not-allowed">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-gray-500 mb-1">
