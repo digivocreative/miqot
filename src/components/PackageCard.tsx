@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { PlaneTakeoff, PlaneLanding, Building2 } from 'lucide-react';
 import { UmrohPackage, RoomPricing } from '@/types';
+import { BrochureModal } from './BrochureModal';
 
 interface PackageCardProps {
   package: UmrohPackage;
@@ -42,7 +43,7 @@ export function PackageCard({
 }: PackageCardProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentHeight, setContentHeight] = useState(0);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [isBrochureOpen, setIsBrochureOpen] = useState(false);
 
   // Calculate availability percentage
   const availabilityPercentage = Math.round((pkg.seatSisa / pkg.seatTotal) * 100);
@@ -183,100 +184,8 @@ export function PackageCard({
     onExpandChange?.(!isExpanded);
   };
 
-  // Handle Brosur download with WebP to PNG conversion
-  const handleBrosurDownload = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!pkg.brosurUrl || isDownloading) return;
-    
-    const fileName = `Brosur-${pkg.nama.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-')}.png`;
-    
-    setIsDownloading(true);
-    try {
-      // Use proxy to bypass CORS
-      const proxyUrl = `/brosur?url=${encodeURIComponent(pkg.brosurUrl)}`;
-      const response = await fetch(proxyUrl);
-      
-      if (!response.ok) throw new Error('Fetch failed');
-      
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      
-      // Convert WebP to PNG using canvas
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => {
-          try {
-            // Create canvas with image dimensions
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            
-            const ctx = canvas.getContext('2d');
-            if (!ctx) throw new Error('Canvas context not available');
-            
-            // Draw image to canvas
-            ctx.drawImage(img, 0, 0);
-            
-            // Convert to PNG blob
-            canvas.toBlob((pngBlob) => {
-              if (!pngBlob) {
-                reject(new Error('PNG conversion failed'));
-                return;
-              }
-              
-              // Download PNG
-              const pngUrl = window.URL.createObjectURL(pngBlob);
-              const link = document.createElement('a');
-              link.href = pngUrl;
-              link.download = fileName;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              
-              window.URL.revokeObjectURL(pngUrl);
-              resolve();
-            }, 'image/png');
-          } catch (err) {
-            reject(err);
-          }
-        };
-        img.onerror = () => reject(new Error('Image load failed'));
-        img.src = blobUrl;
-      });
-      
-      window.URL.revokeObjectURL(blobUrl);
-    } catch {
-      // Fallback: try downloading original file
-      try {
-        const proxyUrl = `/brosur?url=${encodeURIComponent(pkg.brosurUrl)}`;
-        const response = await fetch(proxyUrl);
-        if (response.ok) {
-          const blob = await response.blob();
-          const url = window.URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = fileName.replace('.png', '.webp');
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          window.URL.revokeObjectURL(url);
-        } else {
-          alert(`Download gagal. Silakan buka link ini di browser:\n${pkg.brosurUrl}`);
-        }
-      } catch {
-        alert(`Download gagal. Silakan buka link ini di browser:\n${pkg.brosurUrl}`);
-      }
-    } finally {
-      setIsDownloading(false);
-    }
-  };
-
-
-
-
   return (
+    <>
     <div
       onClick={handleCardClick}
       className={`
@@ -288,6 +197,7 @@ export function PackageCard({
         }
       `}
     >
+
       {/* ============================================ */}
       {/* COLLAPSED VIEW (Always Visible) */}
       {/* ============================================ */}
@@ -573,23 +483,16 @@ export function PackageCard({
             {pkg.brosurUrl && pkg.brosurUrl.length > 0 ? (
               <button
                 type="button"
-                onClick={handleBrosurDownload}
-                disabled={isDownloading}
-                className={`flex flex-col items-center justify-center py-3 px-4 rounded-xl border-2 transition-all ${isDownloading ? 'border-gray-200 bg-gray-50' : 'border-gray-200 hover:border-emerald-300 hover:bg-emerald-50'}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsBrochureOpen(true);
+                }}
+                className="flex flex-col items-center justify-center py-3 px-4 rounded-xl border-2 transition-all border-gray-200 hover:border-emerald-300 hover:bg-emerald-50"
               >
-                {isDownloading ? (
-                  <svg className="animate-spin w-6 h-6 text-emerald-500 mb-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-gray-500 mb-1">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                  </svg>
-                )}
-                <span className="text-xs font-medium text-gray-600">
-                  {isDownloading ? 'Loading...' : 'Brosur'}
-                </span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-gray-500 mb-1">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                </svg>
+                <span className="text-xs font-medium text-gray-600">Brosur</span>
               </button>
             ) : (
               <div className="flex flex-col items-center justify-center py-3 px-4 rounded-xl border-2 transition-all border-gray-100 opacity-50 cursor-not-allowed">
@@ -646,6 +549,17 @@ export function PackageCard({
         </div>
       </div>
     </div>
+
+      {/* Brochure Modal */}
+      {pkg.brosurUrl && (
+        <BrochureModal
+          isOpen={isBrochureOpen}
+          onClose={() => setIsBrochureOpen(false)}
+          imageUrl={pkg.brosurUrl}
+          title={pkg.nama}
+        />
+      )}
+    </>
   );
 }
 
