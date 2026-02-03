@@ -182,17 +182,7 @@ export function PackageCard({
     onExpandChange?.(!isExpanded);
   };
 
-  // Handle WhatsApp share
-  const handleWhatsAppShare = () => {
-    const message = encodeURIComponent(
-      `Saya tertarik dengan paket Umroh:\n\n` +
-      `📦 *${pkg.nama}*\n` +
-      `✈️ Berangkat: ${formatDate(pkg.keberangkatan.tgl)}\n` +
-      `💰 Mulai Rp ${absoluteMinPrice ? formatRupiah(absoluteMinPrice.toString()) : '-'}\n\n` +
-      `Mohon informasi lebih lanjut.`
-    );
-    window.open(`https://wa.me/${agent.phone.replace(/\D/g, '')}?text=${message}`, '_blank');
-  };
+
 
   return (
     <div

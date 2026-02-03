@@ -211,9 +211,7 @@ function App() {
     setReturnTimeRanges([]);
   };
 
-  const handleQuickFilterChange = (filter: QuickFilterType | null) => {
-    setQuickFilter(filter);
-  };
+
 
   // ============================================
   // Render
