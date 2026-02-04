@@ -257,7 +257,6 @@ ${buildHotelList()}
 
 \`\`\`BIAYA PAKET\`\`\`
 ${buildPricing()}
-
 _________________________
 *GRATIS Biaya Perlengkapan, Handling & Asuransi*`;
 
