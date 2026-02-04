@@ -16,29 +16,6 @@ interface ItineraryModalProps {
 }
 
 // ============================================
-// Helper Functions
-// ============================================
-
-/**
- * Check if URL is a PDF file
- */
-const isPdfFile = (url: string): boolean => {
-  if (!url) return false;
-  const urlLower = url.toLowerCase();
-  return urlLower.endsWith('.pdf') || urlLower.includes('.pdf?') || urlLower.includes('pdf');
-};
-
-/**
- * Check if URL is an image file
- */
-const isImageFile = (url: string): boolean => {
-  if (!url) return false;
-  const urlLower = url.toLowerCase();
-  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
-  return imageExtensions.some(ext => urlLower.includes(ext));
-};
-
-// ============================================
 // Component
 // ============================================
 
@@ -53,12 +30,14 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
       return;
     }
 
-    if (isPdfFile(fileUrl)) {
-      setFileType('pdf');
-    } else if (isImageFile(fileUrl)) {
+    const urlLower = fileUrl.toLowerCase();
+    const isImage = ['.jpg', '.jpeg', '.png', '.webp'].some(ext => urlLower.includes(ext));
+    
+    if (isImage) {
       setFileType('image');
     } else {
-      setFileType('unknown');
+      // Default assume PDF / Document
+      setFileType('pdf');
     }
   }, [fileUrl]);
 
@@ -126,43 +105,26 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
                   </div>
                 )}
 
-                {/* PDF Preview */}
-                {fileUrl && fileType === 'pdf' && (
-                  <iframe
-                    src={fileUrl}
-                    className="w-full h-full rounded"
-                    onLoad={() => setIsContentLoaded(true)}
-                    title={`Itinerary ${title}`}
-                  />
-                )}
-
-                {/* Image Preview */}
-                {fileUrl && fileType === 'image' && (
-                  <div className="w-full h-full overflow-auto p-4 flex items-center justify-center">
-                    <img
-                      src={fileUrl}
-                      alt={`Itinerary ${title}`}
-                      className={`max-w-full h-auto rounded-lg shadow-md transition-opacity duration-300 ${isContentLoaded ? 'opacity-100' : 'opacity-0'}`}
-                      onLoad={() => setIsContentLoaded(true)}
-                    />
-                  </div>
-                )}
-
-                {/* Unknown File Type */}
-                {fileUrl && fileType === 'unknown' && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="text-center">
-                      <p className="text-gray-500 dark:text-slate-400 mb-4">
-                        Preview tidak tersedia untuk tipe file ini
-                      </p>
-                      <button
-                        onClick={handleDownload}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
-                      >
-                        Buka File
-                      </button>
+                {/* Main Preview (Iframe for PDF/Docs, Img for Images) */}
+                {fileUrl && (
+                  fileType === 'image' ? (
+                    <div className="w-full h-full overflow-auto p-4 flex items-center justify-center">
+                      <img
+                        src={fileUrl}
+                        alt={`Itinerary ${title}`}
+                        className={`max-w-full h-auto rounded-lg shadow-md transition-opacity duration-300 ${isContentLoaded ? 'opacity-100' : 'opacity-0'}`}
+                        onLoad={() => setIsContentLoaded(true)}
+                      />
                     </div>
-                  </div>
+                  ) : (
+                    <iframe
+                      src={fileUrl}
+                      className="w-full h-full rounded"
+                      onLoad={() => setIsContentLoaded(true)}
+                      onError={() => console.error('Failed to load iframe content')}
+                      title={`Itinerary ${title}`}
+                    />
+                  )
                 )}
               </div>
 
