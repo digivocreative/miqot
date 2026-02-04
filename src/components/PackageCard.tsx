@@ -442,7 +442,7 @@ _________________________
           </div>
 
           {/* Right: Departure Date */}
-          <div className="text-right pb-0.5 shrink-0">
+          <div className="text-right pb-0.5 shrink-0 -mb-2">
             <span className="block text-[10px] text-gray-400 dark:text-slate-400 uppercase tracking-wide">Berangkat</span>
             <span className="text-sm font-bold text-gray-800 dark:text-white leading-tight whitespace-nowrap">
               {new Date(pkg.keberangkatan.tgl).toLocaleDateString('id-ID', {
