@@ -411,9 +411,12 @@ _________________________
                 <path fillRule="evenodd" d="M3.019 11.115 18 5.667V9.09l4.006 1.456a.75.75 0 1 1-.512 1.41l-.494-.18v8.475h.75a.75.75 0 0 1 0 1.5H2.25a.75.75 0 0 1 0-1.5H3v-9.129l.019-.006ZM18 20.25v-9.565l1.5.545v9.02H18Zm-9-6a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h3a.75.75 0 0 0 .75-.75V15a.75.75 0 0 0-.75-.75H9Z" clipRule="evenodd" />
               </svg>
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Mekkah</p>
-              <p className="text-xs text-gray-700 dark:text-slate-300 font-medium line-clamp-1">
+              <p 
+                className="text-xs text-gray-700 dark:text-slate-300 font-medium line-clamp-1 text-ellipsis overflow-hidden break-all"
+                title={hotelInfo?.mekkah_hotel || '-'}
+              >
                 {hotelInfo?.mekkah_hotel || '-'}
               </p>
               {hotelInfo?.mekkah_bintang && (
@@ -441,9 +444,12 @@ _________________________
                 <path fillRule="evenodd" d="M3.019 11.115 18 5.667V9.09l4.006 1.456a.75.75 0 1 1-.512 1.41l-.494-.18v8.475h.75a.75.75 0 0 1 0 1.5H2.25a.75.75 0 0 1 0-1.5H3v-9.129l.019-.006ZM18 20.25v-9.565l1.5.545v9.02H18Zm-9-6a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h3a.75.75 0 0 0 .75-.75V15a.75.75 0 0 0-.75-.75H9Z" clipRule="evenodd" />
               </svg>
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Madinah</p>
-              <p className="text-xs text-gray-700 dark:text-slate-300 font-medium line-clamp-1">
+              <p 
+                className="text-xs text-gray-700 dark:text-slate-300 font-medium line-clamp-1 text-ellipsis overflow-hidden break-all"
+                title={hotelInfo?.madinah_hotel || '-'}
+              >
                 {hotelInfo?.madinah_hotel || '-'}
               </p>
               {hotelInfo?.madinah_bintang && (
@@ -547,9 +553,12 @@ _________________________
                     <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5 bg-emerald-50 rounded-full">
                       <Building2 size={12} />
                     </div>
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <p className="text-[10px] text-gray-400 uppercase tracking-wide">{hotel.city}</p>
-                      <p className="text-xs text-gray-700 dark:text-slate-200 font-medium line-clamp-1">
+                      <p 
+                        className="text-xs text-gray-700 dark:text-slate-200 font-medium line-clamp-1 text-ellipsis overflow-hidden break-all"
+                        title={hotel.name}
+                      >
                         {hotel.name}
                       </p>
                       {parseInt(hotel.star) > 0 && (
