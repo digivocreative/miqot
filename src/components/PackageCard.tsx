@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { PlaneTakeoff, PlaneLanding, Building2 } from 'lucide-react';
 import { UmrohPackage, RoomPricing } from '@/types';
 import { BrochureModal } from './BrochureModal';
+import { ItineraryModal } from './ItineraryModal';
 
 interface PackageCardProps {
   package: UmrohPackage;
@@ -44,6 +45,7 @@ export function PackageCard({
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentHeight, setContentHeight] = useState(0);
   const [isBrochureOpen, setIsBrochureOpen] = useState(false);
+  const [isItineraryOpen, setIsItineraryOpen] = useState(false);
 
   // Calculate availability percentage
   const availabilityPercentage = Math.round((pkg.seatSisa / pkg.seatTotal) * 100);
@@ -554,27 +556,28 @@ _________________________
 
           {/* ---- Action Buttons (3 columns) ---- */}
           <div className="grid grid-cols-3 gap-2 mt-0 mb-4">
-            <a
-              href={pkg.itineraryUrl || '#'}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!pkg.itineraryUrl) e.preventDefault();
-              }}
-              className={`
-                flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all
-                ${pkg.itineraryUrl 
-                  ? 'border-gray-200 hover:border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:border-slate-700 dark:hover:border-emerald-500' 
-                  : 'border-gray-100 opacity-50 cursor-not-allowed dark:border-slate-800'
-                }
-              `}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-blue-500 dark:text-blue-400 mb-1">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
-              </svg>
-              <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Itinerary</span>
-            </a>
+            {pkg.itineraryUrl ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsItineraryOpen(true);
+                }}
+                className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:border-slate-700 dark:hover:border-emerald-500"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-blue-500 dark:text-blue-400 mb-1">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+                </svg>
+                <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Itinerary</span>
+              </button>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-100 opacity-50 cursor-not-allowed dark:border-slate-800">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-gray-500 mb-1">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+                </svg>
+                <span className="text-xs font-medium text-gray-600">Itinerary</span>
+              </div>
+            )}
 
             {pkg.brosurUrl && pkg.brosurUrl.length > 0 ? (
               <button
@@ -665,6 +668,16 @@ _________________________
           isOpen={isBrochureOpen}
           onClose={() => setIsBrochureOpen(false)}
           imageUrl={pkg.brosurUrl}
+          title={pkg.nama}
+        />
+      )}
+
+      {/* Itinerary Modal */}
+      {pkg.itineraryUrl && (
+        <ItineraryModal
+          isOpen={isItineraryOpen}
+          onClose={() => setIsItineraryOpen(false)}
+          fileUrl={pkg.itineraryUrl}
           title={pkg.nama}
         />
       )}
