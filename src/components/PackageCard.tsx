@@ -269,11 +269,11 @@ _________________________
     <div
       onClick={handleCardClick}
       className={`
-        bg-white rounded-xl overflow-hidden cursor-pointer
+        bg-white dark:bg-slate-800 rounded-xl overflow-hidden cursor-pointer
         transition-all duration-300 ease-out
         ${isExpanded 
-          ? 'shadow-lg ring-1 ring-emerald-100 pb-2' 
-          : 'shadow-sm border border-gray-100 hover:shadow-md pb-1'
+          ? 'shadow-lg ring-1 ring-emerald-100 dark:ring-emerald-900 pb-2' 
+          : 'shadow-sm border border-gray-100 dark:border-slate-700 hover:shadow-md pb-1'
         }
       `}
     >
@@ -285,7 +285,7 @@ _________________________
         {/* Header: Title & Price */}
         <div className="flex justify-between items-start gap-3 mb-4">
           <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-gray-900 text-sm leading-tight line-clamp-2">
+            <h3 className="font-bold text-gray-900 dark:text-slate-100 text-sm leading-tight line-clamp-2">
               {pkg.nama}
             </h3>
             {pkg.isPromo && (
@@ -295,8 +295,8 @@ _________________________
             )}
           </div>
           <div className="text-right shrink-0">
-            <p className="text-xs text-gray-500">MULAI</p>
-            <p className="text-lg font-bold text-orange-600">
+            <p className="text-xs text-gray-500 dark:text-slate-400">MULAI</p>
+            <p className="text-lg font-bold text-orange-600 dark:text-orange-400">
               Rp {formatHeaderPrice(absoluteMinPrice)} <span className="text-sm">Jt</span>
             </p>
           </div>
@@ -310,12 +310,12 @@ _________________________
               <PlaneTakeoff size={16} />
             </div>
             <div>
-              <p className="text-xs text-gray-500 flex items-center gap-1">
-                <span className="font-medium text-gray-700">{pkg.keberangkatan.kodePenerbangan}</span>
-                <span>•</span>
+              <p className="text-xs text-gray-500 dark:text-slate-400 flex items-center gap-1">
+                <span className="font-medium text-gray-700 dark:text-slate-200">{pkg.keberangkatan.kodePenerbangan}</span>
+                <span>/</span>
                 <span>{formatDate(pkg.keberangkatan.tgl)}</span>
               </p>
-              <p className="text-xs text-gray-600">
+              <p className="text-xs text-gray-600 dark:text-slate-300">
                 {pkg.keberangkatan.jam.replace('.', ':')} - {pkg.kepulangan.jam.replace('.', ':')}
                 {isNextDay(pkg.keberangkatan.jam, pkg.kepulangan.jam) && (
                   <span className="ml-1 font-bold text-orange-600 text-[10px]">(+1)</span>
@@ -330,12 +330,12 @@ _________________________
               <PlaneLanding size={16} />
             </div>
             <div>
-              <p className="text-xs text-gray-500 flex items-center gap-1">
-                <span className="font-medium text-gray-700">{pkg.kepulangan.kodePenerbangan}</span>
-                <span>•</span>
+              <p className="text-xs text-gray-500 dark:text-slate-400 flex items-center gap-1">
+                <span className="font-medium text-gray-700 dark:text-slate-200">{pkg.kepulangan.kodePenerbangan}</span>
+                <span>/</span>
                 <span>{formatDate(pkg.kepulangan.tgl)}</span>
               </p>
-              <p className="text-xs text-gray-600">
+              <p className="text-xs text-gray-600 dark:text-slate-300">
                 {pkg.kepulangan.jam.replace('.', ':')} - {pkg.keberangkatan.jam.replace('.', ':')}
                 {isNextDay(pkg.kepulangan.jam, pkg.keberangkatan.jam) && (
                   <span className="ml-1 font-bold text-orange-600 text-[10px]">(+1)</span>
@@ -357,7 +357,7 @@ _________________________
             </div>
             <div>
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Mekkah</p>
-              <p className="text-xs text-gray-700 font-medium line-clamp-1">
+              <p className="text-xs text-gray-700 dark:text-slate-300 font-medium line-clamp-1">
                 {hotelInfo?.mekkah_hotel || '-'}
               </p>
               {hotelInfo?.mekkah_bintang && (
@@ -387,7 +387,7 @@ _________________________
             </div>
             <div>
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Madinah</p>
-              <p className="text-xs text-gray-700 font-medium line-clamp-1">
+              <p className="text-xs text-gray-700 dark:text-slate-300 font-medium line-clamp-1">
                 {hotelInfo?.madinah_hotel || '-'}
               </p>
               {hotelInfo?.madinah_bintang && (
@@ -398,7 +398,7 @@ _________________________
                     ))}
                   </div>
                   {hotelInfo.madinah_jarak && (
-                    <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
+                    <span className="text-[10px] text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">
                       ± {hotelInfo.madinah_jarak}
                     </span>
                   )}
@@ -408,34 +408,50 @@ _________________________
           </div>
         </div>
 
-        {/* Availability Bar */}
-        <div className="pt-3 border-t border-gray-100">
-          <div className="flex justify-between items-center mb-1.5">
-            <p className="text-xs font-medium">
-              <span className={isCritical ? 'text-red-600' : isLowStock ? 'text-orange-600' : 'text-gray-700'}>
-                SISA {pkg.seatSisa}
-              </span>
-              <span className="text-gray-400 font-semibold"> DARI {pkg.seatTotal} SEAT</span>
-            </p>
-            <p className={`text-xs font-semibold ${isCritical ? 'text-red-600' : isLowStock ? 'text-orange-600' : 'text-emerald-600'}`}>
-              {availabilityPercentage}% TERSEDIA
-            </p>
+        {/* Availability Bar + Departure Date */}
+        <div className="pt-3 border-t border-gray-100 flex items-end gap-4">
+          {/* Left: Seat Info & Progress Bar */}
+          <div className="flex-1">
+            <div className="flex justify-between items-center mb-1.5">
+              <p className="text-xs font-medium">
+                <span className={isCritical ? 'text-red-600 dark:text-red-400' : isLowStock ? 'text-orange-600 dark:text-orange-400' : 'text-gray-700 dark:text-slate-200'}>
+                  SISA {pkg.seatSisa}
+                </span>
+                <span className="text-gray-400 dark:text-slate-400 font-semibold"> DARI {pkg.seatTotal}</span>
+              </p>
+              <p className={`text-xs font-semibold ${isCritical ? 'text-red-600' : isLowStock ? 'text-orange-600' : 'text-emerald-600'}`}>
+                {availabilityPercentage}%
+              </p>
+            </div>
+            
+            {/* Progress Bar */}
+            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  isCritical 
+                    ? 'bg-gradient-to-r from-red-500 to-red-600' 
+                    : isLowStock 
+                      ? 'bg-gradient-to-r from-orange-400 to-orange-500'
+                      : 'bg-gradient-to-r from-emerald-400 to-emerald-500'
+                }`}
+                style={{ width: `${availabilityPercentage}%` }}
+              />
+            </div>
           </div>
-          
-          {/* Progress Bar */}
-          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                isCritical 
-                  ? 'bg-gradient-to-r from-red-500 to-red-600' 
-                  : isLowStock 
-                    ? 'bg-gradient-to-r from-orange-400 to-orange-500'
-                    : 'bg-gradient-to-r from-emerald-400 to-emerald-500'
-              }`}
-              style={{ width: `${availabilityPercentage}%` }}
-            />
+
+          {/* Right: Departure Date */}
+          <div className="text-right pb-0.5 shrink-0">
+            <span className="block text-[10px] text-gray-400 dark:text-slate-400 uppercase tracking-wide">Berangkat</span>
+            <span className="text-sm font-bold text-gray-800 dark:text-white leading-tight whitespace-nowrap">
+              {new Date(pkg.keberangkatan.tgl).toLocaleDateString('id-ID', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric'
+              })}
+            </span>
           </div>
         </div>
+
       </div>
 
       {/* ============================================ */}
@@ -450,18 +466,18 @@ _________________________
       >
         <div ref={contentRef} className="px-4 pb-4">
           {/* Divider */}
-          <div className="border-t border-dashed border-gray-200 my-4" />
+          <div className="border-t border-dashed border-gray-200 dark:border-slate-700 my-4" />
           
           {/* ---- New Info Section: Landing & Manasik ---- */}
-          <div className="grid grid-cols-2 gap-3 mb-4 bg-gray-50 p-3 rounded-lg">
+          <div className="grid grid-cols-2 gap-3 mb-4 bg-gray-50 dark:bg-slate-900/50 p-3 rounded-lg">
             {/* Landing Info */}
             <div className="flex items-start gap-2">
               <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5">
                 <PlaneLanding size={16} />
               </div>
               <div>
-                <p className="text-[10px] text-gray-500 uppercase tracking-wide">Landing di</p>
-                <p className="text-sm font-semibold text-gray-900">
+                <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wide">Landing di</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
                   {(() => {
                     const routeParts = pkg.keberangkatan.rute.split(' - ');
                     const airportCode = routeParts.length > 1 ? routeParts[1].trim() : 'JED';
@@ -490,8 +506,8 @@ _________________________
                 </svg>
               </div>
               <div>
-                <p className="text-[10px] text-gray-500 uppercase tracking-wide">Manasik</p>
-                <p className="text-sm font-semibold text-gray-900">
+                <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wide">Manasik</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
                   {pkg.manasikTanggal ? (
                     <>
                       {formatDate(pkg.manasikTanggal)}
@@ -506,7 +522,7 @@ _________________________
 
           {/* Extra Hotels (Plus/Transit) - Conditional Section */}
           {extraHotels.length > 0 && (
-            <div className="mb-4 pt-3 border-t border-gray-100">
+            <div className="mb-4 pt-3 border-t border-gray-100 dark:border-slate-700">
               <h4 className="text-[10px] uppercase font-bold text-gray-400 mb-2 tracking-wider flex items-center gap-1">
                 <Building2 size={12} />
                 <span>Akomodasi Plus / Transit</span>
@@ -519,7 +535,7 @@ _________________________
                     </div>
                     <div>
                       <p className="text-[10px] text-gray-400 uppercase tracking-wide">{hotel.city}</p>
-                      <p className="text-xs text-gray-700 font-medium line-clamp-1">
+                      <p className="text-xs text-gray-700 dark:text-slate-200 font-medium line-clamp-1">
                         {hotel.name}
                       </p>
                       {parseInt(hotel.star) > 0 && (
@@ -549,15 +565,15 @@ _________________________
               className={`
                 flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all
                 ${pkg.itineraryUrl 
-                  ? 'border-gray-200 hover:border-emerald-300 hover:bg-emerald-50' 
-                  : 'border-gray-100 opacity-50 cursor-not-allowed'
+                  ? 'border-gray-200 hover:border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:border-slate-700 dark:hover:border-emerald-500' 
+                  : 'border-gray-100 opacity-50 cursor-not-allowed dark:border-slate-800'
                 }
               `}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-blue-500 mb-1">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-blue-500 dark:text-blue-400 mb-1">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
               </svg>
-              <span className="text-xs font-medium text-gray-600">Itinerary</span>
+              <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Itinerary</span>
             </a>
 
             {pkg.brosurUrl && pkg.brosurUrl.length > 0 ? (
@@ -567,12 +583,12 @@ _________________________
                   e.stopPropagation();
                   setIsBrochureOpen(true);
                 }}
-                className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-emerald-300 hover:bg-emerald-50"
+                className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:border-slate-700 dark:hover:border-emerald-500"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-orange-500 mb-1">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-orange-500 dark:text-orange-400 mb-1">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                 </svg>
-                <span className="text-xs font-medium text-gray-600">Brosur</span>
+                <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Brosur</span>
               </button>
             ) : (
               <div className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-100 opacity-50 cursor-not-allowed">
@@ -587,50 +603,51 @@ _________________________
             <button
               type="button"
               onClick={handleWhatsAppShare}
-              className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-green-400 hover:bg-green-50"
+              className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 dark:border-slate-700 dark:hover:border-green-500"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-green-600 mb-1">
                 <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
               </svg>
-              <span className="text-xs font-medium text-gray-600">Bagikan</span>
+              <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Bagikan</span>
             </button>
 
           </div>
 
           {/* ---- Pricing Table (Compact) ---- */}
+           {/* ---- Pricing Table (Compact) ---- */}
           <div className="mb-6">
-            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+            <h4 className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
               Rincian Biaya Paket
             </h4>
-            <div className="border-t border-gray-100">
+            <div className="border-t border-gray-100 dark:border-slate-700">
               {pricing?.Quard && (
-                <div className="flex justify-between items-center py-1.5 border-b border-gray-100">
-                  <span className="text-sm text-gray-600">Quad (Sekamar 4)</span>
-                  <span className="text-sm font-semibold text-gray-900">Rp {formatRupiah(pricing.Quard)}</span>
+                <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
+                  <span className="text-sm text-gray-600 dark:text-slate-300">Quad (Sekamar 4)</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Rp {formatRupiah(pricing.Quard)}</span>
                 </div>
               )}
               {pricing?.Triple && (
-                <div className="flex justify-between items-center py-1.5 border-b border-gray-100">
-                  <span className="text-sm text-gray-600">Triple (Sekamar 3)</span>
-                  <span className="text-sm font-semibold text-gray-900">Rp {formatRupiah(pricing.Triple)}</span>
+                <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
+                  <span className="text-sm text-gray-600 dark:text-slate-300">Triple (Sekamar 3)</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Rp {formatRupiah(pricing.Triple)}</span>
                 </div>
               )}
               {pricing?.Double && (
-                <div className="flex justify-between items-center py-1.5 border-b border-gray-100">
-                  <span className="text-sm text-gray-600">Double (Sekamar 2)</span>
-                  <span className="text-sm font-semibold text-gray-900">Rp {formatRupiah(pricing.Double)}</span>
+                <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
+                  <span className="text-sm text-gray-600 dark:text-slate-300">Double (Sekamar 2)</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Rp {formatRupiah(pricing.Double)}</span>
                 </div>
               )}
               {pricing?.Single && (
-                <div className="flex justify-between items-center py-1.5 border-b border-gray-100">
-                  <span className="text-sm text-gray-600">Single (1 Orang)</span>
-                  <span className="text-sm font-semibold text-gray-900">Rp {formatRupiah(pricing.Single)}</span>
+                <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
+                  <span className="text-sm text-gray-600 dark:text-slate-300">Single (1 Orang)</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Rp {formatRupiah(pricing.Single)}</span>
                 </div>
               )}
               {pricing?.Infant && (
-                <div className="flex justify-between items-center py-1.5 border-b border-gray-100">
-                  <span className="text-sm text-gray-600">Infant ({'<'}2 Thn)</span>
-                  <span className="text-sm font-semibold text-gray-900">Rp {formatRupiah(pricing.Infant)}</span>
+                <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
+                  <span className="text-sm text-gray-600 dark:text-slate-300">Infant ({'<'}2 Thn)</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Rp {formatRupiah(pricing.Infant)}</span>
                 </div>
               )}
             </div>

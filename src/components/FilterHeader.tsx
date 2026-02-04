@@ -10,6 +10,7 @@ import {
   type MonthGroup,
 } from '@/utils';
 import logoAlhijaz from '@/logo-alhijaz.webp';
+import { Sun, Moon } from 'lucide-react';
 
 // ============================================
 // Types
@@ -30,6 +31,10 @@ export interface FilterHeaderProps {
   onYearChange: (year: string) => void;
   onFilterModeChange: (mode: FilterMode) => void;
   onSecondaryValueChange: (value: string) => void;
+  /** Dark mode state */
+  isDarkMode: boolean;
+  /** Toggle dark mode callback */
+  onToggleDarkMode: () => void;
 }
 
 // Filter mode options for dropdown
@@ -54,6 +59,8 @@ export function FilterHeader({
   onYearChange,
   onFilterModeChange,
   onSecondaryValueChange,
+  isDarkMode,
+  onToggleDarkMode,
 }: FilterHeaderProps) {
   // Extract unique landing cities from packages
   const landingCities = useMemo<LandingCity[]>(() => {
@@ -70,7 +77,7 @@ export function FilterHeader({
   const showMonthDropdown = filterMode === 'DATA PER-BULAN';
 
   return (
-    <header className="bg-white/95 backdrop-blur-md shadow-sm sticky top-0 z-20 border-b border-gray-100">
+    <header className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm sticky top-0 z-20 border-b border-gray-100 dark:border-slate-800 transition-colors duration-300">
       <div className="max-w-lg mx-auto px-4 py-4">
         {/* ============================================ */}
         {/* ROW 1: Title & Year Dropdown */}
@@ -87,7 +94,29 @@ export function FilterHeader({
             </a>
           </div>
 
-          {/* Year Dropdown */}
+          {/* Year Dropdown & Dark Mode Toggle */}
+          <div className="flex items-center gap-3">
+             {/* Dark Mode Toggle */}
+             <button
+              onClick={onToggleDarkMode}
+              className="
+                flex items-center gap-2
+                px-3 py-2 rounded-full 
+                bg-gray-100 text-gray-600
+                hover:bg-gray-200 
+                dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700
+                transition-all duration-200
+                focus:outline-none focus:ring-2 focus:ring-emerald-500
+              "
+              aria-label="Toggle Dark Mode"
+            >
+              {isDarkMode ? <Moon size={16} /> : <Sun size={16} />}
+              <span className="text-xs font-medium hidden sm:inline-block">
+                {isDarkMode ? 'Dark' : 'Light'}
+              </span>
+            </button>
+
+            {/* Year Dropdown */}
           <div className="relative">
             <select
               value={year}
@@ -97,9 +126,10 @@ export function FilterHeader({
                 px-3 py-2 pr-8
                 text-sm font-medium text-gray-700
                 bg-white border border-gray-200
+                dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200
                 rounded-xl
                 cursor-pointer
-                hover:border-gray-300
+                hover:border-gray-300 dark:hover:border-slate-600
                 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent
                 transition-all
               "
@@ -119,6 +149,7 @@ export function FilterHeader({
             >
               <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
             </svg>
+          </div>
           </div>
         </div>
 
@@ -141,9 +172,10 @@ export function FilterHeader({
                 px-3 py-2.5 pr-8
                 text-sm font-medium text-gray-700
                 bg-white border border-gray-200
+                dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200
                 rounded-xl
                 cursor-pointer
-                hover:border-gray-300
+                hover:border-gray-300 dark:hover:border-slate-600
                 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent
                 transition-colors
               "
@@ -175,9 +207,10 @@ export function FilterHeader({
                   px-3 py-2.5 pr-8
                   text-sm font-medium text-gray-700
                   bg-white border border-gray-200
+                  dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200
                   rounded-xl
                   cursor-pointer
-                  hover:border-gray-300
+                  hover:border-gray-300 dark:hover:border-slate-600
                   focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent
                   transition-colors
                 "
@@ -211,9 +244,10 @@ export function FilterHeader({
                   px-3 py-2.5 pr-8
                   text-sm font-medium text-gray-700
                   bg-white border border-gray-200
+                  dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200
                   rounded-xl
                   cursor-pointer
-                  hover:border-gray-300
+                  hover:border-gray-300 dark:hover:border-slate-600
                   focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent
                   transition-colors
                 "

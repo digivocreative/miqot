@@ -27,6 +27,34 @@ function App() {
   const [quickFilter, setQuickFilter] = useState<QuickFilterType | null>(null);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
 
+  // ============================================
+  // Dark Mode State
+  // ============================================
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    // Check localStorage first
+    const savedMode = localStorage.getItem('darkMode');
+    if (savedMode !== null) {
+      return savedMode === 'true';
+    }
+    // Check system preference
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+
+  // Apply Dark Mode Class
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (isDarkMode) {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    localStorage.setItem('darkMode', isDarkMode.toString());
+  }, [isDarkMode]);
+
+  const toggleDarkMode = () => {
+    setIsDarkMode(prev => !prev);
+  };
+
   // New Time Filter States
   const [departureTimeRanges, setDepartureTimeRanges] = useState<TimeRange[]>([]);
   const [returnTimeRanges, setReturnTimeRanges] = useState<TimeRange[]>([]);
@@ -217,7 +245,7 @@ function App() {
   // Render
   // ============================================
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 transition-colors duration-300">
       {/* ============================================ */}
       {/* FILTER HEADER */}
       {/* ============================================ */}
@@ -230,6 +258,8 @@ function App() {
         onYearChange={handleYearChange}
         onFilterModeChange={handleFilterModeChange}
         onSecondaryValueChange={handleSecondaryValueChange}
+        isDarkMode={isDarkMode}
+        onToggleDarkMode={toggleDarkMode}
       />
 
       {/* ============================================ */}
