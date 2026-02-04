@@ -265,7 +265,7 @@ function App() {
       {/* ============================================ */}
       {/* MAIN CONTENT */}
       {/* ============================================ */}
-      <main className="max-w-lg mx-auto px-4 py-4 pb-24">
+      <main className="max-w-lg mx-auto px-4 pt-32 pb-24">
         {/* Loading State */}
         {loading && (
           <div className="flex flex-col items-center justify-center py-16">

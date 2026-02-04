@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import type { UmrohPackage } from '@/types';
 import { 
   FilterMode, 
@@ -62,6 +62,36 @@ export function FilterHeader({
   isDarkMode,
   onToggleDarkMode,
 }: FilterHeaderProps) {
+  // ============================================
+  // Scroll-responsive state
+  // ============================================
+  const [isVisible, setIsVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
+
+  // Scroll handler
+  const handleScroll = useCallback(() => {
+    const currentScrollY = window.scrollY;
+    
+    // Always show header at the very top
+    if (currentScrollY <= 50) {
+      setIsVisible(true);
+    } else if (currentScrollY > lastScrollY) {
+      // Scrolling down -> hide header
+      setIsVisible(false);
+    } else {
+      // Scrolling up -> show header
+      setIsVisible(true);
+    }
+    
+    setLastScrollY(currentScrollY);
+  }, [lastScrollY]);
+
+  // Attach scroll listener
+  useEffect(() => {
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
+
   // Extract unique landing cities from packages
   const landingCities = useMemo<LandingCity[]>(() => {
     return extractUniqueLandings(packages);
@@ -77,7 +107,16 @@ export function FilterHeader({
   const showMonthDropdown = filterMode === 'DATA PER-BULAN';
 
   return (
-    <header className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm sticky top-0 z-20 border-b border-gray-100 dark:border-slate-800 transition-colors duration-300">
+    <header 
+      className={`
+        fixed top-0 left-0 right-0 z-50
+        bg-white dark:bg-slate-900 
+        backdrop-blur-md shadow-sm 
+        border-b border-gray-100 dark:border-slate-800 
+        transition-transform duration-300 ease-in-out
+        ${isVisible ? 'translate-y-0' : '-translate-y-full'}
+      `}
+    >
       <div className="max-w-lg mx-auto px-4 py-4">
         {/* ============================================ */}
         {/* ROW 1: Title & Year Dropdown */}
