@@ -265,6 +265,61 @@ _________________________
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
   };
 
+  /**
+   * Sub-component: Seat and Date Section
+   * Extracted to be rendered in different positions based on expansion state
+   */
+  const SeatAndDateSection = ({ isFooter = false }: { isFooter?: boolean }) => (
+    <div className={`
+      flex items-end gap-4 transition-all duration-300
+      ${isFooter 
+        ? "mb-[10px] p-3 bg-gray-50 dark:bg-slate-900/50 rounded-xl border border-gray-100 dark:border-slate-700 shadow-sm" 
+        : "mt-3 pt-3 border-t border-gray-100 dark:border-slate-700/50"
+      }
+    `}>
+      {/* Left: Seat Info & Progress Bar */}
+      <div className="flex-1">
+        <div className="flex justify-between items-center mb-1.5">
+          <p className="text-xs font-medium">
+            <span className={isCritical ? 'text-red-600 dark:text-red-400' : isLowStock ? 'text-orange-600 dark:text-orange-400' : 'text-gray-700 dark:text-slate-200'}>
+              SISA {pkg.seatSisa}
+            </span>
+            <span className="text-gray-400 dark:text-slate-400 font-semibold"> DARI {pkg.seatTotal}</span>
+          </p>
+          <p className={`text-xs font-semibold ${isCritical ? 'text-red-600' : isLowStock ? 'text-orange-600' : 'text-emerald-600'}`}>
+            {availabilityPercentage}%
+          </p>
+        </div>
+        
+        {/* Progress Bar */}
+        <div className="w-full h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${
+              isCritical 
+                ? 'bg-gradient-to-r from-red-500 to-red-600' 
+                : isLowStock 
+                  ? 'bg-gradient-to-r from-orange-400 to-orange-500'
+                  : 'bg-gradient-to-r from-emerald-400 to-emerald-500'
+            }`}
+            style={{ width: `${availabilityPercentage}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Right: Departure Date */}
+      <div className={`text-right pb-0.5 shrink-0 ${isFooter ? "-mb-2" : "-mb-2"}`}>
+        <span className="block text-[10px] text-gray-600 dark:text-slate-400 uppercase tracking-wide">Berangkat</span>
+        <span className="text-sm font-bold text-gray-800 dark:text-white leading-tight whitespace-nowrap">
+          {new Date(pkg.keberangkatan.tgl).toLocaleDateString('id-ID', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+          })}
+        </span>
+      </div>
+    </div>
+  );
+
   return (
     <>
     <div
@@ -282,7 +337,7 @@ _________________________
       {/* ============================================ */}
       {/* COLLAPSED VIEW (Always Visible) */}
       {/* ============================================ */}
-      <div className="p-4">
+      <div className={isExpanded ? "pt-4 px-4 pb-0" : "p-4"}>
         {/* Header: Title & Price */}
         <div className="flex justify-between items-start gap-3 mb-4">
           <div className="flex-1 min-w-0">
@@ -347,7 +402,7 @@ _________________________
         </div>
 
         {/* Hotel Information - 2 Column Grid */}
-        <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="grid grid-cols-2 gap-3 mb-2">
           {/* Makkah Hotel */}
           <div className="flex items-start gap-2">
             <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5">
@@ -409,50 +464,8 @@ _________________________
           </div>
         </div>
 
-        {/* Availability Bar + Departure Date */}
-        <div className="pt-3 border-t border-gray-100 flex items-end gap-4">
-          {/* Left: Seat Info & Progress Bar */}
-          <div className="flex-1">
-            <div className="flex justify-between items-center mb-1.5">
-              <p className="text-xs font-medium">
-                <span className={isCritical ? 'text-red-600 dark:text-red-400' : isLowStock ? 'text-orange-600 dark:text-orange-400' : 'text-gray-700 dark:text-slate-200'}>
-                  SISA {pkg.seatSisa}
-                </span>
-                <span className="text-gray-400 dark:text-slate-400 font-semibold"> DARI {pkg.seatTotal}</span>
-              </p>
-              <p className={`text-xs font-semibold ${isCritical ? 'text-red-600' : isLowStock ? 'text-orange-600' : 'text-emerald-600'}`}>
-                {availabilityPercentage}%
-              </p>
-            </div>
-            
-            {/* Progress Bar */}
-            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  isCritical 
-                    ? 'bg-gradient-to-r from-red-500 to-red-600' 
-                    : isLowStock 
-                      ? 'bg-gradient-to-r from-orange-400 to-orange-500'
-                      : 'bg-gradient-to-r from-emerald-400 to-emerald-500'
-                }`}
-                style={{ width: `${availabilityPercentage}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Right: Departure Date */}
-          <div className="text-right pb-0.5 shrink-0 -mb-2">
-            <span className="block text-[10px] text-gray-400 dark:text-slate-400 uppercase tracking-wide">Berangkat</span>
-            <span className="text-sm font-bold text-gray-800 dark:text-white leading-tight whitespace-nowrap">
-              {new Date(pkg.keberangkatan.tgl).toLocaleDateString('id-ID', {
-                day: 'numeric',
-                month: 'short',
-                year: 'numeric'
-              })}
-            </span>
-          </div>
-        </div>
-
+        {/* Availability Bar + Departure Date (Only when Collapsed) */}
+        {!isExpanded && <SeatAndDateSection isFooter={false} />}
       </div>
 
       {/* ============================================ */}
@@ -467,10 +480,10 @@ _________________________
       >
         <div ref={contentRef} className="px-4 pb-4">
           {/* Divider */}
-          <div className="border-t border-dashed border-gray-200 dark:border-slate-700 my-4" />
+          <div className="border-t border-dashed border-gray-200 dark:border-slate-700 my-2" />
           
           {/* ---- New Info Section: Landing & Manasik ---- */}
-          <div className="grid grid-cols-2 gap-3 mb-4 bg-gray-50 dark:bg-slate-900/50 p-3 rounded-lg">
+          <div className="grid grid-cols-2 gap-3 mb-2 bg-gray-50 dark:bg-slate-900/50 p-3 rounded-lg">
             {/* Landing Info */}
             <div className="flex items-start gap-2">
               <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5">
@@ -523,7 +536,7 @@ _________________________
 
           {/* Extra Hotels (Plus/Transit) - Conditional Section */}
           {extraHotels.length > 0 && (
-            <div className="mb-4 pt-3 border-t border-gray-100 dark:border-slate-700">
+            <div className="mb-4 pt-3 border-t border-dashed border-gray-200 dark:border-slate-700">
               <h4 className="text-[10px] uppercase font-bold text-gray-400 mb-2 tracking-wider flex items-center gap-1">
                 <Building2 size={12} />
                 <span>Akomodasi Plus / Transit</span>
@@ -617,7 +630,7 @@ _________________________
 
           {/* ---- Pricing Table (Compact) ---- */}
            {/* ---- Pricing Table (Compact) ---- */}
-          <div className="mb-6">
+          <div className="mb-4">
             <h4 className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
               Rincian Biaya Paket
             </h4>
@@ -655,8 +668,8 @@ _________________________
             </div>
           </div>
 
-
-
+          {/* Availability Bar + Departure Date (Only when Expanded) */}
+          {isExpanded && <SeatAndDateSection isFooter={true} />}
         </div>
       </div>
     </div>
