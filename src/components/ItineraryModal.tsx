@@ -41,6 +41,9 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     }
   }, [fileUrl]);
 
+  // Ensure URL is HTTPS to avoid Mixed Content errors
+  const secureUrl = fileUrl ? fileUrl.replace(/^http:\/\//i, 'https://') : '';
+
   // Reset state when modal opens
   const handleModalOpen = () => {
     setIsContentLoaded(false);
@@ -48,7 +51,9 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
 
   // Download handler
   const handleDownload = () => {
-    window.open(fileUrl, '_blank');
+    if (secureUrl) {
+      window.open(secureUrl, '_blank');
+    }
   };
 
   return (
@@ -90,14 +95,14 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
               {/* Preview Area */}
               <div className="relative flex-1 overflow-hidden bg-gray-50 dark:bg-slate-900">
                 {/* Loading Spinner */}
-                {!isContentLoaded && fileUrl && (
+                {!isContentLoaded && secureUrl && (
                   <div className="absolute inset-0 flex items-center justify-center bg-gray-50 dark:bg-slate-900">
                     <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
                   </div>
                 )}
                 
                 {/* Empty State */}
-                {!fileUrl && (
+                {!secureUrl && (
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="text-center">
                       <p className="text-gray-500 dark:text-slate-400">Itinerary tidak tersedia</p>
@@ -106,11 +111,11 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
                 )}
 
                 {/* Main Preview (Iframe for PDF/Docs, Img for Images) */}
-                {fileUrl && (
+                {secureUrl && (
                   fileType === 'image' ? (
                     <div className="w-full h-full overflow-auto p-4 flex items-center justify-center">
                       <img
-                        src={fileUrl}
+                        src={secureUrl}
                         alt={`Itinerary ${title}`}
                         className={`max-w-full h-auto rounded-lg shadow-md transition-opacity duration-300 ${isContentLoaded ? 'opacity-100' : 'opacity-0'}`}
                         onLoad={() => setIsContentLoaded(true)}
@@ -118,7 +123,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
                     </div>
                   ) : (
                     <iframe
-                      src={fileUrl}
+                      src={secureUrl}
                       className="w-full h-full rounded"
                       onLoad={() => setIsContentLoaded(true)}
                       onError={() => console.error('Failed to load iframe content')}
@@ -129,7 +134,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
               </div>
 
               {/* Footer Actions */}
-              {fileUrl && (
+              {secureUrl && (
                 <div className="p-4 border-t border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shrink-0">
                   <button
                     onClick={handleDownload}
