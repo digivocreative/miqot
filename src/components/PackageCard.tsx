@@ -323,65 +323,98 @@ _________________________
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
   };
 
-  // Handle Screenshot & Share (Preview First Strategy)
+  // Handle Screenshot & Share (Sanitize & Screenshot Strategy)
   const handleScreenshot = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!cardRef.current) return;
     setIsCapturing(true);
 
     try {
-      // 1. SETUP TIMEOUT (Agar tidak loading selamanya)
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("TIMEOUT_8S")), 8000)
-      );
+      // 1. CLONE MANUAL (Agar tidak mengganggu tampilan asli)
+      const original = cardRef.current;
+      const clone = original.cloneNode(true) as HTMLElement;
+      
+      // Setup container tersembunyi untuk clone
+      clone.style.position = 'absolute';
+      clone.style.top = '-9999px';
+      clone.style.left = '-9999px';
+      clone.style.width = '550px'; // Paksa lebar 550px di sini
+      clone.setAttribute('data-cloned', 'true'); // Penanda
+      document.body.appendChild(clone);
 
-      // 2. PROSES SCREENSHOT (Dengan config "Blind Test")
-      const canvasPromise = html2canvas(cardRef.current, {
-        useCORS: true,       
-        scale: 1,            // Tetap 1 dulu
-        backgroundColor: '#ffffff',
-        scrollX: 0,
-        scrollY: -window.scrollY,
-        
-        // DIAGNOSA: HILANGKAN SEMUA GAMBAR
-        onclone: (clonedDoc) => {
-          const cardElement = clonedDoc.querySelector('[data-card-ref="true"]') as HTMLElement;
-          const seatSection = clonedDoc.querySelector('.seat-info-section') as HTMLElement;
+      // 2. SANITASI GAMBAR (Convert to Base64 or Kill)
+      const images = Array.from(clone.querySelectorAll('img'));
+      
+      const imagePromises = images.map(async (img) => {
+        const src = img.src;
+        // Skip jika src kosong atau base64
+        if (!src || src.startsWith('data:')) return;
+
+        try {
+          // Fetch dengan timeout ketat 2 detik
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2000);
           
-          if (seatSection) seatSection.style.display = 'none'; // Tetap hide seat
+          const response = await fetch(src, { signal: controller.signal, mode: 'cors' });
+          clearTimeout(timeoutId);
           
-          if (cardElement) {
-              // Set Lebar Fix
-              cardElement.style.width = '500px'; 
-              cardElement.style.minWidth = '500px';
-              cardElement.style.height = 'auto';
-              
-              // HAPUS SEMUA GAMBAR (Untuk membuktikan teori CORS)
-              const allImages = cardElement.querySelectorAll('img');
-              allImages.forEach(img => img.style.display = 'none');
-              
-              // Ganti background image div jadi putih polos (jika ada)
-              const allDivs = cardElement.querySelectorAll('div');
-              allDivs.forEach(div => div.style.backgroundImage = 'none');
-          }
+          if (!response.ok) throw new Error("Fetch failed");
+          
+          const blob = await response.blob();
+          
+          // Convert Blob ke Base64
+          const base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+          
+          img.src = base64; // Ganti URL eksternal dengan Base64 lokal
+          
+        } catch (err) {
+          // JIKA GAGAL (CORS/Timeout): Sembunyikan gambar agar tidak bikin crash
+          console.warn("Gagal load gambar, removing:", src);
+          img.style.display = 'none'; 
+          // Opsional: Ganti dengan placeholder warna abu
+          img.style.backgroundColor = '#f3f4f6';
+          img.style.width = '100px'; 
+          img.style.height = '100px';
         }
       });
 
-      // 3. RACE: Siapa cepat dia menang (Canvas vs Timeout)
-      const canvas = await Promise.race([canvasPromise, timeoutPromise]) as HTMLCanvasElement;
+      // Tunggu semua gambar selesai diproses (berhasil/gagal)
+      await Promise.all(imagePromises);
 
-      // Jika sampai sini, berarti SUKSES (Tidak Timeout)
+      // 3. SEKARANG BARU SCREENSHOT (Aman karena semua resource lokal)
+      const canvas = await html2canvas(clone, {
+        useCORS: false, // FALSE karena kita sudah handle CORS manual di atas
+        scale: 2, 
+        backgroundColor: '#ffffff',
+        // Tidak perlu onclone kompleks lagi karena kita sudah edit 'clone' di atas
+        onclone: (doc) => {
+           // Cukup logic hide seat section saja
+           const seat = doc.querySelector('.seat-info-section') as HTMLElement;
+           if (seat) seat.style.display = 'none';
+           
+           // Fix Text Wrapping (Logic h3/p tadi)
+           const textEls = doc.querySelectorAll('h3, p, span');
+           textEls.forEach(el => {
+               (el as HTMLElement).style.whiteSpace = 'normal';
+               (el as HTMLElement).style.wordWrap = 'break-word';
+           });
+        }
+      });
+
+      // Bersihkan DOM
+      document.body.removeChild(clone);
+
+      // 4. TAMPILKAN PREVIEW
       const imageDataType = canvas.toDataURL("image/png");
-      setPreviewImage(imageDataType); // Tampilkan Modal
+      setPreviewImage(imageDataType);
 
     } catch (error: any) {
       console.error("Screenshot Error:", error);
-      
-      if (error.message === "TIMEOUT_8S") {
-        alert("Gagal: Waktu habis! Masalahnya pasti di GAMBAR (CORS/Loading).");
-      } else {
-        alert("Error: " + error.message);
-      }
+      alert("Gagal: " + error.message);
     } finally {
       setIsCapturing(false);
     }
