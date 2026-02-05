@@ -330,66 +330,58 @@ _________________________
     setIsCapturing(true);
 
     try {
-      const canvas = await html2canvas(cardRef.current, {
-        useCORS: true,
-        scale: 2, // Safe Scale for iOS
+      // 1. SETUP TIMEOUT (Agar tidak loading selamanya)
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("TIMEOUT_8S")), 8000)
+      );
+
+      // 2. PROSES SCREENSHOT (Dengan config "Blind Test")
+      const canvasPromise = html2canvas(cardRef.current, {
+        useCORS: true,       
+        scale: 1,            // Tetap 1 dulu
         backgroundColor: '#ffffff',
         scrollX: 0,
         scrollY: -window.scrollY,
-        windowWidth: document.documentElement.offsetWidth,
-        windowHeight: document.documentElement.offsetHeight,
         
+        // DIAGNOSA: HILANGKAN SEMUA GAMBAR
         onclone: (clonedDoc) => {
           const cardElement = clonedDoc.querySelector('[data-card-ref="true"]') as HTMLElement;
           const seatSection = clonedDoc.querySelector('.seat-info-section') as HTMLElement;
-
-          if (seatSection) {
-            seatSection.style.display = 'none';
-          }
-
+          
+          if (seatSection) seatSection.style.display = 'none'; // Tetap hide seat
+          
           if (cardElement) {
-            const TARGET_WIDTH = '550px';
-            
-            cardElement.style.width = TARGET_WIDTH;
-            cardElement.style.minWidth = TARGET_WIDTH;
-            cardElement.style.maxWidth = TARGET_WIDTH;
-            
-            cardElement.style.height = 'auto';
-            cardElement.style.position = 'relative'; 
-            cardElement.style.margin = '0';
-            cardElement.style.padding = '24px'; 
-            cardElement.style.boxSizing = 'border-box';
-            cardElement.style.borderRadius = '0';
-            cardElement.style.backgroundColor = '#ffffff';
-
-            const textElements = cardElement.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, li');
-            
-            textElements.forEach((el) => {
-              const element = el as HTMLElement;
-              element.style.whiteSpace = 'normal'; 
-              element.style.wordWrap = 'break-word';
-              element.style.overflow = 'visible';
-              element.style.textOverflow = 'clip';
-              element.style.webkitLineClamp = 'unset';
-            });
-
-            const images = cardElement.querySelectorAll('img');
-            images.forEach((img) => {
-                (img as HTMLElement).style.maxWidth = '100%';
-                (img as HTMLElement).style.height = 'auto';
-                (img as HTMLElement).style.display = ''; 
-            });
+              // Set Lebar Fix
+              cardElement.style.width = '500px'; 
+              cardElement.style.minWidth = '500px';
+              cardElement.style.height = 'auto';
+              
+              // HAPUS SEMUA GAMBAR (Untuk membuktikan teori CORS)
+              const allImages = cardElement.querySelectorAll('img');
+              allImages.forEach(img => img.style.display = 'none');
+              
+              // Ganti background image div jadi putih polos (jika ada)
+              const allDivs = cardElement.querySelectorAll('div');
+              allDivs.forEach(div => div.style.backgroundImage = 'none');
           }
         }
       });
 
-      // Generate DataURL and show preview modal
-      const imageDataType = canvas.toDataURL("image/png");
-      setPreviewImage(imageDataType);
+      // 3. RACE: Siapa cepat dia menang (Canvas vs Timeout)
+      const canvas = await Promise.race([canvasPromise, timeoutPromise]) as HTMLCanvasElement;
 
-    } catch (error) {
-      console.error("Screenshot Failed:", error);
-      alert("Gagal memproses gambar. Coba refresh halaman.");
+      // Jika sampai sini, berarti SUKSES (Tidak Timeout)
+      const imageDataType = canvas.toDataURL("image/png");
+      setPreviewImage(imageDataType); // Tampilkan Modal
+
+    } catch (error: any) {
+      console.error("Screenshot Error:", error);
+      
+      if (error.message === "TIMEOUT_8S") {
+        alert("Gagal: Waktu habis! Masalahnya pasti di GAMBAR (CORS/Loading).");
+      } else {
+        alert("Error: " + error.message);
+      }
     } finally {
       setIsCapturing(false);
     }
