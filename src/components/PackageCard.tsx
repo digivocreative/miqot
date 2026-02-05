@@ -32,14 +32,6 @@ const DEFAULT_AGENT = {
   phone: '+62 812-3456-7890',
 };
 
-const WATERMARK_IMAGES = {
-  turkey: 'https://source.unsplash.com/800x800/?turkey,flag,cappadocia',
-  aqsa: 'https://source.unsplash.com/800x800/?al-aqsa,dome-of-the-rock,jerusalem',
-  dubai: 'https://source.unsplash.com/800x800/?burj-khalifa,dubai',
-  cairo: 'https://source.unsplash.com/800x800/?pyramids,giza,egypt',
-  madinah: 'https://source.unsplash.com/800x800/?masjid-nabawi,medina',
-  jeddah: 'https://source.unsplash.com/800x800/?kaaba,mecca',
-};
 
 const LANDING_AIRPORT_MAP: Record<string, string> = {
   JED: 'Jeddah',
@@ -65,24 +57,7 @@ const getLandingCityName = (pkg: UmrohPackage): string => {
   return LANDING_AIRPORT_MAP[airportCode] || airportCode;
 };
 
-const getWatermarkImage = (pkg: UmrohPackage): string | null => {
-  const typeHint = (pkg as { tipe?: string }).tipe ?? '';
-  const title = `${pkg.nama} ${typeHint}`.toUpperCase();
 
-  // Prioritas paket plus / destinasi khusus
-  if (title.includes('TURKI') || title.includes('TURKEY')) return WATERMARK_IMAGES.turkey;
-  if (title.includes('AQSA') || title.includes('AQSHA')) return WATERMARK_IMAGES.aqsa;
-  if (title.includes('DUBAI')) return WATERMARK_IMAGES.dubai;
-  if (title.includes('CAIRO') || title.includes('MESIR')) return WATERMARK_IMAGES.cairo;
-
-  // Fallback berdasarkan landing
-  const landingCode = getLandingAirportCode(pkg);
-  if (landingCode === 'MED' || getLandingCityName(pkg).toUpperCase() === 'MADINAH') {
-    return WATERMARK_IMAGES.madinah;
-  }
-
-  return WATERMARK_IMAGES.jeddah;
-};
 
 /**
  * PackageCard Component - Expandable Card
@@ -208,7 +183,7 @@ export function PackageCard({
     return extras;
   }, [hotelInfo]);
 
-  const watermarkImage = useMemo(() => getWatermarkImage(pkg), [pkg]);
+
 
   /**
    * Format price to "X.Y Jt" for header
@@ -323,98 +298,129 @@ _________________________
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
   };
 
-  // Handle Screenshot & Share (Sanitize & Screenshot Strategy)
+  // Handle Screenshot & Share (Ghost Element Strategy)
   const handleScreenshot = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!cardRef.current) return;
     setIsCapturing(true);
 
+    // DEBUG: Mulai
+    console.log("Mulai proses screenshot...");
+
     try {
-      // 1. CLONE MANUAL (Agar tidak mengganggu tampilan asli)
+      // 1. CLONE MANUAL (GHOST MODE - REVISI)
       const original = cardRef.current;
       const clone = original.cloneNode(true) as HTMLElement;
       
-      // Setup container tersembunyi untuk clone
-      clone.style.position = 'absolute';
-      clone.style.top = '-9999px';
-      clone.style.left = '-9999px';
-      clone.style.width = '550px'; // Paksa lebar 550px di sini
-      clone.setAttribute('data-cloned', 'true'); // Penanda
+      // STRATEGI BARU: Opacity 1, tapi di Z-Index paling bawah
+      clone.style.position = 'fixed';
+      clone.style.top = '0';
+      clone.style.left = '0'; // Tetap di viewport
+      clone.style.width = '550px'; 
+      clone.style.zIndex = '-9999'; // Sembunyi di belakang konten utama
+      clone.style.opacity = '1';    // WAJIB 1 AGAR TERTANGKAP KAMERA
+      clone.style.pointerEvents = 'none';
+      clone.style.backgroundColor = '#ffffff'; // Pastikan background putih solid
+      clone.setAttribute('data-cloned', 'true');
+      
+      // Wajib append ke body agar bisa dihitung dimensinya
       document.body.appendChild(clone);
 
-      // 2. SANITASI GAMBAR (Convert to Base64 or Kill)
+      console.log("Clone dibuat. Mulai sanitasi gambar...");
+
+      // 2. SANITASI GAMBAR (Dengan Timeout & Error Proofing)
       const images = Array.from(clone.querySelectorAll('img'));
       
       const imagePromises = images.map(async (img) => {
+        // Simpan dimensi asli agar layout tidak loncat saat src diganti
+        const w = img.offsetWidth;
+        const h = img.offsetHeight;
+        if (w > 0) img.style.width = `${w}px`;
+        if (h > 0) img.style.height = `${h}px`;
+
         const src = img.src;
-        // Skip jika src kosong atau base64
+        // Skip jika src kosong atau sudah base64
         if (!src || src.startsWith('data:')) return;
 
         try {
-          // Fetch dengan timeout ketat 2 detik
+          // Fetch dengan timeout 3 detik
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 2000);
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
           
-          const response = await fetch(src, { signal: controller.signal, mode: 'cors' });
+          const response = await fetch(src, { 
+              signal: controller.signal, 
+              mode: 'cors', // Coba CORS dulu
+              cache: 'no-cache'
+          });
           clearTimeout(timeoutId);
           
-          if (!response.ok) throw new Error("Fetch failed");
+          if (!response.ok) throw new Error(`Status ${response.status}`);
           
           const blob = await response.blob();
-          
-          // Convert Blob ke Base64
-          const base64 = await new Promise<string>((resolve) => {
+          const base64 = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
             reader.readAsDataURL(blob);
           });
           
-          img.src = base64; // Ganti URL eksternal dengan Base64 lokal
+          img.src = base64; // Sukses replace
+          img.srcset = '';  // Hapus srcset biar gak bingung
           
         } catch (err) {
-          // JIKA GAGAL (CORS/Timeout): Sembunyikan gambar agar tidak bikin crash
-          console.warn("Gagal load gambar, removing:", src);
+          console.warn("Gagal sanitize gambar (skip):", src, err);
+          // Fallback: Sembunyikan atau ganti placeholder
           img.style.display = 'none'; 
-          // Opsional: Ganti dengan placeholder warna abu
-          img.style.backgroundColor = '#f3f4f6';
-          img.style.width = '100px'; 
-          img.style.height = '100px';
+          // Atau: img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; (Transparent 1px)
         }
       });
 
-      // Tunggu semua gambar selesai diproses (berhasil/gagal)
-      await Promise.all(imagePromises);
+      // Tunggu semua gambar (yang sukses maupun gagal)
+      await Promise.allSettled(imagePromises);
+      
+      console.log("Sanitasi selesai. Mulai html2canvas...");
 
-      // 3. SEKARANG BARU SCREENSHOT (Aman karena semua resource lokal)
+      // 3. RENDER HTML2CANVAS
       const canvas = await html2canvas(clone, {
-        useCORS: false, // FALSE karena kita sudah handle CORS manual di atas
+        useCORS: false, // Sudah kita handle manual
         scale: 2, 
         backgroundColor: '#ffffff',
-        // Tidak perlu onclone kompleks lagi karena kita sudah edit 'clone' di atas
+        logging: false, // Matikan log internal biar gak berisik
         onclone: (doc) => {
-           // Cukup logic hide seat section saja
+           // Logic Hide Seat & Text Wrap
            const seat = doc.querySelector('.seat-info-section') as HTMLElement;
            if (seat) seat.style.display = 'none';
            
-           // Fix Text Wrapping (Logic h3/p tadi)
-           const textEls = doc.querySelectorAll('h3, p, span');
+           const textEls = doc.querySelectorAll('h1, h2, h3, h4, p, span, div');
            textEls.forEach(el => {
-               (el as HTMLElement).style.whiteSpace = 'normal';
-               (el as HTMLElement).style.wordWrap = 'break-word';
+               const element = el as HTMLElement;
+               element.style.whiteSpace = 'normal';
+               element.style.wordWrap = 'break-word';
+               // Pastikan warna teks dipaksa (kadang Safari render transparan)
+               if (window.getComputedStyle(element).color === 'rgba(0, 0, 0, 0)') {
+                   element.style.color = '#000000';
+               }
            });
         }
       });
 
-      // Bersihkan DOM
+      // Bersihkan DOM secepatnya
       document.body.removeChild(clone);
 
-      // 4. TAMPILKAN PREVIEW
+      console.log("Canvas selesai. Menampilkan modal...");
+
+      // 4. TAMPILKAN HASIL
       const imageDataType = canvas.toDataURL("image/png");
       setPreviewImage(imageDataType);
 
     } catch (error: any) {
-      console.error("Screenshot Error:", error);
-      alert("Gagal: " + error.message);
+      console.error("Critical Error:", error);
+      alert("Gagal memproses: " + error.message);
+      
+      // Cleanup jika error di tengah jalan
+      const ghost = document.querySelector('[data-cloned="true"]');
+      if (ghost) document.body.removeChild(ghost);
+      
     } finally {
       setIsCapturing(false);
     }
@@ -546,17 +552,7 @@ _________________________
         }
       `}
     >
-      {watermarkImage && (
-        <div className="pointer-events-none absolute inset-0 z-0">
-          <img
-            src={watermarkImage}
-            alt=""
-            aria-hidden="true"
-            loading="lazy"
-            className="absolute bottom-0 right-0 w-1/2 h-auto object-contain opacity-10 grayscale mask-image-gradient"
-          />
-        </div>
-      )}
+
 
       <div className="relative z-10">
 
@@ -960,7 +956,7 @@ _________________________
             {/* Footer / Actions */}
             <div className="p-4 bg-white dark:bg-slate-800 border-t border-gray-100 dark:border-slate-700 space-y-3">
               <p className="text-[11px] text-center text-gray-500 dark:text-slate-400">
-                Tekan tombol di bawah atau tekan tahan gambar untuk menyimpan manual.
+                Klik "Bagikan" atau tap & hold gambar untuk menyimpan manual.
               </p>
               
               <div className="grid grid-cols-2 gap-3">
