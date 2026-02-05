@@ -329,18 +329,15 @@ _________________________
     setIsCapturing(true);
 
     try {
-      // Kita gunakan konfigurasi agresif untuk styling
       const canvas = await html2canvas(cardRef.current, {
         useCORS: true,
-        scale: 2, // Resolusi cukup tajam (jangan terlalu besar agar tidak berat)
+        scale: 2, // iOS Safe Scale (JANGAN LEBIH DARI 2)
         backgroundColor: '#ffffff',
-        
-        // Reset Scroll agar tidak ada yang kepotong di atas
         scrollX: 0,
         scrollY: -window.scrollY,
         windowWidth: document.documentElement.offsetWidth,
         windowHeight: document.documentElement.offsetHeight,
-
+        
         // --- INTI PERBAIKAN DI SINI ---
         onclone: (clonedDoc) => {
           const cardElement = clonedDoc.querySelector('[data-card-ref="true"]') as HTMLElement;
@@ -362,7 +359,7 @@ _________________________
             
             // Reset layout container utama
             cardElement.style.height = 'auto';
-            cardElement.style.position = 'relative';
+            cardElement.style.position = 'relative'; 
             cardElement.style.margin = '0';
             cardElement.style.padding = '24px'; 
             cardElement.style.boxSizing = 'border-box';
@@ -397,41 +394,42 @@ _________________________
         }
       });
 
-      // ... (Kode untuk convert canvas ke Blob/Share Image sama seperti sebelumnya) ...
-      const blob = await new Promise<Blob | null>((resolve) => {
-        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.95);
-      });
-
-      if (!blob) return;
-
-      const fileName = `paket-umrah-${pkg.nama.replace(/\s+/g, '-').toLowerCase()}.jpg`;
-      const file = new File([blob], fileName, { type: 'image/jpeg' });
-
-      if (navigator.share && navigator.canShare?.({ files: [file] })) {
-        try {
-          await navigator.share({
-            files: [file],
-            title: pkg.nama,
-            text: `Paket Umrah - ${pkg.nama}`,
-          });
-        } catch {
-          // User cancelled share
+      // KONVERSI KE BLOB & SHARE (iOS Fix)
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          alert("Gagal membuat gambar.");
+          setIsCapturing(false);
+          return;
         }
-      } else {
-        // Fallback: download otomatis
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      }
+
+        // Buat File Object (Wajib buat iOS)
+        const file = new File([blob], `paket-${pkg.nama.replace(/\s+/g, '-').toLowerCase()}.png`, { type: 'image/png' });
+
+        // Cek apakah browser support Web Share API Level 2 (Share Files)
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: pkg.nama,
+              text: `Paket Umrah - ${pkg.nama}`
+            });
+          } catch (shareError) {
+            console.log('User menutup share sheet', shareError);
+          }
+        } else {
+          // Fallback untuk Desktop / Browser Lama (Download)
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(blob);
+          link.download = `paket-${pkg.nama.replace(/\s+/g, '-').toLowerCase()}.png`;
+          link.click();
+        }
+        
+        setIsCapturing(false); // Matikan loading di sini
+      }, 'image/png');
 
     } catch (error) {
-      console.error("Gagal generate screenshot:", error);
-    } finally {
+      console.error("Screenshot Failed:", error);
+      alert("Gagal memproses gambar. Coba refresh halaman."); // Feedback ke user
       setIsCapturing(false);
     }
   };
