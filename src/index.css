@@ -47,6 +47,15 @@ body {
   .no-scrollbar::-webkit-scrollbar {
     display: none;  /* Chrome, Safari, Opera */
   }
+
+  .mask-image-gradient {
+    -webkit-mask-image: radial-gradient(ellipse at bottom right, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0) 70%);
+    mask-image: radial-gradient(ellipse at bottom right, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0) 70%);
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+  }
 }
 
 /* Custom scrollbar */

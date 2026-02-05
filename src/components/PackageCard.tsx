@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { PlaneTakeoff, PlaneLanding, Building2 } from 'lucide-react';
+import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2 } from 'lucide-react';
+import html2canvas from 'html2canvas';
 import { UmrohPackage, RoomPricing } from '@/types';
 import { BrochureModal } from './BrochureModal';
 import { ItineraryModal } from './ItineraryModal';
@@ -31,6 +32,58 @@ const DEFAULT_AGENT = {
   phone: '+62 812-3456-7890',
 };
 
+const WATERMARK_IMAGES = {
+  turkey: 'https://source.unsplash.com/800x800/?turkey,flag,cappadocia',
+  aqsa: 'https://source.unsplash.com/800x800/?al-aqsa,dome-of-the-rock,jerusalem',
+  dubai: 'https://source.unsplash.com/800x800/?burj-khalifa,dubai',
+  cairo: 'https://source.unsplash.com/800x800/?pyramids,giza,egypt',
+  madinah: 'https://source.unsplash.com/800x800/?masjid-nabawi,medina',
+  jeddah: 'https://source.unsplash.com/800x800/?kaaba,mecca',
+};
+
+const LANDING_AIRPORT_MAP: Record<string, string> = {
+  JED: 'Jeddah',
+  MED: 'Madinah',
+  CKG: 'Jakarta',
+  CGK: 'Jakarta', // Common typo handling
+  SUB: 'Surabaya',
+  KNO: 'Kualanamu',
+  CAI: 'Cairo',
+  IST: 'Istanbul',
+  DXB: 'Dubai',
+};
+
+const getLandingAirportCode = (pkg: UmrohPackage): string => {
+  const route = pkg.keberangkatan?.rute || '';
+  const routeParts = route.split(' - ');
+  const code = routeParts.length > 1 ? routeParts[1].trim().toUpperCase() : 'JED';
+  return code || 'JED';
+};
+
+const getLandingCityName = (pkg: UmrohPackage): string => {
+  const airportCode = getLandingAirportCode(pkg);
+  return LANDING_AIRPORT_MAP[airportCode] || airportCode;
+};
+
+const getWatermarkImage = (pkg: UmrohPackage): string | null => {
+  const typeHint = (pkg as { tipe?: string }).tipe ?? '';
+  const title = `${pkg.nama} ${typeHint}`.toUpperCase();
+
+  // Prioritas paket plus / destinasi khusus
+  if (title.includes('TURKI') || title.includes('TURKEY')) return WATERMARK_IMAGES.turkey;
+  if (title.includes('AQSA') || title.includes('AQSHA')) return WATERMARK_IMAGES.aqsa;
+  if (title.includes('DUBAI')) return WATERMARK_IMAGES.dubai;
+  if (title.includes('CAIRO') || title.includes('MESIR')) return WATERMARK_IMAGES.cairo;
+
+  // Fallback berdasarkan landing
+  const landingCode = getLandingAirportCode(pkg);
+  if (landingCode === 'MED' || getLandingCityName(pkg).toUpperCase() === 'MADINAH') {
+    return WATERMARK_IMAGES.madinah;
+  }
+
+  return WATERMARK_IMAGES.jeddah;
+};
+
 /**
  * PackageCard Component - Expandable Card
  * Displays Umroh package information with expand/collapse functionality
@@ -46,6 +99,8 @@ export function PackageCard({
   const [contentHeight, setContentHeight] = useState(0);
   const [isBrochureOpen, setIsBrochureOpen] = useState(false);
   const [isItineraryOpen, setIsItineraryOpen] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   // Calculate availability percentage
   const availabilityPercentage = Math.round((pkg.seatSisa / pkg.seatTotal) * 100);
@@ -151,6 +206,8 @@ export function PackageCard({
 
     return extras;
   }, [hotelInfo]);
+
+  const watermarkImage = useMemo(() => getWatermarkImage(pkg), [pkg]);
 
   /**
    * Format price to "X.Y Jt" for header
@@ -265,46 +322,188 @@ _________________________
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
   };
 
+  // Handle Screenshot & Share
+  const handleScreenshot = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!cardRef.current || isCapturing) return;
+
+    setIsCapturing(true);
+
+    try {
+      const canvas = await html2canvas(cardRef.current, {
+        useCORS: true,
+        scale: 3,
+        backgroundColor: '#ffffff',
+
+        // Fix scrolling agar tidak kepotong
+        scrollX: 0,
+        scrollY: -window.scrollY,
+        windowWidth: document.documentElement.offsetWidth,
+        windowHeight: document.documentElement.offsetHeight,
+
+        // Manipulasi tampilan di cloned DOM
+        onclone: (clonedDoc) => {
+          const cardElement = clonedDoc.querySelector('[data-card-ref="true"]') as HTMLElement;
+
+          if (cardElement) {
+            // 1. Container sizing
+            const TARGET_WIDTH = '560px';
+            cardElement.style.width = TARGET_WIDTH;
+            cardElement.style.minWidth = TARGET_WIDTH;
+            cardElement.style.maxWidth = TARGET_WIDTH;
+            cardElement.style.height = 'auto';
+            cardElement.style.maxHeight = 'none';
+            cardElement.style.overflow = 'visible';
+            cardElement.style.padding = '10px';
+            cardElement.style.margin = '0';
+            cardElement.style.boxSizing = 'border-box';
+            cardElement.style.backgroundColor = '#ffffff';
+            cardElement.style.borderRadius = '0';
+            cardElement.style.boxShadow = 'none';
+
+            // 2. Fix expanded view container (hapus maxHeight & overflow clip)
+            cardElement.querySelectorAll('div').forEach((div) => {
+              const el = div as HTMLElement;
+              if (el.style.maxHeight) {
+                el.style.maxHeight = 'none';
+                el.style.overflow = 'visible';
+                el.style.opacity = '1';
+              }
+            });
+
+            // 3. Force text wrapping (hanya elemen teks, bukan SVG)
+            cardElement.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, a, li, td, th').forEach((el) => {
+              const element = el as HTMLElement;
+              element.style.whiteSpace = 'normal';
+              element.style.overflow = 'visible';
+              element.style.textOverflow = 'clip';
+              element.style.maxWidth = '100%';
+            });
+
+            // 4. Nama hotel panjang: line-clamp 1 baris dengan ellipsis
+            cardElement.querySelectorAll('p.line-clamp-1').forEach((el) => {
+              const element = el as HTMLElement;
+              element.style.display = '-webkit-box';
+              element.style.webkitLineClamp = '1';
+              element.style.webkitBoxOrient = 'vertical';
+              element.style.overflow = 'hidden';
+              element.style.textOverflow = 'ellipsis';
+              element.style.whiteSpace = 'normal';
+            });
+          }
+
+          // 4. Hapus semua seat section dari kloningan
+          clonedDoc.querySelectorAll('.seat-info-section').forEach((el) => {
+            el.remove();
+          });
+        },
+      });
+
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.95);
+      });
+
+      if (!blob) return;
+
+      const fileName = `paket-umrah-${pkg.nama.replace(/\s+/g, '-').toLowerCase()}.jpg`;
+      const file = new File([blob], fileName, { type: 'image/jpeg' });
+
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: pkg.nama,
+            text: `Paket Umrah - ${pkg.nama}`,
+          });
+        } catch {
+          // User cancelled share
+        }
+      } else {
+        // Fallback: download otomatis
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      console.error('Screenshot failed:', error);
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
   /**
    * Sub-component: Seat and Date Section
    * Extracted to be rendered in different positions based on expansion state
    */
-  const SeatAndDateSection = ({ isFooter = false }: { isFooter?: boolean }) => (
-    <div className={`
-      flex items-end gap-4 transition-all duration-300
-      ${isFooter 
-        ? "mb-[10px] p-3 bg-gray-50 dark:bg-slate-900/50 rounded-xl border border-gray-100 dark:border-slate-700 shadow-sm" 
-        : "mt-3 pt-3 border-t border-gray-100 dark:border-slate-700/50"
+  const SeatAndDateSection = ({ isFooter = false }: { isFooter?: boolean }) => {
+    const percentage = (pkg.seatSisa / pkg.seatTotal) * 100;
+
+    const getStatusStyle = (pct: number) => {
+      // Kondisi Habis (0%) atau Kritis (< 5%)
+      if (pct < 5) {
+        return {
+          bar: 'bg-red-600 dark:bg-red-500', 
+          text: 'text-red-600 dark:text-red-400' 
+        };
       }
-    `}>
-      {/* Left: Seat Info & Progress Bar */}
-      <div className="flex-1">
-        <div className="flex justify-between items-center mb-1.5">
-          <p className="text-xs font-medium">
-            <span className={isCritical ? 'text-red-600 dark:text-red-400' : isLowStock ? 'text-orange-600 dark:text-orange-400' : 'text-gray-700 dark:text-slate-200'}>
-              SISA {pkg.seatSisa}
-            </span>
-            <span className="text-gray-400 dark:text-slate-400 font-semibold"> DARI {pkg.seatTotal}</span>
-          </p>
-          <p className={`text-xs font-semibold ${isCritical ? 'text-red-600' : isLowStock ? 'text-orange-600' : 'text-emerald-600'}`}>
-            {availabilityPercentage}%
-          </p>
+      // Kondisi Siaga (5% - 19%)
+      if (pct < 20) {
+        return {
+          bar: 'bg-rose-500', 
+          text: 'text-rose-600 dark:text-rose-400'
+        };
+      }
+      // Kondisi Waspada (20% - 50%)
+      if (pct <= 50) {
+        return {
+          bar: 'bg-orange-500', 
+          text: 'text-orange-500 dark:text-orange-400'
+        };
+      }
+      // Kondisi Aman (> 50%)
+      return {
+        bar: 'bg-emerald-500', 
+        text: 'text-emerald-600 dark:text-emerald-400'
+      };
+    };
+
+    const statusStyle = getStatusStyle(percentage);
+
+    return (
+      <div className={`
+        seat-info-section flex items-end gap-4 transition-all duration-300
+        ${isFooter
+          ? "mb-[10px] p-3 bg-gray-50 dark:bg-slate-900/50 rounded-xl border border-gray-100 dark:border-slate-700 shadow-sm"
+          : "mt-3 pt-3 border-t border-gray-100 dark:border-slate-700/50"
+        }
+      `}>
+        {/* Left: Seat Info & Progress Bar */}
+        <div className="flex-1">
+          <div className="flex justify-between items-center mb-1.5">
+            <p className="text-xs font-medium">
+              <span className={statusStyle.text}>
+                SISA {pkg.seatSisa}
+              </span>
+              <span className="text-gray-400 dark:text-slate-400 font-semibold"> DARI {pkg.seatTotal}</span>
+            </p>
+            <p className={`text-xs font-semibold ${statusStyle.text}`}>
+              {Math.round(percentage)}%
+            </p>
+          </div>
+          
+          {/* Progress Bar */}
+          <div className="w-full h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${statusStyle.bar}`}
+              style={{ width: `${percentage}%` }}
+            />
+          </div>
         </div>
-        
-        {/* Progress Bar */}
-        <div className="w-full h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-500 ${
-              isCritical 
-                ? 'bg-gradient-to-r from-red-500 to-red-600' 
-                : isLowStock 
-                  ? 'bg-gradient-to-r from-orange-400 to-orange-500'
-                  : 'bg-gradient-to-r from-emerald-400 to-emerald-500'
-            }`}
-            style={{ width: `${availabilityPercentage}%` }}
-          />
-        </div>
-      </div>
 
       {/* Right: Departure Date */}
       <div className={`text-right pb-0.5 shrink-0 ${isFooter ? "-mb-2" : "-mb-2"}`}>
@@ -319,13 +518,16 @@ _________________________
       </div>
     </div>
   );
+};
 
   return (
     <>
     <div
+      ref={cardRef}
+      data-card-ref="true"
       onClick={handleCardClick}
       className={`
-        bg-white dark:bg-slate-800 rounded-xl overflow-hidden cursor-pointer
+        bg-white dark:bg-slate-800 rounded-xl relative overflow-hidden cursor-pointer
         transition-all duration-300 ease-out
         ${isExpanded 
           ? 'shadow-lg ring-1 ring-emerald-100 dark:ring-emerald-900 pb-2' 
@@ -333,6 +535,19 @@ _________________________
         }
       `}
     >
+      {watermarkImage && (
+        <div className="pointer-events-none absolute inset-0 z-0">
+          <img
+            src={watermarkImage}
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            className="absolute bottom-0 right-0 w-1/2 h-auto object-contain opacity-10 grayscale mask-image-gradient"
+          />
+        </div>
+      )}
+
+      <div className="relative z-10">
 
       {/* ============================================ */}
       {/* COLLAPSED VIEW (Always Visible) */}
@@ -498,22 +713,7 @@ _________________________
               <div>
                 <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wide">Landing di</p>
                 <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                  {(() => {
-                    const routeParts = pkg.keberangkatan.rute.split(' - ');
-                    const airportCode = routeParts.length > 1 ? routeParts[1].trim() : 'JED';
-                    const airportMap: Record<string, string> = {
-                      'JED': 'Jeddah',
-                      'MED': 'Madinah',
-                      'CKG': 'Jakarta',
-                      'CGK': 'Jakarta', // Common typo handling
-                      'SUB': 'Surabaya',
-                      'KNO': 'Kualanamu',
-                      'CAI': 'Cairo',
-                      'IST': 'Istanbul',
-                      'DXB': 'Dubai',
-                    };
-                    return airportMap[airportCode] || airportCode;
-                  })()}
+                  {getLandingCityName(pkg)}
                 </p>
               </div>
             </div>
@@ -575,8 +775,8 @@ _________________________
             </div>
           )}
 
-          {/* ---- Action Buttons (3 columns) ---- */}
-          <div className="grid grid-cols-3 gap-2 mt-0 mb-4">
+          {/* ---- Action Buttons (4 columns) ---- */}
+          <div data-html2canvas-ignore className="grid grid-cols-4 gap-2 mt-0 mb-4">
             {pkg.itineraryUrl ? (
               <button
                 type="button"
@@ -635,6 +835,23 @@ _________________________
               <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Bagikan</span>
             </button>
 
+            {/* Screenshot & Share Button */}
+            <button
+              type="button"
+              onClick={handleScreenshot}
+              disabled={isCapturing}
+              className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 dark:border-slate-700 dark:hover:border-purple-500 disabled:opacity-60"
+            >
+              {isCapturing ? (
+                <Loader2 size={20} className="text-purple-600 dark:text-purple-400 mb-1 animate-spin" />
+              ) : (
+                <Camera size={20} className="text-purple-600 dark:text-purple-400 mb-1" />
+              )}
+              <span className="text-xs font-medium text-gray-600 dark:text-slate-200">
+                {isCapturing ? 'Proses...' : 'Simpan'}
+              </span>
+            </button>
+
           </div>
 
           {/* ---- Pricing Table (Compact) ---- */}
@@ -680,6 +897,7 @@ _________________________
           {/* Availability Bar + Departure Date (Only when Expanded) */}
           {isExpanded && <SeatAndDateSection isFooter={true} />}
         </div>
+      </div>
       </div>
     </div>
 
