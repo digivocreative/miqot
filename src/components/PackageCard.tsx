@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2 } from 'lucide-react';
+import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { UmrohPackage, RoomPricing } from '@/types';
 import { BrochureModal } from './BrochureModal';
@@ -100,6 +100,7 @@ export function PackageCard({
   const [isBrochureOpen, setIsBrochureOpen] = useState(false);
   const [isItineraryOpen, setIsItineraryOpen] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
   // Calculate availability percentage
@@ -322,7 +323,7 @@ _________________________
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
   };
 
-  // Handle Screenshot & Share
+  // Handle Screenshot & Share (Preview First Strategy)
   const handleScreenshot = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!cardRef.current) return;
@@ -331,33 +332,28 @@ _________________________
     try {
       const canvas = await html2canvas(cardRef.current, {
         useCORS: true,
-        scale: 2, // iOS Safe Scale (JANGAN LEBIH DARI 2)
+        scale: 2, // Safe Scale for iOS
         backgroundColor: '#ffffff',
         scrollX: 0,
         scrollY: -window.scrollY,
         windowWidth: document.documentElement.offsetWidth,
         windowHeight: document.documentElement.offsetHeight,
         
-        // --- INTI PERBAIKAN DI SINI ---
         onclone: (clonedDoc) => {
           const cardElement = clonedDoc.querySelector('[data-card-ref="true"]') as HTMLElement;
-          
-          // 1. HIDE SEAT SECTION (Tetap dijalankan)
           const seatSection = clonedDoc.querySelector('.seat-info-section') as HTMLElement;
+
           if (seatSection) {
             seatSection.style.display = 'none';
           }
 
           if (cardElement) {
-            // 2. SET FIXED WIDTH (Poster Size)
-            // Kita set lebar fix, tapi biarkan tingginya otomatis
             const TARGET_WIDTH = '550px';
             
             cardElement.style.width = TARGET_WIDTH;
             cardElement.style.minWidth = TARGET_WIDTH;
             cardElement.style.maxWidth = TARGET_WIDTH;
             
-            // Reset layout container utama
             cardElement.style.height = 'auto';
             cardElement.style.position = 'relative'; 
             cardElement.style.margin = '0';
@@ -366,71 +362,63 @@ _________________________
             cardElement.style.borderRadius = '0';
             cardElement.style.backgroundColor = '#ffffff';
 
-            // 3. FIX TEKS TERPOTONG (Hanya Target Elemen Teks)
-            // Jangan select '*' (semua), tapi spesifik ke elemen teks saja
             const textElements = cardElement.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, li');
             
             textElements.forEach((el) => {
               const element = el as HTMLElement;
-              // Paksa teks turun baris, tapi JANGAN ubah display property-nya
               element.style.whiteSpace = 'normal'; 
               element.style.wordWrap = 'break-word';
               element.style.overflow = 'visible';
               element.style.textOverflow = 'clip';
-              
-              // Hapus line-clamp jika ada
               element.style.webkitLineClamp = 'unset';
             });
 
-            // 4. FIX IMAGE SQUASHING
             const images = cardElement.querySelectorAll('img');
             images.forEach((img) => {
                 (img as HTMLElement).style.maxWidth = '100%';
                 (img as HTMLElement).style.height = 'auto';
-                // Pastikan image tidak dipaksa block jika dia inline
                 (img as HTMLElement).style.display = ''; 
             });
           }
         }
       });
 
-      // KONVERSI KE BLOB & SHARE (iOS Fix)
-      canvas.toBlob(async (blob) => {
-        if (!blob) {
-          alert("Gagal membuat gambar.");
-          setIsCapturing(false);
-          return;
-        }
-
-        // Buat File Object (Wajib buat iOS)
-        const file = new File([blob], `paket-${pkg.nama.replace(/\s+/g, '-').toLowerCase()}.png`, { type: 'image/png' });
-
-        // Cek apakah browser support Web Share API Level 2 (Share Files)
-        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-          try {
-            await navigator.share({
-              files: [file],
-              title: pkg.nama,
-              text: `Paket Umrah - ${pkg.nama}`
-            });
-          } catch (shareError) {
-            console.log('User menutup share sheet', shareError);
-          }
-        } else {
-          // Fallback untuk Desktop / Browser Lama (Download)
-          const link = document.createElement('a');
-          link.href = URL.createObjectURL(blob);
-          link.download = `paket-${pkg.nama.replace(/\s+/g, '-').toLowerCase()}.png`;
-          link.click();
-        }
-        
-        setIsCapturing(false); // Matikan loading di sini
-      }, 'image/png');
+      // Generate DataURL and show preview modal
+      const imageDataType = canvas.toDataURL("image/png");
+      setPreviewImage(imageDataType);
 
     } catch (error) {
       console.error("Screenshot Failed:", error);
-      alert("Gagal memproses gambar. Coba refresh halaman."); // Feedback ke user
+      alert("Gagal memproses gambar. Coba refresh halaman.");
+    } finally {
       setIsCapturing(false);
+    }
+  };
+
+  // Function to actually share from the preview modal
+  const sharePreview = async () => {
+    if (!previewImage) return;
+    
+    try {
+      // Convert Base64 DataURL back to Blob/File for sharing
+      const blob = await (await fetch(previewImage)).blob();
+      const file = new File([blob], `paket-${pkg.nama.replace(/\s+/g, '-').toLowerCase()}.png`, { type: 'image/png' });
+
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: pkg.nama,
+          text: `Cek paket umrah ini: ${pkg.nama}`
+        });
+      } else {
+        // Fallback download
+        const link = document.createElement('a');
+        link.href = previewImage;
+        link.download = `paket-${pkg.nama.replace(/\s+/g, '-').toLowerCase()}.png`;
+        link.click();
+      }
+    } catch (err) {
+      console.log("Share dibatalkan/error", err);
     }
   };
 
@@ -917,6 +905,57 @@ _________________________
           fileUrl={pkg.itineraryUrl}
           title={pkg.nama}
         />
+      )}
+
+      {/* Screenshot Preview Modal (Fixed Overlay) */}
+      {previewImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-sm w-full overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            
+            {/* Header */}
+            <div className="p-4 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center">
+              <h3 className="font-bold text-gray-900 dark:text-white">Preview Gambar</h3>
+              <button 
+                onClick={() => setPreviewImage(null)}
+                className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+              >
+                <X size={20} className="text-gray-500" />
+              </button>
+            </div>
+
+            {/* Image Container */}
+            <div className="flex-1 overflow-auto p-4 bg-gray-50 dark:bg-slate-900/50 flex items-center justify-center">
+              <img 
+                src={previewImage} 
+                alt="Preview" 
+                className="w-full h-auto object-contain shadow-lg rounded"
+              />
+            </div>
+
+            {/* Footer / Actions */}
+            <div className="p-4 bg-white dark:bg-slate-800 border-t border-gray-100 dark:border-slate-700 space-y-3">
+              <p className="text-[11px] text-center text-gray-500 dark:text-slate-400">
+                Tekan tombol di bawah atau tekan tahan gambar untuk menyimpan manual.
+              </p>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setPreviewImage(null)}
+                  className="w-full py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 font-medium text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={sharePreview}
+                  className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-lg shadow-purple-200 dark:shadow-none flex items-center justify-center gap-2 transition-all active:scale-95"
+                >
+                  <Share2 size={18} />
+                  Bagikan
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
