@@ -298,58 +298,59 @@ _________________________
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
   };
 
-  // Handle Screenshot & Share (Ghost Element Strategy)
+  // Handle Screenshot & Share (Smart Styling Strategy)
   const handleScreenshot = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!cardRef.current) return;
     setIsCapturing(true);
 
-    // DEBUG: Mulai
-    console.log("Mulai proses screenshot...");
-
     try {
-      // 1. CLONE MANUAL (GHOST MODE - REVISI)
+      // 1. CLONE & GHOST STRATEGY
       const original = cardRef.current;
       const clone = original.cloneNode(true) as HTMLElement;
+
+      // Setup Ghost Element (Invisible but Rendered)
+      Object.assign(clone.style, {
+        position: 'fixed',
+        top: '0',
+        left: '0',
+        width: '500px', // Lebar Fix ideal
+        zIndex: '-9999',
+        opacity: '1', // Wajib 1
+        pointerEvents: 'none',
+        backgroundColor: '#ffffff', // Force White Background
+        margin: '0',
+        transform: 'none' // Reset transformasi jika ada
+      });
       
-      // STRATEGI BARU: Opacity 1, tapi di Z-Index paling bawah
-      clone.style.position = 'fixed';
-      clone.style.top = '0';
-      clone.style.left = '0'; // Tetap di viewport
-      clone.style.width = '550px'; 
-      clone.style.zIndex = '-9999'; // Sembunyi di belakang konten utama
-      clone.style.opacity = '1';    // WAJIB 1 AGAR TERTANGKAP KAMERA
-      clone.style.pointerEvents = 'none';
-      clone.style.backgroundColor = '#ffffff'; // Pastikan background putih solid
+      // Hapus class dark mode dari clone langsung
+      clone.classList.remove('dark');
+      
+      // Penanda khusus untuk safe selector
       clone.setAttribute('data-cloned', 'true');
       
-      // Wajib append ke body agar bisa dihitung dimensinya
       document.body.appendChild(clone);
 
-      console.log("Clone dibuat. Mulai sanitasi gambar...");
-
-      // 2. SANITASI GAMBAR (Dengan Timeout & Error Proofing)
+      // 2. SANITASI GAMBAR (Promise.allSettled)
       const images = Array.from(clone.querySelectorAll('img'));
       
       const imagePromises = images.map(async (img) => {
-        // Simpan dimensi asli agar layout tidak loncat saat src diganti
+        // Simpan dimensi asli agar layout tidak loncat
         const w = img.offsetWidth;
         const h = img.offsetHeight;
         if (w > 0) img.style.width = `${w}px`;
         if (h > 0) img.style.height = `${h}px`;
 
         const src = img.src;
-        // Skip jika src kosong atau sudah base64
         if (!src || src.startsWith('data:')) return;
 
         try {
-          // Fetch dengan timeout 3 detik
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 3000);
           
           const response = await fetch(src, { 
               signal: controller.signal, 
-              mode: 'cors', // Coba CORS dulu
+              mode: 'cors',
               cache: 'no-cache'
           });
           clearTimeout(timeoutId);
@@ -364,63 +365,91 @@ _________________________
             reader.readAsDataURL(blob);
           });
           
-          img.src = base64; // Sukses replace
-          img.srcset = '';  // Hapus srcset biar gak bingung
+          img.src = base64;
+          img.srcset = '';
           
         } catch (err) {
-          console.warn("Gagal sanitize gambar (skip):", src, err);
-          // Fallback: Sembunyikan atau ganti placeholder
+          console.warn("Gagal sanitize gambar (skip):", src);
           img.style.display = 'none'; 
-          // Atau: img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; (Transparent 1px)
         }
       });
 
-      // Tunggu semua gambar (yang sukses maupun gagal)
       await Promise.allSettled(imagePromises);
-      
-      console.log("Sanitasi selesai. Mulai html2canvas...");
 
-      // 3. RENDER HTML2CANVAS
+      // 3. RENDER HTML2CANVAS (SMART STYLING)
       const canvas = await html2canvas(clone, {
-        useCORS: false, // Sudah kita handle manual
+        useCORS: true,
         scale: 2, 
         backgroundColor: '#ffffff',
-        logging: false, // Matikan log internal biar gak berisik
+        logging: false,
         onclone: (doc) => {
-           // Logic Hide Seat & Text Wrap
-           const seat = doc.querySelector('.seat-info-section') as HTMLElement;
-           if (seat) seat.style.display = 'none';
+           // Ambil clone kita dengan selector aman
+           const clonedCard = doc.querySelector('[data-cloned="true"]') as HTMLElement;
+           if (!clonedCard) return;
+
+           // A. FORCE LIGHT MODE GLOBAL (Di dalam iframe html2canvas)
+           doc.documentElement.classList.remove('dark');
+           clonedCard.classList.remove('dark');
            
-           const textEls = doc.querySelectorAll('h1, h2, h3, h4, p, span, div');
-           textEls.forEach(el => {
-               const element = el as HTMLElement;
-               element.style.whiteSpace = 'normal';
-               element.style.wordWrap = 'break-word';
-               // Pastikan warna teks dipaksa (kadang Safari render transparan)
-               if (window.getComputedStyle(element).color === 'rgba(0, 0, 0, 0)') {
-                   element.style.color = '#000000';
-               }
+           // B. HIDE SEAT SECTION (Metode Berlapis)
+           // Cara 1: Class Selector
+           const seatByClass = clonedCard.querySelector('.seat-info-section');
+           if (seatByClass) seatByClass.remove();
+
+           // Cara 2: Text Search Fallback
+           const allDivs = clonedCard.querySelectorAll('div');
+           allDivs.forEach(div => {
+              // Hindari menghapus container utama
+              if (div.getAttribute('data-cloned') === 'true') return;
+              if (div.contains(clonedCard)) return; // Jangan hapus parent
+
+              const text = div.innerText || "";
+              // Jika ketemu kata kunci spesifik progress bar
+              if (text.includes("SISA") && text.includes("DARI") && text.includes("%")) {
+                  div.style.display = 'none';
+              }
            });
+
+           // C. SMART TEXT WRAPPING (Hanya Text, Jangan Container)
+           const textTags = clonedCard.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, li');
+           
+           textTags.forEach((el) => {
+               const element = el as HTMLElement;
+               
+               // Reset aturan pemotongan teks
+               element.style.whiteSpace = 'normal'; 
+               element.style.overflow = 'visible';
+               element.style.textOverflow = 'clip';
+               element.style.webkitLineClamp = 'unset'; // Hapus line-clamp
+               
+               // JANGAN ubah display property! Biarkan flex item tetap flex item.
+               
+               // Fix warna text (force dark gray/black)
+               // Set priority !important agar tidak tertimpa class tailwind
+               element.style.setProperty('color', '#1f2937', 'important');
+           });
+           
+           // D. FINAL TOUCHES
+           clonedCard.style.height = 'auto';
+           clonedCard.style.padding = '24px';
+           clonedCard.style.borderRadius = '0';
+           clonedCard.style.boxShadow = 'none';
         }
       });
 
-      // Bersihkan DOM secepatnya
+      // Cleanup
       document.body.removeChild(clone);
 
-      console.log("Canvas selesai. Menampilkan modal...");
-
-      // 4. TAMPILKAN HASIL
+      // 4. SHOW PREVIEW
       const imageDataType = canvas.toDataURL("image/png");
       setPreviewImage(imageDataType);
 
     } catch (error: any) {
-      console.error("Critical Error:", error);
-      alert("Gagal memproses: " + error.message);
-      
-      // Cleanup jika error di tengah jalan
+      console.error(error);
+      alert("Gagal memproses gambar: " + error.message);
+      // Cleanup emergency
       const ghost = document.querySelector('[data-cloned="true"]');
       if (ghost) document.body.removeChild(ghost);
-      
     } finally {
       setIsCapturing(false);
     }
