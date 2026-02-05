@@ -565,8 +565,12 @@ _________________________
           {/* Progress Bar */}
           <div className="w-full h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${statusStyle.bar}`}
-              style={{ width: `${percentage}%` }}
+              className={`h-full rounded-full transition-all duration-500 ${statusStyle.bar} animate-shimmer`}
+              style={{
+                width: `${percentage}%`,
+                backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0.15) 75%, transparent 75%, transparent)',
+                backgroundSize: '2rem 2rem',
+              }}
             />
           </div>
         </div>
