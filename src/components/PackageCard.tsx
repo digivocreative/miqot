@@ -988,7 +988,7 @@ _________________________
             {/* Footer / Actions */}
             <div className="p-4 bg-white dark:bg-slate-800 border-t border-gray-100 dark:border-slate-700 space-y-3">
               <p className="text-[11px] text-center text-gray-500 dark:text-slate-400">
-                Klik "Bagikan" atau tap & hold gambar untuk menyimpan manual.
+                Klik "Bagikan" atau hold gambar untuk simpan manual.
               </p>
               
               <div className="grid grid-cols-2 gap-3">
