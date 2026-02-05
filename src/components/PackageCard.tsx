@@ -219,10 +219,8 @@ export function PackageCard({
     onExpandChange?.(!isExpanded);
   };
 
-  // Handle WhatsApp Share with formatted message
-  const handleWhatsAppShare = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    
+  // Helper to generate share message
+  const getShareMessage = () => {
     // Format date with day name
     const formatFullDate = (dateStr: string): string => {
       const date = new Date(dateStr);
@@ -269,7 +267,7 @@ export function PackageCard({
       return lines.join('\n');
     };
 
-    const message = `*ALHIJAZ INDOWISATA*
+    return `*ALHIJAZ INDOWISATA*
 _________________________
 *${pkg.maskapai || '-'}*, *${pkg.nama}*
 
@@ -292,8 +290,12 @@ ${buildHotelList()}
 ${buildPricing()}
 _________________________
 *GRATIS Biaya Perlengkapan, Handling & Asuransi*`;
+  };
 
-
+  // Handle WhatsApp Share with formatted message
+  const handleWhatsAppShare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const message = getShareMessage();
     const encodedMessage = encodeURIComponent(message);
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
   };
@@ -463,12 +465,13 @@ _________________________
       // Convert Base64 DataURL back to Blob/File for sharing
       const blob = await (await fetch(previewImage)).blob();
       const file = new File([blob], `paket-${pkg.nama.replace(/\s+/g, '-').toLowerCase()}.png`, { type: 'image/png' });
+      const message = getShareMessage();
 
       if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
           title: pkg.nama,
-          text: `Cek paket umrah ini: ${pkg.nama}`
+          text: message
         });
       } else {
         // Fallback download
