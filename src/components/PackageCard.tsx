@@ -513,33 +513,27 @@ _________________________
    * Extracted to be rendered in different positions based on expansion state
    */
   const SeatAndDateSection = ({ isFooter = false }: { isFooter?: boolean }) => {
-    const percentage = (pkg.seatSisa / pkg.seatTotal) * 100;
+    const takenSeats = pkg.seatTotal - pkg.seatSisa;
+    const percentage = Math.min(100, Math.max(0, Math.round((takenSeats / pkg.seatTotal) * 100)));
 
     const getStatusStyle = (pct: number) => {
-      // Kondisi Habis (0%) atau Kritis (< 5%)
-      if (pct < 5) {
+      // Full (100%)
+      if (pct >= 100) {
         return {
-          bar: 'bg-red-600 dark:bg-red-500', 
-          text: 'text-red-600 dark:text-red-400' 
+          bar: 'bg-red-600 dark:bg-red-500',
+          text: 'text-red-600 dark:text-red-400'
         };
       }
-      // Kondisi Siaga (5% - 19%)
-      if (pct < 20) {
+      // Hampir penuh (>= 80%)
+      if (pct >= 80) {
         return {
-          bar: 'bg-rose-500', 
-          text: 'text-rose-600 dark:text-rose-400'
-        };
-      }
-      // Kondisi Waspada (20% - 50%)
-      if (pct <= 50) {
-        return {
-          bar: 'bg-orange-500', 
+          bar: 'bg-orange-500',
           text: 'text-orange-500 dark:text-orange-400'
         };
       }
-      // Kondisi Aman (> 50%)
+      // Masih longgar (< 80%)
       return {
-        bar: 'bg-emerald-500', 
+        bar: 'bg-emerald-500',
         text: 'text-emerald-600 dark:text-emerald-400'
       };
     };
@@ -559,15 +553,15 @@ _________________________
           <div className="flex justify-between items-center mb-1.5">
             <p className="text-xs font-medium">
               <span className={statusStyle.text}>
-                SISA {pkg.seatSisa}
+                TERISI {takenSeats}
               </span>
               <span className="text-gray-400 dark:text-slate-400 font-semibold"> DARI {pkg.seatTotal}</span>
             </p>
             <p className={`text-xs font-semibold ${statusStyle.text}`}>
-              {Math.round(percentage)}%
+              {percentage}%
             </p>
           </div>
-          
+
           {/* Progress Bar */}
           <div className="w-full h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
             <div
@@ -618,7 +612,11 @@ _________________________
         {/* Header: Title & Price */}
         <div className="flex justify-between items-start gap-3 mb-4">
           <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-gray-900 dark:text-slate-100 text-sm leading-tight line-clamp-2">
+            <h3 className={`font-bold text-sm leading-tight line-clamp-2 ${
+              pkg.seatSisa <= 0
+                ? 'line-through text-red-700 dark:text-red-500 decoration-red-700 dark:decoration-red-500'
+                : 'text-gray-900 dark:text-slate-100'
+            }`}>
               {pkg.nama}
             </h3>
             {pkg.isPromo && (

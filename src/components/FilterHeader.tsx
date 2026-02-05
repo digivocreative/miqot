@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import type { UmrohPackage } from '@/types';
 import { 
   FilterMode, 
@@ -10,7 +10,7 @@ import {
   type MonthGroup,
 } from '@/utils';
 import logoAlhijaz from '@/logo-alhijaz.webp';
-import { Sun, Moon } from 'lucide-react';
+import { Sun, Moon, Search, X, SlidersHorizontal } from 'lucide-react';
 
 // ============================================
 // Types
@@ -35,6 +35,16 @@ export interface FilterHeaderProps {
   isDarkMode: boolean;
   /** Toggle dark mode callback */
   onToggleDarkMode: () => void;
+  /** Search query */
+  searchQuery: string;
+  /** Callback when search query changes */
+  onSearchChange: (query: string) => void;
+  /** Callback to toggle filter modal */
+  onToggleFilter: () => void;
+  /** Whether any filter is active */
+  isFilterActive?: boolean;
+  /** Callback to clear filters */
+  onClearFilter?: () => void;
 }
 
 // Filter mode options for dropdown
@@ -61,36 +71,47 @@ export function FilterHeader({
   onSecondaryValueChange,
   isDarkMode,
   onToggleDarkMode,
+  searchQuery,
+  onSearchChange,
+  onToggleFilter,
+  isFilterActive = false,
+  onClearFilter,
 }: FilterHeaderProps) {
-  // ============================================
-  // Scroll-responsive state
-  // ============================================
+  const inputRef = useRef<HTMLInputElement>(null);
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
-  // Scroll handler
   const handleScroll = useCallback(() => {
     const currentScrollY = window.scrollY;
-    
-    // Always show header at the very top
-    if (currentScrollY <= 50) {
+    const windowHeight = window.innerHeight;
+    const documentHeight = document.documentElement.scrollHeight;
+
+    if (currentScrollY === 0) {
+      // Mentok atas -> muncul
+      setIsVisible(true);
+    } else if (windowHeight + currentScrollY >= documentHeight - 10) {
+      // Mentok bawah (toleransi 10px) -> muncul
       setIsVisible(true);
     } else if (currentScrollY > lastScrollY) {
-      // Scrolling down -> hide header
+      // Scroll ke bawah -> sembunyi
       setIsVisible(false);
     } else {
-      // Scrolling up -> show header
+      // Scroll ke atas -> muncul
       setIsVisible(true);
     }
-    
+
     setLastScrollY(currentScrollY);
   }, [lastScrollY]);
 
-  // Attach scroll listener
   useEffect(() => {
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
+
+  const handleClearSearch = () => {
+    onSearchChange('');
+    inputRef.current?.focus();
+  };
 
   // Extract unique landing cities from packages
   const landingCities = useMemo<LandingCity[]>(() => {
@@ -110,14 +131,15 @@ export function FilterHeader({
     <header 
       className={`
         fixed top-0 left-0 right-0 z-50
-        bg-white dark:bg-slate-900 
-        backdrop-blur-md shadow-sm 
-        border-b border-gray-100 dark:border-slate-800 
+        bg-white/85 dark:bg-slate-900/85
+        backdrop-blur-lg
+        border-b border-gray-200/50 dark:border-slate-700/50
+        supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-slate-900/60
         transition-transform duration-300 ease-in-out
         ${isVisible ? 'translate-y-0' : '-translate-y-full'}
       `}
     >
-      <div className="max-w-lg mx-auto px-4 py-4">
+      <div className="max-w-lg mx-auto px-4 pt-4 pb-4">
         {/* ============================================ */}
         {/* ROW 1: Title & Year Dropdown */}
         {/* ============================================ */}
@@ -140,10 +162,10 @@ export function FilterHeader({
               onClick={onToggleDarkMode}
               className="
                 flex items-center gap-2
-                px-3 py-2 rounded-full 
-                bg-gray-100 text-gray-600
-                hover:bg-gray-200 
-                dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700
+                px-3 py-2 rounded-full
+                bg-gray-100/80 text-gray-600
+                hover:bg-gray-200/80
+                dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700/80
                 transition-all duration-200
                 focus:outline-none focus:ring-2 focus:ring-emerald-500
               "
@@ -164,12 +186,12 @@ export function FilterHeader({
                 appearance-none
                 px-3 py-2 pr-8
                 text-sm font-medium text-gray-700
-                bg-white border border-gray-200
-                dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200
+                bg-gray-100/80 border border-transparent
+                dark:bg-slate-800/80 dark:border-transparent dark:text-slate-200
                 rounded-xl
                 cursor-pointer
-                hover:border-gray-300 dark:hover:border-slate-600
-                focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent
+                hover:bg-gray-200/80 dark:hover:bg-slate-700/80
+                focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:bg-white dark:focus:bg-slate-800
                 transition-all
               "
             >
@@ -210,12 +232,12 @@ export function FilterHeader({
                 w-full appearance-none
                 px-3 py-2.5 pr-8
                 text-sm font-medium text-gray-700
-                bg-white border border-gray-200
-                dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200
+                bg-gray-100/80 border border-transparent
+                dark:bg-slate-800/80 dark:border-transparent dark:text-slate-200
                 rounded-xl
                 cursor-pointer
-                hover:border-gray-300 dark:hover:border-slate-600
-                focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent
+                hover:bg-gray-200/80 dark:hover:bg-slate-700/80
+                focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:bg-white dark:focus:bg-slate-800
                 transition-colors
               "
             >
@@ -245,12 +267,12 @@ export function FilterHeader({
                   w-full appearance-none
                   px-3 py-2.5 pr-8
                   text-sm font-medium text-gray-700
-                  bg-white border border-gray-200
-                  dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200
+                  bg-gray-100/80 border border-transparent
+                  dark:bg-slate-800/80 dark:border-transparent dark:text-slate-200
                   rounded-xl
                   cursor-pointer
-                  hover:border-gray-300 dark:hover:border-slate-600
-                  focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent
+                  hover:bg-gray-200/80 dark:hover:bg-slate-700/80
+                  focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:bg-white dark:focus:bg-slate-800
                   transition-colors
                 "
               >
@@ -282,19 +304,19 @@ export function FilterHeader({
                   w-full appearance-none
                   px-3 py-2.5 pr-8
                   text-sm font-medium text-gray-700
-                  bg-white border border-gray-200
-                  dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200
+                  bg-gray-100/80 border border-transparent
+                  dark:bg-slate-800/80 dark:border-transparent dark:text-slate-200
                   rounded-xl
                   cursor-pointer
-                  hover:border-gray-300 dark:hover:border-slate-600
-                  focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent
+                  hover:bg-gray-200/80 dark:hover:bg-slate-700/80
+                  focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:bg-white dark:focus:bg-slate-800
                   transition-colors
                 "
               >
                 <option value="">- pilih bulan -</option>
                 {monthGroups.map((month) => (
                   <option key={month.monthKey} value={month.monthKey}>
-                    {month.monthName} (Sisa: {month.availableSeat} / Total: {month.totalSeat})
+                    {month.monthName} ({month.availableSeat}/{month.totalSeat})
                   </option>
                 ))}
               </select>
@@ -311,8 +333,79 @@ export function FilterHeader({
         </div>
 
         {/* ============================================ */}
-        {/* ROW 3: Quick Filter Chips */}
+        {/* ROW 3: Search Bar & Filter Button */}
         {/* ============================================ */}
+        <div className="flex items-center gap-2 mt-3">
+          {/* Search Input */}
+          <div className="relative flex-1">
+            <Search
+              size={18}
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 pointer-events-none"
+            />
+            <input
+              ref={inputRef}
+              type="search"
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder="Cari..."
+              className="
+                w-full pl-10 pr-10 py-2.5
+                bg-gray-100/80 dark:bg-slate-800/80
+                border border-transparent
+                rounded-xl
+                text-sm font-medium
+                text-gray-900 dark:text-slate-100
+                placeholder-gray-400 dark:placeholder-slate-500
+                outline-none
+                focus:bg-white dark:focus:bg-slate-800
+                focus:ring-2 focus:ring-emerald-500/50
+                transition-all
+                [&::-webkit-search-cancel-button]:appearance-none
+                [&::-webkit-search-decoration]:appearance-none
+              "
+            />
+            {searchQuery.length > 0 && (
+              <button
+                onClick={handleClearSearch}
+                className="
+                  absolute right-3 top-1/2 -translate-y-1/2
+                  flex items-center justify-center
+                  w-5 h-5 rounded-full
+                  bg-gray-200 dark:bg-slate-600
+                  hover:bg-gray-300 dark:hover:bg-slate-500
+                  text-gray-500 dark:text-slate-300
+                  transition-colors
+                "
+                aria-label="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {/* Filter Button */}
+          <button
+            onClick={onToggleFilter}
+            className={`
+              relative flex items-center justify-center
+              w-11 h-11 shrink-0
+              bg-gray-100/80 dark:bg-slate-800/80
+              border border-transparent
+              text-gray-600 dark:text-slate-300
+              rounded-xl
+              hover:bg-gray-200/80 dark:hover:bg-slate-700/80
+              hover:text-emerald-600 dark:hover:text-emerald-400
+              transition-all duration-200
+              active:scale-95
+            `}
+            aria-label="Filter"
+          >
+            <SlidersHorizontal size={18} />
+            {isFilterActive && (
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full"></span>
+            )}
+          </button>
+        </div>
 
       </div>
     </header>

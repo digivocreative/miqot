@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { PackageCard, FilterHeader, FloatingControls, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
+import { PackageCard, FilterHeader, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
 import { getPackages } from '@/services';
 import { filterPackages, type FilterMode } from '@/utils';
 import type { UmrohPackage } from '@/types';
@@ -260,12 +260,21 @@ function App() {
         onSecondaryValueChange={handleSecondaryValueChange}
         isDarkMode={isDarkMode}
         onToggleDarkMode={toggleDarkMode}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        onToggleFilter={() => setIsFilterModalOpen(true)}
+        isFilterActive={!!quickFilter || departureTimeRanges.length > 0 || returnTimeRanges.length > 0}
+        onClearFilter={() => {
+          setQuickFilter(null);
+          setDepartureTimeRanges([]);
+          setReturnTimeRanges([]);
+        }}
       />
 
       {/* ============================================ */}
       {/* MAIN CONTENT */}
       {/* ============================================ */}
-      <main className="max-w-lg mx-auto px-4 pt-32 pb-24">
+      <main className="max-w-lg mx-auto px-4 pt-48 pb-8">
         {/* Loading State */}
         {loading && (
           <div className="flex flex-col items-center justify-center py-16">
@@ -377,33 +386,8 @@ function App() {
       </main>
 
       {/* ============================================ */}
-      {/* FLOATING CONTROLS & MODALS */}
+      {/* FILTER MODAL */}
       {/* ============================================ */}
-      <FloatingControls
-        value={searchQuery}
-        onChange={setSearchQuery}
-        placeholder="Cari..."
-        onToggleFilter={() => {
-          // Open filter modal
-          setIsFilterModalOpen(true);
-        }}
-        isFilterActive={!!quickFilter || departureTimeRanges.length > 0 || returnTimeRanges.length > 0}
-        activeFilterLabel={quickFilter ? (() => {
-          switch(quickFilter) {
-            case 'promo': return 'Promo Spesial';
-            case 'urgent': return 'Urgent';
-            case 'termurah': return 'Termurah';
-            case 'rahmah': return 'Rahmah';
-            default: return null;
-          }
-        })() : (departureTimeRanges.length > 0 || returnTimeRanges.length > 0) ? `Waktu: ${departureTimeRanges.length + returnTimeRanges.length} terpilih` : null}
-        onClearFilter={() => {
-          setQuickFilter(null);
-          setDepartureTimeRanges([]);
-          setReturnTimeRanges([]);
-        }}
-      />
-
       <FilterModal
         isOpen={isFilterModalOpen}
         onClose={() => setIsFilterModalOpen(false)}
