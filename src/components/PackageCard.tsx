@@ -431,6 +431,29 @@ _________________________
                element.style.setProperty('color', '#1f2937', 'important');
            });
            
+           // D. NEUTRALIZE BADGES (Hapus style merah di PROMO)
+           const allSpans = clonedCard.querySelectorAll('span');
+           allSpans.forEach(span => {
+              const el = span as HTMLElement;
+              const text = el.textContent?.trim().toUpperCase() || '';
+              
+              // Strict check: Hanya target badge yang ISINYA "PROMO"
+              if (text === 'PROMO') {
+                  // 1. Remove Tailwind Classes
+                  el.classList.remove('bg-red-100', 'text-red-600', 'px-2', 'py-0.5', 'rounded', 'inline-block', 'mt-1');
+                  
+                  // 2. Force Inline Styles
+                  el.style.setProperty('background-color', 'transparent', 'important');
+                  el.style.setProperty('color', '#1f2937', 'important');
+                  el.style.setProperty('border', 'none', 'important');
+                  el.style.setProperty('padding', '0', 'important');
+                  el.style.setProperty('margin', '0', 'important');
+                  el.style.setProperty('font-weight', 'bold', 'important');
+                  el.style.setProperty('display', 'inline', 'important');
+                  el.style.setProperty('box-shadow', 'none', 'important');
+              }
+           });
+           
            // D. FINAL TOUCHES
            clonedCard.style.height = 'auto';
            clonedCard.style.padding = '24px';
