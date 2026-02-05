@@ -323,82 +323,81 @@ _________________________
   };
 
   // Handle Screenshot & Share
-  const handleScreenshot = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!cardRef.current || isCapturing) return;
-
+  const handleScreenshot = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!cardRef.current) return;
     setIsCapturing(true);
 
     try {
+      // Kita gunakan konfigurasi agresif untuk styling
       const canvas = await html2canvas(cardRef.current, {
         useCORS: true,
-        scale: 3,
+        scale: 2, // Resolusi cukup tajam (jangan terlalu besar agar tidak berat)
         backgroundColor: '#ffffff',
-
-        // Fix scrolling agar tidak kepotong
+        
+        // Reset Scroll agar tidak ada yang kepotong di atas
         scrollX: 0,
         scrollY: -window.scrollY,
         windowWidth: document.documentElement.offsetWidth,
         windowHeight: document.documentElement.offsetHeight,
 
-        // Manipulasi tampilan di cloned DOM
+        // --- INTI PERBAIKAN DI SINI ---
         onclone: (clonedDoc) => {
           const cardElement = clonedDoc.querySelector('[data-card-ref="true"]') as HTMLElement;
+          
+          // 1. HIDE SEAT SECTION (Tetap dijalankan)
+          const seatSection = clonedDoc.querySelector('.seat-info-section') as HTMLElement;
+          if (seatSection) {
+            seatSection.style.display = 'none';
+          }
 
           if (cardElement) {
-            // 1. Container sizing
-            const TARGET_WIDTH = '560px';
+            // 2. SET FIXED WIDTH (Poster Size)
+            // Kita set lebar fix, tapi biarkan tingginya otomatis
+            const TARGET_WIDTH = '550px';
+            
             cardElement.style.width = TARGET_WIDTH;
             cardElement.style.minWidth = TARGET_WIDTH;
             cardElement.style.maxWidth = TARGET_WIDTH;
+            
+            // Reset layout container utama
             cardElement.style.height = 'auto';
-            cardElement.style.maxHeight = 'none';
-            cardElement.style.overflow = 'visible';
-            cardElement.style.padding = '10px';
+            cardElement.style.position = 'relative';
             cardElement.style.margin = '0';
+            cardElement.style.padding = '24px'; 
             cardElement.style.boxSizing = 'border-box';
-            cardElement.style.backgroundColor = '#ffffff';
             cardElement.style.borderRadius = '0';
-            cardElement.style.boxShadow = 'none';
+            cardElement.style.backgroundColor = '#ffffff';
 
-            // 2. Fix expanded view container (hapus maxHeight & overflow clip)
-            cardElement.querySelectorAll('div').forEach((div) => {
-              const el = div as HTMLElement;
-              if (el.style.maxHeight) {
-                el.style.maxHeight = 'none';
-                el.style.overflow = 'visible';
-                el.style.opacity = '1';
-              }
-            });
-
-            // 3. Force text wrapping (hanya elemen teks, bukan SVG)
-            cardElement.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, a, li, td, th').forEach((el) => {
+            // 3. FIX TEKS TERPOTONG (Hanya Target Elemen Teks)
+            // Jangan select '*' (semua), tapi spesifik ke elemen teks saja
+            const textElements = cardElement.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, li');
+            
+            textElements.forEach((el) => {
               const element = el as HTMLElement;
-              element.style.whiteSpace = 'normal';
+              // Paksa teks turun baris, tapi JANGAN ubah display property-nya
+              element.style.whiteSpace = 'normal'; 
+              element.style.wordWrap = 'break-word';
               element.style.overflow = 'visible';
               element.style.textOverflow = 'clip';
-              element.style.maxWidth = '100%';
+              
+              // Hapus line-clamp jika ada
+              element.style.webkitLineClamp = 'unset';
             });
 
-            // 4. Nama hotel panjang: line-clamp 1 baris dengan ellipsis
-            cardElement.querySelectorAll('p.line-clamp-1').forEach((el) => {
-              const element = el as HTMLElement;
-              element.style.display = '-webkit-box';
-              element.style.webkitLineClamp = '1';
-              element.style.webkitBoxOrient = 'vertical';
-              element.style.overflow = 'hidden';
-              element.style.textOverflow = 'ellipsis';
-              element.style.whiteSpace = 'normal';
+            // 4. FIX IMAGE SQUASHING
+            const images = cardElement.querySelectorAll('img');
+            images.forEach((img) => {
+                (img as HTMLElement).style.maxWidth = '100%';
+                (img as HTMLElement).style.height = 'auto';
+                // Pastikan image tidak dipaksa block jika dia inline
+                (img as HTMLElement).style.display = ''; 
             });
           }
-
-          // 4. Hapus semua seat section dari kloningan
-          clonedDoc.querySelectorAll('.seat-info-section').forEach((el) => {
-            el.remove();
-          });
-        },
+        }
       });
 
+      // ... (Kode untuk convert canvas ke Blob/Share Image sama seperti sebelumnya) ...
       const blob = await new Promise<Blob | null>((resolve) => {
         canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.95);
       });
@@ -429,8 +428,9 @@ _________________________
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
       }
+
     } catch (error) {
-      console.error('Screenshot failed:', error);
+      console.error("Gagal generate screenshot:", error);
     } finally {
       setIsCapturing(false);
     }
