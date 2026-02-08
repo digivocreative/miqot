@@ -616,7 +616,7 @@ _________________________
         zIndex: '-9999',
         opacity: '1',
         pointerEvents: 'none',
-        backgroundColor: '#ffffff',
+        background: 'linear-gradient(180deg, rgba(255, 255, 255, 1) 12%, rgba(245, 131, 0, 1) 40%, rgba(255, 10, 10, 1) 71%, rgba(176, 0, 0, 1) 100%)',
         padding: '20px',
         fontFamily: "'Inter', Arial, Helvetica, sans-serif",
         boxSizing: 'border-box',
