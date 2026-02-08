@@ -3,6 +3,7 @@ import { PackageCard, FilterHeader, FilterModal, type QuickFilterType, type Time
 import { getPackages } from '@/services';
 import { filterPackages, type FilterMode } from '@/utils';
 import type { UmrohPackage } from '@/types';
+import { AGENTS_DATA } from '@/data/agents';
 
 // ============================================
 // Main App Component
@@ -50,6 +51,26 @@ function App() {
     }
     localStorage.setItem('darkMode', isDarkMode.toString());
   }, [isDarkMode]);
+
+  // Dynamic SEO: Update title & description based on agent slug
+  useEffect(() => {
+    const slug = window.location.pathname.replace(/^\/+/, '').split('/')[0];
+    const agent = AGENTS_DATA[slug?.toLowerCase()];
+
+    if (agent) {
+      document.title = `Jadwal Umroh Alhijaz | ${agent.name}`;
+      const metaDesc = document.querySelector('meta[name="description"]');
+      if (metaDesc) {
+        metaDesc.setAttribute('content', `Dapatkan info lengkap paket umrah Alhijaz Indowisata bersama ${agent.name}. Klik untuk konsultasi via WhatsApp.`);
+      }
+    } else {
+      document.title = 'Jadwal Umroh - Alhijaz Indowisata';
+      const metaDesc = document.querySelector('meta[name="description"]');
+      if (metaDesc) {
+        metaDesc.setAttribute('content', 'Cek jadwal dan harga paket Umroh Alhijaz Indowisata');
+      }
+    }
+  }, []);
 
   const toggleDarkMode = () => {
     setIsDarkMode(prev => !prev);
