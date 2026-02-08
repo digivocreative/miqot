@@ -30,23 +30,10 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
   const [isSharing, setIsSharing] = useState(false);
   const [isPdfLoading, setIsPdfLoading] = useState(true);
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'unknown'>('unknown');
-  const [useFallbackViewer, setUseFallbackViewer] = useState(false);
-
-  const isDev = import.meta.env.DEV;
-
-  // Original HTTPS URL (for fallback / share open)
+  // Always use proxy path: Vite proxy in dev, Cloudflare Pages Function in prod
   const originalUrl = fileUrl ? fileUrl.replace(/^http:\/\//i, 'https://') : '';
-
-  // In dev: Vite proxy path. In prod: original URL for react-pdf (may need fallback)
   const proxyUrl = originalUrl
-    ? (isDev
-        ? originalUrl.replace(/^https?:\/\/jadwal\.miqot\.com/i, '')
-        : originalUrl)
-    : '';
-
-  // Google Docs Viewer URL (CORS-free PDF viewing for production)
-  const googleViewerUrl = originalUrl
-    ? `https://docs.google.com/gview?url=${encodeURIComponent(originalUrl)}&embedded=true`
+    ? originalUrl.replace(/^https?:\/\/jadwal\.miqot\.com/i, '')
     : '';
 
   // Determine file type
@@ -65,7 +52,6 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     if (isOpen) {
       setIsPdfLoading(true);
       setNumPages(null);
-      setUseFallbackViewer(false);
     }
   }, [isOpen, fileUrl]);
 
@@ -75,10 +61,9 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     setIsPdfLoading(false);
   }
 
-  // PDF load error → switch to Google Docs Viewer
-  function onDocumentLoadError() {
-    console.warn('react-pdf failed (likely CORS), switching to Google Docs Viewer');
-    setUseFallbackViewer(true);
+  // PDF load error handler
+  function onDocumentLoadError(error: Error) {
+    console.error('react-pdf load error:', error);
     setIsPdfLoading(false);
   }
 
@@ -88,9 +73,8 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     setIsSharing(true);
 
     try {
-      // Fetch file as blob (via proxy in dev, direct in prod)
-      const fetchUrl = isDev ? proxyUrl : originalUrl;
-      const response = await fetch(fetchUrl, { cache: 'no-cache' });
+      // Fetch file as blob via proxy (Vite in dev, CF Function in prod)
+      const response = await fetch(proxyUrl, { cache: 'no-cache' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
 
@@ -176,20 +160,8 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
           </div>
         )}
 
-        {/* Google Docs Viewer Fallback (when react-pdf fails due to CORS) */}
-        {proxyUrl && fileType === 'pdf' && useFallbackViewer && (
-          <div className="w-full h-full min-h-[70vh] relative">
-            <iframe
-              src={googleViewerUrl}
-              className="w-full h-full min-h-[70vh] border-0 rounded-xl shadow-lg bg-white"
-              title={`Itinerary ${title}`}
-              onLoad={() => setIsPdfLoading(false)}
-            />
-          </div>
-        )}
-
-        {/* PDF Renderer via react-pdf (primary, works in dev & CORS-enabled prod) */}
-        {proxyUrl && fileType === 'pdf' && !useFallbackViewer && (
+        {/* PDF Renderer via react-pdf */}
+        {proxyUrl && fileType === 'pdf' && (
           <div className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[50vh] flex flex-col items-center justify-center relative">
             <Document
               file={proxyUrl}

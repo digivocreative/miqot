@@ -24,11 +24,9 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
 
-  // In dev: use Vite proxy path. In prod: use original URL directly.
+  // Always use proxy path: Vite proxy in dev, Cloudflare Pages Function in prod
   const displayUrl = imageUrl
-    ? (import.meta.env.DEV
-        ? imageUrl.replace(/^https?:\/\/jadwal\.miqot\.com/i, '')
-        : imageUrl.replace(/^http:\/\//i, 'https://'))
+    ? imageUrl.replace(/^https?:\/\/jadwal\.miqot\.com/i, '')
     : '';
 
   // Share First, Download Fallback handler
