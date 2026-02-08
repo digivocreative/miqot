@@ -24,10 +24,11 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
 
-  // Convert full URL to local proxy path to bypass CORS
-  // e.g. "https://jadwal.miqot.com/brosur/xyz" → "/brosur/xyz"
+  // In dev: strip origin for Vite proxy. In prod: use original URL directly.
   const proxyUrl = imageUrl
-    ? imageUrl.replace(/^https?:\/\/jadwal\.miqot\.com/i, '')
+    ? (import.meta.env.DEV
+        ? imageUrl.replace(/^https?:\/\/jadwal\.miqot\.com/i, '')
+        : imageUrl)
     : '';
 
   // Share First, Download Fallback handler

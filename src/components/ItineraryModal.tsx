@@ -31,11 +31,12 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
   const [isPdfLoading, setIsPdfLoading] = useState(true);
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'unknown'>('unknown');
 
-  // Convert full URL to local proxy path to bypass CORS
-  // e.g. "https://jadwal.miqot.com/itinerary/xyz" → "/itinerary/xyz"
+  // In dev: strip origin for Vite proxy. In prod: use original URL directly.
   const originalUrl = fileUrl ? fileUrl.replace(/^http:\/\//i, 'https://') : '';
   const proxyUrl = originalUrl
-    ? originalUrl.replace(/^https?:\/\/jadwal\.miqot\.com/i, '')
+    ? (import.meta.env.DEV
+        ? originalUrl.replace(/^https?:\/\/jadwal\.miqot\.com/i, '')
+        : originalUrl)
     : '';
 
   // Determine file type
