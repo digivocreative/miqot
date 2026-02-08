@@ -3,12 +3,13 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2 } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import { domToPng } from 'modern-screenshot';
 import { UmrohPackage, RoomPricing } from '@/types';
 import { BrochureModal } from './BrochureModal';
 import { ItineraryModal } from './ItineraryModal';
 import type { AgentData } from '@/data/agents';
 import AgentProfile from './AgentProfile';
+import logoAlhijaz from '@/logo-alhijaz.webp';
 
 interface PackageCardProps {
   package: UmrohPackage;
@@ -367,200 +368,381 @@ _________________________
 
       await Promise.allSettled(imagePromises);
 
-      // 3. RENDER HTML2CANVAS (SMART STYLING)
-      const canvas = await html2canvas(clone, {
-        useCORS: true,
-        scale: 2, 
-        backgroundColor: '#ffffff',
-        logging: false,
-        onclone: (doc) => {
-           // Ambil clone kita dengan selector aman
-           const clonedCard = doc.querySelector('[data-cloned="true"]') as HTMLElement;
-           if (!clonedCard) return;
+      // 3. DOM MANIPULATION (langsung di ghost clone, sebelum render)
 
-           // A. FORCE LIGHT MODE GLOBAL (Di dalam iframe html2canvas)
-           doc.documentElement.classList.remove('dark');
-           clonedCard.classList.remove('dark');
-           
-           // B. HIDE SEAT SECTION (Metode Berlapis)
-           // Cara 1: Class Selector
-           const seatByClass = clonedCard.querySelector('.seat-info-section');
-           if (seatByClass) seatByClass.remove();
+      // A. FORCE LIGHT MODE
+      clone.classList.remove('dark');
 
-           // Cara 2: Text Search Fallback
-           const allDivs = clonedCard.querySelectorAll('div');
-           allDivs.forEach(div => {
-              // Hindari menghapus container utama
-              if (div.getAttribute('data-cloned') === 'true') return;
-              if (div.contains(clonedCard)) return; // Jangan hapus parent
+      // B. HIDE SEAT SECTION (Metode Berlapis)
+      const seatByClass = clone.querySelector('.seat-info-section');
+      if (seatByClass) seatByClass.remove();
 
-              const text = div.innerText || "";
-              // Jika ketemu kata kunci spesifik progress bar
-              if (text.includes("SISA") && text.includes("DARI") && text.includes("%")) {
-                  div.style.display = 'none';
-              }
-           });
-
-           // C. SMART TEXT WRAPPING (Hanya Text, Jangan Container)
-           const textTags = clonedCard.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, li');
-           
-           textTags.forEach((el) => {
-               const element = el as HTMLElement;
-               
-               // Reset aturan pemotongan teks
-               element.style.whiteSpace = 'normal'; 
-               element.style.overflow = 'visible';
-               element.style.textOverflow = 'clip';
-               element.style.webkitLineClamp = 'unset'; // Hapus line-clamp
-               
-               // JANGAN ubah display property! Biarkan flex item tetap flex item.
-               
-               // Fix warna text (force dark gray/black)
-               // Set priority !important agar tidak tertimpa class tailwind
-               element.style.setProperty('color', '#1f2937', 'important');
-           });
-           
-           // D. NEUTRALIZE BADGES (Hapus style merah di PROMO)
-           const allSpans = clonedCard.querySelectorAll('span');
-           allSpans.forEach(span => {
-              const el = span as HTMLElement;
-              const text = el.textContent?.trim().toUpperCase() || '';
-              
-              // Strict check: Hanya target badge yang ISINYA "PROMO"
-              if (text === 'PROMO') {
-                  // 1. Remove Tailwind Classes
-                  el.classList.remove('bg-red-100', 'text-red-600', 'px-2', 'py-0.5', 'rounded', 'inline-block', 'mt-1');
-                  
-                  // 2. Force Inline Styles
-                  el.style.setProperty('background-color', 'transparent', 'important');
-                  el.style.setProperty('color', '#1f2937', 'important');
-                  el.style.setProperty('border', 'none', 'important');
-                  el.style.setProperty('padding', '0', 'important');
-                  el.style.setProperty('margin', '0', 'important');
-                  el.style.setProperty('font-weight', 'bold', 'important');
-                  el.style.setProperty('display', 'inline', 'important');
-                  el.style.setProperty('box-shadow', 'none', 'important');
-              }
-           });
-           
-           // E. INJECT AGENT FOOTER (Precision Fix)
-           const savedProfile = localStorage.getItem('agentProfile');
-           if (savedProfile) {
-             try {
-               const agentData = JSON.parse(savedProfile);
-               if (agentData.name || agentData.phone) {
-
-                 // 1. Footer Container
-                 const footer = doc.createElement('div');
-                 Object.assign(footer.style, {
-                   marginTop: '0',
-                   padding: '14px 20px',
-                   backgroundColor: '#F9FAFB',
-                   borderTop: '1px solid #E5E7EB',
-                   display: 'flex',
-                   justifyContent: 'space-between',
-                   alignItems: 'center',
-                   fontFamily: 'Arial, Helvetica, sans-serif',
-                 });
-
-                 // 2. Kolom Kiri: Nama & Website
-                 const leftCol = doc.createElement('div');
-                 leftCol.style.display = 'flex';
-                 leftCol.style.flexDirection = 'column';
-                 leftCol.style.justifyContent = 'center';
-
-                 const nameHtml = `<div style="font-weight: 700; font-size: 14px; color: #111827; margin-bottom: 3px; line-height: 1.2;">${agentData.name || ''}</div>`;
-                 const cleanWeb = agentData.website ? agentData.website.replace(/\s/g, '') : '';
-                 const webHtml = cleanWeb
-                   ? `<div style="font-size: 11px; color: #6B7280; font-weight: 400; line-height: 1.2; white-space: nowrap;">${cleanWeb}</div>`
-                   : '';
-                 leftCol.innerHTML = nameHtml + webHtml;
-
-                 // 3. Kolom Kanan: WhatsApp Badge (Uneven Padding Fix)
-                 const rightCol = doc.createElement('div');
-                 if (agentData.phone) {
-                   Object.assign(rightCol.style, {
-                     backgroundColor: '#DCFCE7',
-                     color: '#15803d',
-                     padding: '6px 14px 8px 14px',
-                     borderRadius: '100px',
-                     display: 'flex',
-                     alignItems: 'center',
-                     justifyContent: 'center',
-                     gap: '8px',
-                     lineHeight: '0',
-                   });
-
-                   const waIcon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block; flex-shrink: 0;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.008-.57-.008-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" fill="#15803d"/></svg>`;
-                   const waText = `<span style="font-family: Arial, sans-serif; font-weight: 700; font-size: 13px; line-height: 1; display: inline-block;">${agentData.phone}</span>`;
-                   rightCol.innerHTML = waIcon + waText;
-                 }
-
-                 footer.appendChild(leftCol);
-                 footer.appendChild(rightCol);
-                 clonedCard.appendChild(footer);
-
-                 clonedCard.style.borderBottomLeftRadius = '0';
-                 clonedCard.style.borderBottomRightRadius = '0';
-                 clonedCard.style.overflow = 'hidden';
-               }
-             } catch { /* ignore invalid JSON */ }
-           }
-
-           // F. SWAP AGENT PROFILE "Chat" → PHONE NUMBER
-           if (currentAgent) {
-             // Find the Chat link inside the agent profile section
-             const agentLinks = clonedCard.querySelectorAll('a');
-             agentLinks.forEach(link => {
-               const chatSpan = link.querySelector('span');
-               if (chatSpan && chatSpan.textContent?.trim() === 'Chat') {
-                 // Create a static div with the phone number
-                 const phoneDiv = doc.createElement('div');
-                 Object.assign(phoneDiv.style, {
-                   flexShrink: '0',
-                   backgroundColor: '#10b981',
-                   color: '#ffffff',
-                   paddingLeft: '12px',
-                   paddingRight: '16px',
-                   paddingTop: '8px',
-                   paddingBottom: '8px',
-                   borderRadius: '9999px',
-                   display: 'flex',
-                   alignItems: 'center',
-                   gap: '6px',
-                 });
-
-                 // Format phone: 628xxx → +62 8xxx
-                 const rawPhone = currentAgent.phone.replace(/\D/g, '');
-                 const formatted = rawPhone.startsWith('62')
-                   ? `+62 ${rawPhone.slice(2)}`
-                   : currentAgent.phone;
-
-                 phoneDiv.innerHTML = `
-                   <svg style="width:16px;height:16px;fill:white;flex-shrink:0;" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                     <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                   </svg>
-                   <span style="font-size:12px;font-weight:700;letter-spacing:0.025em;color:white;">${formatted}</span>
-                 `;
-
-                 link.replaceWith(phoneDiv);
-               }
-             });
-           }
-
-           // G. FINAL TOUCHES
-           clonedCard.style.height = 'auto';
-           clonedCard.style.padding = '24px';
-           clonedCard.style.borderRadius = '0';
-           clonedCard.style.boxShadow = 'none';
+      // Cara 2: Text Search Fallback
+      const allDivs = clone.querySelectorAll('div');
+      allDivs.forEach(div => {
+        if (div.getAttribute('data-cloned') === 'true') return;
+        if (div.contains(clone)) return;
+        const text = (div as HTMLElement).innerText || "";
+        if (text.includes("SISA") && text.includes("DARI") && text.includes("%")) {
+          (div as HTMLElement).style.display = 'none';
         }
       });
 
-      // Cleanup
-      document.body.removeChild(clone);
+      // Remove elements marked for screenshot exclusion (juga dihandle oleh filter di bawah)
+      clone.querySelectorAll('[data-screenshot-ignore]').forEach(el => el.remove());
 
-      // 4. SHOW FULL SCREEN PREVIEW
-      const imageDataUrl = canvas.toDataURL("image/png");
+      // C. SNAPSHOT STYLE INJECTION
+      // Inject a <style> tag into the clone with snapshot-specific CSS overrides
+      // This fixes overlapping text, spacing, and alignment WITHOUT touching the live UI
+      const snapshotStyle = document.createElement('style');
+      snapshotStyle.textContent = `
+        /* === GLOBAL SNAPSHOT OVERRIDES === */
+        [data-cloned="true"] {
+          font-family: 'Inter', Arial, Helvetica, sans-serif !important;
+        }
+
+        /* Slightly reduce font-size to prevent edge-case wrapping */
+        [data-cloned="true"] p,
+        [data-cloned="true"] span {
+          font-size-adjust: inherit;
+        }
+
+        /* === FIX 1: TEXT OVERLAPPING === */
+        /* Flight info: times, codes, routes — harus satu baris */
+        [data-cloned="true"] .grid-cols-2 p,
+        [data-cloned="true"] .grid-cols-2 span {
+          white-space: nowrap !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          display: block !important;
+          line-height: 1.4 !important;
+        }
+
+        /* Flight info container — jangan sampai flex items overlap */
+        [data-cloned="true"] .grid-cols-2 > div {
+          min-width: 0 !important;
+          overflow: hidden !important;
+        }
+
+        /* Flight info icons — tetap fix size */
+        [data-cloned="true"] .grid-cols-2 .w-5 {
+          flex-shrink: 0 !important;
+          width: 20px !important;
+          height: 20px !important;
+        }
+
+        /* Harga header — rata kanan tegas */
+        [data-cloned="true"] .text-right {
+          text-align: right !important;
+          white-space: nowrap !important;
+          flex-shrink: 0 !important;
+        }
+
+        /* Harga utama — nowrap agar "Rp X.X Jt" tidak pecah */
+        [data-cloned="true"] .text-right p {
+          white-space: nowrap !important;
+          line-height: 1.3 !important;
+        }
+
+        /* Package title — biarkan wrap (line-clamp-2) */
+        [data-cloned="true"] h3 {
+          white-space: normal !important;
+          overflow: visible !important;
+          -webkit-line-clamp: unset !important;
+          line-height: 1.35 !important;
+        }
+
+        /* === FIX 2: SPACING === */
+        /* Grid containers — tambah gap */
+        [data-cloned="true"] .grid {
+          gap: 14px !important;
+        }
+
+        /* Section margins — beri napas */
+        [data-cloned="true"] .mb-3 { margin-bottom: 14px !important; }
+        [data-cloned="true"] .mb-2 { margin-bottom: 12px !important; }
+        [data-cloned="true"] .mb-4 { margin-bottom: 18px !important; }
+        [data-cloned="true"] .gap-3 { gap: 14px !important; }
+        [data-cloned="true"] .gap-2 { gap: 10px !important; }
+
+        /* === FIX 3: ALIGNMENT === */
+        /* Flex row: title + price — aligned properly */
+        [data-cloned="true"] .flex.justify-between {
+          display: flex !important;
+          align-items: flex-start !important;
+        }
+
+        /* Price column — shrink-proof */
+        [data-cloned="true"] .flex.justify-between > .text-right {
+          flex-shrink: 0 !important;
+          min-width: 90px !important;
+        }
+
+        /* Hotel names - truncate if too long */
+        [data-cloned="true"] .line-clamp-1 {
+          white-space: nowrap !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          -webkit-line-clamp: unset !important;
+          display: block !important;
+        }
+
+        /* Agent profile section — keep inline */
+        [data-cloned="true"] h4,
+        [data-cloned="true"] .truncate {
+          white-space: nowrap !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+        }
+
+        /* Pricing table inside expanded card */
+        [data-cloned="true"] table td,
+        [data-cloned="true"] table th {
+          white-space: nowrap !important;
+          padding: 6px 10px !important;
+        }
+        [data-cloned="true"] table .text-right {
+          text-align: right !important;
+        }
+      `;
+      clone.appendChild(snapshotStyle);
+
+      // Targeted inline fixes for text color (force light mode colors)
+      const textTags = clone.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, li, td, th');
+      textTags.forEach((el) => {
+        const element = el as HTMLElement;
+        // Only fix color, do NOT touch white-space/overflow here (handled by <style>)
+        element.style.setProperty('color', '#1f2937', 'important');
+      });
+
+      // Fix: ensure all flex containers maintain their flex direction
+      const flexContainers = clone.querySelectorAll('.flex');
+      flexContainers.forEach((el) => {
+        const element = el as HTMLElement;
+        const computed = window.getComputedStyle(element);
+        // Preserve computed flex properties as inline styles for the screenshot
+        element.style.display = 'flex';
+        element.style.flexDirection = computed.flexDirection;
+        element.style.alignItems = computed.alignItems;
+        element.style.justifyContent = computed.justifyContent;
+        if (computed.gap && computed.gap !== 'normal') {
+          element.style.gap = computed.gap;
+        }
+      });
+
+      // Fix: ensure grid containers maintain their layout
+      const gridContainers = clone.querySelectorAll('.grid');
+      gridContainers.forEach((el) => {
+        const element = el as HTMLElement;
+        const computed = window.getComputedStyle(element);
+        element.style.display = 'grid';
+        element.style.gridTemplateColumns = computed.gridTemplateColumns;
+      });
+
+      // D. NEUTRALIZE BADGES (Hapus style merah di PROMO)
+      const allSpans = clone.querySelectorAll('span');
+      allSpans.forEach(span => {
+        const el = span as HTMLElement;
+        const text = el.textContent?.trim().toUpperCase() || '';
+        if (text === 'PROMO') {
+          el.classList.remove('bg-red-100', 'text-red-600', 'px-2', 'py-0.5', 'rounded', 'inline-block', 'mt-1');
+          el.style.setProperty('background-color', 'transparent', 'important');
+          el.style.setProperty('color', '#1f2937', 'important');
+          el.style.setProperty('border', 'none', 'important');
+          el.style.setProperty('padding', '0', 'important');
+          el.style.setProperty('margin', '0', 'important');
+          el.style.setProperty('font-weight', 'bold', 'important');
+          el.style.setProperty('display', 'inline', 'important');
+          el.style.setProperty('box-shadow', 'none', 'important');
+        }
+      });
+
+      // E. REMOVE AGENT PROFILE from clone body (moved to header)
+      // Must physically remove — modern-screenshot ignores display:none
+      const agentProfileEl = clone.querySelector('[data-agent-profile]');
+      if (agentProfileEl) {
+        // Remove the wrapper div (px-0) too if it exists
+        const wrapper = agentProfileEl.parentElement;
+        if (wrapper && wrapper !== clone) {
+          wrapper.remove();
+        } else {
+          agentProfileEl.remove();
+        }
+      }
+
+      // F. FINAL CARD TOUCHES
+      clone.style.height = 'auto';
+      clone.style.padding = '0';
+      clone.style.borderRadius = '12px';
+      clone.style.boxShadow = '0 1px 3px rgba(0,0,0,0.08)';
+      clone.style.overflow = 'hidden';
+
+      // G. BUILD OUTER WRAPPER with symmetric padding + header
+      const wrapper = document.createElement('div');
+      Object.assign(wrapper.style, {
+        position: 'fixed',
+        top: '0',
+        left: '0',
+        width: '540px',
+        zIndex: '-9999',
+        opacity: '1',
+        pointerEvents: 'none',
+        backgroundColor: '#ffffff',
+        padding: '20px',
+        fontFamily: "'Inter', Arial, Helvetica, sans-serif",
+        boxSizing: 'border-box',
+      });
+      wrapper.setAttribute('data-cloned', 'true');
+
+      // H. NEW HEADER: Logo (left) + Agent Profile (right)
+      const header = document.createElement('div');
+      Object.assign(header.style, {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '24px',
+        paddingBottom: '20px',
+        borderBottom: '1px solid #E5E7EB',
+      });
+
+      // Left: Logo
+      const logoContainer = document.createElement('div');
+      logoContainer.style.flexShrink = '0';
+      const logoImg = document.createElement('img');
+      logoImg.src = logoAlhijaz;
+      Object.assign(logoImg.style, {
+        height: '36px',
+        width: 'auto',
+        objectFit: 'contain',
+      });
+      logoContainer.appendChild(logoImg);
+
+      // Right: Agent Profile
+      const agentSection = document.createElement('div');
+      Object.assign(agentSection.style, {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+        flexShrink: '0',
+      });
+
+      if (currentAgent) {
+        // Text block (name, website, phone) — right-aligned
+        const textBlock = document.createElement('div');
+        Object.assign(textBlock.style, {
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: '0',
+        });
+
+        const agentName = document.createElement('div');
+        Object.assign(agentName.style, {
+          fontWeight: '700',
+          fontSize: '13px',
+          color: '#111827',
+          lineHeight: '1.3',
+          whiteSpace: 'nowrap',
+        });
+        agentName.textContent = currentAgent.name;
+
+        // Verified badge (blue checkmark)
+        const verifiedBadge = document.createElement('span');
+        verifiedBadge.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;margin-left:4px;flex-shrink:0;"><circle cx="12" cy="12" r="12" fill="#1DA1F2"/><path d="M9.5 12.5L11 14L15 10" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+        // Wrap name + badge in a row
+        const nameRow = document.createElement('div');
+        Object.assign(nameRow.style, {
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: '4px',
+        });
+        nameRow.appendChild(agentName);
+        nameRow.appendChild(verifiedBadge);
+
+        const agentWeb = document.createElement('div');
+        Object.assign(agentWeb.style, {
+          fontSize: '11px',
+          color: '#6B7280',
+          lineHeight: '1.3',
+          whiteSpace: 'nowrap',
+        });
+        agentWeb.textContent = currentAgent.website;
+
+        const rawPhone = currentAgent.phone.replace(/\D/g, '');
+        const formattedPhone = rawPhone.startsWith('62')
+          ? `+62 ${rawPhone.slice(2)}`
+          : currentAgent.phone;
+
+        const agentPhone = document.createElement('div');
+        Object.assign(agentPhone.style, {
+          fontSize: '11px',
+          color: '#374151',
+          fontWeight: '600',
+          lineHeight: '1.3',
+          whiteSpace: 'nowrap',
+        });
+        agentPhone.textContent = formattedPhone;
+
+        textBlock.appendChild(nameRow);
+        textBlock.appendChild(agentWeb);
+        textBlock.appendChild(agentPhone);
+
+        // Avatar
+        const avatar = document.createElement('img');
+        avatar.src = currentAgent.photo;
+        Object.assign(avatar.style, {
+          width: '44px',
+          height: '44px',
+          borderRadius: '50%',
+          objectFit: 'cover',
+          border: '2px solid #E5E7EB',
+          flexShrink: '0',
+        });
+
+        agentSection.appendChild(textBlock);
+        agentSection.appendChild(avatar);
+      }
+
+      header.appendChild(logoContainer);
+      header.appendChild(agentSection);
+
+      // Transfer clone from body to wrapper
+      document.body.removeChild(clone);
+      clone.style.position = 'relative';
+      clone.style.zIndex = 'auto';
+      clone.removeAttribute('data-cloned');
+
+      wrapper.appendChild(header);
+      wrapper.appendChild(clone);
+      document.body.appendChild(wrapper);
+
+      // 4. RENDER WITH MODERN-SCREENSHOT
+
+      // 4a. Pastikan semua font (Inter, dll) sudah terload sempurna
+      await document.fonts.ready;
+
+      // 4b. Beri "napas" agar DOM stabil setelah manipulasi
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // 4c. Render the wrapper (which contains header + clone)
+      const imageDataUrl = await domToPng(wrapper, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        filter: (node: Node) => {
+          if (node instanceof HTMLElement) {
+            if (node.hasAttribute('data-screenshot-ignore')) return false;
+            if (node.hasAttribute('data-agent-profile')) return false;
+          }
+          return true;
+        },
+      });
+
+      // Cleanup
+      document.body.removeChild(wrapper);
+
+      // 5. SHOW FULL SCREEN PREVIEW
       setPreviewImage(imageDataUrl);
 
     } catch (error: any) {
@@ -951,7 +1133,7 @@ _________________________
           )}
 
           {/* ---- Action Buttons (4 columns) ---- */}
-          <div data-html2canvas-ignore className="grid grid-cols-4 gap-2 mt-0 mb-4">
+          <div data-screenshot-ignore className="grid grid-cols-4 gap-2 mt-0 mb-4">
             {pkg.itineraryUrl ? (
               <button
                 type="button"
