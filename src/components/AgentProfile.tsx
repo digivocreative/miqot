@@ -43,8 +43,12 @@ export default function AgentProfile({ agent, packageName = "Umrah Alhijaz", isC
 
         {/* Teks Info */}
         <div className="flex flex-col min-w-0 justify-center">
-          <h4 className="text-[13px] font-bold text-gray-900 dark:text-white truncate leading-tight mb-0.5">
-            {agent.name}
+          <h4 className="text-[13px] font-bold text-gray-900 dark:text-white leading-tight mb-0.5 flex items-center gap-1">
+            <span className="truncate">{agent.name}</span>
+            <svg className="w-[15px] h-[15px] flex-shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="10" fill="#1DA1F2"/>
+              <path d="M9 12l2 2 4-4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </h4>
           {/* Website Tanpa Icon */}
           <span className="text-[11px] text-gray-500 dark:text-slate-400 truncate font-medium">

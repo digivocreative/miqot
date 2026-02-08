@@ -69,8 +69,12 @@ export default function FloatingAgentBar({ agent }: FloatingAgentBarProps) {
 
         {/* Agent Info */}
         <div className="flex flex-col min-w-0">
-          <span className="text-[13px] font-bold text-gray-900 dark:text-white truncate leading-tight">
-            {agent.name}
+          <span className="text-[13px] font-bold text-gray-900 dark:text-white leading-tight flex items-center gap-1">
+            <span className="truncate">{agent.name}</span>
+            <svg className="w-[15px] h-[15px] flex-shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="10" fill="#1DA1F2"/>
+              <path d="M9 12l2 2 4-4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </span>
           <span className="text-[11px] text-gray-500 dark:text-slate-400 truncate font-medium">
             {agent.website}
