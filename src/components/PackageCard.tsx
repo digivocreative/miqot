@@ -606,6 +606,19 @@ _________________________
       clone.style.boxShadow = '0 1px 3px rgba(0,0,0,0.08)';
       clone.style.overflow = 'hidden';
 
+      // F2. Reduce bottom padding below pricing table
+      const contentWrapper = clone.querySelector('.px-4.pb-4') as HTMLElement;
+      if (contentWrapper) {
+        contentWrapper.style.paddingBottom = '8px';
+      }
+      // Remove margin-bottom on pricing div (mb-4)
+      const pricingSection = Array.from(clone.querySelectorAll('h4')).find(
+        h => h.textContent?.includes('Rincian Biaya')
+      )?.closest('.mb-4') as HTMLElement;
+      if (pricingSection) {
+        pricingSection.style.marginBottom = '0';
+      }
+
       // G. BUILD OUTER WRAPPER with symmetric padding + header
       const wrapper = document.createElement('div');
       Object.assign(wrapper.style, {
