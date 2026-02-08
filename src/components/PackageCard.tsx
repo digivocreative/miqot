@@ -660,6 +660,26 @@ _________________________
         });
       });
 
+      // D1e. STYLE HOTEL NAMES (red-orange gradient) + STARS (bright gold)
+      // Hotel names are the <p> with hotel name text (font-medium, line-clamp-1)
+      clone.querySelectorAll('p').forEach(p => {
+        const el = p as HTMLElement;
+        if (el.classList.contains('line-clamp-1') && el.classList.contains('font-medium')) {
+          el.style.setProperty('background', 'linear-gradient(90deg, rgba(122, 10, 10, 1) 0%, rgba(194, 12, 12, 1) 30%, rgba(122, 10, 10, 1) 100%)', 'important');
+          el.style.setProperty('-webkit-background-clip', 'text', 'important');
+          el.style.setProperty('-webkit-text-fill-color', 'transparent', 'important');
+          el.style.setProperty('background-clip', 'text', 'important');
+          el.style.setProperty('font-weight', '700', 'important');
+        }
+      });
+      // Star icons (★) — bright gold
+      clone.querySelectorAll('span').forEach(span => {
+        const el = span as HTMLElement;
+        if (el.textContent?.trim() === '★') {
+          el.style.setProperty('color', '#E8A200', 'important');
+        }
+      });
+
       // D2. FLIGHT INFO: Remove "/" separators and bold dates
       const flightInfoRows = clone.querySelectorAll('p');
       flightInfoRows.forEach(p => {
@@ -672,10 +692,36 @@ _________________________
             el.remove();
             return;
           }
-          // Bold date spans (format: "20 Jun 26", "28 Jun 26", etc.)
+          // Reformat date spans (format: "20 Jun 26", "28 Jun 26", etc.)
           if (text && /^\d{1,2}\s+\w{3}\s+\d{2,4}$/.test(text)) {
             el.style.setProperty('font-weight', '700', 'important');
             el.style.setProperty('color', '#111827', 'important');
+
+            // Parse and Reformat to Full Indonesian
+            const parts = text.split(/\s+/);
+            if (parts.length === 3) {
+              const [day, monthShort, yearShort] = parts;
+              const monthsMap: Record<string, string> = {
+                'Jan': 'Januari', 'Feb': 'Februari', 'Mar': 'Maret',
+                'Apr': 'April', 'Mei': 'Mei', 'Jun': 'Juni',
+                'Jul': 'Juli', 'Agu': 'Agustus', 'Sep': 'Sep',
+                'Okt': 'Okt', 'Nov': 'Nov', 'Des': 'Des'
+              };
+              const monthIndexMap: Record<string, number> = {
+                'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'Mei': 4, 'Jun': 5,
+                'Jul': 6, 'Agu': 7, 'Sep': 8, 'Okt': 9, 'Nov': 10, 'Des': 11
+              };
+              const daysMap = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+              
+              const monthFull = monthsMap[monthShort] || monthShort;
+              const yearFull = yearShort.length === 2 ? `20${yearShort}` : yearShort;
+              
+              // Calculate Day of Week
+              const d = new Date(parseInt(yearFull), monthIndexMap[monthShort] ?? 0, parseInt(day));
+              const dayName = daysMap[d.getDay()];
+              
+              el.textContent = `${dayName}, ${day} ${monthFull} ${yearFull}`;
+            }
           }
           // Force (+1) to stay inline with flight time
           if (text === '(+1)') {

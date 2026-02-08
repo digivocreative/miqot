@@ -109,6 +109,12 @@ export const AGENTS_DATA: Record<string, AgentData> = {
     phone: '6282112094089',
     photo: '/agents/linda.jpg',
   },
+  'nina': {
+    name: 'Nina Nasution',
+    website: 'alhijazumrahtours.com',
+    phone: '6285943191075',
+    photo: '/agents/nina.jpg',
+  },
   'sari': {
     name: 'Sari Rohayati',
     website: 'miqot.com/sari',
