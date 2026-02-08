@@ -685,6 +685,7 @@ _________________________
           color: '#111827',
           lineHeight: '1.3',
           whiteSpace: 'nowrap',
+          textAlign: 'right',
         });
         agentName.textContent = currentAgent.name;
 
@@ -694,6 +695,7 @@ _________________________
           color: '#6B7280',
           lineHeight: '1.3',
           whiteSpace: 'nowrap',
+          textAlign: 'right',
         });
         agentWeb.textContent = currentAgent.website;
 
@@ -709,6 +711,7 @@ _________________________
           fontWeight: '600',
           lineHeight: '1.3',
           whiteSpace: 'nowrap',
+          textAlign: 'right',
         });
         agentPhone.textContent = formattedPhone;
 
