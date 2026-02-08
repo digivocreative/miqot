@@ -13,6 +13,9 @@ import AgentProfile from './AgentProfile';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { getDistance } from '@/data/hotelService';
 
+// Cache for base64-encoded Inter font CSS (populated on first screenshot)
+let cachedInterFontCSS: string | null = null;
+
 interface PackageCardProps {
   package: UmrohPackage;
   /** Control expansion from parent */
@@ -403,37 +406,33 @@ _________________________
       // C. SNAPSHOT STYLE INJECTION
       // Inject a <style> tag into the clone with snapshot-specific CSS overrides
       // This fixes overlapping text, spacing, and alignment WITHOUT touching the live UI
-      // Font CSS for consistent cross-device rendering
-      const interFontCSS = `
-        @font-face {
-          font-family: 'Inter';
-          font-style: normal;
-          font-weight: 400;
-          font-display: swap;
-          src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZ9hiA.woff2) format('woff2');
-        }
-        @font-face {
-          font-family: 'Inter';
-          font-style: normal;
-          font-weight: 500;
-          font-display: swap;
-          src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuI6fAZ9hiA.woff2) format('woff2');
-        }
-        @font-face {
-          font-family: 'Inter';
-          font-style: normal;
-          font-weight: 600;
-          font-display: swap;
-          src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYAZ9hiA.woff2) format('woff2');
-        }
-        @font-face {
-          font-family: 'Inter';
-          font-style: normal;
-          font-weight: 700;
-          font-display: swap;
-          src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuFuYAZ9hiA.woff2) format('woff2');
-        }
-      `;
+
+      // Font CSS: fetch Inter woff2 and embed as base64 data URI for consistent cross-device rendering
+      if (!cachedInterFontCSS) {
+        const fontUrls = [
+          { weight: 400, url: 'https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZ9hiA.woff2' },
+          { weight: 600, url: 'https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYAZ9hiA.woff2' },
+          { weight: 700, url: 'https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuFuYAZ9hiA.woff2' },
+        ];
+        const fontFaces = await Promise.all(
+          fontUrls.map(async ({ weight, url }) => {
+            try {
+              const resp = await fetch(url);
+              const blob = await resp.blob();
+              const dataUri = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(blob);
+              });
+              return `@font-face { font-family: 'Inter'; font-style: normal; font-weight: ${weight}; src: url(${dataUri}) format('woff2'); }`;
+            } catch {
+              return '';
+            }
+          })
+        );
+        cachedInterFontCSS = fontFaces.filter(Boolean).join('\n');
+      }
+      const interFontCSS = cachedInterFontCSS;
 
       const snapshotStyle = document.createElement('style');
       snapshotStyle.textContent = `
