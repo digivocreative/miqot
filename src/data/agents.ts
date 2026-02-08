@@ -55,4 +55,10 @@ export const AGENTS_DATA: Record<string, AgentData> = {
     phone: '6285158005623',
     photo: '/agents/zakia.jpg',
   },
+  'dianwahyuni': {
+    name: 'Dian Wahyuni',
+    website: 'alhijazindowisatatours.com',
+    phone: '6283197968407',
+    photo: '/agents/dianwahyuni.jpg',
+  },
 };
