@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Share2, Loader2, AlertCircle } from 'lucide-react';
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -30,6 +30,8 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
   const [isSharing, setIsSharing] = useState(false);
   const [isPdfLoading, setIsPdfLoading] = useState(true);
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'unknown'>('unknown');
+  const [pdfWidth, setPdfWidth] = useState(0);
+  const contentRef = useRef<HTMLDivElement>(null);
   // Always use proxy path: Vite proxy in dev, Cloudflare Pages Function in prod
   const originalUrl = fileUrl ? fileUrl.replace(/^http:\/\//i, 'https://') : '';
   const proxyUrl = originalUrl
@@ -54,6 +56,23 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
       setNumPages(null);
     }
   }, [isOpen, fileUrl]);
+
+  // Dynamically measure the container width for the PDF renderer
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el || !isOpen) return;
+
+    const measure = () => {
+      // container padding (p-4 = 16px each side) + card padding (p-2 = 8px each side) = 48px total
+      const availableWidth = el.clientWidth - 48;
+      setPdfWidth(Math.max(availableWidth, 280));
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isOpen]);
 
   // PDF load success handler
   function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
@@ -130,10 +149,10 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col animate-in fade-in duration-200" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
 
-      {/* ─── STICKY HEADER ─── */}
-      <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
+      {/* ─── HEADER ─── */}
+      <div className="flex-none z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
         <div className="flex flex-col">
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">Detail Itinerary</h2>
           <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
@@ -150,7 +169,8 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
       </div>
 
       {/* ─── SCROLLABLE CONTENT (PDF/IMAGE VIEWER) ─── */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 dark:bg-slate-950 p-4 flex justify-center">
+      <div ref={contentRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 dark:bg-slate-950 px-4 pb-6">
+        <div className="flex justify-center pt-4">
 
         {/* Empty State */}
         {!proxyUrl && (
@@ -188,7 +208,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
                   renderTextLayer={false}
                   renderAnnotationLayer={false}
                   className="shadow-md rounded-lg overflow-hidden w-full max-w-full"
-                  width={typeof window !== 'undefined' ? (window.innerWidth > 600 ? 550 : window.innerWidth - 48) : 400}
+                  width={pdfWidth || 400}
                 />
               ))}
             </Document>
@@ -206,10 +226,11 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
             />
           </div>
         )}
+        </div>
       </div>
 
-      {/* ─── FIXED FOOTER ─── */}
-      <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+      {/* ─── FOOTER ─── */}
+      <div className="flex-none bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <button
           onClick={handleShareItinerary}
           disabled={isSharing || !proxyUrl}

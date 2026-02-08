@@ -666,7 +666,7 @@ _________________________
           marginBottom: '5px',
           lineHeight: '1.4',
         });
-        line1.innerHTML = `Konsultasi & pendaftaran silakan hubungi <strong>${currentAgent.name}</strong>`;
+        line1.innerHTML = `Konsultasi & pendaftaran bisa hubungi <strong>${currentAgent.name}</strong>`;
 
         // Line 2: WA icon + phone  —  link icon + website
         const line2 = document.createElement('div');
