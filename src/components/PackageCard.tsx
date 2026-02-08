@@ -568,6 +568,98 @@ _________________________
         }
       });
 
+      // D1b. STYLE "MULAI" + PRICE BADGE (screenshot-only enhancement)
+      const allPs = clone.querySelectorAll('p');
+      allPs.forEach(p => {
+        const el = p as HTMLElement;
+        const text = el.textContent?.trim();
+        if (text === 'MULAI') {
+          // Make "MULAI" white + slightly bigger
+          el.style.setProperty('font-size', '13px', 'important');
+          el.style.setProperty('font-weight', '600', 'important');
+          el.style.setProperty('letter-spacing', '0.05em', 'important');
+          el.style.setProperty('color', '#ffffff', 'important');
+          el.style.setProperty('text-shadow', '0 1px 3px rgba(0,0,0,0.3)', 'important');
+
+          // Style the parent container with Alhijaz red gradient
+          const wrapper = el.parentElement;
+          if (wrapper) {
+            wrapper.style.setProperty('background', 'linear-gradient(135deg, #C0392B, #96281B)', 'important');
+            wrapper.style.setProperty('padding', '6px 8px', 'important');
+            wrapper.style.setProperty('border-radius', '10px', 'important');
+            wrapper.style.setProperty('box-shadow', '0 2px 8px rgba(150,40,27,0.35)', 'important');
+
+            // Bump price font size + make white + shadow
+            const priceEl = wrapper.querySelector('p:last-child') as HTMLElement;
+            if (priceEl && priceEl !== el) {
+              priceEl.style.setProperty('font-size', '22px', 'important');
+              priceEl.style.setProperty('color', '#ffffff', 'important');
+              priceEl.style.setProperty('text-shadow', '0 1px 3px rgba(0,0,0,0.3)', 'important');
+
+              // Style "Rp" prefix: smaller + top-aligned
+              const rawHtml = priceEl.innerHTML;
+              priceEl.innerHTML = rawHtml.replace(
+                /^Rp\s/,
+                '<span style="font-size:17px;vertical-align:top;line-height:1.4;color:#ffffff">Rp </span>'
+              );
+
+              // Change "Jt" to "JT", same font-size as price
+              const jtSpan = priceEl.querySelector('span:last-child');
+              if (jtSpan && (jtSpan.textContent?.trim() === 'Jt' || jtSpan.textContent?.trim() === 'JT')) {
+                (jtSpan as HTMLElement).textContent = 'JT';
+                (jtSpan as HTMLElement).style.setProperty('color', '#ffffff', 'important');
+                (jtSpan as HTMLElement).style.setProperty('font-size', 'inherit', 'important');
+              }
+            }
+          }
+        }
+      });
+
+      // D1c. BUMP FONT SIZES in "Rincian Biaya Paket" section (+2px)
+      const pricingH4 = Array.from(clone.querySelectorAll('h4')).find(
+        h => h.textContent?.trim().includes('Rincian Biaya Paket')
+      ) as HTMLElement | undefined;
+      if (pricingH4) {
+        // Title: text-xs (12px) → 14px
+        pricingH4.style.setProperty('font-size', '14px', 'important');
+        // All rows inside the pricing container
+        const pricingContainer = pricingH4.nextElementSibling as HTMLElement;
+        if (pricingContainer) {
+          pricingContainer.querySelectorAll('span').forEach(span => {
+            const el = span as HTMLElement;
+            // text-sm (14px) → 16px
+            el.style.setProperty('font-size', '16px', 'important');
+          });
+        }
+      }
+
+      // D1d. BUMP FONT SIZES in flight info + hotel info + extra hotels grids (+2px)
+      const infoGrids = clone.querySelectorAll('.grid.grid-cols-2');
+      infoGrids.forEach(grid => {
+        // Skip pricing table (it's handled separately above)
+        const prevSibling = grid.previousElementSibling;
+        if (prevSibling?.tagName === 'H4' && prevSibling.textContent?.includes('Rincian Biaya')) return;
+
+        // Also bump the section title h4 if present (e.g. "Akomodasi Plus / Transit")
+        if (prevSibling?.tagName === 'H4') {
+          const h4 = prevSibling as HTMLElement;
+          const computed = window.getComputedStyle(h4);
+          const currentSize = parseFloat(computed.fontSize);
+          if (currentSize > 0) {
+            h4.style.setProperty('font-size', `${currentSize + 2}px`, 'important');
+          }
+        }
+
+        grid.querySelectorAll('p, span').forEach(el => {
+          const htmlEl = el as HTMLElement;
+          const computed = window.getComputedStyle(htmlEl);
+          const currentSize = parseFloat(computed.fontSize);
+          if (currentSize > 0) {
+            htmlEl.style.setProperty('font-size', `${currentSize + 2}px`, 'important');
+          }
+        });
+      });
+
       // D2. FLIGHT INFO: Remove "/" separators and bold dates
       const flightInfoRows = clone.querySelectorAll('p');
       flightInfoRows.forEach(p => {
@@ -1380,7 +1472,7 @@ _________________________
               )}
               {pricing?.Infant && (
                 <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
-                  <span className="text-sm text-gray-600 dark:text-slate-300">Infant ({'<'}2 Thn)</span>
+                  <span className="text-sm text-gray-600 dark:text-slate-300">Infant ({'<'}2 Tahun)</span>
                   <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">Rp {formatRupiah(pricing.Infant)}</span>
                 </div>
               )}

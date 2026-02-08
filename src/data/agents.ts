@@ -109,4 +109,10 @@ export const AGENTS_DATA: Record<string, AgentData> = {
     phone: '6282112094089',
     photo: '/agents/linda.jpg',
   },
+  'sari': {
+    name: 'Sari Rohayati',
+    website: 'miqot.com/sari',
+    phone: '6281907018220',
+    photo: '/agents/sari.jpg',
+  },
 };
