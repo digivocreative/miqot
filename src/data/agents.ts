@@ -37,4 +37,10 @@ export const AGENTS_DATA: Record<string, AgentData> = {
     phone: '6287820813228',
     photo: '/agents/widi.jpg',
   },
+  'aulia': {
+    name: 'Leni Aulianingsih',
+    website: 'alhijazumrohtravel.com',
+    phone: '6282110407229',
+    photo: '/agents/aulia.jpg',
+  },
 };
