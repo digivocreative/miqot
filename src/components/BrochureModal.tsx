@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Download, Loader2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { X, Share2, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ============================================
@@ -21,187 +22,181 @@ interface BrochureModalProps {
 
 export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModalProps) {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
 
-  // Reset state when modal opens
-  const handleModalOpen = () => {
-    setIsImageLoaded(false);
-  };
+  // Proxy URL for CORS bypass
+  const proxyUrl = imageUrl ? `/brosur?url=${encodeURIComponent(imageUrl)}` : '';
 
-  // Download handler - Convert WebP to PNG
-  const handleDownload = async () => {
-    if (isDownloading) return;
-    
-    const fileName = `Brosur-${title.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-')}.png`;
-    
-    setIsDownloading(true);
+  // Share First, Download Fallback handler
+  const handleShareBrosur = async () => {
+    if (isSharing || !imageUrl) return;
+    setIsSharing(true);
+
+    const safeTitle = title.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-');
+    const fileName = `Brosur-${safeTitle}.png`;
+
     try {
-      // Use proxy to bypass CORS
-      const proxyUrl = `/brosur?url=${encodeURIComponent(imageUrl)}`;
+      // 1. Fetch image via proxy
       const response = await fetch(proxyUrl);
-      
       if (!response.ok) throw new Error('Fetch failed');
-      
       const blob = await response.blob();
       const blobUrl = window.URL.createObjectURL(blob);
-      
-      // Convert WebP to PNG using canvas
+
+      // 2. Convert to PNG via canvas (source may be WebP)
       const img = new Image();
       img.crossOrigin = 'anonymous';
-      
-      await new Promise<void>((resolve, reject) => {
+
+      const pngBlob = await new Promise<Blob>((resolve, reject) => {
         img.onload = () => {
           try {
             const canvas = document.createElement('canvas');
             canvas.width = img.width;
             canvas.height = img.height;
-            
             const ctx = canvas.getContext('2d');
             if (!ctx) throw new Error('Canvas context not available');
-            
             ctx.drawImage(img, 0, 0);
-            
-            canvas.toBlob((pngBlob) => {
-              if (!pngBlob) {
-                reject(new Error('PNG conversion failed'));
-                return;
-              }
-              
-              const pngUrl = window.URL.createObjectURL(pngBlob);
-              const link = document.createElement('a');
-              link.href = pngUrl;
-              link.download = fileName;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              
-              window.URL.revokeObjectURL(pngUrl);
-              resolve();
+
+            canvas.toBlob((b) => {
+              if (!b) { reject(new Error('PNG conversion failed')); return; }
+              resolve(b);
             }, 'image/png');
-          } catch (err) {
-            reject(err);
-          }
+          } catch (err) { reject(err); }
         };
         img.onerror = () => reject(new Error('Image load failed'));
         img.src = blobUrl;
       });
-      
+
       window.URL.revokeObjectURL(blobUrl);
-    } catch {
-      // Fallback: try downloading original file
-      try {
-        const proxyUrl = `/brosur?url=${encodeURIComponent(imageUrl)}`;
-        const response = await fetch(proxyUrl);
-        if (response.ok) {
-          const blob = await response.blob();
-          const url = window.URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = fileName.replace('.png', '.webp');
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          window.URL.revokeObjectURL(url);
-        } else {
-          alert(`Download gagal. Silakan buka link ini di browser:\n${imageUrl}`);
+
+      // 3. Create File & try Share API
+      const file = new File([pngBlob], fileName, { type: 'image/png' });
+      const shareData = {
+        title: `Brosur - ${title}`,
+        text: 'Berikut brosur paket umrah pilihan Anda.',
+        files: [file],
+      };
+
+      if (navigator.canShare && navigator.canShare(shareData)) {
+        try {
+          await navigator.share(shareData);
+        } catch (err: any) {
+          if (err?.name !== 'AbortError') {
+            console.warn('Share error, falling back to download:', err);
+            triggerDownload(pngBlob, fileName);
+          }
         }
-      } catch {
-        alert(`Download gagal. Silakan buka link ini di browser:\n${imageUrl}`);
+      } else {
+        // Desktop / Browser Lama: Fallback ke Download
+        triggerDownload(pngBlob, fileName);
       }
+    } catch (error) {
+      console.error('Gagal share brosur:', error);
+      // Ultimate fallback: open original URL
+      window.open(imageUrl, '_blank');
     } finally {
-      setIsDownloading(false);
+      setIsSharing(false);
     }
   };
 
-  return (
+  // Helper: trigger download from blob
+  const triggerDownload = (blob: Blob, name: string) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  return createPortal(
     <AnimatePresence onExitComplete={() => setIsImageLoaded(false)}>
       {isOpen && (
-        <>
-          {/* Backdrop */}
-          <motion.div
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[70]"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            onClick={onClose}
-            onAnimationStart={handleModalOpen}
-          />
+        <motion.div
+          className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
+          initial={{ opacity: 0, y: '100%' }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: '100%' }}
+          transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+        >
 
-          {/* Modal Content */}
-          <motion.div
-            className="fixed inset-0 z-[71] flex items-center justify-center p-4"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 400 }}
-          >
-            <div className="relative max-w-lg w-full max-h-[90vh] flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden">
-              
-              {/* Header */}
-              <div className="flex items-center justify-between p-4 border-b border-gray-100">
-                <h3 className="font-bold text-gray-900 truncate pr-4">{title}</h3>
-                <button
-                  onClick={onClose}
-                  className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 transition-colors shrink-0"
-                >
-                  <X size={18} />
-                </button>
-              </div>
+          {/* ─── STICKY HEADER ─── */}
+          <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white truncate pr-4">
+              Preview Brosur
+            </h2>
+            <button
+              onClick={onClose}
+              className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
 
-              {/* Image Container */}
-              <div className="relative flex-1 overflow-auto bg-gray-50 p-4">
-                {/* Loading Spinner */}
-                {!isImageLoaded && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
-                    <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
-                  </div>
-                )}
-                
-                {/* Brochure Image */}
+          {/* ─── SCROLLABLE CONTENT ─── */}
+          <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 p-4 flex justify-center items-start">
+            <div className="relative bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-md w-full">
+              {/* Loading Spinner */}
+              {!isImageLoaded && proxyUrl && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-slate-800 rounded-xl z-10">
+                  <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+                </div>
+              )}
+
+              {/* Brochure Image */}
+              {proxyUrl && (
                 <img
-                  src={`/brosur?url=${encodeURIComponent(imageUrl)}`}
+                  src={proxyUrl}
                   alt={`Brosur ${title}`}
-                  className={`w-full h-auto rounded-lg shadow-md transition-opacity duration-300 ${isImageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                  className={`w-full h-auto rounded-lg transition-opacity duration-300 ${isImageLoaded ? 'opacity-100' : 'opacity-0'}`}
                   onLoad={() => setIsImageLoaded(true)}
                   crossOrigin="anonymous"
                 />
-              </div>
+              )}
 
-              {/* Footer Actions */}
-              <div className="p-4 border-t border-gray-100 bg-white">
-                <button
-                  onClick={handleDownload}
-                  disabled={isDownloading}
-                  className={`
-                    w-full flex items-center justify-center gap-2 py-3 px-4
-                    rounded-xl font-bold text-white
-                    transition-all duration-200
-                    ${isDownloading 
-                      ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200 active:scale-98'
-                    }
-                  `}
-                >
-                  {isDownloading ? (
-                    <>
-                      <Loader2 size={18} className="animate-spin" />
-                      <span>Mengunduh...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Download size={18} />
-                      <span>Download Brosur (PNG)</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
+              {/* Empty State */}
+              {!proxyUrl && (
+                <div className="py-20 text-center">
+                  <p className="text-gray-400 dark:text-slate-500">Brosur tidak tersedia</p>
+                </div>
+              )}
             </div>
-          </motion.div>
-        </>
+          </div>
+
+          {/* ─── FIXED FOOTER ─── */}
+          {proxyUrl && (
+            <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+              <button
+                onClick={handleShareBrosur}
+                disabled={isSharing}
+                className="
+                  w-full flex items-center justify-center gap-2 py-3.5 px-4
+                  rounded-xl font-bold text-white
+                  bg-emerald-600 hover:bg-emerald-700
+                  shadow-lg shadow-emerald-500/20
+                  transition-all duration-200 active:scale-[0.98] disabled:opacity-70
+                "
+              >
+                {isSharing ? (
+                  <>
+                    <Loader2 size={20} className="animate-spin" />
+                    <span>Memproses...</span>
+                  </>
+                ) : (
+                  <>
+                    <Share2 size={20} />
+                    <span>Bagikan Brosur</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+        </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
 

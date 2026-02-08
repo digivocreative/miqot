@@ -36,8 +36,8 @@ function App() {
     if (savedMode !== null) {
       return savedMode === 'true';
     }
-    // Check system preference
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    // Default to light mode for new users
+    return false;
   });
 
   // Apply Dark Mode Class

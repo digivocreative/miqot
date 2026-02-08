@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { UmrohPackage, RoomPricing } from '@/types';
@@ -512,9 +513,9 @@ _________________________
       // Cleanup
       document.body.removeChild(clone);
 
-      // 4. SHOW PREVIEW
-      const imageDataType = canvas.toDataURL("image/png");
-      setPreviewImage(imageDataType);
+      // 4. SHOW FULL SCREEN PREVIEW
+      const imageDataUrl = canvas.toDataURL("image/png");
+      setPreviewImage(imageDataUrl);
 
     } catch (error: any) {
       console.error(error);
@@ -527,31 +528,41 @@ _________________________
     }
   };
 
-  // Function to actually share from the preview modal
-  const sharePreview = async () => {
+  // Share from the full-screen preview overlay
+  const handleShareScreenshot = async () => {
     if (!previewImage) return;
-    
-    try {
-      // Convert Base64 DataURL back to Blob/File for sharing
-      const blob = await (await fetch(previewImage)).blob();
-      const file = new File([blob], `paket-${pkg.nama.replace(/\s+/g, '-').toLowerCase()}.png`, { type: 'image/png' });
-      const message = getShareMessage();
 
-      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: pkg.nama,
-          text: message
-        });
+    try {
+      const blob = await (await fetch(previewImage)).blob();
+      const fileName = `paket-${pkg.nama.replace(/\s+/g, '-').toLowerCase()}.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
+      const shareData = {
+        title: `Paket Umrah - ${pkg.nama}`,
+        text: 'Berikut detail paket umrah pilihan Anda.',
+        files: [file],
+      };
+
+      if (navigator.canShare && navigator.canShare(shareData)) {
+        try {
+          await navigator.share(shareData);
+        } catch (err: any) {
+          if (err?.name !== 'AbortError') {
+            console.warn('Share error, falling back to download:', err);
+            const link = document.createElement('a');
+            link.download = fileName;
+            link.href = previewImage;
+            link.click();
+          }
+        }
       } else {
-        // Fallback download
+        // Desktop / Browser Lama: Fallback ke Download
         const link = document.createElement('a');
+        link.download = fileName;
         link.href = previewImage;
-        link.download = `paket-${pkg.nama.replace(/\s+/g, '-').toLowerCase()}.png`;
         link.click();
       }
     } catch (err) {
-      console.log("Share dibatalkan/error", err);
+      console.log('Share error:', err);
     }
   };
 
@@ -934,7 +945,7 @@ _________________________
               </div>
             )}
 
-            {/* Screenshot & Share Button */}
+            {/* Screenshot & Save Button */}
             <button
               type="button"
               onClick={handleScreenshot}
@@ -1032,56 +1043,50 @@ _________________________
         />
       )}
 
-      {/* Screenshot Preview Modal (Fixed Overlay) */}
-      {previewImage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-sm w-full overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            
-            {/* Header */}
-            <div className="p-4 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center">
-              <h3 className="font-bold text-gray-900 dark:text-white">Preview Gambar</h3>
-              <button 
-                onClick={() => setPreviewImage(null)}
-                className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
-              >
-                <X size={20} className="text-gray-500" />
-              </button>
-            </div>
 
-            {/* Image Container */}
-            <div className="flex-1 overflow-auto p-4 bg-gray-50 dark:bg-slate-900/50 flex items-center justify-center">
-              <img 
-                src={previewImage} 
-                alt="Preview" 
-                className="w-full h-auto object-contain shadow-lg rounded"
+      {/* Full Screen Screenshot Preview Overlay */}
+      {previewImage && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col animate-in fade-in duration-200">
+
+          {/* ─── STICKY HEADER ─── */}
+          <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+              Simpan Brosur
+            </h2>
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* ─── SCROLLABLE CONTENT ─── */}
+          <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 p-6 flex justify-center items-start">
+            <div className="bg-white dark:bg-slate-800 p-2 rounded-2xl shadow-2xl max-w-md w-full ring-1 ring-gray-200/50 dark:ring-slate-700/50">
+              <img
+                src={previewImage}
+                alt="Screenshot Paket"
+                className="w-full h-auto rounded-xl object-contain"
               />
             </div>
-
-            {/* Footer / Actions */}
-            <div className="p-4 bg-white dark:bg-slate-800 border-t border-gray-100 dark:border-slate-700 space-y-3">
-              <p className="text-[11px] text-center text-gray-500 dark:text-slate-400">
-                Klik "Bagikan" atau hold gambar untuk simpan manual.
-              </p>
-              
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setPreviewImage(null)}
-                  className="w-full py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 font-medium text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-                >
-                  Batal
-                </button>
-                <button
-                  onClick={sharePreview}
-                  className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-lg shadow-purple-200 dark:shadow-none flex items-center justify-center gap-2 transition-all active:scale-95"
-                >
-                  <Share2 size={18} />
-                  Bagikan
-                </button>
-              </div>
-            </div>
           </div>
-        </div>
+
+          {/* ─── FIXED FOOTER ─── */}
+          <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            <button
+              onClick={handleShareScreenshot}
+              className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-purple-500/30 active:scale-[0.98]"
+            >
+              <Share2 className="w-5 h-5" />
+              <span>Bagikan Sekarang</span>
+            </button>
+          </div>
+
+        </div>,
+        document.body
       )}
+
     </>
   );
 }
