@@ -3,7 +3,8 @@ import { PackageCard, FilterHeader, FilterModal, type QuickFilterType, type Time
 import { getPackages } from '@/services';
 import { filterPackages, type FilterMode } from '@/utils';
 import type { UmrohPackage } from '@/types';
-import { AGENTS_DATA } from '@/data/agents';
+import { AGENTS_DATA, type AgentData } from '@/data/agents';
+import FloatingAgentBar from '@/components/FloatingAgentBar';
 
 // ============================================
 // Main App Component
@@ -52,11 +53,14 @@ function App() {
     localStorage.setItem('darkMode', isDarkMode.toString());
   }, [isDarkMode]);
 
-  // Dynamic SEO: Update title & description based on agent slug
+  // Detect agent from URL slug (shared state for SEO + FloatingAgentBar)
+  const [currentAgent, setCurrentAgent] = useState<AgentData | null>(null);
   useEffect(() => {
     const slug = window.location.pathname.replace(/^\/+/, '').split('/')[0];
     const agent = AGENTS_DATA[slug?.toLowerCase()];
+    setCurrentAgent(agent || null);
 
+    // Dynamic SEO: Update title & description
     if (agent) {
       document.title = `Jadwal Umroh Alhijaz | ${agent.name}`;
       const metaDesc = document.querySelector('meta[name="description"]');
@@ -419,6 +423,11 @@ function App() {
         returnRanges={returnTimeRanges}
         onReturnRangeChange={setReturnTimeRanges}
       />
+
+      {/* ============================================ */}
+      {/* FLOATING AGENT BAR (only in agent mode) */}
+      {/* ============================================ */}
+      {currentAgent && <FloatingAgentBar agent={currentAgent} />}
     </div>
   );
 }

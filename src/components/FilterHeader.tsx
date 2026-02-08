@@ -12,6 +12,7 @@ import {
 } from '@/utils';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { Sun, Moon, Search, X, SlidersHorizontal, User, Globe, Save, Trash2, CheckCircle } from 'lucide-react';
+import { AGENTS_DATA } from '@/data/agents';
 
 // ============================================
 // Types
@@ -81,6 +82,13 @@ export function FilterHeader({
   const inputRef = useRef<HTMLInputElement>(null);
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
+
+  // Detect agent mode from URL slug
+  const [isAgentMode, setIsAgentMode] = useState(false);
+  useEffect(() => {
+    const slug = window.location.pathname.replace(/^\/+/, '').split('/')[0];
+    setIsAgentMode(!!AGENTS_DATA[slug?.toLowerCase()]);
+  }, []);
 
   // Agent Profile State
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -215,7 +223,8 @@ export function FilterHeader({
 
           {/* Year Dropdown & Dark Mode Toggle */}
           <div className="flex items-center gap-3">
-             {/* Agent Profile Button */}
+             {/* Agent Profile Button (hidden in agent mode) */}
+             {!isAgentMode && (
              <button
               onClick={() => setShowProfileModal(true)}
               className="
@@ -231,6 +240,7 @@ export function FilterHeader({
             >
               <User size={16} />
             </button>
+             )}
 
              {/* Dark Mode Toggle */}
              <button
@@ -484,8 +494,8 @@ export function FilterHeader({
 
       </div>
 
-      {/* --- MODAL AGENT PROFILE (via Portal → document.body) --- */}
-      {showProfileModal && createPortal(
+      {/* --- MODAL AGENT PROFILE (via Portal → document.body, hidden in agent mode) --- */}
+      {!isAgentMode && showProfileModal && createPortal(
         <div
           className={`fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ease-in-out
             ${isClosing ? 'opacity-0' : 'opacity-100 animate-in fade-in'}`}
