@@ -69,6 +69,16 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api/, '/jadwal'),
         secure: false,
       },
+      '/itinerary': {
+        target: 'https://jadwal.miqot.com',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/brosur': {
+        target: 'https://jadwal.miqot.com',
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
 })

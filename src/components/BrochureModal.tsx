@@ -24,8 +24,11 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
 
-  // Proxy URL for CORS bypass
-  const proxyUrl = imageUrl ? `/brosur?url=${encodeURIComponent(imageUrl)}` : '';
+  // Convert full URL to local proxy path to bypass CORS
+  // e.g. "https://jadwal.miqot.com/brosur/xyz" → "/brosur/xyz"
+  const proxyUrl = imageUrl
+    ? imageUrl.replace(/^https?:\/\/jadwal\.miqot\.com/i, '')
+    : '';
 
   // Share First, Download Fallback handler
   const handleShareBrosur = async () => {
