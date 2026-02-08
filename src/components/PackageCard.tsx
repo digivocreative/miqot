@@ -403,10 +403,44 @@ _________________________
       // C. SNAPSHOT STYLE INJECTION
       // Inject a <style> tag into the clone with snapshot-specific CSS overrides
       // This fixes overlapping text, spacing, and alignment WITHOUT touching the live UI
+      // Font CSS for consistent cross-device rendering
+      const interFontCSS = `
+        @font-face {
+          font-family: 'Inter';
+          font-style: normal;
+          font-weight: 400;
+          font-display: swap;
+          src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZ9hiA.woff2) format('woff2');
+        }
+        @font-face {
+          font-family: 'Inter';
+          font-style: normal;
+          font-weight: 500;
+          font-display: swap;
+          src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuI6fAZ9hiA.woff2) format('woff2');
+        }
+        @font-face {
+          font-family: 'Inter';
+          font-style: normal;
+          font-weight: 600;
+          font-display: swap;
+          src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYAZ9hiA.woff2) format('woff2');
+        }
+        @font-face {
+          font-family: 'Inter';
+          font-style: normal;
+          font-weight: 700;
+          font-display: swap;
+          src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuFuYAZ9hiA.woff2) format('woff2');
+        }
+      `;
+
       const snapshotStyle = document.createElement('style');
       snapshotStyle.textContent = `
         /* === GLOBAL SNAPSHOT OVERRIDES === */
-        [data-cloned="true"] {
+        ${interFontCSS}
+        [data-cloned="true"],
+        [data-cloned="true"] * {
           font-family: 'Inter', Arial, Helvetica, sans-serif !important;
         }
 
@@ -1002,6 +1036,10 @@ _________________________
       const imageDataUrl = await domToPng(wrapper, {
         scale: 2,
         backgroundColor: '#ffffff',
+        font: {
+          preferredFormat: 'woff2',
+          cssText: interFontCSS,
+        },
         filter: (node: Node) => {
           if (node instanceof HTMLElement) {
             if (node.hasAttribute('data-screenshot-ignore')) return false;
