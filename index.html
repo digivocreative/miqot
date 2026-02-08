@@ -13,7 +13,31 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Alhijaz" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <script>
+      // Dynamic PWA Manifest: overrides start_url to preserve agent slug
+      // Only runs when on a slug path (e.g. /bagas, /nikita)
+      (function() {
+        var path = window.location.pathname;
+        if (!path || path === '/') return;
+
+        fetch('/manifest.webmanifest')
+          .then(function(r) { return r.json(); })
+          .then(function(manifest) {
+            manifest.start_url = path;
+            var blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+            var url = URL.createObjectURL(blob);
+            // Remove existing static manifest link (injected by VitePWA)
+            var existing = document.querySelector('link[rel="manifest"]');
+            if (existing) existing.remove();
+            // Inject dynamic manifest
+            var link = document.createElement('link');
+            link.rel = 'manifest';
+            link.href = url;
+            document.head.appendChild(link);
+          })
+          .catch(function() { /* Keep static manifest on error */ });
+      })();
+    </script>
     
     
     <!-- Open Graph Meta Tags -->
