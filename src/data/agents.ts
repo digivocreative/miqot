@@ -121,4 +121,10 @@ export const AGENTS_DATA: Record<string, AgentData> = {
     phone: '6281907018220',
     photo: '/agents/sari.jpg',
   },
+  'isti': {
+    name: 'ISTI',
+    website: 'al-hijaztravelumroh.com ',
+    phone: '6281315002460',
+    photo: '/agents/isti.jpg',
+  },
 };
