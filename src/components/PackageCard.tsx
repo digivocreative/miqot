@@ -370,8 +370,15 @@ _________________________
 
       // 3. DOM MANIPULATION (langsung di ghost clone, sebelum render)
 
-      // A. FORCE LIGHT MODE
+      // A. FORCE LIGHT MODE — strip ALL dark: Tailwind classes from every element
       clone.classList.remove('dark');
+      const allElements = clone.querySelectorAll('*');
+      allElements.forEach(el => {
+        const classesToRemove = Array.from(el.classList).filter(c => c.startsWith('dark:'));
+        if (classesToRemove.length > 0) {
+          el.classList.remove(...classesToRemove);
+        }
+      });
 
       // B. HIDE SEAT SECTION (Metode Berlapis)
       const seatByClass = clone.querySelector('.seat-info-section');
