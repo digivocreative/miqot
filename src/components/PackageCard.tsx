@@ -819,7 +819,7 @@ _________________________
       const file = new File([blob], fileName, { type: 'image/png' });
       const shareData = {
         title: `Paket Umrah - ${pkg.nama}`,
-        text: 'Berikut detail paket umrah pilihan Anda.',
+        text: `Berikut detail Paket ${pkg.nama}`,
         files: [file],
       };
 
