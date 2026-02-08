@@ -583,6 +583,16 @@ _________________________
             el.style.setProperty('font-weight', '700', 'important');
             el.style.setProperty('color', '#111827', 'important');
           }
+          // Force (+1) to stay inline with flight time
+          if (text === '(+1)') {
+            el.style.setProperty('display', 'inline', 'important');
+            el.style.setProperty('white-space', 'nowrap', 'important');
+            // Also force parent <p> to nowrap
+            const parentP = el.closest('p');
+            if (parentP) {
+              (parentP as HTMLElement).style.setProperty('white-space', 'nowrap', 'important');
+            }
+          }
         });
       });
 
@@ -992,7 +1002,7 @@ _________________________
                 <span>/</span>
                 <span>{formatDate(pkg.keberangkatan.tgl)}</span>
               </p>
-              <p className="text-xs text-gray-600 dark:text-slate-300">
+              <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">
                 {pkg.keberangkatan.jam.replace('.', ':')} - {pkg.kepulangan.jam.replace('.', ':')}
                 {isNextDay(pkg.keberangkatan.jam, pkg.kepulangan.jam) && (
                   <span className="ml-1 font-bold text-orange-600 text-[10px]">(+1)</span>
@@ -1012,7 +1022,7 @@ _________________________
                 <span>/</span>
                 <span>{formatDate(pkg.kepulangan.tgl)}</span>
               </p>
-              <p className="text-xs text-gray-600 dark:text-slate-300">
+              <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">
                 {pkg.kepulangan.jam.replace('.', ':')} - {pkg.keberangkatan.jam.replace('.', ':')}
                 {isNextDay(pkg.kepulangan.jam, pkg.keberangkatan.jam) && (
                   <span className="ml-1 font-bold text-orange-600 text-[10px]">(+1)</span>
@@ -1277,31 +1287,31 @@ _________________________
               {pricing?.Quard && (
                 <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
                   <span className="text-sm text-gray-600 dark:text-slate-300">Quad (Sekamar 4)</span>
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Rp {formatRupiah(pricing.Quard)}</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">Rp {formatRupiah(pricing.Quard)}</span>
                 </div>
               )}
               {pricing?.Triple && (
                 <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
                   <span className="text-sm text-gray-600 dark:text-slate-300">Triple (Sekamar 3)</span>
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Rp {formatRupiah(pricing.Triple)}</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">Rp {formatRupiah(pricing.Triple)}</span>
                 </div>
               )}
               {pricing?.Double && (
                 <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
                   <span className="text-sm text-gray-600 dark:text-slate-300">Double (Sekamar 2)</span>
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Rp {formatRupiah(pricing.Double)}</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">Rp {formatRupiah(pricing.Double)}</span>
                 </div>
               )}
               {pricing?.Single && (
                 <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
                   <span className="text-sm text-gray-600 dark:text-slate-300">Single (1 Orang)</span>
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Rp {formatRupiah(pricing.Single)}</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">Rp {formatRupiah(pricing.Single)}</span>
                 </div>
               )}
               {pricing?.Infant && (
                 <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
                   <span className="text-sm text-gray-600 dark:text-slate-300">Infant ({'<'}2 Thn)</span>
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Rp {formatRupiah(pricing.Infant)}</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">Rp {formatRupiah(pricing.Infant)}</span>
                 </div>
               )}
             </div>
