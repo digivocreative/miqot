@@ -97,4 +97,10 @@ export const AGENTS_DATA: Record<string, AgentData> = {
     phone: '6281225600900',
     photo: '/agents/aisyah.jpg',
   },
+  'siska': {
+    name: 'Siska Fadia',
+    website: 'alhijazumroh.com',
+    phone: '6281188885291',
+    photo: '/agents/siska.jpg',
+  },
 };
