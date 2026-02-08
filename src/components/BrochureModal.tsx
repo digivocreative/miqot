@@ -74,7 +74,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
       const file = new File([pngBlob], fileName, { type: 'image/png' });
       const shareData = {
         title: `Brosur - ${title}`,
-        text: 'Berikut brosur paket umrah pilihan Anda.',
+        text: `Berikut brosur untuk Paket ${title}`,
         files: [file],
       };
 
