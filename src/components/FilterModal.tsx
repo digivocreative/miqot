@@ -166,51 +166,11 @@ export function FilterModal({
 
             {/* Scrollable Content */}
             <div className="overflow-y-auto px-5 py-2 space-y-6">
-              
-              {/* Section 1: Quick Filters */}
-              <div>
-                <h4 className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wider">Kategori Paket</h4>
-                <div className="space-y-3">
-                  {QUICK_FILTERS.map((filter) => {
-                    const isSelected = selectedFilter === filter.id;
-                    return (
-                      <button
-                        key={filter.id}
-                        onClick={() => handleSelectQuickFilter(filter.id)}
-                        className={`
-                          w-full flex items-center gap-4 p-3 rounded-xl border-2 transition-all active:scale-98
-                          ${isSelected
-                            ? 'border-emerald-500 bg-emerald-50'
-                            : 'border-transparent bg-gray-50 hover:bg-gray-100'
-                          }
-                        `}
-                      >
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${filter.colorClass}`}>
-                          {filter.icon}
-                        </div>
-                        <div className="text-left">
-                          <p className={`font-bold text-sm ${isSelected ? 'text-emerald-900' : 'text-gray-900'}`}>
-                            {filter.label}
-                          </p>
-                          <p className="text-xs text-gray-500">{filter.description}</p>
-                        </div>
-                        {isSelected && (
-                          <div className="ml-auto text-emerald-600">
-                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                              <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                            </svg>
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
 
-              {/* Section 2: Departure Time */}
+              {/* Section 1: Departure Time */}
               <div>
                 <h4 className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wider">Waktu Keberangkatan</h4>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {TIME_RANGES.map((range) => {
                     const isActive = departureRanges.includes(range.value);
                     return (
@@ -218,7 +178,7 @@ export function FilterModal({
                         key={range.value}
                         onClick={() => toggleRange(range.value, departureRanges, onDepartureRangeChange)}
                         className={`
-                          px-3 py-1.5 rounded-full text-xs font-medium border transition-colors
+                          px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors text-center
                           ${isActive 
                             ? 'bg-emerald-100 border-emerald-500 text-emerald-700' 
                             : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
@@ -235,7 +195,7 @@ export function FilterModal({
               {/* Section 3: Return Time */}
               <div>
                 <h4 className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wider">Waktu Kepulangan</h4>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {TIME_RANGES.map((range) => {
                     const isActive = returnRanges.includes(range.value);
                     return (
@@ -243,7 +203,7 @@ export function FilterModal({
                         key={range.value}
                         onClick={() => toggleRange(range.value, returnRanges, onReturnRangeChange)}
                         className={`
-                          px-3 py-1.5 rounded-full text-xs font-medium border transition-colors
+                          px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors text-center
                           ${isActive 
                             ? 'bg-emerald-100 border-emerald-500 text-emerald-700' 
                             : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
