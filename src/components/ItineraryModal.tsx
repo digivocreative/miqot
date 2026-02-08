@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Share2, Loader2, AlertCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -146,13 +147,19 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     window.URL.revokeObjectURL(url);
   };
 
-  if (!isOpen) return null;
-
   return createPortal(
-    <div className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col animate-in fade-in duration-200" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
+          initial={{ opacity: 0, y: '100%' }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: '100%' }}
+          transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+        >
 
       {/* ─── HEADER ─── */}
-      <div className="flex-none z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
+      <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
         <div className="flex flex-col">
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">Detail Itinerary</h2>
           <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
@@ -230,16 +237,16 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
       </div>
 
       {/* ─── FOOTER ─── */}
-      <div className="flex-none bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
         <button
           onClick={handleShareItinerary}
           disabled={isSharing || !proxyUrl}
           className="
             w-full flex items-center justify-center gap-2 py-3.5 px-4
             rounded-xl font-bold text-white
-            bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 dark:disabled:bg-slate-700
+            bg-emerald-600 hover:bg-emerald-700
             shadow-lg shadow-emerald-500/20
-            transition-all duration-200 active:scale-[0.98]
+            transition-all duration-200 active:scale-[0.98] disabled:opacity-70
           "
         >
           {isSharing ? (
@@ -256,7 +263,9 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
         </button>
       </div>
 
-    </div>,
+        </motion.div>
+      )}
+    </AnimatePresence>,
     document.body
   );
 }

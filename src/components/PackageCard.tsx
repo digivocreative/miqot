@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { domToPng } from 'modern-screenshot';
 import { UmrohPackage, RoomPricing } from '@/types';
 import { BrochureModal } from './BrochureModal';
@@ -662,7 +663,7 @@ _________________________
         const line1 = document.createElement('div');
         Object.assign(line1.style, {
           fontSize: '14px',
-          color: '#374151',
+          color: '#111827',
           marginBottom: '5px',
           lineHeight: '1.4',
         });
@@ -1415,45 +1416,61 @@ _________________________
 
 
       {/* Full Screen Screenshot Preview Overlay */}
-      {previewImage && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col animate-in fade-in duration-200">
-
-          {/* ─── STICKY HEADER ─── */}
-          <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-              Simpan Brosur
-            </h2>
-            <button
-              onClick={() => setPreviewImage(null)}
-              className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors"
+      {createPortal(
+        <AnimatePresence>
+          {previewImage && (
+            <motion.div
+              className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
+              initial={{ opacity: 0, y: '100%' }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
             >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
 
-          {/* ─── SCROLLABLE CONTENT ─── */}
-          <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 p-6 flex justify-center items-start">
-            <div className="bg-white dark:bg-slate-800 p-2 rounded-2xl shadow-2xl max-w-md w-full ring-1 ring-gray-200/50 dark:ring-slate-700/50">
-              <img
-                src={previewImage}
-                alt="Screenshot Paket"
-                className="w-full h-auto rounded-xl object-contain"
-              />
-            </div>
-          </div>
+              {/* ─── STICKY HEADER ─── */}
+              <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white truncate pr-4">
+                  Simpan Brosur
+                </h2>
+                <button
+                  onClick={() => setPreviewImage(null)}
+                  className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
 
-          {/* ─── FIXED FOOTER ─── */}
-          <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-            <button
-              onClick={handleShareScreenshot}
-              className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-purple-500/30 active:scale-[0.98]"
-            >
-              <Share2 className="w-5 h-5" />
-              <span>Bagikan Sekarang</span>
-            </button>
-          </div>
+              {/* ─── SCROLLABLE CONTENT ─── */}
+              <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 p-4 flex justify-center items-start">
+                <div className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-md w-full">
+                  <img
+                    src={previewImage}
+                    alt="Screenshot Paket"
+                    className="w-full h-auto rounded-lg object-contain"
+                  />
+                </div>
+              </div>
 
-        </div>,
+              {/* ─── FOOTER ─── */}
+              <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                <button
+                  onClick={handleShareScreenshot}
+                  className="
+                    w-full flex items-center justify-center gap-2 py-3.5 px-4
+                    rounded-xl font-bold text-white
+                    bg-emerald-600 hover:bg-emerald-700
+                    shadow-lg shadow-emerald-500/20
+                    transition-all duration-200 active:scale-[0.98] disabled:opacity-70
+                  "
+                >
+                  <Share2 size={20} />
+                  <span>Bagikan Sekarang</span>
+                </button>
+              </div>
+
+            </motion.div>
+          )}
+        </AnimatePresence>,
         document.body
       )}
 
