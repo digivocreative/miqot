@@ -662,6 +662,7 @@ _________________________
             const el = span as HTMLElement;
             // text-sm (14px) → 16px
             el.style.setProperty('font-size', '16px', 'important');
+            el.style.setProperty('white-space', 'nowrap', 'important');
           });
         }
       }
