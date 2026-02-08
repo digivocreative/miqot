@@ -539,22 +539,44 @@ _________________________
         element.style.gridTemplateColumns = computed.gridTemplateColumns;
       });
 
-      // D. NEUTRALIZE BADGES (Hapus style merah di PROMO)
+      // D. STYLE PROMO BADGE (Pink background, rounded)
       const allSpans = clone.querySelectorAll('span');
       allSpans.forEach(span => {
         const el = span as HTMLElement;
         const text = el.textContent?.trim().toUpperCase() || '';
         if (text === 'PROMO') {
           el.classList.remove('bg-red-100', 'text-red-600', 'px-2', 'py-0.5', 'rounded', 'inline-block', 'mt-1');
-          el.style.setProperty('background-color', 'transparent', 'important');
-          el.style.setProperty('color', '#1f2937', 'important');
+          el.style.setProperty('background-color', '#FEE2E2', 'important');
+          el.style.setProperty('color', '#DC2626', 'important');
+          el.style.setProperty('padding', '2px 10px', 'important');
+          el.style.setProperty('border-radius', '8px', 'important');
+          el.style.setProperty('font-weight', '700', 'important');
+          el.style.setProperty('font-size', '11px', 'important');
+          el.style.setProperty('display', 'inline-block', 'important');
+          el.style.setProperty('margin-top', '4px', 'important');
           el.style.setProperty('border', 'none', 'important');
-          el.style.setProperty('padding', '0', 'important');
-          el.style.setProperty('margin', '0', 'important');
-          el.style.setProperty('font-weight', 'bold', 'important');
-          el.style.setProperty('display', 'inline', 'important');
           el.style.setProperty('box-shadow', 'none', 'important');
         }
+      });
+
+      // D2. FLIGHT INFO: Remove "/" separators and bold dates
+      const flightInfoRows = clone.querySelectorAll('p');
+      flightInfoRows.forEach(p => {
+        const spans = p.querySelectorAll('span');
+        spans.forEach(span => {
+          const el = span as HTMLElement;
+          const text = el.textContent?.trim();
+          // Remove the "/" separator physically (modern-screenshot ignores display:none)
+          if (text === '/') {
+            el.remove();
+            return;
+          }
+          // Bold date spans (format: "20 Jun 26", "28 Jun 26", etc.)
+          if (text && /^\d{1,2}\s+\w{3}\s+\d{2,4}$/.test(text)) {
+            el.style.setProperty('font-weight', '700', 'important');
+            el.style.setProperty('color', '#111827', 'important');
+          }
+        });
       });
 
       // E. REMOVE AGENT PROFILE from clone body (moved to header)
