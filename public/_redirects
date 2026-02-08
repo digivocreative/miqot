@@ -1,0 +1,3 @@
+# Cloudflare Pages SPA catch-all
+# Ensures slug URLs like /bagas serve the SPA instead of 404
+/* /index.html 200

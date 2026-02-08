@@ -7,6 +7,8 @@ import html2canvas from 'html2canvas';
 import { UmrohPackage, RoomPricing } from '@/types';
 import { BrochureModal } from './BrochureModal';
 import { ItineraryModal } from './ItineraryModal';
+import { AGENTS_DATA, type AgentData } from '@/data/agents';
+import AgentProfile from './AgentProfile';
 
 interface PackageCardProps {
   package: UmrohPackage;
@@ -60,7 +62,15 @@ export function PackageCard({
   const [isItineraryOpen, setIsItineraryOpen] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [currentAgent, setCurrentAgent] = useState<AgentData | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+
+  // Detect agent from URL slug (e.g. /bagas → AGENTS_DATA['bagas'])
+  useEffect(() => {
+    const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
+    const agent = AGENTS_DATA[path.toLowerCase()];
+    setCurrentAgent(agent || null);
+  }, []);
 
   // Calculate availability percentage
   const availabilityPercentage = Math.round((pkg.seatSisa / pkg.seatTotal) * 100);
@@ -861,6 +871,13 @@ _________________________
               </div>
             </div>
           </div>
+
+          {/* Agent Profile (only visible when URL slug matches an agent) */}
+          {currentAgent && (
+            <div className="px-0">
+              <AgentProfile agent={currentAgent} packageName={pkg.nama} />
+            </div>
+          )}
 
           {/* Extra Hotels (Plus/Transit) - Conditional Section */}
           {extraHotels.length > 0 && (
