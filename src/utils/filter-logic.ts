@@ -10,15 +10,24 @@ import type { UmrohPackage } from '@/types';
 // ============================================
 
 export type FilterMode = 
-  | 'AVAILABLE'     // Filter paket dengan kursi tersedia
-  | 'LANDING'       // Filter berdasarkan kota kedatangan
-  | 'PROMO'         // Filter paket promo
-  | 'DATA PER-BULAN'// Filter berdasarkan bulan keberangkatan
-  | 'SEMUA DATA';   // Tampilkan semua data
+  | 'AVAILABLE'      // Filter paket dengan kursi tersedia
+  | 'PROMO'          // Filter paket promo
+  | 'UMROH REGULER'  // Hanya Mekkah & Madinah
+  | 'UMROH PLUS'     // Paket dengan destinasi selain Saudi
+  | 'BINTANG 5'      // Semua hotel bintang 5
+  | 'DURASI PERJALANAN' // Filter berdasarkan durasi
+  | 'DATA PER-BULAN' // Filter berdasarkan bulan keberangkatan
+  | 'SEMUA DATA';    // Tampilkan semua data
+
+export type SortOrder = 
+  | 'TANGGAL_TERDEKAT'
+  | 'TANGGAL_TERJAUH'
+  | 'HARGA_TERMURAH'
+  | 'HARGA_TERTINGGI';
 
 export interface FilterParams {
   mode: FilterMode;
-  /** Secondary value: nama kota (LANDING) atau nama bulan (DATA PER-BULAN) */
+  /** Secondary value: nama bulan (DATA PER-BULAN) */
   secondaryValue?: string;
 }
 
@@ -96,6 +105,29 @@ function extractDestinationCity(route: string): string {
  */
 function getCityName(code: string): string {
   return CITY_NAMES[code] || code;
+}
+
+/**
+ * Calculate trip duration in days between departure and return
+ */
+function getDurationDays(pkg: UmrohPackage): number {
+  const dep = new Date(pkg.keberangkatan.tgl);
+  const ret = new Date(pkg.kepulangan.tgl);
+  return Math.round((ret.getTime() - dep.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+}
+
+/**
+ * Extract unique trip durations from packages
+ */
+export function extractUniqueDurations(packages: UmrohPackage[]): { days: number; label: string; count: number }[] {
+  const durationMap = new Map<number, number>();
+  packages.forEach(pkg => {
+    const days = getDurationDays(pkg);
+    durationMap.set(days, (durationMap.get(days) || 0) + 1);
+  });
+  return Array.from(durationMap.entries())
+    .map(([days, count]) => ({ days, label: `${days} Hari`, count }))
+    .sort((a, b) => a.days - b.days);
 }
 
 /**
@@ -265,15 +297,51 @@ export function filterPackages(
       // Filter promo packages only
       return data.filter(pkg => pkg.isPromo);
 
-    case 'LANDING':
-      // Filter by landing city
+    case 'UMROH REGULER':
+      // Only packages with Mekkah & Madinah (no non-Saudi destinations)
+      return data.filter(pkg => {
+        return Object.values(pkg.hotel).every(hotelInfo => {
+          const keys = Object.keys(hotelInfo);
+          const nonSaudiKeys = keys.filter(k =>
+            k.endsWith('_hotel') &&
+            !k.startsWith('mekkah') &&
+            !k.startsWith('madinah')
+          );
+          return nonSaudiKeys.length === 0;
+        });
+      });
+
+    case 'UMROH PLUS':
+      // Packages with destinations outside Saudi Arabia
+      return data.filter(pkg => {
+        return Object.values(pkg.hotel).some(hotelInfo => {
+          const keys = Object.keys(hotelInfo);
+          return keys.some(k =>
+            k.endsWith('_hotel') &&
+            !k.startsWith('mekkah') &&
+            !k.startsWith('madinah')
+          );
+        });
+      });
+
+    case 'BINTANG 5':
+      // Packages where at least one tier has all bintang 5
+      return data.filter(pkg => {
+        return Object.values(pkg.hotel).some(hotelInfo => {
+          const info = hotelInfo as unknown as Record<string, string>;
+          const bintangKeys = Object.keys(info).filter(k => k.endsWith('_bintang'));
+          return bintangKeys.length > 0 && bintangKeys.every(k => info[k] === '5');
+        });
+      });
+
+    case 'DURASI PERJALANAN':
+      // Filter by trip duration
       if (!secondaryValue) {
         return data;
       }
       return data.filter(pkg => {
-        const destCity = extractDestinationCity(pkg.keberangkatan.rute);
-        return destCity === secondaryValue.toUpperCase() ||
-               getCityName(destCity).toLowerCase() === secondaryValue.toLowerCase();
+        const days = getDurationDays(pkg);
+        return days === parseInt(secondaryValue, 10);
       });
 
     case 'DATA PER-BULAN':
@@ -360,7 +428,7 @@ export function filterPackagesAdvanced(
 /**
  * Get minimum price from package for sorting
  */
-function getMinPrice(pkg: UmrohPackage): number {
+export function getMinPrice(pkg: UmrohPackage): number {
   let minPrice = Infinity;
   
   for (const tierPricing of Object.values(pkg.harga)) {
@@ -379,6 +447,29 @@ function getMinPrice(pkg: UmrohPackage): number {
   }
 
   return minPrice === Infinity ? 0 : minPrice;
+}
+
+/**
+ * Sort packages by the given sort order
+ */
+export function sortPackages(data: UmrohPackage[], order: SortOrder): UmrohPackage[] {
+  const result = [...data];
+  switch (order) {
+    case 'TANGGAL_TERDEKAT':
+      return result.sort((a, b) =>
+        new Date(a.keberangkatan.tgl).getTime() - new Date(b.keberangkatan.tgl).getTime()
+      );
+    case 'TANGGAL_TERJAUH':
+      return result.sort((a, b) =>
+        new Date(b.keberangkatan.tgl).getTime() - new Date(a.keberangkatan.tgl).getTime()
+      );
+    case 'HARGA_TERMURAH':
+      return result.sort((a, b) => getMinPrice(a) - getMinPrice(b));
+    case 'HARGA_TERTINGGI':
+      return result.sort((a, b) => getMinPrice(b) - getMinPrice(a));
+    default:
+      return result;
+  }
 }
 
 /**

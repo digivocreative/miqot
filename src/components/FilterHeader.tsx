@@ -5,9 +5,9 @@ import { createPortal } from 'react-dom';
 import type { UmrohPackage } from '@/types';
 import { 
   FilterMode, 
-  extractUniqueLandings, 
+  SortOrder,
   groupByMonth,
-  type LandingCity,
+  extractUniqueDurations,
   type MonthGroup,
 } from '@/utils';
 import logoAlhijaz from '@/logo-alhijaz.webp';
@@ -27,12 +27,15 @@ export interface FilterHeaderProps {
   availableYears?: string[];
   /** Current filter mode */
   filterMode: FilterMode;
-  /** Secondary filter value (city name or month key) */
+  /** Secondary filter value (month key) */
   secondaryValue?: string;
+  /** Current sort order for AVAILABLE/PROMO */
+  sortOrder?: SortOrder | null;
   /** Callbacks */
   onYearChange: (year: string) => void;
   onFilterModeChange: (mode: FilterMode) => void;
   onSecondaryValueChange: (value: string) => void;
+  onSortOrderChange?: (order: SortOrder | null) => void;
   /** Dark mode state */
   isDarkMode: boolean;
   /** Toggle dark mode callback */
@@ -51,11 +54,21 @@ export interface FilterHeaderProps {
 
 // Filter mode options for dropdown
 const FILTER_MODE_OPTIONS: { value: FilterMode; label: string }[] = [
-  { value: 'AVAILABLE', label: 'AVAILABLE' },
-  { value: 'LANDING', label: 'LANDING' },
-  { value: 'PROMO', label: 'PROMO' },
+  { value: 'AVAILABLE', label: 'SEAT TERSEDIA' },
+  { value: 'PROMO', label: 'UMROH PROMO' },
+  { value: 'UMROH REGULER', label: 'UMROH REGULER' },
+  { value: 'UMROH PLUS', label: 'UMROH PLUS' },
+  { value: 'BINTANG 5', label: 'BINTANG 5' },
+  { value: 'DURASI PERJALANAN', label: 'DURASI PERJALANAN' },
   { value: 'DATA PER-BULAN', label: 'DATA PER-BULAN' },
   { value: 'SEMUA DATA', label: 'SEMUA DATA' },
+];
+
+const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
+  { value: 'TANGGAL_TERDEKAT', label: 'Tanggal Terdekat' },
+  { value: 'TANGGAL_TERJAUH', label: 'Tanggal Terjauh' },
+  { value: 'HARGA_TERMURAH', label: 'Harga Termurah' },
+  { value: 'HARGA_TERTINGGI', label: 'Harga Tertinggi' },
 ];
 
 // ============================================
@@ -68,9 +81,11 @@ export function FilterHeader({
   availableYears = ['1448', '1449'],
   filterMode,
   secondaryValue,
+  sortOrder,
   onYearChange,
   onFilterModeChange,
   onSecondaryValueChange,
+  onSortOrderChange,
   isDarkMode,
   onToggleDarkMode,
   searchQuery,
@@ -179,18 +194,19 @@ export function FilterHeader({
     inputRef.current?.focus();
   };
 
-  // Extract unique landing cities from packages
-  const landingCities = useMemo<LandingCity[]>(() => {
-    return extractUniqueLandings(packages);
-  }, [packages]);
-
   // Group packages by month
   const monthGroups = useMemo<MonthGroup[]>(() => {
     return groupByMonth(packages);
   }, [packages]);
 
+  // Extract unique durations from packages
+  const durationOptions = useMemo(() => {
+    return extractUniqueDurations(packages);
+  }, [packages]);
+
   // Check if secondary dropdown should be shown
-  const showLandingDropdown = filterMode === 'LANDING';
+  const showSortDropdown = filterMode === 'AVAILABLE' || filterMode === 'PROMO' || filterMode === 'UMROH REGULER' || filterMode === 'UMROH PLUS' || filterMode === 'BINTANG 5';
+  const showDurationDropdown = filterMode === 'DURASI PERJALANAN';
   const showMonthDropdown = filterMode === 'DATA PER-BULAN';
 
   return (
@@ -310,8 +326,9 @@ export function FilterHeader({
               onChange={(e) => {
                 const newMode = e.target.value as FilterMode;
                 onFilterModeChange(newMode);
-                // Reset secondary value when mode changes
+                // Reset secondary value and sort when mode changes
                 onSecondaryValueChange('');
+                onSortOrderChange?.(null);
               }}
               className="
                 w-full appearance-none
@@ -342,12 +359,15 @@ export function FilterHeader({
             </svg>
           </div>
 
-          {/* Secondary Dropdown: Landing Cities */}
-          {showLandingDropdown && (
+          {/* Secondary Dropdown: Sort Order (for AVAILABLE & PROMO) */}
+          {showSortDropdown && (
             <div className="relative flex-1 animate-in slide-in-from-right-2 duration-200">
               <select
-                value={secondaryValue || ''}
-                onChange={(e) => onSecondaryValueChange(e.target.value)}
+                value={sortOrder || ''}
+                onChange={(e) => {
+                  const val = e.target.value as SortOrder | '';
+                  onSortOrderChange?.(val || null);
+                }}
                 className="
                   w-full appearance-none
                   px-3 py-2.5 pr-8
@@ -361,10 +381,10 @@ export function FilterHeader({
                   transition-colors
                 "
               >
-                <option value="">- pilih kota landing -</option>
-                {landingCities.map((city) => (
-                  <option key={city.code} value={city.code}>
-                    {city.name}
+                <option value="">- Urutkan -</option>
+                {SORT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
                   </option>
                 ))}
               </select>
@@ -402,6 +422,43 @@ export function FilterHeader({
                 {monthGroups.map((month) => (
                   <option key={month.monthKey} value={month.monthKey}>
                     {month.monthName} ({month.availableSeat}/{month.totalSeat})
+                  </option>
+                ))}
+              </select>
+              <svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                viewBox="0 0 20 20" 
+                fill="currentColor" 
+                className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+              >
+                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+              </svg>
+            </div>
+          )}
+
+          {/* Secondary Dropdown: Duration */}
+          {showDurationDropdown && (
+            <div className="relative flex-1 animate-in slide-in-from-right-2 duration-200">
+              <select
+                value={secondaryValue || ''}
+                onChange={(e) => onSecondaryValueChange(e.target.value)}
+                className="
+                  w-full appearance-none
+                  px-3 py-2.5 pr-8
+                  text-sm font-medium text-gray-700
+                  bg-gray-100/80 border border-transparent
+                  dark:bg-slate-800/80 dark:border-transparent dark:text-slate-200
+                  rounded-xl
+                  cursor-pointer
+                  hover:bg-gray-200/80 dark:hover:bg-slate-700/80
+                  focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:bg-white dark:focus:bg-slate-800
+                  transition-colors
+                "
+              >
+                <option value="">- pilih durasi -</option>
+                {durationOptions.map((dur) => (
+                  <option key={dur.days} value={dur.days.toString()}>
+                    {dur.label} ({dur.count} paket)
                   </option>
                 ))}
               </select>

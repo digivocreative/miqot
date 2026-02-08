@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { PackageCard, FilterHeader, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
 import { getPackages } from '@/services';
-import { filterPackages, type FilterMode } from '@/utils';
+import { filterPackages, sortPackages, type FilterMode, type SortOrder } from '@/utils';
 import type { UmrohPackage } from '@/types';
 import { AGENTS_DATA, type AgentData } from '@/data/agents';
 import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
@@ -29,6 +29,7 @@ function App() {
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
   const [quickFilter, setQuickFilter] = useState<QuickFilterType | null>(null);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [sortOrder, setSortOrder] = useState<SortOrder | null>('TANGGAL_TERDEKAT');
 
   // ============================================
   // Dark Mode State
@@ -222,15 +223,18 @@ function App() {
       });
     }
 
-    // Sort by departure date (unless urgent/termurah already sorted)
-    if (!quickFilter || (quickFilter !== 'urgent' && quickFilter !== 'termurah')) {
-      return result.sort((a, b) => 
+    // Apply sort order from sub-dropdown (AVAILABLE/PROMO)
+    if (sortOrder) {
+      result = sortPackages(result, sortOrder);
+    } else if (!quickFilter || (quickFilter !== 'urgent' && quickFilter !== 'termurah')) {
+      // Default: sort by departure date
+      result.sort((a, b) => 
         new Date(a.keberangkatan.tgl).getTime() - new Date(b.keberangkatan.tgl).getTime()
       );
     }
     
     return result;
-  }, [packages, filterMode, filterSecondaryValue, searchQuery, quickFilter, departureTimeRanges, returnTimeRanges]);
+  }, [packages, filterMode, filterSecondaryValue, searchQuery, quickFilter, departureTimeRanges, returnTimeRanges, sortOrder]);
 
   // ============================================
   // Handlers
@@ -242,6 +246,7 @@ function App() {
     setFilterSecondaryValue('');
     setSearchQuery('');
     setQuickFilter(null);
+    setSortOrder('TANGGAL_TERDEKAT');
     setDepartureTimeRanges([]);
     setReturnTimeRanges([]);
   };
@@ -249,6 +254,9 @@ function App() {
   const handleFilterModeChange = (mode: FilterMode) => {
     setFilterMode(mode);
     setFilterSecondaryValue('');
+    // Set default sort for modes with sort sub-dropdown
+    const modesWithSort: FilterMode[] = ['AVAILABLE', 'PROMO', 'UMROH REGULER', 'UMROH PLUS', 'BINTANG 5'];
+    setSortOrder(modesWithSort.includes(mode) ? 'TANGGAL_TERDEKAT' : null);
   };
 
   const handleSecondaryValueChange = (value: string) => {
@@ -284,9 +292,11 @@ function App() {
         availableYears={['1448', '1449']}
         filterMode={filterMode}
         secondaryValue={filterSecondaryValue}
+        sortOrder={sortOrder}
         onYearChange={handleYearChange}
         onFilterModeChange={handleFilterModeChange}
         onSecondaryValueChange={handleSecondaryValueChange}
+        onSortOrderChange={setSortOrder}
         isDarkMode={isDarkMode}
         onToggleDarkMode={toggleDarkMode}
         searchQuery={searchQuery}
