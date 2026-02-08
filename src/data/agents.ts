@@ -87,13 +87,13 @@ export const AGENTS_DATA: Record<string, AgentData> = {
   },
   'indah': {
     name: 'Indah Permata',
-    website: 'alhijazumrahtravel.com',
+    website: 'alhijaztraveltour.com',
     phone: '6281943631008',
     photo: '/agents/indah.jpg',
   },
   'aisyah': {
     name: 'Siti Aisyah',
-    website: 'alhijazumrahtravel.com',
+    website: 'travelalhijazumrah.com',
     phone: '6281225600900',
     photo: '/agents/aisyah.jpg',
   },
