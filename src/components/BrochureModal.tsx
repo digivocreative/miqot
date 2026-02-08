@@ -24,24 +24,24 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
 
-  // In dev: strip origin for Vite proxy. In prod: use original URL directly.
-  const proxyUrl = imageUrl
+  // In dev: use Vite proxy path. In prod: use original URL directly.
+  const displayUrl = imageUrl
     ? (import.meta.env.DEV
         ? imageUrl.replace(/^https?:\/\/jadwal\.miqot\.com/i, '')
-        : imageUrl)
+        : imageUrl.replace(/^http:\/\//i, 'https://'))
     : '';
 
   // Share First, Download Fallback handler
   const handleShareBrosur = async () => {
-    if (isSharing || !imageUrl) return;
+    if (isSharing || !displayUrl) return;
     setIsSharing(true);
 
     const safeTitle = title.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-');
     const fileName = `Brosur-${safeTitle}.png`;
 
     try {
-      // 1. Fetch image via proxy
-      const response = await fetch(proxyUrl);
+      // 1. Fetch image (via proxy in dev, direct in prod)
+      const response = await fetch(displayUrl);
       if (!response.ok) throw new Error('Fetch failed');
       const blob = await response.blob();
       const blobUrl = window.URL.createObjectURL(blob);
@@ -90,13 +90,13 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
           }
         }
       } else {
-        // Desktop / Browser Lama: Fallback ke Download
         triggerDownload(pngBlob, fileName);
       }
     } catch (error) {
       console.error('Gagal share brosur:', error);
-      // Ultimate fallback: open original URL
-      window.open(imageUrl, '_blank');
+      // CORS fallback: open original URL in new tab
+      const fullUrl = imageUrl.replace(/^http:\/\//i, 'https://');
+      window.open(fullUrl, '_blank');
     } finally {
       setIsSharing(false);
     }
@@ -142,25 +142,25 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
           <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 p-4 flex justify-center items-start">
             <div className="relative bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-md w-full">
               {/* Loading Spinner */}
-              {!isImageLoaded && proxyUrl && (
+              {!isImageLoaded && displayUrl && (
                 <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-slate-800 rounded-xl z-10">
                   <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
                 </div>
               )}
 
-              {/* Brochure Image */}
-              {proxyUrl && (
+              {/* Brochure Image — NO crossOrigin so it loads cross-domain */}
+              {displayUrl && (
                 <img
-                  src={proxyUrl}
+                  src={displayUrl}
                   alt={`Brosur ${title}`}
                   className={`w-full h-auto rounded-lg transition-opacity duration-300 ${isImageLoaded ? 'opacity-100' : 'opacity-0'}`}
                   onLoad={() => setIsImageLoaded(true)}
-                  crossOrigin="anonymous"
+                  onError={() => setIsImageLoaded(true)}
                 />
               )}
 
               {/* Empty State */}
-              {!proxyUrl && (
+              {!displayUrl && (
                 <div className="py-20 text-center">
                   <p className="text-gray-400 dark:text-slate-500">Brosur tidak tersedia</p>
                 </div>
@@ -169,7 +169,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
           </div>
 
           {/* ─── FIXED FOOTER ─── */}
-          {proxyUrl && (
+          {displayUrl && (
             <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
               <button
                 onClick={handleShareBrosur}

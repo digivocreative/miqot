@@ -30,13 +30,23 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
   const [isSharing, setIsSharing] = useState(false);
   const [isPdfLoading, setIsPdfLoading] = useState(true);
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'unknown'>('unknown');
+  const [useFallbackViewer, setUseFallbackViewer] = useState(false);
 
-  // In dev: strip origin for Vite proxy. In prod: use original URL directly.
+  const isDev = import.meta.env.DEV;
+
+  // Original HTTPS URL (for fallback / share open)
   const originalUrl = fileUrl ? fileUrl.replace(/^http:\/\//i, 'https://') : '';
+
+  // In dev: Vite proxy path. In prod: original URL for react-pdf (may need fallback)
   const proxyUrl = originalUrl
-    ? (import.meta.env.DEV
+    ? (isDev
         ? originalUrl.replace(/^https?:\/\/jadwal\.miqot\.com/i, '')
         : originalUrl)
+    : '';
+
+  // Google Docs Viewer URL (CORS-free PDF viewing for production)
+  const googleViewerUrl = originalUrl
+    ? `https://docs.google.com/gview?url=${encodeURIComponent(originalUrl)}&embedded=true`
     : '';
 
   // Determine file type
@@ -55,6 +65,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     if (isOpen) {
       setIsPdfLoading(true);
       setNumPages(null);
+      setUseFallbackViewer(false);
     }
   }, [isOpen, fileUrl]);
 
@@ -64,25 +75,33 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     setIsPdfLoading(false);
   }
 
+  // PDF load error → switch to Google Docs Viewer
+  function onDocumentLoadError() {
+    console.warn('react-pdf failed (likely CORS), switching to Google Docs Viewer');
+    setUseFallbackViewer(true);
+    setIsPdfLoading(false);
+  }
+
   // Share First, Download Fallback handler
   const handleShareItinerary = async () => {
-    if (!proxyUrl) return;
+    if (!originalUrl) return;
     setIsSharing(true);
 
     try {
-      // 1. Fetch file as blob via proxy
-      const response = await fetch(proxyUrl, { cache: 'no-cache' });
+      // Fetch file as blob (via proxy in dev, direct in prod)
+      const fetchUrl = isDev ? proxyUrl : originalUrl;
+      const response = await fetch(fetchUrl, { cache: 'no-cache' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
 
-      // 2. Determine filename & MIME type
+      // Determine filename & MIME type
       const isImage = fileType === 'image';
       const ext = isImage ? 'png' : 'pdf';
       const mimeType = isImage ? 'image/png' : 'application/pdf';
       const safeTitle = title.replace(/\s+/g, '_');
       const fileName = `${safeTitle}_Itinerary.${ext}`;
 
-      // 3. Create File object
+      // Create File object
       const file = new File([blob], fileName, { type: mimeType });
       const shareData = {
         title: `Itinerary - ${title}`,
@@ -90,7 +109,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
         files: [file],
       };
 
-      // 4. Share or Fallback
+      // Share or Fallback
       if (navigator.canShare && navigator.canShare(shareData)) {
         try {
           await navigator.share(shareData);
@@ -101,11 +120,11 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
           }
         }
       } else {
-        // Desktop / Browser Lama: Download
         triggerDownload(blob, fileName);
       }
     } catch (error) {
       console.error('Gagal share itinerary:', error);
+      // CORS fallback: open original URL in new tab
       window.open(originalUrl, '_blank');
     } finally {
       setIsSharing(false);
@@ -148,21 +167,34 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
 
       {/* ─── SCROLLABLE CONTENT (PDF/IMAGE VIEWER) ─── */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 dark:bg-slate-950 p-4 flex justify-center">
-        <div className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[50vh] flex flex-col items-center justify-center relative">
 
-          {/* Empty State */}
-          {!proxyUrl && (
-            <div className="flex flex-col items-center text-gray-400 dark:text-slate-500 gap-2 py-10">
-              <AlertCircle className="w-10 h-10" />
-              <p>File Itinerary belum tersedia.</p>
-            </div>
-          )}
+        {/* Empty State */}
+        {!proxyUrl && (
+          <div className="flex flex-col items-center text-gray-400 dark:text-slate-500 gap-2 py-10 self-center">
+            <AlertCircle className="w-10 h-10" />
+            <p>File Itinerary belum tersedia.</p>
+          </div>
+        )}
 
-          {/* PDF Renderer via react-pdf */}
-          {proxyUrl && fileType === 'pdf' && (
+        {/* Google Docs Viewer Fallback (when react-pdf fails due to CORS) */}
+        {proxyUrl && fileType === 'pdf' && useFallbackViewer && (
+          <div className="w-full h-full min-h-[70vh] relative">
+            <iframe
+              src={googleViewerUrl}
+              className="w-full h-full min-h-[70vh] border-0 rounded-xl shadow-lg bg-white"
+              title={`Itinerary ${title}`}
+              onLoad={() => setIsPdfLoading(false)}
+            />
+          </div>
+        )}
+
+        {/* PDF Renderer via react-pdf (primary, works in dev & CORS-enabled prod) */}
+        {proxyUrl && fileType === 'pdf' && !useFallbackViewer && (
+          <div className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[50vh] flex flex-col items-center justify-center relative">
             <Document
               file={proxyUrl}
               onLoadSuccess={onDocumentLoadSuccess}
+              onLoadError={onDocumentLoadError}
               loading={
                 <div className="flex flex-col items-center gap-3 py-10">
                   <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
@@ -177,7 +209,6 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
               }
               className="w-full flex flex-col items-center gap-4"
             >
-              {/* Render ALL pages vertically */}
               {numPages && Array.from(new Array(numPages), (_, index) => (
                 <Page
                   key={`page_${index + 1}`}
@@ -189,18 +220,20 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
                 />
               ))}
             </Document>
-          )}
+          </div>
+        )}
 
-          {/* Image Renderer (fallback for .jpg/.png) */}
-          {proxyUrl && fileType === 'image' && (
+        {/* Image Renderer (fallback for .jpg/.png) */}
+        {proxyUrl && fileType === 'image' && (
+          <div className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-md w-full">
             <img
               src={proxyUrl}
               alt={`Itinerary ${title}`}
               className="w-full h-auto rounded-lg"
               onLoad={() => setIsPdfLoading(false)}
             />
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* ─── FIXED FOOTER ─── */}
