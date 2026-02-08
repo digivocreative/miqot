@@ -49,4 +49,10 @@ export const AGENTS_DATA: Record<string, AgentData> = {
     phone: '6281410478212',
     photo: '/agents/selfiah.jpg',
   },
+  'zakia': {
+    name: 'Rahima Zakia',
+    website: 'alhijazbirowisata.com',
+    phone: '6285158005623',
+    photo: '/agents/zakia.jpg',
+  },
 };
