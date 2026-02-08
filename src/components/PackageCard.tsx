@@ -7,7 +7,7 @@ import html2canvas from 'html2canvas';
 import { UmrohPackage, RoomPricing } from '@/types';
 import { BrochureModal } from './BrochureModal';
 import { ItineraryModal } from './ItineraryModal';
-import { AGENTS_DATA, type AgentData } from '@/data/agents';
+import type { AgentData } from '@/data/agents';
 import AgentProfile from './AgentProfile';
 
 interface PackageCardProps {
@@ -18,6 +18,8 @@ interface PackageCardProps {
   onToggle?: () => void;
   /** Callback when expand state changes (for backward compatibility or extra monitoring) */
   onExpandChange?: (expanded: boolean) => void;
+  /** Agent data from URL slug (passed from parent to avoid per-card detection) */
+  agent?: AgentData | null;
 }
 
 const LANDING_AIRPORT_MAP: Record<string, string> = {
@@ -54,7 +56,8 @@ export function PackageCard({
   package: pkg, 
   isExpanded = false,
   onToggle,
-  onExpandChange 
+  onExpandChange,
+  agent: currentAgent = null,
 }: PackageCardProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentHeight, setContentHeight] = useState(0);
@@ -62,15 +65,7 @@ export function PackageCard({
   const [isItineraryOpen, setIsItineraryOpen] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [currentAgent, setCurrentAgent] = useState<AgentData | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-
-  // Detect agent from URL slug (e.g. /bagas → AGENTS_DATA['bagas'])
-  useEffect(() => {
-    const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
-    const agent = AGENTS_DATA[path.toLowerCase()];
-    setCurrentAgent(agent || null);
-  }, []);
 
   // Calculate availability percentage
   const availabilityPercentage = Math.round((pkg.seatSisa / pkg.seatTotal) * 100);
@@ -874,7 +869,7 @@ _________________________
 
           {/* Agent Profile (only visible when URL slug matches an agent) */}
           {currentAgent && (
-            <div className="px-0">
+            <div className="px-0" data-html2canvas-ignore>
               <AgentProfile agent={currentAgent} packageName={pkg.nama} />
             </div>
           )}

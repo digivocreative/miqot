@@ -340,6 +340,7 @@ function App() {
                 package={pkg}
                 isExpanded={expandedCardId === pkg.jadwalId}
                 onToggle={() => handleToggleCard(pkg.jadwalId)}
+                agent={currentAgent}
               />
             ))}
 
