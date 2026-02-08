@@ -646,21 +646,6 @@ _________________________
         });
         agentName.textContent = currentAgent.name;
 
-        // Verified badge (blue checkmark)
-        const verifiedBadge = document.createElement('span');
-        verifiedBadge.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;margin-left:4px;flex-shrink:0;"><circle cx="12" cy="12" r="12" fill="#1DA1F2"/><path d="M9.5 12.5L11 14L15 10" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-
-        // Wrap name + badge in a row
-        const nameRow = document.createElement('div');
-        Object.assign(nameRow.style, {
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          gap: '4px',
-        });
-        nameRow.appendChild(agentName);
-        nameRow.appendChild(verifiedBadge);
-
         const agentWeb = document.createElement('div');
         Object.assign(agentWeb.style, {
           fontSize: '11px',
@@ -685,11 +670,19 @@ _________________________
         });
         agentPhone.textContent = formattedPhone;
 
-        textBlock.appendChild(nameRow);
+        textBlock.appendChild(agentName);
         textBlock.appendChild(agentWeb);
         textBlock.appendChild(agentPhone);
 
-        // Avatar
+        // Avatar container (relative for badge positioning)
+        const avatarContainer = document.createElement('div');
+        Object.assign(avatarContainer.style, {
+          position: 'relative',
+          width: '44px',
+          height: '44px',
+          flexShrink: '0',
+        });
+
         const avatar = document.createElement('img');
         avatar.src = currentAgent.photo;
         Object.assign(avatar.style, {
@@ -698,11 +691,29 @@ _________________________
           borderRadius: '50%',
           objectFit: 'cover',
           border: '2px solid #E5E7EB',
-          flexShrink: '0',
         });
 
+        // Verified badge on top-right of avatar
+        const verifiedBadge = document.createElement('div');
+        Object.assign(verifiedBadge.style, {
+          position: 'absolute',
+          top: '-2px',
+          right: '-2px',
+          width: '16px',
+          height: '16px',
+          borderRadius: '50%',
+          backgroundColor: '#ffffff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        });
+        verifiedBadge.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1DA1F2"/><path d="M9.5 12.5L11 14L15 10" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+        avatarContainer.appendChild(avatar);
+        avatarContainer.appendChild(verifiedBadge);
+
         agentSection.appendChild(textBlock);
-        agentSection.appendChild(avatar);
+        agentSection.appendChild(avatarContainer);
       }
 
       header.appendChild(logoContainer);
