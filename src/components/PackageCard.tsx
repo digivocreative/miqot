@@ -752,13 +752,13 @@ _________________________
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',
-          gap: '0',
+          gap: '2px',
         });
 
         const agentName = document.createElement('div');
         Object.assign(agentName.style, {
           fontWeight: '700',
-          fontSize: '13px',
+          fontSize: '14px',
           color: '#111827',
           lineHeight: '1.3',
           whiteSpace: 'nowrap',
@@ -768,7 +768,7 @@ _________________________
 
         const agentWeb = document.createElement('div');
         Object.assign(agentWeb.style, {
-          fontSize: '11px',
+          fontSize: '13px',
           color: '#6B7280',
           lineHeight: '1.3',
           whiteSpace: 'nowrap',
@@ -783,7 +783,7 @@ _________________________
 
         const agentPhone = document.createElement('div');
         Object.assign(agentPhone.style, {
-          fontSize: '11px',
+          fontSize: '12px',
           color: '#374151',
           fontWeight: '600',
           lineHeight: '1.3',
@@ -800,16 +800,16 @@ _________________________
         const avatarContainer = document.createElement('div');
         Object.assign(avatarContainer.style, {
           position: 'relative',
-          width: '44px',
-          height: '44px',
+          width: '52px',
+          height: '52px',
           flexShrink: '0',
         });
 
         const avatar = document.createElement('img');
         avatar.src = currentAgent.photo;
         Object.assign(avatar.style, {
-          width: '44px',
-          height: '44px',
+          width: '52px',
+          height: '52px',
           borderRadius: '50%',
           objectFit: 'cover',
           border: '2px solid #E5E7EB',
