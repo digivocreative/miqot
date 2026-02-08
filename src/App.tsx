@@ -4,6 +4,7 @@ import { getPackages } from '@/services';
 import { filterPackages, type FilterMode } from '@/utils';
 import type { UmrohPackage } from '@/types';
 import { AGENTS_DATA, type AgentData } from '@/data/agents';
+import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
 
 // ============================================
@@ -95,6 +96,8 @@ function App() {
     
     if (result.success) {
       setPackages(result.packages);
+      // Auto-populate hotel distance database from API data
+      buildDatabaseFromPackages(result.packages);
     } else {
       setError(result.error || 'Gagal memuat data');
       setPackages([]);
@@ -102,8 +105,9 @@ function App() {
     setLoading(false);
   }, []);
 
-  // Initial fetch and refetch on year change
+  // Initial fetch, cache init, and refetch on year change
   useEffect(() => {
+    initFromCache(); // Load hotel distances from cache on startup
     fetchPackages(selectedYear);
   }, [selectedYear, fetchPackages]);
 

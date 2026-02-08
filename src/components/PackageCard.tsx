@@ -10,6 +10,7 @@ import { ItineraryModal } from './ItineraryModal';
 import type { AgentData } from '@/data/agents';
 import AgentProfile from './AgentProfile';
 import logoAlhijaz from '@/logo-alhijaz.webp';
+import { getDistance } from '@/data/hotelService';
 
 interface PackageCardProps {
   package: UmrohPackage;
@@ -1117,18 +1118,19 @@ _________________________
                 {hotelInfo?.mekkah_hotel || '-'}
               </p>
               {hotelInfo?.mekkah_bintang && (
-                <div className="flex items-center gap-2 mt-0.5">
                   <div className="flex items-center gap-0.5">
                     {Array.from({ length: parseInt(hotelInfo.mekkah_bintang) }).map((_, i) => (
-                      <span key={i} className="text-[8px] text-amber-400">★</span>
+                      <span key={i} className="text-[10px] text-amber-400">★</span>
                     ))}
+                    {(() => {
+                      const dist = hotelInfo.mekkah_jarak || getDistance(hotelInfo.mekkah_hotel || '');
+                      return dist ? (
+                        <span className="text-[11px] font-semibold ml-2 text-emerald-600">
+                          {dist}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
-                  {hotelInfo.mekkah_jarak && (
-                    <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
-                      ± {hotelInfo.mekkah_jarak}
-                    </span>
-                  )}
-                </div>
               )}
             </div>
           </div>
@@ -1150,18 +1152,19 @@ _________________________
                 {hotelInfo?.madinah_hotel || '-'}
               </p>
               {hotelInfo?.madinah_bintang && (
-                <div className="flex items-center gap-2 mt-0.5">
                   <div className="flex items-center gap-0.5">
                     {Array.from({ length: parseInt(hotelInfo.madinah_bintang) }).map((_, i) => (
-                      <span key={i} className="text-[8px] text-amber-400">★</span>
+                      <span key={i} className="text-[10px] text-amber-400">★</span>
                     ))}
+                    {(() => {
+                      const dist = hotelInfo.madinah_jarak || getDistance(hotelInfo.madinah_hotel || '');
+                      return dist ? (
+                        <span className="text-[11px] font-semibold ml-2 text-emerald-600">
+                          {dist}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
-                  {hotelInfo.madinah_jarak && (
-                    <span className="text-[10px] text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">
-                      ± {hotelInfo.madinah_jarak}
-                    </span>
-                  )}
-                </div>
               )}
             </div>
           </div>
@@ -1253,7 +1256,7 @@ _________________________
                       {parseInt(hotel.star) > 0 && (
                         <div className="flex items-center gap-0.5 mt-0.5">
                           {Array.from({ length: parseInt(hotel.star) }).map((_, i) => (
-                            <span key={i} className="text-[8px] text-amber-400">★</span>
+                            <span key={i} className="text-[10px] text-amber-400">★</span>
                           ))}
                         </div>
                       )}
