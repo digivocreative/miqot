@@ -741,6 +741,11 @@ _________________________
         if (el.textContent?.trim() === '★') {
           el.style.setProperty('color', '#E8A200', 'important');
         }
+        // Hotel distance (±XXXm) — strip bold for screenshot consistency
+        if (el.classList.contains('text-emerald-600') && el.textContent?.trim().startsWith('±')) {
+          el.classList.remove('font-semibold');
+          el.style.setProperty('font-weight', '400', 'important');
+        }
       });
 
       // D2. FLIGHT INFO: Remove "/" separators and bold dates
