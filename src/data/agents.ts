@@ -127,4 +127,10 @@ export const AGENTS_DATA: Record<string, AgentData> = {
     phone: '62811802789',
     photo: '/agents/ferra.jpg',
   },
+  'jan-praba': {
+    name: 'Jan Praba',
+    website: 'miqot.com/jan-praba',
+    phone: '62816728940',
+    photo: '/agents/jan-praba.jpg',
+  },
 };
