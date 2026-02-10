@@ -7,12 +7,6 @@ export interface AgentData {
 
 // Key object adalah "Slug" URL (misal: /bagas)
 export const AGENTS_DATA: Record<string, AgentData> = {
-  'bagas': {
-    name: 'Bagas Pramudita',
-    website: 'alhijazindonesia.com',
-    phone: '6287878573311',
-    photo: '/agents/bagas.jpg',
-  },
   'nikita': {
     name: 'Nikita',
     website: 'alhijazindonesia.com',
@@ -123,8 +117,14 @@ export const AGENTS_DATA: Record<string, AgentData> = {
   },
   'isti': {
     name: 'ISTI',
-    website: 'al-hijaztravelumroh.com ',
+    website: 'al-hijaztravelumroh.com',
     phone: '6281315002460',
     photo: '/agents/isti.jpg',
+  },
+  'ferra': {
+    name: 'Ferra Yuli',
+    website: 'alhijaztourtravel.id',
+    phone: '62811802789',
+    photo: '/agents/ferra.jpg',
   },
 };
