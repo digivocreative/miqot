@@ -70,6 +70,14 @@ const GRADIENT_PRESETS: { name: string; css: string }[] = [
     name: 'Royal',
     css: 'linear-gradient(180deg, rgba(255,255,255,1) 12%, rgba(168,85,247,1) 40%, rgba(109,40,217,1) 71%, rgba(59,7,100,1) 100%)',
   },
+  {
+    name: 'Rose',
+    css: 'linear-gradient(180deg, rgba(255,255,255,1) 12%, rgba(253,164,175,1) 40%, rgba(244,63,94,1) 71%, rgba(159,18,57,1) 100%)',
+  },
+  {
+    name: 'Gold',
+    css: 'linear-gradient(180deg, rgba(255,255,255,1) 12%, rgba(250,204,21,1) 40%, rgba(202,138,4,1) 71%, rgba(113,63,18,1) 100%)',
+  },
 ];
 
 
