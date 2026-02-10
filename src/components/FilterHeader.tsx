@@ -10,7 +10,7 @@ import {
   type MonthGroup,
 } from '@/utils';
 import logoAlhijaz from '@/logo-alhijaz.webp';
-import { Sun, Moon, Search, X, SlidersHorizontal } from 'lucide-react';
+import { Sun, Moon, Search, X, SlidersHorizontal, Share2 } from 'lucide-react';
 
 // ============================================
 // Types
@@ -464,6 +464,39 @@ export function FilterHeader({
             {isFilterActive && (
               <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full"></span>
             )}
+          </button>
+
+          {/* Share Button */}
+          <button
+            onClick={async () => {
+              const url = window.location.href;
+              const text = `Cek Jadwal Paket Umroh Alhijaz di ${url}`;
+              if (navigator.share) {
+                try {
+                  await navigator.share({ text });
+                } catch {
+                  // User cancelled or share failed silently
+                }
+              } else {
+                // Fallback: copy to clipboard
+                await navigator.clipboard.writeText(text);
+              }
+            }}
+            className={`
+              relative flex items-center justify-center
+              w-11 h-11 shrink-0
+              bg-gray-100/80 dark:bg-slate-800/80
+              border border-transparent
+              text-gray-600 dark:text-slate-300
+              rounded-xl
+              hover:bg-gray-200/80 dark:hover:bg-slate-700/80
+              hover:text-emerald-600 dark:hover:text-emerald-400
+              transition-all duration-200
+              active:scale-95
+            `}
+            aria-label="Share"
+          >
+            <Share2 size={18} />
           </button>
         </div>
 
