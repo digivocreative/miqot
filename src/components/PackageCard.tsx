@@ -649,7 +649,7 @@ _________________________
             wrapper.style.setProperty('background', 'linear-gradient(135deg, #C0392B, #96281B)', 'important');
             wrapper.style.setProperty('padding', '6px 8px', 'important');
             wrapper.style.setProperty('border-radius', '10px', 'important');
-            wrapper.style.setProperty('box-shadow', '0 2px 8px rgba(150,40,27,0.35)', 'important');
+            wrapper.style.setProperty('box-shadow', 'none', 'important');
 
             // Bump price font size + make white + shadow
             const priceEl = wrapper.querySelector('p:last-child') as HTMLElement;
