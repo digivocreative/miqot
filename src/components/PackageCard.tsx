@@ -52,6 +52,25 @@ const getLandingCityName = (pkg: UmrohPackage): string => {
   return LANDING_AIRPORT_MAP[airportCode] || airportCode;
 };
 
+// Gradient presets for screenshot background
+const GRADIENT_PRESETS: { name: string; css: string }[] = [
+  {
+    name: 'Sunset',
+    css: 'linear-gradient(180deg, rgba(255,255,255,1) 12%, rgba(245,131,0,1) 40%, rgba(255,10,10,1) 71%, rgba(176,0,0,1) 100%)',
+  },
+  {
+    name: 'Ocean',
+    css: 'linear-gradient(180deg, rgba(255,255,255,1) 12%, rgba(56,189,248,1) 40%, rgba(14,116,195,1) 71%, rgba(7,61,122,1) 100%)',
+  },
+  {
+    name: 'Emerald',
+    css: 'linear-gradient(180deg, rgba(255,255,255,1) 12%, rgba(52,211,153,1) 40%, rgba(16,150,100,1) 71%, rgba(6,78,59,1) 100%)',
+  },
+  {
+    name: 'Royal',
+    css: 'linear-gradient(180deg, rgba(255,255,255,1) 12%, rgba(168,85,247,1) 40%, rgba(109,40,217,1) 71%, rgba(59,7,100,1) 100%)',
+  },
+];
 
 
 /**
@@ -71,6 +90,8 @@ export function PackageCard({
   const [isItineraryOpen, setIsItineraryOpen] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [selectedGradient, setSelectedGradient] = useState(0);
+  const gradientRef = useRef(0);
   const cardRef = useRef<HTMLDivElement>(null);
 
   // Calculate availability percentage
@@ -879,7 +900,7 @@ _________________________
         zIndex: '-9999',
         opacity: '1',
         pointerEvents: 'none',
-        background: 'linear-gradient(180deg, rgba(255, 255, 255, 1) 12%, rgba(245, 131, 0, 1) 40%, rgba(255, 10, 10, 1) 71%, rgba(176, 0, 0, 1) 100%)',
+        background: GRADIENT_PRESETS[gradientRef.current].css,
         padding: '20px',
         fontFamily: "'Inter', Arial, Helvetica, sans-serif",
         boxSizing: 'border-box',
@@ -1617,13 +1638,52 @@ _________________________
               </div>
 
               {/* ─── SCROLLABLE CONTENT ─── */}
-              <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 p-4 flex justify-center items-start">
-                <div className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-md w-full">
+              <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 p-4 flex flex-col items-center gap-3">
+
+                {/* ─── GRADIENT COLOR PICKER (above screenshot) ─── */}
+                <div className="max-w-md w-full">
+                  <div className="flex items-center justify-center gap-3">
+                    {GRADIENT_PRESETS.map((preset, index) => (
+                      <button
+                        key={preset.name}
+                        disabled={isCapturing}
+                        onClick={() => {
+                          if (index === selectedGradient) return;
+                          gradientRef.current = index;
+                          setSelectedGradient(index);
+                          // Re-generate screenshot in-place (don't clear previewImage)
+                          handleScreenshot();
+                        }}
+                        className={`
+                          relative w-9 h-9 rounded-full shrink-0
+                          transition-all duration-200
+                          ${selectedGradient === index 
+                            ? 'ring-2 ring-offset-2 ring-emerald-500 dark:ring-offset-gray-100 dark:dark:ring-offset-slate-950 scale-110' 
+                            : 'ring-1 ring-gray-300 dark:ring-slate-600 hover:scale-105 opacity-70 hover:opacity-100'
+                          }
+                          ${isCapturing ? 'pointer-events-none' : ''}
+                        `}
+                        style={{ background: preset.css }}
+                        aria-label={preset.name}
+                        title={preset.name}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* ─── SCREENSHOT PREVIEW ─── */}
+                <div className="relative bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-md w-full">
                   <img
                     src={previewImage}
                     alt="Screenshot Paket"
-                    className="w-full h-auto rounded-lg object-contain"
+                    className={`w-full h-auto rounded-lg object-contain transition-opacity duration-300 ${isCapturing ? 'opacity-30' : 'opacity-100'}`}
                   />
+                  {/* Loading overlay while regenerating */}
+                  {isCapturing && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+                    </div>
+                  )}
                 </div>
               </div>
 
