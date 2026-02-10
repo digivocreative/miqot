@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { PackageCard, FilterHeader, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
 import { getPackages } from '@/services';
-import { filterPackages, sortPackages, type FilterMode, type SortOrder } from '@/utils';
+import { filterPackages, sortPackages, getFilterSlug, getFilterModeFromSlug, type FilterMode, type SortOrder } from '@/utils';
 import type { UmrohPackage } from '@/types';
 import { AGENTS_DATA, type AgentData } from '@/data/agents';
 import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
@@ -55,12 +55,42 @@ function App() {
     localStorage.setItem('darkMode', isDarkMode.toString());
   }, [isDarkMode]);
 
-  // Detect agent from URL slug (shared state for SEO + FloatingAgentBar)
+  // Detect agent + filter slug from URL (shared state for SEO + FloatingAgentBar)
   const [currentAgent, setCurrentAgent] = useState<AgentData | null>(null);
   useEffect(() => {
-    const slug = window.location.pathname.replace(/^\/+/, '').split('/')[0];
-    const agent = AGENTS_DATA[slug?.toLowerCase()];
+    const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+    // segments can be: [], ['nikita'], ['liburan-sekolah'], ['nikita', 'liburan-sekolah']
+
+    let agent: AgentData | undefined;
+    let filterSlugFromUrl: string | undefined;
+
+    if (segments.length >= 1) {
+      // Check if first segment is an agent slug
+      const possibleAgent = AGENTS_DATA[segments[0]?.toLowerCase()];
+      if (possibleAgent) {
+        agent = possibleAgent;
+        // Second segment might be a filter slug
+        if (segments.length >= 2) {
+          filterSlugFromUrl = segments[1];
+        }
+      } else {
+        // First segment might be a filter slug
+        filterSlugFromUrl = segments[0];
+      }
+    }
+
     setCurrentAgent(agent || null);
+
+    // Apply filter from URL slug
+    if (filterSlugFromUrl) {
+      const modeFromUrl = getFilterModeFromSlug(filterSlugFromUrl);
+      if (modeFromUrl) {
+        setFilterMode(modeFromUrl);
+        // Set default sort for modes with sort sub-dropdown
+        const modesWithSort: FilterMode[] = ['AVAILABLE', 'LIBURAN_SEKOLAH', 'PROMO', 'UMROH REGULER', 'UMROH PLUS', 'BINTANG 5'];
+        setSortOrder(modesWithSort.includes(modeFromUrl) ? 'TANGGAL_TERDEKAT' : null);
+      }
+    }
 
     // Dynamic SEO: Update title & description
     if (agent) {
@@ -77,6 +107,21 @@ function App() {
       }
     }
   }, []);
+
+  /**
+   * Helper to build the URL path from current agent + filter mode
+   */
+  const buildUrlPath = useCallback((mode: FilterMode) => {
+    const agentSlug = currentAgent
+      ? Object.entries(AGENTS_DATA).find(([, v]) => v === currentAgent)?.[0] || ''
+      : '';
+    const filterSlug = getFilterSlug(mode);
+
+    if (agentSlug && filterSlug) return `/${agentSlug}/${filterSlug}`;
+    if (agentSlug) return `/${agentSlug}`;
+    if (filterSlug) return `/${filterSlug}`;
+    return '/';
+  }, [currentAgent]);
 
   const toggleDarkMode = () => {
     setIsDarkMode(prev => !prev);
@@ -249,6 +294,8 @@ function App() {
     setSortOrder('TANGGAL_TERDEKAT');
     setDepartureTimeRanges([]);
     setReturnTimeRanges([]);
+    // Reset URL to default (no filter slug)
+    window.history.replaceState(null, '', buildUrlPath('AVAILABLE'));
   };
 
   const handleFilterModeChange = (mode: FilterMode) => {
@@ -257,6 +304,8 @@ function App() {
     // Set default sort for modes with sort sub-dropdown
     const modesWithSort: FilterMode[] = ['AVAILABLE', 'LIBURAN_SEKOLAH', 'PROMO', 'UMROH REGULER', 'UMROH PLUS', 'BINTANG 5'];
     setSortOrder(modesWithSort.includes(mode) ? 'TANGGAL_TERDEKAT' : null);
+    // Sync URL slug
+    window.history.replaceState(null, '', buildUrlPath(mode));
   };
 
   const handleSecondaryValueChange = (value: string) => {

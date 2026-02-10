@@ -86,6 +86,40 @@ const HIJRI_MONTH_NAMES = [
 ];
 
 // ============================================
+// Filter Slug Mapping (for URL routing)
+// ============================================
+
+/** Map FilterMode to URL slug. AVAILABLE (default) has empty slug. */
+export const FILTER_MODE_SLUGS: Record<FilterMode, string> = {
+  'AVAILABLE': '',
+  'LIBURAN_SEKOLAH': 'liburan-sekolah',
+  'PROMO': 'umroh-promo',
+  'UMROH REGULER': 'umroh-reguler',
+  'UMROH PLUS': 'umroh-plus',
+  'BINTANG 5': 'bintang-5',
+  'DURASI PERJALANAN': 'durasi-perjalanan',
+  'DATA PER-BULAN': 'data-per-bulan',
+  'SEMUA DATA': 'semua-data',
+};
+
+/** Reverse map: slug → FilterMode */
+export const SLUG_TO_FILTER_MODE: Record<string, FilterMode> = Object.fromEntries(
+  Object.entries(FILTER_MODE_SLUGS)
+    .filter(([, slug]) => slug !== '')
+    .map(([mode, slug]) => [slug, mode as FilterMode])
+) as Record<string, FilterMode>;
+
+/** Get URL slug for a FilterMode */
+export function getFilterSlug(mode: FilterMode): string {
+  return FILTER_MODE_SLUGS[mode] || '';
+}
+
+/** Get FilterMode from a URL slug. Returns null if not a valid filter slug. */
+export function getFilterModeFromSlug(slug: string): FilterMode | null {
+  return SLUG_TO_FILTER_MODE[slug] || null;
+}
+
+// ============================================
 // Helper Functions
 // ============================================
 
