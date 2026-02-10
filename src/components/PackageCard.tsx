@@ -687,11 +687,21 @@ _________________________
         // All rows inside the pricing container
         const pricingContainer = pricingH4.nextElementSibling as HTMLElement;
         if (pricingContainer) {
-          pricingContainer.querySelectorAll('span').forEach(span => {
-            const el = span as HTMLElement;
-            // text-sm (14px) → 16px
-            el.style.setProperty('font-size', '16px', 'important');
-            el.style.setProperty('white-space', 'nowrap', 'important');
+          // NUCLEAR APPROACH: Completely rebuild each pricing row with hard-coded inline styles
+          const rows = pricingContainer.querySelectorAll('.flex.justify-between');
+          rows.forEach(row => {
+            const rowEl = row as HTMLElement;
+            const spans = rowEl.querySelectorAll('span');
+            if (spans.length >= 2) {
+              const label = spans[0].textContent?.trim() || '';
+              const price = spans[1].textContent?.trim() || '';
+              
+              // Rebuild the row HTML with explicit inline styles, NO classes
+              rowEl.innerHTML = `
+                <span style="font-size: 16px; font-weight: 400; white-space: nowrap; color: #4b5563;">${label}</span>
+                <span style="font-size: 16px; font-weight: 400; white-space: nowrap; color: #111827; text-align: right;">${price}</span>
+              `;
+            }
           });
         }
       }
@@ -919,6 +929,20 @@ _________________________
         boxSizing: 'border-box',
       });
       wrapper.setAttribute('data-cloned', 'true');
+
+      // FINAL SWEEP: Ensure ALL pricing-related text stays at normal weight
+      // This catches any spans that might have been re-styled during processing
+      clone.querySelectorAll('span').forEach(span => {
+        const el = span as HTMLElement;
+        const text = el.textContent?.trim() || '';
+        // Target pricing amounts (contains "Rp") and labels (contains "Sekamar" or "Orang" or "Tahun")
+        if (text.includes('Rp ') || text.includes('Sekamar') || text.includes('Orang') || text.includes('Tahun')) {
+          // Strip ALL font-weight classes
+          const classes = el.className.split(' ').filter(c => !c.startsWith('font-'));
+          el.className = classes.join(' ');
+          el.style.fontWeight = '400';
+        }
+      });
 
       // H. NEW HEADER: Logo (left) + Agent Profile (right)
       const header = document.createElement('div');
