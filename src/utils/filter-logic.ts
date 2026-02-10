@@ -11,6 +11,7 @@ import type { UmrohPackage } from '@/types';
 
 export type FilterMode = 
   | 'AVAILABLE'      // Filter paket dengan kursi tersedia
+  | 'LIBURAN_SEKOLAH' // Filter keberangkatan Juni-Juli 2026
   | 'PROMO'          // Filter paket promo
   | 'UMROH REGULER'  // Hanya Mekkah & Madinah
   | 'UMROH PLUS'     // Paket dengan destinasi selain Saudi
@@ -292,6 +293,15 @@ export function filterPackages(
     case 'AVAILABLE':
       // Filter packages with available seats
       return data.filter(pkg => pkg.seatSisa > 0);
+
+    case 'LIBURAN_SEKOLAH':
+      // Filter packages with departure in June or July 2026
+      return data.filter(pkg => {
+        const depDate = new Date(pkg.keberangkatan.tgl);
+        const month = depDate.getMonth(); // 0-indexed: 5=June, 6=July
+        const year = depDate.getFullYear();
+        return year === 2026 && (month === 5 || month === 6);
+      });
 
     case 'PROMO':
       // Filter promo packages only

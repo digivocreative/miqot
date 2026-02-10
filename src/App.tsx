@@ -255,7 +255,7 @@ function App() {
     setFilterMode(mode);
     setFilterSecondaryValue('');
     // Set default sort for modes with sort sub-dropdown
-    const modesWithSort: FilterMode[] = ['AVAILABLE', 'PROMO', 'UMROH REGULER', 'UMROH PLUS', 'BINTANG 5'];
+    const modesWithSort: FilterMode[] = ['AVAILABLE', 'LIBURAN_SEKOLAH', 'PROMO', 'UMROH REGULER', 'UMROH PLUS', 'BINTANG 5'];
     setSortOrder(modesWithSort.includes(mode) ? 'TANGGAL_TERDEKAT' : null);
   };
 
