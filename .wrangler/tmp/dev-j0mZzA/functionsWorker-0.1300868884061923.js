@@ -127,6 +127,9 @@ async function onRequest(context) {
   const { request, params } = context;
   const pathSegments = params.path || [];
   const path = pathSegments.join("/");
+  if (path === "ai-copy") {
+    return context.next();
+  }
   const targetUrl = `https://jadwal.alhijaz.co/jadwal/${path}`;
   try {
     const response = await fetch(targetUrl, {

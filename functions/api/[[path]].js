@@ -12,6 +12,11 @@ export async function onRequest(context) {
   const pathSegments = params.path || [];
   const path = pathSegments.join('/');
   
+  // Skip routes handled by dedicated functions (e.g. ai-copy.ts)
+  if (path === 'ai-copy') {
+    return context.next();
+  }
+  
   // Build target URL
   const targetUrl = `https://jadwal.alhijaz.co/jadwal/${path}`;
   
