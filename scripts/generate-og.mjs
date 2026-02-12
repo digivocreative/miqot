@@ -23,7 +23,7 @@ const AGENTS = {
   andra:        { name: 'Andra Olivia',        website: 'travelalhijazwisata.com',     phone: '628129909795' },
   dyah:         { name: 'Dyah Ratna Witri',    website: 'alhijaztraveltours.com',      phone: '6281385975678' },
   widi:         { name: 'Widi Purwanti',       website: 'alhijaz-hajiumroh.com',       phone: '6287820813228' },
-  aulia:        { name: 'Leni Aulianingsih',   website: 'alhijazumrohtravel.com',      phone: '6282110407229' },
+  aulia:        { name: 'Aulia',                website: 'alhijazumrohtravel.com',      phone: '6282110407229' },
   selfiah:      { name: 'Selfiah Handayani',   website: 'alhijaztourtravel.co.id',     phone: '6281410478212' },
   zakia:        { name: 'Rahima Zakia',        website: 'alhijazbirowisata.com',       phone: '6285158005623' },
   dianwahyuni:  { name: 'Dian Wahyuni',        website: 'alhijazindowisatatours.com',  phone: '6283197968407' },
