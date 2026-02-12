@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2 } from 'lucide-react';
+import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { domToPng } from 'modern-screenshot';
 import { UmrohPackage, RoomPricing } from '@/types';
@@ -12,6 +12,7 @@ import type { AgentData } from '@/data/agents';
 import AgentProfile from './AgentProfile';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { getDistance } from '@/data/hotelService';
+import { getTemperature, getTempColor } from '@/data/temperatureData';
 
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
@@ -1460,6 +1461,74 @@ _________________________
               </div>
             </div>
           </div>
+
+          {/* ---- Temperature Estimate Section (Redesigned) ---- */}
+          {(() => {
+            const depMonth = new Date(pkg.keberangkatan.tgl).getMonth() + 1;
+            const mekkahTemp = getTemperature('mekkah', depMonth);
+            const madinahTemp = getTemperature('madinah', depMonth);
+            
+            // Helper component for weather icon
+            const WeatherIcon = ({ isHot, city }: { isHot: boolean; city: 'mekkah' | 'madinah' }) => {
+              const colors = city === 'mekkah' 
+                ? { bg: 'bg-orange-50 dark:bg-orange-950/30', icon: 'text-orange-500' }
+                : { bg: 'bg-amber-50 dark:bg-amber-950/30', icon: 'text-amber-500' };
+              
+              const coolColors = { bg: 'bg-emerald-50 dark:bg-emerald-950/30', icon: 'text-emerald-500' };
+              const current = isHot ? colors : coolColors;
+
+              return (
+                <div className={`p-2.5 rounded-xl ${current.bg}`}>
+                  {isHot ? (
+                    <Sun size={20} className={current.icon} />
+                  ) : (
+                    <CloudSun size={20} className={current.icon} />
+                  )}
+                </div>
+              );
+            };
+
+            return (
+              <div className="mb-4 bg-white dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:shadow-md hover:border-slate-200 dark:hover:border-slate-700">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 
+                    className="text-[11px] font-semibold uppercase tracking-[0.05em] flex items-center gap-2"
+                    style={{ color: 'rgb(116 128 145)' }}
+                  >
+                    <Thermometer size={14} className="opacity-60" />
+                    Prakiraan Suhu Saat Keberangkatan
+                  </h4>
+                </div>
+                
+                <div className="flex items-center">
+                  {/* Mekkah */}
+                  <div className="flex-1 flex items-center gap-3.5">
+                    <WeatherIcon isHot={mekkahTemp.high > 38} city="mekkah" />
+                    <div>
+                      <span className="block text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider mb-0.5">Mekkah</span>
+                      <p className="text-lg font-extrabold text-slate-800 dark:text-slate-100 tabular-nums leading-none">
+                        {mekkahTemp.low}<span className="text-slate-400 dark:text-slate-500 font-normal mx-0.5">–</span>{mekkahTemp.high}<span className="text-xs ml-0.5 font-bold text-slate-400 dark:text-slate-500">°C</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Vertical Divider */}
+                  <div className="h-10 w-px bg-gradient-to-b from-transparent via-slate-100 dark:via-slate-800 to-transparent mx-4" />
+
+                  {/* Madinah */}
+                  <div className="flex-1 flex items-center gap-3.5">
+                    <WeatherIcon isHot={madinahTemp.high > 38} city="madinah" />
+                    <div>
+                      <span className="block text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider mb-0.5">Madinah</span>
+                      <p className="text-lg font-extrabold text-slate-800 dark:text-slate-100 tabular-nums leading-none">
+                        {madinahTemp.low}<span className="text-slate-400 dark:text-slate-500 font-normal mx-0.5">–</span>{madinahTemp.high}<span className="text-xs ml-0.5 font-bold text-slate-400 dark:text-slate-500">°C</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Agent Profile (only visible when URL slug matches an agent) */}
           {currentAgent && (
