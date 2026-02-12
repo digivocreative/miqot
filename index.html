@@ -19,11 +19,22 @@
       (function() {
         var path = window.location.pathname;
         if (!path || path === '/') return;
+        var origin = window.location.origin;
 
         fetch('/manifest.webmanifest')
           .then(function(r) { return r.json(); })
           .then(function(manifest) {
-            manifest.start_url = path;
+            manifest.start_url = origin + path;
+            manifest.scope = origin + '/';
+            // Convert relative icon src to absolute (blob: URLs can't resolve relative paths)
+            if (manifest.icons) {
+              manifest.icons = manifest.icons.map(function(icon) {
+                if (icon.src && icon.src.startsWith('/')) {
+                  icon.src = origin + icon.src;
+                }
+                return icon;
+              });
+            }
             var blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
             var url = URL.createObjectURL(blob);
             // Remove existing static manifest link (injected by VitePWA)

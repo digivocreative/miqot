@@ -36,7 +36,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
   // Always use proxy path: Vite proxy in dev, Cloudflare Pages Function in prod
   const originalUrl = fileUrl ? fileUrl.replace(/^http:\/\//i, 'https://') : '';
   const proxyUrl = originalUrl
-    ? originalUrl.replace(/^https?:\/\/jadwal\.miqot\.com/i, '')
+    ? originalUrl.replace(/^https?:\/\/jadwal\.(miqot\.com|alhijaz\.co)/i, '')
     : '';
 
   // Determine file type
