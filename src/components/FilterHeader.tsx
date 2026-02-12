@@ -163,9 +163,12 @@ export function FilterHeader({
         {/* ROW 1: Title & Year Dropdown */}
         {/* ============================================ */}
         <div className="flex justify-between items-center">
-          {/* Logo */}
+          {/* Logo — preserve agent slug if present */}
           <div className="flex-shrink-0">
-            <a href="/" className="block cursor-pointer">
+            <a href={(() => {
+              const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
+              return seg ? `/${seg}` : '/';
+            })()} className="block cursor-pointer">
               <img 
                 src={logoAlhijaz} 
                 alt="Alhijaz Indowisata" 

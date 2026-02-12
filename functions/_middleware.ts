@@ -30,8 +30,17 @@ const AGENTS: Record<string, { name: string; website: string; phone: string }> =
 };
 
 export const onRequest = async (context: { request: Request; next: () => Promise<Response> }) => {
-  const response = await context.next();
   const url = new URL(context.request.url);
+
+  // ── Domain redirect: miqot.com → alhijaz.co ──
+  // Handles both miqot.com and www.miqot.com, preserves full path + query
+  const host = url.hostname.replace(/^www\./, '');
+  if (host === 'miqot.com') {
+    const destination = `https://alhijaz.co${url.pathname}${url.search}`;
+    return Response.redirect(destination, 301);
+  }
+
+  const response = await context.next();
 
   // Only process HTML responses (not JS, CSS, images, etc.)
   const contentType = response.headers.get('content-type') || '';
