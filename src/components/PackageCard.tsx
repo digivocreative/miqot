@@ -861,14 +861,16 @@ _________________________
         pricingSection.style.marginBottom = '0';
       }
 
-      // F3. Inject CTA section below pricing table
+      // F3. Build CTA section (will be inserted at bottom later)
+      let ctaSection: HTMLDivElement | null = null;
       if (currentAgent && pricingSection) {
         const rawPhone = currentAgent.phone.replace(/\D/g, '');
         const formattedPhone = rawPhone.startsWith('62') ? `+62 ${rawPhone.slice(2)}` : currentAgent.phone;
 
-        const ctaSection = document.createElement('div');
+        ctaSection = document.createElement('div');
         Object.assign(ctaSection.style, {
           marginTop: '12px',
+          marginBottom: '5px',
           padding: '12px 16px',
           backgroundColor: '#F0FDF4',
           borderRadius: '8px',
@@ -910,7 +912,15 @@ _________________________
         ctaSection.appendChild(line1);
         ctaSection.appendChild(line2);
 
-        // Insert after pricingSection
+        // Will insert CTA after temperature section below
+      }
+
+      // F2. Remove temperature section from screenshot
+      const tempCloned = clone.querySelector('[data-temp-section]');
+      if (tempCloned) tempCloned.remove();
+
+      // F3b. Insert CTA at the very bottom (after pricing)
+      if (ctaSection && pricingSection) {
         pricingSection.insertAdjacentElement('afterend', ctaSection);
       }
 
@@ -1462,75 +1472,6 @@ _________________________
             </div>
           </div>
 
-          {/* ---- Temperature Estimate Section (Dynamic Cities) ---- */}
-          {(() => {
-            const depMonth = new Date(pkg.keberangkatan.tgl).getMonth() + 1;
-
-            // Build the list of all cities in this package
-            const cities: Array<{ key: string; label: string }> = [
-              { key: 'mekkah', label: 'Mekkah' },
-              { key: 'madinah', label: 'Madinah' },
-              ...extraHotels.map(h => ({ key: h.city.toLowerCase(), label: h.city })),
-            ];
-
-            // Filter to cities that have temperature data
-            const citiesWithTemp = cities
-              .filter(c => getTemperature(c.key, depMonth) !== null)
-              // Deduplicate by key
-              .filter((c, i, arr) => arr.findIndex(x => x.key === c.key) === i);
-
-            if (citiesWithTemp.length === 0) return null;
-
-            // Color palette for differentiating city icons
-            const iconStyles = [
-              { hot: 'bg-orange-50 dark:bg-orange-950/30', hotIcon: 'text-orange-500', cool: 'bg-teal-50 dark:bg-teal-950/30', coolIcon: 'text-teal-500' },
-              { hot: 'bg-amber-50 dark:bg-amber-950/30', hotIcon: 'text-amber-500', cool: 'bg-cyan-50 dark:bg-cyan-950/30', coolIcon: 'text-cyan-500' },
-              { hot: 'bg-red-50 dark:bg-red-950/30', hotIcon: 'text-red-400', cool: 'bg-emerald-50 dark:bg-emerald-950/30', coolIcon: 'text-emerald-500' },
-              { hot: 'bg-rose-50 dark:bg-rose-950/30', hotIcon: 'text-rose-400', cool: 'bg-sky-50 dark:bg-sky-950/30', coolIcon: 'text-sky-500' },
-              { hot: 'bg-yellow-50 dark:bg-yellow-950/30', hotIcon: 'text-yellow-500', cool: 'bg-indigo-50 dark:bg-indigo-950/30', coolIcon: 'text-indigo-400' },
-              { hot: 'bg-orange-50 dark:bg-orange-950/30', hotIcon: 'text-orange-400', cool: 'bg-violet-50 dark:bg-violet-950/30', coolIcon: 'text-violet-400' },
-            ];
-
-            return (
-              <div className="mb-4 bg-white dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:shadow-md hover:border-slate-200 dark:hover:border-slate-700">
-                <div className="flex items-center mb-4">
-                  <h4 
-                    className="text-[11px] font-semibold uppercase tracking-[0.05em] flex items-center gap-2"
-                    style={{ color: 'rgb(116 128 145)' }}
-                  >
-                    <Thermometer size={14} className="opacity-60" />
-                    Prakiraan Suhu Saat Keberangkatan
-                  </h4>
-                </div>
-                
-                <div className={`grid gap-x-4 gap-y-3 ${citiesWithTemp.length <= 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
-                  {citiesWithTemp.map((city, idx) => {
-                    const temp = getTemperature(city.key, depMonth)!;
-                    const isHot = temp.high > 28;
-                    const style = iconStyles[idx % iconStyles.length];
-
-                    return (
-                      <div key={city.key} className="flex items-center gap-2.5">
-                        <div className={`p-2 rounded-xl shrink-0 ${isHot ? style.hot : style.cool}`}>
-                          {isHot ? (
-                            <Sun size={16} className={isHot ? style.hotIcon : style.coolIcon} />
-                          ) : (
-                            <CloudSun size={16} className={style.coolIcon} />
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <span className="block text-[9px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider mb-0.5 truncate">{city.label}</span>
-                          <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100 tabular-nums leading-none whitespace-nowrap">
-                            {temp.low}<span className="text-slate-400 dark:text-slate-500 font-normal mx-0.5">–</span>{temp.high}<span className="text-[10px] ml-0.5 font-bold text-slate-400 dark:text-slate-500">°C</span>
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()}
 
           {/* Agent Profile (only visible when URL slug matches an agent) */}
           {currentAgent && (
@@ -1692,6 +1633,78 @@ _________________________
               )}
             </div>
           </div>
+
+          {/* ---- Temperature Estimate Section (Dynamic Cities) ---- */}
+          {/* data-temp-section used by screenshot code to find this element */}
+          {(() => {
+            const depMonth = new Date(pkg.keberangkatan.tgl).getMonth() + 1;
+
+            // Build the list of all cities in this package
+            const cities: Array<{ key: string; label: string }> = [
+              { key: 'mekkah', label: 'Mekkah' },
+              { key: 'madinah', label: 'Madinah' },
+              ...extraHotels.map(h => ({ key: h.city.toLowerCase(), label: h.city })),
+            ];
+
+            // Filter to cities that have temperature data
+            const citiesWithTemp = cities
+              .filter(c => getTemperature(c.key, depMonth) !== null)
+              // Deduplicate by key
+              .filter((c, i, arr) => arr.findIndex(x => x.key === c.key) === i);
+
+            if (citiesWithTemp.length === 0) return null;
+
+            // Color palette for differentiating city icons
+            const iconStyles = [
+              { hot: 'bg-orange-50 dark:bg-orange-950/30', hotIcon: 'text-orange-500', cool: 'bg-teal-50 dark:bg-teal-950/30', coolIcon: 'text-teal-500' },
+              { hot: 'bg-amber-50 dark:bg-amber-950/30', hotIcon: 'text-amber-500', cool: 'bg-cyan-50 dark:bg-cyan-950/30', coolIcon: 'text-cyan-500' },
+              { hot: 'bg-red-50 dark:bg-red-950/30', hotIcon: 'text-red-400', cool: 'bg-emerald-50 dark:bg-emerald-950/30', coolIcon: 'text-emerald-500' },
+              { hot: 'bg-rose-50 dark:bg-rose-950/30', hotIcon: 'text-rose-400', cool: 'bg-sky-50 dark:bg-sky-950/30', coolIcon: 'text-sky-500' },
+              { hot: 'bg-yellow-50 dark:bg-yellow-950/30', hotIcon: 'text-yellow-500', cool: 'bg-indigo-50 dark:bg-indigo-950/30', coolIcon: 'text-indigo-400' },
+              { hot: 'bg-orange-50 dark:bg-orange-950/30', hotIcon: 'text-orange-400', cool: 'bg-violet-50 dark:bg-violet-950/30', coolIcon: 'text-violet-400' },
+            ];
+
+            return (
+              <div data-temp-section className="mb-4 bg-white dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                <div className="flex items-center mb-4">
+                  <h4 
+                    className="text-[11px] font-semibold uppercase tracking-[0.05em] flex items-center gap-2"
+                    style={{ color: 'rgb(116 128 145)' }}
+                  >
+                    <Thermometer size={14} className="opacity-60" />
+                    Prakiraan Suhu Saat Keberangkatan
+                  </h4>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                  {citiesWithTemp.map((city, idx) => {
+                    const temp = getTemperature(city.key, depMonth)!;
+                    const isHot = temp.high > 28;
+                    const style = iconStyles[idx % iconStyles.length];
+
+                    return (
+                      <div key={city.key} className="flex items-center gap-2.5">
+                        <div className={`p-2 rounded-xl shrink-0 ${isHot ? style.hot : style.cool}`}>
+                          {isHot ? (
+                            <Sun size={16} className={isHot ? style.hotIcon : style.coolIcon} />
+                          ) : (
+                            <CloudSun size={16} className={style.coolIcon} />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <span className="block text-[9px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider mb-0.5 truncate">{city.label}</span>
+                          <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100 tabular-nums leading-none whitespace-nowrap">
+                            {temp.low}<span className="text-slate-400 dark:text-slate-500 font-normal mx-0.5">–</span>{temp.high}<span className="text-[10px] ml-0.5 font-bold text-slate-400 dark:text-slate-500">°C</span>
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
 
         </div>
       </div>
