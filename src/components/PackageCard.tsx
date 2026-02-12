@@ -341,7 +341,7 @@ _________________________
         position: 'fixed',
         top: '0',
         left: '0',
-        width: '500px', // Lebar Fix ideal
+        width: '560px', // Lebar Fix ideal
         zIndex: '-9999',
         opacity: '1', // Wajib 1
         pointerEvents: 'none',
@@ -920,7 +920,7 @@ _________________________
         position: 'fixed',
         top: '0',
         left: '0',
-        width: '540px',
+        width: '600px',
         zIndex: '-9999',
         opacity: '1',
         pointerEvents: 'none',
@@ -1520,7 +1520,7 @@ _________________________
                         </div>
                         <div className="min-w-0">
                           <span className="block text-[9px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider mb-0.5 truncate">{city.label}</span>
-                          <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100 tabular-nums leading-none">
+                          <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100 tabular-nums leading-none whitespace-nowrap">
                             {temp.low}<span className="text-slate-400 dark:text-slate-500 font-normal mx-0.5">–</span>{temp.high}<span className="text-[10px] ml-0.5 font-bold text-slate-400 dark:text-slate-500">°C</span>
                           </p>
                         </div>
