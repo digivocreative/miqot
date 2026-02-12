@@ -1804,7 +1804,7 @@ _________________________
                     style={{ color: 'rgb(116 128 145)' }}
                   >
                     <Thermometer size={14} className="opacity-60" />
-                    Prakiraan Suhu Saat Keberangkatan
+                    Suhu Saat Keberangkatan
                   </h4>
                 </div>
                 

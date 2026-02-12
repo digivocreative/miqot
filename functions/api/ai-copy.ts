@@ -88,7 +88,7 @@ Buat caption yang membuat orang tertarik untuk segera mendaftar.`;
           { role: 'user', content: userPrompt },
         ],
         temperature: 0.85,
-        max_tokens: 350,
+        max_tokens: 380,
       }),
     });
 

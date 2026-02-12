@@ -75,7 +75,7 @@ Buat caption yang membuat orang tertarik untuk segera mendaftar.`;
           { role: "user", content: userPrompt }
         ],
         temperature: 0.85,
-        max_tokens: 350
+        max_tokens: 380
       })
     });
     if (!openaiRes.ok) {
@@ -920,7 +920,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// ../.wrangler/tmp/bundle-V14WIP/middleware-insertion-facade.js
+// ../.wrangler/tmp/bundle-lmRfSq/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -952,7 +952,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// ../.wrangler/tmp/bundle-V14WIP/middleware-loader.entry.ts
+// ../.wrangler/tmp/bundle-lmRfSq/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;
