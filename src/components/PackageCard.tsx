@@ -108,8 +108,30 @@ export function PackageCard({
   const [aiError, setAiError] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // AI Copywriting generator
+  // AI Copywriting generator with rate limiting (15 per 2 hours per device)
+  const AI_RATE_KEY = 'ai_copy_timestamps';
+  const AI_RATE_LIMIT = 15;
+  const AI_RATE_WINDOW = 2 * 60 * 60 * 1000; // 2 hours in ms
+
   const generateAiCopy = async () => {
+    // Rate limiting check
+    const now = Date.now();
+    let timestamps: number[] = [];
+    try {
+      timestamps = JSON.parse(localStorage.getItem(AI_RATE_KEY) || '[]');
+    } catch { timestamps = []; }
+
+    // Keep only timestamps within the 2-hour window
+    timestamps = timestamps.filter((t) => now - t < AI_RATE_WINDOW);
+
+    if (timestamps.length >= AI_RATE_LIMIT) {
+      const oldestInWindow = Math.min(...timestamps);
+      const resetTime = new Date(oldestInWindow + AI_RATE_WINDOW);
+      const minutesLeft = Math.ceil((resetTime.getTime() - now) / 60000);
+      setAiError(`Batas ${AI_RATE_LIMIT}x generate telah tercapai. Coba lagi dalam ${minutesLeft} menit.`);
+      return;
+    }
+
     setAiLoading(true);
     setAiError(null);
     try {
@@ -125,6 +147,10 @@ export function PackageCard({
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setAiCopyText(data.text || 'Gagal generate teks.');
+
+      // Record successful generation
+      timestamps.push(now);
+      localStorage.setItem(AI_RATE_KEY, JSON.stringify(timestamps));
     } catch (err: any) {
       console.error('AI Copy error:', err);
       setAiError(err.message || 'Gagal menghubungi AI');
