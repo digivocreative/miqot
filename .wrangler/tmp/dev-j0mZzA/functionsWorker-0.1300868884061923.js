@@ -45,7 +45,7 @@ async function onRequestPost(context) {
 Tugas kamu menulis caption promosi WhatsApp yang santai, hangat, dan persuasif tapi tetap islami.
 Gunakan emoji secukupnya. Gunakan format WhatsApp (*bold*, _italic_) secukupnya.
 Tulis dengan gaya ngobrol ke teman \u2014 friendly, tidak kaku, tidak terlalu formal.
-Caption harus ringkas dan to the point, mudah dibaca di layar HP (maks 500 karakter).
+Caption harus ringkas dan to the point, mudah dibaca di layar HP (maks 550 karakter).
 Jangan gunakan hashtag. Jangan gunakan markdown selain format WhatsApp.
 Jangan terlalu banyak baris kosong.`;
     const userPrompt = `Buatkan caption promosi WhatsApp untuk paket umroh ini:
@@ -77,7 +77,7 @@ Buat caption yang membuat orang tertarik untuk segera mendaftar.`;
           { role: "user", content: userPrompt }
         ],
         temperature: 0.85,
-        max_tokens: 350
+        max_tokens: 380
       })
     });
     if (!openaiRes.ok) {
