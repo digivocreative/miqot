@@ -114,7 +114,8 @@ export function PackageCard({
   const AI_RATE_WINDOW = 2 * 60 * 60 * 1000; // 2 hours in ms
 
   const generateAiCopy = async () => {
-    // Rate limiting check
+    // Rate limiting check (skip on localhost)
+    const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     const now = Date.now();
     let timestamps: number[] = [];
     try {
@@ -124,7 +125,7 @@ export function PackageCard({
     // Keep only timestamps within the 2-hour window
     timestamps = timestamps.filter((t) => now - t < AI_RATE_WINDOW);
 
-    if (timestamps.length >= AI_RATE_LIMIT) {
+    if (!isLocal && timestamps.length >= AI_RATE_LIMIT) {
       const oldestInWindow = Math.min(...timestamps);
       const resetTime = new Date(oldestInWindow + AI_RATE_WINDOW);
       const minutesLeft = Math.ceil((resetTime.getTime() - now) / 60000);
@@ -1944,7 +1945,7 @@ _________________________
                     `}
                   >
                     <RefreshCw size={20} />
-                    <span>Buat Ulang</span>
+                    <span>Refresh</span>
                   </button>
 
                   {/* Salin Teks Button */}
@@ -1976,9 +1977,9 @@ _________________________
                     `}
                   >
                     {aiCopied ? (
-                      <><ClipboardCheck size={20} /><span>Tersalin!</span></>
+                      <><ClipboardCheck size={20} /><span>Copied!</span></>
                     ) : (
-                      <><Copy size={20} /><span>Salin Teks</span></>
+                      <><Copy size={20} /><span>Copy</span></>
                     )}
                   </button>
                 </div>
