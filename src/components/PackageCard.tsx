@@ -134,6 +134,29 @@ export function PackageCard({
 
     setAiLoading(true);
     setAiError(null);
+
+    // Local fallback template generator
+    const generateFallbackText = () => {
+      const hotelData = Object.values(pkg.hotel || {})[0] as any;
+      const firstPricing = Object.values(pkg.harga || {})[0] as any;
+      const depDate = new Date(pkg.keberangkatan?.tgl).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+
+      const prices: string[] = [];
+      if (firstPricing?.Quard) prices.push(`Quad: Rp ${Number(firstPricing.Quard).toLocaleString('id-ID')}`);
+      if (firstPricing?.Triple) prices.push(`Triple: Rp ${Number(firstPricing.Triple).toLocaleString('id-ID')}`);
+      if (firstPricing?.Double) prices.push(`Double: Rp ${Number(firstPricing.Double).toLocaleString('id-ID')}`);
+
+      let text = `Assalamu'alaikum 🙏\n\nTelah dibuka pendaftaran *${pkg.nama}* bersama Alhijaz Indowisata.\n\n🗓 Berangkat: ${depDate}\n✈️ Maskapai: ${pkg.maskapai || '-'}`;
+      if (hotelData?.mekkah_hotel) text += `\n🏨 Hotel Mekkah: ${hotelData.mekkah_hotel}`;
+      if (hotelData?.madinah_hotel) text += `\n🏨 Hotel Madinah: ${hotelData.madinah_hotel}`;
+      if (prices.length > 0) text += `\n💰 Harga: ${prices.join(' | ')}`;
+      text += `\n\n*Sisa ${pkg.seatSisa} seat dari ${pkg.seatTotal}!* Segera amankan kursi Anda.`;
+      if (currentAgent?.name) text += `\n\nInfo & pendaftaran:\n${currentAgent.name}`;
+      if (currentAgent?.website) text += ` - ${currentAgent.website}`;
+      text += `\n\nSemoga Allah memudahkan langkah kita menuju Baitullah. Aamiin 🤲`;
+      return text;
+    };
+
     try {
       const hotelData = Object.values(pkg.hotel || {})[0] as any;
       const firstPricing = Object.values(pkg.harga || {})[0] as any;
@@ -179,8 +202,11 @@ export function PackageCard({
       timestamps.push(now);
       localStorage.setItem(AI_RATE_KEY, JSON.stringify(timestamps));
     } catch (err: any) {
-      console.error('AI Copy error:', err);
-      setAiError(err.message || 'Gagal menghubungi AI');
+      console.error('AI Copy error, using fallback:', err);
+      // Fallback to local template instead of showing error
+      setAiCopyText(generateFallbackText());
+      timestamps.push(now);
+      localStorage.setItem(AI_RATE_KEY, JSON.stringify(timestamps));
     } finally {
       setAiLoading(false);
     }
