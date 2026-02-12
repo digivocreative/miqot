@@ -129,7 +129,7 @@ export function PackageCard({
       const oldestInWindow = Math.min(...timestamps);
       const resetTime = new Date(oldestInWindow + AI_RATE_WINDOW);
       const minutesLeft = Math.ceil((resetTime.getTime() - now) / 60000);
-      setAiError(`Batas ${AI_RATE_LIMIT}x generate telah tercapai. Coba lagi dalam ${minutesLeft} menit.`);
+      setAiError(`Limit generate copywriting telah tercapai. Coba lagi dalam ${minutesLeft} menit.`);
       return;
     }
 
@@ -1704,24 +1704,26 @@ _________________________
 
           </div>
 
-          {/* ---- AI Copywriting Button (Full Width Row) ---- */}
+          {/* AI Feature Button - Full Width with animated border */}
           <div data-screenshot-ignore className="mb-4">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsAiCopyOpen(true);
-                setAiCopied(false);
-                // Auto-generate on open
-                setAiCopyText('');
-                setAiError(null);
-                setTimeout(() => generateAiCopy(), 100);
-              }}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 transition-all border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 dark:border-slate-700 dark:hover:border-indigo-500"
-            >
-              <Sparkles size={18} className="text-indigo-500 dark:text-indigo-400" />
-              <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Buat Copywriting WA (AI)</span>
-            </button>
+            <div className="ai-border-glow relative rounded-xl p-[2px]">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsAiCopyOpen(true);
+                  setAiCopied(false);
+                  // Auto-generate on open
+                  setAiCopyText('');
+                  setAiError(null);
+                  setTimeout(() => generateAiCopy(), 100);
+                }}
+                className="relative w-full flex items-center justify-center gap-2 py-3 px-4 rounded-[10px] bg-white dark:bg-slate-800 transition-all hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
+              >
+                <Sparkles size={18} className="text-indigo-500 dark:text-indigo-400" />
+                <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Buat Copywriting (AI)</span>
+              </button>
+            </div>
           </div>
 
           {/* ---- Pricing Table (Compact) ---- */}

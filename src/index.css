@@ -77,3 +77,37 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #a1a1a1;
 }
+
+/* AI Button - Rotating gradient border */
+@property --ai-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes ai-rotate {
+  to { --ai-angle: 360deg; }
+}
+
+.ai-border-glow {
+  background: conic-gradient(
+    from var(--ai-angle),
+    #818cf8,
+    #6366f1,
+    #7c3aed,
+    #a78bfa,
+    #c7d2fe,
+    #818cf8
+  );
+  animation: ai-rotate 2.5s linear infinite;
+  box-shadow:
+    0 0 8px rgba(129, 140, 248, 0.4),
+    0 0 20px rgba(139, 92, 246, 0.15);
+}
+
+/* Fallback for browsers that don't support @property */
+@supports not (background: conic-gradient(from 0deg, red, blue)) {
+  .ai-border-glow {
+    background: linear-gradient(135deg, #818cf8, #c084fc);
+  }
+}
