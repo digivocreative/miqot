@@ -51,32 +51,29 @@ export async function onRequestPost(context: any) {
       pricingInfo = prices.join(', ');
     }
 
-    const systemPrompt = `Kamu adalah admin travel umroh "Alhijaz Indowisata" yang biasa broadcast info paket ke calon jamaah via WhatsApp.
-Tulis pesan yang terasa natural, seperti orang betulan nge-chat — bukan template iklan.
+    const systemPrompt = `Kamu adalah copywriter untuk travel umroh Alhijaz Indowisata.
+Tugas kamu menulis caption promosi WhatsApp yang santai, hangat, dan persuasif tapi tetap islami.
+Gunakan emoji secukupnya. Gunakan format WhatsApp (*bold*, _italic_) secukupnya.
+Tulis dengan gaya ngobrol ke teman — friendly, tidak kaku, tidak terlalu formal.
+Caption harus ringkas dan to the point, mudah dibaca di layar HP (maks 500 karakter).
+Jangan gunakan hashtag. Jangan gunakan markdown selain format WhatsApp.
+Jangan terlalu banyak baris kosong.`;
 
-Aturan:
-- Bahasa Indonesia sehari-hari, sopan tapi santai. Boleh pakai "kak", "nih", "loh", "yuk".
-- Emoji max 5-6 di seluruh pesan, taruh di tempat yang natural (bukan dipaksa tiap baris).
-- Gunakan format WhatsApp: *bold* untuk nama paket dan info penting, _italic_ kalau perlu penekanan halus.
-- JANGAN pakai kalimat hiperbola/salesy: "Jangan sampai ketinggalan!", "Buruan daftar!", "Kesempatan emas!", "Siapa yang siap?".
-- JANGAN buka dengan pertanyaan retoris ("Siapa yang siap...", "Mau berangkat umroh?").
-- JANGAN tutup dengan "Hubungi kami, ya!" — cukup tulis info kontak kalau ada.
-- Jangan pakai hashtag. Jangan pakai markdown selain format WhatsApp.
-- Total max 500 karakter. Langsung ke inti, tanpa basa-basi panjang.
-- Variasikan pembuka setiap generate (salam, info langsung, atau kabar baik).`;
+    const userPrompt = `Buatkan caption promosi WhatsApp untuk paket umroh ini:
 
-    const userPrompt = `Tulis pesan broadcast WhatsApp untuk paket umroh berikut:
+Nama Paket: ${pkg.nama}
+Maskapai: ${airline} (${flightCode})
+Rute: ${route}
+Tanggal Berangkat: ${depDate}
+Tanggal Pulang: ${retDate}
+Hotel Mekkah: ${hotelData?.mekkah_hotel || '-'} (${hotelData?.mekkah_bintang || '-'} bintang)
+Hotel Madinah: ${hotelData?.madinah_hotel || '-'} (${hotelData?.madinah_bintang || '-'} bintang)
+Sisa Seat: ${seatSisa} dari ${seatTotal}
+Harga: ${pricingInfo || 'Hubungi kami'}
+${agentName ? `\nAgent: ${agentName}` : ''}
+${agentWebsite ? `Website: ${agentWebsite}` : ''}
 
-*${pkg.nama}*
-✈️ ${airline} (${flightCode}) — ${route}
-📅 Berangkat: ${depDate} | Pulang: ${retDate}
-🏨 Mekkah: ${hotelData?.mekkah_hotel || '-'} (${hotelData?.mekkah_bintang || '-'}⭐)
-🏨 Madinah: ${hotelData?.madinah_hotel || '-'} (${hotelData?.madinah_bintang || '-'}⭐)
-💺 Sisa seat: ${seatSisa}/${seatTotal}
-💰 Harga: ${pricingInfo || 'Hubungi kami'}
-${agentName ? `👤 ${agentName}` : ''}${agentWebsite ? ` — ${agentWebsite}` : ''}
-
-Tulis pesan seolah kamu sedang menginfokan ini ke teman atau kenalan yang tertarik umroh. Jangan terdengar seperti iklan.`;
+Buat caption yang membuat orang tertarik untuk segera mendaftar.`;
 
     const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -91,7 +88,7 @@ Tulis pesan seolah kamu sedang menginfokan ini ke teman atau kenalan yang tertar
           { role: 'user', content: userPrompt },
         ],
         temperature: 0.85,
-        max_tokens: 400,
+        max_tokens: 350,
       }),
     });
 
