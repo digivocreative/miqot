@@ -2,7 +2,7 @@
 
 ## Gambaran Umum
 
-Fitur ini memungkinkan setiap agent memiliki URL khusus (slug) yang menampilkan profil mereka di seluruh halaman. Ketika user mengakses `miqot.com/nila`, website akan menampilkan informasi agent "Nila" di setiap card paket dan floating bar di bawah layar.
+Fitur ini memungkinkan setiap agent memiliki URL khusus (slug) yang menampilkan profil mereka di seluruh halaman. Ketika user mengakses `alhijaz.co/nila`, website akan menampilkan informasi agent "Nila" di setiap card paket dan floating bar di bawah layar.
 
 ---
 
@@ -10,7 +10,7 @@ Fitur ini memungkinkan setiap agent memiliki URL khusus (slug) yang menampilkan 
 
 ```mermaid
 graph TD
-    A["User akses miqot.com/nila"] --> B["Cloudflare Middleware<br/>functions/_middleware.ts"]
+    A["User akses alhijaz.co/nila"] --> B["Cloudflare Middleware<br/>functions/_middleware.ts"]
     B --> C{"Slug cocok<br/>dengan agent?"}
     C -->|Ya| D["Inject meta title + OG tags<br/>ke HTML response"]
     C -->|Tidak| E["Serve HTML default"]
@@ -102,9 +102,9 @@ const agent = AGENTS_DATA[slug?.toLowerCase()];
 
 | URL | Slug | Agent Found? | Efek |
 |---|---|---|---|
-| `miqot.com/` | `""` | ❌ | Tampilan standar |
-| `miqot.com/nila` | `nila` | ✅ | Agent mode aktif |
-| `miqot.com/xyz` | `xyz` | ❌ | Tampilan standar |
+| `alhijaz.co/` | `""` | ❌ | Tampilan standar |
+| `alhijaz.co/nila` | `nila` | ✅ | Agent mode aktif |
+| `alhijaz.co/xyz` | `xyz` | ❌ | Tampilan standar |
 
 ---
 

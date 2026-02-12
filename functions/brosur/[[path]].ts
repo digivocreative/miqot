@@ -1,13 +1,13 @@
 /**
  * Cloudflare Pages Function — Proxy for /brosur/* requests
- * Forwards to jadwal.miqot.com and returns the response with proper CORS headers.
+ * Forwards to jadwal.alhijaz.co and returns the response with proper CORS headers.
  */
 export const onRequest = async (context: { request: Request }) => {
   const { request } = context;
   const url = new URL(request.url);
 
-  // Rebuild the target URL: /brosur/xyz → https://jadwal.miqot.com/brosur/xyz
-  const targetUrl = `https://jadwal.miqot.com${url.pathname}${url.search}`;
+  // Rebuild the target URL: /brosur/xyz → https://jadwal.alhijaz.co/brosur/xyz
+  const targetUrl = `https://jadwal.alhijaz.co${url.pathname}${url.search}`;
 
   try {
     const response = await fetch(targetUrl, {

@@ -1,13 +1,13 @@
 /**
  * Cloudflare Pages Function — Proxy for /itinerary/* requests
- * Forwards to jadwal.miqot.com and returns the response with proper CORS headers.
+ * Forwards to jadwal.alhijaz.co and returns the response with proper CORS headers.
  */
 export const onRequest = async (context: { request: Request }) => {
   const { request } = context;
   const url = new URL(request.url);
 
-  // Rebuild the target URL: /itinerary/xyz → https://jadwal.miqot.com/itinerary/xyz
-  const targetUrl = `https://jadwal.miqot.com${url.pathname}${url.search}`;
+  // Rebuild the target URL: /itinerary/xyz → https://jadwal.alhijaz.co/itinerary/xyz
+  const targetUrl = `https://jadwal.alhijaz.co${url.pathname}${url.search}`;
 
   try {
     const response = await fetch(targetUrl, {

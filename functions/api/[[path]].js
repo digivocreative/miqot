@@ -2,7 +2,7 @@
  * Cloudflare Pages Function - API Proxy
  * Proxies requests to Alhijaz API to bypass CORS restrictions
  * 
- * Route: /api/* -> https://jadwal.miqot.com/jadwal/*
+ * Route: /api/* -> https://jadwal.alhijaz.co/jadwal/*
  */
 
 export async function onRequest(context) {
@@ -13,7 +13,7 @@ export async function onRequest(context) {
   const path = pathSegments.join('/');
   
   // Build target URL
-  const targetUrl = `https://jadwal.miqot.com/jadwal/${path}`;
+  const targetUrl = `https://jadwal.alhijaz.co/jadwal/${path}`;
   
   try {
     // Forward the request to the target server

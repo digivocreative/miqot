@@ -111,7 +111,7 @@ export const AGENTS_DATA: Record<string, AgentData> = {
   },
   'sari': {
     name: 'Sari Rohayati',
-    website: 'miqot.com/sari',
+    website: 'alhijaz.co/sari',
     phone: '6281907018220',
     photo: '/agents/sari.jpg',
   },
@@ -129,7 +129,7 @@ export const AGENTS_DATA: Record<string, AgentData> = {
   },
   'jan-praba': {
     name: 'Jan Praba',
-    website: 'miqot.com/jan-praba',
+    website: 'alhijaz.co/jan-praba',
     phone: '62816728940',
     photo: '/agents/jan-praba.jpg',
   },
