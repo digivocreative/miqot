@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer } from 'lucide-react';
+import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, ClipboardCheck, Copy, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { domToPng } from 'modern-screenshot';
 import { UmrohPackage, RoomPricing } from '@/types';
@@ -101,7 +101,37 @@ export function PackageCard({
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [selectedGradient, setSelectedGradient] = useState(0);
   const gradientRef = useRef(0);
+  const [isAiCopyOpen, setIsAiCopyOpen] = useState(false);
+  const [aiCopied, setAiCopied] = useState(false);
+  const [aiCopyText, setAiCopyText] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+
+  // AI Copywriting generator
+  const generateAiCopy = async () => {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const res = await fetch('/api/ai-copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          packageData: pkg,
+          agentName: currentAgent?.name || '',
+          agentWebsite: currentAgent?.website || '',
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setAiCopyText(data.text || 'Gagal generate teks.');
+    } catch (err: any) {
+      console.error('AI Copy error:', err);
+      setAiError(err.message || 'Gagal menghubungi AI');
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   // Calculate availability percentage
   const availabilityPercentage = Math.round((pkg.seatSisa / pkg.seatTotal) * 100);
@@ -1594,6 +1624,26 @@ _________________________
 
           </div>
 
+          {/* ---- AI Copywriting Button (Full Width Row) ---- */}
+          <div data-screenshot-ignore className="mb-4">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsAiCopyOpen(true);
+                setAiCopied(false);
+                // Auto-generate on open
+                setAiCopyText('');
+                setAiError(null);
+                setTimeout(() => generateAiCopy(), 100);
+              }}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 transition-all border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 dark:border-slate-700 dark:hover:border-indigo-500"
+            >
+              <Sparkles size={18} className="text-indigo-500 dark:text-indigo-400" />
+              <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Buat Copywriting WA (AI)</span>
+            </button>
+          </div>
+
           {/* ---- Pricing Table (Compact) ---- */}
            {/* ---- Pricing Table (Compact) ---- */}
           <div className="mb-4">
@@ -1731,6 +1781,134 @@ _________________________
         />
       )}
 
+
+      {/* AI Copywriting Modal */}
+      {createPortal(
+        <AnimatePresence>
+          {isAiCopyOpen && (
+            <motion.div
+              className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              {/* Backdrop */}
+              <div
+                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                onClick={() => setIsAiCopyOpen(false)}
+              />
+
+              {/* Modal Content */}
+              <motion.div
+                className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden"
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-slate-700">
+                  <div className="flex items-center gap-2">
+                    <Sparkles size={18} className="text-indigo-500" />
+                    <h2 className="text-base font-bold text-gray-900 dark:text-white">AI Copywriting Generator</h2>
+                  </div>
+                  <button
+                    onClick={() => setIsAiCopyOpen(false)}
+                    className="p-1.5 bg-gray-100 dark:bg-slate-700 rounded-full text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="flex-1 overflow-y-auto px-5 py-4">
+                  {aiLoading ? (
+                    <div className="flex flex-col items-center justify-center py-12 gap-3">
+                      <Loader2 size={32} className="text-indigo-500 animate-spin" />
+                      <p className="text-sm text-gray-500 dark:text-slate-400 font-medium">Sedang menulis copywriting...</p>
+                    </div>
+                  ) : aiError ? (
+                    <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+                      <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
+                        <X size={24} className="text-red-500" />
+                      </div>
+                      <p className="text-sm text-red-600 dark:text-red-400 font-medium">Gagal generate: {aiError}</p>
+                      <button
+                        onClick={generateAiCopy}
+                        className="text-sm text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
+                      >
+                        Coba lagi
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-700 rounded-xl p-4 text-sm text-gray-700 dark:text-slate-200 leading-relaxed whitespace-pre-line">
+                      {aiCopyText}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="px-5 py-4 border-t border-gray-200 dark:border-slate-700 flex gap-3">
+                  {/* Buat Ulang Button */}
+                  <button
+                    onClick={generateAiCopy}
+                    disabled={aiLoading}
+                    className={`
+                      flex-1 flex items-center justify-center gap-2 py-3.5 px-4
+                      rounded-xl font-bold
+                      border-2 border-emerald-600 dark:border-emerald-400
+                      text-emerald-700 dark:text-emerald-300
+                      hover:bg-emerald-50 dark:hover:bg-emerald-900/30
+                      transition-all duration-200 active:scale-[0.98]
+                      ${aiLoading ? 'opacity-50 cursor-not-allowed' : ''}
+                    `}
+                  >
+                    <RefreshCw size={20} className={aiLoading ? 'animate-spin' : ''} />
+                    <span>Buat Ulang</span>
+                  </button>
+
+                  {/* Salin Teks Button */}
+                  <button
+                    disabled={aiLoading || !aiCopyText}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(aiCopyText);
+                      } catch {
+                        const ta = document.createElement('textarea');
+                        ta.value = aiCopyText;
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                      }
+                      setAiCopied(true);
+                      setTimeout(() => setAiCopied(false), 2000);
+                    }}
+                    className={`
+                      flex-1 flex items-center justify-center gap-2 py-3.5 px-4
+                      rounded-xl font-bold text-white
+                      transition-all duration-200 active:scale-[0.98]
+                      ${aiLoading || !aiCopyText ? 'opacity-50 cursor-not-allowed' : ''}
+                      ${aiCopied
+                        ? 'bg-emerald-500 shadow-lg shadow-emerald-500/30'
+                        : 'bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20'
+                      }
+                    `}
+                  >
+                    {aiCopied ? (
+                      <><ClipboardCheck size={20} /><span>Tersalin!</span></>
+                    ) : (
+                      <><Copy size={20} /><span>Salin Teks</span></>
+                    )}
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* Full Screen Screenshot Preview Overlay */}
       {createPortal(
