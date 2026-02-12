@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import App from './App.tsx'
+import KalkulasiPage from './components/KalkulasiPage.tsx'
 
 // Register Service Worker for PWA
 const updateSW = registerSW({
@@ -16,8 +17,12 @@ const updateSW = registerSW({
   immediate: true
 })
 
+// Simple path-based routing
+const pathname = window.location.pathname
+const isKalkulasi = pathname.startsWith('/kalkulasi')
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    {isKalkulasi ? <KalkulasiPage /> : <App />}
   </StrictMode>,
 )

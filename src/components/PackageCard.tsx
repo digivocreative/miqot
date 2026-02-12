@@ -1217,7 +1217,7 @@ _________________________
           </div>
 
           {/* Progress Bar */}
-          <div className="w-full h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
+          <div className="w-full bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden" style={{ height: '0.49rem' }}>
             <div
               className={`h-full rounded-full transition-all duration-500 ${statusStyle.bar} animate-shimmer`}
               style={{
@@ -1335,7 +1335,7 @@ _________________________
         </div>
 
         {/* Hotel Information - 2 Column Grid */}
-        <div className="grid grid-cols-2 gap-3 mb-2">
+        <div className="grid grid-cols-2 gap-3">
           {/* Makkah Hotel */}
           <div className="flex items-start gap-2">
             <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5">
@@ -1420,9 +1420,10 @@ _________________________
         }}
       >
         <div ref={contentRef} className="px-4 pb-4">
-          {/* Divider */}
-          <div className="border-t border-dashed border-gray-200 dark:border-slate-700 my-2" />
-          
+
+          {/* Availability Bar + Departure Date (Expanded position: above Landing & Manasik) */}
+          {isExpanded && <div className="mb-3"><SeatAndDateSection isFooter={false} /></div>}
+
           {/* ---- New Info Section: Landing & Manasik ---- */}
           <div className="grid grid-cols-2 gap-3 mb-2 bg-gray-50 dark:bg-slate-900/50 p-3 rounded-lg">
             {/* Landing Info */}
@@ -1621,8 +1622,6 @@ _________________________
             </div>
           </div>
 
-          {/* Availability Bar + Departure Date (Only when Expanded) */}
-          {isExpanded && <SeatAndDateSection isFooter={true} />}
         </div>
       </div>
       </div>
