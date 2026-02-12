@@ -53,12 +53,13 @@ export async function onRequestPost(context: any) {
       }
     }
 
-    const systemPrompt = `Kamu adalah copywriter profesional untuk travel umroh Alhijaz Indowisata. 
-Tugas kamu menulis caption promosi WhatsApp yang menarik, persuasif, dan islami.
-Gunakan emoji yang relevan. Gunakan format WhatsApp (*bold*, _italic_).
-Tulis dalam Bahasa Indonesia yang sopan dan menyentuh hati calon jamaah.
-Caption harus singkat, padat, mudah dibaca di layar HP (maks 800 karakter).
-Jangan gunakan hashtag. Jangan gunakan markdown selain format WhatsApp.`;
+    const systemPrompt = `Kamu adalah copywriter untuk travel umroh Alhijaz Indowisata.
+Tugas kamu menulis caption promosi WhatsApp yang santai, hangat, dan persuasif tapi tetap islami.
+Gunakan emoji secukupnya. Gunakan format WhatsApp (*bold*, _italic_) secukupnya.
+Tulis dengan gaya ngobrol ke teman — friendly, tidak kaku, tidak terlalu formal.
+Caption harus ringkas dan to the point, mudah dibaca di layar HP (maks 600 karakter).
+Jangan gunakan hashtag. Jangan gunakan markdown selain format WhatsApp.
+Jangan terlalu banyak baris kosong.`;
 
     const userPrompt = `Buatkan caption promosi WhatsApp untuk paket umroh ini:
 
@@ -88,8 +89,8 @@ Buat caption yang membuat orang tertarik untuk segera mendaftar.`;
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        temperature: 0.8,
-        max_tokens: 500,
+        temperature: 0.85,
+        max_tokens: 400,
       }),
     });
 

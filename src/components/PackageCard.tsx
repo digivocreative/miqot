@@ -1864,7 +1864,7 @@ _________________________
                       ${aiLoading ? 'opacity-50 cursor-not-allowed' : ''}
                     `}
                   >
-                    <RefreshCw size={20} className={aiLoading ? 'animate-spin' : ''} />
+                    <RefreshCw size={20} />
                     <span>Buat Ulang</span>
                   </button>
 
