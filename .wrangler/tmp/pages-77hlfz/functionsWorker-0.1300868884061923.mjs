@@ -22,7 +22,7 @@ async function onRequestPost(context) {
         { status: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
       );
     }
-    const hotelData = pkg.hotel ? Object.values(pkg.hotel)[0] : {};
+    const hotelData = pkg.hotel || {};
     const depDate = pkg.keberangkatan?.tgl || "";
     const retDate = pkg.kepulangan?.tgl || "";
     const airline = pkg.maskapai || "";
@@ -31,15 +31,13 @@ async function onRequestPost(context) {
     const seatSisa = pkg.seatSisa ?? "";
     const seatTotal = pkg.seatTotal ?? "";
     let pricingInfo = "";
-    if (pkg.harga) {
-      const firstTier = Object.values(pkg.harga)[0];
-      if (firstTier) {
-        const prices = [];
-        if (firstTier.Quard) prices.push(`Quad: Rp ${Number(firstTier.Quard).toLocaleString("id-ID")}`);
-        if (firstTier.Triple) prices.push(`Triple: Rp ${Number(firstTier.Triple).toLocaleString("id-ID")}`);
-        if (firstTier.Double) prices.push(`Double: Rp ${Number(firstTier.Double).toLocaleString("id-ID")}`);
-        pricingInfo = prices.join(", ");
-      }
+    const pricing = pkg.harga;
+    if (pricing) {
+      const prices = [];
+      if (pricing.Quard) prices.push(`Quad: Rp ${Number(pricing.Quard).toLocaleString("id-ID")}`);
+      if (pricing.Triple) prices.push(`Triple: Rp ${Number(pricing.Triple).toLocaleString("id-ID")}`);
+      if (pricing.Double) prices.push(`Double: Rp ${Number(pricing.Double).toLocaleString("id-ID")}`);
+      pricingInfo = prices.join(", ");
     }
     const systemPrompt = `Kamu adalah copywriter untuk travel umroh Alhijaz Indowisata.
 Tugas kamu menulis caption promosi WhatsApp yang santai, hangat, dan persuasif tapi tetap islami.
@@ -922,7 +920,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// ../.wrangler/tmp/bundle-mFCxVZ/middleware-insertion-facade.js
+// ../.wrangler/tmp/bundle-YngPDF/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -954,7 +952,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// ../.wrangler/tmp/bundle-mFCxVZ/middleware-loader.entry.ts
+// ../.wrangler/tmp/bundle-YngPDF/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;

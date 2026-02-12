@@ -135,16 +135,43 @@ export function PackageCard({
     setAiLoading(true);
     setAiError(null);
     try {
+      const hotelData = Object.values(pkg.hotel || {})[0] as any;
+      const firstPricing = Object.values(pkg.harga || {})[0] as any;
       const res = await fetch('/api/ai-copy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          packageData: pkg,
+          packageData: {
+            nama: pkg.nama,
+            maskapai: pkg.maskapai,
+            keberangkatan: {
+              tgl: pkg.keberangkatan?.tgl,
+              kodePenerbangan: pkg.keberangkatan?.kodePenerbangan,
+              rute: pkg.keberangkatan?.rute,
+            },
+            kepulangan: { tgl: pkg.kepulangan?.tgl },
+            seatSisa: pkg.seatSisa,
+            seatTotal: pkg.seatTotal,
+            hotel: {
+              mekkah_hotel: hotelData?.mekkah_hotel,
+              mekkah_bintang: hotelData?.mekkah_bintang,
+              madinah_hotel: hotelData?.madinah_hotel,
+              madinah_bintang: hotelData?.madinah_bintang,
+            },
+            harga: firstPricing ? {
+              Quard: firstPricing.Quard,
+              Triple: firstPricing.Triple,
+              Double: firstPricing.Double,
+            } : null,
+          },
           agentName: currentAgent?.name || '',
           agentWebsite: currentAgent?.website || '',
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.details || errData.error || `HTTP ${res.status}`);
+      }
       const data = await res.json();
       setAiCopyText(data.text || 'Gagal generate teks.');
 

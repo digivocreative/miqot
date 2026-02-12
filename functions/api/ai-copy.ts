@@ -30,8 +30,8 @@ export async function onRequestPost(context: any) {
       );
     }
 
-    // Build context for the AI
-    const hotelData = pkg.hotel ? Object.values(pkg.hotel)[0] as any : {};
+    // Build context for the AI — payload is already flat from the client
+    const hotelData = pkg.hotel || {};
     const depDate = pkg.keberangkatan?.tgl || '';
     const retDate = pkg.kepulangan?.tgl || '';
     const airline = pkg.maskapai || '';
@@ -42,15 +42,13 @@ export async function onRequestPost(context: any) {
 
     // Pricing info
     let pricingInfo = '';
-    if (pkg.harga) {
-      const firstTier = Object.values(pkg.harga)[0] as any;
-      if (firstTier) {
-        const prices: string[] = [];
-        if (firstTier.Quard) prices.push(`Quad: Rp ${Number(firstTier.Quard).toLocaleString('id-ID')}`);
-        if (firstTier.Triple) prices.push(`Triple: Rp ${Number(firstTier.Triple).toLocaleString('id-ID')}`);
-        if (firstTier.Double) prices.push(`Double: Rp ${Number(firstTier.Double).toLocaleString('id-ID')}`);
-        pricingInfo = prices.join(', ');
-      }
+    const pricing = pkg.harga;
+    if (pricing) {
+      const prices: string[] = [];
+      if (pricing.Quard) prices.push(`Quad: Rp ${Number(pricing.Quard).toLocaleString('id-ID')}`);
+      if (pricing.Triple) prices.push(`Triple: Rp ${Number(pricing.Triple).toLocaleString('id-ID')}`);
+      if (pricing.Double) prices.push(`Double: Rp ${Number(pricing.Double).toLocaleString('id-ID')}`);
+      pricingInfo = prices.join(', ');
     }
 
     const systemPrompt = `Kamu adalah copywriter untuk travel umroh Alhijaz Indowisata.
