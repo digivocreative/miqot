@@ -12,7 +12,7 @@ import type { AgentData } from '@/data/agents';
 import AgentProfile from './AgentProfile';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { getDistance } from '@/data/hotelService';
-import { getTemperature, getTempColor } from '@/data/temperatureData';
+import { getTemperature } from '@/data/temperatureData';
 
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
@@ -1462,35 +1462,38 @@ _________________________
             </div>
           </div>
 
-          {/* ---- Temperature Estimate Section (Redesigned) ---- */}
+          {/* ---- Temperature Estimate Section (Dynamic Cities) ---- */}
           {(() => {
             const depMonth = new Date(pkg.keberangkatan.tgl).getMonth() + 1;
-            const mekkahTemp = getTemperature('mekkah', depMonth);
-            const madinahTemp = getTemperature('madinah', depMonth);
-            
-            // Helper component for weather icon
-            const WeatherIcon = ({ isHot, city }: { isHot: boolean; city: 'mekkah' | 'madinah' }) => {
-              const colors = city === 'mekkah' 
-                ? { bg: 'bg-orange-50 dark:bg-orange-950/30', icon: 'text-orange-500' }
-                : { bg: 'bg-amber-50 dark:bg-amber-950/30', icon: 'text-amber-500' };
-              
-              const coolColors = { bg: 'bg-emerald-50 dark:bg-emerald-950/30', icon: 'text-emerald-500' };
-              const current = isHot ? colors : coolColors;
 
-              return (
-                <div className={`p-2.5 rounded-xl ${current.bg}`}>
-                  {isHot ? (
-                    <Sun size={20} className={current.icon} />
-                  ) : (
-                    <CloudSun size={20} className={current.icon} />
-                  )}
-                </div>
-              );
-            };
+            // Build the list of all cities in this package
+            const cities: Array<{ key: string; label: string }> = [
+              { key: 'mekkah', label: 'Mekkah' },
+              { key: 'madinah', label: 'Madinah' },
+              ...extraHotels.map(h => ({ key: h.city.toLowerCase(), label: h.city })),
+            ];
+
+            // Filter to cities that have temperature data
+            const citiesWithTemp = cities
+              .filter(c => getTemperature(c.key, depMonth) !== null)
+              // Deduplicate by key
+              .filter((c, i, arr) => arr.findIndex(x => x.key === c.key) === i);
+
+            if (citiesWithTemp.length === 0) return null;
+
+            // Color palette for differentiating city icons
+            const iconStyles = [
+              { hot: 'bg-orange-50 dark:bg-orange-950/30', hotIcon: 'text-orange-500', cool: 'bg-teal-50 dark:bg-teal-950/30', coolIcon: 'text-teal-500' },
+              { hot: 'bg-amber-50 dark:bg-amber-950/30', hotIcon: 'text-amber-500', cool: 'bg-cyan-50 dark:bg-cyan-950/30', coolIcon: 'text-cyan-500' },
+              { hot: 'bg-red-50 dark:bg-red-950/30', hotIcon: 'text-red-400', cool: 'bg-emerald-50 dark:bg-emerald-950/30', coolIcon: 'text-emerald-500' },
+              { hot: 'bg-rose-50 dark:bg-rose-950/30', hotIcon: 'text-rose-400', cool: 'bg-sky-50 dark:bg-sky-950/30', coolIcon: 'text-sky-500' },
+              { hot: 'bg-yellow-50 dark:bg-yellow-950/30', hotIcon: 'text-yellow-500', cool: 'bg-indigo-50 dark:bg-indigo-950/30', coolIcon: 'text-indigo-400' },
+              { hot: 'bg-orange-50 dark:bg-orange-950/30', hotIcon: 'text-orange-400', cool: 'bg-violet-50 dark:bg-violet-950/30', coolIcon: 'text-violet-400' },
+            ];
 
             return (
               <div className="mb-4 bg-white dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:shadow-md hover:border-slate-200 dark:hover:border-slate-700">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center mb-4">
                   <h4 
                     className="text-[11px] font-semibold uppercase tracking-[0.05em] flex items-center gap-2"
                     style={{ color: 'rgb(116 128 145)' }}
@@ -1500,31 +1503,30 @@ _________________________
                   </h4>
                 </div>
                 
-                <div className="flex items-center">
-                  {/* Mekkah */}
-                  <div className="flex-1 flex items-center gap-3.5">
-                    <WeatherIcon isHot={mekkahTemp.high > 38} city="mekkah" />
-                    <div>
-                      <span className="block text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider mb-0.5">Mekkah</span>
-                      <p className="text-lg font-extrabold text-slate-800 dark:text-slate-100 tabular-nums leading-none">
-                        {mekkahTemp.low}<span className="text-slate-400 dark:text-slate-500 font-normal mx-0.5">–</span>{mekkahTemp.high}<span className="text-xs ml-0.5 font-bold text-slate-400 dark:text-slate-500">°C</span>
-                      </p>
-                    </div>
-                  </div>
+                <div className={`grid gap-x-4 gap-y-3 ${citiesWithTemp.length <= 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                  {citiesWithTemp.map((city, idx) => {
+                    const temp = getTemperature(city.key, depMonth)!;
+                    const isHot = temp.high > 28;
+                    const style = iconStyles[idx % iconStyles.length];
 
-                  {/* Vertical Divider */}
-                  <div className="h-10 w-px bg-gradient-to-b from-transparent via-slate-100 dark:via-slate-800 to-transparent mx-4" />
-
-                  {/* Madinah */}
-                  <div className="flex-1 flex items-center gap-3.5">
-                    <WeatherIcon isHot={madinahTemp.high > 38} city="madinah" />
-                    <div>
-                      <span className="block text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider mb-0.5">Madinah</span>
-                      <p className="text-lg font-extrabold text-slate-800 dark:text-slate-100 tabular-nums leading-none">
-                        {madinahTemp.low}<span className="text-slate-400 dark:text-slate-500 font-normal mx-0.5">–</span>{madinahTemp.high}<span className="text-xs ml-0.5 font-bold text-slate-400 dark:text-slate-500">°C</span>
-                      </p>
-                    </div>
-                  </div>
+                    return (
+                      <div key={city.key} className="flex items-center gap-2.5">
+                        <div className={`p-2 rounded-xl shrink-0 ${isHot ? style.hot : style.cool}`}>
+                          {isHot ? (
+                            <Sun size={16} className={isHot ? style.hotIcon : style.coolIcon} />
+                          ) : (
+                            <CloudSun size={16} className={style.coolIcon} />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <span className="block text-[9px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider mb-0.5 truncate">{city.label}</span>
+                          <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100 tabular-nums leading-none">
+                            {temp.low}<span className="text-slate-400 dark:text-slate-500 font-normal mx-0.5">–</span>{temp.high}<span className="text-[10px] ml-0.5 font-bold text-slate-400 dark:text-slate-500">°C</span>
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
