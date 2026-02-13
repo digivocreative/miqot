@@ -921,7 +921,7 @@ export default function KalkulasiPage() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-slate-800">Anak + Kasur</p>
-                    <p className="text-[10px] text-slate-400">2 – 11 tahun, dengan kasur</p>
+                    <p className="text-[10px] text-slate-400">2 – 5 tahun, dengan kasur</p>
                   </div>
                 </div>
                 <Counter
@@ -937,7 +937,7 @@ export default function KalkulasiPage() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-slate-800">Anak tanpa Kasur</p>
-                    <p className="text-[10px] text-slate-400">2 – 11 tahun, tanpa kasur</p>
+                    <p className="text-[10px] text-slate-400">2 – 5 tahun, tanpa kasur</p>
                   </div>
                 </div>
                 <Counter
