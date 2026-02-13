@@ -54,17 +54,20 @@ interface SelectOption {
   label: string;
 }
 
+const INFANT_PRICE = 8_500_000;
+
 const ROOM_PRICES_FALLBACK = {
   single: 0,
   double: 0,
   triple: 0,
   quad: 0,
+  infant: INFANT_PRICE,
 };
 
 const ANAK_TANPA_KASUR_DISC_NORMAL = 3_500_000;
 const ANAK_TANPA_KASUR_DISC_PROMO  = 3_000_000;
 const ANAK_TANPA_KASUR_DISC_RAHMAH = 5_500_000;
-const INFANT_PRICE = 8_500_000;
+
 
 // ============================================
 // Helper: Format Rupiah
@@ -347,18 +350,17 @@ function ResultModal({
       const typeLabel = item.label.toUpperCase();
       lines.push(`*PERHITUNGAN ${typeLabel}*`);
       lines.push(`\`\`\`${fmtRp(item.unitPrice)} ${typeLabel}\`\`\``);
-      lines.push('```Rp. 0 (PROMO)```');
-      lines.push('```________________+```');
-      lines.push(`\`\`\`${fmtRp(item.unitPrice)}\`\`\``);
       lines.push(`\`\`\`________________×${item.qty} PAX\`\`\``);
       lines.push(`\`\`\`${fmtRp(item.total)}\`\`\``);
       lines.push('');
       lines.push('');
     }
 
-    lines.push(`\`\`\`Total = ${fmtRp(summary.subtotal)}(sebelum diskon)\`\`\``);
-    lines.push(`\`\`\`Diskon = ${fmtRp(summary.discount)}\`\`\``);
-    lines.push('');
+    if (summary.discount > 0) {
+      lines.push(`\`\`\`Total = ${fmtRp(summary.subtotal)}(sebelum diskon)\`\`\``);
+      lines.push(`\`\`\`Diskon = ${fmtRp(summary.discount)}\`\`\``);
+      lines.push('');
+    }
     lines.push(`*TOTAL BIAYA UMROH  = ${fmtRp(summary.grandTotal)}*`);
     lines.push('');
     if (catatan) {
@@ -632,6 +634,7 @@ export default function KalkulasiPage() {
       triple: parseInt(tierPricing.Triple || '0', 10),
       double: parseInt(tierPricing.Double || '0', 10),
       single: parseInt(tierPricing.Single || '0', 10),
+      infant: parseInt(tierPricing.Infant || '0', 10) || INFANT_PRICE,
     };
   }, [selectedPkg]);
 
@@ -666,11 +669,12 @@ export default function KalkulasiPage() {
       items.push({ label: 'Anak (tanpa Kasur)', qty: jamaah.balitaTanpaKasur, unitPrice: anakPrice, total: jamaah.balitaTanpaKasur * anakPrice, note: `${formatRupiah(roomPrices.quad)} − ${formatRupiah(disc)}` });
     }
     if (jamaah.infant > 0) {
-      items.push({ label: 'Infant (0-23 bln)', qty: jamaah.infant, unitPrice: INFANT_PRICE, total: jamaah.infant * INFANT_PRICE });
+      const infantPrice = roomPrices.infant;
+      items.push({ label: 'Infant (0-23 bln)', qty: jamaah.infant, unitPrice: infantPrice, total: jamaah.infant * infantPrice });
     }
 
     const subtotal = items.reduce((sum, i) => sum + i.total, 0);
-    const totalJamaah = jamaah.dewasa + jamaah.balitaKasur + jamaah.balitaTanpaKasur + jamaah.infant;
+    const totalJamaah = jamaah.dewasa + jamaah.balitaKasur + jamaah.balitaTanpaKasur; // Infant excluded from discount
     const discount = isDiscountActive
       ? (discountType === 'per-pax' ? discountAmount * totalJamaah : discountAmount)
       : 0;
