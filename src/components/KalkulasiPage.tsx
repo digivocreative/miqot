@@ -12,7 +12,7 @@ import {
   Tag,
   FileText,
   Calendar,
-  Save,
+
   CheckCircle2,
   Loader2,
   Plane,
@@ -249,7 +249,7 @@ function SearchableSelect({
 // Section Divider
 // ============================================
 function SectionDivider() {
-  return <div className="border-b border-dashed border-slate-200 mx-1" />;
+  return <div className="border-b border-slate-100 mx-0" />;
 }
 
 // ============================================
@@ -669,56 +669,38 @@ export default function KalkulasiPage() {
   // Render
   // ============================================
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50/30 via-slate-50 to-slate-50">
-      <div className="max-w-lg mx-auto px-4 py-6 pb-10">
+    <div className="min-h-screen bg-white">
 
-        {/* ════════════════════════════════════════════ */}
-        {/* THE UNIFIED SUPER-CARD                      */}
-        {/* ════════════════════════════════════════════ */}
-        <div className="bg-white rounded-3xl shadow-2xl shadow-slate-200/50 overflow-hidden border border-slate-100">
-
-          {/* ── Decorative Top Gradient ── */}
-          <div className="h-1.5 bg-gradient-to-r from-emerald-500 via-emerald-600 to-emerald-700" />
-
-          {/* ══════════════════════════════ */}
-          {/* CARD HEADER                   */}
-          {/* ══════════════════════════════ */}
-          <div className="px-5 pt-5 pb-4">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => (window.location.href = '/')}
-                className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100/80 hover:bg-emerald-50 text-slate-500 hover:text-emerald-600 transition-all duration-300 active:scale-95"
-                title="Kembali"
-              >
-                <ArrowLeft size={18} />
-              </button>
-              <div className="flex-1 min-w-0">
-                <h1 className="text-lg font-bold text-slate-900 tracking-tight">
-                  Kalkulasi Umroh
-                </h1>
-                <p className="text-[11px] text-slate-400">
-                  Estimasi biaya paket untuk calon jamaah
-                </p>
-              </div>
-            </div>
-            {/* Progress Line */}
-            <div className="mt-4 flex items-center gap-1.5">
-              <div className="flex-1 h-1 rounded-full bg-emerald-600" />
-              <div className="flex-1 h-1 rounded-full bg-slate-200" />
-              <div className="flex-1 h-1 rounded-full bg-slate-200" />
-              <div className="flex-1 h-1 rounded-full bg-slate-200" />
-            </div>
+      {/* ══════════════════════════════ */}
+      {/* STICKY HEADER                 */}
+      {/* ══════════════════════════════ */}
+      <div className="sticky top-0 z-30 backdrop-blur-md bg-white/90 border-b border-slate-100">
+        <div className="max-w-3xl mx-auto px-5 py-3 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => (window.location.href = '/')}
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 hover:bg-emerald-50 text-slate-500 hover:text-emerald-600 transition-all duration-300 active:scale-95"
+            title="Kembali"
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg font-bold text-slate-900 tracking-tight">
+              Kalkulasi Umroh
+            </h1>
           </div>
+        </div>
+      </div>
 
-
-
-          <SectionDivider />
+      {/* ══════════════════════════════ */}
+      {/* MAIN CONTENT                  */}
+      {/* ══════════════════════════════ */}
+      <div className="max-w-3xl mx-auto px-5 pb-10">
 
           {/* ══════════════════════════════ */}
           {/* SECTION: Pilih Paket          */}
           {/* ══════════════════════════════ */}
-          <div className="px-5 py-5">
+          <div className="py-6">
             <SectionHeader icon={Plane} label="Jadwal & Paket" />
             <SearchableSelect
               options={packageOptions}
@@ -734,7 +716,7 @@ export default function KalkulasiPage() {
           {/* ══════════════════════════════ */}
           {/* SECTION: Komposisi Jamaah     */}
           {/* ══════════════════════════════ */}
-          <div className="px-5 py-5">
+          <div className="py-6">
             <SectionHeader icon={Users} label="Komposisi Jamaah" />
             <div className="space-y-0">
               {/* Dewasa */}
@@ -810,7 +792,7 @@ export default function KalkulasiPage() {
           {/* ══════════════════════════════ */}
           {/* SECTION: Pilihan Kamar        */}
           {/* ══════════════════════════════ */}
-          <div className="px-5 py-5">
+          <div className="py-6">
             <div className="flex items-start justify-between">
               <SectionHeader icon={BedDouble} label="Pilihan Kamar" />
               {totalJamaahNeedRoom > 0 && selectedPkg && (
@@ -887,7 +869,7 @@ export default function KalkulasiPage() {
           {/* ══════════════════════════════ */}
           {/* SECTION: Diskon & Catatan     */}
           {/* ══════════════════════════════ */}
-          <div className="px-5 py-5">
+          <div className="py-6">
             <SectionHeader icon={Tag} label="Diskon" />
             <div className="space-y-4">
               {/* Toggle Diskon */}
@@ -964,28 +946,23 @@ export default function KalkulasiPage() {
             </div>
           </div>
 
-          {/* ══════════════════════════════ */}
-          {/* SUMMARY FOOTER ("Tear-Off")   */}
-          {/* ══════════════════════════════ */}
-          {/* Zigzag / Tear-off border effect */}
-          <div className="relative">
-            <div className="absolute inset-x-0 top-0 h-3 overflow-hidden">
-              <svg className="w-full h-3 text-slate-50" viewBox="0 0 100 6" preserveAspectRatio="none">
-                <path d="M0,6 L2.5,0 L5,6 L7.5,0 L10,6 L12.5,0 L15,6 L17.5,0 L20,6 L22.5,0 L25,6 L27.5,0 L30,6 L32.5,0 L35,6 L37.5,0 L40,6 L42.5,0 L45,6 L47.5,0 L50,6 L52.5,0 L55,6 L57.5,0 L60,6 L62.5,0 L65,6 L67.5,0 L70,6 L72.5,0 L75,6 L77.5,0 L80,6 L82.5,0 L85,6 L87.5,0 L90,6 L92.5,0 L95,6 L97.5,0 L100,6" fill="currentColor" />
-              </svg>
-            </div>
-          </div>
+          <SectionDivider />
 
-          <div className="bg-slate-50 px-5 pt-6 pb-5">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-              <FileText size={13} className="text-amber-500" />
+          {/* ══════════════════════════════ */}
+          {/* SECTION: Rincian Biaya        */}
+          {/* ══════════════════════════════ */}
+          <div className="py-8">
+            <h2 className="text-sm font-bold text-slate-800 tracking-tight mb-4 flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center border border-amber-100/80">
+                <FileText size={14} className="text-amber-600" />
+              </div>
               Rincian Biaya
-            </h3>
+            </h2>
 
             {/* Line items */}
-            {!hasSelection ? (
+            {summary.items.length === 0 ? (
               <div className="text-center py-6">
-                <div className="w-11 h-11 mx-auto rounded-full bg-slate-100 flex items-center justify-center mb-2">
+                <div className="w-11 h-11 mx-auto rounded-full bg-slate-50 flex items-center justify-center mb-2">
                   <FileText size={18} className="text-slate-300" />
                 </div>
                 <p className="text-xs text-slate-400">
@@ -994,7 +971,7 @@ export default function KalkulasiPage() {
               </div>
             ) : (
               <>
-                <div className="space-y-2 mb-4">
+                <div className="space-y-2.5 mb-4">
                   {summary.items.map((item, i) => (
                     <div key={i}>
                       <div className="flex items-center justify-between text-sm">
@@ -1014,7 +991,7 @@ export default function KalkulasiPage() {
                   ))}
                 </div>
 
-                <div className="border-t-2 border-dashed border-slate-200 my-4" />
+                <div className="border-t border-dashed border-slate-200 my-4" />
 
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-sm">
@@ -1032,7 +1009,6 @@ export default function KalkulasiPage() {
                     </div>
                   )}
                 </div>
-
                 {/* Grand Total */}
                 <div className="mt-4 pt-4 border-t border-slate-200">
                   <div className="flex justify-between items-baseline">
@@ -1045,42 +1021,23 @@ export default function KalkulasiPage() {
               </>
             )}
 
-            {/* Action Buttons */}
-            <div className="mt-6 space-y-2.5">
+            {/* Action Button */}
+            <div className="mt-6">
               <button
                 type="button"
                 onClick={() => setShowResultModal(true)}
                 disabled={!hasSelection}
-                className="w-full flex items-center justify-center gap-2 px-4 py-4 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-700 shadow-lg shadow-emerald-700/30 transition-all duration-300 hover:from-emerald-600 hover:to-emerald-700 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
+                className="w-full flex items-center justify-center gap-2 px-4 py-4 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-700 shadow-lg shadow-emerald-700/30 transition-all duration-300 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <CheckCircle2 size={18} />
                 Proses Kalkulasi
                 <ChevronRight size={16} strokeWidth={3} />
               </button>
-
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-medium bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 transition-all duration-300 active:scale-[0.98]"
-                >
-                  <Save size={13} />
-                  Simpan Draft
-                </button>
-                <button
-                  type="button"
-                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200/80 hover:bg-amber-100 transition-all duration-300 active:scale-[0.98]"
-                >
-                  <Calendar size={13} />
-                  Followup
-                </button>
-              </div>
             </div>
           </div>
 
-        </div>
-        {/* End of Super-Card */}
-
       </div>
+      {/* End of main content */}
 
       {/* Result Modal */}
       <ResultModal
