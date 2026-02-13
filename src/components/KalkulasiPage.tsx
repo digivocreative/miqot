@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
   ArrowLeft,
   User,
@@ -13,6 +15,7 @@ import {
   FileText,
   Calendar,
 
+  Download,
   CheckCircle2,
   Loader2,
   Plane,
@@ -280,6 +283,7 @@ function ResultModal({
   summary,
   catatan,
   namaLengkap,
+  onDownloadPDF,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -289,6 +293,7 @@ function ResultModal({
   summary: { items: { label: string; qty: number; unitPrice: number; total: number }[]; subtotal: number; discount: number; grandTotal: number };
   catatan: string;
   namaLengkap: string;
+  onDownloadPDF: () => void;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -533,7 +538,10 @@ function ResultModal({
 
         {/* Modal Footer */}
         <div className="flex-shrink-0 px-5 py-4 bg-slate-50 border-t border-slate-100 flex gap-2">
-          <button onClick={handleCopy} className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl text-sm font-semibold border transition-all duration-300 active:scale-[0.97] ${copied ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+          <button onClick={onDownloadPDF} className="flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl text-sm font-semibold border-2 border-emerald-200 text-emerald-700 bg-emerald-50 transition-all duration-200 active:scale-[0.97]">
+            <Download size={16} /> PDF
+          </button>
+          <button onClick={handleCopy} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl text-sm font-semibold border-2 border-slate-200 text-slate-600 bg-slate-50 transition-all duration-200 active:scale-[0.97]">
             {copied ? <><CheckCircle2 size={16} /> Tersalin!</> : <><Copy size={16} /> Copy</>}
           </button>
           <button onClick={handleShareWA} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-green-600 to-green-700 shadow-lg shadow-green-600/20 transition-all duration-300 active:scale-[0.97]">
@@ -605,6 +613,7 @@ export default function KalkulasiPage() {
   const [catatan, setCatatan] = useState('');
   const [showResultModal, setShowResultModal] = useState(false);
   const [autoFillFlash, setAutoFillFlash] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
 
   // Find the selected package object
   const selectedPkg = useMemo(() => {
@@ -688,17 +697,141 @@ export default function KalkulasiPage() {
     const quadRooms = Math.floor(total / 4);
     const remainder = total % 4;
 
+    // Avoid single rooms — remainder 1 goes into quad
     setRooms({
-      quad: quadRooms * 4,
+      quad: remainder === 1 ? (quadRooms * 4) + 1 : quadRooms * 4,
       triple: remainder === 3 ? 3 : 0,
       double: remainder === 2 ? 2 : 0,
-      single: remainder === 1 ? 1 : 0,
+      single: 0,
     });
 
     // Visual feedback
     setAutoFillFlash(true);
     setTimeout(() => setAutoFillFlash(false), 1200);
   }, [totalJamaahNeedRoom]);
+
+  // --- PDF Quotation Generator ---
+  const handleDownloadPDF = useCallback(() => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    let y = 18;
+
+    // Helper: format rupiah for PDF
+    const pdfRp = (v: number) => 'Rp ' + v.toLocaleString('id-ID');
+
+    // ─── HEADER ───
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.text('OFFICIAL QUOTATION', pageWidth / 2, y, { align: 'center' });
+    y += 6;
+    doc.setFontSize(10);
+    doc.text('ALHIJAZ INDOWISATA', pageWidth / 2, y, { align: 'center' });
+    y += 8;
+    doc.setDrawColor(200);
+    doc.line(14, y, pageWidth - 14, y);
+    y += 8;
+
+    // ─── CUSTOMER INFO ───
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.text(`Tanggal: ${today}`, 14, y);
+    y += 5;
+    if (namaLengkap) {
+      doc.text(`Nama Customer: ${namaLengkap}`, 14, y);
+      y += 5;
+    }
+    y += 3;
+
+    // ─── PACKAGE INFO ───
+    if (selectedPkg) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(`Paket: ${selectedPkg.nama}`, 14, y);
+      y += 5;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.text(`Maskapai: ${selectedPkg.maskapai}`, 14, y);
+      y += 4;
+      const depDate = new Date(selectedPkg.keberangkatan.tgl).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+      doc.text(`Keberangkatan: ${depDate}, ${selectedPkg.keberangkatan.jam}`, 14, y);
+      y += 8;
+    }
+
+    // ─── PRICING TABLE ───
+    const tableBody = summary.items.map((item) => [
+      item.label,
+      String(item.qty),
+      pdfRp(item.unitPrice),
+      pdfRp(item.total),
+    ]);
+
+    // Add discount row if applicable
+    if (summary.discount > 0) {
+      tableBody.push(['Diskon', '', '', `- ${pdfRp(summary.discount)}`]);
+    }
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Deskripsi', 'Qty', 'Harga/Unit', 'Total']],
+      body: tableBody,
+      theme: 'striped',
+      headStyles: { fillColor: [5, 150, 105], fontSize: 9 },
+      styles: { fontSize: 9, cellPadding: 3 },
+      columnStyles: {
+        0: { cellWidth: 70 },
+        1: { halign: 'center', cellWidth: 20 },
+        2: { halign: 'right', cellWidth: 45 },
+        3: { halign: 'right', cellWidth: 45 },
+      },
+    });
+
+    // @ts-ignore jspdf-autotable adds lastAutoTable
+    y = (doc as any).lastAutoTable.finalY + 6;
+
+    // ─── GRAND TOTAL ───
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text(`GRAND TOTAL: ${pdfRp(summary.grandTotal)}`, pageWidth - 14, y, { align: 'right' });
+    y += 12;
+
+    // ─── REKENING PEMBAYARAN ───
+    doc.setDrawColor(200);
+    doc.line(14, y, pageWidth - 14, y);
+    y += 7;
+    doc.setFontSize(10);
+    doc.text('REKENING PEMBAYARAN (PT. ALHIJAZ INDOWISATA)', 14, y);
+    y += 7;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    const banks = [
+      'BSI       : 1234-5678-90  (a.n PT Alhijaz)',
+      'Mandiri   : 9876-5432-10',
+      'BCA       : 5555-4444-33',
+      'BNI       : 1111-2222-33',
+      'BRI       : 9999-8888-77',
+    ];
+    banks.forEach((b) => {
+      doc.text(b, 14, y);
+      y += 5;
+    });
+    y += 6;
+
+    // ─── IMPORTANT NOTE ───
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(220, 38, 38);
+    doc.text(
+      'MOHON TRANSFER DP MINIMAL RP 5.000.000 / PAX UNTUK MENGAMANKAN SEAT.',
+      14, y, { maxWidth: pageWidth - 28 }
+    );
+    doc.setTextColor(0);
+
+    // ─── PREVIEW instead of save ───
+    const blob = doc.output('blob');
+    const url = URL.createObjectURL(blob);
+    setPdfPreviewUrl(url);
+  }, [summary, selectedPkg, namaLengkap]);
 
   // ============================================
   // Render
@@ -721,7 +854,7 @@ export default function KalkulasiPage() {
           </button>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-bold text-slate-900 tracking-tight">
-              Kalkulasi Umroh
+              Kalkulasi Harga
             </h1>
           </div>
         </div>
@@ -751,6 +884,15 @@ export default function KalkulasiPage() {
           {/* ══════════════════════════════ */}
           {/* SECTION: Komposisi Jamaah     */}
           {/* ══════════════════════════════ */}
+          <div className="relative">
+            {!selectedPkg && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 rounded-xl">
+                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-amber-50 border border-amber-200">
+                  <AlertCircle size={14} className="text-amber-500" />
+                  <span className="text-xs font-semibold text-amber-700">Pilih paket terlebih dahulu</span>
+                </div>
+              </div>
+            )}
           <div className="py-6">
             <SectionHeader icon={Users} label="Komposisi Jamaah" />
             <div className="space-y-0">
@@ -821,12 +963,22 @@ export default function KalkulasiPage() {
               </div>
             </div>
           </div>
+          </div>
 
           <SectionDivider />
 
           {/* ══════════════════════════════ */}
           {/* SECTION: Pilihan Kamar        */}
           {/* ══════════════════════════════ */}
+          <div className="relative">
+            {!selectedPkg && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 rounded-xl">
+                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-amber-50 border border-amber-200">
+                  <AlertCircle size={14} className="text-amber-500" />
+                  <span className="text-xs font-semibold text-amber-700">Pilih paket terlebih dahulu</span>
+                </div>
+              </div>
+            )}
           <div className="py-6">
             <div className="flex items-start justify-between">
               <SectionHeader icon={BedDouble} label="Pilihan Kamar" />
@@ -834,10 +986,17 @@ export default function KalkulasiPage() {
                 <button
                   type="button"
                   onClick={handleAutoCalculateRooms}
-                  className="flex items-center gap-1.5 text-xs font-medium bg-amber-50 text-amber-700 px-3 py-1.5 rounded-full hover:bg-amber-100 transition-colors cursor-pointer active:scale-95"
+                  className="group relative flex items-center gap-1.5 text-[11px] font-bold px-4 py-2 rounded-full bg-white transition-all duration-300 cursor-pointer active:scale-95 overflow-hidden"
+                  style={{
+                    border: '1.5px solid transparent',
+                    backgroundImage: 'linear-gradient(white, white), linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7)',
+                    backgroundOrigin: 'border-box',
+                    backgroundClip: 'padding-box, border-box',
+                  }}
                 >
-                  <Sparkles size={13} />
-                  Atur Otomatis
+                  <span className="absolute inset-0 rounded-full bg-gradient-to-r from-transparent via-indigo-400/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+                  <Sparkles size={13} className="relative z-10 text-indigo-500" />
+                  <span className="relative z-10 bg-gradient-to-r from-indigo-500 to-purple-500 bg-clip-text text-transparent">Atur Otomatis</span>
                 </button>
               )}
             </div>
@@ -889,14 +1048,15 @@ export default function KalkulasiPage() {
                   : 'bg-amber-50 text-amber-700'
               }`}>
                 {roomBalanced ? (
-                  <><CheckCircle2 size={14} /> Kamar sesuai — {totalRoomPax} pax</>
+                  <><CheckCircle2 size={14} /> Kamar sesuai — {totalRoomPax} bed</>
                 ) : roomDiff > 0 ? (
-                  <><AlertCircle size={14} /> Kurang {roomDiff} pax — butuh {totalJamaahNeedRoom}, sudah {totalRoomPax}</>
+                  <><AlertCircle size={14} /> Kurang {roomDiff} bed — butuh {totalJamaahNeedRoom}, sudah {totalRoomPax}</>
                 ) : (
-                  <><AlertCircle size={14} /> Kelebihan {Math.abs(roomDiff)} pax — butuh {totalJamaahNeedRoom}, sudah {totalRoomPax}</>
+                  <><AlertCircle size={14} /> Kelebihan {Math.abs(roomDiff)} bed — butuh {totalJamaahNeedRoom}, sudah {totalRoomPax}</>
                 )}
               </div>
             )}
+          </div>
           </div>
 
           <SectionDivider />
@@ -1055,18 +1215,16 @@ export default function KalkulasiPage() {
                 </div>
               </>
             )}
-
             {/* Action Button */}
             <div className="mt-6">
               <button
                 type="button"
                 onClick={() => setShowResultModal(true)}
                 disabled={!hasSelection}
-                className="w-full flex items-center justify-center gap-2 px-4 py-4 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-700 shadow-lg shadow-emerald-700/30 transition-all duration-300 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
+                className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-700 shadow-lg shadow-emerald-600/25 transition-all duration-200 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <CheckCircle2 size={18} />
-                Proses Kalkulasi
-                <ChevronRight size={16} strokeWidth={3} />
+                <CheckCircle2 size={16} />
+                Kalkulasi
               </button>
             </div>
           </div>
@@ -1084,7 +1242,55 @@ export default function KalkulasiPage() {
         summary={summary}
         catatan={catatan}
         namaLengkap={namaLengkap}
+        onDownloadPDF={handleDownloadPDF}
       />
+
+      {/* PDF Preview Modal — matches ItineraryModal design */}
+      {pdfPreviewUrl && (
+        <div className="fixed inset-0 z-[9999] bg-white flex flex-col animate-[slideUpFull_0.35s_ease-out]">
+
+          {/* ─── HEADER ─── */}
+          <div className="flex-none sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-gray-200/60 px-5 py-4 flex justify-between items-center shadow-sm">
+            <div className="flex flex-col">
+              <h2 className="text-lg font-bold text-gray-900">Preview Quotation</h2>
+              <span className="text-xs text-gray-500 font-medium">Dokumen PDF</span>
+            </div>
+            <button
+              onClick={() => { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }}
+              className="p-2 bg-gray-100 rounded-full text-gray-600 hover:bg-gray-200 transition-colors shrink-0"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* ─── SCROLLABLE CONTENT ─── */}
+          <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 px-4 pb-6">
+            <div className="flex justify-center pt-4">
+              <div className="bg-white p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[60vh]">
+                <iframe
+                  src={pdfPreviewUrl}
+                  className="w-full h-[80vh] border-0 rounded-lg"
+                  title="PDF Preview"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* ─── FOOTER ─── */}
+          <div className="flex-none sticky bottom-0 bg-white border-t border-gray-200/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            <a
+              href={pdfPreviewUrl}
+              download={selectedPkg ? `Quotation-${selectedPkg.nama.replace(/\s+/g, '-').substring(0, 30)}.pdf` : 'Quotation-Alhijaz.pdf'}
+              className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98]"
+            >
+              <Share2 size={20} />
+              <span>Bagikan / Download PDF</span>
+            </a>
+          </div>
+
+          <style>{`@keyframes slideUpFull{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}`}</style>
+        </div>
+      )}
     </div>
   );
 }
