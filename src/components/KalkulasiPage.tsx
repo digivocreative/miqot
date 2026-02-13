@@ -16,6 +16,8 @@ import {
   CheckCircle2,
   Loader2,
   Plane,
+  PlaneTakeoff,
+  PlaneLanding,
   ChevronRight,
   X,
   Copy,
@@ -403,42 +405,75 @@ function ResultModal({
             <div className="mt-1.5 border-t-2 border-dashed border-slate-200" />
           </div>
 
-          {/* Package & Flight Info */}
+          {/* Package & Flight Info — Compact Card Style */}
           {pkg && (
-            <div className="space-y-4">
-              <p className="text-xs font-bold text-center text-slate-800 leading-relaxed">
+            <div className="space-y-3">
+              {hotelData && (
+                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest text-center">Paket {firstTier}</p>
+              )}
+              <p className="text-sm font-bold text-center text-slate-800 leading-relaxed">
                 {pkg.maskapai} — {pkg.nama}
               </p>
-              {/* Departure */}
-              <div className="bg-slate-50 rounded-xl p-3.5">
-                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1">Berangkat</p>
-                <p className="text-sm font-bold text-slate-900">{fmtDate(pkg.keberangkatan.tgl)}, {pkg.keberangkatan.jam}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{pkg.keberangkatan.kodePenerbangan} ─ {pkg.keberangkatan.rute}</p>
-              </div>
-              {/* Return */}
-              <div className="bg-slate-50 rounded-xl p-3.5">
-                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1">Pulang</p>
-                <p className="text-sm font-bold text-slate-900">{fmtDate(pkg.kepulangan.tgl)}, {pkg.kepulangan.jam}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{pkg.kepulangan.kodePenerbangan} ─ {pkg.kepulangan.rute}</p>
-              </div>
-              {/* Hotels */}
-              {hotelData && (
-                <div className="space-y-2">
-                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest text-center">Paket {firstTier}</p>
-                  <div className="border-t border-dashed border-slate-200" />
-                  {hotelData.mekkah_hotel && (
-                    <div className="flex items-center justify-between text-xs py-1">
-                      <span className="text-slate-500 font-medium">Hotel Mekkah</span>
-                      <span className="text-slate-800 font-semibold text-right">{hotelData.mekkah_hotel} <span className="text-amber-500">★{hotelData.mekkah_bintang}</span></span>
-                    </div>
-                  )}
-                  {hotelData.madinah_hotel && (
-                    <div className="flex items-center justify-between text-xs py-1">
-                      <span className="text-slate-500 font-medium">Hotel Madinah</span>
-                      <span className="text-slate-800 font-semibold text-right">{hotelData.madinah_hotel} <span className="text-amber-500">★{hotelData.madinah_bintang}</span></span>
-                    </div>
-                  )}
+
+              {/* Flight info — 2-column compact grid */}
+              <div className="grid grid-cols-2 gap-3">
+                {/* Departure */}
+                <div className="flex items-start gap-2">
+                  <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5">
+                    <PlaneTakeoff size={16} />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wide">Berangkat</p>
+                    <p className="text-xs font-bold text-slate-800">{fmtDate(pkg.keberangkatan.tgl)}</p>
+                    <p className="text-[10px] text-slate-500">{pkg.keberangkatan.kodePenerbangan} · {pkg.keberangkatan.jam}</p>
+                  </div>
                 </div>
+
+                {/* Return */}
+                <div className="flex items-start gap-2">
+                  <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5">
+                    <PlaneLanding size={16} />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wide">Pulang</p>
+                    <p className="text-xs font-bold text-slate-800">{fmtDate(pkg.kepulangan.tgl)}</p>
+                    <p className="text-[10px] text-slate-500">{pkg.kepulangan.kodePenerbangan} · {pkg.kepulangan.jam}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Hotel info — 2-column compact grid */}
+              {hotelData && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    {hotelData.mekkah_hotel && (
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-slate-400 uppercase tracking-wide">Mekkah</p>
+                        <p className="text-xs text-slate-700 font-medium truncate">{hotelData.mekkah_hotel}</p>
+                        {hotelData.mekkah_bintang && (
+                          <div className="flex items-center gap-0.5">
+                            {Array.from({ length: parseInt(hotelData.mekkah_bintang) }).map((_, i) => (
+                              <span key={i} className="text-[10px] text-amber-400">★</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {hotelData.madinah_hotel && (
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-slate-400 uppercase tracking-wide">Madinah</p>
+                        <p className="text-xs text-slate-700 font-medium truncate">{hotelData.madinah_hotel}</p>
+                        {hotelData.madinah_bintang && (
+                          <div className="flex items-center gap-0.5">
+                            {Array.from({ length: parseInt(hotelData.madinah_bintang) }).map((_, i) => (
+                              <span key={i} className="text-[10px] text-amber-400">★</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           )}
