@@ -22,6 +22,7 @@ import {
   Share2,
   MessageCircle,
   AlertCircle,
+  Sparkles,
 } from 'lucide-react';
 import { getPackages } from '@/services';
 import type { UmrohPackage, HotelInfo } from '@/types';
@@ -55,8 +56,9 @@ const ROOM_PRICES_FALLBACK = {
   quad: 0,
 };
 
-const BALITA_KASUR_PRICE = 32_000_000;
-const BALITA_TANPA_KASUR_PRICE = 28_000_000;
+const ANAK_TANPA_KASUR_DISC_NORMAL = 3_500_000;
+const ANAK_TANPA_KASUR_DISC_PROMO  = 3_000_000;
+const ANAK_TANPA_KASUR_DISC_RAHMAH = 5_500_000;
 const INFANT_PRICE = 8_500_000;
 
 // ============================================
@@ -567,6 +569,7 @@ export default function KalkulasiPage() {
   const [discountType, setDiscountType] = useState<'per-pax' | 'flat'>('per-pax');
   const [catatan, setCatatan] = useState('');
   const [showResultModal, setShowResultModal] = useState(false);
+  const [autoFillFlash, setAutoFillFlash] = useState(false);
 
   // Find the selected package object
   const selectedPkg = useMemo(() => {
@@ -590,7 +593,7 @@ export default function KalkulasiPage() {
 
   // --- Summary Calculation ---
   const summary = useMemo(() => {
-    const items: { label: string; qty: number; unitPrice: number; total: number }[] = [];
+    const items: { label: string; qty: number; unitPrice: number; total: number; note?: string }[] = [];
 
     if (rooms.quad > 0 && roomPrices.quad > 0) {
       items.push({ label: 'Dewasa Quad Room', qty: rooms.quad, unitPrice: roomPrices.quad, total: rooms.quad * roomPrices.quad });
@@ -604,11 +607,19 @@ export default function KalkulasiPage() {
     if (rooms.single > 0 && roomPrices.single > 0) {
       items.push({ label: 'Dewasa Single Room', qty: rooms.single, unitPrice: roomPrices.single, total: rooms.single * roomPrices.single });
     }
-    if (jamaah.balitaKasur > 0) {
-      items.push({ label: 'Anak (dengan Kasur)', qty: jamaah.balitaKasur, unitPrice: BALITA_KASUR_PRICE, total: jamaah.balitaKasur * BALITA_KASUR_PRICE });
-    }
-    if (jamaah.balitaTanpaKasur > 0) {
-      items.push({ label: 'Anak (tanpa Kasur)', qty: jamaah.balitaTanpaKasur, unitPrice: BALITA_TANPA_KASUR_PRICE, total: jamaah.balitaTanpaKasur * BALITA_TANPA_KASUR_PRICE });
+    // Anak tanpa kasur: harga quad minus diskon (varies by package type)
+    if (jamaah.balitaTanpaKasur > 0 && roomPrices.quad > 0) {
+      const pkgName = selectedPkg?.nama?.toUpperCase() ?? '';
+      const firstTier = selectedPkg ? Object.keys(selectedPkg.harga)[0]?.toUpperCase() ?? '' : '';
+      const isRahmah = pkgName.includes('RAHMAH') || firstTier.includes('RAHMAH');
+      const isPromo = selectedPkg?.isPromo ?? pkgName.includes('PROMO');
+      const disc = isRahmah
+        ? ANAK_TANPA_KASUR_DISC_RAHMAH
+        : isPromo
+          ? ANAK_TANPA_KASUR_DISC_PROMO
+          : ANAK_TANPA_KASUR_DISC_NORMAL;
+      const anakPrice = Math.max(0, roomPrices.quad - disc);
+      items.push({ label: 'Anak (tanpa Kasur)', qty: jamaah.balitaTanpaKasur, unitPrice: anakPrice, total: jamaah.balitaTanpaKasur * anakPrice, note: `${formatRupiah(roomPrices.quad)} − ${formatRupiah(disc)}` });
     }
     if (jamaah.infant > 0) {
       items.push({ label: 'Infant (0-23 bln)', qty: jamaah.infant, unitPrice: INFANT_PRICE, total: jamaah.infant * INFANT_PRICE });
@@ -622,15 +633,37 @@ export default function KalkulasiPage() {
     const grandTotal = Math.max(0, subtotal - discount);
 
     return { items, subtotal, discount, grandTotal };
-  }, [rooms, jamaah, isDiscountActive, discountAmount, discountType, roomPrices]);
+  }, [rooms, jamaah, isDiscountActive, discountAmount, discountType, roomPrices, selectedPkg]);
 
   // --- Room / Jamaah balance validation ---
-  const totalJamaahNeedRoom = jamaah.dewasa + jamaah.balitaKasur + jamaah.balitaTanpaKasur;
+  // Anak dengan kasur = counted as dewasa (needs bed)
+  // Anak tanpa kasur = shares bed, NOT counted
+  const totalJamaahNeedRoom = jamaah.dewasa + jamaah.balitaKasur;
   const totalRoomPax = rooms.quad + rooms.triple + rooms.double + rooms.single;
   const roomDiff = totalJamaahNeedRoom - totalRoomPax; // positive = need more rooms
   const roomBalanced = totalJamaahNeedRoom > 0 && roomDiff === 0;
 
   const hasSelection = summary.items.length > 0 && roomBalanced;
+
+  // --- Smart Room Suggestion ---
+  const handleAutoCalculateRooms = useCallback(() => {
+    const total = totalJamaahNeedRoom;
+    if (total <= 0) return;
+
+    const quadRooms = Math.floor(total / 4);
+    const remainder = total % 4;
+
+    setRooms({
+      quad: quadRooms * 4,
+      triple: remainder === 3 ? 3 : 0,
+      double: remainder === 2 ? 2 : 0,
+      single: remainder === 1 ? 1 : 0,
+    });
+
+    // Visual feedback
+    setAutoFillFlash(true);
+    setTimeout(() => setAutoFillFlash(false), 1200);
+  }, [totalJamaahNeedRoom]);
 
   // ============================================
   // Render
@@ -778,7 +811,19 @@ export default function KalkulasiPage() {
           {/* SECTION: Pilihan Kamar        */}
           {/* ══════════════════════════════ */}
           <div className="px-5 py-5">
-            <SectionHeader icon={BedDouble} label="Pilihan Kamar" />
+            <div className="flex items-start justify-between">
+              <SectionHeader icon={BedDouble} label="Pilihan Kamar" />
+              {totalJamaahNeedRoom > 0 && selectedPkg && (
+                <button
+                  type="button"
+                  onClick={handleAutoCalculateRooms}
+                  className="flex items-center gap-1.5 text-xs font-medium bg-amber-50 text-amber-700 px-3 py-1.5 rounded-full hover:bg-amber-100 transition-colors cursor-pointer active:scale-95"
+                >
+                  <Sparkles size={13} />
+                  Atur Otomatis
+                </button>
+              )}
+            </div>
             <div className="space-y-0">
               {([
                 { key: 'quad' as const, label: 'Quad', desc: '4 orang / kamar', beds: 4, color: 'bg-emerald-50 text-emerald-500' },
@@ -792,7 +837,7 @@ export default function KalkulasiPage() {
                 return (
                   <div
                     key={room.key}
-                    className={`flex items-center justify-between py-3 transition-all duration-300 ${!isLast ? 'border-b border-slate-100' : ''} ${isSelected ? 'bg-emerald-50/40 -mx-5 px-5 rounded-lg' : ''}`}
+                    className={`flex items-center justify-between py-3 transition-all duration-300 ${!isLast ? 'border-b border-slate-100' : ''} ${isSelected ? 'bg-emerald-50/40 -mx-5 px-5 rounded-lg' : ''} ${autoFillFlash && isSelected ? 'animate-pulse' : ''}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${room.color}`}>
@@ -951,13 +996,20 @@ export default function KalkulasiPage() {
               <>
                 <div className="space-y-2 mb-4">
                   {summary.items.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between text-sm">
-                      <span className="text-slate-600">
-                        {item.qty}× {item.label}
-                      </span>
-                      <span className="text-slate-800 font-medium tabular-nums">
-                        {formatRupiah(item.total)}
-                      </span>
+                    <div key={i}>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-600">
+                          {item.qty}× {item.label}
+                        </span>
+                        <span className="text-slate-800 font-medium tabular-nums">
+                          {formatRupiah(item.total)}
+                        </span>
+                      </div>
+                      {item.note && (
+                        <p className="text-[10px] text-slate-400 ml-6 mt-0.5 tabular-nums">
+                          {item.note}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
