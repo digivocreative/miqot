@@ -16,6 +16,7 @@ async function onRequestPost(context) {
     const pkg = body.packageData;
     const agentName = body.agentName || "";
     const agentWebsite = body.agentWebsite || "";
+    console.log("AI Copy request:", { nama: pkg?.nama, hasHotel: !!pkg?.hotel, hasHarga: !!pkg?.harga });
     if (!pkg || !pkg.nama) {
       return new Response(
         JSON.stringify({ error: "Missing packageData" }),
@@ -369,7 +370,7 @@ var onRequest5 = /* @__PURE__ */ __name(async (context) => {
   });
 }, "onRequest");
 
-// ../.wrangler/tmp/pages-77hlfz/functionsRoutes-0.21425400175012066.mjs
+// ../.wrangler/tmp/pages-1P3Q75/functionsRoutes-0.4037960095204083.mjs
 var routes = [
   {
     routePath: "/api/ai-copy",
@@ -923,7 +924,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// ../.wrangler/tmp/bundle-lcMPhQ/middleware-insertion-facade.js
+// ../.wrangler/tmp/bundle-4gmdeQ/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -955,7 +956,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// ../.wrangler/tmp/bundle-lcMPhQ/middleware-loader.entry.ts
+// ../.wrangler/tmp/bundle-4gmdeQ/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;
@@ -1055,4 +1056,4 @@ export {
   __INTERNAL_WRANGLER_MIDDLEWARE__,
   middleware_loader_entry_default as default
 };
-//# sourceMappingURL=functionsWorker-0.1300868884061923.mjs.map
+//# sourceMappingURL=functionsWorker-0.2984523169383211.mjs.map

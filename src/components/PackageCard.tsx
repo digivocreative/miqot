@@ -136,16 +136,16 @@ export function PackageCard({
     setAiLoading(true);
     setAiError(null);
 
-    // Local fallback template generator
+    // Local fallback template generator (uses cheapestTier for consistent data)
     const generateFallbackText = () => {
-      const hotelData = Object.values(pkg.hotel || {})[0] as any;
-      const firstPricing = Object.values(pkg.harga || {})[0] as any;
+      const hotelData = pkg.hotel?.[cheapestTier] as any;
+      const tierPricing = pkg.harga?.[cheapestTier] as any;
       const depDate = new Date(pkg.keberangkatan?.tgl).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
       const prices: string[] = [];
-      if (firstPricing?.Quard) prices.push(`Quad: Rp ${Number(firstPricing.Quard).toLocaleString('id-ID')}`);
-      if (firstPricing?.Triple) prices.push(`Triple: Rp ${Number(firstPricing.Triple).toLocaleString('id-ID')}`);
-      if (firstPricing?.Double) prices.push(`Double: Rp ${Number(firstPricing.Double).toLocaleString('id-ID')}`);
+      if (tierPricing?.Quard) prices.push(`Quad: Rp ${Number(tierPricing.Quard).toLocaleString('id-ID')}`);
+      if (tierPricing?.Triple) prices.push(`Triple: Rp ${Number(tierPricing.Triple).toLocaleString('id-ID')}`);
+      if (tierPricing?.Double) prices.push(`Double: Rp ${Number(tierPricing.Double).toLocaleString('id-ID')}`);
 
       let text = `Assalamu'alaikum 🙏\n\nTelah dibuka pendaftaran *${pkg.nama}* bersama Alhijaz Indowisata.\n\n🗓 Berangkat: ${depDate}\n✈️ Maskapai: ${pkg.maskapai || '-'}`;
       if (hotelData?.mekkah_hotel) text += `\n🏨 Hotel Mekkah: ${hotelData.mekkah_hotel}`;
@@ -159,10 +159,17 @@ export function PackageCard({
     };
 
     try {
-      const hotelData = Object.values(pkg.hotel || {})[0] as any;
-      const firstPricing = Object.values(pkg.harga || {})[0] as any;
+      // Use cheapestTier for consistent hotel/pricing data
+      const hotelData = pkg.hotel?.[cheapestTier] as any;
+      const tierPricing = pkg.harga?.[cheapestTier] as any;
+
+      // Add timeout to prevent hanging fetch
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
       const res = await fetch('/api/ai-copy', {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           packageData: {
@@ -182,16 +189,18 @@ export function PackageCard({
               madinah_hotel: hotelData?.madinah_hotel,
               madinah_bintang: hotelData?.madinah_bintang,
             },
-            harga: firstPricing ? {
-              Quard: firstPricing.Quard,
-              Triple: firstPricing.Triple,
-              Double: firstPricing.Double,
+            harga: tierPricing ? {
+              Quard: tierPricing.Quard,
+              Triple: tierPricing.Triple,
+              Double: tierPricing.Double,
             } : null,
           },
           agentName: currentAgent?.name || '',
           agentWebsite: currentAgent?.website || '',
         }),
       });
+      clearTimeout(timeoutId);
+
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.details || errData.error || `HTTP ${res.status}`);
@@ -199,15 +208,15 @@ export function PackageCard({
       const data = await res.json();
       setAiCopyText(data.text || 'Gagal generate teks.');
 
-      // Record successful generation
+      // Record successful generation only
       timestamps.push(now);
       localStorage.setItem(AI_RATE_KEY, JSON.stringify(timestamps));
     } catch (err: any) {
-      console.error('AI Copy error, using fallback:', err);
-      // Fallback to local template instead of showing error
+      console.error('AI Copy error:', err);
+      const isTimeout = err.name === 'AbortError';
+      // Show error + provide fallback text (clearly labeled) — don't count toward rate limit
+      setAiError(isTimeout ? 'Koneksi timeout. Silakan coba lagi.' : 'Gagal generate dari AI. Silakan coba lagi atau gunakan template di bawah.');
       setAiCopyText(generateFallbackText());
-      timestamps.push(now);
-      localStorage.setItem(AI_RATE_KEY, JSON.stringify(timestamps));
     } finally {
       setAiLoading(false);
     }
@@ -1910,12 +1919,12 @@ _________________________
                       <Loader2 size={32} className="text-indigo-500 animate-spin" />
                       <p className="text-sm text-gray-500 dark:text-slate-400 font-medium">Sedang menulis copywriting...</p>
                     </div>
-                  ) : aiError ? (
+                  ) : aiError && !aiCopyText ? (
                     <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
                       <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
                         <X size={24} className="text-red-500" />
                       </div>
-                      <p className="text-sm text-red-600 dark:text-red-400 font-medium">Gagal generate: {aiError}</p>
+                      <p className="text-sm text-red-600 dark:text-red-400 font-medium">{aiError}</p>
                       <button
                         onClick={generateAiCopy}
                         className="text-sm text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
@@ -1924,9 +1933,30 @@ _________________________
                       </button>
                     </div>
                   ) : (
-                    <div className="bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-700 rounded-xl p-4 text-sm text-gray-700 dark:text-slate-200 leading-relaxed whitespace-pre-line">
-                      {aiCopyText}
-                    </div>
+                    <>
+                      {/* Error banner with fallback text shown below */}
+                      {aiError && (
+                        <div className="mb-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl flex items-start gap-2">
+                          <span className="text-amber-500 mt-0.5 flex-shrink-0">⚠️</span>
+                          <div className="flex-1">
+                            <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">{aiError}</p>
+                            <button
+                              onClick={generateAiCopy}
+                              disabled={aiLoading}
+                              className="mt-1 text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
+                            >
+                              🔄 Coba Lagi dengan AI
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {aiError && (
+                        <p className="text-[11px] text-gray-400 dark:text-slate-500 mb-2 italic">* Teks di bawah adalah template, bukan hasil AI</p>
+                      )}
+                      <div className="bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-700 rounded-xl p-4 text-sm text-gray-700 dark:text-slate-200 leading-relaxed whitespace-pre-line">
+                        {aiCopyText}
+                      </div>
+                    </>
                   )}
                 </div>
 

@@ -23,6 +23,8 @@ export async function onRequestPost(context: any) {
     const agentName = body.agentName || '';
     const agentWebsite = body.agentWebsite || '';
 
+    console.log('AI Copy request:', { nama: pkg?.nama, hasHotel: !!pkg?.hotel, hasHarga: !!pkg?.harga });
+
     if (!pkg || !pkg.nama) {
       return new Response(
         JSON.stringify({ error: 'Missing packageData' }),
