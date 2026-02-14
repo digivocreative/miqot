@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { pdf } from '@react-pdf/renderer';
+import { QuotationDocument } from './QuotationDocument';
+import type { AgentData } from '@/data/agents';
 import {
   ArrowLeft,
   User,
@@ -595,7 +596,7 @@ function ResultModal({
 // ============================================
 // Main Page Component
 // ============================================
-export default function KalkulasiPage() {
+export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
   // --- API Data ---
   const [packages, setPackages] = useState<UmrohPackage[]>([]);
   const [loadingPackages, setLoadingPackages] = useState(true);
@@ -761,354 +762,22 @@ export default function KalkulasiPage() {
     setTimeout(() => setAutoFillFlash(false), 1200);
   }, [totalJamaahNeedRoom]);
 
-  // --- PDF Quotation Generator ---
-  const handleDownloadPDF = useCallback(() => {
-    const doc = new jsPDF();
-    const pw = doc.internal.pageSize.getWidth();
-    const ph = doc.internal.pageSize.getHeight();
-    const mx = 14; // margin x
-    const contentW = pw - mx * 2;
-    let y = 16;
-
-    // Helpers
-    const pdfRp = (v: number) => 'Rp ' + v.toLocaleString('id-ID');
-
-    // Brand Colors
-    const MAROON: [number, number, number] = [136, 19, 55];
-    const GOLD: [number, number, number] = [245, 158, 11];
-    const DARK: [number, number, number] = [33, 33, 33];
-    const GRAY: [number, number, number] = [100, 100, 100];
-    const LIGHT_GRAY: [number, number, number] = [160, 160, 160];
-    const WHITE: [number, number, number] = [255, 255, 255];
-
-    // ═══════════════════════════════════════════
-    // A. HEADER
-    // ═══════════════════════════════════════════
-
-    // Left: Company Name
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.setTextColor(...MAROON);
-    doc.text('ALHIJAZ INDOWISATA', mx, y);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(...GRAY);
-    doc.text('Travel Umroh & Haji Plus Resmi Kemenag RI', mx, y + 5);
-
-    // Right: QUOTATION
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(22);
-    doc.setTextColor(...MAROON);
-    doc.text('QUOTATION', pw - mx, y, { align: 'right' });
-
-    y += 10;
-
-    // Gold separator line
-    doc.setDrawColor(...GOLD);
-    doc.setLineWidth(1);
-    doc.line(mx, y, pw - mx, y);
-    y += 4;
-
-    // Thin dark line below gold
-    doc.setDrawColor(200, 200, 200);
-    doc.setLineWidth(0.2);
-    doc.line(mx, y, pw - mx, y);
-    y += 5;
-
-    // Quote metadata (right-aligned)
-    const today = new Date();
-    const quoteId = `ALH-${today.getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
-    const todayStr = today.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(...LIGHT_GRAY);
-    doc.text('Quote ID', pw - mx - 45, y);
-    doc.text('Quote Date', pw - mx - 45, y + 5);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(...DARK);
-    doc.text(`: ${quoteId}`, pw - mx - 25, y);
-    doc.text(`: ${todayStr}`, pw - mx - 25, y + 5);
-
-    y += 14;
-
-    // ═══════════════════════════════════════════
-    // B. CUSTOMER & PACKAGE DETAILS (Two Columns)
-    // ═══════════════════════════════════════════
-
-    // Background card
-    doc.setFillColor(250, 250, 252);
-    doc.roundedRect(mx, y - 3, contentW, 30, 2, 2, 'F');
-
-    // Left column: Customer
-    const colLeft = mx + 5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.setTextColor(...MAROON);
-    doc.text('CUSTOMER DETAILS', colLeft, y + 1);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(...DARK);
-    doc.text(namaLengkap || '—', colLeft, y + 7);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(...GRAY);
-    doc.text('Nama Jamaah', colLeft, y + 12);
-
-    // Right column: Package
-    const colRight = pw / 2 + 5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.setTextColor(...MAROON);
-    doc.text('PACKAGE DETAILS', colRight, y + 1);
-
-    if (selectedPkg) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.setTextColor(...DARK);
-      const pkgName = selectedPkg.nama.length > 35 ? selectedPkg.nama.slice(0, 32) + '...' : selectedPkg.nama;
-      doc.text(pkgName, colRight, y + 7);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(...GRAY);
-      const depDate = new Date(selectedPkg.keberangkatan.tgl).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-      doc.text(`${selectedPkg.maskapai}  ·  ${depDate}`, colRight, y + 12);
-      doc.text(`${selectedPkg.keberangkatan.rute}  ·  ${selectedPkg.keberangkatan.jam} WIB`, colRight, y + 17);
+  // --- PDF Quotation Generator (React-PDF) ---
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const handleDownloadPDF = useCallback(async () => {
+    setPdfLoading(true);
+    try {
+      const blob = await pdf(
+        <QuotationDocument pkg={selectedPkg} summary={summary} namaLengkap={namaLengkap} agent={agent || undefined} />
+      ).toBlob();
+      const url = URL.createObjectURL(blob);
+      setPdfPreviewUrl(url);
+    } catch (err) {
+      console.error('PDF generation failed:', err);
+    } finally {
+      setPdfLoading(false);
     }
-
-    // Vertical separator
-    doc.setDrawColor(220, 220, 220);
-    doc.setLineWidth(0.3);
-    doc.line(pw / 2 - 2, y - 1, pw / 2 - 2, y + 24);
-
-    y += 33;
-
-    // ═══════════════════════════════════════════
-    // C. PRICING TABLE
-    // ═══════════════════════════════════════════
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(...MAROON);
-    doc.text('RINCIAN BIAYA PAKET', mx, y);
-    y += 4;
-
-    // Build numbered table body
-    const tableBody = summary.items.map((item, idx) => {
-      const desc = item.note
-        ? `${item.label}\n${item.note}`
-        : item.label;
-      return [
-        String(idx + 1),
-        desc,
-        String(item.qty),
-        pdfRp(item.unitPrice),
-        pdfRp(item.total),
-      ];
-    });
-
-    // Discount row
-    if (summary.discount > 0) {
-      tableBody.push([
-        '',
-        'Potongan Diskon',
-        '',
-        '',
-        `- ${pdfRp(summary.discount)}`,
-      ]);
-    }
-
-    autoTable(doc, {
-      startY: y,
-      head: [['No', 'Deskripsi Layanan', 'Qty', 'Harga Satuan', 'Total']],
-      body: tableBody,
-      theme: 'plain',
-      headStyles: {
-        fillColor: MAROON,
-        textColor: WHITE,
-        fontSize: 7.5,
-        fontStyle: 'bold',
-        cellPadding: { top: 3.5, bottom: 3.5, left: 3, right: 3 },
-        halign: 'center',
-      },
-      bodyStyles: {
-        fontSize: 8,
-        cellPadding: { top: 3.5, bottom: 3.5, left: 3, right: 3 },
-        textColor: DARK,
-        lineWidth: { bottom: 0.15 },
-        lineColor: [230, 230, 230],
-      },
-      alternateRowStyles: {
-        fillColor: [252, 250, 250],
-      },
-      styles: { overflow: 'linebreak' },
-      columnStyles: {
-        0: { cellWidth: 12, halign: 'center', fontStyle: 'bold' },
-        1: { cellWidth: 68 },
-        2: { cellWidth: 16, halign: 'center' },
-        3: { cellWidth: 40, halign: 'right' },
-        4: { cellWidth: 40, halign: 'right', fontStyle: 'bold' },
-      },
-      margin: { left: mx, right: mx },
-      didParseCell: (data: any) => {
-        // Style the discount row
-        if (data.section === 'body' && summary.discount > 0 && data.row.index === tableBody.length - 1) {
-          data.cell.styles.textColor = [180, 30, 30];
-          data.cell.styles.fontStyle = 'italic';
-        }
-      },
-    });
-
-    // @ts-ignore jspdf-autotable adds lastAutoTable
-    y = (doc as any).lastAutoTable.finalY;
-
-    // ─── GRAND TOTAL ROW ───
-    doc.setFillColor(250, 248, 240);
-    doc.rect(mx, y, contentW, 12, 'F');
-    // Gold accent top line
-    doc.setDrawColor(...GOLD);
-    doc.setLineWidth(0.6);
-    doc.line(mx, y, mx + contentW, y);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(...GRAY);
-    doc.text('GRAND TOTAL', mx + 5, y + 7.5);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.setTextColor(...MAROON);
-    doc.text(pdfRp(summary.grandTotal), pw - mx - 5, y + 8, { align: 'right' });
-
-    y += 18;
-
-    // ═══════════════════════════════════════════
-    // D. REKENING PEMBAYARAN
-    // ═══════════════════════════════════════════
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(...MAROON);
-    doc.text('REKENING PEMBAYARAN RESMI (PT. ALHIJAZ INDOWISATA)', mx, y);
-    y += 2;
-
-    // Gold underline
-    doc.setDrawColor(...GOLD);
-    doc.setLineWidth(0.5);
-    doc.line(mx, y, mx + 80, y);
-    y += 5;
-
-    const banks = [
-      { no: '1', bank: 'BSI', rek: '1234-5678-90' },
-      { no: '2', bank: 'Mandiri', rek: '9876-5432-10' },
-      { no: '3', bank: 'BCA', rek: '5555-4444-33' },
-      { no: '4', bank: 'BNI', rek: '1111-2222-33' },
-      { no: '5', bank: 'BRI', rek: '9999-8888-77' },
-    ];
-
-    autoTable(doc, {
-      startY: y,
-      head: [['No', 'Bank', 'No. Rekening', 'Atas Nama']],
-      body: banks.map((b) => [b.no, b.bank, b.rek, 'PT Alhijaz Indowisata']),
-      theme: 'plain',
-      headStyles: {
-        fillColor: [245, 245, 245],
-        textColor: DARK,
-        fontSize: 7,
-        fontStyle: 'bold',
-        cellPadding: { top: 2.5, bottom: 2.5, left: 3, right: 3 },
-      },
-      bodyStyles: {
-        fontSize: 7.5,
-        cellPadding: { top: 2, bottom: 2, left: 3, right: 3 },
-        textColor: DARK,
-        lineWidth: { bottom: 0.1 },
-        lineColor: [235, 235, 235],
-      },
-      columnStyles: {
-        0: { cellWidth: 10, halign: 'center' },
-        1: { cellWidth: 25, fontStyle: 'bold' },
-        2: { cellWidth: 45, fontStyle: 'bold' },
-        3: { cellWidth: 55 },
-      },
-      margin: { left: mx, right: mx + contentW / 2 + 5 },
-    });
-
-    // @ts-ignore
-    const bankTableEndY = (doc as any).lastAutoTable.finalY;
-
-    // ═══════════════════════════════════════════
-    // E. POLICY BOX (right side, aligned with bank table)
-    // ═══════════════════════════════════════════
-    const boxX = pw / 2 + 2;
-    const boxW = pw - mx - boxX;
-    const boxY = y - 2;
-    const boxH = bankTableEndY - boxY + 2;
-
-    doc.setFillColor(...MAROON);
-    doc.roundedRect(boxX, boxY, boxW, boxH, 2, 2, 'F');
-
-    // Gold top accent
-    doc.setFillColor(...GOLD);
-    doc.rect(boxX, boxY, boxW, 2, 'F');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(...WHITE);
-    doc.text('PENTING', boxX + 5, boxY + 9);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.text(
-      'Mohon melakukan pembayaran DP minimal Rp 5.000.000,- per jamaah untuk mengamankan seat dan harga.',
-      boxX + 5, boxY + 15,
-      { maxWidth: boxW - 10 }
-    );
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(220, 200, 200);
-    doc.text(
-      'Seat bersifat dinamis mengikuti ketersediaan sistem.',
-      boxX + 5, boxY + 28,
-      { maxWidth: boxW - 10 }
-    );
-
-    y = Math.max(bankTableEndY, boxY + boxH) + 6;
-
-    // ═══════════════════════════════════════════
-    // F. FOOTER
-    // ═══════════════════════════════════════════
-    const footerY = ph - 12;
-
-    // Gold line
-    doc.setDrawColor(...GOLD);
-    doc.setLineWidth(0.4);
-    doc.line(mx, footerY, pw - mx, footerY);
-
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(6);
-    doc.setTextColor(...LIGHT_GRAY);
-    doc.text(
-      'Penawaran ini bersifat estimasi dan dapat berubah sewaktu-waktu mengikuti kebijakan maskapai/hotel.',
-      mx, footerY + 4
-    );
-
-    // Page number
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6);
-    doc.text('Halaman 1 / 1', pw - mx, footerY + 4, { align: 'right' });
-
-    // ─── PREVIEW instead of save ───
-    const blob = doc.output('blob');
-    const url = URL.createObjectURL(blob);
-    setPdfPreviewUrl(url);
-  }, [summary, selectedPkg, namaLengkap]);
+  }, [summary, selectedPkg, namaLengkap, agent]);
 
   // ============================================
   // Render

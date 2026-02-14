@@ -10,9 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@react-pdf/renderer": "^4.3.2",
     "framer-motion": "^12.30.0",
-    "jspdf": "^4.1.0",
-    "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.563.0",
     "modern-screenshot": "^4.6.8",
     "react": "^18.2.0",
