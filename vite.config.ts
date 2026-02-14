@@ -43,6 +43,7 @@ export default defineConfig({
         ]
       },
       workbox: {
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // 4 MiB — @react-pdf/renderer enlarges the bundle
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp}'],
         // Force new SW to take over immediately
         skipWaiting: true,
