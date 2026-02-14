@@ -1,5 +1,8 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { pdf } from '@react-pdf/renderer';
+import { Document as PdfDoc, Page as PdfPage, pdfjs } from 'react-pdf';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
 import { QuotationDocument } from './QuotationDocument';
 import type { AgentData } from '@/data/agents';
 import {
@@ -32,6 +35,8 @@ import {
 } from 'lucide-react';
 import { getPackages } from '@/services';
 import type { UmrohPackage, HotelInfo } from '@/types';
+
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 // ============================================
 // Types
@@ -654,6 +659,25 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
   const [showResultModal, setShowResultModal] = useState(false);
   const [autoFillFlash, setAutoFillFlash] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfNumPages, setPdfNumPages] = useState<number | null>(null);
+  const [pdfSharing, setPdfSharing] = useState(false);
+  const [pdfPageWidth, setPdfPageWidth] = useState(0);
+  const pdfBlobRef = useRef<Blob | null>(null);
+  const pdfContentRef = useRef<HTMLDivElement>(null);
+
+  // Dynamically measure container width for react-pdf pages
+  useEffect(() => {
+    const el = pdfContentRef.current;
+    if (!el || !pdfPreviewUrl) return;
+    const measure = () => {
+      const availableWidth = el.clientWidth - 48;
+      setPdfPageWidth(Math.max(availableWidth, 280));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [pdfPreviewUrl]);
 
   // Find the selected package object
   const selectedPkg = useMemo(() => {
@@ -770,7 +794,9 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
       const blob = await pdf(
         <QuotationDocument pkg={selectedPkg} summary={summary} namaLengkap={namaLengkap} agent={agent || undefined} />
       ).toBlob();
+      pdfBlobRef.current = blob;
       const url = URL.createObjectURL(blob);
+      setPdfNumPages(null);
       setPdfPreviewUrl(url);
     } catch (err) {
       console.error('PDF generation failed:', err);
@@ -1236,39 +1262,90 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
           <div className="flex-none sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-gray-200/60 px-5 py-4 flex justify-between items-center shadow-sm">
             <div className="flex flex-col">
               <h2 className="text-lg font-bold text-gray-900">Preview Quotation</h2>
-              <span className="text-xs text-gray-500 font-medium">Dokumen PDF</span>
+              <span className="text-xs text-gray-500 font-medium">
+                Dokumen PDF{pdfNumPages ? ` · ${pdfNumPages} halaman` : ''}
+              </span>
             </div>
             <button
-              onClick={() => { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }}
+              onClick={() => { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); pdfBlobRef.current = null; }}
               className="p-2 bg-gray-100 rounded-full text-gray-600 hover:bg-gray-200 transition-colors shrink-0"
             >
               <X className="w-6 h-6" />
             </button>
           </div>
 
-          {/* ─── SCROLLABLE CONTENT ─── */}
-          <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 px-4 pb-6">
+          {/* ─── SCROLLABLE CONTENT (react-pdf) ─── */}
+          <div ref={pdfContentRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 px-4 pb-6">
             <div className="flex justify-center pt-4">
-              <div className="bg-white p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[60vh]">
-                <iframe
-                  src={pdfPreviewUrl}
-                  className="w-full h-[80vh] border-0 rounded-lg"
-                  title="PDF Preview"
-                />
+              <div className="bg-white p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[50vh] flex flex-col items-center justify-center relative">
+                <PdfDoc
+                  file={pdfPreviewUrl}
+                  onLoadSuccess={({ numPages }) => setPdfNumPages(numPages)}
+                  onLoadError={(err) => console.error('react-pdf error:', err)}
+                  loading={
+                    <div className="flex flex-col items-center gap-3 py-10">
+                      <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                      <span className="text-sm text-gray-500">Memuat Dokumen...</span>
+                    </div>
+                  }
+                  error={
+                    <div className="flex flex-col items-center gap-2 py-10 text-red-500">
+                      <AlertCircle className="w-8 h-8" />
+                      <span className="text-sm">Gagal memuat PDF.</span>
+                    </div>
+                  }
+                  className="w-full flex flex-col items-center gap-4"
+                >
+                  {pdfNumPages && Array.from(new Array(pdfNumPages), (_, i) => (
+                    <PdfPage
+                      key={`qpage_${i + 1}`}
+                      pageNumber={i + 1}
+                      renderTextLayer={false}
+                      renderAnnotationLayer={false}
+                      className="shadow-md rounded-lg overflow-hidden w-full max-w-full"
+                      width={pdfPageWidth || 400}
+                    />
+                  ))}
+                </PdfDoc>
               </div>
             </div>
           </div>
 
           {/* ─── FOOTER ─── */}
           <div className="flex-none sticky bottom-0 bg-white border-t border-gray-200/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-            <a
-              href={pdfPreviewUrl}
-              download={selectedPkg ? `Quotation-${selectedPkg.nama.replace(/\s+/g, '-').substring(0, 30)}.pdf` : 'Quotation-Alhijaz.pdf'}
-              className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98]"
+            <button
+              onClick={async () => {
+                if (!pdfBlobRef.current) return;
+                setPdfSharing(true);
+                try {
+                  const safeTitle = selectedPkg ? selectedPkg.nama.replace(/\s+/g, '_').substring(0, 30) : 'Quotation_Alhijaz';
+                  const fileName = `Quotation_${safeTitle}.pdf`;
+                  const file = new File([pdfBlobRef.current], fileName, { type: 'application/pdf' });
+                  const shareData = { title: `Quotation - ${selectedPkg?.nama || 'Alhijaz'}`, text: 'Berikut quotation penawaran umroh', files: [file] };
+                  if (navigator.canShare && navigator.canShare(shareData)) {
+                    try { await navigator.share(shareData); } catch (err: any) {
+                      if (err?.name !== 'AbortError') {
+                        const url = URL.createObjectURL(pdfBlobRef.current);
+                        const a = document.createElement('a'); a.href = url; a.download = fileName;
+                        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                      }
+                    }
+                  } else {
+                    const url = URL.createObjectURL(pdfBlobRef.current);
+                    const a = document.createElement('a'); a.href = url; a.download = fileName;
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                  }
+                } catch (err) { console.error('Share failed:', err); } finally { setPdfSharing(false); }
+              }}
+              disabled={pdfSharing}
+              className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
             >
-              <Share2 size={20} />
-              <span>Bagikan / Download PDF</span>
-            </a>
+              {pdfSharing ? (
+                <><Loader2 size={20} className="animate-spin" /><span>Menyiapkan File...</span></>
+              ) : (
+                <><Share2 size={20} /><span>Bagikan / Download PDF</span></>
+              )}
+            </button>
           </div>
 
           <style>{`@keyframes slideUpFull{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}`}</style>

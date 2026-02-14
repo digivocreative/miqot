@@ -1,4 +1,4 @@
-import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer';
+import { Document, Page, View, Text, Image, StyleSheet, Svg, Circle, Path } from '@react-pdf/renderer';
 import type { UmrohPackage } from '@/types';
 import type { AgentData } from '@/data/agents';
 
@@ -46,45 +46,48 @@ const fmtDate = (d: string) =>
 // ── Styles ──
 const s = StyleSheet.create({
   page: { fontFamily: 'Helvetica', fontSize: 8, color: C.dark, paddingBottom: 60 },
+  watermark: { position: 'absolute' as const, bottom: 35, left: '10%', width: '80%', opacity: 0.05 },
 
   // Header
-  headerBar: { backgroundColor: C.primary, paddingVertical: 14, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  headerLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerLogo: { width: 40, height: 40, borderRadius: 6 },
+  headerAccent: { backgroundColor: C.primary, height: 4 },
+  headerBar: { backgroundColor: C.white, paddingVertical: 10, paddingHorizontal: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', borderBottomWidth: 0.5, borderBottomColor: C.divider },
+  headerLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerLogo: { width: 28, height: 28, borderRadius: 4 },
   headerTextGroup: { flex: 1 },
   headerRight: { alignItems: 'flex-end', flex: 1 },
-  companyName: { fontFamily: 'Helvetica-Bold', fontSize: 16, color: C.white, marginBottom: 2 },
-  companyIzin: { fontSize: 7, color: '#ffffffcc', marginBottom: 1 },
-  companySub: { fontSize: 6.5, color: '#ffffff99' },
-  docTitle: { fontFamily: 'Helvetica-Bold', fontSize: 14, color: C.white, marginBottom: 2 },
-  docSub: { fontSize: 6.5, color: '#ffffff99', marginBottom: 6 },
-  metaRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 4, marginBottom: 1.5 },
-  metaLabel: { fontSize: 6.5, color: '#ffffffaa' },
-  metaValue: { fontFamily: 'Helvetica-Bold', fontSize: 7, color: C.white },
+  companyName: { fontFamily: 'Helvetica-Bold', fontSize: 11, color: C.primary, marginBottom: 1 },
+  companyIzin: { fontSize: 5, color: C.gray, marginBottom: 0.5 },
+  companySub: { fontSize: 5, color: C.lightGray },
+  docTitleBadge: { backgroundColor: C.primary, borderRadius: 2, paddingVertical: 2, paddingHorizontal: 6, marginBottom: 3, alignSelf: 'flex-end' as const },
+  docTitle: { fontFamily: 'Helvetica-Bold', fontSize: 7, color: C.white, textAlign: 'center' as const },
+  docSub: { fontSize: 5, color: C.gray, marginBottom: 1.5, textAlign: 'right' as const },
+  metaRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 3, marginBottom: 1 },
+  metaLabel: { fontSize: 5, color: C.lightGray },
+  metaValue: { fontFamily: 'Helvetica-Bold', fontSize: 5.5, color: C.dark },
 
   // Detail Paket card
-  card: { marginHorizontal: 20, marginTop: 10, backgroundColor: C.bgLight, borderRadius: 4, border: `0.5pt solid ${C.divider}`, padding: 12 },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
-  detailLabel: { fontFamily: 'Helvetica-Bold', fontSize: 7, color: C.primary, marginBottom: 3 },
-  pkgName: { fontFamily: 'Helvetica-Bold', fontSize: 13, color: C.dark },
-  durationBadge: { alignItems: 'flex-end' },
-  durationNum: { fontFamily: 'Helvetica-Bold', fontSize: 18, color: C.primary },
-  durationLabel: { fontSize: 6.5, color: C.gray },
-  cardDivider: { borderBottomWidth: 0.5, borderBottomColor: C.divider, marginBottom: 8 },
+  card: { marginHorizontal: 14, marginTop: 8, borderRadius: 4, borderWidth: 0.5, borderColor: C.divider },
+  cardHeader: { backgroundColor: C.dark, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopLeftRadius: 4, borderTopRightRadius: 4 },
+  detailLabel: { fontFamily: 'Helvetica-Bold', fontSize: 5.5, color: '#ffffffaa', marginBottom: 2, textTransform: 'uppercase' as const, letterSpacing: 0.5 },
+  pkgName: { fontFamily: 'Helvetica-Bold', fontSize: 11, color: C.white },
+  durationBadge: { alignItems: 'flex-end', backgroundColor: '#ffffff22', borderRadius: 3, paddingVertical: 4, paddingHorizontal: 8 },
+  durationNum: { fontFamily: 'Helvetica-Bold', fontSize: 14, color: C.white },
+  durationLabel: { fontSize: 5, color: '#ffffffaa' },
+  cardBody: { backgroundColor: C.bgLight, paddingVertical: 8, paddingHorizontal: 12, borderBottomLeftRadius: 4, borderBottomRightRadius: 4 },
   infoRow: { flexDirection: 'row', gap: 6 },
   infoCol: { flex: 1 },
-  infoTitle: { fontSize: 5.5, color: C.lightGray, marginBottom: 2, textTransform: 'uppercase' as const },
-  infoMain: { fontFamily: 'Helvetica-Bold', fontSize: 8, color: C.dark, marginBottom: 1.5 },
-  infoSub: { fontSize: 6.5, color: C.gray },
+  infoTitle: { fontSize: 5, color: C.gray, marginBottom: 2, textTransform: 'uppercase' as const },
+  infoMain: { fontFamily: 'Helvetica-Bold', fontSize: 7, color: C.dark, marginBottom: 1 },
+  infoSub: { fontSize: 5.5, color: C.gray },
 
   // Table section
   sectionHeader: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginTop: 12, marginBottom: 4, gap: 4 },
-  sectionIcon: { width: 3, height: 3, backgroundColor: C.primary },
+  sectionIcon: { width: 3, height: 3, backgroundColor: C.gold },
   sectionTitle: { fontFamily: 'Helvetica-Bold', fontSize: 9, color: C.dark },
 
   // Table
   table: { marginHorizontal: 20 },
-  tableHead: { flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: C.divider, paddingBottom: 5, paddingTop: 3 },
+  tableHead: { flexDirection: 'row', backgroundColor: C.bgLight, borderBottomWidth: 0.5, borderBottomColor: C.divider, paddingBottom: 5, paddingTop: 5, paddingHorizontal: 4 },
   thText: { fontFamily: 'Helvetica-Bold', fontSize: 7, color: C.gray },
   tableRow: { flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 0.3, borderBottomColor: '#eeeeee' },
   tdText: { fontSize: 8, color: C.dark },
@@ -93,15 +96,15 @@ const s = StyleSheet.create({
   discountText: { fontFamily: 'Helvetica-Oblique', fontSize: 8, color: '#b41e1e' },
 
   // Column widths (percentage-like flex)
-  colDesc: { flex: 5 },
+  colDesc: { flex: 5, paddingLeft: 6 },
   colPax: { width: 32, alignItems: 'center' as const },
   colPrice: { width: 72, alignItems: 'flex-end' as const },
-  colTotal: { width: 68, alignItems: 'flex-end' as const },
+  colTotal: { width: 68, alignItems: 'flex-end' as const, paddingRight: 6 },
 
   // Total bar
-  totalBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.primary, marginHorizontal: 20, paddingVertical: 8, paddingHorizontal: 12, marginTop: 0 },
-  totalLabel: { fontFamily: 'Helvetica-Bold', fontSize: 9, color: C.white },
-  totalAmount: { fontFamily: 'Helvetica-Bold', fontSize: 14, color: C.white },
+  totalBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#374151', marginHorizontal: 20, paddingVertical: 5, paddingHorizontal: 12, marginTop: 0, borderRadius: 2 },
+  totalLabel: { fontFamily: 'Helvetica-Bold', fontSize: 7, color: C.white },
+  totalAmount: { fontFamily: 'Helvetica-Bold', fontSize: 10, color: C.white },
 
   // Bottom 2-column
   bottomRow: { flexDirection: 'row', marginHorizontal: 20, marginTop: 12, gap: 10 },
@@ -110,19 +113,28 @@ const s = StyleSheet.create({
 
   // Bank cards
   bankSectionTitle: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 },
-  bankCard: { backgroundColor: C.bgBank, borderRadius: 3, border: `0.3pt solid ${C.divider}`, borderLeftWidth: 3, borderLeftColor: C.primary, paddingVertical: 5, paddingHorizontal: 8, marginBottom: 4 },
-  bankCardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  bankName: { fontSize: 5.5, color: C.lightGray, marginBottom: 1.5 },
-  bankRek: { fontFamily: 'Helvetica-Bold', fontSize: 9.5, color: C.dark },
-  bankAn: { fontFamily: 'Helvetica-Oblique', fontSize: 5.5, color: C.primary },
+  bankCard: { borderRadius: 4, paddingVertical: 6, paddingHorizontal: 8, marginBottom: 4, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  bankLogo: { width: 28, height: 14, objectFit: 'contain' as const },
+  bankDivider: { width: 0.5, height: 20, backgroundColor: C.divider },
+  bankInfo: { flex: 1 },
+  bankName: { fontFamily: 'Helvetica', fontSize: 5, color: C.gray, marginBottom: 1, textTransform: 'uppercase' as const, letterSpacing: 0.1 },
+  bankRek: { fontFamily: 'Helvetica-Bold', fontSize: 8.5, color: C.dark, letterSpacing: 0.5 },
+  bankAn: { fontSize: 5, color: C.gray, marginTop: 1 },
 
-  // Notice
-  noticeTitle: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 },
-  noticeBadge: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ea580c', alignItems: 'center' as const, justifyContent: 'center' as const },
-  noticeBadgeText: { fontFamily: 'Helvetica-Bold', fontSize: 5.5, color: C.white },
-  noticeTitleText: { fontFamily: 'Helvetica-Bold', fontSize: 7, color: C.primary },
-  noticeBody: { fontFamily: 'Helvetica-Bold', fontSize: 8.5, color: C.dark, marginBottom: 8, lineHeight: 1.4 },
-  noticeDisclaimer: { fontFamily: 'Helvetica-Oblique', fontSize: 6.5, color: C.gray, lineHeight: 1.4 },
+  // Notice card
+  noticeCard: { borderRadius: 4, borderWidth: 0.5, borderColor: C.divider, overflow: 'hidden' as const },
+  noticeHeader: { backgroundColor: C.dark, paddingVertical: 5, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 4, borderTopLeftRadius: 4, borderTopRightRadius: 4 },
+  noticeHeaderIcon: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#f59e0b' },
+  noticeHeaderText: { fontFamily: 'Helvetica-Bold', fontSize: 6, color: C.white, letterSpacing: 0.5 },
+  noticeBody: { backgroundColor: C.white, paddingVertical: 8, paddingHorizontal: 10, borderBottomLeftRadius: 4, borderBottomRightRadius: 4 },
+  noticeDpLabel: { fontSize: 6, color: C.gray, marginBottom: 2 },
+  noticeDpAmount: { fontFamily: 'Helvetica-Bold', fontSize: 11, color: C.primary, marginBottom: 8 },
+  noticeBulletRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 4, marginBottom: 3 },
+  noticeBulletDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: C.gray, marginTop: 2.5 },
+  noticeBulletText: { fontSize: 5.5, color: '#4b5563', flex: 1, lineHeight: 1.4 },
+  noticeCta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' as const, gap: 3, marginTop: 6, paddingTop: 6, borderTopWidth: 0.5, borderTopColor: C.divider },
+  noticeCtaText: { fontSize: 6, color: C.gray },
+  noticeCtaBold: { fontFamily: 'Helvetica-Bold', fontSize: 6, color: C.dark },
 
   // Footer
   footer: { position: 'absolute' as const, bottom: 0, left: 0, right: 0, backgroundColor: C.bgLight, borderTopWidth: 0.3, borderTopColor: C.divider, paddingVertical: 8, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -131,24 +143,32 @@ const s = StyleSheet.create({
   footerAgentName: { fontFamily: 'Helvetica-Bold', fontSize: 9, color: C.dark },
   footerRight: { alignItems: 'flex-end' as const },
   footerKemenag: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 2 },
-  footerKemenagDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#22c55e' },
   footerKemenagText: { fontFamily: 'Helvetica-Bold', fontSize: 6.5, color: C.dark },
-  footerCopy: { fontFamily: 'Helvetica-Oblique', fontSize: 5.5, color: C.lightGray },
+  footerPtName: { fontFamily: 'Helvetica-Bold', fontSize: 5.5, color: C.dark, marginBottom: 2, textAlign: 'right' as const },
+  footerPermit: { fontSize: 5.5, color: C.gray, textAlign: 'right' as const },
+
+  // Disclaimer
+  disclaimerRow: { flexDirection: 'row', marginHorizontal: 20, marginTop: 10, gap: 10 },
+  disclaimerCol: { flex: 1 },
+  disclaimerText: { fontFamily: 'Helvetica-Oblique', fontSize: 5, color: C.lightGray, lineHeight: 1.5 },
 
   // Agent profile footer
-  agentFooter: { position: 'absolute' as const, bottom: 0, left: 0, right: 0, backgroundColor: C.bgLight, borderTopWidth: 0.5, borderTopColor: C.divider, paddingVertical: 10, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  agentFooterAccent: { position: 'absolute' as const, bottom: 52, left: 0, right: 0, height: 7, backgroundColor: C.primary },
+  agentFooter: { position: 'absolute' as const, bottom: 0, left: 0, right: 0, backgroundColor: C.bgLight, paddingVertical: 10, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  agentPhotoWrap: { position: 'relative' as const, width: 36, height: 36 },
   agentPhoto: { width: 36, height: 36, borderRadius: 18, objectFit: 'cover' as const },
+  agentBadge: { position: 'absolute' as const, top: -2, right: -2, width: 14, height: 14, borderRadius: 7, backgroundColor: C.white, alignItems: 'center' as const, justifyContent: 'center' as const },
   agentInfo: { flex: 1 },
-  agentLabel: { fontSize: 5.5, color: C.lightGray, marginBottom: 2, textTransform: 'uppercase' as const },
-  agentName: { fontFamily: 'Helvetica-Bold', fontSize: 10, color: C.dark, marginBottom: 2 },
-  agentContact: { fontFamily: 'Helvetica-Bold', fontSize: 7.5, color: C.primary },
+  agentName: { fontFamily: 'Helvetica-Bold', fontSize: 10, color: C.dark, marginBottom: 1.5 },
+  agentWebsite: { fontSize: 6.5, color: C.gray, marginBottom: 1.5 },
+  agentContact: { fontFamily: 'Helvetica-Bold', fontSize: 7.5, color: C.dark },
 });
 
 // ── Banks Data ──
 const banks = [
-  { bank: 'BANK SYARIAH INDONESIA (BSI)', rek: '711 555 8888' },
-  { bank: 'BANK MANDIRI', rek: '123 00 0567890 1' },
-  { bank: 'BANK BCA', rek: '883 0456 777' },
+  { bank: 'Bank BCA', rek: '7073675598', logo: '/logo-bank/bca.png', bg: '#e8f4fd' },
+  { bank: 'Bank Mandiri', rek: '0060008012225', logo: '/logo-bank/mandiri.png', bg: '#e6edf7' },
+  { bank: 'Bank Syariah Indonesia', rek: '7073675598', logo: '/logo-bank/bsi.png', bg: '#e6f5f0' },
 ];
 
 // ═══════════════════════════════════════════════════
@@ -173,36 +193,36 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent }: Quotatio
   // Hotel info
   const firstTier = pkg ? Object.keys(pkg.hotel)[0] : null;
   const hotelData = firstTier && pkg ? (pkg.hotel[firstTier] as unknown as Record<string, string>) : null;
-  const starLabel = hotelData?.mekkah_bintang ? `AKOMODASI HOTEL (${hotelData.mekkah_bintang} ★)` : 'AKOMODASI HOTEL';
+  const starLabel = hotelData?.mekkah_bintang ? `AKOMODASI HOTEL` : 'AKOMODASI HOTEL';
   const hotelNames = hotelData ? [hotelData.mekkah_hotel, hotelData.madinah_hotel].filter(Boolean).join(' / ') : '—';
 
   return (
     <Document>
-      <Page size="A4" style={s.page}>
+      <Page size="A5" style={s.page}>
 
-        {/* ─── A. HEADER BAR ─── */}
+        {/* ─── WATERMARK ─── */}
+        <Image style={s.watermark} src={`${origin}/logo-alhijaz-besar.png`} fixed />
+
+        {/* ─── A. HEADER ─── */}
+        <View style={s.headerAccent} />
         <View style={s.headerBar}>
           <View style={s.headerLeft}>
             <Image style={s.headerLogo} src={logoSrc} />
             <View style={s.headerTextGroup}>
-              <Text style={s.companyName}>ALHIJAZ INDOWISATA</Text>
-              <Text style={s.companyIzin}>IZIN UMROH NO. U.490 TAHUN 2020</Text>
-              <Text style={s.companySub}>Travel Umroh &amp; Haji Plus Resmi Kemenag RI</Text>
+              <Text style={s.companyName}>PT ALHIJAZ INDOWISATA</Text>
+              <Text style={s.companyIzin}>Graha Alhijaz, Jl. Dewi Sartika No. 239A, Cawang, Kramat Jati</Text>
+              <Text style={s.companyIzin}>Jakarta Timur, DKI Jakarta, 13630</Text>
             </View>
           </View>
           <View style={s.headerRight}>
-            <Text style={s.docTitle}>PENAWARAN RESMI</Text>
-            <Text style={s.docSub}>ESTIMASI ITINERARY &amp; BIAYA</Text>
-            <View style={s.metaRow}>
-              <Text style={s.metaLabel}>ID Dokumen:</Text>
-              <Text style={s.metaValue}>{docId}</Text>
+            <View style={s.docTitleBadge}>
+              <Text style={s.docTitle}>SURAT PENAWARAN</Text>
             </View>
+            <Text style={s.docSub}>ESTIMASI BIAYA UMROH</Text>
             <View style={s.metaRow}>
-              <Text style={s.metaLabel}>Tanggal Terbit:</Text>
+              <Text style={s.metaLabel}>Terbit:</Text>
               <Text style={s.metaValue}>{todayStr}</Text>
-            </View>
-            <View style={s.metaRow}>
-              <Text style={s.metaLabel}>Berlaku Hingga:</Text>
+              <Text style={s.metaLabel}>  •  Berlaku s.d:</Text>
               <Text style={s.metaValue}>{validDate}</Text>
             </View>
           </View>
@@ -210,7 +230,7 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent }: Quotatio
 
         {/* ─── B. DETAIL PAKET CARD ─── */}
         <View style={s.card}>
-          <View style={s.cardTop}>
+          <View style={s.cardHeader}>
             <View style={{ flex: 1 }}>
               <Text style={s.detailLabel}>DETAIL PAKET</Text>
               <Text style={s.pkgName}>{pkg?.nama || '—'}</Text>
@@ -223,15 +243,14 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent }: Quotatio
             )}
           </View>
 
-          <View style={s.cardDivider} />
-
+          <View style={s.cardBody}>
           {pkg && (
             <View style={s.infoRow}>
               {/* Col 1: Maskapai */}
               <View style={s.infoCol}>
                 <Text style={s.infoTitle}>MASKAPAI PENERBANGAN</Text>
                 <Text style={s.infoMain}>{pkg.maskapai}</Text>
-                <Text style={s.infoSub}>{pkg.keberangkatan.rute}</Text>
+                <Text style={s.infoSub}>{pkg.keberangkatan.rute} • {pkg.keberangkatan.kodePenerbangan}</Text>
               </View>
               {/* Col 2: Tanggal */}
               <View style={s.infoCol}>
@@ -247,6 +266,7 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent }: Quotatio
               </View>
             </View>
           )}
+          </View>
         </View>
 
         {/* ─── C. PRICING TABLE ─── */}
@@ -260,7 +280,7 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent }: Quotatio
           <View style={s.tableHead}>
             <View style={s.colDesc}><Text style={s.thText}>DESKRIPSI / TIPE KAMAR</Text></View>
             <View style={s.colPax}><Text style={s.thText}>PAX</Text></View>
-            <View style={s.colPrice}><Text style={[s.thText, { textAlign: 'right' }]}>HARGA SATUAN (IDR)</Text></View>
+            <View style={s.colPrice}><Text style={[s.thText, { textAlign: 'right' }]}>HARGA (IDR)</Text></View>
             <View style={s.colTotal}><Text style={[s.thText, { textAlign: 'right' }]}>TOTAL (IDR)</Text></View>
           </View>
 
@@ -307,58 +327,112 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent }: Quotatio
             <View style={s.bankSectionTitle}>
               <View style={s.sectionIcon} />
               <Text style={[s.sectionTitle, { fontSize: 8 }]}>REKENING PEMBAYARAN RESMI</Text>
+              <Svg width={8} height={8} viewBox="0 0 24 24">
+                <Path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" fill="#22c55e" />
+                <Path d="M10 15.5l-3.5-3.5 1.41-1.41L10 12.67l5.59-5.59L17 8.5l-7 7z" fill="white" />
+              </Svg>
             </View>
 
             {banks.map((b, i) => (
-              <View key={i} style={s.bankCard}>
-                <View style={s.bankCardRow}>
-                  <View>
-                    <Text style={s.bankName}>{b.bank}</Text>
-                    <Text style={s.bankRek}>{b.rek}</Text>
-                  </View>
-                  <Text style={s.bankAn}>PT. ALHIJAZ INDOWISATA</Text>
+              <View key={i} style={[s.bankCard, { backgroundColor: b.bg }]}>
+                <Image style={s.bankLogo} src={`${origin}${b.logo}`} />
+                <View style={s.bankDivider} />
+                <View style={s.bankInfo}>
+                  <Text style={s.bankName}>{b.bank}</Text>
+                  <Text style={s.bankRek}>{b.rek}</Text>
+                  <Text style={s.bankAn}>a.n. PT. Alhijaz Indowisata</Text>
                 </View>
               </View>
             ))}
           </View>
 
-          {/* Right: Pemberitahuan Penting */}
+          {/* Right: Informasi Pembayaran */}
           <View style={s.bottomRight}>
-            <View style={s.noticeTitle}>
-              <View style={s.noticeBadge}>
-                <Text style={s.noticeBadgeText}>i</Text>
+            <View style={s.noticeCard}>
+              <View style={s.noticeHeader}>
+                <View style={s.noticeHeaderIcon} />
+                <Text style={s.noticeHeaderText}>KONFIRMASI PEMESANAN PAKET</Text>
               </View>
-              <Text style={s.noticeTitleText}>PEMBERITAHUAN PENTING</Text>
+              <View style={s.noticeBody}>
+                {/* Block 1: DP Amount — focal point */}
+                <Text style={s.noticeDpLabel}>Booking Fee hanya:</Text>
+                <Text style={s.noticeDpAmount}>Rp 5.000.000 / Pax</Text>
+
+                {/* Block 2: Bullet points */}
+                <View style={s.noticeBulletRow}>
+                  <View style={s.noticeBulletDot} />
+                  <Text style={s.noticeBulletText}>Kuota terbatas — segera amankan seat Anda</Text>
+                </View>
+                <View style={s.noticeBulletRow}>
+                  <View style={s.noticeBulletDot} />
+                  <Text style={s.noticeBulletText}>Langsung dapat konfirmasi seat & jadwal keberangkatan</Text>
+                </View>
+                <View style={s.noticeBulletRow}>
+                  <View style={s.noticeBulletDot} />
+                  <Text style={s.noticeBulletText}>Pelunasan bisa dicicil sesuai jadwal yang disepakati</Text>
+                </View>
+                <View style={s.noticeBulletRow}>
+                  <View style={s.noticeBulletDot} />
+                  <Text style={s.noticeBulletText}>Travel resmi berizin Kemenag RI — dana terjamin aman</Text>
+                </View>
+
+                {/* Block 3: CTA */}
+                <View style={s.noticeCta}>
+                  <Text style={s.noticeCtaText}>Ada pertanyaan? Hubungi</Text>
+                  <Text style={s.noticeCtaBold}>{agent?.name || namaLengkap || 'konsultan Anda'}</Text>
+                  <Text style={s.noticeCtaText}>di</Text>
+                  <Svg width={8} height={8} viewBox="0 0 24 24">
+                    <Path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" fill="#25D366" />
+                  </Svg>
+                  <Text style={s.noticeCtaBold}>{agent ? agent.phone.replace(/^62/, '0').replace(/(\d{4})(\d{4})(\d+)/, '$1-$2-$3') : ''}</Text>
+                </View>
+              </View>
             </View>
+          </View>
+        </View>
 
-            <Text style={s.noticeBody}>
-              MOHON TRANSFER DP MINIMAL RP 5.000.000 / PAX UNTUK MENGAMANKAN SEAT.
-            </Text>
-
-            <Text style={s.noticeDisclaimer}>
-              Ketersediaan kursi terbatas. Harga dapat berubah sewaktu-waktu mengikuti kurs valuta asing dan kebijakan maskapai tanpa pemberitahuan tertulis sebelumnya. Silakan konfirmasi bukti bayar kepada konsultan perjalanan Anda.
-            </Text>
+        {/* ─── DISCLAIMER ─── */}
+        <View style={s.disclaimerRow}>
+          <View style={s.disclaimerCol}>
+            <Text style={s.disclaimerText}>Penawaran ini tidak bersifat mengikat dan bukan merupakan jaminan ketersediaan kuota. Seat dan hotel hanya akan dipastikan (confirm) setelah pembayaran Down Payment (DP) diterima dan diverifikasi.</Text>
+          </View>
+          <View style={s.disclaimerCol}>
+            <Text style={s.disclaimerText}>Segala bentuk transaksi hanya dianggap sah apabila dilakukan ke rekening resmi perusahaan yang tertera di dokumen ini. PT Alhijaz Indowisata tidak bertanggung jawab atas transaksi yang dilakukan ke rekening pribadi agen atau pihak lain.</Text>
           </View>
         </View>
 
         {/* ─── F. FOOTER ─── */}
         {agent ? (
+          <>
+          <View style={s.agentFooterAccent} fixed />
           <View style={s.agentFooter} fixed>
-            <Image style={s.agentPhoto} src={`${origin}${agent.photo}`} />
+            <View style={s.agentPhotoWrap}>
+              <Image style={s.agentPhoto} src={`${origin}${agent.photo}`} />
+              <View style={s.agentBadge}>
+                <Svg width={12} height={12} viewBox="0 0 24 24">
+                  <Circle cx="12" cy="12" r="12" fill="#1DA1F2" />
+                  <Path d="M7.5 12.5L10.5 15.5L16.5 9.5" stroke="white" strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+              </View>
+            </View>
             <View style={s.agentInfo}>
-              <Text style={s.agentLabel}>KONSULTAN PERJALANAN</Text>
               <Text style={s.agentName}>{agent.name}</Text>
-              <Text style={s.agentContact}>+{agent.phone.replace(/^62/, '62 ').replace(/(\d{3,4})(?=\d)/g, '$1-').replace(/-$/, '')}</Text>
+              <Text style={s.agentWebsite}>{agent.website}</Text>
+              <Text style={s.agentContact}>{agent.phone.replace(/^62/, '0').replace(/(\d{4})(\d{4})(\d+)/, '$1-$2-$3')}</Text>
             </View>
             <View style={s.footerRight}>
               <View style={s.footerKemenag}>
-                <View style={s.footerKemenagDot} />
+                <Svg width={10} height={10} viewBox="0 0 24 24">
+                  <Path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" fill="#22c55e" />
+                  <Path d="M10 15.5l-3.5-3.5 1.41-1.41L10 12.67l5.59-5.59L17 8.5l-7 7z" fill="white" />
+                </Svg>
                 <Text style={s.footerKemenagText}>TERDAFTAR RESMI KEMENAG RI</Text>
               </View>
-              <Text style={s.footerCopy}>Dokumen ini dihasilkan secara otomatis dan merupakan ringkasan resmi.</Text>
-              <Text style={s.footerCopy}>PT. Alhijaz Indowisata Tours &amp; Travel © {now.getFullYear()}.</Text>
+              <Text style={s.footerPtName}>PT. ALHIJAZ INDOWISATA</Text>
+              <Text style={s.footerPermit}>PPIU Nomor U.490 Tahun 2020 • PIHK Nomor 304 Tahun 2022</Text>
             </View>
           </View>
+          </>
         ) : (
           <View style={s.footer} fixed>
             <View style={s.footerLeft}>
@@ -367,11 +441,14 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent }: Quotatio
             </View>
             <View style={s.footerRight}>
               <View style={s.footerKemenag}>
-                <View style={s.footerKemenagDot} />
+                <Svg width={10} height={10} viewBox="0 0 24 24">
+                  <Path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" fill="#22c55e" />
+                  <Path d="M10 15.5l-3.5-3.5 1.41-1.41L10 12.67l5.59-5.59L17 8.5l-7 7z" fill="white" />
+                </Svg>
                 <Text style={s.footerKemenagText}>TERDAFTAR RESMI KEMENAG RI</Text>
               </View>
-              <Text style={s.footerCopy}>Dokumen ini dihasilkan secara otomatis dan merupakan ringkasan resmi.</Text>
-              <Text style={s.footerCopy}>PT. Alhijaz Indowisata Tours &amp; Travel © {now.getFullYear()}.</Text>
+              <Text style={s.footerPtName}>PT. ALHIJAZ INDOWISATA</Text>
+              <Text style={s.footerPermit}>PPIU Nomor U.490 Tahun 2020 • PIHK Nomor 304 Tahun 2022</Text>
             </View>
           </View>
         )}
