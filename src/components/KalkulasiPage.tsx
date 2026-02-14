@@ -345,8 +345,8 @@ function ResultModal({
           if (h[key]) {
             if (idx > 0) lines.push('');
             lines.push(`\`\`\`${label}\`\`\``);
-            const star = h[starKey] ? ` [ *${h[starKey]} ]*` : '';
-            lines.push(`*${h[key]}${star}`);
+            const star = h[starKey] ? ` ⭐${h[starKey]}` : '';
+            lines.push(`*${h[key]}*${star}`);
           }
         });
         lines.push('');
