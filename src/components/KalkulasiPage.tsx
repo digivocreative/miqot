@@ -293,7 +293,7 @@ function ResultModal({
   pkg: UmrohPackage | null;
   rooms: RoomCounts;
   jamaah: JamaahCounts;
-  summary: { items: { label: string; qty: number; unitPrice: number; total: number }[]; subtotal: number; discount: number; grandTotal: number };
+  summary: { items: { label: string; qty: number; unitPrice: number; total: number; note?: string }[]; subtotal: number; discount: number; grandTotal: number };
   catatan: string;
   namaLengkap: string;
   onDownloadPDF: () => void;
@@ -304,7 +304,7 @@ function ResultModal({
 
   const fmtDate = (d: string) => {
     const dt = new Date(d);
-    return dt.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+    return dt.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   };
 
   const fmtRp = (v: number) => 'Rp. ' + v.toLocaleString('id-ID');
@@ -315,14 +315,15 @@ function ResultModal({
     lines.push('*ALHIJAZ INDOWISATA*');
     lines.push('──────────────────');
     if (pkg) {
-      lines.push(`*${pkg.maskapai}*, *${pkg.nama}*`);
+      lines.push(`*${pkg.nama}*`);
+      lines.push(`Flight by *${pkg.maskapai}*`);
       lines.push('');
-      lines.push('```BERANGKAT```');
-      lines.push(`*${fmtDate(pkg.keberangkatan.tgl)}*, *${pkg.keberangkatan.jam}*`);
+      lines.push('```🛫 BERANGKAT```');
+      lines.push(`*${fmtDate(pkg.keberangkatan.tgl)}*, *${pkg.keberangkatan.jam} WIB*`);
       lines.push(`*${pkg.keberangkatan.kodePenerbangan}* ─ *${pkg.keberangkatan.rute}*`);
       lines.push('');
-      lines.push('```PULANG```');
-      lines.push(`*${fmtDate(pkg.kepulangan.tgl)}*, *${pkg.kepulangan.jam}*`);
+      lines.push('```🛬 PULANG```');
+      lines.push(`*${fmtDate(pkg.kepulangan.tgl)}*, *${pkg.kepulangan.jam} WIB*`);
       lines.push(`*${pkg.kepulangan.kodePenerbangan}* ─ *${pkg.kepulangan.rute}*`);
       lines.push('');
       // Hotels from first tier
@@ -331,44 +332,62 @@ function ResultModal({
         const h = pkg.hotel[firstTier] as HotelInfo & Record<string, string>;
         lines.push(`*[ PAKET ${firstTier} ]*`);
         lines.push('─────────────');
-        if (h.mekkah_hotel) {
-          lines.push('```HOTEL MEKKAH```');
-          lines.push(`*${h.mekkah_hotel} [ *${h.mekkah_bintang} ]*`);
-        }
-        if (h.madinah_hotel) {
-          lines.push('');
-          lines.push('```HOTEL MADINAH```');
-          lines.push(`*${h.madinah_hotel} [ *${h.madinah_bintang} ]*`);
-        }
+        const hotelKeys: { key: string; starKey: string; label: string }[] = [
+          { key: 'mekkah_hotel', starKey: 'mekkah_bintang', label: '🇸🇦 HOTEL MEKKAH' },
+          { key: 'madinah_hotel', starKey: 'madinah_bintang', label: '🇸🇦 HOTEL MADINAH' },
+          { key: 'cairo_hotel', starKey: 'cairo_bintang', label: '🇪🇬 HOTEL CAIRO' },
+          { key: 'istanbul_hotel', starKey: 'istanbul_bintang', label: '🇹🇷 HOTEL ISTANBUL' },
+          { key: 'bursa_hotel', starKey: 'bursa_bintang', label: '🇹🇷 HOTEL BURSA' },
+          { key: 'cappadocia_hotel', starKey: 'cappadocia_bintang', label: '🇹🇷 HOTEL CAPPADOCIA' },
+          { key: 'ankara_hotel', starKey: 'ankara_bintang', label: '🇹🇷 HOTEL ANKARA' },
+        ];
+        hotelKeys.forEach(({ key, starKey, label }, idx) => {
+          if (h[key]) {
+            if (idx > 0) lines.push('');
+            lines.push(`\`\`\`${label}\`\`\``);
+            const star = h[starKey] ? ` [ *${h[starKey]} ]*` : '';
+            lines.push(`*${h[key]}${star}`);
+          }
+        });
         lines.push('');
         lines.push('');
       }
     }
 
-    // Room & jamaah breakdowns - use summary items which already have correct prices
+    // Rincian biaya
+    lines.push('📋 *RINCIAN BIAYA UMROH*');
+    lines.push('══════════════════');
+    lines.push('');
+
     for (const item of summary.items) {
-      const typeLabel = item.label.toUpperCase();
-      lines.push(`*PERHITUNGAN ${typeLabel}*`);
-      lines.push(`\`\`\`${fmtRp(item.unitPrice)} ${typeLabel}\`\`\``);
-      lines.push(`\`\`\`________________×${item.qty} PAX\`\`\``);
-      lines.push(`\`\`\`${fmtRp(item.total)}\`\`\``);
-      lines.push('');
+      const emoji = item.label.toLowerCase().includes('infant') ? '👶'
+        : item.label.toLowerCase().includes('anak') || item.label.toLowerCase().includes('balita') ? '🧒'
+        : '🧑';
+      lines.push(`${emoji} *${item.label}*`);
+      if (item.note) {
+        lines.push(`${item.note}`);
+        lines.push(`= ${fmtRp(item.unitPrice)} × ${item.qty} pax`);
+      } else {
+        lines.push(`${fmtRp(item.unitPrice)} × ${item.qty} pax`);
+      }
+      lines.push(`*${fmtRp(item.total)}*`);
       lines.push('');
     }
 
+    lines.push('══════════════════');
     if (summary.discount > 0) {
-      lines.push(`\`\`\`Total = ${fmtRp(summary.subtotal)}(sebelum diskon)\`\`\``);
-      lines.push(`\`\`\`Diskon = ${fmtRp(summary.discount)}\`\`\``);
-      lines.push('');
+      lines.push(`🧾 Subtotal    ${fmtRp(summary.subtotal)}`);
+      lines.push(`🏷️ Diskon       -${fmtRp(summary.discount)}`);
+      lines.push('══════════════════');
     }
-    lines.push(`*TOTAL BIAYA UMROH  = ${fmtRp(summary.grandTotal)}*`);
+    lines.push(`💰 *TOTAL BIAYA UMROH*`);
+    lines.push(`👉 *${fmtRp(summary.grandTotal)}*`);
     lines.push('');
     if (catatan) {
-      lines.push('```Keterangan : ```');
+      lines.push('📝 *Keterangan :*');
       lines.push(catatan);
       lines.push('');
     }
-    lines.push('_Tanpa mengurangi nilai ibadah, harga dan jadwal sewaktu waktu dapat berubah sesuai dengan kondisi penerbangan dan regulasi dari pemerintah Indonesia dan Arab Saudi_');
     return lines.join('\n');
   };
 
@@ -612,6 +631,7 @@ export default function KalkulasiPage() {
   const [isDiscountActive, setIsDiscountActive] = useState(false);
   const [discountAmount, setDiscountAmount] = useState(0);
   const [discountType, setDiscountType] = useState<'per-pax' | 'flat'>('per-pax');
+  const [isManualDiscount, setIsManualDiscount] = useState(false);
   const [catatan, setCatatan] = useState('');
   const [showResultModal, setShowResultModal] = useState(false);
   const [autoFillFlash, setAutoFillFlash] = useState(false);
@@ -637,6 +657,16 @@ export default function KalkulasiPage() {
       infant: parseInt(tierPricing.Infant || '0', 10) || INFANT_PRICE,
     };
   }, [selectedPkg]);
+
+  // Reset room counts for unavailable room types when package changes
+  useEffect(() => {
+    setRooms((prev) => ({
+      quad: roomPrices.quad > 0 ? prev.quad : 0,
+      triple: roomPrices.triple > 0 ? prev.triple : 0,
+      double: roomPrices.double > 0 ? prev.double : 0,
+      single: roomPrices.single > 0 ? prev.single : 0,
+    }));
+  }, [roomPrices]);
 
   // --- Summary Calculation ---
   const summary = useMemo(() => {
@@ -1010,7 +1040,7 @@ export default function KalkulasiPage() {
                 { key: 'triple' as const, label: 'Triple', desc: '3 orang / kamar', beds: 3, color: 'bg-amber-50 text-amber-500' },
                 { key: 'double' as const, label: 'Double', desc: '2 orang / kamar', beds: 2, color: 'bg-sky-50 text-sky-500' },
                 { key: 'single' as const, label: 'Single', desc: '1 orang / kamar', beds: 1, color: 'bg-violet-50 text-violet-500' },
-              ]).map((room, idx, arr) => {
+              ]).filter((room) => !selectedPkg || roomPrices[room.key] > 0).map((room, idx, arr) => {
                 const isSelected = rooms[room.key] > 0;
                 const price = roomPrices[room.key];
                 const isLast = idx === arr.length - 1;
@@ -1131,13 +1161,49 @@ export default function KalkulasiPage() {
                     <label className="block text-xs font-medium text-slate-500 mb-1.5 ml-0.5">
                       Nominal Diskon{discountType === 'per-pax' ? ' per Jamaah' : ''} (Rp)
                     </label>
-                    <input
-                      type="number"
-                      value={discountAmount || ''}
-                      onChange={(e) => setDiscountAmount(parseInt(e.target.value) || 0)}
-                      placeholder="0"
-                      className="w-full px-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder:text-slate-400 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 tabular-nums"
-                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      {([300_000, 500_000, 800_000] as const).map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => { setDiscountAmount(preset); setIsManualDiscount(false); }}
+                          className={`py-2.5 rounded-xl text-xs font-semibold text-center transition-all duration-300 ${
+                            !isManualDiscount && discountAmount === preset
+                              ? 'bg-emerald-600 text-white shadow-sm'
+                              : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          {formatRupiah(preset)}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => { setIsManualDiscount(true); setDiscountAmount(0); }}
+                        className={`py-2.5 rounded-xl text-xs font-semibold text-center transition-all duration-300 ${
+                          isManualDiscount
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        Input Manual
+                      </button>
+                    </div>
+                    {isManualDiscount && (
+                      <div className="mt-2 flex items-center rounded-xl border border-slate-200 bg-slate-50 overflow-hidden transition-all duration-300 focus-within:ring-2 focus-within:ring-emerald-500/20 focus-within:border-emerald-400">
+                        <span className="pl-4 pr-2 text-sm font-semibold text-slate-400 select-none">Rp</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={discountAmount ? discountAmount.toLocaleString('id-ID') : ''}
+                          onChange={(e) => {
+                            const raw = e.target.value.replace(/\D/g, '');
+                            setDiscountAmount(Math.min(parseInt(raw) || 0, 19_999_999));
+                          }}
+                          placeholder="Masukkan nominal"
+                          className="flex-1 py-3.5 pr-4 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none tabular-nums"
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
