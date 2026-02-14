@@ -1,15 +1,18 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { pdf } from '@react-pdf/renderer';
 import { Document as PdfDoc, Page as PdfPage, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { QuotationDocument } from './QuotationDocument';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { AgentData } from '@/data/agents';
 import {
   ArrowLeft,
   User,
   Search,
   ChevronDown,
+  ChevronLeft,
   Baby,
   Users,
   BedDouble,
@@ -292,7 +295,12 @@ function ResultModal({
   summary,
   catatan,
   namaLengkap,
-  onDownloadPDF,
+  onGeneratePDF,
+  pdfBlobRef,
+  pdfPreviewUrl,
+  pdfLoading,
+  pdfNumPages,
+  setPdfNumPages,
   pdfEnabled,
 }: {
   isOpen: boolean;
@@ -303,13 +311,38 @@ function ResultModal({
   summary: { items: { label: string; qty: number; unitPrice: number; total: number; note?: string }[]; subtotal: number; discount: number; grandTotal: number };
   catatan: string;
   namaLengkap: string;
-  onDownloadPDF: () => void;
+  onGeneratePDF: () => void;
+  pdfBlobRef: React.RefObject<Blob | null>;
+  pdfPreviewUrl: string | null;
+  pdfLoading: boolean;
+  pdfNumPages: number | null;
+  setPdfNumPages: (n: number | null) => void;
   pdfEnabled: boolean;
 }) {
+  const [view, setView] = useState<'results' | 'pdf'>('results');
   const [copied, setCopied] = useState(false);
-  const [pdfTooltip, setPdfTooltip] = useState(false);
+  const [pdfSharing, setPdfSharing] = useState(false);
+  const [pdfPageWidth, setPdfPageWidth] = useState(0);
+  const pdfContentRef = useRef<HTMLDivElement>(null);
 
-  if (!isOpen) return null;
+  // Reset view when modal re-opens
+  useEffect(() => {
+    if (isOpen) setView('results');
+  }, [isOpen]);
+
+  // Measure container width for react-pdf pages
+  useEffect(() => {
+    const el = pdfContentRef.current;
+    if (!el || view !== 'pdf') return;
+    const measure = () => {
+      const availableWidth = el.clientWidth - 48;
+      setPdfPageWidth(Math.max(availableWidth, 280));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [view, pdfPreviewUrl]);
 
   const fmtDate = (d: string) => {
     const dt = new Date(d);
@@ -365,7 +398,7 @@ function ResultModal({
 
     // Rincian biaya
     lines.push('📋 *RINCIAN BIAYA UMROH*');
-    lines.push('══════════════════');
+    lines.push('─────────────');
     lines.push('');
 
     for (const item of summary.items) {
@@ -383,11 +416,11 @@ function ResultModal({
       lines.push('');
     }
 
-    lines.push('══════════════════');
+    lines.push('─────────────');
     if (summary.discount > 0) {
       lines.push(`🧾 Subtotal    ${fmtRp(summary.subtotal)}`);
       lines.push(`🏷️ Diskon       -${fmtRp(summary.discount)}`);
-      lines.push('══════════════════');
+      lines.push('─────────────');
     }
     lines.push(`💰 *TOTAL BIAYA UMROH*`);
     lines.push(`👉 *${fmtRp(summary.grandTotal)}*`);
@@ -400,201 +433,262 @@ function ResultModal({
     return lines.join('\n');
   };
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(buildWaText());
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch { /* fallback */ }
-  };
-
   const handleShare = async () => {
     const text = buildWaText();
     if (navigator.share) {
-      try {
-        await navigator.share({ text });
-      } catch { /* user cancelled */ }
+      try { await navigator.share({ text }); } catch { /* user cancelled */ }
     } else {
       window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
     }
   };
 
-  // First tier for hotel display
+  const handleCopy = async () => {
+    const text = buildWaText();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard failed */ }
+  };
+
+  const handlePdfClick = () => {
+    setView('pdf');
+    if (!pdfPreviewUrl) onGeneratePDF();
+  };
+
+  const handleSharePdf = async () => {
+    if (!pdfBlobRef.current) return;
+    setPdfSharing(true);
+    try {
+      const safeTitle = pkg ? pkg.nama.replace(/\s+/g, '_').substring(0, 30).toUpperCase() : 'ALHIJAZ';
+      const fileName = `QUOTATION_${safeTitle}.pdf`;
+      const file = new File([pdfBlobRef.current], fileName, { type: 'application/pdf' });
+      const shareData = { title: `Quotation - ${pkg?.nama || 'Alhijaz'}`, text: 'Berikut quotation penawaran umroh', files: [file] };
+      if (navigator.canShare && navigator.canShare(shareData)) {
+        try { await navigator.share(shareData); } catch (err: any) {
+          if (err?.name !== 'AbortError') {
+            const url = URL.createObjectURL(pdfBlobRef.current); const a = document.createElement('a'); a.href = url; a.download = fileName;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+          }
+        }
+      } else {
+        const url = URL.createObjectURL(pdfBlobRef.current); const a = document.createElement('a'); a.href = url; a.download = fileName;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      }
+    } catch (err) { console.error('Share failed:', err); } finally { setPdfSharing(false); }
+  };
+
   const firstTier = pkg ? Object.keys(pkg.hotel)[0] : null;
   const hotelData = firstTier && pkg ? (pkg.hotel[firstTier] as HotelInfo & Record<string, string>) : null;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      {/* Modal */}
-      <div className="relative w-full h-full sm:max-w-lg sm:max-h-[95vh] bg-white sm:rounded-2xl overflow-hidden flex flex-col animate-[slideUp_0.3s_ease-out]">
-        {/* Modal Header */}
-        <div className="flex-shrink-0 px-5 pt-5 pb-3 border-b border-slate-100">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-slate-900 tracking-tight">Hasil Kalkulasi</h2>
-            <button onClick={onClose} className="w-9 h-9 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 transition-colors"><X size={18} className="text-slate-500" /></button>
-          </div>
-          {namaLengkap && <p className="text-xs text-slate-400 mt-0.5">untuk <span className="font-medium text-slate-600">{namaLengkap}</span></p>}
+  return createPortal(
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          className="fixed inset-0 z-[9999] bg-white flex flex-col"
+          initial={{ opacity: 0, y: '100%' }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: '100%' }}
+          transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+        >
+
+      {/* ─── HEADER ─── */}
+      <div className="flex-none sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-gray-200/60 px-5 py-4 flex justify-between items-center shadow-sm">
+        <div className="flex flex-col">
+          <h2 className="text-lg font-bold text-gray-900">
+            {view === 'results' ? 'Hasil Kalkulasi' : 'Preview Quotation'}
+          </h2>
+          <span className="text-xs text-gray-500 font-medium">
+            {view === 'results'
+              ? (namaLengkap ? <>untuk <span className="font-semibold text-gray-700">{namaLengkap}</span></> : 'Perhitungan Harga Paket Umroh')
+              : `Dokumen PDF${pdfNumPages ? ` · ${pdfNumPages} halaman` : ''}`
+            }
+          </span>
         </div>
+        <button onClick={onClose} className="p-2 bg-gray-100 rounded-full text-gray-600 hover:bg-gray-200 transition-colors shrink-0">
+          <X className="w-6 h-6" />
+        </button>
+      </div>
 
-        {/* Scrollable Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
-
-          {/* Package & Flight Info — Compact Card Style */}
-          {pkg && (
-            <div className="space-y-3">
-              <p className="text-sm font-bold text-center text-slate-800 leading-relaxed">
-                {pkg.nama}
-              </p>
-              <p className="text-xs text-center text-slate-500">
-                Flight by {pkg.maskapai}
-              </p>
-
-              {/* Flight info — 2-column compact grid */}
-              <div className="grid grid-cols-2 gap-3">
-                {/* Departure */}
-                <div className="flex items-start gap-2">
-                  <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5">
-                    <PlaneTakeoff size={16} />
+      {/* ─── SCROLLABLE BODY ─── */}
+      {view === 'results' ? (
+        <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 px-4 pb-6">
+          <div className="max-w-2xl mx-auto pt-4 space-y-4">
+            {pkg && (
+              <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
+                <p className="font-bold text-center text-slate-800 leading-relaxed">{pkg.nama}</p>
+                <p className="text-xs text-center text-slate-500">Flight by {pkg.maskapai}</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex items-start gap-2">
+                    <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5"><PlaneTakeoff size={16} /></div>
+                    <div>
+                      <p className="text-[10px] text-slate-400 uppercase tracking-wide">Berangkat</p>
+                      <p className="text-xs font-bold text-slate-800">{fmtDate(pkg.keberangkatan.tgl)}</p>
+                      <p className="text-[10px] text-slate-500">{pkg.keberangkatan.kodePenerbangan} · {pkg.keberangkatan.jam}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-wide">Berangkat</p>
-                    <p className="text-xs font-bold text-slate-800">{fmtDate(pkg.keberangkatan.tgl)}</p>
-                    <p className="text-[10px] text-slate-500">{pkg.keberangkatan.kodePenerbangan} · {pkg.keberangkatan.jam}</p>
-                  </div>
-                </div>
-
-                {/* Return */}
-                <div className="flex items-start gap-2">
-                  <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5">
-                    <PlaneLanding size={16} />
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-wide">Pulang</p>
-                    <p className="text-xs font-bold text-slate-800">{fmtDate(pkg.kepulangan.tgl)}</p>
-                    <p className="text-[10px] text-slate-500">{pkg.kepulangan.kodePenerbangan} · {pkg.kepulangan.jam}</p>
+                  <div className="flex items-start gap-2">
+                    <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5"><PlaneLanding size={16} /></div>
+                    <div>
+                      <p className="text-[10px] text-slate-400 uppercase tracking-wide">Pulang</p>
+                      <p className="text-xs font-bold text-slate-800">{fmtDate(pkg.kepulangan.tgl)}</p>
+                      <p className="text-[10px] text-slate-500">{pkg.kepulangan.kodePenerbangan} · {pkg.kepulangan.jam}</p>
+                    </div>
                   </div>
                 </div>
-              </div>
-
-              {/* Hotel info — 2-column compact grid */}
-              {hotelData && (
-                <>
+                {hotelData && (
                   <div className="grid grid-cols-2 gap-3">
                     {hotelData.mekkah_hotel && (
                       <div className="min-w-0">
                         <p className="text-[10px] text-slate-400 uppercase tracking-wide">Mekkah</p>
                         <p className="text-xs text-slate-700 font-medium truncate">{hotelData.mekkah_hotel}</p>
-                        {hotelData.mekkah_bintang && (
-                          <div className="flex items-center gap-0.5">
-                            {Array.from({ length: parseInt(hotelData.mekkah_bintang) }).map((_, i) => (
-                              <span key={i} className="text-[10px] text-amber-400">★</span>
-                            ))}
-                          </div>
-                        )}
+                        {hotelData.mekkah_bintang && (<div className="flex items-center gap-0.5">{Array.from({ length: parseInt(hotelData.mekkah_bintang) }).map((_, i) => (<span key={i} className="text-[10px] text-amber-400">★</span>))}</div>)}
                       </div>
                     )}
                     {hotelData.madinah_hotel && (
                       <div className="min-w-0">
                         <p className="text-[10px] text-slate-400 uppercase tracking-wide">Madinah</p>
                         <p className="text-xs text-slate-700 font-medium truncate">{hotelData.madinah_hotel}</p>
-                        {hotelData.madinah_bintang && (
-                          <div className="flex items-center gap-0.5">
-                            {Array.from({ length: parseInt(hotelData.madinah_bintang) }).map((_, i) => (
-                              <span key={i} className="text-[10px] text-amber-400">★</span>
-                            ))}
-                          </div>
-                        )}
+                        {hotelData.madinah_bintang && (<div className="flex items-center gap-0.5">{Array.from({ length: parseInt(hotelData.madinah_bintang) }).map((_, i) => (<span key={i} className="text-[10px] text-amber-400">★</span>))}</div>)}
                       </div>
                     )}
                   </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Price Breakdown */}
-          <div>
-            <div className="border-t-2 border-dashed border-slate-200 mb-4" />
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Rincian Perhitungan</p>
-            <div className="space-y-3">
-              {summary.items.map((item, i) => (
-                <div key={i} className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-xs font-bold text-slate-700 mb-1.5">{item.label}</p>
-                  <div className="flex justify-between text-xs text-slate-500">
-                    <span>{formatRupiah(item.unitPrice)} × {item.qty} pax</span>
-                    <span className="font-bold text-slate-800 tabular-nums">{formatRupiah(item.total)}</span>
+                )}
+              </div>
+            )}
+            <div className="bg-white rounded-xl shadow-sm p-4">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Rincian Perhitungan</p>
+              <div className="space-y-3">
+                {summary.items.map((item, i) => (
+                  <div key={i} className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-xs font-bold text-slate-700 mb-1.5">{item.label}</p>
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span>{formatRupiah(item.unitPrice)} × {item.qty} pax</span>
+                      <span className="font-bold text-slate-800 tabular-nums">{formatRupiah(item.total)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t-2 border-dashed border-slate-200 pt-3 mt-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Subtotal</span>
+                  <span className="text-slate-700 font-medium tabular-nums">{formatRupiah(summary.subtotal)}</span>
+                </div>
+                {summary.discount > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-emerald-500">Diskon</span>
+                    <span className="text-emerald-500 font-medium tabular-nums">- {formatRupiah(summary.discount)}</span>
+                  </div>
+                )}
+                <div className="border-t border-slate-200 pt-3">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-sm font-bold text-slate-600">TOTAL BIAYA</span>
+                    <span className="text-lg font-extrabold text-emerald-700 tabular-nums">{formatRupiah(summary.grandTotal)}</span>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Totals */}
-          <div>
-            <div className="border-t-2 border-dashed border-slate-200 pt-3 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Subtotal</span>
-                <span className="text-slate-700 font-medium tabular-nums">{formatRupiah(summary.subtotal)}</span>
-              </div>
-              {summary.discount > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-emerald-500">Diskon</span>
-                  <span className="text-emerald-500 font-medium tabular-nums">- {formatRupiah(summary.discount)}</span>
-                </div>
-              )}
-              <div className="border-t border-slate-200 pt-3">
-                <div className="flex justify-between items-baseline">
-                  <span className="text-sm font-bold text-slate-600">TOTAL BIAYA</span>
-                  <span className="text-lg font-extrabold text-emerald-700 tabular-nums">{formatRupiah(summary.grandTotal)}</span>
-                </div>
               </div>
             </div>
-          </div>
-
-          {/* Catatan */}
-          {catatan && (
-            <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
-              <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1">Keterangan</p>
-              <p className="text-xs text-amber-800">{catatan}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Modal Footer */}
-        <div className="flex-shrink-0 px-5 py-4 bg-slate-50 border-t border-slate-100 flex gap-2">
-          <div className="relative flex-1">
-            <button
-              onClick={() => {
-                if (pdfEnabled) { onDownloadPDF(); }
-                else { setPdfTooltip(true); setTimeout(() => setPdfTooltip(false), 1800); }
-              }}
-              className={`w-full flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl text-sm font-semibold border-2 transition-all duration-200 active:scale-[0.97] ${
-                pdfEnabled
-                  ? 'border-slate-200 text-emerald-600 bg-white'
-                  : 'border-slate-100 text-slate-300 bg-slate-50 cursor-not-allowed'
-              }`}
-            >
-              <Download size={16} /> PDF
-            </button>
-            {pdfTooltip && (
-              <div className="absolute -top-9 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-slate-800 text-white text-xs rounded-lg whitespace-nowrap shadow-lg animate-[fadeIn_0.15s_ease-out]">
-                Segera Hadir 🙏🏻
-                <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-800" />
+            {catatan && (
+              <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
+                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1">Keterangan</p>
+                <p className="text-xs text-amber-800">{catatan}</p>
               </div>
             )}
           </div>
-          <button onClick={handleCopy} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl text-sm font-semibold border-2 border-slate-200 text-indigo-600 bg-white transition-all duration-200 active:scale-[0.97]">
-            {copied ? <><CheckCircle2 size={16} /> Tersalin!</> : <><Copy size={16} /> Copy</>}
-          </button>
-          <button onClick={handleShare} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl text-sm font-semibold border-2 border-slate-200 text-green-600 bg-white transition-all duration-200 active:scale-[0.97]">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg> Share
-          </button>
         </div>
+      ) : (
+        <div ref={pdfContentRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 px-4 pb-6">
+          <div className="flex justify-center pt-4">
+            {pdfLoading ? (
+              <div className="flex flex-col items-center gap-4 py-20">
+                <div className="relative">
+                  <div className="w-16 h-16 rounded-full border-4 border-emerald-100 border-t-emerald-500 animate-spin" />
+                  <FileText className="absolute inset-0 m-auto w-6 h-6 text-emerald-600" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-slate-700">Membuat PDF...</p>
+                  <p className="text-xs text-slate-400 mt-1">Mohon tunggu sebentar</p>
+                </div>
+              </div>
+            ) : pdfPreviewUrl ? (
+              <div className="bg-white p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[50vh] flex flex-col items-center justify-center relative">
+                <PdfDoc
+                  file={pdfPreviewUrl}
+                  onLoadSuccess={({ numPages }) => setPdfNumPages(numPages)}
+                  onLoadError={(err) => console.error('react-pdf error:', err)}
+                  loading={
+                    <div className="flex flex-col items-center gap-3 py-10">
+                      <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                      <span className="text-sm text-gray-500">Memuat Dokumen...</span>
+                    </div>
+                  }
+                  error={
+                    <div className="flex flex-col items-center gap-2 py-10 text-red-500">
+                      <AlertCircle className="w-8 h-8" />
+                      <span className="text-sm">Gagal memuat PDF.</span>
+                    </div>
+                  }
+                  className="w-full flex flex-col items-center gap-4"
+                >
+                  {pdfNumPages && Array.from(new Array(pdfNumPages), (_, i) => (
+                    <PdfPage
+                      key={`qpage_${i + 1}`}
+                      pageNumber={i + 1}
+                      renderTextLayer={false}
+                      renderAnnotationLayer={false}
+                      className="shadow-md rounded-lg overflow-hidden w-full max-w-full"
+                      width={pdfPageWidth || 400}
+                    />
+                  ))}
+                </PdfDoc>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2 py-10 text-red-500">
+                <AlertCircle className="w-8 h-8" />
+                <span className="text-sm">Gagal membuat PDF.</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ─── FOOTER ─── */}
+      <div className="flex-none sticky bottom-0 bg-white border-t border-gray-200/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        {view === 'results' ? (
+          <div className="flex gap-2">
+            <button
+              onClick={() => { if (pdfEnabled) handlePdfClick(); }}
+              disabled={!pdfEnabled}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-3.5 rounded-xl text-sm font-semibold border-2 transition-all duration-200 active:scale-[0.97] ${
+                pdfEnabled ? 'border-slate-200 text-emerald-600 bg-white' : 'border-slate-100 text-slate-300 bg-slate-50 cursor-not-allowed'
+              }`}
+            >
+              <FileText size={16} /> PDF
+            </button>
+            <button onClick={handleCopy} className="flex-1 flex items-center justify-center gap-1.5 py-3.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-indigo-600 bg-white transition-all duration-200 active:scale-[0.97]">
+              {copied ? <><CheckCircle2 size={16} /> Copied!</> : <><Copy size={16} /> Copy</>}
+            </button>
+            <button onClick={handleShare} className="flex-1 flex items-center justify-center gap-1.5 py-3.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-green-600 bg-white transition-all duration-200 active:scale-[0.97]">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              Share
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <button onClick={() => setView('results')} className="w-[20%] flex items-center justify-center py-3.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-slate-600 bg-white transition-all duration-200 active:scale-[0.97]">
+              <ChevronLeft size={20} />
+            </button>
+            <button onClick={handleSharePdf} disabled={pdfSharing || pdfLoading} className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70">
+              {pdfSharing ? (<><Loader2 size={20} className="animate-spin" /><span>Bentar ya...</span></>) : (<><Share2 size={20} /><span>Unduh PDF</span></>)}
+            </button>
+          </div>
+        )}
       </div>
-      <style>{`@keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
-    </div>
+
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body
   );
 }
 
@@ -660,24 +754,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
   const [autoFillFlash, setAutoFillFlash] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [pdfNumPages, setPdfNumPages] = useState<number | null>(null);
-  const [pdfSharing, setPdfSharing] = useState(false);
-  const [pdfPageWidth, setPdfPageWidth] = useState(0);
   const pdfBlobRef = useRef<Blob | null>(null);
-  const pdfContentRef = useRef<HTMLDivElement>(null);
-
-  // Dynamically measure container width for react-pdf pages
-  useEffect(() => {
-    const el = pdfContentRef.current;
-    if (!el || !pdfPreviewUrl) return;
-    const measure = () => {
-      const availableWidth = el.clientWidth - 48;
-      setPdfPageWidth(Math.max(availableWidth, 280));
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [pdfPreviewUrl]);
 
   // Find the selected package object
   const selectedPkg = useMemo(() => {
@@ -1250,107 +1327,15 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
         summary={summary}
         catatan={catatan}
         namaLengkap={namaLengkap}
-        onDownloadPDF={handleDownloadPDF}
+        onGeneratePDF={handleDownloadPDF}
+        pdfBlobRef={pdfBlobRef}
+        pdfPreviewUrl={pdfPreviewUrl}
+        pdfLoading={pdfLoading}
+        pdfNumPages={pdfNumPages}
+        setPdfNumPages={setPdfNumPages}
         pdfEnabled={new URLSearchParams(window.location.search).has('pdf')}
       />
 
-      {/* PDF Preview Modal — matches ItineraryModal design */}
-      {pdfPreviewUrl && (
-        <div className="fixed inset-0 z-[9999] bg-white flex flex-col animate-[slideUpFull_0.35s_ease-out]">
-
-          {/* ─── HEADER ─── */}
-          <div className="flex-none sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-gray-200/60 px-5 py-4 flex justify-between items-center shadow-sm">
-            <div className="flex flex-col">
-              <h2 className="text-lg font-bold text-gray-900">Preview Quotation</h2>
-              <span className="text-xs text-gray-500 font-medium">
-                Dokumen PDF{pdfNumPages ? ` · ${pdfNumPages} halaman` : ''}
-              </span>
-            </div>
-            <button
-              onClick={() => { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); pdfBlobRef.current = null; }}
-              className="p-2 bg-gray-100 rounded-full text-gray-600 hover:bg-gray-200 transition-colors shrink-0"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-
-          {/* ─── SCROLLABLE CONTENT (react-pdf) ─── */}
-          <div ref={pdfContentRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 px-4 pb-6">
-            <div className="flex justify-center pt-4">
-              <div className="bg-white p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[50vh] flex flex-col items-center justify-center relative">
-                <PdfDoc
-                  file={pdfPreviewUrl}
-                  onLoadSuccess={({ numPages }) => setPdfNumPages(numPages)}
-                  onLoadError={(err) => console.error('react-pdf error:', err)}
-                  loading={
-                    <div className="flex flex-col items-center gap-3 py-10">
-                      <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
-                      <span className="text-sm text-gray-500">Memuat Dokumen...</span>
-                    </div>
-                  }
-                  error={
-                    <div className="flex flex-col items-center gap-2 py-10 text-red-500">
-                      <AlertCircle className="w-8 h-8" />
-                      <span className="text-sm">Gagal memuat PDF.</span>
-                    </div>
-                  }
-                  className="w-full flex flex-col items-center gap-4"
-                >
-                  {pdfNumPages && Array.from(new Array(pdfNumPages), (_, i) => (
-                    <PdfPage
-                      key={`qpage_${i + 1}`}
-                      pageNumber={i + 1}
-                      renderTextLayer={false}
-                      renderAnnotationLayer={false}
-                      className="shadow-md rounded-lg overflow-hidden w-full max-w-full"
-                      width={pdfPageWidth || 400}
-                    />
-                  ))}
-                </PdfDoc>
-              </div>
-            </div>
-          </div>
-
-          {/* ─── FOOTER ─── */}
-          <div className="flex-none sticky bottom-0 bg-white border-t border-gray-200/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-            <button
-              onClick={async () => {
-                if (!pdfBlobRef.current) return;
-                setPdfSharing(true);
-                try {
-                  const safeTitle = selectedPkg ? selectedPkg.nama.replace(/\s+/g, '_').substring(0, 30) : 'Quotation_Alhijaz';
-                  const fileName = `Quotation_${safeTitle}.pdf`;
-                  const file = new File([pdfBlobRef.current], fileName, { type: 'application/pdf' });
-                  const shareData = { title: `Quotation - ${selectedPkg?.nama || 'Alhijaz'}`, text: 'Berikut quotation penawaran umroh', files: [file] };
-                  if (navigator.canShare && navigator.canShare(shareData)) {
-                    try { await navigator.share(shareData); } catch (err: any) {
-                      if (err?.name !== 'AbortError') {
-                        const url = URL.createObjectURL(pdfBlobRef.current);
-                        const a = document.createElement('a'); a.href = url; a.download = fileName;
-                        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-                      }
-                    }
-                  } else {
-                    const url = URL.createObjectURL(pdfBlobRef.current);
-                    const a = document.createElement('a'); a.href = url; a.download = fileName;
-                    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-                  }
-                } catch (err) { console.error('Share failed:', err); } finally { setPdfSharing(false); }
-              }}
-              disabled={pdfSharing}
-              className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
-            >
-              {pdfSharing ? (
-                <><Loader2 size={20} className="animate-spin" /><span>Menyiapkan File...</span></>
-              ) : (
-                <><Share2 size={20} /><span>Bagikan / Download PDF</span></>
-              )}
-            </button>
-          </div>
-
-          <style>{`@keyframes slideUpFull{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}`}</style>
-        </div>
-      )}
     </div>
   );
 }
