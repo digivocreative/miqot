@@ -7,8 +7,8 @@ const origin = typeof window !== 'undefined' ? window.location.origin : '';
 Font.register({
   family: 'Inter',
   fonts: [
-    { src: `${origin}/fonts/Inter-Regular.woff2`, fontWeight: 'normal' },
-    { src: `${origin}/fonts/Inter-Bold.woff2`, fontWeight: 'bold' },
+    { src: `${origin}/fonts/Inter-Regular.ttf`, fontWeight: 'normal' },
+    { src: `${origin}/fonts/Inter-Bold.ttf`, fontWeight: 'bold' },
   ],
 });
 // Disable hyphenation
@@ -58,7 +58,7 @@ const fmtDate = (d: string) =>
 // ── Styles ──
 const s = StyleSheet.create({
   page: { fontFamily: 'Inter', fontSize: 8, color: C.dark, paddingBottom: 75 },
-  watermark: { position: 'absolute' as const, bottom: 35, left: '10%', width: '80%', opacity: 0.05 },
+  watermark: { position: 'absolute' as const, bottom: 35, left: '10%', width: '80%', opacity: 0.04 },
 
   // Header
   headerAccent: { backgroundColor: C.primary, height: 4 },
@@ -105,7 +105,7 @@ const s = StyleSheet.create({
   tdText: { fontSize: 8, color: C.dark },
   tdBold: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 8, color: C.dark },
   tdNote: { fontSize: 6.5, color: C.gray, marginTop: 1 },
-  discountText: { fontFamily: 'Inter', fontStyle: 'italic' as const, fontSize: 8, color: '#b41e1e' },
+  discountText: { fontFamily: 'Inter', fontSize: 8, color: '#b41e1e' },
 
   // Column widths (percentage-like flex)
   colDesc: { flex: 5, paddingLeft: 6 },
@@ -139,11 +139,11 @@ const s = StyleSheet.create({
   noticeHeaderIcon: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#f59e0b' },
   noticeHeaderText: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 6, color: C.white, letterSpacing: 0.5 },
   noticeBody: { backgroundColor: C.white, paddingVertical: 8, paddingHorizontal: 10, borderBottomLeftRadius: 4, borderBottomRightRadius: 4 },
-  noticeDpLabel: { fontSize: 6, color: C.gray, marginBottom: 2 },
+  noticeDpLabel: { fontFamily: 'Inter', fontSize: 7, color: C.gray, marginBottom: 2 },
   noticeDpAmount: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 11, color: C.primary, marginBottom: 8 },
   noticeBulletRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 4, marginBottom: 3 },
   noticeBulletDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: C.gray, marginTop: 2.5 },
-  noticeBulletText: { fontSize: 5.5, color: '#4b5563', flex: 1, lineHeight: 1.4 },
+  noticeBulletText: { fontSize: 6.5, color: '#4b5563', flex: 1, lineHeight: 1.4 },
   noticeCta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' as const, gap: 3, marginTop: 6, paddingTop: 6, borderTopWidth: 0.5, borderTopColor: C.divider },
   noticeCtaText: { fontSize: 6, color: C.gray },
   noticeCtaBold: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 6, color: C.dark },
@@ -162,7 +162,7 @@ const s = StyleSheet.create({
   // Disclaimer
   disclaimerRow: { flexDirection: 'row', marginHorizontal: 20, marginTop: 10, gap: 10 },
   disclaimerCol: { flex: 1 },
-  disclaimerText: { fontFamily: 'Inter', fontStyle: 'italic' as const, fontSize: 5, color: C.gray, lineHeight: 1.5 },
+  disclaimerText: { fontFamily: 'Inter', fontSize: 6, color: C.gray, lineHeight: 1.5, textAlign: 'justify' as const },
 
   // Agent profile footer
   agentFooterAccent: { position: 'absolute' as const, bottom: 52, left: 0, right: 0, height: 7, backgroundColor: C.primary },
@@ -397,7 +397,7 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent }: Quotatio
                 </View>
                 <View style={s.noticeBulletRow}>
                   <View style={s.noticeBulletDot} />
-                  <Text style={s.noticeBulletText}>Langsung dapat konfirmasi seat & jadwal keberangkatan</Text>
+                  <Text style={s.noticeBulletText}>Langsung konfirmasi seat & jadwal keberangkatan</Text>
                 </View>
                 <View style={s.noticeBulletRow}>
                   <View style={s.noticeBulletDot} />
@@ -405,7 +405,7 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent }: Quotatio
                 </View>
                 <View style={s.noticeBulletRow}>
                   <View style={s.noticeBulletDot} />
-                  <Text style={s.noticeBulletText}>Travel resmi berizin Kemenag RI — dana terjamin aman</Text>
+                  <Text style={s.noticeBulletText}>Travel resmi berizin Kemenag RI (Akreditasi A)</Text>
                 </View>
 
                 {/* Block 3: CTA */}
@@ -426,10 +426,10 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent }: Quotatio
         {/* ─── DISCLAIMER ─── */}
         <View style={s.disclaimerRow}>
           <View style={s.disclaimerCol}>
-            <Text style={s.disclaimerText}>Penawaran ini tidak bersifat mengikat dan bukan merupakan jaminan ketersediaan kuota. Seat dan hotel hanya akan dipastikan (confirm) setelah pembayaran Down Payment (DP) diterima dan diverifikasi.</Text>
+            <Text style={s.disclaimerText}>Segala bentuk transaksi hanya dianggap sah apabila dilakukan ke rekening resmi perusahaan yang tertera di dokumen ini. PT Alhijaz Indowisata tidak bertanggung jawab atas transaksi yang dilakukan ke rekening pribadi agen atau pihak lain.</Text>
           </View>
           <View style={s.disclaimerCol}>
-            <Text style={s.disclaimerText}>Segala bentuk transaksi hanya dianggap sah apabila dilakukan ke rekening resmi perusahaan yang tertera di dokumen ini. PT Alhijaz Indowisata tidak bertanggung jawab atas transaksi yang dilakukan ke rekening pribadi agen atau pihak lain.</Text>
+            <Text style={s.disclaimerText}>Penawaran ini tidak bersifat mengikat dan bukan merupakan jaminan ketersediaan kuota. Seat dan hotel hanya akan dipastikan (confirm) setelah pembayaran Down Payment (DP) diterima dan diverifikasi.</Text>
           </View>
         </View>
 

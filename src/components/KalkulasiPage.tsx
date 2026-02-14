@@ -61,6 +61,9 @@ interface RoomCounts {
 interface SelectOption {
   id: string;
   label: string;
+  flags?: string[];     // country flag emojis
+  colorClass?: string;  // icon color class by package type
+  searchText?: string;  // extra searchable text (hotels, airline, etc.)
 }
 
 const INFANT_PRICE = 8_500_000;
@@ -100,12 +103,12 @@ function Counter({
   max?: number;
 }) {
   return (
-    <div className="inline-flex items-center bg-slate-50 rounded-full border border-slate-200 p-0.5 transition-all duration-300">
+    <div className="inline-flex items-center bg-white rounded-full border-2 border-slate-200 p-0.5 shadow-sm transition-all duration-300">
       <button
         type="button"
         onClick={() => onChange(Math.max(min, value - 1))}
         disabled={value <= min}
-        className="w-8 h-8 flex items-center justify-center rounded-full text-slate-500 hover:bg-emerald-100 hover:text-emerald-600 transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed active:scale-90"
+        className="w-8 h-8 flex items-center justify-center rounded-full text-emerald-500 hover:bg-emerald-100 hover:text-emerald-600 transition-all duration-300 disabled:opacity-30 disabled:text-slate-300 disabled:cursor-not-allowed active:scale-90"
       >
         <Minus size={14} strokeWidth={2.5} />
       </button>
@@ -116,7 +119,7 @@ function Counter({
         type="button"
         onClick={() => onChange(Math.min(max, value + 1))}
         disabled={value >= max}
-        className="w-8 h-8 flex items-center justify-center rounded-full text-slate-500 hover:bg-emerald-100 hover:text-emerald-600 transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed active:scale-90"
+        className="w-8 h-8 flex items-center justify-center rounded-full text-emerald-500 hover:bg-emerald-100 hover:text-emerald-600 transition-all duration-300 disabled:opacity-30 disabled:text-slate-300 disabled:cursor-not-allowed active:scale-90"
       >
         <Plus size={14} strokeWidth={2.5} />
       </button>
@@ -143,9 +146,10 @@ function SearchableSelect({
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
 
-  const filtered = options.filter((o) =>
-    o.label.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = options.filter((o) => {
+    const q = search.toLowerCase();
+    return o.label.toLowerCase().includes(q) || (o.searchText && o.searchText.toLowerCase().includes(q));
+  });
 
   const selectedLabel = options.find((o) => o.id === value)?.label || '';
 
@@ -163,7 +167,7 @@ function SearchableSelect({
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         disabled={loading}
-        className="w-full text-left rounded-2xl border border-slate-200 bg-slate-50 transition-all duration-300 hover:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 disabled:opacity-60 overflow-hidden"
+        className="w-full text-left rounded-2xl border-2 border-slate-200 bg-white shadow-sm transition-all duration-300 hover:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 disabled:opacity-60 overflow-hidden"
       >
         {loading ? (
           <div className="flex items-center gap-2 text-slate-400 text-sm px-4 py-4">
@@ -189,8 +193,8 @@ function SearchableSelect({
           </div>
         ) : (
           <div className="flex items-center justify-between px-4 py-4">
-            <span className="text-slate-400 text-sm">{placeholder}</span>
-            <ChevronDown size={18} className="text-slate-400" />
+            <span className="text-slate-500 text-sm font-medium">{placeholder}</span>
+            <ChevronDown size={18} className="text-emerald-500" />
           </div>
         )}
       </button>
@@ -206,7 +210,7 @@ function SearchableSelect({
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Cari tanggal atau paket..."
+                  placeholder="Cari tanggal, paket, hotel, maskapai..."
                   className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
                   autoFocus
                 />
@@ -235,16 +239,21 @@ function SearchableSelect({
                       }`}
                     >
                       <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center ${
-                        isSelected ? 'bg-emerald-100' : 'bg-slate-100'
+                        isSelected ? 'bg-emerald-100' : opt.colorClass === 'red' ? 'bg-red-50' : opt.colorClass === 'blue' ? 'bg-blue-50' : opt.colorClass === 'green' ? 'bg-green-50' : 'bg-slate-100'
                       }`}>
-                        <Calendar size={14} className={isSelected ? 'text-emerald-600' : 'text-slate-400'} />
+                        <Calendar size={14} className={isSelected ? 'text-emerald-600' : opt.colorClass === 'red' ? 'text-red-500' : opt.colorClass === 'blue' ? 'text-blue-500' : opt.colorClass === 'green' ? 'text-green-500' : 'text-slate-400'} />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className={`text-sm font-semibold ${isSelected ? 'text-emerald-700' : 'text-slate-800'}`}>
-                          {parts[0]}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <p className={`text-sm font-semibold ${isSelected ? 'text-emerald-700' : 'text-slate-800'}`}>
+                            {parts[0]}
+                          </p>
+                          {opt.flags && opt.flags.length > 0 && (
+                            <span className="text-sm flex-shrink-0">{opt.flags.join('')}</span>
+                          )}
+                        </div>
                         {parts[1] && (
-                          <p className={`text-xs truncate ${isSelected ? 'text-emerald-500' : 'text-slate-400'}`}>
+                          <p className={`text-xs truncate ${isSelected ? 'text-emerald-500' : 'text-slate-500'}`}>
                             {parts[1]}
                           </p>
                         )}
@@ -322,6 +331,7 @@ function ResultModal({
   const [view, setView] = useState<'results' | 'pdf'>('results');
   const [copied, setCopied] = useState(false);
   const [pdfSharing, setPdfSharing] = useState(false);
+  const [pdfBtnLoading, setPdfBtnLoading] = useState(false);
   const [pdfPageWidth, setPdfPageWidth] = useState(0);
   const pdfContentRef = useRef<HTMLDivElement>(null);
 
@@ -452,8 +462,12 @@ function ResultModal({
   };
 
   const handlePdfClick = () => {
-    setView('pdf');
-    onGeneratePDF(); // always regenerate so latest data is reflected
+    setPdfBtnLoading(true);
+    onGeneratePDF(); // start generating in the background
+    setTimeout(() => {
+      setPdfBtnLoading(false);
+      setView('pdf');
+    }, 1500);
   };
 
   const handleSharePdf = async () => {
@@ -657,13 +671,13 @@ function ResultModal({
         {view === 'results' ? (
           <div className="flex gap-2">
             <button
-              onClick={() => { if (pdfEnabled) handlePdfClick(); }}
-              disabled={!pdfEnabled}
+              onClick={() => { if (pdfEnabled && !pdfBtnLoading) handlePdfClick(); }}
+              disabled={!pdfEnabled || pdfBtnLoading}
               className={`flex-1 flex items-center justify-center gap-1.5 py-3.5 rounded-xl text-sm font-semibold border-2 transition-all duration-200 active:scale-[0.97] ${
-                pdfEnabled ? 'border-slate-200 text-emerald-600 bg-white' : 'border-slate-100 text-slate-300 bg-slate-50 cursor-not-allowed'
+                pdfBtnLoading ? 'border-emerald-200 text-emerald-600 bg-emerald-50' : pdfEnabled ? 'border-slate-200 text-emerald-600 bg-white' : 'border-slate-100 text-slate-300 bg-slate-50 cursor-not-allowed'
               }`}
             >
-              <FileText size={16} /> PDF
+              {pdfBtnLoading ? <><Loader2 size={16} className="animate-spin" /> Bentar ya...</> : <><FileText size={16} /> PDF</>}
             </button>
             <button onClick={handleCopy} className="flex-1 flex items-center justify-center gap-1.5 py-3.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-indigo-600 bg-white transition-all duration-200 active:scale-[0.97]">
               {copied ? <><CheckCircle2 size={16} /> Copied!</> : <><Copy size={16} /> Copy</>}
@@ -720,12 +734,50 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
       const depDate = new Date(pkg.keberangkatan.tgl);
       const dateStr = depDate.toLocaleDateString('id-ID', {
         day: 'numeric',
-        month: 'short',
+        month: 'long',
         year: 'numeric',
       });
+
+      // Determine country flags from hotel data
+      const flags: string[] = ['🇸🇦']; // Saudi always present
+      const firstTier = Object.keys(pkg.hotel)[0];
+      if (firstTier) {
+        const h = pkg.hotel[firstTier] as unknown as Record<string, string>;
+        if (h.cairo_hotel) flags.push('🇪🇬');
+        if (h.istanbul_hotel || h.bursa_hotel || h.cappadocia_hotel || h.ankara_hotel) flags.push('🇹🇷');
+      }
+
+      // Determine color class from package name + tier keys
+      const namaLower = pkg.nama.toLowerCase();
+      const tierKeys = Object.keys(pkg.harga).map(k => k.toLowerCase()).join(' ');
+      const combined = `${namaLower} ${tierKeys}`;
+      const colorClass = combined.includes('promo') || combined.includes('hemat')
+        ? (combined.includes('rahmah') ? 'green' : combined.includes('uhud') ? 'blue' : 'red')
+        : combined.includes('rahmah')
+        ? 'green'
+        : combined.includes('uhud')
+        ? 'blue'
+        : '';
+
+      // Build extra search text (hotels, airline, etc.)
+      const searchParts: string[] = [pkg.maskapai];
+      if (firstTier) {
+        const h = pkg.hotel[firstTier] as unknown as Record<string, string>;
+        if (h.mekkah_hotel) searchParts.push(h.mekkah_hotel);
+        if (h.madinah_hotel) searchParts.push(h.madinah_hotel);
+        if (h.cairo_hotel) searchParts.push(h.cairo_hotel);
+        if (h.istanbul_hotel) searchParts.push(h.istanbul_hotel);
+        if (h.bursa_hotel) searchParts.push(h.bursa_hotel);
+        if (h.cappadocia_hotel) searchParts.push(h.cappadocia_hotel);
+        if (h.ankara_hotel) searchParts.push(h.ankara_hotel);
+      }
+
       return {
         id: pkg.jadwalId,
         label: `${dateStr} — ${pkg.nama}`,
+        flags,
+        colorClass,
+        searchText: searchParts.join(' '),
       };
     });
   }, [packages]);
