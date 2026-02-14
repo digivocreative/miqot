@@ -1,6 +1,18 @@
-import { Document, Page, View, Text, Image, StyleSheet, Svg, Circle, Path } from '@react-pdf/renderer';
+import { Document, Page, View, Text, Image, StyleSheet, Font, Svg, Circle, Path } from '@react-pdf/renderer';
 import type { UmrohPackage } from '@/types';
 import type { AgentData } from '@/data/agents';
+
+// ── Register Inter font ──
+const origin = typeof window !== 'undefined' ? window.location.origin : '';
+Font.register({
+  family: 'Inter',
+  fonts: [
+    { src: `${origin}/fonts/Inter-Regular.woff2`, fontWeight: 'normal' },
+    { src: `${origin}/fonts/Inter-Bold.woff2`, fontWeight: 'bold' },
+  ],
+});
+// Disable hyphenation
+Font.registerHyphenationCallback((word) => [word]);
 
 // ── Types ──
 interface SummaryItem {
@@ -45,7 +57,7 @@ const fmtDate = (d: string) =>
 
 // ── Styles ──
 const s = StyleSheet.create({
-  page: { fontFamily: 'Helvetica', fontSize: 8, color: C.dark, paddingBottom: 75 },
+  page: { fontFamily: 'Inter', fontSize: 8, color: C.dark, paddingBottom: 75 },
   watermark: { position: 'absolute' as const, bottom: 35, left: '10%', width: '80%', opacity: 0.05 },
 
   // Header
@@ -55,45 +67,45 @@ const s = StyleSheet.create({
   headerLogo: { width: 28, height: 28, borderRadius: 4 },
   headerTextGroup: { flex: 1 },
   headerRight: { alignItems: 'flex-end', flex: 1 },
-  companyName: { fontFamily: 'Helvetica-Bold', fontSize: 11, color: C.primary, marginBottom: 1 },
+  companyName: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 11, color: C.primary, marginBottom: 1 },
   companyIzin: { fontSize: 5, color: C.gray, marginBottom: 0.5 },
   companySub: { fontSize: 5, color: C.lightGray },
   docTitleBadge: { backgroundColor: C.primary, borderRadius: 2, paddingVertical: 2, paddingHorizontal: 6, marginBottom: 3, alignSelf: 'flex-end' as const },
-  docTitle: { fontFamily: 'Helvetica-Bold', fontSize: 7, color: C.white, textAlign: 'center' as const },
+  docTitle: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 7, color: C.white, textAlign: 'center' as const },
   docSub: { fontSize: 5, color: C.gray, marginBottom: 1.5, textAlign: 'right' as const },
   metaRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 3, marginBottom: 1 },
   metaLabel: { fontSize: 5, color: C.lightGray },
-  metaValue: { fontFamily: 'Helvetica-Bold', fontSize: 5.5, color: C.dark },
+  metaValue: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 5.5, color: C.dark },
 
   // Detail Paket card
   card: { marginHorizontal: 14, marginTop: 8, borderRadius: 4, borderWidth: 0.5, borderColor: C.divider },
   cardHeader: { backgroundColor: C.dark, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopLeftRadius: 4, borderTopRightRadius: 4 },
-  detailLabel: { fontFamily: 'Helvetica-Bold', fontSize: 5.5, color: '#ffffffaa', marginBottom: 2, textTransform: 'uppercase' as const, letterSpacing: 0.5 },
-  pkgName: { fontFamily: 'Helvetica-Bold', fontSize: 11, color: C.white },
+  detailLabel: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 5.5, color: '#ffffffaa', marginBottom: 2, textTransform: 'uppercase' as const, letterSpacing: 0.5 },
+  pkgName: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 11, color: C.white },
   durationBadge: { alignItems: 'flex-end', backgroundColor: '#ffffff22', borderRadius: 3, paddingVertical: 4, paddingHorizontal: 8 },
-  durationNum: { fontFamily: 'Helvetica-Bold', fontSize: 14, color: C.white },
+  durationNum: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 14, color: C.white },
   durationLabel: { fontSize: 5, color: '#ffffffaa' },
   cardBody: { backgroundColor: C.bgLight, paddingVertical: 8, paddingHorizontal: 12, borderBottomLeftRadius: 4, borderBottomRightRadius: 4 },
   infoRow: { flexDirection: 'row', gap: 6 },
   infoCol: { flex: 1 },
   infoTitle: { fontSize: 5, color: C.gray, marginBottom: 2, textTransform: 'uppercase' as const },
-  infoMain: { fontFamily: 'Helvetica-Bold', fontSize: 7, color: C.dark, marginBottom: 1 },
+  infoMain: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 7, color: C.dark, marginBottom: 1 },
   infoSub: { fontSize: 5.5, color: C.gray },
 
   // Table section
   sectionHeader: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginTop: 12, marginBottom: 4, gap: 4 },
   sectionIcon: { width: 3, height: 3, backgroundColor: C.gold },
-  sectionTitle: { fontFamily: 'Helvetica-Bold', fontSize: 9, color: C.dark },
+  sectionTitle: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 9, color: C.dark },
 
   // Table
   table: { marginHorizontal: 20 },
   tableHead: { flexDirection: 'row', backgroundColor: C.bgLight, borderBottomWidth: 0.5, borderBottomColor: C.divider, paddingBottom: 5, paddingTop: 5, paddingHorizontal: 4 },
-  thText: { fontFamily: 'Helvetica-Bold', fontSize: 7, color: C.gray },
+  thText: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 7, color: C.gray },
   tableRow: { flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 0.3, borderBottomColor: '#eeeeee' },
   tdText: { fontSize: 8, color: C.dark },
-  tdBold: { fontFamily: 'Helvetica-Bold', fontSize: 8, color: C.dark },
+  tdBold: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 8, color: C.dark },
   tdNote: { fontSize: 6.5, color: C.gray, marginTop: 1 },
-  discountText: { fontFamily: 'Helvetica-Oblique', fontSize: 8, color: '#b41e1e' },
+  discountText: { fontFamily: 'Inter', fontStyle: 'italic' as const, fontSize: 8, color: '#b41e1e' },
 
   // Column widths (percentage-like flex)
   colDesc: { flex: 5, paddingLeft: 6 },
@@ -103,8 +115,8 @@ const s = StyleSheet.create({
 
   // Total bar
   totalBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#374151', marginHorizontal: 20, paddingVertical: 5, paddingHorizontal: 12, marginTop: 0, borderRadius: 2 },
-  totalLabel: { fontFamily: 'Helvetica-Bold', fontSize: 7, color: C.white },
-  totalAmount: { fontFamily: 'Helvetica-Bold', fontSize: 10, color: C.white },
+  totalLabel: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 7, color: C.white },
+  totalAmount: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 10, color: C.white },
 
   // Bottom 2-column
   bottomRow: { flexDirection: 'row', marginHorizontal: 20, marginTop: 12, gap: 10 },
@@ -117,40 +129,40 @@ const s = StyleSheet.create({
   bankLogo: { width: 40, height: 20, objectFit: 'contain' as const },
   bankDivider: { width: 0.5, height: 20, backgroundColor: C.divider },
   bankInfo: { flex: 1 },
-  bankName: { fontFamily: 'Helvetica', fontSize: 5, color: C.gray, marginBottom: 1, textTransform: 'uppercase' as const, letterSpacing: 0.1 },
-  bankRek: { fontFamily: 'Helvetica-Bold', fontSize: 8.5, color: C.dark, letterSpacing: 0.5 },
+  bankName: { fontFamily: 'Inter', fontSize: 5, color: C.gray, marginBottom: 1, textTransform: 'uppercase' as const, letterSpacing: 0.1 },
+  bankRek: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 8.5, color: C.dark, letterSpacing: 0.5 },
   bankAn: { fontSize: 5, color: C.gray, marginTop: 1 },
 
   // Notice card
   noticeCard: { borderRadius: 4, borderWidth: 0.5, borderColor: C.divider, overflow: 'hidden' as const },
   noticeHeader: { backgroundColor: C.dark, paddingVertical: 5, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 4, borderTopLeftRadius: 4, borderTopRightRadius: 4 },
   noticeHeaderIcon: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#f59e0b' },
-  noticeHeaderText: { fontFamily: 'Helvetica-Bold', fontSize: 6, color: C.white, letterSpacing: 0.5 },
+  noticeHeaderText: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 6, color: C.white, letterSpacing: 0.5 },
   noticeBody: { backgroundColor: C.white, paddingVertical: 8, paddingHorizontal: 10, borderBottomLeftRadius: 4, borderBottomRightRadius: 4 },
   noticeDpLabel: { fontSize: 6, color: C.gray, marginBottom: 2 },
-  noticeDpAmount: { fontFamily: 'Helvetica-Bold', fontSize: 11, color: C.primary, marginBottom: 8 },
+  noticeDpAmount: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 11, color: C.primary, marginBottom: 8 },
   noticeBulletRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 4, marginBottom: 3 },
   noticeBulletDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: C.gray, marginTop: 2.5 },
   noticeBulletText: { fontSize: 5.5, color: '#4b5563', flex: 1, lineHeight: 1.4 },
   noticeCta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' as const, gap: 3, marginTop: 6, paddingTop: 6, borderTopWidth: 0.5, borderTopColor: C.divider },
   noticeCtaText: { fontSize: 6, color: C.gray },
-  noticeCtaBold: { fontFamily: 'Helvetica-Bold', fontSize: 6, color: C.dark },
+  noticeCtaBold: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 6, color: C.dark },
 
   // Footer
   footer: { position: 'absolute' as const, bottom: 0, left: 0, right: 0, backgroundColor: C.bgLight, borderTopWidth: 0.3, borderTopColor: C.divider, paddingVertical: 8, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   footerLeft: {},
   footerAgentLabel: { fontSize: 5.5, color: C.lightGray, marginBottom: 1 },
-  footerAgentName: { fontFamily: 'Helvetica-Bold', fontSize: 9, color: C.dark },
+  footerAgentName: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 9, color: C.dark },
   footerRight: { alignItems: 'flex-end' as const },
   footerKemenag: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 2 },
-  footerKemenagText: { fontFamily: 'Helvetica-Bold', fontSize: 6.5, color: C.dark },
-  footerPtName: { fontFamily: 'Helvetica-Bold', fontSize: 5.5, color: C.dark, marginBottom: 2, textAlign: 'right' as const },
+  footerKemenagText: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 6.5, color: C.dark },
+  footerPtName: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 5.5, color: C.dark, marginBottom: 2, textAlign: 'right' as const },
   footerPermit: { fontSize: 5.5, color: C.gray, textAlign: 'right' as const },
 
   // Disclaimer
   disclaimerRow: { flexDirection: 'row', marginHorizontal: 20, marginTop: 10, gap: 10 },
   disclaimerCol: { flex: 1 },
-  disclaimerText: { fontFamily: 'Helvetica-Oblique', fontSize: 5, color: C.gray, lineHeight: 1.5 },
+  disclaimerText: { fontFamily: 'Inter', fontStyle: 'italic' as const, fontSize: 5, color: C.gray, lineHeight: 1.5 },
 
   // Agent profile footer
   agentFooterAccent: { position: 'absolute' as const, bottom: 52, left: 0, right: 0, height: 7, backgroundColor: C.primary },
@@ -159,9 +171,9 @@ const s = StyleSheet.create({
   agentPhoto: { width: 36, height: 36, borderRadius: 18, objectFit: 'cover' as const },
   agentBadge: { position: 'absolute' as const, top: -2, right: -2, width: 14, height: 14, borderRadius: 7, backgroundColor: C.white, alignItems: 'center' as const, justifyContent: 'center' as const },
   agentInfo: { flex: 1 },
-  agentName: { fontFamily: 'Helvetica-Bold', fontSize: 10, color: C.dark, marginBottom: 1.5 },
+  agentName: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 10, color: C.dark, marginBottom: 1.5 },
   agentWebsite: { fontSize: 6.5, color: C.gray, marginBottom: 1.5 },
-  agentContact: { fontFamily: 'Helvetica-Bold', fontSize: 7.5, color: C.dark },
+  agentContact: { fontFamily: 'Inter', fontWeight: 'bold' as const, fontSize: 7.5, color: C.dark },
 });
 
 // ── Banks Data ──
