@@ -18,10 +18,10 @@ const updateSW = registerSW({
   immediate: true
 })
 
-// Simple path-based routing (supports /kalkulasi and /:slug/kalkulasi)
+// Simple path-based routing (only /:slug/kalkulasi is valid, not bare /kalkulasi)
 const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)
-const isKalkulasi = segments.includes('kalkulasi')
-const agentSlugForKalkulasi = isKalkulasi && segments.length >= 2 && segments[1] === 'kalkulasi'
+const isKalkulasi = segments.length >= 2 && segments[1] === 'kalkulasi'
+const agentSlugForKalkulasi = isKalkulasi
   ? AGENTS_DATA[segments[0]?.toLowerCase()] || null
   : null
 

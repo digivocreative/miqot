@@ -2,13 +2,12 @@ import { Document, Page, View, Text, Image, StyleSheet, Font, Svg, Circle, Path 
 import type { UmrohPackage } from '@/types';
 import type { AgentData } from '@/data/agents';
 
-// ── Register Inter font ──
-const origin = typeof window !== 'undefined' ? window.location.origin : '';
+// ── Register Inter font (Google Fonts CDN – works everywhere) ──
 Font.register({
   family: 'Inter',
   fonts: [
-    { src: `${origin}/fonts/Inter-Regular.ttf`, fontWeight: 'normal' },
-    { src: `${origin}/fonts/Inter-Bold.ttf`, fontWeight: 'bold' },
+    { src: 'https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfMZg.ttf', fontWeight: 'normal' },
+    { src: 'https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuFuYMZg.ttf', fontWeight: 'bold' },
   ],
 });
 // Disable hyphenation
@@ -33,6 +32,7 @@ export interface QuotationProps {
   };
   namaLengkap: string;
   agent?: AgentData;
+  agentPhotoBase64?: string;
 }
 
 // ── Colors ──
@@ -186,7 +186,7 @@ const banks = [
 // ═══════════════════════════════════════════════════
 // Component
 // ═══════════════════════════════════════════════════
-export function QuotationDocument({ pkg, summary, namaLengkap, agent }: QuotationProps) {
+export function QuotationDocument({ pkg, summary, namaLengkap, agent, agentPhotoBase64 }: QuotationProps) {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const logoSrc = `${origin}/icon-192x192.png`;
   const now = new Date();
@@ -439,7 +439,7 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent }: Quotatio
           <View style={s.agentFooterAccent} fixed />
           <View style={s.agentFooter} fixed>
             <View style={s.agentPhotoWrap}>
-              <Image style={s.agentPhoto} src={`${origin}${agent.photo}`} />
+              <Image style={s.agentPhoto} src={agentPhotoBase64 || `${origin}${agent.photo}`} />
               <View style={s.agentBadge}>
                 <Svg width={12} height={12} viewBox="0 0 24 24">
                   <Circle cx="12" cy="12" r="12" fill="#1DA1F2" />

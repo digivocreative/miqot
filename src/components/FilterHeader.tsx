@@ -10,7 +10,8 @@ import {
   type MonthGroup,
 } from '@/utils';
 import logoAlhijaz from '@/logo-alhijaz.webp';
-import { Sun, Moon, Search, X, SlidersHorizontal, Share2 } from 'lucide-react';
+import { Sun, Moon, Search, X, SlidersHorizontal, Share2, Calculator } from 'lucide-react';
+import { AGENTS_DATA } from '@/data/agents';
 
 // ============================================
 // Types
@@ -178,14 +179,39 @@ export function FilterHeader({
           </div>
 
            {/* Year Dropdown & Dark Mode Toggle */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+
+             {/* Kalkulasi Icon – only if valid agent slug */}
+             {(() => {
+               const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0]?.toLowerCase();
+               if (!seg || !AGENTS_DATA[seg]) return null;
+               return (
+                 <a
+                   href={`/${seg}/kalkulasi`}
+                   className="
+                     flex items-center gap-2
+                     px-3 h-[38px] rounded-xl
+                     bg-gray-100/80 text-gray-600
+                     hover:bg-gray-200/80
+                     dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700/80
+                     transition-all duration-200
+                     focus:outline-none focus:ring-2 focus:ring-emerald-500
+                   "
+                   aria-label="Kalkulasi Harga"
+                   title="Kalkulasi Harga"
+                 >
+                   <Calculator size={16} />
+                   <span className="text-xs font-medium">Hitung</span>
+                 </a>
+               );
+             })()}
 
              {/* Dark Mode Toggle */}
              <button
               onClick={onToggleDarkMode}
               className="
-                flex items-center gap-2
-                px-3 h-[38px] rounded-xl
+                flex items-center justify-center
+                w-[38px] h-[38px] rounded-xl
                 bg-gray-100/80 text-gray-600
                 hover:bg-gray-200/80
                 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700/80
@@ -195,7 +221,6 @@ export function FilterHeader({
               aria-label="Toggle Dark Mode"
             >
               {isDarkMode ? <Moon size={16} /> : <Sun size={16} />}
-              <span className="text-xs font-medium">{isDarkMode ? 'Dark' : 'Light'}</span>
             </button>
 
            </div>

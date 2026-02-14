@@ -1,3 +1,7 @@
+import { Buffer } from 'buffer';
+if (typeof window !== 'undefined' && !window.Buffer) {
+  (window as unknown as Record<string, unknown>).Buffer = Buffer;
+}
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { pdf } from '@react-pdf/renderer';
@@ -35,6 +39,8 @@ import {
   MessageCircle,
   AlertCircle,
   Sparkles,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { getPackages } from '@/services';
 import type { UmrohPackage, HotelInfo } from '@/types';
@@ -103,7 +109,7 @@ function Counter({
   max?: number;
 }) {
   return (
-    <div className="inline-flex items-center bg-white rounded-full border-2 border-slate-200 p-0.5 shadow-sm transition-all duration-300">
+    <div className="inline-flex items-center bg-white dark:bg-slate-800 rounded-full border-2 border-slate-200 dark:border-slate-600 p-0.5 shadow-sm transition-all duration-300">
       <button
         type="button"
         onClick={() => onChange(Math.max(min, value - 1))}
@@ -112,7 +118,7 @@ function Counter({
       >
         <Minus size={14} strokeWidth={2.5} />
       </button>
-      <span className="w-8 text-center font-bold text-slate-800 text-sm tabular-nums select-none">
+      <span className="w-8 text-center font-bold text-slate-800 dark:text-slate-100 text-sm tabular-nums select-none">
         {value}
       </span>
       <button
@@ -167,7 +173,7 @@ function SearchableSelect({
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         disabled={loading}
-        className="w-full text-left rounded-2xl border-2 border-slate-200 bg-white shadow-sm transition-all duration-300 hover:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 disabled:opacity-60 overflow-hidden"
+        className="w-full text-left rounded-2xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-sm transition-all duration-300 hover:border-emerald-300 dark:hover:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 disabled:opacity-60 overflow-hidden"
       >
         {loading ? (
           <div className="flex items-center gap-2 text-slate-400 text-sm px-4 py-4">
@@ -179,9 +185,9 @@ function SearchableSelect({
           <div className="flex items-stretch">
             <div className="flex-1 min-w-0 p-4">
               <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1">Keberangkatan</p>
-              <p className="text-lg font-bold text-slate-900 tracking-tight leading-tight">{parsed.date}</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight leading-tight">{parsed.date}</p>
               {parsed.name && (
-                <p className="text-xs text-slate-500 mt-0.5 truncate">{parsed.name}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{parsed.name}</p>
               )}
             </div>
             <div className="w-px bg-slate-200 my-3 border-l border-dashed border-slate-300" />
@@ -193,7 +199,7 @@ function SearchableSelect({
           </div>
         ) : (
           <div className="flex items-center justify-between px-4 py-4">
-            <span className="text-slate-500 text-sm font-medium">{placeholder}</span>
+            <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">{placeholder}</span>
             <ChevronDown size={18} className="text-emerald-500" />
           </div>
         )}
@@ -202,8 +208,8 @@ function SearchableSelect({
       {isOpen && !loading && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute left-0 right-0 z-50 mt-2 rounded-2xl border border-slate-100 bg-white shadow-2xl overflow-hidden">
-            <div className="p-2.5 border-b border-slate-100 bg-slate-50/50">
+          <div className="absolute left-0 right-0 z-50 mt-2 rounded-2xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-2xl overflow-hidden">
+            <div className="p-2.5 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50">
               <div className="relative">
                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
@@ -211,7 +217,7 @@ function SearchableSelect({
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Cari tanggal, paket, hotel, maskapai..."
-                  className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+                  className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
                   autoFocus
                 />
               </div>
@@ -234,8 +240,8 @@ function SearchableSelect({
                         setIsOpen(false);
                         setSearch('');
                       }}
-                      className={`w-full text-left px-4 py-3 transition-all duration-300 flex items-center gap-3 border-b border-slate-50 last:border-0 ${
-                        isSelected ? 'bg-emerald-50' : 'hover:bg-slate-50'
+                      className={`w-full text-left px-4 py-3 transition-all duration-300 flex items-center gap-3 border-b border-slate-50 dark:border-slate-700/50 last:border-0 ${
+                        isSelected ? 'bg-emerald-50 dark:bg-emerald-900/30' : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
                       }`}
                     >
                       <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center ${
@@ -245,7 +251,7 @@ function SearchableSelect({
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
-                          <p className={`text-sm font-semibold ${isSelected ? 'text-emerald-700' : 'text-slate-800'}`}>
+                          <p className={`text-sm font-semibold ${isSelected ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-100'}`}>
                             {parts[0]}
                           </p>
                           {opt.flags && opt.flags.length > 0 && (
@@ -253,7 +259,7 @@ function SearchableSelect({
                           )}
                         </div>
                         {parts[1] && (
-                          <p className={`text-xs truncate ${isSelected ? 'text-emerald-500' : 'text-slate-500'}`}>
+                          <p className={`text-xs truncate ${isSelected ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
                             {parts[1]}
                           </p>
                         )}
@@ -275,7 +281,7 @@ function SearchableSelect({
 // Section Divider
 // ============================================
 function SectionDivider() {
-  return <div className="border-b border-slate-100 mx-0" />;
+  return <div className="border-b border-slate-100 dark:border-slate-700/50 mx-0" />;
 }
 
 // ============================================
@@ -283,8 +289,8 @@ function SectionDivider() {
 // ============================================
 function SectionHeader({ icon: Icon, label }: { icon: React.ElementType; label: string }) {
   return (
-    <h2 className="text-sm font-bold text-slate-800 tracking-tight mb-3 flex items-center gap-2.5">
-      <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center border border-amber-100/80">
+    <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200 tracking-tight mb-3 flex items-center gap-2.5">
+      <div className="w-7 h-7 rounded-lg bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center border border-amber-100/80 dark:border-amber-700/50">
         <Icon size={14} className="text-amber-600" />
       </div>
       {label}
@@ -409,7 +415,6 @@ function ResultModal({
     // Rincian biaya
     lines.push('📋 *RINCIAN BIAYA UMROH*');
     lines.push('─────────────');
-    lines.push('');
 
     for (const item of summary.items) {
       const emoji = item.label.toLowerCase().includes('infant') ? '👶'
@@ -425,7 +430,6 @@ function ResultModal({
       lines.push(`*${fmtRp(item.total)}*`);
       lines.push('');
     }
-
     lines.push('─────────────');
     if (summary.discount > 0) {
       lines.push(`🧾 Subtotal    ${fmtRp(summary.subtotal)}`);
@@ -499,7 +503,7 @@ function ResultModal({
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-[9999] bg-white flex flex-col"
+          className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
           initial={{ opacity: 0, y: '100%' }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: '100%' }}
@@ -507,46 +511,46 @@ function ResultModal({
         >
 
       {/* ─── HEADER ─── */}
-      <div className="flex-none sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-gray-200/60 px-5 py-4 flex justify-between items-center shadow-sm">
+      <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
         <div className="flex flex-col">
-          <h2 className="text-lg font-bold text-gray-900">
+          <h2 className="text-lg font-bold text-gray-900 dark:text-slate-100">
             {view === 'results' ? 'Hasil Kalkulasi' : 'Preview Quotation'}
           </h2>
-          <span className="text-xs text-gray-500 font-medium">
+          <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
             {view === 'results'
-              ? (namaLengkap ? <>untuk <span className="font-semibold text-gray-700">{namaLengkap}</span></> : 'Perhitungan Harga Paket Umroh')
+              ? (namaLengkap ? <>untuk <span className="font-semibold text-gray-700 dark:text-slate-300">{namaLengkap}</span></> : 'Perhitungan Harga Paket Umroh')
               : `Dokumen PDF${pdfNumPages ? ` · ${pdfNumPages} halaman` : ''}`
             }
           </span>
         </div>
-        <button onClick={onClose} className="p-2 bg-gray-100 rounded-full text-gray-600 hover:bg-gray-200 transition-colors shrink-0">
+        <button onClick={onClose} className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0">
           <X className="w-6 h-6" />
         </button>
       </div>
 
       {/* ─── SCROLLABLE BODY ─── */}
       {view === 'results' ? (
-        <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 px-4 pb-6">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 dark:bg-slate-950 px-4 pb-6">
           <div className="max-w-2xl mx-auto pt-4 space-y-4">
             {pkg && (
-              <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
-                <p className="font-bold text-center text-slate-800 leading-relaxed">{pkg.nama}</p>
-                <p className="text-xs text-center text-slate-500">Flight by {pkg.maskapai}</p>
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm p-4 space-y-3">
+                <p className="font-bold text-center text-slate-800 dark:text-slate-100 leading-relaxed">{pkg.nama}</p>
+                <p className="text-xs text-center text-slate-500 dark:text-slate-300">Flight by {pkg.maskapai}</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="flex items-start gap-2">
                     <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5"><PlaneTakeoff size={16} /></div>
                     <div>
-                      <p className="text-[10px] text-slate-400 uppercase tracking-wide">Berangkat</p>
-                      <p className="text-xs font-bold text-slate-800">{fmtDate(pkg.keberangkatan.tgl)}</p>
-                      <p className="text-[10px] text-slate-500">{pkg.keberangkatan.kodePenerbangan} · {pkg.keberangkatan.jam}</p>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-400 uppercase tracking-wide">Berangkat</p>
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-100">{fmtDate(pkg.keberangkatan.tgl)}</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-300">{pkg.keberangkatan.kodePenerbangan} · {pkg.keberangkatan.jam}</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-2">
                     <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5"><PlaneLanding size={16} /></div>
                     <div>
-                      <p className="text-[10px] text-slate-400 uppercase tracking-wide">Pulang</p>
-                      <p className="text-xs font-bold text-slate-800">{fmtDate(pkg.kepulangan.tgl)}</p>
-                      <p className="text-[10px] text-slate-500">{pkg.kepulangan.kodePenerbangan} · {pkg.kepulangan.jam}</p>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-400 uppercase tracking-wide">Pulang</p>
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-100">{fmtDate(pkg.kepulangan.tgl)}</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-300">{pkg.kepulangan.kodePenerbangan} · {pkg.kepulangan.jam}</p>
                     </div>
                   </div>
                 </div>
@@ -554,15 +558,15 @@ function ResultModal({
                   <div className="grid grid-cols-2 gap-3">
                     {hotelData.mekkah_hotel && (
                       <div className="min-w-0">
-                        <p className="text-[10px] text-slate-400 uppercase tracking-wide">Mekkah</p>
-                        <p className="text-xs text-slate-700 font-medium truncate">{hotelData.mekkah_hotel}</p>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-400 uppercase tracking-wide">Mekkah</p>
+                        <p className="text-xs text-slate-700 dark:text-slate-200 font-medium truncate">{hotelData.mekkah_hotel}</p>
                         {hotelData.mekkah_bintang && (<div className="flex items-center gap-0.5">{Array.from({ length: parseInt(hotelData.mekkah_bintang) }).map((_, i) => (<span key={i} className="text-[10px] text-amber-400">★</span>))}</div>)}
                       </div>
                     )}
                     {hotelData.madinah_hotel && (
                       <div className="min-w-0">
-                        <p className="text-[10px] text-slate-400 uppercase tracking-wide">Madinah</p>
-                        <p className="text-xs text-slate-700 font-medium truncate">{hotelData.madinah_hotel}</p>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-400 uppercase tracking-wide">Madinah</p>
+                        <p className="text-xs text-slate-700 dark:text-slate-200 font-medium truncate">{hotelData.madinah_hotel}</p>
                         {hotelData.madinah_bintang && (<div className="flex items-center gap-0.5">{Array.from({ length: parseInt(hotelData.madinah_bintang) }).map((_, i) => (<span key={i} className="text-[10px] text-amber-400">★</span>))}</div>)}
                       </div>
                     )}
@@ -570,23 +574,23 @@ function ResultModal({
                 )}
               </div>
             )}
-            <div className="bg-white rounded-xl shadow-sm p-4">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Rincian Perhitungan</p>
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm p-4">
+              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-300 uppercase tracking-widest mb-3">Rincian Perhitungan</p>
               <div className="space-y-3">
                 {summary.items.map((item, i) => (
-                  <div key={i} className="bg-slate-50 rounded-xl p-3">
-                    <p className="text-xs font-bold text-slate-700 mb-1.5">{item.label}</p>
-                    <div className="flex justify-between text-xs text-slate-500">
+                  <div key={i} className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3">
+                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">{item.label}</p>
+                    <div className="flex justify-between text-xs text-slate-500 dark:text-slate-300">
                       <span>{formatRupiah(item.unitPrice)} × {item.qty} pax</span>
-                      <span className="font-bold text-slate-800 tabular-nums">{formatRupiah(item.total)}</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-100 tabular-nums">{formatRupiah(item.total)}</span>
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="border-t-2 border-dashed border-slate-200 pt-3 mt-4 space-y-2">
+              <div className="border-t-2 border-dashed border-slate-200 dark:border-slate-600 pt-3 mt-4 space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Subtotal</span>
-                  <span className="text-slate-700 font-medium tabular-nums">{formatRupiah(summary.subtotal)}</span>
+                  <span className="text-slate-500 dark:text-slate-300">Subtotal</span>
+                  <span className="text-slate-700 dark:text-slate-200 font-medium tabular-nums">{formatRupiah(summary.subtotal)}</span>
                 </div>
                 {summary.discount > 0 && (
                   <div className="flex justify-between text-sm">
@@ -594,24 +598,24 @@ function ResultModal({
                     <span className="text-emerald-500 font-medium tabular-nums">- {formatRupiah(summary.discount)}</span>
                   </div>
                 )}
-                <div className="border-t border-slate-200 pt-3">
+                <div className="border-t border-slate-200 dark:border-slate-600 pt-3">
                   <div className="flex justify-between items-baseline">
-                    <span className="text-sm font-bold text-slate-600">TOTAL BIAYA</span>
-                    <span className="text-lg font-extrabold text-emerald-700 tabular-nums">{formatRupiah(summary.grandTotal)}</span>
+                    <span className="text-sm font-bold text-slate-600 dark:text-white">TOTAL BIAYA</span>
+                    <span className="text-lg font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">{formatRupiah(summary.grandTotal)}</span>
                   </div>
                 </div>
               </div>
             </div>
             {catatan && (
-              <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
-                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1">Keterangan</p>
-                <p className="text-xs text-amber-800">{catatan}</p>
+              <div className="bg-amber-50 dark:bg-amber-900/30 rounded-xl p-3 border border-amber-100 dark:border-amber-800/40">
+                <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-widest mb-1">Keterangan</p>
+                <p className="text-xs text-amber-800 dark:text-amber-300">{catatan}</p>
               </div>
             )}
           </div>
         </div>
       ) : (
-        <div ref={pdfContentRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 px-4 pb-6">
+        <div ref={pdfContentRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 dark:bg-slate-950 px-4 pb-6">
           <div className="flex justify-center pt-4">
             {pdfLoading ? (
               <div className="flex flex-col items-center gap-4 py-20">
@@ -625,7 +629,7 @@ function ResultModal({
                 </div>
               </div>
             ) : pdfPreviewUrl ? (
-              <div className="bg-white p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[50vh] flex flex-col items-center justify-center relative">
+              <div className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[50vh] flex flex-col items-center justify-center relative">
                 <PdfDoc
                   file={pdfPreviewUrl}
                   onLoadSuccess={({ numPages }) => setPdfNumPages(numPages)}
@@ -667,33 +671,33 @@ function ResultModal({
       )}
 
       {/* ─── FOOTER ─── */}
-      <div className="flex-none sticky bottom-0 bg-white border-t border-gray-200/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+      <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
         {view === 'results' ? (
           <div className="flex gap-2">
             <button
               onClick={() => { if (pdfEnabled && !pdfBtnLoading) handlePdfClick(); }}
               disabled={!pdfEnabled || pdfBtnLoading}
               className={`flex-1 flex items-center justify-center gap-1.5 py-3.5 rounded-xl text-sm font-semibold border-2 transition-all duration-200 active:scale-[0.97] ${
-                pdfBtnLoading ? 'border-emerald-200 text-emerald-600 bg-emerald-50' : pdfEnabled ? 'border-slate-200 text-emerald-600 bg-white' : 'border-slate-100 text-slate-300 bg-slate-50 cursor-not-allowed'
+                pdfBtnLoading ? 'border-emerald-200 dark:border-emerald-800 text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30' : pdfEnabled ? 'border-slate-200 dark:border-slate-700 text-emerald-600 dark:text-white bg-white dark:bg-slate-800' : 'border-slate-100 dark:border-slate-700 text-slate-300 dark:text-slate-600 bg-slate-50 dark:bg-slate-800 cursor-not-allowed'
               }`}
             >
-              {pdfBtnLoading ? <><Loader2 size={16} className="animate-spin" /> Bentar ya...</> : <><FileText size={16} /> PDF</>}
+              {pdfBtnLoading ? <><Loader2 size={16} className="animate-spin" /> Bentar...</> : <><FileText size={16} /> PDF</>}
             </button>
-            <button onClick={handleCopy} className="flex-1 flex items-center justify-center gap-1.5 py-3.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-indigo-600 bg-white transition-all duration-200 active:scale-[0.97]">
+            <button onClick={handleCopy} className="flex-1 flex items-center justify-center gap-1.5 py-3.5 rounded-xl text-sm font-semibold border-2 border-slate-200 dark:border-slate-700 text-indigo-600 dark:text-white bg-white dark:bg-slate-800 transition-all duration-200 active:scale-[0.97]">
               {copied ? <><CheckCircle2 size={16} /> Copied!</> : <><Copy size={16} /> Copy</>}
             </button>
-            <button onClick={handleShare} className="flex-1 flex items-center justify-center gap-1.5 py-3.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-green-600 bg-white transition-all duration-200 active:scale-[0.97]">
+            <button onClick={handleShare} className="flex-1 flex items-center justify-center gap-1.5 py-3.5 rounded-xl text-sm font-semibold border-2 border-slate-200 dark:border-slate-700 text-green-600 dark:text-white bg-white dark:bg-slate-800 transition-all duration-200 active:scale-[0.97]">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
               Share
             </button>
           </div>
         ) : (
           <div className="flex gap-2">
-            <button onClick={() => setView('results')} className="w-[20%] flex items-center justify-center py-3.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-slate-600 bg-white transition-all duration-200 active:scale-[0.97]">
+            <button onClick={() => setView('results')} className="w-[20%] flex items-center justify-center py-3.5 rounded-xl text-sm font-semibold border-2 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 transition-all duration-200 active:scale-[0.97]">
               <ChevronLeft size={20} />
             </button>
             <button onClick={handleSharePdf} disabled={pdfSharing || pdfLoading} className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70">
-              {pdfSharing ? (<><Loader2 size={20} className="animate-spin" /><span>Bentar ya...</span></>) : (<><Share2 size={20} /><span>Unduh PDF</span></>)}
+              {pdfSharing ? (<><Loader2 size={20} className="animate-spin" /><span>Bentar...</span></>) : (<><Share2 size={20} /><span>Unduh PDF</span></>)}
             </button>
           </div>
         )}
@@ -713,6 +717,17 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
   // --- API Data ---
   const [packages, setPackages] = useState<UmrohPackage[]>([]);
   const [loadingPackages, setLoadingPackages] = useState(true);
+
+  // ── Dark Mode (synced with App via localStorage) ──
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('darkMode');
+    return saved === 'true';
+  });
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isDarkMode) { root.classList.add('dark'); } else { root.classList.remove('dark'); }
+    localStorage.setItem('darkMode', isDarkMode.toString());
+  }, [isDarkMode]);
 
   // Fetch packages from API (year 1448 only)
   const fetchPackages = useCallback(async () => {
@@ -920,8 +935,31 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
   const handleDownloadPDF = useCallback(async () => {
     setPdfLoading(true);
     try {
+      // Pre-fetch agent photo as base64 for react-pdf compatibility
+      let agentPhotoBase64: string | undefined;
+      if (agent?.photo) {
+        try {
+          // Re-encode via Canvas to produce baseline PNG (react-pdf can't handle progressive JPEGs)
+          agentPhotoBase64 = await new Promise<string>((resolve, reject) => {
+            const img = new window.Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              canvas.width = img.naturalWidth;
+              canvas.height = img.naturalHeight;
+              const ctx = canvas.getContext('2d')!;
+              ctx.drawImage(img, 0, 0);
+              resolve(canvas.toDataURL('image/png'));
+            };
+            img.onerror = reject;
+            img.src = agent.photo;
+          });
+        } catch (e) {
+          console.warn('Failed to load agent photo for PDF:', e);
+        }
+      }
       const blob = await pdf(
-        <QuotationDocument pkg={selectedPkg} summary={summary} namaLengkap={namaLengkap} agent={agent || undefined} />
+        <QuotationDocument pkg={selectedPkg} summary={summary} namaLengkap={namaLengkap} agent={agent || undefined} agentPhotoBase64={agentPhotoBase64} />
       ).toBlob();
       pdfBlobRef.current = blob;
       const url = URL.createObjectURL(blob);
@@ -938,26 +976,37 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
   // Render
   // ============================================
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white dark:bg-slate-900 transition-colors duration-300">
 
       {/* ══════════════════════════════ */}
       {/* STICKY HEADER                 */}
       {/* ══════════════════════════════ */}
-      <div className="sticky top-0 z-30 backdrop-blur-md bg-white/90 border-b border-slate-100">
+      <div className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-slate-100 dark:border-slate-700/50">
         <div className="max-w-3xl mx-auto px-5 py-3 flex items-center gap-3">
           <button
             type="button"
-            onClick={() => (window.location.href = '/')}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 hover:bg-emerald-50 text-slate-500 hover:text-emerald-600 transition-all duration-300 active:scale-95"
+            onClick={() => {
+              const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
+              window.location.href = seg ? `/${seg}` : '/';
+            }}
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-slate-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
             title="Kembali"
           >
             <ArrowLeft size={18} />
           </button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-lg font-bold text-slate-900 tracking-tight">
+            <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight">
               Kalkulasi Harga
             </h1>
           </div>
+          <button
+            type="button"
+            onClick={() => setIsDarkMode(prev => !prev)}
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 text-slate-500 dark:text-slate-300 transition-all duration-200 active:scale-95"
+            aria-label="Toggle Dark Mode"
+          >
+            {isDarkMode ? <Moon size={16} /> : <Sun size={16} />}
+          </button>
         </div>
       </div>
 
@@ -980,32 +1029,31 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
             />
           </div>
 
+          <AnimatePresence>
+          {selectedPkg && (
+            <>
+            {/* ══════════════════════════════ */}
+            {/* SECTION: Komposisi Jamaah     */}
+            {/* ══════════════════════════════ */}
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 24 }}
+              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1], delay: 0 }}
+            >
           <SectionDivider />
-
-          {/* ══════════════════════════════ */}
-          {/* SECTION: Komposisi Jamaah     */}
-          {/* ══════════════════════════════ */}
-          <div className="relative">
-            {!selectedPkg && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 rounded-xl">
-                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-amber-50 border border-amber-200">
-                  <AlertCircle size={14} className="text-amber-500" />
-                  <span className="text-xs font-semibold text-amber-700">Pilih paket terlebih dahulu</span>
-                </div>
-              </div>
-            )}
           <div className="py-6">
             <SectionHeader icon={Users} label="Komposisi Jamaah" />
             <div className="space-y-0">
               {/* Dewasa */}
-              <div className="flex items-center justify-between py-3 border-b border-slate-100 last:border-0">
+              <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-700/50 last:border-0">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center">
-                    <User size={15} className="text-slate-600" />
+                  <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/60 flex items-center justify-center">
+                    <User size={15} className="text-slate-600 dark:text-slate-300" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-slate-800">Dewasa</p>
-                    <p className="text-[10px] text-slate-400">12 tahun ke atas</p>
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Dewasa</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-300">12 tahun ke atas</p>
                   </div>
                 </div>
                 <Counter
@@ -1015,14 +1063,14 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                 />
               </div>
               {/* Anak + Kasur */}
-              <div className="flex items-center justify-between py-3 border-b border-slate-100">
+              <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-700/50">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-pink-50 flex items-center justify-center">
-                    <Baby size={15} className="text-pink-500" />
+                  <div className="w-9 h-9 rounded-full bg-pink-50 dark:bg-pink-500/15 flex items-center justify-center">
+                    <Baby size={15} className="text-pink-500 dark:text-pink-400" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-slate-800">Anak + Kasur</p>
-                    <p className="text-[10px] text-slate-400">2 – 5 tahun, dengan kasur</p>
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Anak + Kasur</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-300">2 – 5 tahun, dengan kasur</p>
                   </div>
                 </div>
                 <Counter
@@ -1031,14 +1079,14 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                 />
               </div>
               {/* Anak tanpa Kasur */}
-              <div className="flex items-center justify-between py-3 border-b border-slate-100">
+              <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-700/50">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-violet-50 flex items-center justify-center">
-                    <Baby size={15} className="text-violet-500" />
+                  <div className="w-9 h-9 rounded-full bg-violet-50 dark:bg-violet-500/15 flex items-center justify-center">
+                    <Baby size={15} className="text-violet-500 dark:text-violet-400" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-slate-800">Anak tanpa Kasur</p>
-                    <p className="text-[10px] text-slate-400">2 – 5 tahun, tanpa kasur</p>
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Anak tanpa Kasur</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-300">2 – 5 tahun, tanpa kasur</p>
                   </div>
                 </div>
                 <Counter
@@ -1049,12 +1097,12 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
               {/* Infant */}
               <div className="flex items-center justify-between py-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-sky-50 flex items-center justify-center">
-                    <Baby size={15} className="text-sky-500" />
+                  <div className="w-9 h-9 rounded-full bg-sky-50 dark:bg-sky-500/15 flex items-center justify-center">
+                    <Baby size={15} className="text-sky-500 dark:text-sky-400" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-slate-800">Infant</p>
-                    <p className="text-[10px] text-slate-400">0 – 23 bulan</p>
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Infant</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-300">0 – 23 bulan</p>
                   </div>
                 </div>
                 <Counter
@@ -1064,22 +1112,18 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
               </div>
             </div>
           </div>
-          </div>
+            </motion.div>
 
+            {/* ══════════════════════════════ */}
+            {/* SECTION: Pilihan Kamar        */}
+            {/* ══════════════════════════════ */}
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 24 }}
+              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1], delay: 0.1 }}
+            >
           <SectionDivider />
-
-          {/* ══════════════════════════════ */}
-          {/* SECTION: Pilihan Kamar        */}
-          {/* ══════════════════════════════ */}
-          <div className="relative">
-            {!selectedPkg && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 rounded-xl">
-                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-amber-50 border border-amber-200">
-                  <AlertCircle size={14} className="text-amber-500" />
-                  <span className="text-xs font-semibold text-amber-700">Pilih paket terlebih dahulu</span>
-                </div>
-              </div>
-            )}
           <div className="py-6">
             <div className="flex items-start justify-between">
               <SectionHeader icon={BedDouble} label="Pilihan Kamar" />
@@ -1087,17 +1131,17 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                 <button
                   type="button"
                   onClick={handleAutoCalculateRooms}
-                  className="group relative flex items-center gap-1.5 text-[11px] font-bold px-4 py-2 rounded-full bg-white transition-all duration-300 cursor-pointer active:scale-95 overflow-hidden"
+                  className="group relative flex items-center gap-1.5 text-[11px] font-bold px-4 py-2 rounded-full transition-all duration-300 cursor-pointer active:scale-95 overflow-hidden"
                   style={{
                     border: '1.5px solid transparent',
-                    backgroundImage: 'linear-gradient(white, white), linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7)',
+                    backgroundImage: `linear-gradient(${isDarkMode ? '#1e293b' : 'white'}, ${isDarkMode ? '#1e293b' : 'white'}), linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7)`,
                     backgroundOrigin: 'border-box',
                     backgroundClip: 'padding-box, border-box',
                   }}
                 >
                   <span className="absolute inset-0 rounded-full bg-gradient-to-r from-transparent via-indigo-400/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
-                  <Sparkles size={13} className="relative z-10 text-indigo-500" />
-                  <span className="relative z-10 bg-gradient-to-r from-indigo-500 to-purple-500 bg-clip-text text-transparent">Atur Otomatis</span>
+                  <Sparkles size={13} className="relative z-10 text-indigo-500 dark:text-indigo-400" />
+                  <span className="relative z-10 bg-gradient-to-r from-indigo-500 to-purple-500 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent">Atur Otomatis</span>
                 </button>
               )}
             </div>
@@ -1114,16 +1158,16 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                 return (
                   <div
                     key={room.key}
-                    className={`flex items-center justify-between py-3 transition-all duration-300 ${!isLast ? 'border-b border-slate-100' : ''} ${isSelected ? 'bg-emerald-50/40 -mx-5 px-5 rounded-lg' : ''} ${autoFillFlash && isSelected ? 'animate-pulse' : ''}`}
+                    className={`flex items-center justify-between py-3 transition-all duration-300 ${!isLast ? 'border-b border-slate-100 dark:border-slate-700/50' : ''} ${isSelected ? 'bg-emerald-50/40 dark:bg-emerald-900/20 -mx-5 px-5 rounded-lg' : ''} ${autoFillFlash && isSelected ? 'animate-pulse' : ''}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${room.color}`}>
                         <BedDouble size={15} />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-800">{room.label}</p>
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{room.label}</p>
                         <div className="flex items-center gap-2">
-                          <p className="text-[10px] text-slate-400">{room.desc}</p>
+                          <p className="text-[10px] text-slate-400 dark:text-slate-300">{room.desc}</p>
                           {selectedPkg && price > 0 && (
                             <span className="text-[10px] font-semibold text-emerald-600 tabular-nums">
                               {formatRupiah(price)}
@@ -1145,8 +1189,8 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
             {totalJamaahNeedRoom > 0 && (
               <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-300 ${
                 roomBalanced
-                  ? 'bg-emerald-50 text-emerald-700'
-                  : 'bg-amber-50 text-amber-700'
+                  ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
               }`}>
                 {roomBalanced ? (
                   <><CheckCircle2 size={14} /> Kamar sesuai — {totalRoomPax} bed</>
@@ -1158,19 +1202,24 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
               </div>
             )}
           </div>
-          </div>
+            </motion.div>
 
+            {/* ══════════════════════════════ */}
+            {/* SECTION: Diskon & Catatan     */}
+            {/* ══════════════════════════════ */}
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 24 }}
+              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1], delay: 0.2 }}
+            >
           <SectionDivider />
-
-          {/* ══════════════════════════════ */}
-          {/* SECTION: Diskon & Catatan     */}
-          {/* ══════════════════════════════ */}
           <div className="py-6">
             <SectionHeader icon={Tag} label="Diskon" />
             <div className="space-y-4">
               {/* Toggle Diskon */}
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-slate-700">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                   Aktifkan Diskon
                 </label>
                 <button
@@ -1178,8 +1227,8 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                   role="switch"
                   aria-checked={isDiscountActive}
                   onClick={() => setIsDiscountActive(!isDiscountActive)}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${
-                    isDiscountActive ? 'bg-emerald-600' : 'bg-slate-200'
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 ${
+                    isDiscountActive ? 'bg-emerald-600' : 'bg-slate-200 dark:bg-slate-600'
                   }`}
                 >
                   <span
@@ -1194,10 +1243,10 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                 <div className="space-y-4">
                   {/* Discount Type Selector */}
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1.5 ml-0.5">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 ml-0.5">
                       Jenis Diskon
                     </label>
-                    <div className="flex rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="flex rounded-xl border border-slate-200 dark:border-slate-600 overflow-hidden">
                       {([
                         { value: 'per-pax' as const, label: 'Setiap Jamaah' },
                         { value: 'flat' as const, label: 'Sebagian Jamaah' },
@@ -1209,14 +1258,14 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                           className={`flex-1 py-2.5 text-xs font-semibold transition-all duration-300 ${
                             discountType === opt.value
                               ? 'bg-emerald-600 text-white'
-                              : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                              : 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                           }`}
                         >
                           {opt.label}
                         </button>
                       ))}
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-1.5 ml-0.5">
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 ml-0.5">
                       {discountType === 'per-pax'
                         ? 'Diskon dikalikan jumlah seluruh jamaah'
                         : 'Diskon berlaku sebagai potongan langsung'}
@@ -1225,7 +1274,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
 
                   {/* Discount Amount */}
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1.5 ml-0.5">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 ml-0.5">
                       Nominal Diskon{discountType === 'per-pax' ? ' per Jamaah' : ''} (Rp)
                     </label>
                     <div className="grid grid-cols-2 gap-2">
@@ -1237,7 +1286,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                           className={`py-2.5 rounded-xl text-xs font-semibold text-center transition-all duration-300 ${
                             !isManualDiscount && discountAmount === preset
                               ? 'bg-emerald-600 text-white shadow-sm'
-                              : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100'
+                              : 'bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
                           }`}
                         >
                           {formatRupiah(preset)}
@@ -1249,14 +1298,14 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                         className={`py-2.5 rounded-xl text-xs font-semibold text-center transition-all duration-300 ${
                           isManualDiscount
                             ? 'bg-emerald-600 text-white shadow-sm'
-                            : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100'
+                            : 'bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
                         }`}
                       >
                         Input Manual
                       </button>
                     </div>
                     {isManualDiscount && (
-                      <div className="mt-2 flex items-center rounded-xl border border-slate-200 bg-slate-50 overflow-hidden transition-all duration-300 focus-within:ring-2 focus-within:ring-emerald-500/20 focus-within:border-emerald-400">
+                      <div className="mt-2 flex items-center rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 overflow-hidden transition-all duration-300 focus-within:ring-2 focus-within:ring-emerald-500/20 focus-within:border-emerald-400">
                         <span className="pl-4 pr-2 text-sm font-semibold text-slate-400 select-none">Rp</span>
                         <input
                           type="text"
@@ -1267,7 +1316,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                             setDiscountAmount(Math.min(parseInt(raw) || 0, 19_999_999));
                           }}
                           placeholder="Masukkan nominal"
-                          className="flex-1 py-3.5 pr-4 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none tabular-nums"
+                          className="flex-1 py-3.5 pr-4 bg-transparent text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none tabular-nums"
                         />
                       </div>
                     )}
@@ -1277,6 +1326,10 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
 
             </div>
           </div>
+            </motion.div>
+            </>
+          )}
+          </AnimatePresence>
 
           <SectionDivider />
 
@@ -1284,8 +1337,8 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
           {/* SECTION: Rincian Biaya        */}
           {/* ══════════════════════════════ */}
           <div className="py-8">
-            <h2 className="text-sm font-bold text-slate-800 tracking-tight mb-4 flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center border border-amber-100/80">
+            <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200 tracking-tight mb-4 flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center border border-amber-100/80 dark:border-amber-700/50">
                 <FileText size={14} className="text-amber-600" />
               </div>
               Rincian Biaya
@@ -1294,7 +1347,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
             {/* Line items */}
             {summary.items.length === 0 ? (
               <div className="text-center py-6">
-                <div className="w-11 h-11 mx-auto rounded-full bg-slate-50 flex items-center justify-center mb-2">
+                <div className="w-11 h-11 mx-auto rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center mb-2">
                   <FileText size={18} className="text-slate-300" />
                 </div>
                 <p className="text-xs text-slate-400">
@@ -1307,10 +1360,10 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                   {summary.items.map((item, i) => (
                     <div key={i}>
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-600">
+                        <span className="text-slate-600 dark:text-slate-400">
                           {item.qty}× {item.label}
                         </span>
-                        <span className="text-slate-800 font-medium tabular-nums">
+                        <span className="text-slate-800 dark:text-slate-100 font-medium tabular-nums">
                           {formatRupiah(item.total)}
                         </span>
                       </div>
@@ -1323,12 +1376,12 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                   ))}
                 </div>
 
-                <div className="border-t border-dashed border-slate-200 my-4" />
+                <div className="border-t border-dashed border-slate-200 dark:border-slate-600 my-4" />
 
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Subtotal</span>
-                    <span className="text-slate-700 font-medium tabular-nums">
+                    <span className="text-slate-500 dark:text-slate-400">Subtotal</span>
+                    <span className="text-slate-700 dark:text-slate-200 font-medium tabular-nums">
                       {formatRupiah(summary.subtotal)}
                     </span>
                   </div>
@@ -1342,10 +1395,10 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                   )}
                 </div>
                 {/* Grand Total */}
-                <div className="mt-4 pt-4 border-t border-slate-200">
+                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-600">
                   <div className="flex justify-between items-baseline">
-                    <span className="text-sm font-bold text-slate-600">Grand Total</span>
-                    <span className="text-3xl font-bold text-emerald-700 tabular-nums tracking-tight">
+                    <span className="text-sm font-bold text-slate-600 dark:text-slate-300">Grand Total</span>
+                    <span className="text-3xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums tracking-tight">
                       {formatRupiah(summary.grandTotal)}
                     </span>
                   </div>
@@ -1385,7 +1438,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
         pdfLoading={pdfLoading}
         pdfNumPages={pdfNumPages}
         setPdfNumPages={setPdfNumPages}
-        pdfEnabled={new URLSearchParams(window.location.search).has('pdf')}
+        pdfEnabled={true}
       />
 
     </div>
