@@ -453,7 +453,7 @@ function ResultModal({
 
   const handlePdfClick = () => {
     setView('pdf');
-    if (!pdfPreviewUrl) onGeneratePDF();
+    onGeneratePDF(); // always regenerate so latest data is reflected
   };
 
   const handleSharePdf = async () => {
@@ -815,7 +815,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
           ? ANAK_TANPA_KASUR_DISC_PROMO
           : ANAK_TANPA_KASUR_DISC_NORMAL;
       const anakPrice = Math.max(0, roomPrices.quad - disc);
-      items.push({ label: 'Anak (tanpa Kasur)', qty: jamaah.balitaTanpaKasur, unitPrice: anakPrice, total: jamaah.balitaTanpaKasur * anakPrice, note: `${formatRupiah(roomPrices.quad)} − ${formatRupiah(disc)}` });
+      items.push({ label: 'Anak (tanpa Kasur)', qty: jamaah.balitaTanpaKasur, unitPrice: anakPrice, total: jamaah.balitaTanpaKasur * anakPrice, note: `${formatRupiah(roomPrices.quad)} - ${formatRupiah(disc)}` });
     }
     if (jamaah.infant > 0) {
       const infantPrice = roomPrices.infant;

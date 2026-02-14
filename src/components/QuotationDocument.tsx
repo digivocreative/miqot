@@ -45,7 +45,7 @@ const fmtDate = (d: string) =>
 
 // ── Styles ──
 const s = StyleSheet.create({
-  page: { fontFamily: 'Helvetica', fontSize: 8, color: C.dark, paddingBottom: 60 },
+  page: { fontFamily: 'Helvetica', fontSize: 8, color: C.dark, paddingBottom: 75 },
   watermark: { position: 'absolute' as const, bottom: 35, left: '10%', width: '80%', opacity: 0.05 },
 
   // Header
@@ -114,7 +114,7 @@ const s = StyleSheet.create({
   // Bank cards
   bankSectionTitle: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 },
   bankCard: { borderRadius: 4, paddingVertical: 6, paddingHorizontal: 8, marginBottom: 4, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  bankLogo: { width: 28, height: 14, objectFit: 'contain' as const },
+  bankLogo: { width: 40, height: 20, objectFit: 'contain' as const },
   bankDivider: { width: 0.5, height: 20, backgroundColor: C.divider },
   bankInfo: { flex: 1 },
   bankName: { fontFamily: 'Helvetica', fontSize: 5, color: C.gray, marginBottom: 1, textTransform: 'uppercase' as const, letterSpacing: 0.1 },
@@ -150,7 +150,7 @@ const s = StyleSheet.create({
   // Disclaimer
   disclaimerRow: { flexDirection: 'row', marginHorizontal: 20, marginTop: 10, gap: 10 },
   disclaimerCol: { flex: 1 },
-  disclaimerText: { fontFamily: 'Helvetica-Oblique', fontSize: 5, color: C.lightGray, lineHeight: 1.5 },
+  disclaimerText: { fontFamily: 'Helvetica-Oblique', fontSize: 5, color: C.gray, lineHeight: 1.5 },
 
   // Agent profile footer
   agentFooterAccent: { position: 'absolute' as const, bottom: 52, left: 0, right: 0, height: 7, backgroundColor: C.primary },
@@ -196,9 +196,29 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent }: Quotatio
   const starLabel = hotelData?.mekkah_bintang ? `AKOMODASI HOTEL` : 'AKOMODASI HOTEL';
   const hotelNames = hotelData ? [hotelData.mekkah_hotel, hotelData.madinah_hotel].filter(Boolean).join(' / ') : '—';
 
+  // ── Dynamic page height ──
+  // A5 width = 420.94pt. Compute height based on content.
+  const A5W = 420.94;
+  let h = 0;
+  h += 35;   // header accent + header bar
+  h += 35;   // doc title / meta rows
+  h += 95;   // detail paket card (flight + hotel info)
+  h += 20;   // section header "RINCIAN BIAYA"
+  h += 18;   // table head
+  h += summary.items.length * 18; // each row ~18pt (label + possible note)
+  if (summary.discount > 0) h += 18; // discount row
+  h += 25;   // total bar
+  h += 140;  // bottom 2-column (bank cards + notice/CTA card)
+  h += 35;   // disclaimer 2-column
+  h += 65;   // footer (absolute positioned, paddingBottom reservation)
+  if (agent) h += 50; // agent card (photo + accent)
+  h += 25;   // extra breathing room / margins
+  // Single-page: no max cap — let it grow as needed, minimum A5 height
+  const pageH = Math.max(420, h);
+
   return (
     <Document>
-      <Page size="A5" style={s.page}>
+      <Page size={{ width: A5W, height: pageH }} style={s.page}>
 
         {/* ─── WATERMARK ─── */}
         <Image style={s.watermark} src={`${origin}/logo-alhijaz-besar.png`} fixed />
