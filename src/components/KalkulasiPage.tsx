@@ -440,7 +440,7 @@ function ResultModal({
     lines.push(`👉 *${fmtRp(summary.grandTotal)}*`);
     lines.push('');
     if (catatan) {
-      lines.push('📝 *Keterangan :*');
+      lines.push('📝 *Keterangan:*');
       lines.push(catatan);
       lines.push('');
     }
