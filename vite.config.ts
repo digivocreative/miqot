@@ -11,13 +11,23 @@ dotenv.config()
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 // Git commit info for version tracking
-let commitHash = 'unknown'
-let commitMessage = ''
-try {
-  commitHash = execSync('git rev-parse --short HEAD').toString().trim()
-  commitMessage = execSync('git log -1 --pretty=%s').toString().trim()
-} catch {
-  console.warn('⚠️  Git info not available — using fallback values')
+// 1) Check CI/CD environment variables first
+// 2) Fall back to git commands
+// 3) Fall back to 'unknown'
+let commitHash = process.env.CF_PAGES_COMMIT_SHA?.slice(0, 7)
+  || process.env.COMMIT_REF?.slice(0, 7)
+  || process.env.GITHUB_SHA?.slice(0, 7)
+  || process.env.COMMIT_SHA?.slice(0, 7)
+  || ''
+let commitMessage = process.env.COMMIT_MSG || ''
+
+if (!commitHash) {
+  try {
+    commitHash = execSync('git rev-parse --short HEAD').toString().trim()
+    commitMessage = execSync('git log -1 --pretty=%s').toString().trim()
+  } catch {
+    commitHash = 'unknown'
+  }
 }
 
 // https://vite.dev/config/
