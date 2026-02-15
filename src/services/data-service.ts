@@ -25,6 +25,15 @@ const DEFAULT_YEAR_CODE = '1448'; // Hijri year code
 // ============================================
 
 /**
+ * Normalize URLs from the API that may use a raw IP address.
+ * Replaces http(s)://115.124.86.220 with https://jadwal.alhijaz.co
+ */
+function normalizeApiUrl(url: string | undefined | null): string {
+  if (!url) return '';
+  return url.replace(/^https?:\/\/115\.124\.86\.220/i, 'https://jadwal.alhijaz.co');
+}
+
+/**
  * Transform raw API hotel data to typed HotelInfo
  */
 function transformHotelInfo(rawHotel: Record<string, string>): HotelInfo {
@@ -75,8 +84,8 @@ function transformPackage(raw: UmrohPackageRaw): UmrohPackage {
     manasikJam: raw.manasik_jam,
 
     // Documents
-    brosurUrl: raw.brosur,
-    itineraryUrl: raw.itinerary,
+    brosurUrl: normalizeApiUrl(raw.brosur),
+    itineraryUrl: normalizeApiUrl(raw.itinerary),
 
     // Pricing
     perlengkapanHarga: raw.perlengkapan_harga,

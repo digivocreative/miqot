@@ -26,7 +26,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
 
   // Always use proxy path: Vite proxy in dev, Cloudflare Pages Function in prod
   const displayUrl = imageUrl
-    ? imageUrl.replace(/^https?:\/\/jadwal\.miqot\.com/i, '')
+    ? imageUrl.replace(/^https?:\/\/(?:jadwal\.(?:miqot\.com|alhijaz\.co)|115\.124\.86\.220)/i, '')
     : '';
 
   // Share First, Download Fallback handler
