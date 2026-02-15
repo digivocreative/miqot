@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  alhijaz-app:
+    build: .
+    container_name: alhijaz_co
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
