@@ -186,8 +186,14 @@ export function FilterHeader({
                const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0]?.toLowerCase();
                if (!seg || !AGENTS_DATA[seg]) return null;
                return (
-                 <a
-                   href={`/${seg}/kalkulasi`}
+                 <button
+                   onClick={(e) => {
+                     e.preventDefault();
+                     document.body.classList.add('navigating');
+                     setTimeout(() => {
+                       window.location.href = `/${seg}/kalkulasi?transition=1`;
+                     }, 280);
+                   }}
                    className="
                      flex items-center gap-2
                      px-3 h-[38px] rounded-xl
@@ -202,7 +208,7 @@ export function FilterHeader({
                  >
                    <Calculator size={16} />
                    <span className="text-xs font-medium">Hitung</span>
-                 </a>
+                 </button>
                );
              })()}
 

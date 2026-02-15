@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
 import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, ClipboardCheck, Copy, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { domToPng } from 'modern-screenshot';
 import { UmrohPackage, RoomPricing } from '@/types';
 import { BrochureModal } from './BrochureModal';
-import { ItineraryModal } from './ItineraryModal';
+
+// Lazy-load heavy components (react-pdf ~500kB loaded on-demand)
+const ItineraryModal = lazy(() => import('./ItineraryModal').then(m => ({ default: m.ItineraryModal })));
 import type { AgentData } from '@/data/agents';
 import AgentProfile from './AgentProfile';
 import logoAlhijaz from '@/logo-alhijaz.webp';
@@ -1221,6 +1222,7 @@ _________________________
       await new Promise(resolve => setTimeout(resolve, 300));
 
       // 4c. Render the wrapper (which contains header + clone)
+      const { domToPng } = await import('modern-screenshot');
       const imageDataUrl = await domToPng(wrapper, {
         scale: 2,
         backgroundColor: '#ffffff',
@@ -1864,12 +1866,14 @@ _________________________
 
       {/* Itinerary Modal */}
       {pkg.itineraryUrl && (
-        <ItineraryModal
-          isOpen={isItineraryOpen}
-          onClose={() => setIsItineraryOpen(false)}
-          fileUrl={pkg.itineraryUrl}
-          title={pkg.nama}
-        />
+        <Suspense fallback={null}>
+          <ItineraryModal
+            isOpen={isItineraryOpen}
+            onClose={() => setIsItineraryOpen(false)}
+            fileUrl={pkg.itineraryUrl}
+            title={pkg.nama}
+          />
+        </Suspense>
       )}
 
 

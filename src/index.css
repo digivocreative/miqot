@@ -111,3 +111,61 @@ body {
     background: linear-gradient(135deg, #818cf8, #c084fc);
   }
 }
+
+/* ============================================ */
+/* Page Transition — Overlay Curtain            */
+/* ============================================ */
+
+/* The overlay covers the entire viewport during navigation */
+.page-transition-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  pointer-events: none;
+  opacity: 0;
+  background: #f3f4f6;
+}
+
+/* Dark mode overlay color */
+.dark .page-transition-overlay { background: #0f172a; }
+
+/* Phase 1: Curtain fades IN (before navigation) */
+@keyframes curtain-in {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* Phase 2: Curtain fades OUT (after new page loads) */
+@keyframes curtain-out {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Trigger curtain-in when navigating away */
+body.navigating .page-transition-overlay {
+  animation: curtain-in 0.28s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  pointer-events: all;
+}
+
+/* On the new page, curtain starts opaque then fades out */
+body.page-entering .page-transition-overlay {
+  opacity: 1;
+  animation: curtain-out 0.4s cubic-bezier(0, 0, 0.2, 1) 0.05s forwards;
+}
+
+/* Subtle content reveal animation for the new page */
+@keyframes content-reveal {
+  from {
+    opacity: 0.3;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+body.page-entering > #root {
+  animation: content-reveal 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+}
+

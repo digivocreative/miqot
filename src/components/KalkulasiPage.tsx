@@ -986,8 +986,11 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
           <button
             type="button"
             onClick={() => {
+              document.body.classList.add('navigating');
               const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
-              window.location.href = seg ? `/${seg}` : '/';
+              setTimeout(() => {
+                window.location.href = seg ? `/${seg}?transition=1` : '/?transition=1';
+              }, 280);
             }}
             className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-slate-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
             title="Kembali"
