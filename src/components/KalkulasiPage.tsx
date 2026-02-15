@@ -729,6 +729,10 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
     localStorage.setItem('darkMode', isDarkMode.toString());
   }, [isDarkMode]);
 
+  useEffect(() => {
+    document.title = 'Kalkulasi Harga Paket';
+  }, []);
+
   // Fetch packages from API (year 1448 only)
   const fetchPackages = useCallback(async () => {
     setLoadingPackages(true);
@@ -999,7 +1003,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
           </button>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-              Kalkulasi Harga
+              Kalkulasi Harga Paket
             </h1>
           </div>
           <button
