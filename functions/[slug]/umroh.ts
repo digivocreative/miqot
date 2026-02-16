@@ -183,29 +183,33 @@ a{text-decoration:none;color:inherit}ul{list-style:none}
   background-size:56px 97px;background-position:0 0,0 0,28px 48px,28px 48px,0 0,28px 48px}
 
 /* ── HERO ── */
-.hero{position:relative;background:linear-gradient(165deg,var(--r900),var(--r800) 40%,var(--r700) 75%,var(--r600));padding:56px 20px 48px;text-align:center;overflow:hidden}
+.hero{position:relative;background:linear-gradient(175deg,#FFFDF7 0%,#F5F0E8 25%,#E8E0D0 50%,#A8C5A0 72%,#1B5E3A 100%);padding:60px 20px 52px;text-align:center;overflow:hidden}
+.hero .geo{opacity:.03}
 .hero__in{position:relative;z-index:2;max-width:var(--mx);margin:0 auto}
-.hero__badges{display:flex;justify-content:center;gap:6px;flex-wrap:wrap;margin-bottom:20px}
-.hero__badge{font-size:10.5px;font-weight:700;color:var(--gold-l);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);padding:5px 12px;border-radius:100px;letter-spacing:.5px}
-.hero h1{font-family:var(--serif);font-size:28px;font-weight:800;color:var(--w);line-height:1.22;margin-bottom:14px}
-.hero h1 em{font-style:italic;color:var(--gold)}
-.hero__sub{font-size:14.5px;color:rgba(255,255,255,.75);line-height:1.6;margin-bottom:28px;max-width:380px;margin-left:auto;margin-right:auto}
-.hero__sub strong{color:var(--gold-l);font-weight:600}
-
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;font-family:inherit;font-weight:700;border:none;cursor:pointer;border-radius:100px;transition:transform .15s,box-shadow .15s}
+.hero__kicker{font-size:12px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:#8B6914;margin-bottom:12px}
+.hero h1{font-family:var(--serif);font-size:38px;font-weight:800;color:#1A3A2A;line-height:1.15;margin-bottom:18px}
+.hero h1 span{color:#B8941F;display:block}
+.hero__sub{font-size:13.5px;color:#5A6B5E;line-height:1.7;margin-bottom:24px;max-width:380px;margin-left:auto;margin-right:auto}
+.hero__stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:28px;max-width:360px;margin-left:auto;margin-right:auto}
+.hero__stat{text-align:center;padding:12px 4px;background:rgba(255,255,255,.7);border-radius:10px;backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.5)}
+.hero__stat-val{font-family:var(--serif);font-size:20px;font-weight:800;color:#1B5E3A;display:block;line-height:1.1}
+.hero__stat-label{font-size:10px;font-weight:600;color:#6B7B6E;margin-top:3px;display:block;text-transform:uppercase;letter-spacing:.3px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;font-family:inherit;font-weight:700;border:none;cursor:pointer;border-radius:var(--rs);transition:transform .15s,box-shadow .15s}
 .btn:active{transform:scale(.97)}
 .btn svg{width:20px;height:20px;flex-shrink:0}
-.btn--hero{background:linear-gradient(135deg,#27AE60,#52C77E);color:var(--w);font-size:16px;padding:16px 36px;box-shadow:0 4px 24px rgba(39,174,96,.4)}
-.hero__legal{margin-top:16px;font-size:11px;color:rgba(255,255,255,.4)}
+.btn--hero{background:#25D366;color:var(--w);font-size:16px;padding:16px 32px;width:100%;max-width:380px;box-shadow:0 4px 24px rgba(37,211,102,.35);border-radius:var(--rs)}
+.hero__micro{margin-top:10px;font-size:11.5px;color:rgba(255,255,255,.7)}
+.hero__legal{margin-top:20px;font-size:10.5px;color:rgba(255,255,255,.5)}
 
 @keyframes fade-up{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
 .hero__in>*{animation:fade-up .65s cubic-bezier(.16,1,.3,1) both}
-.hero__in>:nth-child(1){animation-delay:.1s}.hero__in>:nth-child(2){animation-delay:.18s}.hero__in>:nth-child(3){animation-delay:.26s}.hero__in>:nth-child(4){animation-delay:.34s}.hero__in>:nth-child(5){animation-delay:.42s}
+.hero__in>:nth-child(1){animation-delay:.1s}.hero__in>:nth-child(2){animation-delay:.15s}.hero__in>:nth-child(3){animation-delay:.2s}.hero__in>:nth-child(4){animation-delay:.25s}.hero__in>:nth-child(5){animation-delay:.3s}.hero__in>:nth-child(6){animation-delay:.35s}.hero__in>:nth-child(7){animation-delay:.4s}.hero__in>:nth-child(8){animation-delay:.45s}
 
 /* ── SOCIAL PROOF ── */
-.proof{background:var(--w);border-bottom:1px solid var(--b200);padding:20px 16px;overflow-x:auto;-webkit-overflow-scrolling:touch}
-.proof__in{max-width:var(--mx);margin:0 auto;display:flex;gap:16px;align-items:center;justify-content:center;white-space:nowrap;font-size:13px;color:var(--b700);font-weight:500}
-.proof__sep{color:var(--b300)}
+.proof{background:var(--w);border-bottom:1px solid var(--b200);padding:16px 20px}
+.proof__in{max-width:var(--mx);margin:0 auto;display:flex;gap:8px 16px;align-items:center;justify-content:center;flex-wrap:wrap;font-size:12.5px;color:var(--b700);font-weight:500;text-align:center}
+.proof__sep{color:var(--b300);display:none}
+@media(min-width:640px){.proof__sep{display:inline}}
 
 /* ── SECTION COMMON ── */
 .sec{padding:44px 20px}
@@ -279,8 +283,8 @@ footer p{font-size:11.5px;color:rgba(255,255,255,.4);line-height:1.7}
 [data-anim].vis{opacity:1;transform:none}
 
 /* ── RESPONSIVE ── */
-@media(min-width:640px){:root{--mx:560px}.hero h1{font-size:36px}.hero{padding:68px 28px 52px}.sec{padding:52px 28px}.card{padding:28px 24px}}
-@media(min-width:1024px){:root{--mx:640px}.hero h1{font-size:42px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:20px}}
+@media(min-width:640px){:root{--mx:560px}.hero h1{font-size:44px}.hero{padding:68px 28px 56px}.hero__stats{max-width:400px}.sec{padding:52px 28px}.card{padding:28px 24px}}
+@media(min-width:1024px){:root{--mx:640px}.hero h1{font-size:52px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:20px}}
 </style>
 </head>
 <body>
@@ -289,14 +293,16 @@ footer p{font-size:11.5px;color:rgba(255,255,255,.4);line-height:1.7}
 <section class="hero">
   <div class="geo"></div>
   <div class="hero__in">
-    <div class="hero__badges">
-      <span class="hero__badge">Akreditasi "A"</span>
-      <span class="hero__badge">Resmi Kemenag RI</span>
-      <span class="hero__badge">10.000+ Jamaah/Tahun</span>
+    <p class="hero__kicker">Saatnya Menjawab Panggilan-Nya</p>
+    <h1>Umroh Mulai 28 Juta.<span>Pasti Berangkat.</span></h1>
+    <p class="hero__sub">Keberangkatan Juni–Oktober 2026 · Direct Flight · Hotel Dekat Masjid · Travel Akreditasi "A"</p>
+    <div class="hero__stats">
+      <div class="hero__stat"><span class="hero__stat-val">"A"</span><span class="hero__stat-label">Akreditasi</span></div>
+      <div class="hero__stat"><span class="hero__stat-val">10.000+</span><span class="hero__stat-label">Jamaah/Thn</span></div>
+      <div class="hero__stat"><span class="hero__stat-val">20+</span><span class="hero__stat-label">Thn Pengalaman</span></div>
     </div>
-    <h1>28 Juta Menuju<br><em>Baitullah.</em></h1>
-    <p class="hero__sub">Umroh <strong>Pasti Berangkat</strong> mulai <strong>Rp 28 Juta-an</strong>.<br>Keberangkatan Juni–Oktober 2026, Direct Flight, Hotel Dekat Masjid.</p>
     <a href="${waGeneral}" target="_blank" rel="noopener" class="btn btn--hero">${WA_SVG} Konsultasi via WhatsApp</a>
+    <p class="hero__micro">Gratis konsultasi · Tanpa komitmen</p>
     <p class="hero__legal">PPIU U.490 · PIHK 304 · Izin Resmi Kemenag RI</p>
   </div>
 </section>
@@ -304,11 +310,9 @@ footer p{font-size:11.5px;color:rgba(255,255,255,.4);line-height:1.7}
 <!-- SOCIAL PROOF -->
 <section class="proof" data-anim>
   <div class="proof__in">
-    <span>⭐ 4.9 Rating Google</span>
+    <span>⭐ 4.7 Rating Google</span>
     <span class="proof__sep">·</span>
-    <span>🕋 10.000+ Jamaah/Thn</span>
-    <span class="proof__sep">·</span>
-    <span>🎬 Dipercaya Deddy Mizwar, Ferdian Ariyadi & tokoh publik lainnya</span>
+    <span>🕋 10.000+ Jamaah/tahun</span>
   </div>
 </section>
 
