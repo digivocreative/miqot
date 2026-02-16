@@ -278,7 +278,7 @@ footer p{font-size:11.5px;color:rgba(255,255,255,.4);line-height:1.7}
       <span class="hero__badge">Resmi Kemenag RI</span>
       <span class="hero__badge">10.000+ Jamaah/Tahun</span>
     </div>
-    <h1>Seat Terbatas.<br><em>Amankan Sekarang.</em></h1>
+    <h1>28 Juta Menuju<br><em>Baitullah.</em></h1>
     <p class="hero__sub">Umroh <strong>Pasti Berangkat</strong> mulai <strong>Rp 28 Juta-an</strong>.<br>Keberangkatan Juni–Oktober 2026, Direct Flight, Hotel Dekat Masjid.</p>
     <a href="${waGeneral}" target="_blank" rel="noopener" class="btn btn--hero">${WA_SVG} Konsultasi via WhatsApp</a>
     <p class="hero__legal">PPIU U.490 · PIHK 304 · Izin Resmi Kemenag RI</p>
