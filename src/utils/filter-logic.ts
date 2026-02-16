@@ -14,7 +14,7 @@ export type FilterMode =
   | 'LIBURAN_SEKOLAH' // Filter keberangkatan Juni-Juli 2026
   | 'PROMO'          // Filter paket promo
   | 'UMROH REGULER'  // Hanya Mekkah & Madinah
-  | 'UMROH PLUS'     // Paket dengan destinasi selain Saudi
+  | 'UMROH PLUS'     // Paket Plus (Redsea, Thaif, ke negara lain, dll)
   | 'BINTANG 5'      // Semua hotel bintang 5
   | 'DURASI PERJALANAN' // Filter berdasarkan durasi
   | 'DATA PER-BULAN' // Filter berdasarkan bulan keberangkatan
@@ -342,8 +342,10 @@ export function filterPackages(
       return data.filter(pkg => pkg.isPromo);
 
     case 'UMROH REGULER':
-      // Only packages with Mekkah & Madinah (no non-Saudi destinations)
+      // Only packages with Mekkah & Madinah (no "PLUS" in name, no non-Saudi destinations)
       return data.filter(pkg => {
+        // Exclude packages with "PLUS" in their name
+        if (pkg.nama.toUpperCase().includes('PLUS')) return false;
         return Object.values(pkg.hotel).every(hotelInfo => {
           const keys = Object.keys(hotelInfo);
           const nonSaudiKeys = keys.filter(k =>
@@ -356,8 +358,11 @@ export function filterPackages(
       });
 
     case 'UMROH PLUS':
-      // Packages with destinations outside Saudi Arabia
+      // Packages with "PLUS" in name OR destinations outside Saudi Arabia
       return data.filter(pkg => {
+        // Check if package name contains "PLUS" (e.g., PLUS REDSEA, PLUS THAIF, PLUS CAIRO)
+        if (pkg.nama.toUpperCase().includes('PLUS')) return true;
+        // Also check for non-Saudi hotel keys as fallback
         return Object.values(pkg.hotel).some(hotelInfo => {
           const keys = Object.keys(hotelInfo);
           return keys.some(k =>

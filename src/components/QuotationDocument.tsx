@@ -410,7 +410,7 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent, agentPhoto
 
                 {/* Block 3: CTA */}
                 <View style={s.noticeCta}>
-                  <Text style={s.noticeCtaText}>Ada pertanyaan? Hubungi</Text>
+                  <Text style={s.noticeCtaText}>Bantuan? Hubungi</Text>
                   <Text style={s.noticeCtaBold}>{agent?.name || namaLengkap || 'konsultan Anda'}</Text>
                   <Text style={s.noticeCtaText}>di</Text>
                   <Svg width={8} height={8} viewBox="0 0 24 24">

@@ -133,4 +133,10 @@ export const AGENTS_DATA: Record<string, AgentData> = {
     phone: '62816728940',
     photo: '/agents/jan-praba.jpg',
   },
+  'ekawati': {
+    name: 'Ekawati',
+    website: 'alhijaz.co/ekawati',
+    phone: '62816728904',
+    photo: '/agents/ekawati.jpg',
+  },
 };

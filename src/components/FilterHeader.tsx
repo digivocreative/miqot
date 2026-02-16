@@ -155,8 +155,6 @@ export function FilterHeader({
         backdrop-blur-lg
         border-b border-gray-200/50 dark:border-slate-700/50
         supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-slate-900/60
-        transition-transform duration-300 ease-in-out
-        ${isVisible ? 'translate-y-0' : '-translate-y-full'}
       `}
     >
       <div className="max-w-lg mx-auto px-4 pt-4 pb-4">
@@ -392,111 +390,120 @@ export function FilterHeader({
         </div>
 
         {/* ============================================ */}
-        {/* ROW 3: Search Bar & Filter Button */}
+        {/* ROW 3: Search Bar & Filter Button (collapsible on scroll) */}
         {/* ============================================ */}
-        <div className="flex items-center gap-2 mt-3">
-          {/* Search Input */}
-          <div className="relative flex-1">
-            <Search
-              size={18}
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 pointer-events-none"
-            />
-            <input
-              ref={inputRef}
-              type="search"
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Cari..."
-              className="
-                w-full pl-10 pr-10 py-2.5
+        <div
+          className="transition-all duration-300 ease-in-out overflow-hidden"
+          style={{
+            maxHeight: isVisible ? '60px' : '0px',
+            opacity: isVisible ? 1 : 0,
+            marginTop: isVisible ? '12px' : '0px',
+          }}
+        >
+          <div className="flex items-center gap-2">
+            {/* Search Input */}
+            <div className="relative flex-1">
+              <Search
+                size={18}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 pointer-events-none"
+              />
+              <input
+                ref={inputRef}
+                type="search"
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+                placeholder="Cari..."
+                className="
+                  w-full pl-10 pr-10 py-2.5
+                  bg-gray-100/80 dark:bg-slate-800/80
+                  border border-transparent
+                  rounded-xl
+                  text-sm font-medium
+                  text-gray-900 dark:text-slate-100
+                  placeholder-gray-400 dark:placeholder-slate-500
+                  outline-none
+                  focus:bg-white dark:focus:bg-slate-800
+                  focus:ring-2 focus:ring-emerald-500/50
+                  transition-all
+                  [&::-webkit-search-cancel-button]:appearance-none
+                  [&::-webkit-search-decoration]:appearance-none
+                "
+              />
+              {searchQuery.length > 0 && (
+                <button
+                  onClick={handleClearSearch}
+                  className="
+                    absolute right-3 top-1/2 -translate-y-1/2
+                    flex items-center justify-center
+                    w-5 h-5 rounded-full
+                    bg-gray-200 dark:bg-slate-600
+                    hover:bg-gray-300 dark:hover:bg-slate-500
+                    text-gray-500 dark:text-slate-300
+                    transition-colors
+                  "
+                  aria-label="Clear search"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+
+            {/* Filter Button */}
+            <button
+              onClick={onToggleFilter}
+              className={`
+                relative flex items-center justify-center
+                w-11 h-11 shrink-0
                 bg-gray-100/80 dark:bg-slate-800/80
                 border border-transparent
+                text-gray-600 dark:text-slate-300
                 rounded-xl
-                text-sm font-medium
-                text-gray-900 dark:text-slate-100
-                placeholder-gray-400 dark:placeholder-slate-500
-                outline-none
-                focus:bg-white dark:focus:bg-slate-800
-                focus:ring-2 focus:ring-emerald-500/50
-                transition-all
-                [&::-webkit-search-cancel-button]:appearance-none
-                [&::-webkit-search-decoration]:appearance-none
-              "
-            />
-            {searchQuery.length > 0 && (
-              <button
-                onClick={handleClearSearch}
-                className="
-                  absolute right-3 top-1/2 -translate-y-1/2
-                  flex items-center justify-center
-                  w-5 h-5 rounded-full
-                  bg-gray-200 dark:bg-slate-600
-                  hover:bg-gray-300 dark:hover:bg-slate-500
-                  text-gray-500 dark:text-slate-300
-                  transition-colors
-                "
-                aria-label="Clear search"
-              >
-                <X size={12} />
-              </button>
-            )}
-          </div>
+                hover:bg-gray-200/80 dark:hover:bg-slate-700/80
+                hover:text-emerald-600 dark:hover:text-emerald-400
+                transition-all duration-200
+                active:scale-95
+              `}
+              aria-label="Filter"
+            >
+              <SlidersHorizontal size={18} />
+              {isFilterActive && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full"></span>
+              )}
+            </button>
 
-          {/* Filter Button */}
-          <button
-            onClick={onToggleFilter}
-            className={`
-              relative flex items-center justify-center
-              w-11 h-11 shrink-0
-              bg-gray-100/80 dark:bg-slate-800/80
-              border border-transparent
-              text-gray-600 dark:text-slate-300
-              rounded-xl
-              hover:bg-gray-200/80 dark:hover:bg-slate-700/80
-              hover:text-emerald-600 dark:hover:text-emerald-400
-              transition-all duration-200
-              active:scale-95
-            `}
-            aria-label="Filter"
-          >
-            <SlidersHorizontal size={18} />
-            {isFilterActive && (
-              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full"></span>
-            )}
-          </button>
-
-          {/* Share Button */}
-          <button
-            onClick={async () => {
-              const url = window.location.href;
-              const text = `Cek Jadwal Paket Umroh Alhijaz di ${url}`;
-              if (navigator.share) {
-                try {
-                  await navigator.share({ text });
-                } catch {
-                  // User cancelled or share failed silently
+            {/* Share Button */}
+            <button
+              onClick={async () => {
+                const url = window.location.href;
+                const text = `Cek Jadwal Paket Umroh Alhijaz di ${url}`;
+                if (navigator.share) {
+                  try {
+                    await navigator.share({ text });
+                  } catch {
+                    // User cancelled or share failed silently
+                  }
+                } else {
+                  // Fallback: copy to clipboard
+                  await navigator.clipboard.writeText(text);
                 }
-              } else {
-                // Fallback: copy to clipboard
-                await navigator.clipboard.writeText(text);
-              }
-            }}
-            className={`
-              relative flex items-center justify-center
-              w-11 h-11 shrink-0
-              bg-gray-100/80 dark:bg-slate-800/80
-              border border-transparent
-              text-gray-600 dark:text-slate-300
-              rounded-xl
-              hover:bg-gray-200/80 dark:hover:bg-slate-700/80
-              hover:text-emerald-600 dark:hover:text-emerald-400
-              transition-all duration-200
-              active:scale-95
-            `}
-            aria-label="Share"
-          >
-            <Share2 size={18} />
-          </button>
+              }}
+              className={`
+                relative flex items-center justify-center
+                w-11 h-11 shrink-0
+                bg-gray-100/80 dark:bg-slate-800/80
+                border border-transparent
+                text-gray-600 dark:text-slate-300
+                rounded-xl
+                hover:bg-gray-200/80 dark:hover:bg-slate-700/80
+                hover:text-emerald-600 dark:hover:text-emerald-400
+                transition-all duration-200
+                active:scale-95
+              `}
+              aria-label="Share"
+            >
+              <Share2 size={18} />
+            </button>
+          </div>
         </div>
 
       </div>
