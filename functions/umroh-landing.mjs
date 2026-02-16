@@ -217,10 +217,12 @@ a{text-decoration:none;color:inherit}ul{list-style:none}
 .hero h1{font-family:var(--serif);font-size:40px;font-weight:800;color:#0D2818;line-height:1.12;margin-bottom:20px}
 .hero h1 span{color:var(--gold-d);display:block;font-style:italic}
 .hero__sub{font-size:13px;color:#4A5B4E;line-height:1.7;margin-bottom:28px;max-width:340px;margin-left:auto;margin-right:auto}
-.hero__stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:32px;max-width:360px;margin-left:auto;margin-right:auto}
-.hero__stat{text-align:center;padding:14px 4px;background:rgba(255,255,255,.8);border-radius:12px;backdrop-filter:blur(8px);border:1px solid rgba(27,94,58,.15);box-shadow:0 2px 12px rgba(0,0,0,.04)}
-.hero__stat-val{font-family:var(--serif);font-size:21px;font-weight:800;color:#1B5E3A;display:block;line-height:1.1}
-.hero__stat-label{font-size:9.5px;font-weight:700;color:#5A6B5E;margin-top:4px;display:block;text-transform:uppercase;letter-spacing:.5px}
+.hero__stats{display:flex;align-items:center;justify-content:center;margin:0 auto 32px;max-width:380px;background:rgba(255,255,255,.75);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-radius:20px;border:1px solid rgba(255,255,255,.5);box-shadow:0 8px 32px rgba(13,59,44,.1),inset 0 1px 0 rgba(255,255,255,.6);padding:20px 0;position:relative;overflow:hidden}
+.hero__stats::before{content:'';position:absolute;inset:0;border-radius:20px;background:linear-gradient(135deg,rgba(37,211,102,.04) 0%,transparent 50%,rgba(184,148,31,.04) 100%);pointer-events:none}
+.hero__stat{flex:1;text-align:center;position:relative;padding:0 8px}
+.hero__stat+.hero__stat::before{content:'';position:absolute;left:0;top:15%;bottom:15%;width:1px;background:linear-gradient(180deg,transparent,rgba(13,59,44,.12),transparent)}
+.hero__stat-val{font-family:var(--serif);font-size:28px;font-weight:800;line-height:1;display:block;background:linear-gradient(135deg,#0D3B2C 0%,#1B5E3A 50%,#25D366 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero__stat-label{font-size:9px;font-weight:700;color:#7A8A7E;margin-top:6px;display:block;text-transform:uppercase;letter-spacing:1.2px}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;font-family:inherit;font-weight:700;border:none;cursor:pointer;border-radius:var(--rs);transition:transform .15s,box-shadow .15s}
 .btn:active{transform:scale(.97)}
 .btn svg{width:20px;height:20px;flex-shrink:0}
@@ -351,8 +353,8 @@ footer .wrap{max-width:var(--mx);margin:0 auto}
     <p class="hero__sub">Keberangkatan Juni–Oktober 2026 · Direct Flight · Hotel Dekat Masjid · Travel Akreditasi "A"</p>
     <div class="hero__stats">
       <div class="hero__stat"><span class="hero__stat-val">"A"</span><span class="hero__stat-label">Akreditasi</span></div>
-      <div class="hero__stat"><span class="hero__stat-val">10.000+</span><span class="hero__stat-label">Jamaah/Thn</span></div>
-      <div class="hero__stat"><span class="hero__stat-val">20+</span><span class="hero__stat-label">Thn Pengalaman</span></div>
+      <div class="hero__stat"><span class="hero__stat-val">10.000+</span><span class="hero__stat-label">Jamaah / Tahun</span></div>
+      <div class="hero__stat"><span class="hero__stat-val">20+</span><span class="hero__stat-label">Tahun Pengalaman</span></div>
     </div>
     <a href="${waGeneral}" target="_blank" rel="noopener" class="btn btn--hero">${WA_SVG} Konsultasi via WhatsApp</a>
     <p class="hero__micro">Gratis konsultasi · Tanpa komitmen</p>
