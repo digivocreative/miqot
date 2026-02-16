@@ -172,6 +172,24 @@ app.get(['/itinerary/*', '/brosur/*'], async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
+// Landing Page: /:slug/umroh
+// ──────────────────────────────────────────────
+app.get('/:slug/umroh', async (req, res) => {
+  const slug = req.params.slug.toLowerCase();
+  try {
+    const { generateHTML } = await import('./functions/umroh-landing.mjs');
+    const html = generateHTML(slug);
+    res.set({
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+    }).send(html);
+  } catch (err) {
+    console.error('Umroh landing error:', err);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+// ──────────────────────────────────────────────
 // Static files + SPA fallback with OG injection
 // ──────────────────────────────────────────────
 const distPath = resolve(__dirname, 'dist');
