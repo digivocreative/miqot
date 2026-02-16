@@ -393,9 +393,9 @@ export function FilterHeader({
         {/* ROW 3: Search Bar & Filter Button (collapsible on scroll) */}
         {/* ============================================ */}
         <div
-          className="transition-all duration-300 ease-in-out overflow-hidden"
+          className="transition-all duration-300 ease-in-out overflow-hidden p-1 -m-1"
           style={{
-            maxHeight: isVisible ? '60px' : '0px',
+            maxHeight: isVisible ? '68px' : '0px',
             opacity: isVisible ? 1 : 0,
             marginTop: isVisible ? '12px' : '0px',
           }}
