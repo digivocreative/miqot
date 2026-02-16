@@ -32,6 +32,37 @@ if (!commitHash) {
 
 // https://vite.dev/config/
 
+// Vite plugin: serve /:slug/umroh landing page in dev server
+function umrohLandingDevPlugin() {
+  return {
+    name: 'umroh-landing-dev',
+    configureServer(server: any) {
+      server.middlewares.use(async (req: any, res: any, next: any) => {
+        // Match /:slug/umroh (with optional trailing slash)
+        const match = req.url?.match(/^\/([a-z0-9]+)\/umroh\/?(\?.*)?$/i);
+        if (!match) return next();
+
+        const slug = match[1].toLowerCase();
+        try {
+          // Dynamically import the function module (TS handled by Vite)
+          const mod = await server.ssrLoadModule('/functions/[slug]/umroh.ts');
+          // Build a minimal context matching Cloudflare Pages function signature
+          const result = await mod.onRequest({
+            params: { slug },
+            request: new Request(`http://localhost${req.url}`),
+          });
+          const html = await result.text();
+          res.writeHead(result.status, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(html);
+        } catch (err: any) {
+          console.error('umroh-landing-dev error:', err);
+          next();
+        }
+      });
+    },
+  };
+}
+
 // Vite plugin: handle /api/ai-copy in dev server (proxies to OpenAI)
 function aiCopyDevPlugin() {
   return {
@@ -151,6 +182,7 @@ export default defineConfig({
     __APP_COMMIT_MSG__: JSON.stringify(commitMessage),
   },
   plugins: [
+    umrohLandingDevPlugin(),
     aiCopyDevPlugin(),
     react(),
     VitePWA({
