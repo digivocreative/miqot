@@ -351,6 +351,18 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   };
 
 
+  // Set document title for single-package view
+  useEffect(() => {
+    if (!singlePackageId) return;
+    const pkg = packages.find(p => p.jadwalId === singlePackageId);
+    if (pkg) {
+      const agentName = currentAgent?.name || '';
+      const parts = [pkg.nama, agentName, 'Alhijaz Indowisata'].filter(Boolean);
+      document.title = parts.join(' | ');
+    }
+  }, [singlePackageId, packages, currentAgent]);
+
+
   // ============================================
   // Render
   // ============================================
