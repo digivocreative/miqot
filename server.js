@@ -129,8 +129,8 @@ app.options('/api/ai-copy', (req, res) => {
 // ──────────────────────────────────────────────
 // API: Proxy to jadwal.alhijaz.co
 // ──────────────────────────────────────────────
-app.all('/api/*', async (req, res) => {
-  const path = req.params[0]; // everything after /api/
+app.all('/api/{*path}', async (req, res) => {
+  const path = req.params.path; // everything after /api/
   const targetUrl = `https://jadwal.alhijaz.co/jadwal/${path}`;
 
   try {
@@ -154,7 +154,7 @@ app.all('/api/*', async (req, res) => {
 // ──────────────────────────────────────────────
 // Proxy: itinerary & brosur files
 // ──────────────────────────────────────────────
-app.get(['/itinerary/*', '/brosur/*'], async (req, res) => {
+app.get(['/itinerary/{*path}', '/brosur/{*path}'], async (req, res) => {
   const targetUrl = `https://jadwal.alhijaz.co${req.path}`;
   try {
     const response = await fetch(targetUrl);
