@@ -183,14 +183,17 @@ async function generateHTML(slug: string, requestUrl: string): Promise<string> {
   const agentPhoto = agent?.photo || '/agents/nikita.jpg';
   const waGeneral = `https://api.whatsapp.com/send?phone=${phone}&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20paket%20Umroh%20di%20Alhijaz`;
 
-  // Read available dates from JSON (static asset served by CF Pages)
+  // Read available dates from JSON file on disk
   let dates: Record<string, string[]> = {};
   try {
-    const origin = new URL(requestUrl).origin;
-    const resp = await fetch(`${origin}/umroh-dates.json`);
-    if (resp.ok) dates = ((await resp.json()) as { packages?: Record<string, string[]> }).packages || {};
+    const { readFileSync } = await import('fs');
+    const { dirname, resolve } = await import('path');
+    const { fileURLToPath } = await import('url');
+    const __dir = dirname(fileURLToPath(import.meta.url));
+    const raw = readFileSync(resolve(__dir, 'umroh-dates.json'), 'utf-8');
+    dates = (JSON.parse(raw) as { packages?: Record<string, string[]> }).packages || {};
   } catch {
-    // JSON not found or fetch error — proceed with empty dates
+    // JSON not found or parse error — proceed with empty dates
   }
 
   const cards = PAKET_LIST.map(p => buildCard(p, phone, dates)).join('');
