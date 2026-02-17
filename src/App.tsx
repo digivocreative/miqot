@@ -422,7 +422,6 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           )}
         </main>
 
-        {currentAgent && <FloatingAgentBar agent={currentAgent} />}
       </div>
     );
   }
