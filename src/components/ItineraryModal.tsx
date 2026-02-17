@@ -33,6 +33,12 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'unknown'>('unknown');
   const [pdfWidth, setPdfWidth] = useState(0);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // ── Pinch-to-zoom state ──
+  const [scale, setScale] = useState(1);
+  const [origin, setOrigin] = useState({ x: 50, y: 50 });
+  const pinchRef = useRef({ startDist: 0, startScale: 1 });
+
   // Always use proxy path: Vite proxy in dev, Cloudflare Pages Function in prod
   const originalUrl = fileUrl ? fileUrl.replace(/^http:\/\//i, 'https://') : '';
   const proxyUrl = originalUrl
@@ -55,6 +61,8 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     if (isOpen) {
       setIsPdfLoading(true);
       setNumPages(null);
+      setScale(1);
+      setOrigin({ x: 50, y: 50 });
     }
   }, [isOpen, fileUrl]);
 
@@ -86,6 +94,42 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     console.error('react-pdf load error:', error);
     setIsPdfLoading(false);
   }
+
+  // ── Pinch-to-zoom helpers ──
+  const getTouchDistance = (touches: TouchList) => {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      pinchRef.current.startDist = getTouchDistance(e.touches);
+      pinchRef.current.startScale = scale;
+      const rect = contentRef.current?.getBoundingClientRect();
+      if (rect) {
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        setOrigin({
+          x: ((midX - rect.left) / rect.width) * 100,
+          y: ((midY - rect.top) / rect.height) * 100,
+        });
+      }
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dist = getTouchDistance(e.touches);
+      const ratio = dist / pinchRef.current.startDist;
+      const newScale = Math.min(3, Math.max(1, pinchRef.current.startScale * ratio));
+      setScale(newScale);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (scale < 1.1) setScale(1);
+  };
 
   // Share First, Download Fallback handler
   const handleShareItinerary = async () => {
@@ -176,7 +220,33 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
       </div>
 
       {/* ─── SCROLLABLE CONTENT (PDF/IMAGE VIEWER) ─── */}
-      <div ref={contentRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 dark:bg-slate-950 px-4 pb-6">
+      <div
+        ref={contentRef}
+        className="flex-1 overflow-auto bg-gray-100 dark:bg-slate-950 px-4 pb-6 relative"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* Zoom indicator */}
+        {scale > 1.05 && (
+          <div className="sticky top-2 z-10 flex justify-center pointer-events-none" style={{ marginBottom: -32 }}>
+            <button
+              type="button"
+              onClick={() => setScale(1)}
+              className="pointer-events-auto px-3 py-1 bg-black/60 text-white text-xs font-medium rounded-full backdrop-blur-sm"
+            >
+              {Math.round(scale * 100)}% · Ketuk untuk reset
+            </button>
+          </div>
+        )}
+
+        <div
+          style={{
+            transform: `scale(${scale})`,
+            transformOrigin: `${origin.x}% ${origin.y}%`,
+            transition: scale === 1 ? 'transform 0.2s ease-out' : 'none',
+          }}
+        >
         <div className="flex justify-center pt-4">
 
         {/* Empty State */}
@@ -233,6 +303,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
             />
           </div>
         )}
+        </div>
         </div>
       </div>
 
