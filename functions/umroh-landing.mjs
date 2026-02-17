@@ -365,7 +365,7 @@ footer .wrap{max-width:var(--mx);margin:0 auto}
 <!-- SOCIAL PROOF -->
 <section class="proof" data-anim>
   <div class="proof__in">
-    <span>⭐ 4.9 Rating Google</span>
+    <span>⭐ 4.7 Rating Google</span>
     <span class="proof__sep">·</span>
     <span>🕋 10.000+ Jamaah/Thn</span>
   </div>
