@@ -17,6 +17,7 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const API_URL = 'https://jadwal.alhijaz.co/jadwal/api-get/1448';
 const OUTPUT = resolve(__dirname, '..', 'functions', 'umroh-dates.json');
+const OUTPUT_PUBLIC = resolve(__dirname, '..', 'public', 'umroh-dates.json');
 
 // ── Category rules ──
 // Each rule has a key (used in JSON), a label (for logs), and a match function.
@@ -130,9 +131,12 @@ async function main() {
     console.log(`  ✅ ${cat.label}: ${sorted.length} dates → [${sorted.join(', ')}]`);
   }
 
-  // Write JSON
-  writeFileSync(OUTPUT, JSON.stringify(result, null, 2), 'utf-8');
+  // Write JSON to both functions/ (for reference) and public/ (served as static asset)
+  const json = JSON.stringify(result, null, 2);
+  writeFileSync(OUTPUT, json, 'utf-8');
+  writeFileSync(OUTPUT_PUBLIC, json, 'utf-8');
   console.log(`\n  📝 Written to: ${OUTPUT}`);
+  console.log(`  📝 Written to: ${OUTPUT_PUBLIC}`);
   console.log(`  📊 Summary: ${matched} matched, ${skippedSoldOut} sold out, ${unmatched} unmatched`);
   console.log(`  ✨ Done!\n`);
 }
