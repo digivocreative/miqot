@@ -157,6 +157,31 @@ function App() {
     fetchPackages(selectedYear);
   }, [selectedYear, fetchPackages]);
 
+  // Auto-expand card from URL query param (?expand=<jadwalId>) — used when coming back from Kalkulasi
+  useEffect(() => {
+    if (loading || packages.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const expandId = params.get('expand');
+    if (expandId) {
+      const match = packages.find((p) => p.jadwalId === expandId);
+      if (match) {
+        setExpandedCardId(expandId);
+        // Scroll to the card after rendering settles
+        setTimeout(() => {
+          const card = document.querySelector(`[data-jadwal-id="${expandId}"]`);
+          card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 500);
+      }
+      // Clean up the URL params
+      params.delete('expand');
+      params.delete('transition');
+      const cleanUrl = params.toString()
+        ? `${window.location.pathname}?${params.toString()}`
+        : window.location.pathname;
+      window.history.replaceState(null, '', cleanUrl);
+    }
+  }, [loading, packages]);
+
   /**
    * Helper to check if a time (HH:MM) falls within selected ranges ('00-06', etc)
    */

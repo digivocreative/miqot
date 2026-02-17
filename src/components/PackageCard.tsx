@@ -1381,6 +1381,7 @@ _________________________
     <div
       ref={cardRef}
       data-card-ref="true"
+      data-jadwal-id={pkg.jadwalId}
       onClick={handleCardClick}
       className={`
         bg-white dark:bg-slate-800 rounded-xl relative overflow-hidden cursor-pointer
@@ -1636,8 +1637,8 @@ _________________________
             </div>
           )}
 
-          {/* ---- Action Buttons (4 columns) ---- */}
-          <div data-screenshot-ignore className="grid grid-cols-4 gap-2 mt-0 mb-4">
+          {/* ---- Action Buttons (3 columns × 2 rows) ---- */}
+          <div data-screenshot-ignore className="grid grid-cols-3 gap-2 mt-0 mb-4">
             {pkg.itineraryUrl ? (
               <button
                 type="button"
@@ -1701,6 +1702,43 @@ _________________________
               </span>
             </button>
 
+            {/* AI Caption Button */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsAiCopyOpen(true);
+                setAiCopied(false);
+                setAiCopyText('');
+                setAiError(null);
+                setTimeout(() => generateAiCopy(), 100);
+              }}
+              className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 dark:border-slate-700 dark:hover:border-indigo-500"
+            >
+              <Sparkles size={20} className="text-indigo-500 dark:text-indigo-400 mb-1" />
+              <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Caption</span>
+            </button>
+
+            {/* Hitung (Kalkulasi) Button */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                document.body.classList.add('navigating');
+                const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
+                const base = seg ? `/${seg}/kalkulasi` : '/kalkulasi';
+                setTimeout(() => {
+                  window.location.href = `${base}?paket=${encodeURIComponent(pkg.jadwalId)}&transition=1`;
+                }, 280);
+              }}
+              className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30 dark:border-slate-700 dark:hover:border-teal-500"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-teal-600 dark:text-teal-400 mb-1">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 15.75V18m-7.5-6.75h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V13.5Zm0 2.25h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V18Zm2.498-6.75h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V13.5Zm0 2.25h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V18Zm2.504-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5Zm0 2.25h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V18Zm2.498-6.75h.008v.008h-.008v-.008ZM15.75 13.5v.008h-.008V13.5h.008ZM6 6.75A.75.75 0 0 1 6.75 6h10.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-.75.75H6.75A.75.75 0 0 1 6 8.25v-1.5ZM6 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6Z" />
+              </svg>
+              <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Hitung</span>
+            </button>
+
             {/* WhatsApp Share Button */}
             <button
               type="button"
@@ -1713,28 +1751,6 @@ _________________________
               <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Bagikan</span>
             </button>
 
-          </div>
-
-          {/* AI Feature Button - Full Width with animated border */}
-          <div data-screenshot-ignore className="mb-4">
-            <div className="ai-border-glow relative rounded-xl p-[2px]">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsAiCopyOpen(true);
-                  setAiCopied(false);
-                  // Auto-generate on open
-                  setAiCopyText('');
-                  setAiError(null);
-                  setTimeout(() => generateAiCopy(), 100);
-                }}
-                className="relative w-full flex items-center justify-center gap-2 py-3 px-4 rounded-[10px] bg-white dark:bg-slate-800 transition-all hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
-              >
-                <Sparkles size={18} className="text-indigo-500 dark:text-indigo-400" />
-                <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Buat Copywriting (AI)</span>
-              </button>
-            </div>
           </div>
 
           {/* ---- Pricing Table (Compact) ---- */}

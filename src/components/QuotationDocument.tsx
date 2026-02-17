@@ -33,6 +33,7 @@ export interface QuotationProps {
   namaLengkap: string;
   agent?: AgentData;
   agentPhotoBase64?: string;
+  discountLabel?: string;
 }
 
 // ── Colors ──
@@ -186,7 +187,7 @@ const banks = [
 // ═══════════════════════════════════════════════════
 // Component
 // ═══════════════════════════════════════════════════
-export function QuotationDocument({ pkg, summary, namaLengkap, agent, agentPhotoBase64 }: QuotationProps) {
+export function QuotationDocument({ pkg, summary, namaLengkap, agent, agentPhotoBase64, discountLabel }: QuotationProps) {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const logoSrc = `${origin}/icon-192x192.png`;
   const now = new Date();
@@ -344,7 +345,7 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent, agentPhoto
           {/* Discount Row */}
           {summary.discount > 0 && (
             <View style={[s.tableRow, { backgroundColor: C.altRow }]}>
-              <View style={s.colDesc}><Text style={s.discountText}>Potongan Diskon</Text></View>
+              <View style={s.colDesc}><Text style={s.discountText}>{discountLabel || 'Potongan Diskon'}</Text></View>
               <View style={s.colPax}><Text style={s.tdText}></Text></View>
               <View style={s.colPrice}><Text style={s.tdText}></Text></View>
               <View style={s.colTotal}><Text style={s.discountText}>- {fmtRp(summary.discount)}</Text></View>

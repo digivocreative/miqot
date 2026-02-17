@@ -310,6 +310,7 @@ function ResultModal({
   summary,
   catatan,
   namaLengkap,
+  discountLabel,
   onGeneratePDF,
   pdfBlobRef,
   pdfPreviewUrl,
@@ -326,6 +327,7 @@ function ResultModal({
   summary: { items: { label: string; qty: number; unitPrice: number; total: number; note?: string }[]; subtotal: number; discount: number; grandTotal: number };
   catatan: string;
   namaLengkap: string;
+  discountLabel: string;
   onGeneratePDF: () => void;
   pdfBlobRef: React.RefObject<Blob | null>;
   pdfPreviewUrl: string | null;
@@ -433,7 +435,7 @@ function ResultModal({
     lines.push('─────────────');
     if (summary.discount > 0) {
       lines.push(`🧾 Subtotal    ${fmtRp(summary.subtotal)}`);
-      lines.push(`🏷️ Diskon       -${fmtRp(summary.discount)}`);
+      lines.push(`🏷️ ${discountLabel || 'Potongan Diskon'}       -${fmtRp(summary.discount)}`);
       lines.push('─────────────');
     }
     lines.push(`💰 *TOTAL BIAYA UMROH*`);
@@ -594,7 +596,7 @@ function ResultModal({
                 </div>
                 {summary.discount > 0 && (
                   <div className="flex justify-between text-sm">
-                    <span className="text-emerald-500">Diskon</span>
+                    <span className="text-emerald-500">{discountLabel || 'Potongan Diskon'}</span>
                     <span className="text-emerald-500 font-medium tabular-nums">- {formatRupiah(summary.discount)}</span>
                   </div>
                 )}
@@ -747,6 +749,25 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
     fetchPackages();
   }, [fetchPackages]);
 
+  // Auto-select package from URL query param (?paket=<jadwalId>)
+  useEffect(() => {
+    if (loadingPackages || packages.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const paketId = params.get('paket');
+    if (paketId) {
+      const match = packages.find((p) => p.jadwalId === paketId);
+      if (match) {
+        setSelectedPackage(paketId);
+      }
+      // Clean up the URL param
+      params.delete('paket');
+      const cleanUrl = params.toString()
+        ? `${window.location.pathname}?${params.toString()}`
+        : window.location.pathname;
+      window.history.replaceState(null, '', cleanUrl);
+    }
+  }, [loadingPackages, packages]);
+
   // Build dropdown options from API data
   const packageOptions: SelectOption[] = useMemo(() => {
     return packages.map((pkg) => {
@@ -820,6 +841,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
   const [discountAmount, setDiscountAmount] = useState(0);
   const [discountType, setDiscountType] = useState<'per-pax' | 'flat'>('per-pax');
   const [isManualDiscount, setIsManualDiscount] = useState(false);
+  const [discountLabel, setDiscountLabel] = useState('');
   const [catatan, setCatatan] = useState('');
   const [showResultModal, setShowResultModal] = useState(false);
   const [autoFillFlash, setAutoFillFlash] = useState(false);
@@ -963,7 +985,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
         }
       }
       const blob = await pdf(
-        <QuotationDocument pkg={selectedPkg} summary={summary} namaLengkap={namaLengkap} agent={agent || undefined} agentPhotoBase64={agentPhotoBase64} />
+        <QuotationDocument pkg={selectedPkg} summary={summary} namaLengkap={namaLengkap} agent={agent || undefined} agentPhotoBase64={agentPhotoBase64} discountLabel={discountLabel} />
       ).toBlob();
       pdfBlobRef.current = blob;
       const url = URL.createObjectURL(blob);
@@ -992,8 +1014,9 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
             onClick={() => {
               document.body.classList.add('navigating');
               const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
+              const expandParam = selectedPackage ? `&expand=${encodeURIComponent(selectedPackage)}` : '';
               setTimeout(() => {
-                window.location.href = seg ? `/${seg}?transition=1` : '/?transition=1';
+                window.location.href = seg ? `/${seg}?transition=1${expandParam}` : `/?transition=1${expandParam}`;
               }, 280);
             }}
             className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-slate-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
@@ -1328,6 +1351,20 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                       </div>
                     )}
                   </div>
+
+                  {/* Discount Label / Keterangan */}
+                  <div className="mt-3">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 ml-0.5">
+                      Keterangan <span className="text-slate-400 font-normal">(opsional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={discountLabel}
+                      onChange={(e) => setDiscountLabel(e.target.value)}
+                      placeholder="Potongan Diskon"
+                      className="w-full py-3 px-4 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all duration-300"
+                    />
+                  </div>
                 </div>
               )}
 
@@ -1394,7 +1431,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
                   </div>
                   {summary.discount > 0 && (
                     <div className="flex justify-between text-sm">
-                      <span className="text-emerald-500">Diskon</span>
+                      <span className="text-emerald-500">{discountLabel || 'Potongan Diskon'}</span>
                       <span className="text-emerald-500 font-medium tabular-nums">
                         - {formatRupiah(summary.discount)}
                       </span>
@@ -1439,6 +1476,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
         summary={summary}
         catatan={catatan}
         namaLengkap={namaLengkap}
+        discountLabel={discountLabel}
         onGeneratePDF={handleDownloadPDF}
         pdfBlobRef={pdfBlobRef}
         pdfPreviewUrl={pdfPreviewUrl}
