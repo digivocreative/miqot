@@ -431,7 +431,7 @@ footer .wrap{max-width:var(--mx);margin:0 auto}
     <div class="footer__brand">PT Alhijaz Indowisata</div>
     <div class="footer__tagline">Travel Umroh Terpercaya Sejak 2000</div>
     <div class="footer__info">
-      <p>📍 Jl. Dewi Sartika No. 342, Cawang, Jakarta Timur</p>
+      <p>📍 Jl. Dewi Sartika No. 239A, Cawang, Jakarta Timur</p>
       <p>📜 PPIU U.490 Tahun 2020 · PIHK 304 Tahun 2022</p>
       <p>${WA_SVG_SMALL} <a href="https://wa.me/${phone}" style="color:rgba(255,255,255,.7);text-decoration:none">${formatPhone(phone)}</a> · 🌐 <a href="https://${website}" style="color:rgba(255,255,255,.7);text-decoration:none">${website}</a></p>
     </div>

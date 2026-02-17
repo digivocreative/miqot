@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:pages": "wrangler pages dev --live-reload -- vite",
     "build": "vite build",
-    "start": "node server.js",
+    "start": "node --experimental-strip-types server.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },

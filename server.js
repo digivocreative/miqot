@@ -177,8 +177,12 @@ app.get(['/itinerary/*', '/brosur/*'], async (req, res) => {
 app.get('/:slug/umroh', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
   try {
-    const { generateHTML } = await import('./functions/umroh-landing.mjs');
-    const html = generateHTML(slug);
+    const mod = await import('./functions/[slug]/umroh.ts');
+    const result = await mod.onRequest({
+      params: { slug },
+      request: new Request(`http://localhost${req.url}`),
+    });
+    const html = await result.text();
     res.set({
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'public, max-age=3600',
