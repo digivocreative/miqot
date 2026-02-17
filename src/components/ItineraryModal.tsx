@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Loader2, AlertCircle } from 'lucide-react';
+import { X, Share2, Loader2, AlertCircle, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -96,7 +96,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
   }
 
   // ── Pinch-to-zoom helpers ──
-  const getTouchDistance = (touches: TouchList) => {
+  const getTouchDistance = (touches: React.TouchList) => {
     const dx = touches[0].clientX - touches[1].clientX;
     const dy = touches[0].clientY - touches[1].clientY;
     return Math.sqrt(dx * dx + dy * dy);
@@ -129,6 +129,20 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
 
   const handleTouchEnd = () => {
     if (scale < 1.1) setScale(1);
+  };
+
+  const zoomIn = () => {
+    setScale(prev => Math.min(3, +(prev + 0.25).toFixed(2)));
+    setOrigin({ x: 50, y: 50 });
+  };
+
+  const zoomOut = () => {
+    setScale(prev => Math.max(1, +(prev - 0.25).toFixed(2)));
+  };
+
+  const resetZoom = () => {
+    setScale(1);
+    setOrigin({ x: 50, y: 50 });
   };
 
   // Share First, Download Fallback handler
@@ -227,16 +241,37 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Zoom indicator */}
-        {scale > 1.05 && (
-          <div className="sticky top-2 z-10 flex justify-center pointer-events-none" style={{ marginBottom: -32 }}>
-            <button
-              type="button"
-              onClick={() => setScale(1)}
-              className="pointer-events-auto px-3 py-1 bg-black/60 text-white text-xs font-medium rounded-full backdrop-blur-sm"
-            >
-              {Math.round(scale * 100)}% · Ketuk untuk reset
-            </button>
+        {/* Floating Zoom Controls */}
+        {proxyUrl && !isPdfLoading && (
+          <div className="sticky top-3 z-20 flex justify-end pointer-events-none pr-1" style={{ marginBottom: -48 }}>
+            <div className="pointer-events-auto flex items-center gap-0.5 bg-black/70 backdrop-blur-md rounded-full px-1 py-1 shadow-lg">
+              <button
+                type="button"
+                onClick={zoomOut}
+                disabled={scale <= 1}
+                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                aria-label="Zoom out"
+              >
+                <ZoomOut size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={resetZoom}
+                className="min-w-[44px] text-center text-xs font-semibold text-white px-1 py-1 rounded-full hover:bg-white/20 transition-colors"
+                aria-label="Reset zoom"
+              >
+                {Math.round(scale * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={zoomIn}
+                disabled={scale >= 3}
+                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                aria-label="Zoom in"
+              >
+                <ZoomIn size={18} />
+              </button>
+            </div>
           </div>
         )}
 
