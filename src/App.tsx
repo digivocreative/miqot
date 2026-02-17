@@ -382,7 +382,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           </div>
         </div>
 
-        <main className="max-w-lg mx-auto px-4 pt-6 pb-8">
+        <main className="max-w-lg mx-auto px-4 pt-4 pb-8">
           {loading && (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="relative">
