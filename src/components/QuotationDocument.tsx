@@ -194,12 +194,18 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent, agentPhoto
   const todayStr = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
   const validDate = new Date(now.getTime() + 7 * 86400000).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
-  // Duration
+  // Duration — extract from package name (e.g. "9HR", "12 HARI") to match advertised duration
   let days = 0;
   if (pkg) {
-    const dep = new Date(pkg.keberangkatan.tgl);
-    const ret = new Date(pkg.kepulangan.tgl);
-    days = Math.ceil((ret.getTime() - dep.getTime()) / 86400000);
+    const m = pkg.nama.match(/(\d+)\s*(?:HR|HARI)/i);
+    if (m) {
+      days = parseInt(m[1], 10);
+    } else {
+      // Fallback: calculate from dates
+      const dep = new Date(pkg.keberangkatan.tgl);
+      const ret = new Date(pkg.kepulangan.tgl);
+      days = Math.ceil((ret.getTime() - dep.getTime()) / 86400000);
+    }
   }
 
   // Hotel info
