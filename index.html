@@ -63,6 +63,33 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body>
+    <script>
+      // Bypass service worker for server-rendered pages (Cloudflare Functions).
+      // When the old cached SW serves this SPA for routes like /*/umroh,
+      // this script detects it and forces a hard reload from the server.
+      (function() {
+        var p = location.pathname;
+        if (/\/[^/]+\/umroh\/?$/i.test(p) || /\/brosur\//i.test(p) || /\/itinerary\//i.test(p)) {
+          // Mark that we're doing a bypass reload so we don't loop
+          var key = '__sw_bypass_' + p;
+          if (sessionStorage.getItem(key)) {
+            sessionStorage.removeItem(key);
+            return; // Already reloaded once, don't loop
+          }
+          sessionStorage.setItem(key, '1');
+          // Unregister SW for this scope, then hard reload
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+              Promise.all(regs.map(function(r) { return r.unregister(); })).then(function() {
+                location.reload();
+              });
+            });
+          } else {
+            location.reload();
+          }
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
