@@ -178,7 +178,7 @@ const s = StyleSheet.create({
 
 // ── Banks Data ──
 const banks = [
-  { bank: 'Bank BCA', rek: '7073675598', logo: '/logo-bank/bca.png', bg: '#e8f4fd' },
+  { bank: 'Bank BCA', rek: '2732211111', logo: '/logo-bank/bca.png', bg: '#e8f4fd' },
   { bank: 'Bank Mandiri', rek: '0060008012225', logo: '/logo-bank/mandiri.png', bg: '#e6edf7' },
   { bank: 'Bank Syariah Indonesia', rek: '7073675598', logo: '/logo-bank/bsi.png', bg: '#e6f5f0' },
 ];

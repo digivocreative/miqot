@@ -669,7 +669,7 @@ footer .wrap{max-width:var(--mx);margin:0 auto}
     <div class="footer__brand">PT Alhijaz Indowisata</div>
     <div class="footer__tagline">Travel Haji & Umroh Terpercaya</div>
     <div class="footer__info">
-      <p>\u{1F4CD} Jl. Dewi Sartika No. 342, Cawang, Jakarta Timur</p>
+      <p>\u{1F4CD} Jl. Dewi Sartika No. 239A, Cawang, Jakarta Timur</p>
       <p>\u{1F4DC} PPIU U.490 Tahun 2020 \xB7 PIHK 304 Tahun 2022</p>
       <p>${WA_SVG_SMALL} <a href="https://wa.me/${phone}" style="color:rgba(255,255,255,.7);text-decoration:none">${formatPhone(phone)}</a> \xB7 \u{1F310} <a href="https://${website}" style="color:rgba(255,255,255,.7);text-decoration:none">${website}</a></p>
     </div>
@@ -872,7 +872,7 @@ function buildCard(p, phone, dates) {
 }
 __name(buildCard, "buildCard");
 __name2(buildCard, "buildCard");
-async function generateHTML2(slug) {
+async function generateHTML2(slug, requestUrl) {
   const agent = AGENTS2[slug];
   const phone = agent?.phone || DEFAULT_PHONE2;
   const website = agent?.website || "alhijaz.co";
@@ -881,12 +881,9 @@ async function generateHTML2(slug) {
   const waGeneral = `https://api.whatsapp.com/send?phone=${phone}&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20paket%20Umroh%20di%20Alhijaz`;
   let dates = {};
   try {
-    const fs = await import("fs");
-    const path = await import("path");
-    const url = await import("url");
-    const dir = path.dirname(url.fileURLToPath(import.meta.url));
-    const jsonPath = path.resolve(dir, "..", "umroh-dates.json");
-    dates = JSON.parse(fs.readFileSync(jsonPath, "utf-8")).packages || {};
+    const origin = new URL(requestUrl).origin;
+    const resp = await fetch(`${origin}/umroh-dates.json`);
+    if (resp.ok) dates = (await resp.json()).packages || {};
   } catch {
   }
   const cards = PAKET_LIST.map((p) => buildCard(p, phone, dates)).join("");
@@ -1170,7 +1167,7 @@ __name(generateHTML2, "generateHTML2");
 __name2(generateHTML2, "generateHTML");
 var onRequest5 = /* @__PURE__ */ __name2(async (context) => {
   const slug = (context.params.slug || "").toLowerCase();
-  return new Response(await generateHTML2(slug), {
+  return new Response(await generateHTML2(slug, context.request.url), {
     status: 200,
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=3600" }
   });
