@@ -11,7 +11,7 @@ import FloatingAgentBar from '@/components/FloatingAgentBar';
 // Main App Component
 // ============================================
 
-function App() {
+function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // ============================================
   // Data State
   // ============================================
@@ -353,6 +353,82 @@ function App() {
 
   // ============================================
   // Render
+  // ============================================
+  // ============================================
+  // Single Package Mode (early return)
+  // ============================================
+  if (singlePackageId) {
+    const singlePkg = packages.find(p => p.jadwalId === singlePackageId);
+    const agentSlug = currentAgent
+      ? Object.entries(AGENTS_DATA).find(([, v]) => v === currentAgent)?.[0] || ''
+      : '';
+
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 transition-colors duration-300">
+        {/* Back Header */}
+        <div className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50">
+          <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = agentSlug ? `/${agentSlug}` : '/';
+              }}
+              className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-gray-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
+              title="Kembali"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+            </button>
+            <h1 className="text-base font-bold text-gray-800 dark:text-white truncate">Detail Paket</h1>
+          </div>
+        </div>
+
+        <main className="max-w-lg mx-auto px-4 pt-6 pb-8">
+          {loading && (
+            <div className="flex flex-col items-center justify-center py-16">
+              <div className="relative">
+                <div className="w-12 h-12 rounded-full border-4 border-emerald-100"></div>
+                <div className="w-12 h-12 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin absolute top-0 left-0"></div>
+              </div>
+              <p className="mt-4 text-gray-500 font-medium">Memuat paket...</p>
+            </div>
+          )}
+
+          {!loading && !singlePkg && (
+            <div className="text-center py-16">
+              <div className="w-20 h-20 mx-auto mb-5 bg-gray-100 dark:bg-slate-800 rounded-full flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-10 h-10 text-gray-400">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                </svg>
+              </div>
+              <p className="text-gray-700 dark:text-white font-semibold text-lg mb-1">Paket tidak ditemukan</p>
+              <p className="text-gray-400 text-sm mb-6">Paket yang Anda cari mungkin sudah tidak tersedia.</p>
+              <button
+                onClick={() => { window.location.href = agentSlug ? `/${agentSlug}` : '/'; }}
+                className="px-5 py-2.5 bg-emerald-500 text-white rounded-xl text-sm font-medium hover:bg-emerald-600 active:scale-95 transition-all shadow-md shadow-emerald-500/20"
+              >
+                Lihat Semua Paket
+              </button>
+            </div>
+          )}
+
+          {!loading && singlePkg && (
+            <PackageCard
+              package={singlePkg}
+              isExpanded={true}
+              onToggle={() => {}}
+              agent={currentAgent}
+              isSingleView={true}
+            />
+          )}
+        </main>
+
+        {currentAgent && <FloatingAgentBar agent={currentAgent} />}
+      </div>
+    );
+  }
+
+  // ============================================
+  // Normal Mode (full app)
   // ============================================
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 transition-colors duration-300">

@@ -36,6 +36,16 @@ const agentSlugForKalkulasi = isKalkulasi
   ? AGENTS_DATA[segments[0]?.toLowerCase()] || null
   : null
 
+// Detect single-package URL: /:agent/:jadwalId (where jadwalId is not a known route)
+import { getFilterModeFromSlug } from '@/utils'
+const knownSecondSegments = ['kalkulasi', 'umroh', 'haji']
+const isSinglePackage = !isKalkulasi
+  && segments.length >= 2
+  && !!AGENTS_DATA[segments[0]?.toLowerCase()]
+  && !knownSecondSegments.includes(segments[1]?.toLowerCase())
+  && !getFilterModeFromSlug(segments[1]?.toLowerCase())
+const singlePackageId = isSinglePackage ? segments[1] : null
+
 // ── Page Transition: inject overlay div & trigger reveal ──
 const overlay = document.createElement('div')
 overlay.className = 'page-transition-overlay'
@@ -57,6 +67,6 @@ if (searchParams.has('transition')) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {isKalkulasi ? <KalkulasiPage agent={agentSlugForKalkulasi} /> : <App />}
+    {isKalkulasi ? <KalkulasiPage agent={agentSlugForKalkulasi} /> : <App singlePackageId={singlePackageId} />}
   </StrictMode>,
 )

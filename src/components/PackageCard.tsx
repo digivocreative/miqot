@@ -28,6 +28,8 @@ interface PackageCardProps {
   onExpandChange?: (expanded: boolean) => void;
   /** Agent data from URL slug (passed from parent to avoid per-card detection) */
   agent?: AgentData | null;
+  /** Single package detail view (hides Caption & Hitung, uses 4-col grid) */
+  isSingleView?: boolean;
 }
 
 const LANDING_AIRPORT_MAP: Record<string, string> = {
@@ -93,6 +95,7 @@ export function PackageCard({
   onToggle,
   onExpandChange,
   agent: currentAgent = null,
+  isSingleView = false,
 }: PackageCardProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentHeight, setContentHeight] = useState(0);
@@ -1558,7 +1561,8 @@ _________________________
           {isExpanded && <div className="mb-3"><SeatAndDateSection isFooter={false} /></div>}
 
           {/* ---- New Info Section: Landing & Manasik ---- */}
-          <div className="grid grid-cols-2 gap-3 mb-2 bg-gray-50 dark:bg-slate-900/50 p-3 rounded-lg">
+          <div className="flex items-center gap-3 mb-2 bg-gray-50 dark:bg-slate-900/50 p-3 rounded-lg">
+            <div className="grid grid-cols-2 gap-3 flex-1 min-w-0">
             {/* Landing Info */}
             <div className="flex items-start gap-2">
               <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5">
@@ -1592,6 +1596,34 @@ _________________________
                 </p>
               </div>
             </div>
+            </div>
+
+            {/* Share Button */}
+            <button
+              type="button"
+              data-screenshot-ignore
+              onClick={(e) => {
+                e.stopPropagation();
+                const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0] || '';
+                const shareUrl = `${window.location.origin}${seg ? `/${seg}` : ''}/${pkg.jadwalId}`;
+                const shareData = {
+                  title: pkg.nama,
+                  text: `Lihat paket umroh: ${pkg.nama}`,
+                  url: shareUrl,
+                };
+                if (navigator.share) {
+                  navigator.share(shareData).catch(() => {});
+                } else {
+                  navigator.clipboard.writeText(shareUrl).then(() => {
+                    alert('Link berhasil disalin!');
+                  });
+                }
+              }}
+              className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 text-gray-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-300 dark:hover:border-emerald-600 transition-all duration-200 active:scale-95"
+              title="Bagikan paket ini"
+            >
+              <Share2 size={16} />
+            </button>
           </div>
 
 
@@ -1637,8 +1669,8 @@ _________________________
             </div>
           )}
 
-          {/* ---- Action Buttons (3 columns × 2 rows) ---- */}
-          <div data-screenshot-ignore className="grid grid-cols-3 gap-2 mt-0 mb-4">
+          {/* ---- Action Buttons ---- */}
+          <div data-screenshot-ignore className={`grid ${isSingleView ? 'grid-cols-4' : 'grid-cols-3'} gap-2 mt-0 mb-4`}>
             {pkg.itineraryUrl ? (
               <button
                 type="button"
@@ -1703,7 +1735,7 @@ _________________________
             </button>
 
             {/* AI Caption Button */}
-            <button
+            {!isSingleView && <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
@@ -1717,10 +1749,10 @@ _________________________
             >
               <Sparkles size={20} className="text-indigo-500 dark:text-indigo-400 mb-1" />
               <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Caption</span>
-            </button>
+            </button>}
 
             {/* Hitung (Kalkulasi) Button */}
-            <button
+            {!isSingleView && <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
@@ -1737,7 +1769,7 @@ _________________________
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 15.75V18m-7.5-6.75h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V13.5Zm0 2.25h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V18Zm2.498-6.75h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V13.5Zm0 2.25h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V18Zm2.504-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5Zm0 2.25h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V18Zm2.498-6.75h.008v.008h-.008v-.008ZM15.75 13.5v.008h-.008V13.5h.008ZM6 6.75A.75.75 0 0 1 6.75 6h10.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-.75.75H6.75A.75.75 0 0 1 6 8.25v-1.5ZM6 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6Z" />
               </svg>
               <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Hitung</span>
-            </button>
+            </button>}
 
             {/* WhatsApp Share Button */}
             <button
