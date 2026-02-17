@@ -202,7 +202,7 @@ const distPath = resolve(__dirname, 'dist');
 app.use(express.static(distPath));
 
 // SPA fallback — inject OG tags for agent slugs
-app.get('*', (req, res) => {
+app.get('{*path}', (req, res) => {
   const indexPath = resolve(distPath, 'index.html');
   let html = readFileSync(indexPath, 'utf-8');
 
