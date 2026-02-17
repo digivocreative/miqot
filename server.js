@@ -130,7 +130,7 @@ app.options('/api/ai-copy', (req, res) => {
 // API: Proxy to jadwal.alhijaz.co
 // ──────────────────────────────────────────────
 app.all('/api/{*path}', async (req, res) => {
-  const path = req.params.path; // everything after /api/
+  const path = req.params.path.replace(/^\/+/, ''); // strip leading slash
   const targetUrl = `https://jadwal.alhijaz.co/jadwal/${path}`;
 
   try {
