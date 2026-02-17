@@ -177,7 +177,7 @@ app.get(['/itinerary/*', '/brosur/*'], async (req, res) => {
 app.get('/:slug/umroh', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
   try {
-    const mod = await import('./functions/[slug]/umroh.ts');
+    const mod = await import('./functions/umroh-landing.mjs');
     const result = await mod.onRequest({
       params: { slug },
       request: new Request(`http://localhost${req.url}`),

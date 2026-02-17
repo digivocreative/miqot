@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite",
     "dev:pages": "wrangler pages dev --live-reload -- vite",
-    "build": "vite build",
-    "start": "node --experimental-strip-types server.js",
+    "build": "vite build && node -e \"require('esbuild').buildSync({entryPoints:['functions/[slug]/umroh.ts'],outfile:'functions/umroh-landing.mjs',format:'esm',platform:'node'})\"",
+    "start": "node server.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },
