@@ -34,9 +34,34 @@ function normalizeApiUrl(url: string | undefined | null): string {
 }
 
 /**
- * Transform raw API hotel data to typed HotelInfo
+ * Parse a combined hotel string from the new API format.
+ * e.g. "PULLMAN ZAMZAM/SETARAF (⭐5)" → { name: "PULLMAN ZAMZAM/SETARAF", star: "5" }
+ */
+function parseHotelString(value: string): { name: string; star: string } {
+  // Match star character (★ U+2605 or ⭐ U+2B50) followed by a digit, e.g. (★5) or (⭐5)
+  const starMatch = value.match(/\([★⭐](\d)\)\s*$/);
+  const star = starMatch ? starMatch[1] : '0';
+  const name = value.replace(/\s*\([★⭐]\d\)\s*$/, '').trim();
+  return { name, star };
+}
+
+/**
+ * Transform raw API hotel data to typed HotelInfo.
+ * Handles both old format (mekkah_hotel, mekkah_bintang) and
+ * new format (mekkah: "NAME (⭐N)").
  */
 function transformHotelInfo(rawHotel: Record<string, string>): HotelInfo {
+  // Detect new API format: keys are city names without _hotel suffix
+  if ('mekkah' in rawHotel || 'madinah' in rawHotel) {
+    const result: Record<string, string> = {};
+    for (const [city, value] of Object.entries(rawHotel)) {
+      const { name, star } = parseHotelString(value);
+      result[`${city}_hotel`] = name;
+      result[`${city}_bintang`] = star;
+    }
+    return result as unknown as HotelInfo;
+  }
+  // Old format: pass through as-is
   return rawHotel as unknown as HotelInfo;
 }
 
