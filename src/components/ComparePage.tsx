@@ -364,6 +364,7 @@ export default function ComparePage({ agent }: { agent?: AgentData | null }) {
         return Math.round((ret.getTime() - dep.getTime()) / 86400000);
       };
       const fmt = (d: string) => new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+      const fmtFull = (d: string) => new Date(d).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
       // Colors
       const C = {
@@ -403,42 +404,70 @@ export default function ComparePage({ agent }: { agent?: AgentData | null }) {
       rows.push({ label: 'LAMA<br/>PERJALANAN', a: `${depDays(pkgA) + 1} HARI`, b: `${depDays(pkgB) + 1} HARI` });
 
       // Keberangkatan
-      rows.push({ label: 'KEBERANGKATAN', a: fmt(pkgA.keberangkatan.tgl), b: fmt(pkgB.keberangkatan.tgl) });
+      rows.push({ label: 'KEBERANGKATAN', a: fmtFull(pkgA.keberangkatan.tgl), b: fmtFull(pkgB.keberangkatan.tgl) });
+
+      // Kepulangan
+      rows.push({ label: 'KEPULANGAN', a: fmtFull(pkgA.kepulangan.tgl), b: fmtFull(pkgB.kepulangan.tgl) });
 
       // Maskapai
       rows.push({ label: 'MASKAPAI', a: pkgA.maskapai, b: pkgB.maskapai });
 
-      // Hotel Mekkah
+      // Hotel Mekkah (with stars + distance)
       const mekA = hA?.mekkah_hotel || '—';
       const mekB = hB?.mekkah_hotel || '—';
-      rows.push({ label: 'HOTEL<br/>MEKKAH', a: mekA, b: mekB });
-
-      // Hotel Madinah
-      const madA = hA?.madinah_hotel || '—';
-      const madB = hB?.madinah_hotel || '—';
-      rows.push({ label: 'HOTEL<br/>MADINAH', a: madA, b: madB });
-
-      // Jarak Hotel-Masjid
       const jMekA = mekA !== '—' ? getDistance(mekA) : '';
       const jMekB = mekB !== '—' ? getDistance(mekB) : '';
+      const sMekA = parseInt(hA?.mekkah_bintang || '0');
+      const sMekB = parseInt(hB?.mekkah_bintang || '0');
+      const hotelCell = (name: string, stars: number, dist: string) => {
+        const starStr = stars > 0 ? `<span style="color:#F59E0B">${'★'.repeat(stars)}</span>` : '';
+        const distStr = dist ? `<span style="color:#6B7280">${dist}</span>` : '';
+        const right = [starStr, distStr].filter(Boolean).join(' ');
+        return `<div style="text-align:left;font-size:14px;font-weight:700;color:#1F2937">${name}</div>${right ? `<div style="text-align:right;font-size:12px;margin-top:4px">${right}</div>` : ''}`;
+      };
+      rows.push({
+        label: 'HOTEL<br/>MEKKAH',
+        a: hotelCell(mekA, sMekA, jMekA),
+        b: hotelCell(mekB, sMekB, jMekB),
+      });
+
+      // Hotel Madinah (with stars + distance)
+      const madA = hA?.madinah_hotel || '—';
+      const madB = hB?.madinah_hotel || '—';
       const jMadA = madA !== '—' ? getDistance(madA) : '';
       const jMadB = madB !== '—' ? getDistance(madB) : '';
-      const jA = [jMekA ? `Mekkah: ${jMekA}` : '', jMadA ? `Madinah: ${jMadA}` : ''].filter(Boolean).join('<br/>') || '—';
-      const jB = [jMekB ? `Mekkah: ${jMekB}` : '', jMadB ? `Madinah: ${jMadB}` : ''].filter(Boolean).join('<br/>') || '—';
-      rows.push({ label: 'JARAK<br/>HOTEL - MASJID', a: jA, b: jB });
+      const sMadA = parseInt(hA?.madinah_bintang || '0');
+      const sMadB = parseInt(hB?.madinah_bintang || '0');
+      rows.push({
+        label: 'HOTEL<br/>MADINAH',
+        a: hotelCell(madA, sMadA, jMadA),
+        b: hotelCell(madB, sMadB, jMadB),
+      });
 
-      // Suhu
-      const tempA_mek = getTemperature('mekkah', depMonthA);
-      const tempA_mad = getTemperature('madinah', depMonthA);
-      const tempB_mek = getTemperature('mekkah', depMonthB);
-      const tempB_mad = getTemperature('madinah', depMonthB);
-      const fmtTemp = (mek: any, mad: any) => {
-        const parts: string[] = [];
-        if (mek) parts.push(`Mekkah: ${mek.low}–${mek.high}°C`);
-        if (mad) parts.push(`Madinah: ${mad.low}–${mad.high}°C`);
-        return parts.join('<br/>') || '—';
+      // Suhu — dynamic per-package cities
+      const tempCityKeys = [
+        { key: 'mekkah', label: 'Mekkah', hotelKey: '' },
+        { key: 'madinah', label: 'Madinah', hotelKey: '' },
+        { key: 'cairo', label: 'Cairo', hotelKey: 'cairo_hotel' },
+        { key: 'istanbul', label: 'Istanbul', hotelKey: 'istanbul_hotel' },
+        { key: 'bursa', label: 'Bursa', hotelKey: 'bursa_hotel' },
+        { key: 'cappadocia', label: 'Cappadocia', hotelKey: 'cappadocia_hotel' },
+        { key: 'ankara', label: 'Ankara', hotelKey: 'ankara_hotel' },
+      ];
+      const getTempCities = (hi: Record<string, string> | null, month: number) =>
+        tempCityKeys.filter(c => {
+          if (c.key === 'mekkah' || c.key === 'madinah') return true;
+          return hi && c.hotelKey && hi[c.hotelKey];
+        }).filter(c => getTemperature(c.key, month));
+
+      const fmtTempPkg = (hi: Record<string, string> | null, month: number) => {
+        const cities = getTempCities(hi, month);
+        return cities.map(c => {
+          const t = getTemperature(c.key, month);
+          return t ? `${c.label}: ${t.low}–${t.high}°C` : '';
+        }).filter(Boolean).join('<br/>') || '—';
       };
-      rows.push({ label: 'SUHU SAAT<br/>KEBERANGKATAN', a: fmtTemp(tempA_mek, tempA_mad), b: fmtTemp(tempB_mek, tempB_mad) });
+      rows.push({ label: 'SUHU SAAT<br/>KEBERANGKATAN', a: fmtTempPkg(hA, depMonthA), b: fmtTempPkg(hB, depMonthB) });
 
       // Seat
       rows.push({ label: 'SISA SEAT', a: `${pkgA.seatSisa} / ${pkgA.seatTotal}`, b: `${pkgB.seatSisa} / ${pkgB.seatTotal}` });
@@ -446,8 +475,8 @@ export default function ComparePage({ agent }: { agent?: AgentData | null }) {
       // Manasik
       rows.push({
         label: 'MANASIK',
-        a: pkgA.manasikTanggal ? `${fmt(pkgA.manasikTanggal)}${pkgA.manasikJam ? '<br/>' + pkgA.manasikJam.slice(0, 5) + ' WIB' : ''}` : '—',
-        b: pkgB.manasikTanggal ? `${fmt(pkgB.manasikTanggal)}${pkgB.manasikJam ? '<br/>' + pkgB.manasikJam.slice(0, 5) + ' WIB' : ''}` : '—',
+        a: pkgA.manasikTanggal ? `${fmtFull(pkgA.manasikTanggal)}${pkgA.manasikJam ? '<br/>' + pkgA.manasikJam.slice(0, 5) + ' WIB' : ''}` : '—',
+        b: pkgB.manasikTanggal ? `${fmtFull(pkgB.manasikTanggal)}${pkgB.manasikJam ? '<br/>' + pkgB.manasikJam.slice(0, 5) + ' WIB' : ''}` : '—',
       });
 
       // ── Embed Inter font for cross-device consistency ──
@@ -568,7 +597,7 @@ export default function ComparePage({ agent }: { agent?: AgentData | null }) {
       card.appendChild(tierRow);
 
       // Data rows with premium styling
-      const rowIcons = ['💰', '📅', '🛫', '✈️', '🕋', '🕌', '📍', '🌡️', '💺', '📖'];
+      const rowIcons = ['💰', '📅', '🛫', '🛬', '✈️', '🕋', '🕌', '🌡️', '💺', '📖'];
       rows.forEach((row, idx) => {
         const rowEl = document.createElement('div');
         const isEven = idx % 2 === 0;
@@ -1012,7 +1041,7 @@ export default function ComparePage({ agent }: { agent?: AgentData | null }) {
                             {pkg.manasikTanggal && (
                               <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700">
                                 <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">📖 Manasik</p>
-                                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{fmtDate(pkg.manasikTanggal)}</p>
+                                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{new Date(pkg.manasikTanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
                                 {pkg.manasikJam && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{pkg.manasikJam.slice(0, 5)} WIB</p>}
                               </div>
                             )}
