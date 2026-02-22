@@ -24,6 +24,9 @@ import type { UmrohPackage, HotelInfo } from '@/types';
 import { getDistance } from '@/data/hotelService';
 import { getTemperature } from '@/data/temperatureData';
 
+// Cache for base64-encoded Inter font CSS (populated on first screenshot)
+let cachedInterFontCSS: string | null = null;
+
 // ============================================
 // Types
 // ============================================
@@ -447,14 +450,55 @@ export default function ComparePage({ agent }: { agent?: AgentData | null }) {
         b: pkgB.manasikTanggal ? `${fmt(pkgB.manasikTanggal)}${pkgB.manasikJam ? '<br/>' + pkgB.manasikJam.slice(0, 5) + ' WIB' : ''}` : '—',
       });
 
+      // ── Embed Inter font for cross-device consistency ──
+      if (!cachedInterFontCSS) {
+        const fontUrls = [
+          { weight: 400, url: 'https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZ9hiA.woff2' },
+          { weight: 600, url: 'https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYAZ9hiA.woff2' },
+          { weight: 700, url: 'https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuFuYAZ9hiA.woff2' },
+          { weight: 800, url: 'https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuDyYAZ9hiA.woff2' },
+        ];
+        const fontFaces = await Promise.all(
+          fontUrls.map(async ({ weight, url }) => {
+            try {
+              const resp = await fetch(url);
+              const blob = await resp.blob();
+              const dataUri = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(blob);
+              });
+              return `@font-face { font-family: 'Inter'; font-style: normal; font-weight: ${weight}; src: url(${dataUri}) format('woff2'); }`;
+            } catch {
+              return '';
+            }
+          })
+        );
+        cachedInterFontCSS = fontFaces.filter(Boolean).join('\n');
+      }
+
       // ── Build DOM ──
       const wrapper = document.createElement('div');
+
+      // Inject embedded font + force light color-scheme
+      const fontStyle = document.createElement('style');
+      fontStyle.textContent = `
+        ${cachedInterFontCSS}
+        .compare-screenshot, .compare-screenshot * {
+          font-family: 'Inter', Arial, Helvetica, sans-serif !important;
+          color-scheme: light !important;
+        }
+      `;
+      wrapper.appendChild(fontStyle);
+      wrapper.classList.add('compare-screenshot');
+
       Object.assign(wrapper.style, {
         position: 'fixed', top: '0', left: '0', width: '800px',
         zIndex: '-9999', opacity: '1', pointerEvents: 'none',
         background: 'linear-gradient(180deg, #F0FAF4 0%, #E8F5EC 100%)',
         fontFamily: "'Inter', Arial, Helvetica, sans-serif",
         boxSizing: 'border-box', padding: '24px',
+        colorScheme: 'light',
       });
 
       // Outer card container with rounded corners
