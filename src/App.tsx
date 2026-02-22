@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { PackageCard, CompactCard, FilterHeader, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
 import { getPackages } from '@/services';
 import { filterPackages, sortPackages, getFilterSlug, getFilterModeFromSlug, type FilterMode, type SortOrder } from '@/utils';
@@ -30,6 +31,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   const [quickFilter, setQuickFilter] = useState<QuickFilterType | null>(null);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [sortOrder, setSortOrder] = useState<SortOrder | null>('TANGGAL_TERDEKAT');
+  const [compactDetailId, setCompactDetailId] = useState<string | null>(null);
   const [isCompactView, setIsCompactView] = useState(() => {
     return localStorage.getItem('compactView') === 'true';
   });
@@ -540,7 +542,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
                 <CompactCard
                   key={pkg.jadwalId}
                   package={pkg}
-                  onToggle={() => handleToggleCard(pkg.jadwalId)}
+                  onToggle={() => setCompactDetailId(pkg.jadwalId)}
                   agent={currentAgent}
                 />
               ) : (
@@ -639,6 +641,57 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       {/* FLOATING AGENT BAR (only in agent mode) */}
       {/* ============================================ */}
       {currentAgent && <FloatingAgentBar agent={currentAgent} />}
+
+      {/* ============================================ */}
+      {/* COMPACT DETAIL MODAL */}
+      {/* ============================================ */}
+      {compactDetailId && (() => {
+        const detailPkg = filteredPackages.find(p => p.jadwalId === compactDetailId);
+        if (!detailPkg) return null;
+        return createPortal(
+          <div
+            className="fixed inset-0 z-[9999] flex flex-col"
+          >
+            {/* Full Screen Container */}
+            <div className="relative flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-900">
+              {/* Full PackageCard */}
+              <div className="max-w-lg mx-auto px-4 pt-4 pb-24">
+                <PackageCard
+                  package={detailPkg}
+                  isExpanded={true}
+                  onToggle={() => setCompactDetailId(null)}
+                  agent={currentAgent}
+                />
+              </div>
+            </div>
+
+            {/* Floating Close Button — Bottom Center */}
+            <div className="absolute bottom-6 left-0 right-0 flex justify-center z-20 pointer-events-none">
+              <button
+                onClick={() => setCompactDetailId(null)}
+                className="
+                  pointer-events-auto
+                  flex items-center gap-2
+                  px-6 py-3 rounded-full
+                  bg-gray-900/90 dark:bg-white/90
+                  text-white dark:text-gray-900
+                  font-semibold text-sm
+                  shadow-lg shadow-black/20
+                  hover:bg-gray-800 dark:hover:bg-white
+                  active:scale-95
+                  transition-all duration-200
+                  backdrop-blur-sm
+                "
+                aria-label="Tutup"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                Tutup
+              </button>
+            </div>
+          </div>,
+          document.body
+        );
+      })()}
     </div>
   );
 }
