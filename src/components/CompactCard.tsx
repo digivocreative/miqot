@@ -70,16 +70,16 @@ export function CompactCard({ package: pkg, onToggle, agent: _agent }: CompactCa
       <div className="px-3.5 py-3">
         {/* ---- Row 1: Departure Date (left) + Return Date (right) ---- */}
         <div className="flex items-baseline justify-between mb-0.5">
-          <span className="text-[15px] font-bold text-emerald-600 dark:text-emerald-400">
+          <span className="text-base font-bold text-emerald-600 dark:text-emerald-400">
             {formatDate(pkg.keberangkatan.tgl)}
           </span>
-          <span className="text-[15px] font-bold text-emerald-600 dark:text-emerald-400">
+          <span className="text-base font-bold text-emerald-600 dark:text-emerald-400">
             {formatDate(pkg.kepulangan.tgl)}
           </span>
         </div>
 
         {/* ---- Row 2: Package Name ---- */}
-        <h3 className={`text-[13px] font-extrabold uppercase tracking-wide truncate mb-0.5 ${
+        <h3 className={`text-sm font-extrabold uppercase tracking-wide truncate mb-0.5 ${
           isFull
             ? 'line-through text-red-700 dark:text-red-500'
             : 'text-gray-900 dark:text-white'
@@ -88,7 +88,7 @@ export function CompactCard({ package: pkg, onToggle, agent: _agent }: CompactCa
         </h3>
 
         {/* ---- Row 3: Price ---- */}
-        <p className="text-[12px] text-gray-600 dark:text-slate-300 mb-1.5">
+        <p className="text-[13px] text-gray-600 dark:text-slate-300 mb-1.5">
           Mulai dari{' '}
           <span className="font-extrabold text-gray-900 dark:text-white">
             {formatPriceJt(absoluteMinPrice)} juta
@@ -98,30 +98,30 @@ export function CompactCard({ package: pkg, onToggle, agent: _agent }: CompactCa
         {/* ---- Row 4: Flight Details — 2 columns, fixed height ---- */}
         <div className="grid grid-cols-2 gap-x-4">
           {/* Left: Departure */}
-          <div className="text-[11px] leading-[1.6]">
+          <div className="text-[13px] leading-[1.6]">
             <p className="text-gray-500 dark:text-slate-400">{pkg.keberangkatan.rute}</p>
             <p className="flex items-center gap-1 font-semibold text-gray-700 dark:text-slate-200">
-              <PlaneTakeoff size={11} className="text-emerald-500 shrink-0" />
+              <PlaneTakeoff size={13} className="text-emerald-500 shrink-0" />
               {pkg.keberangkatan.kodePenerbangan}
             </p>
             <p className="text-gray-600 dark:text-slate-300">
               {fmtTime(pkg.keberangkatan.jam)} - {fmtTime(pkg.kepulangan.jam)}
               {isNextDay(pkg.keberangkatan.jam, pkg.kepulangan.jam) && (
-                <span className="ml-1 font-bold text-orange-500 text-[10px]">(+1)</span>
+                <span className="ml-1 font-bold text-orange-500 text-[11px]">(+1)</span>
               )}
             </p>
           </div>
 
           {/* Right: Return */}
-          <div className="text-[11px] text-right leading-[1.6]">
+          <div className="text-[13px] text-right leading-[1.6]">
             <p className="text-gray-500 dark:text-slate-400">{pkg.kepulangan.rute}</p>
             <p className="flex items-center justify-end gap-1 font-semibold text-gray-700 dark:text-slate-200">
-              <PlaneLanding size={11} className="text-emerald-500 shrink-0" />
+              <PlaneLanding size={13} className="text-emerald-500 shrink-0" />
               {pkg.kepulangan.kodePenerbangan}
             </p>
             <p className="flex items-center justify-end gap-1.5 text-gray-600 dark:text-slate-300">
               <span className={`
-                font-bold text-[10px] tabular-nums shrink-0
+                font-bold text-xs tabular-nums shrink-0
                 ${isFull
                   ? 'text-red-600 dark:text-red-400'
                   : pkg.seatSisa <= 10
@@ -134,7 +134,7 @@ export function CompactCard({ package: pkg, onToggle, agent: _agent }: CompactCa
               <span className="whitespace-nowrap">
                 {fmtTime(pkg.kepulangan.jam)} - {fmtTime(pkg.keberangkatan.jam)}
                 {isNextDay(pkg.kepulangan.jam, pkg.keberangkatan.jam) && (
-                  <span className="ml-1 font-bold text-orange-500 text-[10px]">(+1)</span>
+                  <span className="ml-1 font-bold text-orange-500 text-[11px]">(+1)</span>
                 )}
               </span>
             </p>
