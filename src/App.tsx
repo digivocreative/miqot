@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { PackageCard, FilterHeader, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
+import { PackageCard, CompactCard, FilterHeader, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
 import { getPackages } from '@/services';
 import { filterPackages, sortPackages, getFilterSlug, getFilterModeFromSlug, type FilterMode, type SortOrder } from '@/utils';
 import type { UmrohPackage } from '@/types';
@@ -30,6 +30,17 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   const [quickFilter, setQuickFilter] = useState<QuickFilterType | null>(null);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [sortOrder, setSortOrder] = useState<SortOrder | null>('TANGGAL_TERDEKAT');
+  const [isCompactView, setIsCompactView] = useState(() => {
+    return localStorage.getItem('compactView') === 'true';
+  });
+
+  const toggleCompactView = useCallback(() => {
+    setIsCompactView(prev => {
+      const next = !prev;
+      localStorage.setItem('compactView', next.toString());
+      return next;
+    });
+  }, []);
 
   // ============================================
   // Dark Mode State
@@ -482,6 +493,8 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           setDepartureTimeRanges([]);
           setReturnTimeRanges([]);
         }}
+        isCompactView={isCompactView}
+        onToggleCompact={toggleCompactView}
       />
 
       {/* ============================================ */}
@@ -520,16 +533,25 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
 
         {/* Package List */}
         {!loading && !error && (
-          <div className="space-y-3">
+          <div className={isCompactView ? 'space-y-1.5' : 'space-y-3'}>
             {/* Package Cards */}
             {filteredPackages.map((pkg) => (
-              <PackageCard
-                key={pkg.jadwalId}
-                package={pkg}
-                isExpanded={expandedCardId === pkg.jadwalId}
-                onToggle={() => handleToggleCard(pkg.jadwalId)}
-                agent={currentAgent}
-              />
+              isCompactView ? (
+                <CompactCard
+                  key={pkg.jadwalId}
+                  package={pkg}
+                  onToggle={() => handleToggleCard(pkg.jadwalId)}
+                  agent={currentAgent}
+                />
+              ) : (
+                <PackageCard
+                  key={pkg.jadwalId}
+                  package={pkg}
+                  isExpanded={expandedCardId === pkg.jadwalId}
+                  onToggle={() => handleToggleCard(pkg.jadwalId)}
+                  agent={currentAgent}
+                />
+              )
             ))}
 
             {/* Empty State */}

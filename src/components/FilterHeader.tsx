@@ -10,7 +10,7 @@ import {
   type MonthGroup,
 } from '@/utils';
 import logoAlhijaz from '@/logo-alhijaz.webp';
-import { Sun, Moon, Search, X, SlidersHorizontal, Share2, Calculator } from 'lucide-react';
+import { Sun, Moon, Search, X, SlidersHorizontal, Share2, Calculator, LayoutList } from 'lucide-react';
 import { AGENTS_DATA } from '@/data/agents';
 
 // ============================================
@@ -49,6 +49,10 @@ export interface FilterHeaderProps {
   isFilterActive?: boolean;
   /** Callback to clear filters */
   onClearFilter?: () => void;
+  /** Whether compact card view is enabled */
+  isCompactView?: boolean;
+  /** Callback to toggle compact view */
+  onToggleCompact?: () => void;
 }
 
 // Filter mode options for dropdown
@@ -93,6 +97,8 @@ export function FilterHeader({
   onToggleFilter,
   isFilterActive = false,
   onClearFilter,
+  isCompactView = false,
+  onToggleCompact,
 }: FilterHeaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isVisible, setIsVisible] = useState(true);
@@ -209,6 +215,25 @@ export function FilterHeader({
                  </button>
                );
              })()}
+
+             {/* Compact View Toggle */}
+             <button
+               onClick={onToggleCompact}
+               className={`
+                 flex items-center justify-center
+                 w-[38px] h-[38px] rounded-xl
+                 transition-all duration-200
+                 focus:outline-none focus:ring-2 focus:ring-emerald-500
+                 ${isCompactView
+                   ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400'
+                   : 'bg-gray-100/80 text-gray-600 hover:bg-gray-200/80 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700/80'
+                 }
+               `}
+               aria-label="Toggle Compact View"
+               title={isCompactView ? 'Tampilan Normal' : 'Tampilan Compact'}
+             >
+               <LayoutList size={16} />
+             </button>
 
              {/* Dark Mode Toggle */}
              <button
