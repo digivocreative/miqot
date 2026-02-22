@@ -10,7 +10,7 @@ import {
   type MonthGroup,
 } from '@/utils';
 import logoAlhijaz from '@/logo-alhijaz.webp';
-import { Sun, Moon, Search, X, SlidersHorizontal, Share2, Calculator, LayoutList } from 'lucide-react';
+import { Sun, Moon, Search, X, SlidersHorizontal, Calculator, LayoutList } from 'lucide-react';
 import { AGENTS_DATA } from '@/data/agents';
 
 // ============================================
@@ -216,24 +216,37 @@ export function FilterHeader({
                );
              })()}
 
-             {/* Compact View Toggle */}
-             <button
-               onClick={onToggleCompact}
-               className={`
-                 flex items-center justify-center
-                 w-[38px] h-[38px] rounded-xl
-                 transition-all duration-200
-                 focus:outline-none focus:ring-2 focus:ring-emerald-500
-                 ${isCompactView
-                   ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400'
-                   : 'bg-gray-100/80 text-gray-600 hover:bg-gray-200/80 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700/80'
-                 }
-               `}
-               aria-label="Toggle Compact View"
-               title={isCompactView ? 'Tampilan Normal' : 'Tampilan Compact'}
-             >
-               <LayoutList size={16} />
-             </button>
+             {/* Compare Button */}
+             {(() => {
+               const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0]?.toLowerCase();
+               if (!seg || !AGENTS_DATA[seg]) return null;
+               return (
+                 <button
+                   onClick={() => {
+                     document.body.classList.add('navigating');
+                     setTimeout(() => {
+                       window.location.href = `/${seg}/compare?transition=1`;
+                     }, 280);
+                   }}
+                   className="
+                     flex items-center justify-center
+                     w-[38px] h-[38px] rounded-xl
+                     bg-gray-100/80 text-gray-600
+                     hover:bg-gray-200/80
+                     dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700/80
+                     hover:text-violet-600 dark:hover:text-violet-400
+                     transition-all duration-200
+                     focus:outline-none focus:ring-2 focus:ring-emerald-500
+                   "
+                   aria-label="Compare"
+                   title="Compare Paket"
+                 >
+                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                     <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                   </svg>
+                 </button>
+               );
+             })()}
 
              {/* Dark Mode Toggle */}
              <button
@@ -496,37 +509,24 @@ export function FilterHeader({
               )}
             </button>
 
-            {/* Share Button */}
+            {/* Compact View Toggle */}
             <button
-              onClick={async () => {
-                const url = window.location.href;
-                const text = `Cek Jadwal Paket Umroh Alhijaz di ${url}`;
-                if (navigator.share) {
-                  try {
-                    await navigator.share({ text });
-                  } catch {
-                    // User cancelled or share failed silently
-                  }
-                } else {
-                  // Fallback: copy to clipboard
-                  await navigator.clipboard.writeText(text);
-                }
-              }}
+              onClick={onToggleCompact}
               className={`
                 relative flex items-center justify-center
                 w-11 h-11 shrink-0
-                bg-gray-100/80 dark:bg-slate-800/80
-                border border-transparent
-                text-gray-600 dark:text-slate-300
                 rounded-xl
-                hover:bg-gray-200/80 dark:hover:bg-slate-700/80
-                hover:text-emerald-600 dark:hover:text-emerald-400
                 transition-all duration-200
                 active:scale-95
+                ${isCompactView
+                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400'
+                  : 'bg-gray-100/80 text-gray-600 hover:bg-gray-200/80 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700/80'
+                }
               `}
-              aria-label="Share"
+              aria-label="Toggle Compact View"
+              title={isCompactView ? 'Tampilan Normal' : 'Tampilan Compact'}
             >
-              <Share2 size={18} />
+              <LayoutList size={18} />
             </button>
           </div>
         </div>

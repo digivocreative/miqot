@@ -18,19 +18,21 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 jam
 // ─── Fallback (dipakai jika belum ada data dari API) ───
 const FALLBACK_DISTANCES: Record<string, string> = {
   // ── Mekkah ──
-  'PRESTIGE EX ELAF AL MASHAER':  '±300m',
-  'ROYAL MAJESTIC':               '±300m',
   'PULLMAN ZAMZAM':               '±50m',
+  'MOVENPICK':                    '±100m',
+  'PRESTIGE EX ELAF AL MASHAER':  '±300m',
+  'AL MASSA GRAND':               '±400m',
+  'AL MASSA DAR AL FAYZEEN':      '±1.8km',
+  'ROYAL MAJESTIC':               '±300m',
   'RAYYANA AJYAD':                '±300m',
   'SOFWAH ROYAL ORCHID':          '±50m',
-  'AL MASSA GRAND':               '±400m',
   // ── Madinah ──
-  'AL RITZ AL MADINAH':           '±150m',
-  'AL HARAM HOTEL':               '±50m',
   'AL HARAM':                     '±50m',
-  'GRAND PLAZA':                  '±150m',
   'DEYAR AL EIMAN':               '±50m',
+  'AL RITZ AL MADINAH':           '±150m',
+  'GRAND PLAZA':                  '±150m',
   'ODST ALMADINAH':               '±200m',
+  'ARTAL INTERNATIONAL':          '±700m',
 };
 
 // ─── In-memory database (populated from cache or API) ───
