@@ -20,9 +20,9 @@ const FALLBACK_DISTANCES: Record<string, string> = {
   // ── Mekkah ──
   'PRESTIGE EX ELAF AL MASHAER':  '±300m',
   'ROYAL MAJESTIC':               '±300m',
-  'PULLMAN ZAMZAM':               '±50m (Ring 1)',
+  'PULLMAN ZAMZAM':               '±50m',
   'RAYYANA AJYAD':                '±300m',
-  'SOFWAH ROYAL ORCHID':          '±50m (Ring 1)',
+  'SOFWAH ROYAL ORCHID':          '±50m',
   'AL MASSA GRAND':               '±400m',
   // ── Madinah ──
   'AL RITZ AL MADINAH':           '±150m',

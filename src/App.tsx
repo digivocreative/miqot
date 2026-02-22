@@ -268,13 +268,27 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
         const landingCity = pkg.keberangkatan.rute.split(' - ')[1] || '';
         const matchLanding = landingCity.toLowerCase().includes(query);
 
-        // 4. Hotel Names (Deep Check across all tiers)
-        const matchHotel = Object.values(pkg.hotel).some(hotelInfo => {
-          const mekkahHotel = (hotelInfo as { mekkah_hotel?: string }).mekkah_hotel || '';
-          const madinahHotel = (hotelInfo as { madinah_hotel?: string }).madinah_hotel || '';
+        // 4. Hotel Names (only check the cheapest/displayed tier)
+        const matchHotel = (() => {
+          // Find cheapest tier (same logic as PackageCard)
+          let minPrice = Infinity;
+          let minTier = Object.keys(pkg.harga)[0];
+          for (const [tier, tierPricing] of Object.entries(pkg.harga)) {
+            const prices = [tierPricing.Quard, tierPricing.Triple, tierPricing.Double];
+            for (const priceStr of prices) {
+              if (priceStr) {
+                const val = parseInt(priceStr, 10);
+                if (val > 0 && val < minPrice) { minPrice = val; minTier = tier; }
+              }
+            }
+          }
+          const displayedHotel = pkg.hotel[minTier];
+          if (!displayedHotel) return false;
+          const mekkahHotel = (displayedHotel as { mekkah_hotel?: string }).mekkah_hotel || '';
+          const madinahHotel = (displayedHotel as { madinah_hotel?: string }).madinah_hotel || '';
           return mekkahHotel.toLowerCase().includes(query) || 
                  madinahHotel.toLowerCase().includes(query);
-        });
+        })();
 
         // 5. Smart Date (Indonesian format: "12 Oktober 2026")
         const departureDate = new Date(pkg.keberangkatan.tgl);

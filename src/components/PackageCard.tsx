@@ -1670,7 +1670,7 @@ _________________________
           )}
 
           {/* ---- Action Buttons ---- */}
-          <div data-screenshot-ignore className={`grid ${isSingleView ? 'grid-cols-4' : 'grid-cols-3'} gap-2 mt-0 mb-4`}>
+          <div data-screenshot-ignore className={`grid ${(isSingleView || !currentAgent) ? 'grid-cols-4' : 'grid-cols-3'} gap-2 mt-0 mb-4`}>
             {pkg.itineraryUrl ? (
               <button
                 type="button"
@@ -1735,7 +1735,7 @@ _________________________
             </button>
 
             {/* AI Caption Button */}
-            {!isSingleView && <button
+            {!isSingleView && currentAgent && <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
@@ -1752,7 +1752,7 @@ _________________________
             </button>}
 
             {/* Hitung (Kalkulasi) Button */}
-            {!isSingleView && <button
+            {!isSingleView && currentAgent && <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
