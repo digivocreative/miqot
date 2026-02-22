@@ -344,9 +344,6 @@ export default function ComparePage({ agent }: { agent?: AgentData | null }) {
     if (!pkgA || !pkgB) return;
     setPdfLoading(true);
     try {
-      const root = document.documentElement;
-      const wasDark = root.classList.contains('dark');
-      if (wasDark) root.classList.remove('dark');
 
       // ── Helpers ──
       const hA = getHotelInfo(pkgA) as Record<string, string> | null;
@@ -584,7 +581,6 @@ export default function ComparePage({ agent }: { agent?: AgentData | null }) {
       const imageDataUrl = await domToPng(wrapper, { scale: 2, backgroundColor: '#ffffff' });
 
       document.body.removeChild(wrapper);
-      if (wasDark) root.classList.add('dark');
 
       // Share or download
       const blob = await (await fetch(imageDataUrl)).blob();
