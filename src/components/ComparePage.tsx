@@ -928,8 +928,8 @@ export default function ComparePage({ agent }: { agent?: AgentData | null }) {
                   {/* ─── SUHU SAAT KEBERANGKATAN ─── */}
                   {(() => {
                     const cityKeys = [
-                      { key: 'mekkah', label: 'Mekkah' },
-                      { key: 'madinah', label: 'Madinah' },
+                      { key: 'mekkah', label: 'Mekkah', hotelKey: '' },
+                      { key: 'madinah', label: 'Madinah', hotelKey: '' },
                       { key: 'cairo', hotelKey: 'cairo_hotel', label: 'Cairo' },
                       { key: 'istanbul', hotelKey: 'istanbul_hotel', label: 'Istanbul' },
                       { key: 'bursa', hotelKey: 'bursa_hotel', label: 'Bursa' },
@@ -940,40 +940,44 @@ export default function ComparePage({ agent }: { agent?: AgentData | null }) {
                     const hB2 = getHotelInfo(pkgB) as Record<string, string> | null;
                     const depMonthA = new Date(pkgA.keberangkatan.tgl).getMonth() + 1;
                     const depMonthB = new Date(pkgB.keberangkatan.tgl).getMonth() + 1;
-                    const visibleCities = cityKeys.filter(c => {
-                      if (c.key === 'mekkah' || c.key === 'madinah') return true;
-                      const hk = (c as any).hotelKey;
-                      return (hA2 && hA2[hk]) || (hB2 && hB2[hk]);
-                    }).filter(c => getTemperature(c.key, depMonthA) || getTemperature(c.key, depMonthB));
-                    if (!visibleCities.length) return null;
+
+                    // Filter cities per package: Mekkah/Madinah always, others only if that package has the hotel
+                    const getCitiesForPkg = (hotelInfo: Record<string, string> | null, month: number) =>
+                      cityKeys.filter(c => {
+                        if (c.key === 'mekkah' || c.key === 'madinah') return true;
+                        return hotelInfo && c.hotelKey && hotelInfo[c.hotelKey];
+                      }).filter(c => getTemperature(c.key, month));
+
+                    const citiesA = getCitiesForPkg(hA2, depMonthA);
+                    const citiesB = getCitiesForPkg(hB2, depMonthB);
+                    if (!citiesA.length && !citiesB.length) return null;
+
                     return (
                       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm">
                         <div className="px-4 py-3 bg-gradient-to-r from-orange-600 to-amber-500">
                           <p className="text-[10px] font-bold text-white/80 uppercase tracking-widest">🌡️ Suhu Saat Keberangkatan</p>
                         </div>
-                        {visibleCities.map(city => (
-                          <div key={city.key} className="border-b border-slate-50 dark:border-slate-700/50 last:border-0">
-                            <div className="px-4 py-1.5 bg-slate-50/80 dark:bg-slate-900/30">
-                              <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">{city.label}</span>
-                            </div>
-                            <div className="grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-700/50">
-                              {[{ pkg: pkgA, month: depMonthA }, { pkg: pkgB, month: depMonthB }].map((item, idx) => {
+                        <div className="grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-700/50">
+                          {[{ cities: citiesA, month: depMonthA }, { cities: citiesB, month: depMonthB }].map((item, idx) => (
+                            <div key={idx} className="p-4 space-y-2.5">
+                              {item.cities.map(city => {
                                 const temp = getTemperature(city.key, item.month);
                                 return (
-                                  <div key={idx} className="px-4 py-2.5">
+                                  <div key={city.key} className="flex items-baseline justify-between">
+                                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">{city.label}</span>
                                     {temp ? (
-                                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100 tabular-nums">
-                                        {temp.low}<span className="text-slate-400 font-normal mx-0.5">–</span>{temp.high}<span className="text-xs ml-0.5 text-slate-400">°C</span>
-                                      </p>
+                                      <span className="text-[13px] font-bold text-slate-800 dark:text-slate-100 tabular-nums">
+                                        {temp.low}<span className="text-slate-400 font-normal mx-0.5">–</span>{temp.high}<span className="text-[10px] ml-0.5 text-slate-400">°C</span>
+                                      </span>
                                     ) : (
-                                      <p className="text-[11px] text-slate-300 dark:text-slate-600">—</p>
+                                      <span className="text-[11px] text-slate-300 dark:text-slate-600">—</span>
                                     )}
                                   </div>
                                 );
                               })}
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
                     );
                   })()}
