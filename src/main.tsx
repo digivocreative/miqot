@@ -15,6 +15,7 @@ console.log(
   'background:#1e293b;color:#94a3b8;padding:4px 8px;border-radius:0 4px 4px 0'
 )
 import KalkulasiPage from './components/KalkulasiPage.tsx'
+import ComparePage from './components/ComparePage.tsx'
 import { AGENTS_DATA } from '@/data/agents'
 
 // Register Service Worker for PWA
@@ -32,14 +33,18 @@ const updateSW = registerSW({
 // Simple path-based routing (only /:slug/kalkulasi is valid, not bare /kalkulasi)
 const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)
 const isKalkulasi = segments.length >= 2 && segments[1] === 'kalkulasi'
+const isCompare = (segments.length >= 2 && segments[1] === 'compare') || (segments.length === 1 && segments[0] === 'compare')
 const agentSlugForKalkulasi = isKalkulasi
+  ? AGENTS_DATA[segments[0]?.toLowerCase()] || null
+  : null
+const agentSlugForCompare = isCompare && segments.length >= 2
   ? AGENTS_DATA[segments[0]?.toLowerCase()] || null
   : null
 
 // Detect single-package URL: /:agent/:jadwalId (where jadwalId is not a known route)
 import { getFilterModeFromSlug } from '@/utils'
-const knownSecondSegments = ['kalkulasi', 'umroh', 'haji']
-const isSinglePackage = !isKalkulasi
+const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji']
+const isSinglePackage = !isKalkulasi && !isCompare
   && segments.length >= 2
   && !!AGENTS_DATA[segments[0]?.toLowerCase()]
   && !knownSecondSegments.includes(segments[1]?.toLowerCase())
@@ -67,6 +72,6 @@ if (searchParams.has('transition')) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {isKalkulasi ? <KalkulasiPage agent={agentSlugForKalkulasi} /> : <App singlePackageId={singlePackageId} />}
+    {isKalkulasi ? <KalkulasiPage agent={agentSlugForKalkulasi} /> : isCompare ? <ComparePage agent={agentSlugForCompare} /> : <App singlePackageId={singlePackageId} />}
   </StrictMode>,
 )
