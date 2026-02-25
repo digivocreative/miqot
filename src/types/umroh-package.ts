@@ -195,7 +195,7 @@ export interface ApiResponse {
 /**
  * Available airline options from the API
  */
-export type Airline = 'GARUDA' | 'SAUDIA' | 'HAINAN';
+export type Airline = 'GARUDA' | 'SAUDIA' | 'HAINAN' | 'EMIRATES' | 'LION AIR' | 'LOONG AIR';
 
 /**
  * Package tier types

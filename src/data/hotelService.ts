@@ -33,6 +33,19 @@ const FALLBACK_DISTANCES: Record<string, string> = {
   'GRAND PLAZA':                  '±150m',
   'ODST ALMADINAH':               '±200m',
   'ARTAL INTERNATIONAL':          '±700m',
+  // ── Cairo ──
+  'TIBA PYRAMID':                         '',
+  // ── Dubai ──
+  'IBIS DUBAI ALBARSHA':                  '',
+  // ── Bursa ──
+  'ANATOLIA':                             '',
+  // ── Istanbul ──
+  'CENTRO WESTSIDE BY ROTANA':            '',
+  // ── Cappadocia ──
+  'KAYSERI LOFT HOTEL':                   '',
+  'DOUBLE TREE BY HILTON HOTEL AVANOS':   '',
+  // ── Ankara ──
+  'TURIST HOTEL':                         '',
 };
 
 // ─── In-memory database (populated from cache or API) ───

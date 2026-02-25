@@ -78,6 +78,12 @@ const CITY_TEMPS: Record<string, Record<number, MonthlyTemp>> = {
     7: { low: 20, high: 34 }, 8: { low: 20, high: 34 }, 9: { low: 17, high: 31 },
     10: { low: 14, high: 26 }, 11: { low: 8, high: 19 }, 12: { low: 4, high: 14 },
   },
+  haikou: { // Hainan, China
+    1: { low: 15, high: 21 }, 2: { low: 16, high: 23 }, 3: { low: 19, high: 26 },
+    4: { low: 23, high: 30 }, 5: { low: 25, high: 33 }, 6: { low: 26, high: 34 },
+    7: { low: 26, high: 35 }, 8: { low: 25, high: 34 }, 9: { low: 24, high: 32 },
+    10: { low: 22, high: 29 }, 11: { low: 19, high: 26 }, 12: { low: 16, high: 22 },
+  },
 };
 
 /**
