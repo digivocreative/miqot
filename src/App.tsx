@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { PackageCard, CompactCard, FilterHeader, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
-import { getPackages } from '@/services';
+import { getPackages, refreshPackages } from '@/services';
 import { filterPackages, sortPackages, getFilterSlug, getFilterModeFromSlug, type FilterMode, type SortOrder } from '@/utils';
 import type { UmrohPackage } from '@/types';
 import { AGENTS_DATA, type AgentData } from '@/data/agents';
@@ -147,27 +147,59 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // ============================================
   // Fetch Packages (triggered by year change)
   // ============================================
-  const fetchPackages = useCallback(async (yearCode: string) => {
-    setLoading(true);
-    setError(null);
+  const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 jam
+
+  const fetchPackages = useCallback(async (yearCode: string, silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     
-    const result = await getPackages({ yearCode });
+    // If silent (background refresh), force from API
+    const result = silent
+      ? await refreshPackages({ yearCode, silent: true })
+      : await getPackages({ yearCode });
     
     if (result.success) {
       setPackages(result.packages);
       // Auto-populate hotel distance database from API data
       buildDatabaseFromPackages(result.packages);
-    } else {
+
+      // If data came from stale cache, trigger background API refresh
+      if (result.fromCache && !silent) {
+        refreshPackages({ yearCode, silent: true }).then(freshResult => {
+          if (freshResult.success) {
+            setPackages(freshResult.packages);
+            buildDatabaseFromPackages(freshResult.packages);
+            console.log('[App] Background revalidation complete');
+          }
+        });
+      }
+    } else if (!silent) {
+      // Only show error on non-silent fetches
       setError(result.error || 'Gagal memuat data');
       setPackages([]);
     }
-    setLoading(false);
+
+    if (!silent) {
+      setLoading(false);
+    }
   }, []);
 
   // Initial fetch, cache init, and refetch on year change
   useEffect(() => {
     initFromCache(); // Load hotel distances from cache on startup
     fetchPackages(selectedYear);
+  }, [selectedYear, fetchPackages]);
+
+  // Auto-refresh from API every 1 hour
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      console.log('[App] Auto-refresh triggered (1h interval)');
+      fetchPackages(selectedYear, /* silent */ true);
+    }, REFRESH_INTERVAL_MS);
+
+    return () => clearInterval(intervalId);
   }, [selectedYear, fetchPackages]);
 
   // Auto-expand card from URL query param (?expand=<jadwalId>) — used when coming back from Kalkulasi

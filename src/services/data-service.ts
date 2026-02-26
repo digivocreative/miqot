@@ -21,6 +21,76 @@ const API_BASE_URL = '/api/api-get';
 const DEFAULT_YEAR_CODE = '1448'; // Hijri year code
 
 // ============================================
+// Cache Constants
+// ============================================
+
+const PACKAGES_CACHE_PREFIX = 'umroh_packages_cache_';
+const PACKAGES_CACHE_TTL_MS = 60 * 60 * 1000; // 1 jam
+
+// ============================================
+// Cache Types & Helpers
+// ============================================
+
+interface PackagesCacheData {
+  timestamp: number;
+  apiResponse: ApiResponse;
+}
+
+/**
+ * Save API response to localStorage cache
+ */
+function savePackagesToCache(yearCode: string, apiResponse: ApiResponse): void {
+  try {
+    const data: PackagesCacheData = {
+      timestamp: Date.now(),
+      apiResponse,
+    };
+    localStorage.setItem(PACKAGES_CACHE_PREFIX + yearCode, JSON.stringify(data));
+    console.log(`[data-service] Cache saved for year ${yearCode}`);
+  } catch {
+    // localStorage penuh atau tidak tersedia — abaikan
+    console.warn('[data-service] Failed to save cache (storage full?)');
+  }
+}
+
+/**
+ * Load API response from localStorage cache.
+ * Returns null if cache doesn't exist or is expired.
+ */
+function loadPackagesFromCache(yearCode: string): { data: ApiResponse; age: number } | null {
+  try {
+    const raw = localStorage.getItem(PACKAGES_CACHE_PREFIX + yearCode);
+    if (!raw) return null;
+
+    const cached: PackagesCacheData = JSON.parse(raw);
+    const age = Date.now() - cached.timestamp;
+
+    if (age > PACKAGES_CACHE_TTL_MS) {
+      // Cache expired — tapi tetap return data untuk stale-while-revalidate
+      return { data: cached.apiResponse, age };
+    }
+
+    return { data: cached.apiResponse, age };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if packages cache is still fresh (not expired)
+ */
+export function isPackagesCacheFresh(yearCode: string = DEFAULT_YEAR_CODE): boolean {
+  try {
+    const raw = localStorage.getItem(PACKAGES_CACHE_PREFIX + yearCode);
+    if (!raw) return false;
+    const cached: PackagesCacheData = JSON.parse(raw);
+    return (Date.now() - cached.timestamp) < PACKAGES_CACHE_TTL_MS;
+  } catch {
+    return false;
+  }
+}
+
+// ============================================
 // Transform Functions
 // ============================================
 
@@ -140,6 +210,16 @@ export interface GetPackagesOptions {
    * Custom fetch options
    */
   fetchOptions?: RequestInit;
+
+  /**
+   * Skip cache and force fetch from API (default: false)
+   */
+  forceRefresh?: boolean;
+
+  /**
+   * Silent mode — don't throw on error, used for background refresh (default: false)
+   */
+  silent?: boolean;
 }
 
 export interface GetPackagesResult {
@@ -151,16 +231,25 @@ export interface GetPackagesResult {
   totalRecords: number;
   /** Error message if request failed */
   error?: string;
+  /** Whether data came from local cache */
+  fromCache?: boolean;
+  /** Age of cached data in milliseconds */
+  cacheAge?: number;
 }
 
 /**
- * Fetch Umroh packages from the Alhijaz API
+ * Fetch Umroh packages — cache-first with stale-while-revalidate.
+ *
+ * 1. If valid cache exists (< 1 hour) → return cached data immediately
+ * 2. If stale cache exists (> 1 hour) → return cached data + flag fromCache
+ * 3. If no cache → fetch from API
  * 
  * @example
  * ```typescript
  * const result = await getPackages();
  * if (result.success) {
  *   console.log(`Found ${result.packages.length} packages`);
+ *   if (result.fromCache) console.log('Data dari cache');
  * }
  * ```
  */
@@ -171,8 +260,62 @@ export async function getPackages(
     yearCode = DEFAULT_YEAR_CODE,
     timeout = 10000,
     fetchOptions = {},
+    forceRefresh = false,
+    silent = false,
   } = options;
 
+  // ── Step 1: Try cache first (unless forceRefresh) ──
+  if (!forceRefresh) {
+    const cached = loadPackagesFromCache(yearCode);
+    if (cached) {
+      const isFresh = cached.age < PACKAGES_CACHE_TTL_MS;
+      const packages = cached.data.aaData.map(transformPackage);
+
+      if (isFresh) {
+        console.log(`[data-service] ⚡ Cache HIT (${Math.round(cached.age / 1000)}s old, fresh)`);
+        return {
+          success: true,
+          packages,
+          totalRecords: cached.data.iTotalDisplayRecords,
+          fromCache: true,
+          cacheAge: cached.age,
+        };
+      }
+
+      // Stale cache — return it but caller should revalidate
+      console.log(`[data-service] ⏳ Cache STALE (${Math.round(cached.age / 60000)}min old)`);
+      return {
+        success: true,
+        packages,
+        totalRecords: cached.data.iTotalDisplayRecords,
+        fromCache: true,
+        cacheAge: cached.age,
+      };
+    }
+  }
+
+  // ── Step 2: Fetch from API ──
+  return fetchFromApi(yearCode, timeout, fetchOptions, silent);
+}
+
+/**
+ * Force fetch from API, bypassing cache. Updates cache on success.
+ */
+export async function refreshPackages(
+  options: GetPackagesOptions = {}
+): Promise<GetPackagesResult> {
+  return getPackages({ ...options, forceRefresh: true });
+}
+
+/**
+ * Internal: fetch data from the real API and update cache
+ */
+async function fetchFromApi(
+  yearCode: string,
+  timeout: number,
+  fetchOptions: RequestInit,
+  silent: boolean,
+): Promise<GetPackagesResult> {
   const url = `${API_BASE_URL}/${yearCode}`;
 
   try {
@@ -203,20 +346,29 @@ export async function getPackages(
       throw new Error('API returned error status');
     }
 
+    // Save to cache
+    savePackagesToCache(yearCode, data);
+
     // Transform raw data to typed packages
     const packages = data.aaData.map(transformPackage);
+
+    console.log(`[data-service] ✅ API fetch success — ${packages.length} packages cached`);
 
     return {
       success: true,
       packages,
       totalRecords: data.iTotalDisplayRecords,
+      fromCache: false,
+      cacheAge: 0,
     };
   } catch (error) {
     const errorMessage = error instanceof Error 
       ? error.message 
       : 'Unknown error occurred';
 
-    console.error('[getPackages] Error fetching packages:', errorMessage);
+    if (!silent) {
+      console.error('[data-service] Error fetching packages:', errorMessage);
+    }
 
     return {
       success: false,
