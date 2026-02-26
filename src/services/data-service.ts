@@ -25,7 +25,7 @@ const DEFAULT_YEAR_CODE = '1448'; // Hijri year code
 // ============================================
 
 const PACKAGES_CACHE_PREFIX = 'umroh_packages_cache_';
-const PACKAGES_CACHE_TTL_MS = 60 * 60 * 1000; // 1 jam
+const PACKAGES_CACHE_TTL_MS = 3 * 60 * 60 * 1000; // 3 jam
 
 // ============================================
 // Cache Types & Helpers
