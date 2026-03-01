@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { AgentData } from '../data/agents';
+import { AGENTS_DATA } from '../data/agents';
+import { sendCapiEvent } from '../lib/capi';
 
 interface FloatingAgentBarProps {
   agent: AgentData;
@@ -35,6 +37,13 @@ export default function FloatingAgentBar({ agent }: FloatingAgentBarProps) {
   // General WA message (not package-specific)
   const message = 'Assalamualaikum, Saya mau tanya paket umroh di Alhijaz';
   const waLink = `https://wa.me/${agent.phone}?text=${encodeURIComponent(message)}`;
+
+  // CAPI: get agent slug for event firing
+  const agentSlug = Object.entries(AGENTS_DATA).find(([, v]) => v === agent)?.[0] || '';
+
+  const handleCtaClick = () => {
+    if (agentSlug) sendCapiEvent(agentSlug, 'contact');
+  };
 
   return (
     <div
@@ -87,6 +96,7 @@ export default function FloatingAgentBar({ agent }: FloatingAgentBarProps) {
         href={waLink}
         target="_blank"
         rel="noopener noreferrer"
+        onClick={handleCtaClick}
         className="flex-shrink-0 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-full flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.96] group"
       >
         <svg className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

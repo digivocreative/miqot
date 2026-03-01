@@ -1,4 +1,6 @@
 import type { AgentData } from '../data/agents';
+import { AGENTS_DATA } from '../data/agents';
+import { sendCapiEvent } from '../lib/capi';
 
 interface AgentProfileProps {
   agent: AgentData;
@@ -13,6 +15,9 @@ export default function AgentProfile({ agent, packageName = "Umrah Alhijaz", isC
   const message = `Assalamualaikum, Saya mau tanya terkait paket ${packageName}`;
   const encodedMessage = encodeURIComponent(message);
   const waLink = `https://wa.me/${agent.phone}?text=${encodedMessage}`;
+
+  // CAPI: get agent slug for contact event
+  const agentSlug = Object.entries(AGENTS_DATA).find(([, v]) => v === agent)?.[0] || '';
 
   // Format nomor WA untuk tampilan (628xxx → +62 8xxx)
   const formatPhone = (phone: string) => {
@@ -62,6 +67,7 @@ export default function AgentProfile({ agent, packageName = "Umrah Alhijaz", isC
         href={waLink}
         target="_blank"
         rel="noopener noreferrer"
+        onClick={() => { if (agentSlug) sendCapiEvent(agentSlug, 'contact'); }}
         className="flex-shrink-0 bg-emerald-500 hover:bg-emerald-600 text-white pl-3 pr-4 py-2 rounded-full flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 dark:shadow-emerald-500/10 transition-all active:scale-[0.96] group"
       >
         <svg className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

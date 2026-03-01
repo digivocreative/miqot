@@ -10,10 +10,12 @@ import { BrochureModal } from './BrochureModal';
 // Lazy-load heavy components (react-pdf ~500kB loaded on-demand)
 const ItineraryModal = lazy(() => import('./ItineraryModal').then(m => ({ default: m.ItineraryModal })));
 import type { AgentData } from '@/data/agents';
+import { AGENTS_DATA } from '@/data/agents';
 import AgentProfile from './AgentProfile';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { getDistance } from '@/data/hotelService';
 import { getTemperature } from '@/data/temperatureData';
+import { sendCapiEvent } from '@/lib/capi';
 
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
@@ -117,6 +119,13 @@ export function PackageCard({
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+
+  // CAPI: fire viewContent event on content interactions
+  const agentSlug = useMemo(() => {
+    if (!currentAgent) return '';
+    return Object.entries(AGENTS_DATA).find(([, v]) => v === currentAgent)?.[0] || '';
+  }, [currentAgent]);
+  const fireViewContent = () => { if (agentSlug) sendCapiEvent(agentSlug, 'viewContent'); };
 
   // AI Copywriting generator with rate limiting (15 per 2 hours per device)
   const AI_RATE_KEY = 'ai_copy_timestamps';
@@ -451,6 +460,7 @@ _________________________
     e.stopPropagation();
     const message = getShareMessage();
     const encodedMessage = encodeURIComponent(message);
+    fireViewContent();
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
   };
 
@@ -459,6 +469,7 @@ _________________________
     e?.stopPropagation();
     if (!cardRef.current) return;
     setIsCapturing(true);
+    fireViewContent();
 
     try {
       // 1. CLONE & GHOST STRATEGY
@@ -1655,6 +1666,7 @@ _________________________
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
+                  fireViewContent();
                   setIsItineraryOpen(true);
                 }}
                 className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:border-slate-700 dark:hover:border-blue-500"
@@ -1678,6 +1690,7 @@ _________________________
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
+                  fireViewContent();
                   setIsBrochureOpen(true);
                 }}
                 className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/30 dark:border-slate-700 dark:hover:border-orange-500"

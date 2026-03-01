@@ -127,6 +127,175 @@ app.options('/api/ai-copy', (req, res) => {
 });
 
 // ──────────────────────────────────────────────
+// CAPI: Meta Conversion API routes
+// ──────────────────────────────────────────────
+import crypto from 'crypto';
+import { existsSync, readFileSync as readFileSyncFs, writeFileSync, mkdirSync } from 'fs';
+
+// Agent passwords (must match src/data/agents.ts capiPassword)
+const AGENT_PASSWORDS = {
+  'nikita': 'elang7agah', 'nila': 'kucing8erani', 'andra': 'rubah5etia',
+  'dyah': 'sapi4nteng', 'widi': 'kuda6igih', 'aulia': 'rusa3anggun',
+  'selfiah': 'merak9emilang', 'zakia': 'domba2amai', 'dianwahyuni': 'rajawali4erkasa',
+  'anne': 'lumba7incah', 'evi': 'panda3emas', 'yenita': 'bangau5akti',
+  'indah': 'kelinci8intang', 'aisyah': 'angsa6emari', 'siska': 'harimau2erkah',
+  'linda': 'falcon9emerlang', 'nina': 'burung3elita', 'sari': 'merpati7ujur',
+  'isti': 'gajah4andai', 'ferra': 'singa5ejati', 'jan-praba': 'garuda8erani',
+  'ekawati': 'kancil6emilang',
+};
+
+const CAPI_ENCRYPTION_KEY = process.env.CAPI_ENCRYPTION_KEY || '';
+const capiDataDir = resolve(__dirname, 'data', 'capi');
+
+function capiEncrypt(text) {
+  if (!CAPI_ENCRYPTION_KEY || !text) return text;
+  const key = Buffer.from(CAPI_ENCRYPTION_KEY, 'base64').slice(0, 32);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const tag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${tag}:${encrypted}`;
+}
+
+function capiDecrypt(data) {
+  if (!CAPI_ENCRYPTION_KEY || !data || !data.includes(':')) return data;
+  try {
+    const [ivHex, tagHex, encrypted] = data.split(':');
+    const key = Buffer.from(CAPI_ENCRYPTION_KEY, 'base64').slice(0, 32);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch { return data; }
+}
+
+function capiMaskToken(token) {
+  if (!token || token.length <= 6) return token;
+  return token.substring(0, 6) + '****';
+}
+
+function readCapiConfig(slug) {
+  try {
+    const fp = resolve(capiDataDir, `${slug}.json`);
+    if (existsSync(fp)) return JSON.parse(readFileSyncFs(fp, 'utf8'));
+  } catch { /* ignore */ }
+  return null;
+}
+
+function writeCapiConfig(slug, config) {
+  if (!existsSync(capiDataDir)) mkdirSync(capiDataDir, { recursive: true });
+  writeFileSync(resolve(capiDataDir, `${slug}.json`), JSON.stringify(config, null, 2));
+}
+
+// Rate limiting
+const capiRateLimits = {};
+function checkCapiRateLimit(slug) {
+  const now = Date.now();
+  const limit = capiRateLimits[slug];
+  if (!limit || now > limit.resetAt) { capiRateLimits[slug] = { count: 1, resetAt: now + 1000 }; return true; }
+  if (limit.count >= 10) return false;
+  limit.count++;
+  return true;
+}
+
+// CORS preflight for CAPI routes
+app.options('/api/capi/:slug/:action', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  }).sendStatus(204);
+});
+
+// Login
+app.post('/api/capi/:slug/login', (req, res) => {
+  const slug = req.params.slug.toLowerCase();
+  const expected = AGENT_PASSWORDS[slug];
+  if (!expected) return res.status(404).json({ error: 'Agent not found' });
+  res.json({ success: req.body.password === expected });
+});
+
+// Config GET
+app.get('/api/capi/:slug/config', (req, res) => {
+  const slug = req.params.slug.toLowerCase();
+  if (!AGENT_PASSWORDS[slug]) return res.status(404).json({ error: 'Agent not found' });
+  const config = readCapiConfig(slug);
+  if (!config) return res.json({ config: null, maskedToken: '' });
+  const decryptedToken = capiDecrypt(config.accessToken || '');
+  res.json({ config: { ...config, accessToken: '' }, maskedToken: capiMaskToken(decryptedToken) });
+});
+
+// Config POST
+app.post('/api/capi/:slug/config', (req, res) => {
+  const slug = req.params.slug.toLowerCase();
+  if (!AGENT_PASSWORDS[slug]) return res.status(404).json({ error: 'Agent not found' });
+  const body = req.body;
+  const existing = readCapiConfig(slug);
+  let tokenToStore = body.accessToken;
+  if (!tokenToStore && existing?.accessToken) { tokenToStore = existing.accessToken; }
+  else if (tokenToStore) { tokenToStore = capiEncrypt(tokenToStore); }
+  const configToSave = {
+    pixelId: body.pixelId || '', accessToken: tokenToStore || '',
+    testEventCode: body.testEventCode || '', testMode: !!body.testMode,
+    events: body.events || {}, updatedAt: new Date().toISOString(),
+  };
+  writeCapiConfig(slug, configToSave);
+  res.json({ success: true, maskedToken: capiMaskToken(capiDecrypt(configToSave.accessToken)) });
+});
+
+// Event
+app.post('/api/capi/:slug/event', async (req, res) => {
+  const slug = req.params.slug.toLowerCase();
+  if (!AGENT_PASSWORDS[slug]) return res.status(404).json({ error: 'Agent not found' });
+  if (!checkCapiRateLimit(slug)) return res.status(429).json({ error: 'Rate limit exceeded' });
+  const config = readCapiConfig(slug);
+  if (!config) return res.json({ sent: false, reason: 'No config' });
+  const eventConfig = config.events?.[req.body.eventKey];
+  if (!eventConfig?.enabled) return res.json({ sent: false, reason: 'Event disabled' });
+  let eventName = eventConfig.eventName;
+  if (eventName === 'CustomEvent') eventName = eventConfig.customEventName || req.body.eventKey;
+  const accessToken = capiDecrypt(config.accessToken);
+  if (!accessToken || !config.pixelId) return res.json({ sent: false, reason: 'Missing credentials' });
+  const metaPayload = {
+    data: [{
+      event_name: eventName,
+      event_time: req.body.timestamp || Math.floor(Date.now() / 1000),
+      event_id: req.body.eventId,
+      event_source_url: req.body.sourceUrl,
+      user_data: { client_user_agent: req.body.userAgent, fbc: req.body.fbc || undefined, fbp: req.body.fbp || undefined },
+      action_source: 'website',
+    }],
+    ...(config.testMode && config.testEventCode ? { test_event_code: config.testEventCode } : {}),
+  };
+  try {
+    const metaRes = await fetch(`https://graph.facebook.com/v21.0/${config.pixelId}/events?access_token=${encodeURIComponent(accessToken)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(metaPayload),
+    });
+    const metaData = await metaRes.json();
+    res.json({ sent: true, response: metaData });
+  } catch (err) {
+    console.error('[CAPI] Meta API error:', err);
+    res.json({ sent: false, reason: err.message });
+  }
+});
+
+// Validate
+app.post('/api/capi/:slug/validate', async (req, res) => {
+  const slug = req.params.slug.toLowerCase();
+  if (!AGENT_PASSWORDS[slug]) return res.status(404).json({ error: 'Agent not found' });
+  const config = readCapiConfig(slug);
+  if (!config?.pixelId || !config?.accessToken) return res.json({ valid: false, reason: 'Missing credentials' });
+  const accessToken = capiDecrypt(config.accessToken);
+  try {
+    const metaRes = await fetch(`https://graph.facebook.com/v21.0/${config.pixelId}?access_token=${encodeURIComponent(accessToken)}&fields=name,id`);
+    const metaData = await metaRes.json();
+    res.json({ valid: !!metaData?.id && !metaData?.error, pixel: metaData });
+  } catch { res.json({ valid: false, reason: 'Connection failed' }); }
+});
+
+// ──────────────────────────────────────────────
 // API: Proxy to jadwal.alhijaz.co
 // ──────────────────────────────────────────────
 app.all('/api/{*path}', async (req, res) => {

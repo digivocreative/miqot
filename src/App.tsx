@@ -7,6 +7,7 @@ import type { UmrohPackage } from '@/types';
 import { AGENTS_DATA, type AgentData } from '@/data/agents';
 import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
+import { sendCapiEvent } from '@/lib/capi';
 
 // ============================================
 // Main App Component
@@ -120,6 +121,29 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       }
     }
   }, []);
+
+  // ── CAPI: get agent slug string ──
+  const currentAgentSlug = useMemo(() => {
+    if (!currentAgent) return '';
+    return Object.entries(AGENTS_DATA).find(([, v]) => v === currentAgent)?.[0] || '';
+  }, [currentAgent]);
+
+  // ── CAPI: PageView event ──
+  const capiPageViewFired = useState(false);
+  useEffect(() => {
+    if (!currentAgentSlug || capiPageViewFired[0]) return;
+    capiPageViewFired[1](true);
+    sendCapiEvent(currentAgentSlug, 'pageView');
+  }, [currentAgentSlug]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── CAPI: Search event (debounced) ──
+  useEffect(() => {
+    if (!currentAgentSlug || !searchQuery.trim()) return;
+    const timer = setTimeout(() => {
+      sendCapiEvent(currentAgentSlug, 'search');
+    }, 1000); // debounce 1s
+    return () => clearTimeout(timer);
+  }, [searchQuery, currentAgentSlug]);
 
   /**
    * Helper to build the URL path from current agent + filter mode
