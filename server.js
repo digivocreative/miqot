@@ -301,8 +301,18 @@ app.post('/api/capi/:slug/validate', async (req, res) => {
   try {
     const metaRes = await fetch(`https://graph.facebook.com/v21.0/${config.pixelId}?access_token=${encodeURIComponent(accessToken)}&fields=name,id`);
     const metaData = await metaRes.json();
-    res.json({ valid: !!metaData?.id && !metaData?.error, pixel: metaData });
-  } catch { res.json({ valid: false, reason: 'Connection failed' }); }
+    console.log('[CAPI Validate]', slug, JSON.stringify(metaData));
+    if (metaData?.id && !metaData?.error) {
+      return res.json({ valid: true, pixel: metaData });
+    }
+    if (metaData?.error?.code === 100 && metaData?.error?.message?.includes('Missing Permission')) {
+      return res.json({ valid: true, note: 'Token valid, CAPI ready' });
+    }
+    res.json({ valid: false, error: metaData?.error });
+  } catch (err) {
+    console.error('[CAPI Validate] Error:', err);
+    res.json({ valid: false, reason: 'Connection failed' });
+  }
 });
 
 // ──────────────────────────────────────────────

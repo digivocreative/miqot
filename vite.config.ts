@@ -452,9 +452,18 @@ function capiDevPlugin() {
                 `https://graph.facebook.com/v21.0/${config.pixelId}?access_token=${encodeURIComponent(accessToken)}&fields=name,id`
               );
               const metaData = await metaRes.json();
-              const isValid = !!metaData?.id && !metaData?.error;
-              return sendJson(res, 200, { valid: isValid, pixel: metaData });
-            } catch {
+              // If we get an id back, fully connected
+              if (metaData?.id && !metaData?.error) {
+                return sendJson(res, 200, { valid: true, pixel: metaData });
+              }
+              // "Missing Permission" means the token IS valid (authenticated)
+              // but lacks ads_read — this is fine for CAPI (only needs ads_management)
+              if (metaData?.error?.code === 100 && metaData?.error?.message?.includes('Missing Permission')) {
+                return sendJson(res, 200, { valid: true, note: 'Token valid, CAPI ready' });
+              }
+              // Anything else (invalid token, expired, etc.) is an error
+              return sendJson(res, 200, { valid: false, error: metaData?.error });
+            } catch (err: any) {
               return sendJson(res, 200, { valid: false, reason: 'Connection failed' });
             }
           }
