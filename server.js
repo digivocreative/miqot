@@ -134,14 +134,14 @@ import { existsSync, readFileSync as readFileSyncFs, writeFileSync, mkdirSync } 
 
 // Agent passwords (must match src/data/agents.ts capiPassword)
 const AGENT_PASSWORDS = {
-  'nikita': 'elang7agah', 'nila': 'kucing8erani', 'andra': 'rubah5etia',
-  'dyah': 'sapi4nteng', 'widi': 'kuda6igih', 'aulia': 'rusa3anggun',
-  'selfiah': 'merak9emilang', 'zakia': 'domba2amai', 'dianwahyuni': 'rajawali4erkasa',
-  'anne': 'lumba7incah', 'evi': 'panda3emas', 'yenita': 'bangau5akti',
-  'indah': 'kelinci8intang', 'aisyah': 'angsa6emari', 'siska': 'harimau2erkah',
-  'linda': 'falcon9emerlang', 'nina': 'burung3elita', 'sari': 'merpati7ujur',
-  'isti': 'gajah4andai', 'ferra': 'singa5ejati', 'jan-praba': 'garuda8erani',
-  'ekawati': 'kancil6emilang',
+  'nikita': 'elanggagah', 'nila': 'kucingberani', 'andra': 'rubahsetia',
+  'dyah': 'sapiganteng', 'widi': 'kudagigih', 'aulia': 'rusaanggun',
+  'selfiah': 'merakgemilang', 'zakia': 'dombaramai', 'dianwahyuni': 'rajawaliperkasa',
+  'anne': 'lumbalincah', 'evi': 'pandaemas', 'yenita': 'bangausakti',
+  'indah': 'kelincipintar', 'aisyah': 'angsagemari', 'siska': 'harimauberkah',
+  'linda': 'falconcemerlang', 'nina': 'burungjelita', 'sari': 'merpatiluhur',
+  'isti': 'gajahpandai', 'ferra': 'singasejati', 'jan-praba': 'garudaberani',
+  'ekawati': 'kancilcemerlang',
 };
 
 const CAPI_ENCRYPTION_KEY = process.env.CAPI_ENCRYPTION_KEY || '';
@@ -169,11 +169,6 @@ function capiDecrypt(data) {
     decrypted += decipher.final('utf8');
     return decrypted;
   } catch { return data; }
-}
-
-function capiMaskToken(token) {
-  if (!token || token.length <= 6) return token;
-  return token.substring(0, 6) + '****';
 }
 
 function readCapiConfig(slug) {
@@ -204,7 +199,7 @@ function checkCapiRateLimit(slug) {
 app.options('/api/capi/:slug/:action', (req, res) => {
   res.set({
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   }).sendStatus(204);
 });
@@ -217,55 +212,70 @@ app.post('/api/capi/:slug/login', (req, res) => {
   res.json({ success: req.body.password === expected });
 });
 
-// Config GET
+// Config GET — returns decrypted token
 app.get('/api/capi/:slug/config', (req, res) => {
   const slug = req.params.slug.toLowerCase();
   if (!AGENT_PASSWORDS[slug]) return res.status(404).json({ error: 'Agent not found' });
   const config = readCapiConfig(slug);
-  if (!config) return res.json({ config: null, maskedToken: '' });
+  if (!config) return res.json({ config: null });
   const decryptedToken = capiDecrypt(config.accessToken || '');
-  res.json({ config: { ...config, accessToken: '' }, maskedToken: capiMaskToken(decryptedToken) });
+  res.json({ config: { ...config, accessToken: decryptedToken } });
 });
 
-// Config POST
+// Config POST — validates, saves, returns savedToken
 app.post('/api/capi/:slug/config', (req, res) => {
   const slug = req.params.slug.toLowerCase();
   if (!AGENT_PASSWORDS[slug]) return res.status(404).json({ error: 'Agent not found' });
   const body = req.body;
-  const existing = readCapiConfig(slug);
-  let tokenToStore = body.accessToken;
-  if (!tokenToStore && existing?.accessToken) { tokenToStore = existing.accessToken; }
-  else if (tokenToStore) { tokenToStore = capiEncrypt(tokenToStore); }
+
+  // Validation
+  if (!body.pixelId || !body.pixelId.trim()) {
+    return res.status(400).json({ error: 'Pixel ID wajib diisi' });
+  }
+  if (!body.accessToken || !body.accessToken.trim()) {
+    return res.status(400).json({ error: 'Access Token wajib diisi' });
+  }
+
+  const tokenToStore = capiEncrypt(body.accessToken);
   const configToSave = {
     pixelId: body.pixelId || '', accessToken: tokenToStore || '',
     testEventCode: body.testEventCode || '', testMode: !!body.testMode,
     events: body.events || {}, updatedAt: new Date().toISOString(),
   };
   writeCapiConfig(slug, configToSave);
-  res.json({ success: true, maskedToken: capiMaskToken(capiDecrypt(configToSave.accessToken)) });
+  const decryptedForDisplay = capiDecrypt(configToSave.accessToken);
+  res.json({ success: true, savedToken: decryptedForDisplay });
+});
+
+// Config DELETE (reset)
+app.delete('/api/capi/:slug/config', (req, res) => {
+  const slug = req.params.slug.toLowerCase();
+  if (!AGENT_PASSWORDS[slug]) return res.status(404).json({ error: 'Agent not found' });
+  const configToSave = {
+    pixelId: '', accessToken: '', testEventCode: '',
+    testMode: false, events: {}, updatedAt: new Date().toISOString(),
+  };
+  writeCapiConfig(slug, configToSave);
+  res.json({ success: true });
 });
 
 // Event
 app.post('/api/capi/:slug/event', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
   if (!AGENT_PASSWORDS[slug]) return res.status(404).json({ error: 'Agent not found' });
-  if (!checkCapiRateLimit(slug)) return res.status(429).json({ error: 'Rate limit exceeded' });
+  if (!checkCapiRateLimit(slug)) return res.status(429).json({ error: 'Rate limited' });
   const config = readCapiConfig(slug);
-  if (!config) return res.json({ sent: false, reason: 'No config' });
-  const eventConfig = config.events?.[req.body.eventKey];
-  if (!eventConfig?.enabled) return res.json({ sent: false, reason: 'Event disabled' });
-  let eventName = eventConfig.eventName;
-  if (eventName === 'CustomEvent') eventName = eventConfig.customEventName || req.body.eventKey;
+  if (!config?.pixelId || !config?.accessToken) return res.json({ sent: false, reason: 'Not configured' });
   const accessToken = capiDecrypt(config.accessToken);
-  if (!accessToken || !config.pixelId) return res.json({ sent: false, reason: 'Missing credentials' });
+  const { eventName, userData, customData, eventSourceUrl, actionSource } = req.body;
   const metaPayload = {
     data: [{
-      event_name: eventName,
-      event_time: req.body.timestamp || Math.floor(Date.now() / 1000),
-      event_id: req.body.eventId,
-      event_source_url: req.body.sourceUrl,
-      user_data: { client_user_agent: req.body.userAgent, fbc: req.body.fbc || undefined, fbp: req.body.fbp || undefined },
-      action_source: 'website',
+      event_name: eventName || 'PageView',
+      event_time: Math.floor(Date.now() / 1000),
+      event_source_url: eventSourceUrl || '',
+      user_data: userData || {},
+      custom_data: customData || {},
+      action_source: actionSource || 'website',
     }],
     ...(config.testMode && config.testEventCode ? { test_event_code: config.testEventCode } : {}),
   };
