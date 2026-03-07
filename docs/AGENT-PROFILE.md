@@ -10,7 +10,7 @@ Fitur ini memungkinkan setiap agent memiliki URL khusus (slug) yang menampilkan 
 
 ```mermaid
 graph TD
-    A["User akses alhijaz.co/nila"] --> B["Cloudflare Middleware<br/>functions/_middleware.ts"]
+    A["User akses alhijaz.co/nila"] --> B["Express server.js<br/>OG meta injection"]
     B --> C{"Slug cocok<br/>dengan agent?"}
     C -->|Ya| D["Inject meta title + OG tags<br/>ke HTML response"]
     C -->|Tidak| E["Serve HTML default"]
@@ -30,14 +30,13 @@ graph TD
 
 | File | Fungsi |
 |---|---|
-| [agents.ts](file:///Users/bagas/alhijaz/src/data/agents.ts) | Database agent (key = slug) |
+| [agents.ts](file:///Users/bagas/alhijaz/src/data/agents.ts) | Database agent (Supabase + fallback) |
 | [AgentProfile.tsx](file:///Users/bagas/alhijaz/src/components/AgentProfile.tsx) | Komponen profil di dalam card |
 | [FloatingAgentBar.tsx](file:///Users/bagas/alhijaz/src/components/FloatingAgentBar.tsx) | Floating bar di bawah layar |
 | [App.tsx](file:///Users/bagas/alhijaz/src/App.tsx) | Deteksi slug, state `currentAgent`, SEO dinamis |
 | [FilterHeader.tsx](file:///Users/bagas/alhijaz/src/components/FilterHeader.tsx) | Sembunyikan tombol profil user di agent mode |
 | [PackageCard.tsx](file:///Users/bagas/alhijaz/src/components/PackageCard.tsx) | Render `AgentProfile`, exclude dari screenshot |
-| [_middleware.ts](file:///Users/bagas/alhijaz/functions/_middleware.ts) | Server-side meta tag injection untuk link preview |
-| [_redirects](file:///Users/bagas/alhijaz/public/_redirects) | SPA catch-all routing Cloudflare |
+| [server.js](file:///Users/bagas/alhijaz/server.js) | Server-side OG meta injection + CAPI API |
 
 ---
 
@@ -64,7 +63,7 @@ export const AGENTS_DATA: Record<string, AgentData> = {
 ```
 
 > [!IMPORTANT]
-> Data agent **diduplikasi** di `functions/_middleware.ts` karena Cloudflare Functions berjalan di runtime terpisah dan tidak bisa import dari `src/`. Saat menambah/mengubah agent, **update kedua file**.
+> Data agent disimpan di **Supabase** (tabel `agents`). File `agents.ts` memiliki fallback hardcoded jika Supabase tidak tersedia.
 
 ---
 
@@ -128,19 +127,19 @@ const agent = AGENTS_DATA[slug?.toLowerCase()];
 - `document.title` dan `<meta description>` di-set via `useEffect`
 - Berfungsi untuk user yang sudah membuka halaman
 
-### Server-side (functions/_middleware.ts)
-- Mengubah HTML sebelum dikirim ke client/crawler
+### Server-side (server.js)
+- Express `server.js` mengubah HTML sebelum dikirim ke client/crawler
 - Inject `<title>`, `<meta description>`, dan OG tags
+- Data agent diambil dari Supabase (dengan in-memory cache)
 - **Wajib** untuk link preview di WhatsApp, Facebook, Twitter
 
 ---
 
 ## Cara Menambah Agent Baru
 
-1. **Tambah entry** di `src/data/agents.ts`
-2. **Tambah entry** di `functions/_middleware.ts` (duplikasi data)
-3. **Taruh foto** di `public/agents/[slug].jpg`
-4. **Deploy:** `git add . && git commit -m "Add agent [name]" && git push`
+1. **Tambah entry** di Supabase Dashboard → tabel `agents`
+2. **Taruh foto** di `public/agents/[slug].jpg`
+3. **Deploy:** `git add . && git commit -m "Add agent [name]" && git push`
 
 ---
 

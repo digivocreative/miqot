@@ -4,7 +4,7 @@ import { PackageCard, CompactCard, FilterHeader, FilterModal, type QuickFilterTy
 import { getPackages, refreshPackages } from '@/services';
 import { filterPackages, sortPackages, getFilterSlug, getFilterModeFromSlug, type FilterMode, type SortOrder } from '@/utils';
 import type { UmrohPackage } from '@/types';
-import { AGENTS_DATA, type AgentData } from '@/data/agents';
+import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agents';
 import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
 import { sendCapiEvent } from '@/lib/capi';
@@ -71,6 +71,19 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
 
   // Detect agent + filter slug from URL (shared state for SEO + FloatingAgentBar)
   const [currentAgent, setCurrentAgent] = useState<AgentData | null>(null);
+
+  // Load agents from Supabase on mount
+  useEffect(() => {
+    loadAgentsFromSupabase().then(() => {
+      // Re-detect agent after Supabase data is loaded
+      const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+      if (segments.length >= 1) {
+        const possibleAgent = AGENTS_DATA[segments[0]?.toLowerCase()];
+        if (possibleAgent) setCurrentAgent(possibleAgent);
+      }
+    });
+  }, []);
+
   useEffect(() => {
     const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
     // segments can be: [], ['nikita'], ['liburan-sekolah'], ['nikita', 'liburan-sekolah']

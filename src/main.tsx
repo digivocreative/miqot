@@ -33,6 +33,8 @@ const updateSW = registerSW({
 
 // Simple path-based routing (only /:slug/kalkulasi is valid, not bare /kalkulasi)
 const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)
+const isLogin = segments.length === 1 && segments[0] === 'login'
+const isDashboard = segments.length >= 1 && segments[0] === 'dashboard'
 const isKalkulasi = segments.length >= 2 && segments[1] === 'kalkulasi'
 const isCompare = (segments.length >= 2 && segments[1] === 'compare') || (segments.length === 1 && segments[0] === 'compare')
 const isCapi = segments.length >= 2 && segments[1] === 'capi'
@@ -73,12 +75,68 @@ if (searchParams.has('transition')) {
   setTimeout(() => document.body.classList.remove('page-entering'), 600)
 }
 
+// ── Login/Dashboard wrapper component ──
+import { useState, useEffect } from 'react'
+import LoginPage, { getStoredSession, type AuthSession } from './components/LoginPage.tsx'
+import DashboardLayout from './components/DashboardLayout.tsx'
+
+function LoginRouter() {
+  const [session, setSession] = useState<AuthSession | null>(getStoredSession)
+
+  if (session) {
+    return <DashboardLayout session={session} onLogout={() => {
+      setSession(null)
+      window.location.href = '/login'
+    }} />
+  }
+  return <LoginPage onLogin={(s) => setSession(s)} />
+}
+
+function DashboardRouter() {
+  const [session, setSession] = useState<AuthSession | null>(getStoredSession)
+  const [checking, setChecking] = useState(true)
+
+  useEffect(() => {
+    if (!session) { setChecking(false); return }
+    // Verify token is still valid
+    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${session.token}` } })
+      .then(r => { if (!r.ok) throw new Error('expired'); return r.json() })
+      .then(() => setChecking(false))
+      .catch(() => {
+        // Token expired, clear and redirect
+        import('./components/LoginPage.tsx').then(mod => mod.clearSession())
+        setSession(null)
+        setChecking(false)
+      })
+  }, [session])
+
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (!session) {
+    window.location.href = '/login'
+    return null
+  }
+
+  return <DashboardLayout session={session} onLogout={() => {
+    import('./components/LoginPage.tsx').then(mod => mod.clearSession())
+    window.location.href = '/login'
+  }} />
+}
+
 // Determine which page to render
 const renderPage = () => {
+  if (isLogin) return <LoginRouter />
+  if (isDashboard) return <DashboardRouter />
   if (isCapi && agentSlugForCapi) {
     // Check if agent slug is valid
     if (!AGENTS_DATA[agentSlugForCapi]) {
-      return <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'#0f172a',color:'#e2e8f0',fontFamily:'Inter,sans-serif'}}><div style={{textAlign:'center'}}><h1 style={{fontSize:48,margin:'0 0 8px'}}>404</h1><p style={{color:'#94a3b8'}}>Agent tidak ditemukan</p></div></div>
+      return <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'#0f172a',color:'#e2e8f0',fontFamily:'Inter,sans-serif'}}><div style={{textAlign:'center'}}><h1 style={{fontSize:48,margin:'0 0 8px'}}>404</h1><p style={{color:'#94a3b8'}}>Username / password salah</p></div></div>
     }
     return <CapiPage agentSlug={agentSlugForCapi} />
   }
@@ -92,3 +150,4 @@ createRoot(document.getElementById('root')!).render(
     {renderPage()}
   </StrictMode>,
 )
+

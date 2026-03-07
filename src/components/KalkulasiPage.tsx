@@ -715,7 +715,7 @@ function ResultModal({
 // ============================================
 // Main Page Component
 // ============================================
-export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
+export default function KalkulasiPage({ agent, hideHeader = false }: { agent?: AgentData | null; hideHeader?: boolean }) {
   // --- API Data ---
   const [packages, setPackages] = useState<UmrohPackage[]>([]);
   const [loadingPackages, setLoadingPackages] = useState(true);
@@ -1007,6 +1007,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
       {/* ══════════════════════════════ */}
       {/* STICKY HEADER                 */}
       {/* ══════════════════════════════ */}
+      {!hideHeader && (
       <div className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-slate-100 dark:border-slate-700/50">
         <div className="max-w-3xl mx-auto px-5 py-3 flex items-center gap-3">
           <button
@@ -1039,6 +1040,7 @@ export default function KalkulasiPage({ agent }: { agent?: AgentData | null }) {
           </button>
         </div>
       </div>
+      )}
 
       {/* ══════════════════════════════ */}
       {/* MAIN CONTENT                  */}

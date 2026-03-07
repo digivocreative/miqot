@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:pages": "wrangler pages dev --live-reload -- vite",
     "build": "vite build && node -e \"require('esbuild').buildSync({entryPoints:['functions/[slug]/umroh.ts'],outfile:'functions/umroh-landing.mjs',format:'esm',platform:'node'})\"",
     "start": "node server.js",
     "lint": "eslint .",
@@ -13,20 +12,25 @@
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.3.2",
+    "@supabase/supabase-js": "^2.98.0",
+    "axios": "^1.13.6",
+    "bcrypt": "^6.0.0",
     "buffer": "^6.0.3",
+    "cheerio": "^1.2.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "framer-motion": "^12.30.0",
     "html2canvas": "^1.4.1",
+    "jsonwebtoken": "^9.0.3",
     "jspdf": "^4.2.0",
     "lucide-react": "^0.563.0",
     "modern-screenshot": "^4.6.8",
+    "playwright": "^1.58.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-pdf": "^10.3.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260207.0",
     "@types/node": "^25.2.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
@@ -37,7 +41,6 @@
     "tailwindcss": "^3.3.2",
     "typescript": "^5.0.0",
     "vite": "^4.4.0",
-    "vite-plugin-pwa": "^1.2.0",
-    "wrangler": "^4.64.0"
+    "vite-plugin-pwa": "^1.2.0"
   }
 }

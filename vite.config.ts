@@ -186,7 +186,7 @@ function capiDevPlugin() {
       // ── Agent data (always fresh for HMR) ──
       async function getAgentsData() {
         const mod = await server.ssrLoadModule('/src/data/agents.ts');
-        return mod.AGENTS_DATA as Record<string, { capiPassword: string }>;
+        return mod.AGENTS_DATA as Record<string, any>;
       }
 
       // ── Crypto helpers (use top-level ESM imports) ──
@@ -300,11 +300,20 @@ function capiDevPlugin() {
         }
 
         try {
-          // ── LOGIN ──
+          // ── LOGIN — proxy to Express server for bcrypt ──
           if (action === 'login' && req.method === 'POST') {
-            const { password } = await readBody(req);
-            const isValid = password === agents[slug].capiPassword;
-            return sendJson(res, 200, { success: isValid });
+            const body = await readBody(req);
+            try {
+              const proxyRes = await fetch(`http://localhost:3000/api/capi/${slug}/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+              });
+              const proxyData = await proxyRes.json();
+              return sendJson(res, proxyRes.status, proxyData);
+            } catch {
+              return sendJson(res, 500, { error: 'Express server not running on port 3000' });
+            }
           }
 
           // ── CONFIG GET ──
@@ -527,12 +536,36 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         // Don't cache API responses in SW
-        navigateFallbackDenylist: [/^\/api/, /\/umroh$/, /\/brosur/, /\/itinerary/],
+        navigateFallbackDenylist: [/^\/api/, /\/umroh$/, /\/brosur/, /\/itinerary/, /^\/agents\//],
         runtimeCaching: [
           {
             urlPattern: /^\/api\/.*/i,
             handler: 'NetworkOnly',
-          }
+          },
+          {
+            // Agent photos: always try network first, fallback to cache for offline
+            urlPattern: /^\/agents\/.*\.(?:jpg|jpeg|png|webp)$/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'agent-photos',
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 7 * 24 * 60 * 60, // 7 days
+              },
+            },
+          },
+          {
+            // Itinerary & brosur files: network first with cache fallback
+            urlPattern: /^\/(itinerary|brosur)\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'document-files',
+              expiration: {
+                maxEntries: 30,
+                maxAgeSeconds: 24 * 60 * 60, // 1 day
+              },
+            },
+          },
         ]
       }
     })
@@ -565,6 +598,19 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // Auth & admin routes → local Express server
+      '/api/auth': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+      '/api/admin': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+      '/api/jamaah': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'https://jadwal.alhijaz.co',
         changeOrigin: true,

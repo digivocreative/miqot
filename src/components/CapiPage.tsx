@@ -97,7 +97,7 @@ function EventDropdown({ value, onChange }: { value: string; onChange: (v: strin
 
 // ── Main Component ──
 
-export default function CapiPage({ agentSlug }: { agentSlug: string }) {
+export default function CapiPage({ agentSlug, hideHeader = false }: { agentSlug: string; hideHeader?: boolean }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [agentName, setAgentName] = useState('');
@@ -151,7 +151,7 @@ export default function CapiPage({ agentSlug }: { agentSlug: string }) {
   return (
     <>
       {isLoggedIn
-        ? <SettingsPage agentSlug={agentSlug} agentName={agentName} isDark={isDarkMode} onToggleDark={toggleDarkMode} onLogout={handleLogout} />
+        ? <SettingsPage agentSlug={agentSlug} agentName={agentName} isDark={isDarkMode} onToggleDark={toggleDarkMode} onLogout={handleLogout} hideHeader={hideHeader} />
         : <LoginPage agentSlug={agentSlug} agentName={agentName} isDark={isDarkMode} onToggleDark={toggleDarkMode} onLogin={handleLogin} />
       }
       <style>{capiStyles}</style>
@@ -252,7 +252,7 @@ function LoginPage({ agentSlug, agentName, isDark, onToggleDark, onLogin }: { ag
 
 // ── Settings Page ──
 
-function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout }: { agentSlug: string; agentName: string; isDark: boolean; onToggleDark: () => void; onLogout: () => void }) {
+function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hideHeader = false }: { agentSlug: string; agentName: string; isDark: boolean; onToggleDark: () => void; onLogout: () => void; hideHeader?: boolean }) {
   const [config, setConfig] = useState<CapiConfig>(DEFAULT_CONFIG);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -382,6 +382,7 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout }: 
       )}
 
       {/* Header */}
+      {!hideHeader && (
       <header className="capi-header">
         <div className="capi-header-left">
           <img src="/meta-logo.webp" alt="Meta" className="capi-header-logo" loading="eager" />
@@ -400,6 +401,7 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout }: 
           </button>
         </div>
       </header>
+      )}
 
       <div className="capi-content">
         {/* Section 1: Meta Credentials */}

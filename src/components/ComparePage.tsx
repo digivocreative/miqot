@@ -215,7 +215,7 @@ function CompareRow({
 // ============================================
 // Main Page Component
 // ============================================
-export default function ComparePage({ agent }: { agent?: AgentData | null }) {
+export default function ComparePage({ agent, hideHeader = false }: { agent?: AgentData | null; hideHeader?: boolean }) {
   const [packages, setPackages] = useState<UmrohPackage[]>([]);
   const [loadingPackages, setLoadingPackages] = useState(true);
   const [paketA, setPaketA] = useState('');
@@ -681,6 +681,7 @@ export default function ComparePage({ agent }: { agent?: AgentData | null }) {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-slate-950 transition-colors duration-300">
       {/* ── STICKY HEADER ── */}
+      {!hideHeader && (
       <div className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-slate-100 dark:border-slate-700/50 shadow-sm">
         <div className="max-w-3xl mx-auto px-5 py-3 flex items-center gap-3">
           <button
@@ -713,6 +714,7 @@ export default function ComparePage({ agent }: { agent?: AgentData | null }) {
           </button>
         </div>
       </div>
+      )}
 
       {/* ── MAIN CONTENT ── */}
       <div className="max-w-3xl mx-auto px-5 pb-10">

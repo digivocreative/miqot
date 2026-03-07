@@ -1,8 +1,12 @@
 import express from 'express';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { createClient } from '@supabase/supabase-js';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
+import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
 
 dotenv.config();
 
@@ -10,28 +14,97 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ── Supabase (service role for server-side access) ──
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
+
 app.use(express.json());
 
-// ── Agent data for OG meta injection ──
-const AGENTS = {
-  'bagas':       { name: 'Bagas Pramudita',     website: 'alhijazindonesia.com',        phone: '6287878573311' },
-  'nikita':      { name: 'Nikita',              website: 'alhijazindonesia.com',        phone: '62822900020' },
-  'nila':        { name: 'Nila Novita Sari',    website: 'alhijaztourtravels.com',      phone: '6285211209049' },
-  'andra':       { name: 'Andra Olivia',        website: 'travelalhijazwisata.com',     phone: '628129909795' },
-  'dyah':        { name: 'Dyah Ratna Witri',    website: 'alhijaztraveltours.com',      phone: '6281385975678' },
-  'widi':        { name: 'Widi Purwanti',       website: 'alhijaz-hajiumroh.com',       phone: '6287820813228' },
-  'aulia':       { name: 'Aulia',                website: 'alhijazumrohtravel.com',      phone: '6282110407229' },
-  'selfiah':     { name: 'Selfiah Handayani',   website: 'alhijaztourtravel.co.id',     phone: '6281410478212' },
-  'zakia':       { name: 'Rahima Zakia',        website: 'alhijazbirowisata.com',       phone: '6285158005623' },
-  'dianwahyuni': { name: 'Dian Wahyuni',        website: 'alhijazindowisatatours.com',  phone: '6283197968407' },
-  'anne':        { name: 'Anne Suryani',        website: 'hajialhijaz.com',             phone: '628129953424' },
-  'evi':         { name: 'Evi Chaniago',        website: 'alhijazbirohajiumroh.com',    phone: '6281806742789' },
-  'yenita':      { name: 'Yenita',              website: 'alhijazumrahtravel.com',      phone: '6281316803128' },
-  'indah':       { name: 'Indah Permata',       website: 'alhijaztraveltour.com',       phone: '6281943631008' },
-  'aisyah':      { name: 'Siti Aisyah',         website: 'travelalhijazumrah.com',      phone: '6281225600900' },
-  'siska':       { name: 'Siska Fadia',         website: 'alhijazumroh.com',            phone: '6281188885291' },
-  'linda':       { name: 'Nurlinda Dewi',       website: 'alhijazcallcenter.com',       phone: '6282112094089' },
-};
+// ── Jamaah API routes (must be before catch-all) ──
+app.post('/api/jamaah/connect', authMiddleware, async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username dan password wajib diisi' });
+  }
+  const result = await connectJamaah(username, password);
+  if (!result.success) {
+    return res.status(401).json(result);
+  }
+  res.json(result);
+});
+
+app.post('/api/jamaah/fetch', authMiddleware, async (req, res) => {
+  const { sessionId, path } = req.body;
+  if (!sessionId) {
+    return res.status(400).json({ error: 'sessionId wajib diisi' });
+  }
+  const result = await fetchJamaah(sessionId, path || '/');
+  if (!result.success) {
+    return res.status(result.error?.includes('kedaluwarsa') ? 401 : 500).json(result);
+  }
+  res.json(result);
+});
+
+app.post('/api/jamaah/disconnect', authMiddleware, async (req, res) => {
+  const { sessionId } = req.body;
+  if (!sessionId) return res.status(400).json({ error: 'sessionId wajib diisi' });
+  const result = disconnectJamaah(sessionId);
+  res.json(result);
+});
+
+app.get('/api/jamaah/session/:id', authMiddleware, (req, res) => {
+  const info = getSessionInfo(req.params.id);
+  if (!info) return res.status(404).json({ error: 'Session tidak ditemukan' });
+  res.json(info);
+});
+
+// ── JWT Auth middleware ──
+function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Token required' });
+  }
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded; // { slug, name, role }
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+function adminOnly(req, res, next) {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+}
+
+// ── Agent cache (in-memory, refreshes every 5 minutes) ──
+let agentCache = null;
+let agentCacheTime = 0;
+const AGENT_CACHE_TTL = 5 * 60 * 1000; // 5 min
+
+async function getAgents() {
+  if (agentCache && Date.now() - agentCacheTime < AGENT_CACHE_TTL) return agentCache;
+  const { data, error } = await supabase.from('agents').select('*');
+  if (error) { console.error('[Supabase] agents fetch error:', error.message); return agentCache || {}; }
+  const map = {};
+  for (const a of data) map[a.slug] = a;
+  agentCache = map;
+  agentCacheTime = Date.now();
+  return map;
+}
+
+async function getAgent(slug) {
+  const agents = await getAgents();
+  return agents[slug] || null;
+}
 
 // ──────────────────────────────────────────────
 // API: AI Copywriting (OpenAI proxy)
@@ -122,30 +195,217 @@ app.options('/api/ai-copy', (req, res) => {
   res.set({
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   }).sendStatus(204);
 });
 
 // ──────────────────────────────────────────────
-// CAPI: Meta Conversion API routes
+// Auth: Login & session
+// ──────────────────────────────────────────────
+app.options('/api/auth/:action', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  }).sendStatus(204);
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  const { slug, password } = req.body;
+  if (!slug || !password) return res.status(400).json({ error: 'Slug dan password wajib diisi' });
+
+  const agent = await getAgent(slug.toLowerCase());
+  if (!agent) return res.status(404).json({ error: 'Username / password salah' });
+  const isValid = await bcrypt.compare(password, agent.password || '');
+  if (!isValid) {
+    return res.status(401).json({ error: 'Password salah' });
+  }
+
+  const token = jwt.sign(
+    { slug: agent.slug, name: agent.name, role: agent.role || 'agent' },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+
+  res.json({
+    success: true,
+    token,
+    user: {
+      slug: agent.slug,
+      name: agent.name,
+      role: agent.role || 'agent',
+      photo: agent.photo,
+      website: agent.website,
+      phone: agent.phone,
+      email: agent.email || '',
+    },
+  });
+});
+
+app.get('/api/auth/me', authMiddleware, async (req, res) => {
+  const agent = await getAgent(req.user.slug);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  res.json({
+    slug: agent.slug,
+    name: agent.name,
+    role: agent.role || 'agent',
+    photo: agent.photo,
+    website: agent.website,
+    phone: agent.phone,
+    email: agent.email || '',
+  });
+});
+
+// ──────────────────────────────────────────────
+// Admin: Profile & agent management
+// ──────────────────────────────────────────────
+app.options('/api/admin/:path', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  }).sendStatus(204);
+});
+app.options('/api/admin/agents/:slug', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  }).sendStatus(204);
+});
+
+// Update own profile
+app.put('/api/admin/profile', authMiddleware, async (req, res) => {
+  const { name, website, phone, email, slug: newSlug } = req.body;
+  const updates = {};
+  if (name !== undefined) updates.name = name;
+  if (website !== undefined) updates.website = website;
+  if (phone !== undefined) updates.phone = phone;
+  if (email !== undefined) updates.email = email;
+  if (newSlug && newSlug !== req.user.slug) {
+    // Check if slug is taken
+    const { data: existing } = await supabase.from('agents').select('slug').eq('slug', newSlug).single();
+    if (existing) return res.status(400).json({ error: 'Slug sudah digunakan' });
+    updates.slug = newSlug;
+    // Rename photo file if exists
+    const oldPath = resolve(__dirname, 'public', 'agents', `${req.user.slug}.jpg`);
+    const newPath = resolve(__dirname, 'public', 'agents', `${newSlug}.jpg`);
+    try {
+      if (existsSync(oldPath)) {
+        const { renameSync } = await import('fs');
+        renameSync(oldPath, newPath);
+        updates.photo = `/agents/${newSlug}.jpg?v=${Date.now()}`;
+      }
+    } catch (e) { /* ignore rename errors */ }
+  }
+  if (Object.keys(updates).length === 0) return res.json({ success: true });
+  const { error } = await supabase
+    .from('agents')
+    .update(updates)
+    .eq('slug', req.user.slug);
+  if (error) return res.status(500).json({ error: error.message });
+  // Invalidate cache
+  agentCache = null;
+  res.json({ success: true });
+});
+
+// Upload profile photo (base64 JPEG)
+app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), async (req, res) => {
+  const { image } = req.body; // base64 data URL
+  if (!image) return res.status(400).json({ error: 'No image provided' });
+
+  try {
+    // Extract base64 data
+    const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Save to public/agents/{slug}.jpg
+    const agentsDir = resolve(__dirname, 'public', 'agents');
+    if (!existsSync(agentsDir)) mkdirSync(agentsDir, { recursive: true });
+    const filePath = resolve(agentsDir, `${req.user.slug}.jpg`);
+    writeFileSync(filePath, buffer);
+
+    // Update photo path in Supabase with cache buster
+    const photoUrl = `/agents/${req.user.slug}.jpg?v=${Date.now()}`;
+    await supabase.from('agents').update({ photo: photoUrl }).eq('slug', req.user.slug);
+
+    // Invalidate cache
+    agentCache = null;
+    res.json({ success: true, photo: photoUrl });
+  } catch (err) {
+    console.error('Photo upload error:', err);
+    res.status(500).json({ error: 'Failed to save photo' });
+  }
+});
+// List all agents (admin only)
+app.get('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
+  const { data, error } = await supabase
+    .from('agents')
+    .select('slug, name, website, phone, email, photo, role')
+    .order('name');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// Update any agent (admin only)
+app.put('/api/admin/agents/:slug', authMiddleware, adminOnly, async (req, res) => {
+  const { name, website, phone, email, role, password: rawPassword } = req.body;
+  const updates = {};
+  if (name !== undefined) updates.name = name;
+  if (website !== undefined) updates.website = website;
+  if (phone !== undefined) updates.phone = phone;
+  if (email !== undefined) updates.email = email;
+  if (role !== undefined) updates.role = role;
+  if (rawPassword !== undefined) updates.password = await bcrypt.hash(rawPassword, 12);
+
+  const { error } = await supabase
+    .from('agents')
+    .update(updates)
+    .eq('slug', req.params.slug.toLowerCase());
+  if (error) return res.status(500).json({ error: error.message });
+  agentCache = null;
+  res.json({ success: true });
+});
+
+// Create new agent (admin only)
+app.post('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
+  const { slug, name, website, phone, photo, password: rawPassword, role } = req.body;
+  if (!slug || !name || !rawPassword) {
+    return res.status(400).json({ error: 'slug, name, dan password wajib diisi' });
+  }
+  const hashedPassword = await bcrypt.hash(rawPassword, 12);
+  const { error } = await supabase.from('agents').insert({
+    slug: slug.toLowerCase(),
+    name, website: website || '', phone: phone || '',
+    photo: photo || `/agents/${slug.toLowerCase()}.jpg`,
+    password: hashedPassword, role: role || 'agent',
+  });
+  if (error) return res.status(500).json({ error: error.message });
+  agentCache = null;
+  res.json({ success: true });
+});
+
+// Delete agent (admin only)
+app.delete('/api/admin/agents/:slug', authMiddleware, adminOnly, async (req, res) => {
+  const slug = req.params.slug.toLowerCase();
+  // Don't allow deleting yourself
+  if (slug === req.user.slug) {
+    return res.status(400).json({ error: 'Tidak bisa menghapus akun sendiri' });
+  }
+  const { error } = await supabase.from('agents').delete().eq('slug', slug);
+  if (error) return res.status(500).json({ error: error.message });
+  // Also delete CAPI config
+  await supabase.from('capi_configs').delete().eq('slug', slug);
+  agentCache = null;
+  res.json({ success: true });
+});
+
+// ──────────────────────────────────────────────
+// CAPI: Meta Conversion API routes (Supabase-backed)
 // ──────────────────────────────────────────────
 import crypto from 'crypto';
-import { existsSync, readFileSync as readFileSyncFs, writeFileSync, mkdirSync } from 'fs';
-
-// Agent passwords (must match src/data/agents.ts capiPassword)
-const AGENT_PASSWORDS = {
-  'nikita': 'elanggagah', 'nila': 'kucingberani', 'andra': 'rubahsetia',
-  'dyah': 'sapiganteng', 'widi': 'kudagigih', 'aulia': 'rusaanggun',
-  'selfiah': 'merakgemilang', 'zakia': 'dombaramai', 'dianwahyuni': 'rajawaliperkasa',
-  'anne': 'lumbalincah', 'evi': 'pandaemas', 'yenita': 'bangausakti',
-  'indah': 'kelincipintar', 'aisyah': 'angsagemari', 'siska': 'harimauberkah',
-  'linda': 'falconcemerlang', 'nina': 'burungjelita', 'sari': 'merpatiluhur',
-  'isti': 'gajahpandai', 'ferra': 'singasejati', 'jan-praba': 'garudaberani',
-  'ekawati': 'kancilcemerlang',
-};
 
 const CAPI_ENCRYPTION_KEY = process.env.CAPI_ENCRYPTION_KEY || '';
-const capiDataDir = resolve(__dirname, 'data', 'capi');
 
 function capiEncrypt(text) {
   if (!CAPI_ENCRYPTION_KEY || !text) return text;
@@ -171,17 +431,36 @@ function capiDecrypt(data) {
   } catch { return data; }
 }
 
-function readCapiConfig(slug) {
-  try {
-    const fp = resolve(capiDataDir, `${slug}.json`);
-    if (existsSync(fp)) return JSON.parse(readFileSyncFs(fp, 'utf8'));
-  } catch { /* ignore */ }
-  return null;
+async function readCapiConfig(slug) {
+  const { data, error } = await supabase
+    .from('capi_configs')
+    .select('*')
+    .eq('slug', slug)
+    .single();
+  if (error || !data) return null;
+  return {
+    pixelId: data.pixel_id,
+    accessToken: data.access_token,
+    testEventCode: data.test_event_code,
+    testMode: data.test_mode,
+    events: data.events,
+    updatedAt: data.updated_at,
+  };
 }
 
-function writeCapiConfig(slug, config) {
-  if (!existsSync(capiDataDir)) mkdirSync(capiDataDir, { recursive: true });
-  writeFileSync(resolve(capiDataDir, `${slug}.json`), JSON.stringify(config, null, 2));
+async function writeCapiConfig(slug, config) {
+  const { error } = await supabase
+    .from('capi_configs')
+    .upsert({
+      slug,
+      pixel_id: config.pixelId || '',
+      access_token: config.accessToken || '',
+      test_event_code: config.testEventCode || '',
+      test_mode: config.testMode || false,
+      events: config.events || {},
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'slug' });
+  if (error) console.error('[Supabase] CAPI write error:', error.message);
 }
 
 // Rate limiting
@@ -205,27 +484,30 @@ app.options('/api/capi/:slug/:action', (req, res) => {
 });
 
 // Login
-app.post('/api/capi/:slug/login', (req, res) => {
+app.post('/api/capi/:slug/login', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
-  const expected = AGENT_PASSWORDS[slug];
-  if (!expected) return res.status(404).json({ error: 'Agent not found' });
-  res.json({ success: req.body.password === expected });
+  const agent = await getAgent(slug);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  const isValid = await bcrypt.compare(req.body.password, agent.password || '');
+  res.json({ success: isValid });
 });
 
 // Config GET — returns decrypted token
-app.get('/api/capi/:slug/config', (req, res) => {
+app.get('/api/capi/:slug/config', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
-  if (!AGENT_PASSWORDS[slug]) return res.status(404).json({ error: 'Agent not found' });
-  const config = readCapiConfig(slug);
+  const agent = await getAgent(slug);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  const config = await readCapiConfig(slug);
   if (!config) return res.json({ config: null });
   const decryptedToken = capiDecrypt(config.accessToken || '');
   res.json({ config: { ...config, accessToken: decryptedToken } });
 });
 
 // Config POST — validates, saves, returns savedToken
-app.post('/api/capi/:slug/config', (req, res) => {
+app.post('/api/capi/:slug/config', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
-  if (!AGENT_PASSWORDS[slug]) return res.status(404).json({ error: 'Agent not found' });
+  const agent = await getAgent(slug);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
   const body = req.body;
 
   // Validation
@@ -242,29 +524,31 @@ app.post('/api/capi/:slug/config', (req, res) => {
     testEventCode: body.testEventCode || '', testMode: !!body.testMode,
     events: body.events || {}, updatedAt: new Date().toISOString(),
   };
-  writeCapiConfig(slug, configToSave);
+  await writeCapiConfig(slug, configToSave);
   const decryptedForDisplay = capiDecrypt(configToSave.accessToken);
   res.json({ success: true, savedToken: decryptedForDisplay });
 });
 
 // Config DELETE (reset)
-app.delete('/api/capi/:slug/config', (req, res) => {
+app.delete('/api/capi/:slug/config', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
-  if (!AGENT_PASSWORDS[slug]) return res.status(404).json({ error: 'Agent not found' });
+  const agent = await getAgent(slug);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
   const configToSave = {
     pixelId: '', accessToken: '', testEventCode: '',
     testMode: false, events: {}, updatedAt: new Date().toISOString(),
   };
-  writeCapiConfig(slug, configToSave);
+  await writeCapiConfig(slug, configToSave);
   res.json({ success: true });
 });
 
 // Event
 app.post('/api/capi/:slug/event', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
-  if (!AGENT_PASSWORDS[slug]) return res.status(404).json({ error: 'Agent not found' });
+  const agent = await getAgent(slug);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
   if (!checkCapiRateLimit(slug)) return res.status(429).json({ error: 'Rate limited' });
-  const config = readCapiConfig(slug);
+  const config = await readCapiConfig(slug);
   if (!config?.pixelId || !config?.accessToken) return res.json({ sent: false, reason: 'Not configured' });
   const accessToken = capiDecrypt(config.accessToken);
   const { eventName, userData, customData, eventSourceUrl, actionSource } = req.body;
@@ -294,8 +578,9 @@ app.post('/api/capi/:slug/event', async (req, res) => {
 // Validate
 app.post('/api/capi/:slug/validate', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
-  if (!AGENT_PASSWORDS[slug]) return res.status(404).json({ error: 'Agent not found' });
-  const config = readCapiConfig(slug);
+  const agent = await getAgent(slug);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  const config = await readCapiConfig(slug);
   if (!config?.pixelId || !config?.accessToken) return res.json({ valid: false, reason: 'Missing credentials' });
   const accessToken = capiDecrypt(config.accessToken);
   try {
@@ -341,22 +626,48 @@ app.all('/api/{*path}', async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
-// Proxy: itinerary & brosur files
+// Proxy: itinerary & brosur files (with timeout + retry)
 // ──────────────────────────────────────────────
+async function fetchWithTimeout(url, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    return response;
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
+
 app.get(['/itinerary/{*path}', '/brosur/{*path}'], async (req, res) => {
   const targetUrl = `https://jadwal.alhijaz.co${req.path}`;
-  try {
-    const response = await fetch(targetUrl);
-    if (!response.ok) return res.sendStatus(response.status);
 
-    const contentType = response.headers.get('content-type') || 'application/octet-stream';
-    res.set('Content-Type', contentType);
-    res.set('Access-Control-Allow-Origin', '*');
+  // Try up to 2 times (initial + 1 retry)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetchWithTimeout(targetUrl, 15000);
+      if (!response.ok) {
+        if (attempt === 0 && response.status >= 500) continue; // retry on server error
+        return res.sendStatus(response.status);
+      }
 
-    const buffer = Buffer.from(await response.arrayBuffer());
-    res.send(buffer);
-  } catch (error) {
-    res.status(502).json({ error: 'Proxy error', message: error.message });
+      const contentType = response.headers.get('content-type') || 'application/octet-stream';
+      res.set('Content-Type', contentType);
+      res.set('Access-Control-Allow-Origin', '*');
+      res.set('Cache-Control', 'public, max-age=3600'); // cache 1 hour
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+      return res.send(buffer);
+    } catch (error) {
+      if (attempt === 0) {
+        console.warn(`[Proxy] Attempt 1 failed for ${req.path}: ${error.message}, retrying...`);
+        continue;
+      }
+      console.error(`[Proxy] All attempts failed for ${req.path}:`, error.message);
+      return res.status(502).json({ error: 'File gagal dimuat', message: 'Server sumber tidak merespon, silakan coba lagi.' });
+    }
   }
 });
 
@@ -382,22 +693,27 @@ app.get('/:slug/umroh', async (req, res) => {
   }
 });
 
+
 // ──────────────────────────────────────────────
 // Static files + SPA fallback with OG injection
 // ──────────────────────────────────────────────
 const distPath = resolve(__dirname, 'dist');
+const publicPath = resolve(__dirname, 'public');
 
-// Serve static assets first
+// Serve static assets from dist/ first, then fallback to public/
+// This ensures uploaded files (e.g. agent photos in public/agents/)
+// are always accessible, even if they were added after the last build.
 app.use(express.static(distPath));
+app.use(express.static(publicPath));
 
 // SPA fallback — inject OG tags for agent slugs
-app.get('{*path}', (req, res) => {
+app.get('{*path}', async (req, res) => {
   const indexPath = resolve(distPath, 'index.html');
   let html = readFileSync(indexPath, 'utf-8');
 
   // Extract slug
   const slug = req.path.replace(/^\/+/, '').split('/')[0].toLowerCase();
-  const agent = AGENTS[slug];
+  const agent = await getAgent(slug);
 
   if (agent) {
     const newTitle = `Jadwal Umroh Alhijaz | ${agent.name}`;
@@ -442,3 +758,21 @@ app.get('{*path}', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Alhijaz server running on http://localhost:${PORT}`);
 });
+
+// ── Keep Supabase alive (prevent free-tier pausing) ──
+const KEEP_ALIVE_INTERVAL = 3 * 24 * 60 * 60 * 1000; // 3 hari
+
+async function pingSupabase() {
+  try {
+    const { count } = await supabase
+      .from('agents')
+      .select('*', { count: 'exact', head: true });
+    console.log(`[Keep-Alive] ✅ Supabase ping OK — ${count} agents (${new Date().toISOString()})`);
+  } catch (err) {
+    console.warn('[Keep-Alive] ⚠️ Supabase ping failed:', err.message);
+  }
+}
+
+// Ping once on startup (after 30s delay), then every 3 days
+setTimeout(pingSupabase, 30 * 1000);
+setInterval(pingSupabase, KEEP_ALIVE_INTERVAL);
