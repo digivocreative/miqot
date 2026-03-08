@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
-import { login as laporanLogin, fetchLaporan, disconnect as laporanDisconnect } from './laporan-api.js';
+import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect } from './laporan-api.js';
 
 dotenv.config();
 
@@ -602,83 +602,283 @@ app.post('/api/capi/:slug/validate', async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
-// API: Laporan Data Jamaah (native fetch, no Playwright)
+// API: Laporan / Jamaah Management
 // ──────────────────────────────────────────────
+
+// Status: check credentials + session + last sync
+app.get('/api/laporan/status', authMiddleware, async (req, res) => {
+  const agent = await getAgent(req.user.slug);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const hasCredentials = !!(agent.jamaah_username && agent.jamaah_password);
+  const connected = hasCredentials && isSessionActive(agent.jamaah_username);
+
+  // Get last sync time
+  let lastSync = null;
+  if (hasCredentials) {
+    const { data } = await supabase
+      .from('jamaah')
+      .select('synced_at')
+      .eq('agent_slug', req.user.slug)
+      .order('synced_at', { ascending: false })
+      .limit(1);
+    if (data?.[0]) lastSync = data[0].synced_at;
+  }
+
+  res.json({
+    success: true,
+    data: {
+      hasCredentials,
+      isConnected: connected,
+      username: hasCredentials ? agent.jamaah_username : null,
+      kantor: agent.jamaah_kantor || '2',
+      lastSync,
+    },
+  });
+});
+
+// Login: login to legacy system + auto-save credentials to Supabase
 app.post('/api/laporan/login', authMiddleware, async (req, res) => {
   const { username, password, kantor } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username dan password wajib diisi' });
   }
-  const result = await laporanLogin(username, password, kantor || '2');
+
+  const k = kantor || '2';
+  const result = await laporanLogin(username, password, k);
   if (!result.success) {
     return res.status(401).json(result);
   }
-  res.json(result);
-});
 
-app.get('/api/laporan/fetch', authMiddleware, async (req, res) => {
-  const { username, kantor, agentId, tglAwal, tglAkhir } = req.query;
-  if (!username || !agentId || !tglAwal || !tglAkhir) {
-    return res.status(400).json({ error: 'Parameter tidak lengkap' });
-  }
-  const result = await fetchLaporan(username, {
-    kantor: kantor || '2',
-    agentId,
-    tglAwal,
-    tglAkhir,
-  });
-  if (!result.success) {
-    return res.status(result.error?.includes('kedaluwarsa') ? 401 : 500).json(result);
-  }
-  res.json(result);
-});
-
-app.post('/api/laporan/disconnect', authMiddleware, async (req, res) => {
-  const { username } = req.body;
-  if (!username) return res.status(400).json({ error: 'Username wajib diisi' });
-  const result = laporanDisconnect(username);
-  res.json(result);
-});
-
-// ──────────────────────────────────────────────
-// API: Jamaah Credentials (save/load/delete from Supabase)
-// ──────────────────────────────────────────────
-// Load saved credentials (never returns password)
-app.get('/api/jamaah-creds', authMiddleware, async (req, res) => {
-  const agent = await getAgent(req.user.slug);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-  if (!agent.jamaah_username) {
-    return res.json({ saved: false });
-  }
-  res.json({
-    saved: true,
-    username: agent.jamaah_username,
-    kantor: agent.jamaah_kantor || '2',
-  });
-});
-
-// Save credentials (encrypt password)
-app.post('/api/jamaah-creds', authMiddleware, async (req, res) => {
-  const { username, password, kantor } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username dan password wajib diisi' });
-  }
+  // Auto-save credentials (encrypt password)
   const encryptedPassword = capiEncrypt(password);
-  const { error } = await supabase
+  await supabase
     .from('agents')
     .update({
       jamaah_username: username,
       jamaah_password: encryptedPassword,
-      jamaah_kantor: kantor || '2',
+      jamaah_kantor: k,
     })
     .eq('slug', req.user.slug);
-  if (error) return res.status(500).json({ error: error.message });
-  agentCache = null; // Invalidate cache
+  agentCache = null;
+
+  res.json({ ...result, username, kantor: k });
+});
+
+// Sync: fetch from legacy → parse → upsert to Supabase
+app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
+  const { tglAwal, tglAkhir, hijriahYear } = req.body;
+  if (!tglAwal || !tglAkhir) {
+    return res.status(400).json({ error: 'Tanggal awal dan akhir wajib diisi' });
+  }
+
+  const agent = await getAgent(req.user.slug);
+  if (!agent?.jamaah_username || !agent?.jamaah_password) {
+    return res.status(400).json({ error: 'Belum ada credentials tersimpan' });
+  }
+
+  // Ensure session is active — auto re-login if needed
+  if (!isSessionActive(agent.jamaah_username)) {
+    const decrypted = capiDecrypt(agent.jamaah_password);
+    const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
+    if (!loginResult.success) {
+      return res.status(401).json({ error: 'Gagal login ulang ke sistem internal' });
+    }
+  }
+
+  // Fetch HTML from legacy system
+  const fetchResult = await fetchLaporan(agent.jamaah_username, {
+    kantor: agent.jamaah_kantor || '2',
+    agentId: agent.jamaah_username,
+    tglAwal,
+    tglAkhir,
+  });
+
+  if (!fetchResult.success) {
+    return res.status(500).json(fetchResult);
+  }
+
+  // Parse HTML → structured data
+  // DEBUG: dump HTML to file for parser inspection
+  try { const fs = await import('fs'); fs.writeFileSync('/tmp/laporan-debug.html', fetchResult.html); } catch {}
+  console.log('[Sync] HTML length:', fetchResult.html.length, 'chars');
+  const { items } = parseLaporanHtml(fetchResult.html);
+  console.log('[Sync] Parsed items:', items.length);
+  if (items.length > 0) console.log('[Sync] Sample item:', JSON.stringify(items[0]).substring(0, 200));
+
+  if (items.length === 0) {
+    return res.json({ success: true, data: { count: 0, synced_at: new Date().toISOString() } });
+  }
+
+  // Upsert to Supabase
+  const now = new Date().toISOString();
+  const rows = items.map(item => ({
+    agent_slug: req.user.slug,
+    id_umroh: item.id_umroh,
+    nama: item.nama,
+    jk: item.jk || null,
+    wa: item.wa || null,
+    tgl_lahir: item.tgl_lahir || null,
+    paket: item.paket || null,
+    bayar: item.bayar || 0,
+    sisa: item.sisa || 0,
+    tgl_berangkat: item.tgl_berangkat || null,
+    tgl_daftar: item.tgl_daftar || null,
+    hijriah_year: hijriahYear || null,
+    raw_data: item.raw_data || null,
+    synced_at: now,
+  }));
+
+  const { error } = await supabase
+    .from('jamaah')
+    .upsert(rows, { onConflict: 'agent_slug,id_umroh,nama' });
+
+  if (error) {
+    console.error('[Sync] Upsert error:', error.message);
+    return res.status(500).json({ error: 'Gagal menyimpan data: ' + error.message });
+  }
+
+  res.json({
+    success: true,
+    data: { count: items.length, synced_at: now },
+  });
+});
+
+// Jamaah list: read from Supabase with filters, search, pagination, sorting
+app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
+  const {
+    hijriahYear,
+    status,   // 'belum' | 'berangkat'
+    search,
+    sort,     // 'nama' | 'sisa_desc' | 'berangkat' | 'terbaru'
+    page = '1',
+    limit = '20',
+  } = req.query;
+
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
+  const offset = (pageNum - 1) * limitNum;
+
+  // Default sort depends on filter
+  const effectiveSort = sort || (status === 'belum' || status === 'berangkat' ? 'berangkat' : 'nama');
+
+  // Build query
+  let query = supabase
+    .from('jamaah')
+    .select('*', { count: 'exact' })
+    .eq('agent_slug', req.user.slug)
+    .range(offset, offset + limitNum - 1);
+
+  // Sorting
+  if (effectiveSort === 'sisa_desc') {
+    query = query.order('sisa', { ascending: false });
+  } else if (effectiveSort === 'berangkat') {
+    query = query.order('tgl_berangkat', { ascending: true, nullsFirst: false });
+  } else if (effectiveSort === 'terbaru') {
+    query = query.order('synced_at', { ascending: false });
+  } else {
+    query = query.order('nama', { ascending: true });
+  }
+
+  if (hijriahYear) {
+    query = query.eq('hijriah_year', hijriahYear);
+  }
+
+  // Berangkat ≤ 10 days from today
+  const berangkatCutoff = new Date();
+  berangkatCutoff.setDate(berangkatCutoff.getDate() + 10);
+  const cutoffStr = berangkatCutoff.toISOString().split('T')[0];
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  if (status === 'belum') {
+    query = query.gt('sisa', 0);
+  } else if (status === 'berangkat') {
+    query = query.gte('tgl_berangkat', todayStr).lte('tgl_berangkat', cutoffStr);
+  }
+
+  if (search) {
+    query = query.or(`nama.ilike.%${search}%,id_umroh.ilike.%${search}%,wa.ilike.%${search}%`);
+  }
+
+  const { data, count, error } = await query;
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  // Get last sync time
+  const { data: syncData } = await supabase
+    .from('jamaah')
+    .select('synced_at')
+    .eq('agent_slug', req.user.slug)
+    .order('synced_at', { ascending: false })
+    .limit(1);
+
+  const baseFilter = hijriahYear ? { hijriah_year: hijriahYear } : {};
+
+  const { count: totalCount } = await supabase
+    .from('jamaah')
+    .select('*', { count: 'exact', head: true })
+    .eq('agent_slug', req.user.slug)
+    .match(baseFilter);
+
+  const { count: belumCount } = await supabase
+    .from('jamaah')
+    .select('*', { count: 'exact', head: true })
+    .eq('agent_slug', req.user.slug)
+    .gt('sisa', 0)
+    .match(baseFilter);
+
+  let berangkatQ = supabase
+    .from('jamaah')
+    .select('*', { count: 'exact', head: true })
+    .eq('agent_slug', req.user.slug)
+    .gte('tgl_berangkat', todayStr)
+    .lte('tgl_berangkat', cutoffStr);
+  if (hijriahYear) berangkatQ = berangkatQ.eq('hijriah_year', hijriahYear);
+  const { count: berangkatCount } = await berangkatQ;
+
+  let piutang = 0;
+  let pQ = supabase.from('jamaah').select('sisa').eq('agent_slug', req.user.slug).gt('sisa', 0);
+  if (hijriahYear) pQ = pQ.eq('hijriah_year', hijriahYear);
+  const { data: pData } = await pQ;
+  if (pData) piutang = pData.reduce((s, r) => s + (r.sisa || 0), 0);
+
+  res.json({
+    success: true,
+    data: {
+      items: data || [],
+      total: count || 0,
+      page: pageNum,
+      totalPages: Math.ceil((count || 0) / limitNum),
+      lastSync: syncData?.[0]?.synced_at || null,
+      counts: {
+        semua: totalCount || 0,
+        belumLunas: belumCount || 0,
+        berangkat: berangkatCount || 0,
+      },
+      piutang,
+    },
+  });
+});
+
+// Disconnect: clear in-memory session only
+app.post('/api/laporan/disconnect', authMiddleware, async (req, res) => {
+  const agent = await getAgent(req.user.slug);
+  if (agent?.jamaah_username) {
+    laporanDisconnect(agent.jamaah_username);
+  }
   res.json({ success: true });
 });
 
 // Delete saved credentials
-app.delete('/api/jamaah-creds', authMiddleware, async (req, res) => {
+app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
+  // Also disconnect if active
+  const agent = await getAgent(req.user.slug);
+  if (agent?.jamaah_username) {
+    laporanDisconnect(agent.jamaah_username);
+  }
+
   const { error } = await supabase
     .from('agents')
     .update({
@@ -690,28 +890,6 @@ app.delete('/api/jamaah-creds', authMiddleware, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   agentCache = null;
   res.json({ success: true });
-});
-
-// Auto-login using saved credentials (decrypt + login server-side)
-app.post('/api/jamaah-creds/auto-login', authMiddleware, async (req, res) => {
-  const agent = await getAgent(req.user.slug);
-  if (!agent?.jamaah_username || !agent?.jamaah_password) {
-    return res.status(404).json({ error: 'Tidak ada credentials tersimpan' });
-  }
-  const decryptedPassword = capiDecrypt(agent.jamaah_password);
-  const result = await laporanLogin(
-    agent.jamaah_username,
-    decryptedPassword,
-    agent.jamaah_kantor || '2'
-  );
-  if (!result.success) {
-    return res.status(401).json(result);
-  }
-  res.json({
-    ...result,
-    username: agent.jamaah_username,
-    kantor: agent.jamaah_kantor || '2',
-  });
 });
 
 // ──────────────────────────────────────────────

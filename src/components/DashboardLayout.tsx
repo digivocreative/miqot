@@ -111,6 +111,11 @@ const MENU_CARDS: MenuCard[] = [
 export default function DashboardLayout({ session, onLogout }: { session: AuthSession; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<TabId>(getTabFromPath);
 
+  // Jamaah session persistence across tab switches
+  const [jamaahConnected, setJamaahConnected] = useState(false);
+  const [jamaahUser, setJamaahUser] = useState('');
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+
   // Navigate tab + update URL
   const navigateTab = useCallback((tab: TabId, replace = false) => {
     setActiveTab(tab);
@@ -193,8 +198,61 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 {activeCard?.label}
               </h1>
             </div>
+            {/* Jamaah connection status in header */}
+            {activeTab === 'jamaah' && jamaahConnected && jamaahUser && (
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">{jamaahUser}</span>
+                </div>
+                <button
+                  onClick={() => setShowDisconnectConfirm(true)}
+                  className="w-8 h-8 flex items-center justify-center rounded-xl bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors active:scale-95"
+                >
+                  <LogOut size={14} />
+                </button>
+              </div>
+            )}
           </div>
         </header>
+
+        {/* Disconnect confirm modal */}
+        {showDisconnectConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-6">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 w-full max-w-xs overflow-hidden">
+              <div className="px-5 pt-5 pb-3 text-center">
+                <div className="w-10 h-10 mx-auto mb-3 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center">
+                  <LogOut size={18} className="text-red-500" />
+                </div>
+                <p className="text-sm font-bold text-gray-800 dark:text-white">Disconnect Account?</p>
+                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Anda perlu login ulang untuk mengakses data jamaah.</p>
+              </div>
+              <div className="flex border-t border-gray-100 dark:border-slate-700">
+                <button
+                  onClick={() => setShowDisconnectConfirm(false)}
+                  className="flex-1 py-3 text-sm font-semibold text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
+                >
+                  Batal
+                </button>
+                <div className="w-px bg-gray-100 dark:bg-slate-700" />
+                <button
+                  onClick={async () => {
+                    setShowDisconnectConfirm(false);
+                    try {
+                      await fetch('/api/laporan/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
+                      await fetch('/api/laporan/credentials', { method: 'DELETE', headers: { ...getAuthHeaders() } });
+                    } catch {}
+                    setJamaahConnected(false);
+                    setJamaahUser('');
+                  }}
+                  className="flex-1 py-3 text-sm font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                >
+                  Disconnect
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Sub-page content */}
         <main className="max-w-lg mx-auto">
@@ -224,7 +282,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             </div>
           )}
           {activeTab === 'jamaah' && (
-            <JamaahPage />
+            <JamaahPage
+              jamaahConnected={jamaahConnected}
+              jamaahUser={jamaahUser}
+              onConnectionChange={(connected, user) => {
+                setJamaahConnected(connected);
+                setJamaahUser(user);
+              }}
+            />
           )}
         </main>
       </div>
