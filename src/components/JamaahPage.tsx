@@ -691,14 +691,14 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
     <div className="px-4 pt-4 pb-8">
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
         {/* Header */}
-        <div className="px-5 pt-6 pb-5 text-center border-b border-gray-50 dark:border-slate-700/50">
+        <div className="px-5 pt-5 pb-4 text-center border-b border-gray-50 dark:border-slate-700/50">
           <img
             src="/logo-alhijaz.webp"
             alt="Alhijaz"
-            className="w-14 h-14 mx-auto mb-3 rounded-2xl object-contain"
+            className="w-10 h-10 mx-auto mb-2 rounded-xl object-contain"
           />
-          <h2 className="text-base font-bold text-gray-800 dark:text-white">Login Sistem Internal</h2>
-          <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-1">Masukkan kredensial untuk sinkronisasi data jamaah</p>
+          <h2 className="text-sm font-bold text-gray-800 dark:text-white">Login Sistem Internal</h2>
+          <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">Masukkan kredensial untuk sinkronisasi data jamaah</p>
         </div>
 
         <form onSubmit={handleLogin} className="p-5 space-y-4">
