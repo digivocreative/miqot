@@ -689,15 +689,14 @@ function buildRows(items, agentSlug, hijriahYear, now) {
 }
 
 // Hijriah year → Gregorian date range mapping
-// Update this config when new Hijriah years need to be supported
+// Only current + next year. Update when new Hijriah year starts.
 const HIJRIAH_YEARS = {
-  '1446': { tglAwal: '2024-07-08', tglAkhir: '2025-06-25' },
   '1447': { tglAwal: '2025-06-26', tglAkhir: '2026-06-16' },
   '1448': { tglAwal: '2026-06-17', tglAkhir: '2027-06-05' },
 };
 
 function getActiveHijriahYears() {
-  return Object.keys(HIJRIAH_YEARS);
+  return Object.keys(HIJRIAH_YEARS).sort((a, b) => Number(b) - Number(a));
 }
 
 // Sync: fetch from legacy → parse → progressive upsert to Supabase
