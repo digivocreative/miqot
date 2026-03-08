@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Eye, EyeOff, LogIn, Loader2, User, Lock, Search,
   Calendar, Building2, Trash2, KeyRound, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, RefreshCw, MessageCircle,
-  ArrowUpDown,
+  ArrowUpDown, SlidersHorizontal, X, Check,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 
@@ -46,6 +46,14 @@ interface JamaahPageProps {
 }
 
 export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionChange }: JamaahPageProps) {
+  // Compute current Hijriah year dynamically
+  const currentHijriYear = (() => {
+    const now = new Date();
+    const gYear = now.getFullYear();
+    const approx = Math.floor((gYear - 622) * (33 / 32));
+    return approx;
+  })();
+  const hijriahOptions = [currentHijriYear + 1, currentHijriYear];
   const [view, setView] = useState<ViewState>('loading');
 
   // Login form
@@ -59,7 +67,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
 
   // Data + filters
   const [data, setData] = useState<JamaahData | null>(null);
-  const [hijriahYear, setHijriahYear] = useState('1447');
+  const [hijriahYear, setHijriahYear] = useState(String(currentHijriYear));
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('semua');
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -67,11 +75,17 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
   const [page, setPage] = useState(1);
   const [loadingData, setLoadingData] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [deletingCreds, setDeletingCreds] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Check status on mount / handle parent disconnect ──
   useEffect(() => {
+    // Don't override if we're in the middle of syncing or connecting
+    if (view === 'syncing' || view === 'connecting') return;
+
     if (jamaahConnected && jamaahUser) {
       setConnectedUser(jamaahUser);
       setView('data');
@@ -162,7 +176,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
     }
   };
 
-  // ── Sync handler ──
+  // ── Sync handler (progressive) ──
   const handleSync = async (isFirstSync = false) => {
     setSyncing(true);
     setError('');
@@ -181,15 +195,55 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
         body: JSON.stringify({ tglAwal, tglAkhir, hijriahYear: hijriahYear || null }),
       });
       const result = await res.json();
-      if (!result.success) setError(result.error || 'Gagal sync data');
+      if (!result.success) {
+        setError(result.error || 'Gagal sync data');
+        setSyncing(false);
+        if (isFirstSync) setView('data');
+        return;
+      }
+
+      // First batch arrived — show data immediately
+      setView('data');
+      setPage(1);
+      await fetchJamaah(1);
+
+      // If still syncing remaining, start polling
+      if (result.data.syncing) {
+        setBackgroundSyncing(true);
+        startPolling();
+      } else {
+        setSyncing(false);
+      }
     } catch {
       setError('Gagal menghubungi server');
+      setSyncing(false);
+      if (isFirstSync) setView('data');
     }
-    setSyncing(false);
-    setView('data');
-    setPage(1);
-    fetchJamaah(1);
   };
+
+  // ── Polling for background sync status ──
+  const startPolling = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch('/api/laporan/sync-status', { headers: { ...getAuthHeaders() } });
+        const result = await res.json();
+        if (result.success && !result.data.isSyncing) {
+          // Sync complete — stop polling & refresh data
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setBackgroundSyncing(false);
+          setSyncing(false);
+          fetchJamaah(page);
+        }
+      } catch { /* ignore polling errors */ }
+    }, 3000);
+  };
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
 
   // ── Delete credentials ──
   const handleDeleteCreds = async () => {
@@ -253,10 +307,14 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
   }
   if (view === 'syncing') {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-3">
-        <Loader2 size={28} className="animate-spin text-emerald-500" />
-        <p className="text-sm font-semibold text-gray-600 dark:text-slate-300">Mengambil data jamaah...</p>
-        <p className="text-[11px] text-gray-400 dark:text-slate-500">Sedang sync dari sistem internal</p>
+      <div className="flex flex-col items-center justify-center py-20">
+        {/* 3 bouncing dots */}
+        <div className="flex gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-bounce" style={{animationDelay: '0ms'}} />
+          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-bounce" style={{animationDelay: '150ms'}} />
+          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-bounce" style={{animationDelay: '300ms'}} />
+        </div>
+        <p className="text-sm font-medium text-gray-500 dark:text-slate-400 mt-4">Menyinkronkan data jamaah...</p>
       </div>
     );
   }
@@ -279,95 +337,115 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
     ];
 
     return (
-      <div className="px-4 pt-4 pb-8 space-y-3">
+      <div className="px-4 pt-4 pb-8 space-y-2">
 
-        {/* Filter card */}
+        {/* Command bar */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
-
-          {/* Summary stats */}
-          <div className="px-3 py-2 flex items-center gap-4 text-[10px] font-semibold">
-            <span className="text-gray-500 dark:text-slate-400">
-              Total: <span className="text-gray-800 dark:text-white">{data?.counts.semua ?? 0}</span>
-            </span>
-            <span className="text-emerald-600 dark:text-emerald-400">
-              Lunas: {(data?.counts.semua ?? 0) - (data?.counts.belumLunas ?? 0)}
-            </span>
-            <span className="text-amber-600 dark:text-amber-400">
-              Piutang: {formatShort(data?.piutang ?? 0)}
-            </span>
-          </div>
-
-          <div className="border-t border-gray-50 dark:border-slate-700/50" />
-
-          {/* Periode + Date range — 1 row */}
-          <div className="px-3 py-2 flex items-center gap-2">
+          {/* Top bar — always visible */}
+          <div className="flex items-center gap-2 px-3 py-1.5">
+            <Search size={14} className="text-gray-400 shrink-0" />
+            <input
+              type="text"
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              placeholder="Cari jamaah..."
+              className="flex-1 h-9 bg-transparent text-xs text-gray-800 dark:text-white placeholder:text-gray-400 outline-none min-w-0"
+            />
             <select
               value={hijriahYear}
               onChange={e => { setHijriahYear(e.target.value); setPage(1); }}
-              className="px-2 py-1.5 text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40 rounded-lg outline-none cursor-pointer shrink-0"
+              className="h-9 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0 rounded-lg border border-emerald-200 dark:border-emerald-800/40 outline-none cursor-pointer shrink-0"
             >
-              <option value="1447">1447 H</option>
-              <option value="1448">1448 H</option>
+              {hijriahOptions.map(y => (
+                <option key={y} value={String(y)}>{y} H</option>
+              ))}
             </select>
+            <button
+              onClick={() => setFilterOpen(!filterOpen)}
+              className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all active:scale-95 shrink-0 ${
+                filterOpen || statusFilter !== 'semua'
+                  ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                  : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400'
+              }`}
+            >
+              <SlidersHorizontal size={14} />
+            </button>
           </div>
 
-          <div className="border-t border-gray-50 dark:border-slate-700/50" />
-
-          {/* Search + Sort */}
-          <div className="px-3 py-2 space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchInput}
-                  onChange={e => setSearchInput(e.target.value)}
-                  placeholder="Cari nama, ID, atau WA..."
-                  className="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-slate-900 border border-gray-100 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400"
-                />
+          {/* Expandable panel */}
+          {filterOpen && (
+            <div className="border-t border-gray-50 dark:border-slate-700/50 px-3 py-2.5 space-y-2.5">
+              {/* Status pills */}
+              <div className="flex gap-1.5">
+                {([
+                  ['semua', `Semua (${data?.counts.semua ?? 0})`],
+                  ['belum', `Belum Lunas (${data?.counts.belumLunas ?? 0})`],
+                  ['berangkat', `Berangkat (${data?.counts.berangkat ?? 0})`],
+                ] as [StatusFilter, string][]).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => { setStatusFilter(key); setPage(1); }}
+                    className={`flex-1 h-7 px-2.5 py-0 rounded-lg text-[10px] font-bold transition-all ${
+                      statusFilter === key
+                        ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                        : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
-              <div className="relative shrink-0">
+
+              {/* Sort */}
+              <div className="relative">
+                <ArrowUpDown size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                 <select
                   value={sortKey}
                   onChange={e => { setSortKey(e.target.value as SortKey); setPage(1); }}
-                  className="appearance-none pl-6 pr-2 py-1.5 bg-gray-50 dark:bg-slate-900 border border-gray-100 dark:border-slate-700 rounded-xl text-[10px] font-semibold text-gray-600 dark:text-slate-300 outline-none cursor-pointer"
+                  className="w-full h-7 appearance-none pl-7 pr-3 py-0 bg-gray-50 dark:bg-slate-900 border border-gray-100 dark:border-slate-700 rounded-xl text-[11px] font-semibold text-gray-600 dark:text-slate-300 outline-none cursor-pointer"
                 >
                   {SORT_OPTIONS.map(o => (
                     <option key={o.key} value={o.key}>{o.label}</option>
                   ))}
                 </select>
-                <ArrowUpDown size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               </div>
             </div>
-
-            {/* Status pills */}
-            <div className="flex gap-1.5">
-              {([
-                ['semua', `Semua (${data?.counts.semua ?? 0})`],
-                ['belum', `Belum Lunas (${data?.counts.belumLunas ?? 0})`],
-                ['berangkat', `Berangkat (${data?.counts.berangkat ?? 0})`],
-              ] as [StatusFilter, string][]).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => { setStatusFilter(key); setPage(1); }}
-                  className={`flex-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${
-                    statusFilter === key
-                      ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
-                      : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Sync info */}
+        {/* Active filter chip */}
+        {statusFilter !== 'semua' && !filterOpen && (
+          <div className="flex items-center gap-1">
+            <div className="inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-full px-2.5 py-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                {statusFilter === 'belum'
+                  ? `Belum Lunas (${data?.counts.belumLunas ?? 0})`
+                  : `Berangkat (${data?.counts.berangkat ?? 0})`
+                }
+              </span>
+              <button
+                onClick={() => { setStatusFilter('semua'); setPage(1); }}
+                className="text-emerald-500 hover:text-emerald-700 transition-colors"
+              >
+                <X size={10} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Sync info / background sync indicator */}
         <div className="flex items-center justify-between px-1">
-          <span className="text-[10px] text-gray-400 dark:text-slate-500">
-            Sync: {formatSyncTime(data?.lastSync || null)}
-          </span>
+          {backgroundSyncing ? (
+            <span className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Menyinkronkan sisa data...
+            </span>
+          ) : (
+            <span className="text-[10px] text-gray-400 dark:text-slate-500">
+              Sync: {formatSyncTime(data?.lastSync || null)}
+            </span>
+          )}
           <button
             onClick={() => handleSync()}
             disabled={syncing}
@@ -401,10 +479,21 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
             {data?.items.map(item => {
               const isExpanded = expandedId === item.id;
               const isLunas = item.sisa === 0 && item.bayar > 0;
-              const initial = item.nama?.charAt(0)?.toUpperCase() || '?';
-              const avatarColor = item.jk === 'P'
-                ? 'bg-pink-100 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400'
-                : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400';
+              const initials = (item.nama || '?').split(' ').slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
+              const genderRing = item.jk === 'P' ? 'ring-2 ring-pink-300' : 'ring-2 ring-blue-300';
+
+              // Countdown for departure badge
+              let daysUntil = -1;
+              if (item.tgl_berangkat) {
+                const dep = new Date(item.tgl_berangkat);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                daysUntil = Math.ceil((dep.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              }
+
+              // Payment percentage
+              const total = item.bayar + item.sisa;
+              const pct = total > 0 ? Math.round((item.bayar / total) * 100) : 0;
 
               return (
                 <div
@@ -416,90 +505,120 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
                     onClick={() => setExpandedId(isExpanded ? null : item.id)}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors"
                   >
-                    {/* Avatar */}
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${avatarColor}`}>
-                      {initial}
+                    {/* Avatar with gender ring + lunas overlay */}
+                    <div className="relative shrink-0">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold bg-gray-50 dark:bg-slate-700 text-gray-600 dark:text-slate-300 ${genderRing}`}>
+                        {initials}
+                      </div>
+                      {isLunas && (
+                        <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-800 flex items-center justify-center">
+                          <Check size={9} className="text-white" strokeWidth={3} />
+                        </div>
+                      )}
                     </div>
 
-                    {/* Info */}
+                    {/* Info center */}
                     <div className="flex-1 min-w-0">
-                      {/* Row 1: Name + gender badge */}
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-bold text-gray-800 dark:text-white truncate">
-                          {item.nama}
+                      <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{item.nama}</p>
+                      {item.paket && (
+                        <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5 truncate">{item.paket}</p>
+                      )}
+                    </div>
+
+                    {/* Stacked right: payment + departure */}
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      {isLunas ? (
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">✓ Lunas</span>
+                      ) : item.sisa > 0 ? (
+                        <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">{formatShort(item.sisa)}</span>
+                      ) : (
+                        <span className="text-[10px] text-gray-400">—</span>
+                      )}
+                      {daysUntil > 0 && (
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                          daysUntil <= 10
+                            ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+                            : daysUntil <= 30
+                              ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
+                              : 'bg-gray-50 dark:bg-slate-700 text-gray-400 dark:text-slate-500'
+                        }`}>
+                          ✈ {daysUntil}hr
                         </span>
-                        {item.jk && (
-                          <span className={`text-[9px] font-bold uppercase px-1 py-0.5 rounded shrink-0 ${
-                            item.jk === 'P'
-                              ? 'bg-pink-50 dark:bg-pink-900/20 text-pink-500'
-                              : 'bg-blue-50 dark:bg-blue-900/20 text-blue-500'
-                          }`}>
-                            {item.jk}
-                          </span>
-                        )}
-                      </div>
-                      {/* Row 2: ID · Paket · Status */}
-                      <div className="flex items-center gap-1 mt-0.5 min-w-0">
-                        <span className="text-[10px] font-mono text-gray-400 dark:text-slate-500 shrink-0">
-                          {item.id_umroh}
-                        </span>
-                        {item.paket && (
-                          <>
-                            <span className="text-[10px] text-gray-300 dark:text-slate-600 shrink-0">·</span>
-                            <span className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
-                              {item.paket}
-                            </span>
-                          </>
-                        )}
-                        <span className="text-[10px] text-gray-300 dark:text-slate-600 shrink-0">·</span>
-                        {isLunas ? (
-                          <span className="flex items-center gap-0.5 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                            LUNAS
-                          </span>
-                        ) : item.sisa > 0 ? (
-                          <span className="flex items-center gap-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400 shrink-0">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                            SISA {formatShort(item.sisa)}
-                          </span>
-                        ) : (
-                          <span className="text-[9px] text-gray-400 shrink-0">—</span>
-                        )}
-                      </div>
+                      )}
                     </div>
 
                     {/* Chevron */}
-                    {isExpanded
-                      ? <ChevronUp size={14} className="text-gray-400 shrink-0" />
-                      : <ChevronDown size={14} className="text-gray-400 shrink-0" />
-                    }
+                    <ChevronDown size={14} className={`text-gray-300 dark:text-slate-600 shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                   </button>
 
                   {/* Expanded detail */}
                   {isExpanded && (
-                    <div className="px-3 pb-3 pt-1 border-t border-gray-50 dark:border-slate-700/50">
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 mt-2">
-                        <DetailCell label="WA" value={item.wa} isPhone />
-                        <DetailCell label="Tgl Lahir" value={formatDate(item.tgl_lahir)} />
-                        <DetailCell label="Paket" value={item.paket || '-'} colSpan />
-                        <DetailCell label="Bayar" value={formatRupiah(item.bayar)} />
-                        <DetailCell label="Sisa" value={formatRupiah(item.sisa)} />
-                        <DetailCell label="Tgl Daftar" value={formatDate(item.tgl_daftar)} />
-                        <DetailCell label="Berangkat" value={formatDate(item.tgl_berangkat)} />
+                    <div className="px-3 pb-3 pt-2 border-t border-gray-50 dark:border-slate-700/50 space-y-3">
+                      {/* Section 1: Payment card */}
+                      <div className="bg-gray-50 dark:bg-slate-900/50 rounded-xl p-2.5">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Pembayaran</span>
+                          <span className={`text-[10px] font-bold ${isLunas ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>{pct}%</span>
+                        </div>
+                        <div className="h-1.5 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${isLunas ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between mt-1.5">
+                          <span className="text-[10px] text-gray-500 dark:text-slate-400">Bayar <span className="font-semibold text-gray-700 dark:text-slate-200">{formatRupiah(item.bayar)}</span></span>
+                          <span className="text-[10px] text-gray-500 dark:text-slate-400">Sisa <span className={`font-semibold ${isLunas ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>{isLunas ? 'Lunas' : formatRupiah(item.sisa)}</span></span>
+                        </div>
                       </div>
 
-                      {item.wa && (
-                        <div className="mt-3">
+                      {/* Section 2: Info grid 2x2 */}
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                        <div>
+                          <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">📱 WhatsApp</p>
+                          {item.wa ? (
+                            <a href={`https://wa.me/${item.wa.replace(/^0/, '62').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">{item.wa}</a>
+                          ) : (
+                            <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">-</p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">🎂 Tgl Lahir</p>
+                          <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{formatDate(item.tgl_lahir)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">📋 Daftar</p>
+                          <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{formatDate(item.tgl_daftar)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">✈️ Berangkat</p>
+                          <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{formatDate(item.tgl_berangkat)}</p>
+                        </div>
+                      </div>
+
+                      {/* Section 3: Action buttons */}
+                      <div className="flex gap-2">
+                        {item.wa && (
                           <a
                             href={`https://wa.me/${item.wa.replace(/^0/, '62').replace(/[^0-9]/g, '')}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-[11px] font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95"
+                            className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 ${item.sisa > 0 ? 'flex-1' : 'w-full'}`}
                           >
                             <MessageCircle size={12} /> WhatsApp
                           </a>
-                        </div>
-                      )}
+                        )}
+                        {item.sisa > 0 && item.wa && (
+                          <a
+                            href={`https://wa.me/${item.wa.replace(/^0/, '62').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Assalamualaikum, mengingatkan sisa pembayaran umroh sebesar ${formatRupiah(item.sisa)}. Terima kasih.`)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-all active:scale-95"
+                          >
+                            Tagih
+                          </a>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -566,36 +685,18 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
     <div className="px-4 pt-4 pb-8">
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
         {/* Header */}
-        <div className="px-5 pt-5 pb-4 border-b border-gray-50 dark:border-slate-700/50">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center border border-amber-100 dark:border-amber-800/40">
-              <Calendar size={14} className="text-amber-600 dark:text-amber-400" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-gray-800 dark:text-white">Laporan Data Jamaah</p>
-              <p className="text-[10px] text-gray-400 dark:text-slate-500">Sistem Internal Alhijaz</p>
-            </div>
-          </div>
-          <p className="text-xs text-gray-500 dark:text-slate-400 mt-2">
-            Masukkan kredensial untuk mengakses data jamaah.
-          </p>
+        <div className="px-5 pt-6 pb-5 text-center border-b border-gray-50 dark:border-slate-700/50">
+          <img
+            src="/logo-alhijaz.webp"
+            alt="Alhijaz"
+            className="w-14 h-14 mx-auto mb-3 rounded-2xl object-contain"
+          />
+          <h2 className="text-base font-bold text-gray-800 dark:text-white">Login Sistem Internal</h2>
+          <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-1">Masukkan kredensial untuk sinkronisasi data jamaah</p>
         </div>
 
         <form onSubmit={handleLogin} className="p-5 space-y-4">
-          {/* Kantor (disabled) */}
-          <div>
-            <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide">
-              <Building2 size={12} /> Kantor
-            </label>
-            <select
-              value="2"
-              disabled
-              className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white disabled:opacity-50"
-            >
-              <option value="1">Pusat</option>
-              <option value="2">Cabang</option>
-            </select>
-          </div>
+          {/* Kantor: hidden, always '2' (Cabang) — sent in handleLogin */}
 
           {/* Username */}
           <div>
@@ -677,28 +778,6 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// ── Detail cell component ──
-function DetailCell({ label, value, isPhone, colSpan }: {
-  label: string;
-  value: string | null;
-  isPhone?: boolean;
-  colSpan?: boolean;
-}) {
-  const display = value || '-';
-  return (
-    <div className={colSpan ? 'col-span-2' : ''}>
-      <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">{label}</p>
-      {isPhone && display !== '-' ? (
-        <a href={`tel:${display}`} className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-          {display}
-        </a>
-      ) : (
-        <p className="text-sm font-semibold text-gray-800 dark:text-white">{display}</p>
-      )}
     </div>
   );
 }

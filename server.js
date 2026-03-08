@@ -107,6 +107,9 @@ async function getAgent(slug) {
   return agents[slug] || null;
 }
 
+// ── Sync state tracking (in-memory) ──
+const syncingAgents = new Map(); // slug → { isSyncing, totalSynced, lastSync }
+
 // ──────────────────────────────────────────────
 // API: AI Copywriting (OpenAI proxy)
 // ──────────────────────────────────────────────
@@ -665,55 +668,10 @@ app.post('/api/laporan/login', authMiddleware, async (req, res) => {
   res.json({ ...result, username, kantor: k });
 });
 
-// Sync: fetch from legacy → parse → upsert to Supabase
-app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
-  const { tglAwal, tglAkhir, hijriahYear } = req.body;
-  if (!tglAwal || !tglAkhir) {
-    return res.status(400).json({ error: 'Tanggal awal dan akhir wajib diisi' });
-  }
-
-  const agent = await getAgent(req.user.slug);
-  if (!agent?.jamaah_username || !agent?.jamaah_password) {
-    return res.status(400).json({ error: 'Belum ada credentials tersimpan' });
-  }
-
-  // Ensure session is active — auto re-login if needed
-  if (!isSessionActive(agent.jamaah_username)) {
-    const decrypted = capiDecrypt(agent.jamaah_password);
-    const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
-    if (!loginResult.success) {
-      return res.status(401).json({ error: 'Gagal login ulang ke sistem internal' });
-    }
-  }
-
-  // Fetch HTML from legacy system
-  const fetchResult = await fetchLaporan(agent.jamaah_username, {
-    kantor: agent.jamaah_kantor || '2',
-    agentId: agent.jamaah_username,
-    tglAwal,
-    tglAkhir,
-  });
-
-  if (!fetchResult.success) {
-    return res.status(500).json(fetchResult);
-  }
-
-  // Parse HTML → structured data
-  // DEBUG: dump HTML to file for parser inspection
-  try { const fs = await import('fs'); fs.writeFileSync('/tmp/laporan-debug.html', fetchResult.html); } catch {}
-  console.log('[Sync] HTML length:', fetchResult.html.length, 'chars');
-  const { items } = parseLaporanHtml(fetchResult.html);
-  console.log('[Sync] Parsed items:', items.length);
-  if (items.length > 0) console.log('[Sync] Sample item:', JSON.stringify(items[0]).substring(0, 200));
-
-  if (items.length === 0) {
-    return res.json({ success: true, data: { count: 0, synced_at: new Date().toISOString() } });
-  }
-
-  // Upsert to Supabase
-  const now = new Date().toISOString();
-  const rows = items.map(item => ({
-    agent_slug: req.user.slug,
+// Helper: build rows from parsed items
+function buildRows(items, agentSlug, hijriahYear, now) {
+  return items.map(item => ({
+    agent_slug: agentSlug,
     id_umroh: item.id_umroh,
     nama: item.nama,
     jk: item.jk || null,
@@ -728,20 +686,131 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     raw_data: item.raw_data || null,
     synced_at: now,
   }));
+}
 
-  const { error } = await supabase
-    .from('jamaah')
-    .upsert(rows, { onConflict: 'agent_slug,id_umroh,nama' });
-
-  if (error) {
-    console.error('[Sync] Upsert error:', error.message);
-    return res.status(500).json({ error: 'Gagal menyimpan data: ' + error.message });
+// Sync: fetch from legacy → parse → progressive upsert to Supabase
+app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
+  const { tglAwal, tglAkhir, hijriahYear } = req.body;
+  if (!tglAwal || !tglAkhir) {
+    return res.status(400).json({ error: 'Tanggal awal dan akhir wajib diisi' });
   }
 
+  const slug = req.user.slug;
+  const agent = await getAgent(slug);
+  if (!agent?.jamaah_username || !agent?.jamaah_password) {
+    return res.status(400).json({ error: 'Belum ada credentials tersimpan' });
+  }
+
+  // Prevent concurrent sync
+  const state = syncingAgents.get(slug);
+  if (state?.isSyncing) {
+    return res.json({ success: true, data: { initialCount: 0, syncing: true, message: 'Sync sudah berjalan' } });
+  }
+
+  syncingAgents.set(slug, { isSyncing: true, totalSynced: 0, lastSync: null });
+
+  // Ensure session is active
+  if (!isSessionActive(agent.jamaah_username)) {
+    const decrypted = capiDecrypt(agent.jamaah_password);
+    const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
+    if (!loginResult.success) {
+      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+      return res.status(401).json({ error: 'Gagal login ulang ke sistem internal' });
+    }
+  }
+
+  // Fetch HTML
+  const fetchResult = await fetchLaporan(agent.jamaah_username, {
+    kantor: agent.jamaah_kantor || '2',
+    agentId: agent.jamaah_username,
+    tglAwal,
+    tglAkhir,
+  });
+
+  if (!fetchResult.success) {
+    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+    return res.status(500).json(fetchResult);
+  }
+
+  // Parse HTML
+  console.log('[Sync] HTML length:', fetchResult.html.length, 'chars');
+  const { items } = parseLaporanHtml(fetchResult.html);
+  console.log(`[Sync] ${slug}: parsed ${items.length} items`);
+
+  if (items.length === 0) {
+    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: new Date().toISOString() });
+    return res.json({ success: true, data: { initialCount: 0, syncing: false } });
+  }
+
+  const now = new Date().toISOString();
+
+  // Progressive sync: upsert first 10 immediately
+  const first10 = items.slice(0, 10);
+  const rest = items.slice(10);
+  const firstRows = buildRows(first10, slug, hijriahYear, now);
+
+  const { error: firstErr } = await supabase
+    .from('jamaah')
+    .upsert(firstRows, { onConflict: 'agent_slug,id_umroh,nama' });
+
+  if (firstErr) {
+    console.error('[Sync] First batch error:', firstErr.message);
+    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+    return res.status(500).json({ error: 'Gagal menyimpan data: ' + firstErr.message });
+  }
+
+  syncingAgents.set(slug, { isSyncing: rest.length > 0, totalSynced: first10.length, lastSync: now });
+
+  // Respond immediately with first batch
   res.json({
     success: true,
-    data: { count: items.length, synced_at: now },
+    data: { initialCount: first10.length, total: items.length, syncing: rest.length > 0 },
   });
+
+  // Async: upsert remaining in batches of 50
+  if (rest.length > 0) {
+    (async () => {
+      try {
+        const BATCH = 50;
+        let synced = first10.length;
+        for (let i = 0; i < rest.length; i += BATCH) {
+          const batch = rest.slice(i, i + BATCH);
+          const rows = buildRows(batch, slug, hijriahYear, now);
+          const { error } = await supabase
+            .from('jamaah')
+            .upsert(rows, { onConflict: 'agent_slug,id_umroh,nama' });
+          if (error) console.error(`[Sync] ${slug} batch error:`, error.message);
+          synced += batch.length;
+          syncingAgents.set(slug, { isSyncing: true, totalSynced: synced, lastSync: now });
+        }
+        console.log(`[Sync] ${slug}: completed ${synced} items`);
+      } catch (err) {
+        console.error(`[Sync] ${slug} async error:`, err.message);
+      } finally {
+        const cur = syncingAgents.get(slug);
+        syncingAgents.set(slug, { isSyncing: false, totalSynced: cur?.totalSynced || 0, lastSync: now });
+      }
+    })();
+  }
+});
+
+// Sync status: check if an agent's sync is in progress
+app.get('/api/laporan/sync-status', authMiddleware, async (req, res) => {
+  const state = syncingAgents.get(req.user.slug);
+  if (!state) {
+    // No sync state — check last sync from Supabase
+    const { data } = await supabase
+      .from('jamaah')
+      .select('synced_at')
+      .eq('agent_slug', req.user.slug)
+      .order('synced_at', { ascending: false })
+      .limit(1);
+    return res.json({
+      success: true,
+      data: { isSyncing: false, totalSynced: 0, lastSync: data?.[0]?.synced_at || null },
+    });
+  }
+  res.json({ success: true, data: state });
 });
 
 // Jamaah list: read from Supabase with filters, search, pagination, sorting
@@ -1068,3 +1137,106 @@ async function pingSupabase() {
 // Ping once on startup (after 30s delay), then every 3 days
 setTimeout(pingSupabase, 30 * 1000);
 setInterval(pingSupabase, KEEP_ALIVE_INTERVAL);
+
+// ── Background Sync Job: sync all agents every 1 hour ──
+async function syncOneAgent(agent) {
+  const slug = agent.slug;
+  const state = syncingAgents.get(slug);
+  if (state?.isSyncing) {
+    console.log(`[SYNC] Skipping ${slug} — already syncing`);
+    return;
+  }
+
+  syncingAgents.set(slug, { isSyncing: true, totalSynced: 0, lastSync: null });
+
+  try {
+    const decrypted = capiDecrypt(agent.jamaah_password);
+    const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
+    if (!loginResult.success) {
+      console.error(`[SYNC] ${slug}: login failed`);
+      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+      return;
+    }
+
+    const now = new Date();
+    const tglAkhir = now.toISOString().split('T')[0];
+    const start = new Date(now);
+    start.setFullYear(start.getFullYear() - 1);
+    const tglAwal = start.toISOString().split('T')[0];
+
+    const fetchResult = await fetchLaporan(agent.jamaah_username, {
+      kantor: agent.jamaah_kantor || '2',
+      agentId: agent.jamaah_username,
+      tglAwal,
+      tglAkhir,
+    });
+
+    if (!fetchResult.success) {
+      console.error(`[SYNC] ${slug}: fetch failed`);
+      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+      laporanDisconnect(agent.jamaah_username);
+      return;
+    }
+
+    const { items } = parseLaporanHtml(fetchResult.html);
+    const syncTime = new Date().toISOString();
+
+    if (items.length > 0) {
+      // Compute approximate hijriah year
+      const gYear = now.getFullYear();
+      const hijriahYear = String(Math.floor((gYear - 622) * (33 / 32)));
+
+      const BATCH = 50;
+      let synced = 0;
+      for (let i = 0; i < items.length; i += BATCH) {
+        const batch = items.slice(i, i + BATCH);
+        const rows = buildRows(batch, slug, hijriahYear, syncTime);
+        const { error } = await supabase
+          .from('jamaah')
+          .upsert(rows, { onConflict: 'agent_slug,id_umroh,nama' });
+        if (error) console.error(`[SYNC] ${slug} batch error:`, error.message);
+        synced += batch.length;
+        syncingAgents.set(slug, { isSyncing: true, totalSynced: synced, lastSync: syncTime });
+      }
+      console.log(`[SYNC] ${slug}: ${synced} jamaah synced`);
+    } else {
+      console.log(`[SYNC] ${slug}: 0 items parsed`);
+    }
+
+    syncingAgents.set(slug, { isSyncing: false, totalSynced: items.length, lastSync: syncTime });
+    laporanDisconnect(agent.jamaah_username);
+  } catch (err) {
+    console.error(`[SYNC] ${slug} error:`, err.message);
+    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+    try { laporanDisconnect(agent.jamaah_username); } catch {}
+  }
+}
+
+async function syncAllAgents() {
+  console.log('[SYNC] Starting sync cycle...');
+  const startTime = Date.now();
+
+  const { data: agents, error } = await supabase
+    .from('agents')
+    .select('*')
+    .not('jamaah_username', 'is', null)
+    .not('jamaah_password', 'is', null);
+
+  if (error || !agents?.length) {
+    console.log(`[SYNC] No agents with credentials found`);
+    return;
+  }
+
+  let synced = 0;
+  for (const agent of agents) {
+    await syncOneAgent(agent);
+    synced++;
+  }
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[SYNC] Cycle complete: ${synced} agents synced in ${elapsed}s`);
+}
+
+// Run initial sync 30s after startup, then every 1 hour
+setTimeout(syncAllAgents, 30 * 1000);
+setInterval(syncAllAgents, 60 * 60 * 1000);

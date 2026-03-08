@@ -115,6 +115,15 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [jamaahConnected, setJamaahConnected] = useState(false);
   const [jamaahUser, setJamaahUser] = useState('');
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+  const [disconnectClosing, setDisconnectClosing] = useState(false);
+
+  const closeDisconnect = useCallback(() => {
+    setDisconnectClosing(true);
+    setTimeout(() => {
+      setShowDisconnectConfirm(false);
+      setDisconnectClosing(false);
+    }, 200);
+  }, []);
 
   // Navigate tab + update URL
   const navigateTab = useCallback((tab: TabId, replace = false) => {
@@ -218,8 +227,15 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
         {/* Disconnect confirm modal */}
         {showDisconnectConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-6">
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 w-full max-w-xs overflow-hidden">
+          <div
+            className={`fixed inset-0 z-50 flex items-center justify-center px-6 ${disconnectClosing ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
+            onClick={closeDisconnect}
+            style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
+          >
+            <div
+              className={`bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 w-full max-w-xs overflow-hidden ${disconnectClosing ? 'dc-card-exit' : 'dc-card-enter'}`}
+              onClick={e => e.stopPropagation()}
+            >
               <div className="px-5 pt-5 pb-3 text-center">
                 <div className="w-10 h-10 mx-auto mb-3 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center">
                   <LogOut size={18} className="text-red-500" />
@@ -229,7 +245,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               </div>
               <div className="flex border-t border-gray-100 dark:border-slate-700">
                 <button
-                  onClick={() => setShowDisconnectConfirm(false)}
+                  onClick={closeDisconnect}
                   className="flex-1 py-3 text-sm font-semibold text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
                 >
                   Batal
@@ -237,7 +253,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 <div className="w-px bg-gray-100 dark:bg-slate-700" />
                 <button
                   onClick={async () => {
-                    setShowDisconnectConfirm(false);
+                    closeDisconnect();
                     try {
                       await fetch('/api/laporan/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
                       await fetch('/api/laporan/credentials', { method: 'DELETE', headers: { ...getAuthHeaders() } });

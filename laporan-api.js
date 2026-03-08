@@ -216,7 +216,7 @@ export function parseLaporanHtml(html) {
     const wa = $(tds[4]).text().trim();
 
     // col5: TGL LAHIR
-    const tgl_lahir = $(tds[5]).text().trim() || null;
+    const tgl_lahir = parseDateDMY($(tds[5]).text().trim());
 
     // col6: PAKET
     const paket = $(tds[6]).text().trim();
@@ -231,8 +231,7 @@ export function parseLaporanHtml(html) {
     // col37: KEBERANGKATAN
     let tgl_berangkat = null;
     if (tds.length > 37) {
-      const raw = $(tds[37]).text().trim();
-      if (raw && raw !== '-') tgl_berangkat = raw;
+      tgl_berangkat = parseDateDMY($(tds[37]).text().trim());
     }
 
     if (id_umroh && nama) {
@@ -260,6 +259,17 @@ function parseRupiah(str) {
   if (!str) return 0;
   const cleaned = str.replace(/[^0-9]/g, '');
   return parseInt(cleaned, 10) || 0;
+}
+
+// Convert DD/MM/YYYY or similar to YYYY-MM-DD for Supabase date columns
+function parseDateDMY(str) {
+  if (!str || str === '-') return null;
+  // Try DD/MM/YYYY
+  const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  // Already YYYY-MM-DD? Return as-is
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  return str; // fallback
 }
 
 // ── Disconnect: Remove session ──
