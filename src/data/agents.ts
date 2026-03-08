@@ -33,14 +33,32 @@ const FALLBACK_AGENTS: Record<string, AgentData> = {
   'ekawati': { name: 'Ekawati', website: 'alhijaz.co/ekawati', phone: '62816728904', photo: '/agents/ekawati.jpg' },
 };
 
-// Live data — dimulai dari fallback, lalu di-overwrite oleh Supabase
-export let AGENTS_DATA: Record<string, AgentData> = { ...FALLBACK_AGENTS };
+// ── localStorage cache key ──
+const LS_KEY = 'agents_cache';
+
+/**
+ * Try to restore agent data from localStorage so the very first render
+ * already shows up-to-date info (no flash of stale hardcoded fallback).
+ */
+function loadCachedAgents(): Record<string, AgentData> {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, AgentData>;
+      if (Object.keys(parsed).length > 0) return parsed;
+    }
+  } catch { /* ignore parse errors */ }
+  return { ...FALLBACK_AGENTS };
+}
+
+// Live data — dimulai dari localStorage cache (atau fallback), lalu di-refresh oleh Supabase
+export let AGENTS_DATA: Record<string, AgentData> = loadCachedAgents();
 
 let _loaded = false;
 
 /**
  * Fetch agent data dari Supabase dan update AGENTS_DATA in-place.
- * Dipanggil sekali saat App mount. Kalau gagal, fallback tetap aktif.
+ * Dipanggil sekali saat App mount. Kalau gagal, fallback/cache tetap aktif.
  */
 export async function loadAgentsFromSupabase(): Promise<Record<string, AgentData>> {
   if (_loaded) return AGENTS_DATA;
@@ -64,9 +82,12 @@ export async function loadAgentsFromSupabase(): Promise<Record<string, AgentData
       Object.keys(AGENTS_DATA).forEach(k => delete AGENTS_DATA[k]);
       Object.assign(AGENTS_DATA, fresh);
       _loaded = true;
+
+      // Persist to localStorage for next page load
+      try { localStorage.setItem(LS_KEY, JSON.stringify(fresh)); } catch { /* quota exceeded */ }
     }
   } catch (err) {
-    console.warn('[Supabase] Failed to load agents, using fallback:', err);
+    console.warn('[Supabase] Failed to load agents, using fallback/cache:', err);
   }
   return AGENTS_DATA;
 }
