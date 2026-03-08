@@ -169,3 +169,43 @@ body.page-entering > #root {
   animation: content-reveal 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
 }
 
+/* ============================================ */
+/* Laporan Data Jamaah — Legacy HTML styles     */
+/* ============================================ */
+.laporan-content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+.laporan-content th,
+.laporan-content td {
+  padding: 6px 10px;
+  border: 1px solid #e5e7eb;
+  text-align: left;
+  white-space: nowrap;
+}
+.laporan-content th {
+  background: #f3f4f6;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  letter-spacing: 0.03em;
+  color: #6b7280;
+}
+.laporan-content tr:hover td {
+  background: #f9fafb;
+}
+
+/* Dark mode */
+.dark .laporan-content th,
+.dark .laporan-content td {
+  border-color: #334155;
+}
+.dark .laporan-content th {
+  background: #1e293b;
+  color: #94a3b8;
+}
+.dark .laporan-content tr:hover td {
+  background: #1e293b50;
+}
+

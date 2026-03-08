@@ -14,6 +14,45 @@ import JamaahPage from './JamaahPage';
 
 type TabId = 'home' | 'profile' | 'kalkulasi' | 'compare' | 'caption' | 'capi' | 'agents' | 'jamaah';
 
+// URL slug ↔ TabId mapping
+const SLUG_TO_TAB: Record<string, TabId> = {
+  kalkulasi: 'kalkulasi',
+  compare: 'compare',
+  capi: 'capi',
+  agents: 'agents',
+  jamaah: 'jamaah',
+  profile: 'profile',
+};
+
+const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
+  kalkulasi: 'kalkulasi',
+  compare: 'compare',
+  capi: 'capi',
+  agents: 'agents',
+  jamaah: 'jamaah',
+  profile: 'profile',
+};
+
+function getTabFromPath(): TabId {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  // /dashboard/{slug}
+  if (segments.length >= 2 && segments[0] === 'dashboard') {
+    return SLUG_TO_TAB[segments[1]] || 'home';
+  }
+  return 'home';
+}
+
+const TAB_TITLES: Record<TabId, string> = {
+  home: 'Dashboard',
+  profile: 'Edit Profil',
+  kalkulasi: 'Kalkulasi',
+  compare: 'Compare',
+  caption: 'Caption',
+  capi: 'Meta CAPI',
+  agents: 'Agents',
+  jamaah: 'Jamaah',
+};
+
 interface MenuCard {
   id: TabId;
   label: string;
@@ -70,7 +109,38 @@ const MENU_CARDS: MenuCard[] = [
 ];
 
 export default function DashboardLayout({ session, onLogout }: { session: AuthSession; onLogout: () => void }) {
-  const [activeTab, setActiveTab] = useState<TabId>('home');
+  const [activeTab, setActiveTab] = useState<TabId>(getTabFromPath);
+
+  // Navigate tab + update URL
+  const navigateTab = useCallback((tab: TabId, replace = false) => {
+    setActiveTab(tab);
+    document.title = TAB_TITLES[tab] || 'Dashboard';
+    const slug = TAB_TO_SLUG[tab];
+    const url = slug ? `/dashboard/${slug}` : '/dashboard';
+    if (replace) {
+      window.history.replaceState({ tab }, '', url);
+    } else {
+      window.history.pushState({ tab }, '', url);
+    }
+  }, []);
+
+  // Listen for browser back/forward
+  useEffect(() => {
+    const onPopState = () => {
+      const tab = getTabFromPath();
+      setActiveTab(tab);
+      document.title = TAB_TITLES[tab] || 'Dashboard';
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  // Set initial history state on mount (replaceState so back works correctly)
+  useEffect(() => {
+    window.history.replaceState({ tab: activeTab }, '', window.location.pathname);
+    document.title = TAB_TITLES[activeTab] || 'Dashboard';
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
   const [agentData, setAgentData] = useState(session.user);
 
@@ -108,7 +178,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         <header className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50">
           <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
             <button
-              onClick={() => setActiveTab('home')}
+              onClick={() => navigateTab('home')}
               className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-all active:scale-95"
             >
               <ChevronLeft size={18} strokeWidth={2.5} />
@@ -222,7 +292,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               </p>
             </div>
             <button
-              onClick={() => setActiveTab('profile')}
+              onClick={() => navigateTab('profile')}
               className="shrink-0 w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-400 dark:text-slate-500 hover:bg-gray-200 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-slate-300 transition-all active:scale-95"
               title="Edit Profil"
             >
@@ -238,7 +308,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             return (
               <button
                 key={card.id}
-                onClick={() => setActiveTab(card.id)}
+                onClick={() => navigateTab(card.id)}
                 className="group relative overflow-hidden bg-white dark:bg-slate-800 rounded-2xl p-3.5 border border-gray-100 dark:border-slate-700 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.97]"
               >
                 {/* Decorative gradient blob */}

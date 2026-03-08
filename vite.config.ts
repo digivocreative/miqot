@@ -611,6 +611,14 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
+      '/api/laporan': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+      '/api/jamaah-creds': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'https://jadwal.alhijaz.co',
         changeOrigin: true,

@@ -1,26 +1,66 @@
-import { useState } from 'react';
-import { Eye, EyeOff, LogIn, Loader2, User, Lock, ExternalLink, CheckCircle2, LogOut, RefreshCw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Eye, EyeOff, LogIn, Loader2, User, Lock, LogOut, Search, Calendar, Building2, Trash2, KeyRound } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 
-type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error';
-
-interface SessionData {
-  sessionId: string;
-  title?: string;
-  tables?: { headers: string[]; rows: Record<string, string>[] }[];
-  links?: { href: string; text: string }[];
-}
+type ViewState = 'loading' | 'login' | 'connecting' | 'connected';
 
 export default function JamaahPage() {
+  // Login state
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [kantor, setKantor] = useState('2'); // Default: Cabang
   const [showPassword, setShowPassword] = useState(false);
-  const [state, setState] = useState<ConnectionState>('idle');
-  const [error, setError] = useState('');
-  const [session, setSession] = useState<SessionData | null>(null);
-  const [fetchingData, setFetchingData] = useState(false);
 
-  const handleConnect = async (e: React.FormEvent) => {
+  // Session state
+  const [view, setView] = useState<ViewState>('loading');
+  const [error, setError] = useState('');
+  const [connectedUser, setConnectedUser] = useState('');
+  const [connectedKantor, setConnectedKantor] = useState('2');
+
+  // Saved credentials state
+  const [hasSavedCreds, setHasSavedCreds] = useState(false);
+  const [savingCreds, setSavingCreds] = useState(false);
+  const [deletingCreds, setDeletingCreds] = useState(false);
+
+  // Filter state
+  const now = new Date();
+  const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const [tglAwal, setTglAwal] = useState(firstOfMonth);
+  const [tglAkhir, setTglAkhir] = useState(today);
+
+  // Data state
+  const [fetching, setFetching] = useState(false);
+  const [laporanHtml, setLaporanHtml] = useState('');
+
+  // ── On mount: check for saved credentials ──
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/jamaah-creds', { headers: { ...getAuthHeaders() } });
+        const data = await res.json();
+        if (data.saved) {
+          setHasSavedCreds(true);
+          // Try auto-login
+          const loginRes = await fetch('/api/jamaah-creds/auto-login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          });
+          const loginData = await loginRes.json();
+          if (loginRes.ok && loginData.success) {
+            setConnectedUser(loginData.username);
+            setConnectedKantor(loginData.kantor || '2');
+            setView('connected');
+            return;
+          }
+        }
+      } catch { /* ignore — fall through to login form */ }
+      setView('login');
+    })();
+  }, []);
+
+  // ── Login handler ──
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -29,91 +69,126 @@ export default function JamaahPage() {
       return;
     }
 
-    setState('connecting');
+    setView('connecting');
 
     try {
-      const res = await fetch('/api/jamaah/connect', {
+      const res = await fetch('/api/laporan/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, kantor }),
       });
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setError(data.error || 'Gagal terhubung');
-        setState('error');
+        setError(data.error || 'Gagal login');
+        setView('login');
         return;
       }
 
-      setState('connected');
-      setSession({ sessionId: data.sessionId });
-      setPassword(''); // Clear password from memory
+      // Always save credentials for auto-login
+      setSavingCreds(true);
+      try {
+        await fetch('/api/jamaah-creds', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({ username, password, kantor }),
+        });
+        setHasSavedCreds(true);
+      } catch { /* ignore save error */ }
+      setSavingCreds(false);
 
-      // Auto-fetch initial data
-      await fetchData(data.sessionId, '/');
+      setConnectedUser(username);
+      setConnectedKantor(kantor);
+      setPassword(''); // Clear password from memory
+      setView('connected');
     } catch {
       setError('Gagal menghubungi server');
-      setState('error');
+      setView('login');
     }
   };
 
-  const fetchData = async (sessionId: string, path: string) => {
-    setFetchingData(true);
+  // ── Fetch laporan handler ──
+  const handleFetch = async () => {
+    if (!connectedUser) return;
+    setError('');
+    setFetching(true);
+
     try {
-      const res = await fetch('/api/jamaah/fetch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ sessionId, path }),
+      const params = new URLSearchParams({
+        username: connectedUser,
+        kantor: connectedKantor,
+        agentId: connectedUser,
+        tglAwal,
+        tglAkhir,
+      });
+
+      const res = await fetch(`/api/laporan/fetch?${params.toString()}`, {
+        headers: { ...getAuthHeaders() },
       });
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        if (data.error?.includes('kedaluwarsa')) {
-          setState('idle');
-          setSession(null);
+        if (data.error?.includes('kedaluwarsa') || data.error?.includes('login ulang')) {
+          setView('login');
+          setConnectedUser('');
+          setLaporanHtml('');
           setError('Session kedaluwarsa, silakan login ulang');
         } else {
           setError(data.error || 'Gagal mengambil data');
         }
-        setFetchingData(false);
+        setFetching(false);
         return;
       }
 
-      setSession(prev => prev ? {
-        ...prev,
-        title: data.title,
-        tables: data.tables,
-        links: data.links,
-      } : null);
-
+      setLaporanHtml(data.html || '');
     } catch {
       setError('Gagal menghubungi server');
     }
-    setFetchingData(false);
+    setFetching(false);
   };
 
+  // ── Disconnect handler (only clears in-memory session) ──
   const handleDisconnect = async () => {
-    if (!session?.sessionId) return;
     try {
-      await fetch('/api/jamaah/disconnect', {
+      await fetch('/api/laporan/disconnect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ sessionId: session.sessionId }),
+        body: JSON.stringify({ username: connectedUser }),
       });
     } catch { /* ignore */ }
-    setState('idle');
-    setSession(null);
+    setView('login');
+    setConnectedUser('');
+    setConnectedKantor('2');
+    setLaporanHtml('');
     setError('');
     setUsername('');
   };
 
-  const handleNavigate = (path: string) => {
-    if (!session?.sessionId) return;
-    fetchData(session.sessionId, path);
+  // ── Delete saved credentials ──
+  const handleDeleteCreds = async () => {
+    setDeletingCreds(true);
+    try {
+      await fetch('/api/jamaah-creds', {
+        method: 'DELETE',
+        headers: { ...getAuthHeaders() },
+      });
+      setHasSavedCreds(false);
+    } catch { /* ignore */ }
+    setDeletingCreds(false);
   };
 
+  // ── Loading state ──
+  if (view === 'loading') {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={24} className="animate-spin text-emerald-500" />
+        <span className="ml-2 text-sm text-gray-500 dark:text-slate-400">Memeriksa credentials...</span>
+      </div>
+    );
+  }
+
   // ── Connected View ──
-  if (state === 'connected' && session) {
+  if (view === 'connected') {
     return (
       <div className="px-4 pt-4 pb-8 space-y-4">
         {/* Session bar */}
@@ -121,98 +196,91 @@ export default function JamaahPage() {
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-              Terhubung sebagai {username}
+              Terhubung sebagai {connectedUser}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <button
+            onClick={handleDisconnect}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+          >
+            <LogOut size={12} /> Disconnect
+          </button>
+        </div>
+
+        {/* Filter form */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-50 dark:border-slate-700/50">
+            <h3 className="text-xs font-bold text-gray-600 dark:text-slate-300 uppercase tracking-wide flex items-center gap-1.5">
+              <Calendar size={12} /> Filter Laporan
+            </h3>
+          </div>
+          <div className="p-5 space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-1 block">
+                  Tanggal Awal
+                </label>
+                <input
+                  type="date"
+                  value={tglAwal}
+                  onChange={e => setTglAwal(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-1 block">
+                  Tanggal Akhir
+                </label>
+                <input
+                  type="date"
+                  value={tglAkhir}
+                  onChange={e => setTglAkhir(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white"
+                />
+              </div>
+            </div>
             <button
-              onClick={() => session.sessionId && fetchData(session.sessionId, '/')}
-              disabled={fetchingData}
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-800/30 transition-colors"
-              title="Refresh"
+              onClick={handleFetch}
+              disabled={fetching}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95 disabled:opacity-70"
             >
-              <RefreshCw size={14} className={fetchingData ? 'animate-spin' : ''} />
-            </button>
-            <button
-              onClick={handleDisconnect}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-            >
-              <LogOut size={12} /> Disconnect
+              {fetching ? (
+                <><Loader2 size={16} className="animate-spin" /> Mengambil data...</>
+              ) : (
+                <><Search size={16} /> Tampilkan Laporan</>
+              )}
             </button>
           </div>
         </div>
-
-        {/* Loading */}
-        {fetchingData && (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 size={24} className="animate-spin text-emerald-500" />
-            <span className="ml-2 text-sm text-gray-500">Mengambil data...</span>
-          </div>
-        )}
-
-        {/* Navigation links */}
-        {session.links && session.links.length > 0 && !fetchingData && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-50 dark:border-slate-700/50">
-              <h3 className="text-xs font-bold text-gray-600 dark:text-slate-300 uppercase tracking-wide">Menu</h3>
-            </div>
-            <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
-              {session.links.filter(l => l.text && l.href.startsWith('/')).slice(0, 20).map((link, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleNavigate(link.href)}
-                  className="w-full text-left px-4 py-3 text-sm text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors flex items-center justify-between"
-                >
-                  <span>{link.text}</span>
-                  <ExternalLink size={12} className="text-gray-300 dark:text-slate-600" />
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Data tables */}
-        {session.tables && session.tables.length > 0 && !fetchingData && (
-          session.tables.map((table, ti) => (
-            <div key={ti} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-gray-50 dark:bg-slate-700/50">
-                      {table.headers.map((h, hi) => (
-                        <th key={hi} className="px-3 py-2.5 text-left font-bold text-gray-600 dark:text-slate-300 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {table.rows.map((row, ri) => (
-                      <tr key={ri} className="border-t border-gray-50 dark:border-slate-700/50 hover:bg-gray-50/50 dark:hover:bg-slate-700/30">
-                        {table.headers.map((h, ci) => (
-                          <td key={ci} className="px-3 py-2 text-gray-700 dark:text-slate-300 whitespace-nowrap">{row[h]}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="px-3 py-2 text-[10px] text-gray-400 dark:text-slate-500 border-t border-gray-50 dark:border-slate-700/50">
-                {table.rows.length} baris data
-              </div>
-            </div>
-          ))
-        )}
-
-        {/* No data */}
-        {!fetchingData && (!session.tables || session.tables.length === 0) && (!session.links || session.links.length === 0) && (
-          <div className="text-center py-8">
-            <p className="text-sm text-gray-400 dark:text-slate-500">Tidak ada data untuk ditampilkan</p>
-          </div>
-        )}
 
         {/* Error */}
         {error && (
           <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium text-center">
             {error}
+          </div>
+        )}
+
+        {/* Laporan HTML result */}
+        {laporanHtml && !fetching && (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-50 dark:border-slate-700/50">
+              <h3 className="text-xs font-bold text-gray-600 dark:text-slate-300 uppercase tracking-wide">
+                Hasil Laporan
+              </h3>
+            </div>
+            <div className="overflow-x-auto">
+              <div
+                className="laporan-content p-4 text-sm text-gray-800 dark:text-slate-200"
+                dangerouslySetInnerHTML={{ __html: laporanHtml }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* No data yet */}
+        {!laporanHtml && !fetching && !error && (
+          <div className="text-center py-8">
+            <p className="text-sm text-gray-400 dark:text-slate-500">Pilih tanggal lalu klik &quot;Tampilkan Laporan&quot;</p>
           </div>
         )}
       </div>
@@ -227,19 +295,34 @@ export default function JamaahPage() {
         <div className="px-5 pt-5 pb-4 border-b border-gray-50 dark:border-slate-700/50">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center border border-amber-100 dark:border-amber-800/40">
-              <ExternalLink size={14} className="text-amber-600 dark:text-amber-400" />
+              <Calendar size={14} className="text-amber-600 dark:text-amber-400" />
             </div>
             <div>
-              <p className="text-xs font-bold text-gray-800 dark:text-white">Sistem Jamaah Alhijaz</p>
-              <p className="text-[10px] text-gray-400 dark:text-slate-500">jadwal.alhijaz.co</p>
+              <p className="text-xs font-bold text-gray-800 dark:text-white">Laporan Data Jamaah</p>
+              <p className="text-[10px] text-gray-400 dark:text-slate-500">Sistem Internal Alhijaz</p>
             </div>
           </div>
           <p className="text-xs text-gray-500 dark:text-slate-400 mt-2">
-            Masukkan kredensial untuk terhubung ke sistem internal.
+            Masukkan kredensial untuk mengakses laporan data jamaah.
           </p>
         </div>
 
-        <form onSubmit={handleConnect} className="p-5 space-y-4">
+        <form onSubmit={handleLogin} className="p-5 space-y-4">
+          {/* Kantor */}
+          <div>
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide">
+              <Building2 size={12} /> Kantor
+            </label>
+            <select
+              value="2"
+              disabled
+              className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white disabled:opacity-50"
+            >
+              <option value="1">Pusat</option>
+              <option value="2">Cabang</option>
+            </select>
+          </div>
+
           {/* Username */}
           <div>
             <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide">
@@ -249,10 +332,10 @@ export default function JamaahPage() {
               type="text"
               value={username}
               onChange={e => { setUsername(e.target.value); setError(''); }}
-              placeholder="Masukkan username"
+              placeholder="SMxxxx"
               autoCapitalize="none"
               autoCorrect="off"
-              disabled={state === 'connecting'}
+              disabled={view === 'connecting'}
               className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50"
             />
           </div>
@@ -268,7 +351,7 @@ export default function JamaahPage() {
                 value={password}
                 onChange={e => { setPassword(e.target.value); setError(''); }}
                 placeholder="Masukkan password"
-                disabled={state === 'connecting'}
+                disabled={view === 'connecting'}
                 className="w-full px-3 py-2.5 pr-10 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50"
               />
               <button
@@ -280,6 +363,7 @@ export default function JamaahPage() {
               </button>
             </div>
           </div>
+
 
           {/* Error */}
           {error && (
@@ -294,23 +378,45 @@ export default function JamaahPage() {
           {/* Submit */}
           <button
             type="submit"
-            disabled={state === 'connecting'}
+            disabled={view === 'connecting' || savingCreds}
             className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95 disabled:opacity-70"
           >
-            {state === 'connecting' ? (
+            {view === 'connecting' ? (
               <><Loader2 size={16} className="animate-spin" /> Menghubungkan...</>
             ) : (
-              <><LogIn size={16} /> Hubungkan</>
+              <><LogIn size={16} /> Login</>
             )}
           </button>
 
           {/* Connecting info */}
-          {state === 'connecting' && (
+          {view === 'connecting' && (
             <p className="text-[11px] text-gray-400 dark:text-slate-500 text-center">
-              Browser sedang login ke sistem internal, mohon tunggu...
+              Sedang login ke sistem internal, mohon tunggu...
             </p>
           )}
         </form>
+
+        {/* Saved credentials info + delete button */}
+        {hasSavedCreds && view === 'login' && (
+          <div className="px-5 pb-5 -mt-1">
+            <div className="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/15 border border-blue-100 dark:border-blue-800/30 rounded-xl">
+              <div className="flex items-center gap-1.5">
+                <KeyRound size={12} className="text-blue-500 dark:text-blue-400" />
+                <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
+                  Credentials tersimpan
+                </span>
+              </div>
+              <button
+                onClick={handleDeleteCreds}
+                disabled={deletingCreds}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+              >
+                {deletingCreds ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                Hapus
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

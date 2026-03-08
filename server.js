@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
+import { login as laporanLogin, fetchLaporan, disconnect as laporanDisconnect } from './laporan-api.js';
 
 dotenv.config();
 
@@ -598,6 +599,119 @@ app.post('/api/capi/:slug/validate', async (req, res) => {
     console.error('[CAPI Validate] Error:', err);
     res.json({ valid: false, reason: 'Connection failed' });
   }
+});
+
+// ──────────────────────────────────────────────
+// API: Laporan Data Jamaah (native fetch, no Playwright)
+// ──────────────────────────────────────────────
+app.post('/api/laporan/login', authMiddleware, async (req, res) => {
+  const { username, password, kantor } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username dan password wajib diisi' });
+  }
+  const result = await laporanLogin(username, password, kantor || '2');
+  if (!result.success) {
+    return res.status(401).json(result);
+  }
+  res.json(result);
+});
+
+app.get('/api/laporan/fetch', authMiddleware, async (req, res) => {
+  const { username, kantor, agentId, tglAwal, tglAkhir } = req.query;
+  if (!username || !agentId || !tglAwal || !tglAkhir) {
+    return res.status(400).json({ error: 'Parameter tidak lengkap' });
+  }
+  const result = await fetchLaporan(username, {
+    kantor: kantor || '2',
+    agentId,
+    tglAwal,
+    tglAkhir,
+  });
+  if (!result.success) {
+    return res.status(result.error?.includes('kedaluwarsa') ? 401 : 500).json(result);
+  }
+  res.json(result);
+});
+
+app.post('/api/laporan/disconnect', authMiddleware, async (req, res) => {
+  const { username } = req.body;
+  if (!username) return res.status(400).json({ error: 'Username wajib diisi' });
+  const result = laporanDisconnect(username);
+  res.json(result);
+});
+
+// ──────────────────────────────────────────────
+// API: Jamaah Credentials (save/load/delete from Supabase)
+// ──────────────────────────────────────────────
+// Load saved credentials (never returns password)
+app.get('/api/jamaah-creds', authMiddleware, async (req, res) => {
+  const agent = await getAgent(req.user.slug);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  if (!agent.jamaah_username) {
+    return res.json({ saved: false });
+  }
+  res.json({
+    saved: true,
+    username: agent.jamaah_username,
+    kantor: agent.jamaah_kantor || '2',
+  });
+});
+
+// Save credentials (encrypt password)
+app.post('/api/jamaah-creds', authMiddleware, async (req, res) => {
+  const { username, password, kantor } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username dan password wajib diisi' });
+  }
+  const encryptedPassword = capiEncrypt(password);
+  const { error } = await supabase
+    .from('agents')
+    .update({
+      jamaah_username: username,
+      jamaah_password: encryptedPassword,
+      jamaah_kantor: kantor || '2',
+    })
+    .eq('slug', req.user.slug);
+  if (error) return res.status(500).json({ error: error.message });
+  agentCache = null; // Invalidate cache
+  res.json({ success: true });
+});
+
+// Delete saved credentials
+app.delete('/api/jamaah-creds', authMiddleware, async (req, res) => {
+  const { error } = await supabase
+    .from('agents')
+    .update({
+      jamaah_username: null,
+      jamaah_password: null,
+      jamaah_kantor: null,
+    })
+    .eq('slug', req.user.slug);
+  if (error) return res.status(500).json({ error: error.message });
+  agentCache = null;
+  res.json({ success: true });
+});
+
+// Auto-login using saved credentials (decrypt + login server-side)
+app.post('/api/jamaah-creds/auto-login', authMiddleware, async (req, res) => {
+  const agent = await getAgent(req.user.slug);
+  if (!agent?.jamaah_username || !agent?.jamaah_password) {
+    return res.status(404).json({ error: 'Tidak ada credentials tersimpan' });
+  }
+  const decryptedPassword = capiDecrypt(agent.jamaah_password);
+  const result = await laporanLogin(
+    agent.jamaah_username,
+    decryptedPassword,
+    agent.jamaah_kantor || '2'
+  );
+  if (!result.success) {
+    return res.status(401).json(result);
+  }
+  res.json({
+    ...result,
+    username: agent.jamaah_username,
+    kantor: agent.jamaah_kantor || '2',
+  });
 });
 
 // ──────────────────────────────────────────────
