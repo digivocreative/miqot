@@ -688,12 +688,22 @@ function buildRows(items, agentSlug, hijriahYear, now) {
   }));
 }
 
+// Hijriah year → Gregorian date range mapping
+// Update this config when new Hijriah years need to be supported
+const HIJRIAH_YEARS = {
+  '1446': { tglAwal: '2024-07-08', tglAkhir: '2025-06-25' },
+  '1447': { tglAwal: '2025-06-26', tglAkhir: '2026-06-16' },
+  '1448': { tglAwal: '2026-06-17', tglAkhir: '2027-06-05' },
+};
+
+function getActiveHijriahYears() {
+  return Object.keys(HIJRIAH_YEARS);
+}
+
 // Sync: fetch from legacy → parse → progressive upsert to Supabase
+// If hijriahYear is provided, sync only that year. Otherwise sync all years.
 app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
-  const { tglAwal, tglAkhir, hijriahYear } = req.body;
-  if (!tglAwal || !tglAkhir) {
-    return res.status(400).json({ error: 'Tanggal awal dan akhir wajib diisi' });
-  }
+  const { hijriahYear } = req.body;
 
   const slug = req.user.slug;
   const agent = await getAgent(slug);
@@ -719,79 +729,95 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     }
   }
 
-  // Fetch HTML
-  const fetchResult = await fetchLaporan(agent.jamaah_username, {
-    kantor: agent.jamaah_kantor || '2',
-    agentId: agent.jamaah_username,
-    tglAwal,
-    tglAkhir,
-  });
+  // Determine which years to sync
+  const yearsToSync = hijriahYear && HIJRIAH_YEARS[hijriahYear]
+    ? [hijriahYear]
+    : getActiveHijriahYears();
 
-  if (!fetchResult.success) {
-    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
-    return res.status(500).json(fetchResult);
+  let totalItems = 0;
+  let firstBatchSent = false;
+  const now = new Date().toISOString();
+
+  for (const year of yearsToSync) {
+    const range = HIJRIAH_YEARS[year];
+    if (!range) continue;
+
+    const fetchResult = await fetchLaporan(agent.jamaah_username, {
+      kantor: agent.jamaah_kantor || '2',
+      agentId: agent.jamaah_username,
+      tglAwal: range.tglAwal,
+      tglAkhir: range.tglAkhir,
+    });
+
+    if (!fetchResult.success) {
+      console.error(`[Sync] ${slug} year ${year}: fetch failed`);
+      continue;
+    }
+
+    const { items } = parseLaporanHtml(fetchResult.html);
+    console.log(`[Sync] ${slug} year ${year}: parsed ${items.length} items`);
+
+    if (items.length === 0) continue;
+    totalItems += items.length;
+
+    // First year: send first 10 immediately as progressive response
+    if (!firstBatchSent) {
+      const first10 = items.slice(0, 10);
+      const rest = items.slice(10);
+      const firstRows = buildRows(first10, slug, year, now);
+
+      const { error: firstErr } = await supabase
+        .from('jamaah')
+        .upsert(firstRows, { onConflict: 'agent_slug,id_umroh,nama' });
+
+      if (firstErr) {
+        console.error('[Sync] First batch error:', firstErr.message);
+        syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+        return res.status(500).json({ error: 'Gagal menyimpan data: ' + firstErr.message });
+      }
+
+      firstBatchSent = true;
+      const moreYears = yearsToSync.length > 1 || rest.length > 0;
+      syncingAgents.set(slug, { isSyncing: moreYears, totalSynced: first10.length, lastSync: now });
+
+      // Respond immediately
+      res.json({
+        success: true,
+        data: { initialCount: first10.length, total: items.length, syncing: moreYears },
+      });
+
+      // Upsert rest of first year async
+      if (rest.length > 0) {
+        const restRows = buildRows(rest, slug, year, now);
+        const BATCH = 50;
+        for (let i = 0; i < restRows.length; i += BATCH) {
+          const batch = restRows.slice(i, i + BATCH);
+          const { error } = await supabase.from('jamaah').upsert(batch, { onConflict: 'agent_slug,id_umroh,nama' });
+          if (error) console.error(`[Sync] ${slug} batch error:`, error.message);
+          syncingAgents.set(slug, { isSyncing: true, totalSynced: (syncingAgents.get(slug)?.totalSynced || 0) + batch.length, lastSync: now });
+        }
+      }
+    } else {
+      // Subsequent years: upsert all in batches (response already sent)
+      const rows = buildRows(items, slug, year, now);
+      const BATCH = 50;
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const batch = rows.slice(i, i + BATCH);
+        const { error } = await supabase.from('jamaah').upsert(batch, { onConflict: 'agent_slug,id_umroh,nama' });
+        if (error) console.error(`[Sync] ${slug} year ${year} batch error:`, error.message);
+        syncingAgents.set(slug, { isSyncing: true, totalSynced: (syncingAgents.get(slug)?.totalSynced || 0) + batch.length, lastSync: now });
+      }
+    }
   }
 
-  // Parse HTML
-  console.log('[Sync] HTML length:', fetchResult.html.length, 'chars');
-  const { items } = parseLaporanHtml(fetchResult.html);
-  console.log(`[Sync] ${slug}: parsed ${items.length} items`);
-
-  if (items.length === 0) {
-    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: new Date().toISOString() });
+  // If we never sent response (all years empty)
+  if (!firstBatchSent) {
+    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: now });
     return res.json({ success: true, data: { initialCount: 0, syncing: false } });
   }
 
-  const now = new Date().toISOString();
-
-  // Progressive sync: upsert first 10 immediately
-  const first10 = items.slice(0, 10);
-  const rest = items.slice(10);
-  const firstRows = buildRows(first10, slug, hijriahYear, now);
-
-  const { error: firstErr } = await supabase
-    .from('jamaah')
-    .upsert(firstRows, { onConflict: 'agent_slug,id_umroh,nama' });
-
-  if (firstErr) {
-    console.error('[Sync] First batch error:', firstErr.message);
-    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
-    return res.status(500).json({ error: 'Gagal menyimpan data: ' + firstErr.message });
-  }
-
-  syncingAgents.set(slug, { isSyncing: rest.length > 0, totalSynced: first10.length, lastSync: now });
-
-  // Respond immediately with first batch
-  res.json({
-    success: true,
-    data: { initialCount: first10.length, total: items.length, syncing: rest.length > 0 },
-  });
-
-  // Async: upsert remaining in batches of 50
-  if (rest.length > 0) {
-    (async () => {
-      try {
-        const BATCH = 50;
-        let synced = first10.length;
-        for (let i = 0; i < rest.length; i += BATCH) {
-          const batch = rest.slice(i, i + BATCH);
-          const rows = buildRows(batch, slug, hijriahYear, now);
-          const { error } = await supabase
-            .from('jamaah')
-            .upsert(rows, { onConflict: 'agent_slug,id_umroh,nama' });
-          if (error) console.error(`[Sync] ${slug} batch error:`, error.message);
-          synced += batch.length;
-          syncingAgents.set(slug, { isSyncing: true, totalSynced: synced, lastSync: now });
-        }
-        console.log(`[Sync] ${slug}: completed ${synced} items`);
-      } catch (err) {
-        console.error(`[Sync] ${slug} async error:`, err.message);
-      } finally {
-        const cur = syncingAgents.get(slug);
-        syncingAgents.set(slug, { isSyncing: false, totalSynced: cur?.totalSynced || 0, lastSync: now });
-      }
-    })();
-  }
+  console.log(`[Sync] ${slug}: completed ${totalItems} items across ${yearsToSync.length} years`);
+  syncingAgents.set(slug, { isSyncing: false, totalSynced: totalItems, lastSync: now });
 });
 
 // Sync status: check if an agent's sync is in progress
@@ -1158,52 +1184,46 @@ async function syncOneAgent(agent) {
       return;
     }
 
-    const now = new Date();
-    const tglAkhir = now.toISOString().split('T')[0];
-    const start = new Date(now);
-    start.setFullYear(start.getFullYear() - 1);
-    const tglAwal = start.toISOString().split('T')[0];
-
-    const fetchResult = await fetchLaporan(agent.jamaah_username, {
-      kantor: agent.jamaah_kantor || '2',
-      agentId: agent.jamaah_username,
-      tglAwal,
-      tglAkhir,
-    });
-
-    if (!fetchResult.success) {
-      console.error(`[SYNC] ${slug}: fetch failed`);
-      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
-      laporanDisconnect(agent.jamaah_username);
-      return;
-    }
-
-    const { items } = parseLaporanHtml(fetchResult.html);
     const syncTime = new Date().toISOString();
+    let totalSynced = 0;
 
-    if (items.length > 0) {
-      // Compute approximate hijriah year
-      const gYear = now.getFullYear();
-      const hijriahYear = String(Math.floor((gYear - 622) * (33 / 32)));
+    // Sync all Hijriah years
+    for (const year of getActiveHijriahYears()) {
+      const range = HIJRIAH_YEARS[year];
+      if (!range) continue;
 
-      const BATCH = 50;
-      let synced = 0;
-      for (let i = 0; i < items.length; i += BATCH) {
-        const batch = items.slice(i, i + BATCH);
-        const rows = buildRows(batch, slug, hijriahYear, syncTime);
-        const { error } = await supabase
-          .from('jamaah')
-          .upsert(rows, { onConflict: 'agent_slug,id_umroh,nama' });
-        if (error) console.error(`[SYNC] ${slug} batch error:`, error.message);
-        synced += batch.length;
-        syncingAgents.set(slug, { isSyncing: true, totalSynced: synced, lastSync: syncTime });
+      const fetchResult = await fetchLaporan(agent.jamaah_username, {
+        kantor: agent.jamaah_kantor || '2',
+        agentId: agent.jamaah_username,
+        tglAwal: range.tglAwal,
+        tglAkhir: range.tglAkhir,
+      });
+
+      if (!fetchResult.success) {
+        console.error(`[SYNC] ${slug} year ${year}: fetch failed`);
+        continue;
       }
-      console.log(`[SYNC] ${slug}: ${synced} jamaah synced`);
-    } else {
-      console.log(`[SYNC] ${slug}: 0 items parsed`);
+
+      const { items } = parseLaporanHtml(fetchResult.html);
+
+      if (items.length > 0) {
+        const BATCH = 50;
+        for (let i = 0; i < items.length; i += BATCH) {
+          const batch = items.slice(i, i + BATCH);
+          const rows = buildRows(batch, slug, year, syncTime);
+          const { error } = await supabase
+            .from('jamaah')
+            .upsert(rows, { onConflict: 'agent_slug,id_umroh,nama' });
+          if (error) console.error(`[SYNC] ${slug} year ${year} batch error:`, error.message);
+          totalSynced += batch.length;
+          syncingAgents.set(slug, { isSyncing: true, totalSynced, lastSync: syncTime });
+        }
+        console.log(`[SYNC] ${slug} year ${year}: ${items.length} jamaah synced`);
+      }
     }
 
-    syncingAgents.set(slug, { isSyncing: false, totalSynced: items.length, lastSync: syncTime });
+    console.log(`[SYNC] ${slug}: total ${totalSynced} jamaah synced`);
+    syncingAgents.set(slug, { isSyncing: false, totalSynced, lastSync: syncTime });
     laporanDisconnect(agent.jamaah_username);
   } catch (err) {
     console.error(`[SYNC] ${slug} error:`, err.message);

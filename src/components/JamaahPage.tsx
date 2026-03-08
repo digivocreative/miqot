@@ -152,6 +152,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
     e.preventDefault();
     setError('');
     if (!username || !password) { setError('Username dan password wajib diisi'); return; }
+    if (username.length < 3 || username.length > 12 || !username.startsWith('SM')) { setError('Username tidak valid'); return; }
 
     setView('connecting');
     try {
@@ -177,22 +178,16 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
   };
 
   // ── Sync handler (progressive) ──
-  const handleSync = async (isFirstSync = false) => {
+  const handleSync = async (isFirstSync = false, specificYear?: string) => {
     setSyncing(true);
     setError('');
     if (isFirstSync) setView('syncing');
-
-    const now = new Date();
-    const tglAkhir = now.toISOString().split('T')[0];
-    const startDate = new Date(now);
-    startDate.setFullYear(startDate.getFullYear() - 1);
-    const tglAwal = startDate.toISOString().split('T')[0];
 
     try {
       const res = await fetch('/api/laporan/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ tglAwal, tglAkhir, hijriahYear: hijriahYear || null }),
+        body: JSON.stringify({ hijriahYear: specificYear || null }),
       });
       const result = await res.json();
       if (!result.success) {
@@ -470,9 +465,20 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
           </div>
         ) : data?.items.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-xs text-gray-400 dark:text-slate-500">
-              {searchQuery ? 'Tidak ada jamaah yang cocok dengan pencarian' : 'Belum ada data jamaah. Klik "Sync Ulang" untuk mengambil data.'}
-            </p>
+            {searchQuery ? (
+              <p className="text-xs text-gray-400 dark:text-slate-500">Tidak ada jamaah yang cocok dengan pencarian</p>
+            ) : (
+              <>
+                <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Belum ada data untuk {hijriahYear} H</p>
+                <button
+                  onClick={() => handleSync(false, hijriahYear)}
+                  disabled={syncing}
+                  className="mt-3 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-500 text-white shadow-md shadow-emerald-500/20 hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {syncing ? 'Syncing...' : 'Sync Sekarang'}
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-1.5">
@@ -706,9 +712,10 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
             <input
               type="text"
               value={username}
-              onChange={e => { setUsername(e.target.value); setError(''); }}
+              onChange={e => { setUsername(e.target.value.toUpperCase()); setError(''); }}
               placeholder="SMxxxx"
-              autoCapitalize="none"
+              maxLength={12}
+              autoCapitalize="characters"
               autoCorrect="off"
               className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400"
             />

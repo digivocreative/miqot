@@ -536,7 +536,7 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         // Don't cache API responses in SW
-        navigateFallbackDenylist: [/^\/api/, /\/umroh$/, /\/brosur/, /\/itinerary/, /^\/agents\//],
+        navigateFallbackDenylist: [/^\/api/, /\/umroh$/, /\/brosur/, /\/itinerary/, /^\/agents\//, /^\/login/, /^\/dashboard/],
         runtimeCaching: [
           {
             urlPattern: /^\/api\/.*/i,

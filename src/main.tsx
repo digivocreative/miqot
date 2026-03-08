@@ -94,13 +94,12 @@ import LoginPage, { getStoredSession, type AuthSession } from './components/Logi
 import DashboardLayout from './components/DashboardLayout.tsx'
 
 function LoginRouter() {
-  const [session, setSession] = useState<AuthSession | null>(getStoredSession)
+  const [session, setSession] = useState<AuthSession | null>(null)
 
   if (session) {
-    return <DashboardLayout session={session} onLogout={() => {
-      setSession(null)
-      window.location.href = '/login'
-    }} />
+    // Setelah login berhasil, redirect ke /dashboard
+    window.location.href = '/dashboard'
+    return null
   }
   return <LoginPage onLogin={(s) => setSession(s)} />
 }
