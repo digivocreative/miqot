@@ -46,15 +46,28 @@ const agentSlugForCompare = isCompare && segments.length >= 2
   : null
 const agentSlugForCapi = isCapi ? segments[0]?.toLowerCase() : null
 
-// Detect single-package URL: /:agent/:jadwalId (where jadwalId is not a known route)
+// Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
 import { getFilterModeFromSlug } from '@/utils'
+const knownFirstSegments = ['login', 'dashboard', 'compare']
 const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi']
-const isSinglePackage = !isKalkulasi && !isCompare
+
+// Case 1: /:agent/:jadwalId (2 segments, first is agent)
+const isSinglePackageWithAgent = !isKalkulasi && !isCompare
   && segments.length >= 2
   && !!AGENTS_DATA[segments[0]?.toLowerCase()]
   && !knownSecondSegments.includes(segments[1]?.toLowerCase())
   && !getFilterModeFromSlug(segments[1]?.toLowerCase())
-const singlePackageId = isSinglePackage ? segments[1] : null
+
+// Case 2: bare /:jadwalId (1 segment, not a known route/agent/filter)
+const isBarePackageId = segments.length === 1
+  && !knownFirstSegments.includes(segments[0]?.toLowerCase())
+  && !AGENTS_DATA[segments[0]?.toLowerCase()]
+  && !getFilterModeFromSlug(segments[0]?.toLowerCase())
+
+const isSinglePackage = isSinglePackageWithAgent || isBarePackageId
+const singlePackageId = isSinglePackageWithAgent ? segments[1]
+  : isBarePackageId ? segments[0]
+  : null
 
 // ── Page Transition: inject overlay div & trigger reveal ──
 const overlay = document.createElement('div')

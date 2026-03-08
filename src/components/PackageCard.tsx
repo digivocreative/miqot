@@ -1726,8 +1726,8 @@ _________________________
               </span>
             </button>
 
-            {/* Link (Share URL) Button — only with agent slug */}
-            {(() => {
+            {/* Link (Share URL) Button — only with agent slug, hidden in single-package view */}
+            {!isSingleView && (() => {
               const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0] || '';
               if (!seg) return null;
               const shareUrl = `${window.location.origin}/${seg}/${pkg.jadwalId}`;
@@ -1748,13 +1748,13 @@ _________________________
                   className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:border-slate-700 dark:hover:border-emerald-500"
                 >
                   <Share2 size={20} className="text-emerald-600 dark:text-emerald-400 mb-1" />
-                  <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Link</span>
+                  <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Bagikan</span>
                 </button>
               );
             })()}
 
             {/* Bagikan (WhatsApp) — shown here (row 1) when no agent slug */}
-            {!currentAgent && (
+            {(!currentAgent || isSingleView) && (
               <button
                 type="button"
                 onClick={handleWhatsAppShare}
