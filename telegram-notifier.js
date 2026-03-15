@@ -1,0 +1,1340 @@
+/**
+ * Telegram Notifier — monitors Alhijaz umroh packages and sends alerts.
+ *
+ * Runs inside the Express process via node-cron:
+ *   - Every 30 min: real-time checks (seat critical, sold out, new package, price change)
+ *   - Monday 08:00 WIB: weekly summary
+ *   - Daily 08:00 WIB (Mon-Sat): flush queued notifications
+ *
+ * State persisted in data/notifier-state.json
+ */
+
+import cron from 'node-cron';
+import fs from 'fs/promises';
+import { existsSync, mkdirSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const STATE_FILE = path.join(__dirname, 'data', 'notifier-state.json');
+const DATA_DIR = path.join(__dirname, 'data');
+
+// Lazy-loaded after dotenv.config() runs
+let YEAR_CODES, BASE_URL, BOT_TOKEN, CHAT_ID, CHAT_ID_DEV, TELEGRAM_API, OPENAI_KEY, IS_PROD;
+
+function loadConfig() {
+  YEAR_CODES = (process.env.NOTIFIER_YEAR_CODES || '1448').split(',').map(s => s.trim());
+  BASE_URL = process.env.NOTIFIER_BASE_URL || 'http://localhost:3000';
+  BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+  CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
+  CHAT_ID_DEV = process.env.TELEGRAM_CHAT_ID_DEV || '';
+  TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
+  OPENAI_KEY = process.env.OPENAI_API_KEY || '';
+  IS_PROD = process.env.NODE_ENV === 'production';
+}
+
+const SEAT_CRITICAL_ABS = 10;
+const SEAT_CRITICAL_PCT = 0.2;
+
+// ─── Helpers ─────────────────────────────────────────
+
+function log(...args) {
+  console.log(`[Notifier]`, ...args);
+}
+
+function warn(...args) {
+  console.warn(`[Notifier]`, ...args);
+}
+
+function formatRupiah(num) {
+  if (!num || isNaN(num)) return '-';
+  return 'Rp ' + new Intl.NumberFormat('id-ID').format(num);
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-';
+  return new Date(dateStr).toLocaleDateString('id-ID', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  });
+}
+
+function formatDateShort(dateStr) {
+  if (!dateStr) return '-';
+  return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function jakartaNow() {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+}
+
+function isOperationalHours() {
+  const now = jakartaNow();
+  const day = now.getDay();
+  const hour = now.getHours();
+  if (day === 0) return hour >= 8 && hour < 21; // Minggu
+  if (day === 6) return hour >= 8 && hour < 15; // Sabtu
+  return hour >= 8 && hour < 21; // Senin-Jumat
+}
+
+function seatInt(pkg) {
+  return parseInt(pkg.seat_sisa, 10) || 0;
+}
+
+function seatTotal(pkg) {
+  return parseInt(pkg.seat_total, 10) || 0;
+}
+
+function getLowestPrice(paketHarga) {
+  if (!paketHarga || typeof paketHarga !== 'object') return { lowest: null, roomType: '', paketType: '' };
+  let lowest = Infinity;
+  let roomType = '';
+  let paketType = '';
+  for (const [pType, rooms] of Object.entries(paketHarga)) {
+    if (!rooms || typeof rooms !== 'object') continue;
+    for (const [rType, price] of Object.entries(rooms)) {
+      if (rType === 'Infant' || rType === 'Single') continue;
+      const numPrice = parseInt(price, 10);
+      if (!isNaN(numPrice) && numPrice > 0 && numPrice < lowest) {
+        lowest = numPrice;
+        roomType = rType;
+        paketType = pType;
+      }
+    }
+  }
+  return lowest === Infinity
+    ? { lowest: null, roomType: '', paketType: '' }
+    : { lowest, roomType, paketType };
+}
+
+function daysDiff(dateStr) {
+  const target = new Date(dateStr);
+  target.setHours(0, 0, 0, 0);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return Math.round((target - now) / (1000 * 60 * 60 * 24));
+}
+
+// ─── Telegram ────────────────────────────────────────
+
+async function sendTelegramMessage(text) {
+  const targetChatId = IS_PROD ? CHAT_ID : (CHAT_ID_DEV || CHAT_ID);
+  if (!BOT_TOKEN || !targetChatId) {
+    warn('TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured, skipping send');
+    return;
+  }
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${TELEGRAM_API}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: targetChatId,
+          text,
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+        }),
+      });
+      const result = await res.json();
+      if (result.ok) return;
+      warn('Telegram API error:', result.description);
+      if (attempt === 0 && result.error_code === 429) {
+        const retryAfter = (result.parameters?.retry_after || 5) * 1000;
+        await sleep(retryAfter);
+        continue;
+      }
+      // On parse error, try without HTML
+      if (attempt === 0) {
+        const res2 = await fetch(`${TELEGRAM_API}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: targetChatId,
+            text: text.replace(/<[^>]+>/g, ''),
+            disable_web_page_preview: true,
+          }),
+        });
+        const r2 = await res2.json();
+        if (!r2.ok) warn('Telegram plaintext fallback also failed:', r2.description);
+        return;
+      }
+    } catch (err) {
+      warn(`Send attempt ${attempt + 1} failed:`, err.message);
+      if (attempt === 0) await sleep(5000);
+    }
+  }
+}
+
+const FOOTER = '\n\n<i>🤖 Pesan ini dikirim otomatis. Analisis dibantu AI, data bisa berubah sewaktu-waktu.</i>';
+
+async function sendLongMessage(text) {
+  text += FOOTER;
+  if (text.length <= 4000) {
+    await sendTelegramMessage(text);
+    return;
+  }
+  const lines = text.split('\n');
+  let chunk = '';
+  for (const line of lines) {
+    if ((chunk + '\n' + line).length > 3900) {
+      await sendTelegramMessage(chunk);
+      await sleep(500);
+      chunk = line;
+    } else {
+      chunk += (chunk ? '\n' : '') + line;
+    }
+  }
+  if (chunk) await sendTelegramMessage(chunk);
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+// ─── State Management ────────────────────────────────
+
+async function loadState() {
+  try {
+    const raw = await fs.readFile(STATE_FILE, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function saveState(state) {
+  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+  const tmpFile = STATE_FILE + '.tmp';
+  await fs.writeFile(tmpFile, JSON.stringify(state, null, 2));
+  await fs.rename(tmpFile, STATE_FILE);
+}
+
+function freshState() {
+  return {
+    lastSnapshot: {},
+    sentNotifications: {},
+    weeklySnapshot: {},
+    queue: [],
+    lastWeeklyReport: null,
+    sentDepartureReminders: {},
+    lastHotDeal: null,
+  };
+}
+
+// ─── Data Fetching ───────────────────────────────────
+
+async function fetchAllPackages() {
+  const allPackages = [];
+  for (const yearCode of YEAR_CODES) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/api-get/${yearCode}`);
+      if (!res.ok) { warn(`API error for ${yearCode}: ${res.status}`); continue; }
+      const data = await res.json();
+      if (data.status !== 'ok' || !Array.isArray(data.aaData)) continue;
+      allPackages.push(...data.aaData);
+    } catch (err) {
+      warn(`Failed to fetch year ${yearCode}:`, err.message);
+    }
+  }
+  return allPackages;
+}
+
+// ─── Notification Builders ───────────────────────────
+
+function buildSeatCritical(pkg) {
+  const { lowest, roomType } = getLowestPrice(pkg.paket_harga);
+  const priceStr = lowest ? `${formatRupiah(lowest)} (${roomType})` : '-';
+  return [
+    `🔴 <b>SEAT HAMPIR HABIS!</b>`,
+    ``,
+    `📦 ${escHtml(pkg.jadwal_nama)}`,
+    `🔖 Kode: <b>${escHtml(pkg.jadwal_id || '-')}</b>`,
+    `📅 ${formatDateShort(pkg.berangkat_tgl)} | ✈️ ${escHtml(pkg.maskapai || '-')}`,
+    `💺 Sisa: <b>${seatInt(pkg)}</b> dari ${seatTotal(pkg)} seat`,
+    `💰 Mulai ${priceStr}`,
+    ``,
+    `🔗 https://alhijaz.co/${pkg.jadwal_id}`,
+  ].join('\n');
+}
+
+function buildSoldOut(pkg, alternatives) {
+  let msg = [
+    `⛔ <b>SOLD OUT</b>`,
+    ``,
+    `📦 ${escHtml(pkg.jadwal_nama)}`,
+    `🔖 Kode: <b>${escHtml(pkg.jadwal_id || '-')}</b>`,
+    `📅 ${formatDateShort(pkg.berangkat_tgl)} | ✈️ ${escHtml(pkg.maskapai || '-')}`,
+  ].join('\n');
+
+  if (alternatives.length > 0) {
+    msg += '\n\n📌 <b>Alternatif tersedia:</b>';
+    for (const alt of alternatives.slice(0, 3)) {
+      const { lowest } = getLowestPrice(alt.paket_harga);
+      msg += `\n→ ${escHtml(alt.jadwal_nama)} (${formatDateShort(alt.berangkat_tgl)}) — sisa ${seatInt(alt)} seat, mulai ${formatRupiah(lowest)}`;
+    }
+  }
+  return msg;
+}
+
+function buildNewPackage(pkg) {
+  const { lowest, roomType } = getLowestPrice(pkg.paket_harga);
+  const priceStr = lowest ? `${formatRupiah(lowest)} (${roomType})` : '-';
+  const hotel = pkg.hotel || {};
+  return [
+    `🆕 <b>JADWAL BARU!</b>`,
+    ``,
+    `📦 ${escHtml(pkg.jadwal_nama)}`,
+    `🔖 Kode: <b>${escHtml(pkg.jadwal_id || '-')}</b>`,
+    `📅 ${formatDateShort(pkg.berangkat_tgl)} | ✈️ ${escHtml(pkg.maskapai || '-')}`,
+    `💺 ${seatTotal(pkg)} seat tersedia`,
+    `💰 Mulai ${priceStr}`,
+    hotel.mekkah_hotel ? `🏨 Mekkah: ${escHtml(hotel.mekkah_hotel)}` : null,
+    hotel.madinah_hotel ? `🏨 Madinah: ${escHtml(hotel.madinah_hotel)}` : null,
+    ``,
+    `🔗 https://alhijaz.co/${pkg.jadwal_id}`,
+  ].filter(Boolean).join('\n');
+}
+
+function buildPriceChange(pkg, changes) {
+  let msg = [
+    `💰 <b>HARGA BERUBAH</b>`,
+    ``,
+    `📦 ${escHtml(pkg.jadwal_nama)}`,
+    `🔖 Kode: <b>${escHtml(pkg.jadwal_id || '-')}</b>`,
+    `📅 ${formatDateShort(pkg.berangkat_tgl)}`,
+    ``,
+  ].join('\n');
+
+  for (const c of changes) {
+    const diff = c.newPrice - c.oldPrice;
+    const direction = diff > 0 ? '⬆️ naik' : '⬇️ turun';
+    msg += `\n${escHtml(c.paketType)} - ${escHtml(c.roomType)}: ${formatRupiah(c.oldPrice)} → ${formatRupiah(c.newPrice)} (${direction} ${formatRupiah(Math.abs(diff))})`;
+  }
+  return msg;
+}
+
+function buildPromoNew(pkg) {
+  const { lowest, roomType } = getLowestPrice(pkg.paket_harga);
+  return [
+    `🏷️ <b>PROMO BARU!</b>`,
+    ``,
+    `📦 ${escHtml(pkg.jadwal_nama)}`,
+    `🔖 Kode: <b>${escHtml(pkg.jadwal_id || '-')}</b>`,
+    `📅 ${formatDateShort(pkg.berangkat_tgl)} | ✈️ ${escHtml(pkg.maskapai || '-')}`,
+    `💺 Sisa: <b>${seatInt(pkg)}</b> seat`,
+    `💰 Mulai ${lowest ? formatRupiah(lowest) + ' (' + roomType + ')' : '-'}`,
+    ``,
+    `🔗 https://alhijaz.co/${pkg.jadwal_id}`,
+  ].join('\n');
+}
+
+function buildSeatRestock(pkg) {
+  const { lowest, roomType } = getLowestPrice(pkg.paket_harga);
+  return [
+    `📈 <b>SEAT TERSEDIA LAGI!</b>`,
+    ``,
+    `📦 ${escHtml(pkg.jadwal_nama)}`,
+    `🔖 Kode: <b>${escHtml(pkg.jadwal_id || '-')}</b>`,
+    `📅 ${formatDateShort(pkg.berangkat_tgl)} | ✈️ ${escHtml(pkg.maskapai || '-')}`,
+    `💺 Sekarang tersedia: <b>${seatInt(pkg)}</b> seat`,
+    `💰 Mulai ${lowest ? formatRupiah(lowest) + ' (' + roomType + ')' : '-'}`,
+    ``,
+    `Paket ini sebelumnya sold out. Segera follow up jamaah yang tertunda!`,
+    ``,
+    `🔗 https://alhijaz.co/${pkg.jadwal_id}`,
+  ].join('\n');
+}
+
+function buildMilestone(pkg, pct) {
+  const { lowest } = getLowestPrice(pkg.paket_harga);
+  const sold = seatTotal(pkg) - seatInt(pkg);
+  const labels = { 50: '50% TERJUAL', 75: '75% TERJUAL', 90: 'HAMPIR HABIS — 90% TERJUAL' };
+  return [
+    `🎯 <b>${labels[pct] || pct + '% TERJUAL'}</b>`,
+    ``,
+    `📦 ${escHtml(pkg.jadwal_nama)}`,
+    `🔖 Kode: <b>${escHtml(pkg.jadwal_id || '-')}</b>`,
+    `📅 ${formatDateShort(pkg.berangkat_tgl)} | ✈️ ${escHtml(pkg.maskapai || '-')}`,
+    `💺 Terjual: <b>${sold}</b> dari ${seatTotal(pkg)} (sisa ${seatInt(pkg)} seat)`,
+    `💰 Mulai ${lowest ? formatRupiah(lowest) : '-'}`,
+    ``,
+    `🔗 https://alhijaz.co/${pkg.jadwal_id}`,
+  ].join('\n');
+}
+
+function buildDepartureReminder(pkgs, label) {
+  let msg = `⏰ <b>PENGINGAT KEBERANGKATAN — ${escHtml(label)}</b>\n`;
+  for (const pkg of pkgs) {
+    const d = daysDiff(pkg.berangkat_tgl);
+    const urgency = d <= 1 ? '🔴' : d <= 3 ? '🟡' : '🟢';
+    msg += `\n${urgency} <b>${escHtml(pkg.jadwal_nama)}</b>`;
+    msg += `\n   📅 ${formatDate(pkg.berangkat_tgl)}`;
+    if (d === 0) msg += ' — <b>HARI INI!</b>';
+    else if (d === 1) msg += ' — <b>BESOK!</b>';
+    else msg += ` — <b>H-${d}</b>`;
+    msg += `\n   ✈️ ${escHtml(pkg.maskapai || '-')} ${escHtml(pkg.berangkat_kode_penerbangan || '')}`;
+    msg += `\n   💺 Sisa ${seatInt(pkg)} seat\n`;
+  }
+  return msg;
+}
+
+function buildHotDeal(pkgs) {
+  let msg = `⚡ <b>HOT DEAL — BERANGKAT SEBENTAR LAGI!</b>\n`;
+  msg += `<i>Paket ini berangkat dalam 14 hari tapi seat masih banyak. Peluang besar untuk closing!</i>\n`;
+  for (const pkg of pkgs) {
+    const d = daysDiff(pkg.berangkat_tgl);
+    const { lowest } = getLowestPrice(pkg.paket_harga);
+    msg += `\n📦 <b>${escHtml(pkg.jadwal_nama)}</b>`;
+    msg += `\n   📅 ${formatDateShort(pkg.berangkat_tgl)} (H-${d}) | ✈️ ${escHtml(pkg.maskapai || '-')}`;
+    msg += `\n   💺 <b>${seatInt(pkg)} seat</b> tersedia | 💰 Mulai ${formatRupiah(lowest)}`;
+    msg += `\n   🔗 https://alhijaz.co/${pkg.jadwal_id}\n`;
+  }
+  return msg;
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ─── OpenAI Helper ───────────────────────────────────
+
+async function askAI(systemPrompt, userPrompt, maxTokens = 500) {
+  if (!OPENAI_KEY) {
+    warn('OPENAI_API_KEY not set, skipping AI insight');
+    return null;
+  }
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.7,
+        max_tokens: maxTokens,
+      }),
+    });
+    if (!res.ok) {
+      warn('OpenAI API error:', res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content?.trim() || null;
+  } catch (err) {
+    warn('OpenAI request failed:', err.message);
+    return null;
+  }
+}
+
+const AI_SYSTEM = `Kamu adalah asisten tim sales travel umroh Alhijaz Indowisata.
+Tugasmu membantu agent menjual paket umroh lebih efektif.
+
+ATURAN WAJIB:
+- Bahasa Indonesia santai, mudah dipahami orang awam. Jangan pakai istilah teknis.
+- SANGAT SINGKAT: maksimal 2-3 kalimat per poin. Langsung ke inti, jangan bertele-tele.
+- Jangan pakai markdown. Boleh pakai emoji secukupnya (jangan berlebihan).
+- Jangan pakai kata-kata formal seperti "perlu diperhatikan", "disarankan", "berdasarkan analisis".
+- Tulis seperti ngobrol sama teman kerja di WhatsApp.`;
+
+// ─── AI: Sold Out Talking Point ──────────────────────
+
+async function aiSoldOutTalkingPoint(soldPkg, alternatives) {
+  const altInfo = alternatives.slice(0, 3).map(a => {
+    const { lowest } = getLowestPrice(a.paket_harga);
+    return `- ${a.jadwal_nama}, ${a.maskapai}, ${formatDateShort(a.berangkat_tgl)}, sisa ${seatInt(a)} seat, mulai ${formatRupiah(lowest)}`;
+  }).join('\n');
+
+  const prompt = `Paket umroh "${soldPkg.jadwal_nama}" (${soldPkg.maskapai}, ${formatDateShort(soldPkg.berangkat_tgl)}) baru saja SOLD OUT.
+
+Alternatif yang tersedia:
+${altInfo || '(tidak ada alternatif mirip)'}
+
+Kasih 2 kalimat saja: cara ngomong ke jamaah biar mau pindah ke alternatif ini. Singkat & persuasif.`;
+
+  return await askAI(AI_SYSTEM, prompt, 150);
+}
+
+// ─── AI: Price Change Analysis ───────────────────────
+
+async function aiPriceAnalysis(pkg, changes) {
+  const changeInfo = changes.map(c => {
+    const diff = c.newPrice - c.oldPrice;
+    return `${c.paketType} ${c.roomType}: ${formatRupiah(c.oldPrice)} → ${formatRupiah(c.newPrice)} (${diff > 0 ? 'naik' : 'turun'} ${formatRupiah(Math.abs(diff))})`;
+  }).join('\n');
+
+  const prompt = `Harga paket umroh "${pkg.jadwal_nama}" (${pkg.maskapai}, berangkat ${formatDateShort(pkg.berangkat_tgl)}, sisa ${seatInt(pkg)} seat) berubah:
+
+${changeInfo}
+
+Jawab 2 hal saja, masing-masing 1 kalimat:
+1. Kemungkinan kenapa harganya berubah
+2. Cara agent manfaatkan ini buat closing`;
+
+  return await askAI(AI_SYSTEM, prompt, 120);
+}
+
+// ─── AI: Daily Briefing ──────────────────────────────
+
+async function sendDailyBriefing() {
+  try {
+    const packages = await fetchAllPackages();
+    if (packages.length === 0) return;
+
+    const state = await loadState() || freshState();
+    const prevSnap = state.lastSnapshot || {};
+
+    const active = packages.filter(p => seatInt(p) > 0);
+    const critical = active.filter(p => seatInt(p) <= SEAT_CRITICAL_ABS);
+    const promo = active.filter(p => p.promo === '1');
+    const thisWeek = active.filter(p => { const d = daysDiff(p.berangkat_tgl); return d >= 0 && d <= 7; });
+
+    // Seat movement in last 24h
+    const movements = [];
+    for (const pkg of active) {
+      const prev = prevSnap[pkg.jadwal_id];
+      if (prev) {
+        const diff = prev.seat_sisa - seatInt(pkg);
+        if (diff !== 0) movements.push({ nama: pkg.jadwal_nama, maskapai: pkg.maskapai, diff, current: seatInt(pkg) });
+      }
+    }
+    movements.sort((a, b) => b.diff - a.diff);
+
+    // Price range per airline
+    const airlines = {};
+    for (const p of active) {
+      const a = p.maskapai || 'LAINNYA';
+      if (!airlines[a]) airlines[a] = { count: 0, seats: 0, minPrice: Infinity };
+      airlines[a].count++;
+      airlines[a].seats += seatInt(p);
+      const { lowest } = getLowestPrice(p.paket_harga);
+      if (lowest && lowest < airlines[a].minPrice) airlines[a].minPrice = lowest;
+    }
+
+    const dataSummary = `Data hari ini (${formatDate(new Date().toISOString())}):
+- Total paket aktif: ${active.length}
+- Seat kritis (≤10): ${critical.length} paket
+- Promo aktif: ${promo.length} paket
+- Berangkat minggu ini: ${thisWeek.length} paket
+
+Per maskapai:
+${Object.entries(airlines).map(([a, d]) => `- ${a}: ${d.count} paket, ${d.seats} seat, mulai ${d.minPrice < Infinity ? formatRupiah(d.minPrice) : '-'}`).join('\n')}
+
+Pergerakan seat terbesar (24 jam):
+${movements.slice(0, 5).map(m => `- ${m.nama}: ${m.diff > 0 ? '-' + m.diff + ' terjual' : '+' + Math.abs(m.diff) + ' bertambah'} (sisa ${m.current})`).join('\n') || '(belum ada data perubahan)'}
+
+Paket seat kritis:
+${critical.slice(0, 5).map(p => `- ${p.jadwal_nama} (${p.maskapai}, ${formatDateShort(p.berangkat_tgl)}): sisa ${seatInt(p)} seat`).join('\n') || '(tidak ada)'}`;
+
+    const aiInsight = await askAI(AI_SYSTEM, `Ini data paket umroh hari ini. Kasih 3 poin singkat untuk tim agent:
+1. Paket mana yang paling gampang dijual hari ini & kenapa (1 kalimat)
+2. Apa yang harus di-push hari ini (1 kalimat)
+3. Satu tips jualan praktis (1 kalimat)
+
+${dataSummary}`, 200);
+
+    let msg = `🌅 <b>BRIEFING PAGI — ${formatDate(new Date().toISOString())}</b>\n\n`;
+    msg += `📦 ${active.length} paket aktif | 🔴 ${critical.length} kritis | 🏷️ ${promo.length} promo\n`;
+
+    if (movements.length > 0) {
+      msg += `\n📈 <b>Pergerakan 24 Jam:</b>\n`;
+      for (const m of movements.slice(0, 3)) {
+        if (m.diff > 0) msg += `• ${escHtml(m.nama)} — <b>${m.diff} seat terjual</b> (sisa ${m.current})\n`;
+      }
+    }
+
+    if (aiInsight) {
+      msg += `\n🤖 <b>AI Insight:</b>\n${escHtml(aiInsight)}\n`;
+    }
+
+    await sendLongMessage(msg);
+    log('✅ Daily briefing sent');
+  } catch (err) {
+    warn('sendDailyBriefing error:', err.message);
+  }
+}
+
+// ─── Departure Reminders (H-7, H-3, H-1) ────────────
+
+async function sendDepartureReminders() {
+  try {
+    const packages = await fetchAllPackages();
+    if (packages.length === 0) return;
+
+    const state = await loadState() || freshState();
+    if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
+    const sent = state.sentDepartureReminders;
+
+    const active = packages.filter(p => seatInt(p) > 0);
+    const reminders = [
+      { days: 7, label: 'H-7', key: 'h7' },
+      { days: 3, label: 'H-3', key: 'h3' },
+      { days: 1, label: 'H-1 / BESOK', key: 'h1' },
+    ];
+
+    for (const { days, label, key } of reminders) {
+      const matched = active.filter(p => daysDiff(p.berangkat_tgl) === days);
+      if (matched.length === 0) continue;
+
+      // Filter out already-sent reminders for this milestone
+      const unsent = matched.filter(p => {
+        const id = p.jadwal_id;
+        if (!sent[id]) sent[id] = {};
+        if (sent[id][key]) return false;
+        sent[id][key] = new Date().toISOString();
+        return true;
+      });
+
+      if (unsent.length > 0) {
+        await sendLongMessage(buildDepartureReminder(unsent, label));
+        await sleep(1000);
+      }
+    }
+
+    state.sentDepartureReminders = sent;
+    await saveState(state);
+    log('✅ Departure reminders checked');
+  } catch (err) {
+    warn('sendDepartureReminders error:', err.message);
+  }
+}
+
+// ─── Hot Deal (berangkat < 14 hari, seat masih banyak) ─
+
+async function sendHotDeals() {
+  try {
+    const packages = await fetchAllPackages();
+    if (packages.length === 0) return;
+
+    const state = await loadState() || freshState();
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Only send once per day
+    if (state.lastHotDeal === today) return;
+
+    const active = packages.filter(p => seatInt(p) > 0);
+    const hotDeals = active.filter(p => {
+      const d = daysDiff(p.berangkat_tgl);
+      const total = seatTotal(p);
+      const sisa = seatInt(p);
+      // Berangkat dalam 14 hari & seat masih > 50% tersedia
+      return d > 0 && d <= 14 && total > 0 && (sisa / total) > 0.5;
+    }).sort((a, b) => daysDiff(a.berangkat_tgl) - daysDiff(b.berangkat_tgl));
+
+    if (hotDeals.length > 0) {
+      await sendLongMessage(buildHotDeal(hotDeals.slice(0, 5)));
+      state.lastHotDeal = today;
+      await saveState(state);
+      log(`✅ Hot deals sent (${hotDeals.length} packages)`);
+    }
+  } catch (err) {
+    warn('sendHotDeals error:', err.message);
+  }
+}
+
+// ─── AI: Weekly Analysis (enhanced) ─────────────────
+
+async function getWeeklyAIAnalysis(packages, salesData, weeklySnap) {
+  const active = packages.filter(p => seatInt(p) > 0);
+  const soldOut = packages.filter(p => seatInt(p) <= 0);
+
+  const topSales = salesData.slice(0, 5).map(s =>
+    `- ${s.pkg.jadwal_nama} (${s.pkg.maskapai}): ${s.sold} seat terjual`
+  ).join('\n');
+
+  // Detect trends
+  const airlineSales = {};
+  for (const s of salesData) {
+    const a = s.pkg.maskapai || 'LAINNYA';
+    airlineSales[a] = (airlineSales[a] || 0) + s.sold;
+  }
+
+  const prompt = `Data penjualan umroh minggu ini:
+
+Paket aktif: ${active.length}, Sold out: ${soldOut.length}
+
+Terlaris:
+${topSales || '(belum ada data)'}
+
+Per maskapai:
+${Object.entries(airlineSales).sort((a, b) => b[1] - a[1]).map(([a, s]) => `- ${a}: ${s} seat terjual`).join('\n') || '(belum ada data)'}
+
+Kasih 3 poin singkat (masing-masing 1-2 kalimat):
+1. Apa yang laris & kenapa
+2. Paket mana yang kemungkinan habis minggu depan
+3. Fokus jualan minggu depan sebaiknya ke mana`;
+
+  return await askAI(AI_SYSTEM, prompt, 200);
+}
+
+// ─── Similarity for Sold Out alternatives ────────────
+
+function findAlternatives(soldPkg, allPackages) {
+  const keywords = (soldPkg.jadwal_nama || '').toLowerCase().split(/[\s\-\(\)]+/).filter(w => w.length > 2);
+  const duration = soldPkg.durasi || '';
+  const maskapai = soldPkg.maskapai || '';
+
+  const scored = allPackages
+    .filter(p => p.jadwal_id !== soldPkg.jadwal_id && seatInt(p) > 0)
+    .map(p => {
+      let score = 0;
+      const name = (p.jadwal_nama || '').toLowerCase();
+      for (const kw of keywords) {
+        if (name.includes(kw)) score += 2;
+      }
+      if (p.maskapai === maskapai) score += 3;
+      if (p.durasi === duration) score += 2;
+      return { pkg: p, score };
+    })
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return scored.slice(0, 3).map(x => x.pkg);
+}
+
+// ─── Core: Check & Notify ────────────────────────────
+
+async function checkAndNotify() {
+  try {
+    const packages = await fetchAllPackages();
+    if (packages.length === 0) { warn('No packages fetched, skipping check'); return; }
+
+    log(`Checking ${packages.length} packages...`);
+
+    let state = await loadState();
+    const isFirstRun = !state;
+    if (!state) state = freshState();
+
+    const prevSnapshot = state.lastSnapshot || {};
+    const sentNotifs = state.sentNotifications || {};
+    const notifications = [];
+
+    // Build current snapshot
+    const currentSnapshot = {};
+    const currentById = {};
+    for (const pkg of packages) {
+      const id = pkg.jadwal_id;
+      currentById[id] = pkg;
+      currentSnapshot[id] = {
+        seat_sisa: seatInt(pkg),
+        seat_total: seatTotal(pkg),
+        paket_harga: pkg.paket_harga || {},
+        jadwal_nama: pkg.jadwal_nama,
+        maskapai: pkg.maskapai,
+        berangkat_tgl: pkg.berangkat_tgl,
+        promo: pkg.promo,
+      };
+    }
+
+    // Skip notifications on first run — just capture baseline
+    if (isFirstRun) {
+      log('First run — saving baseline snapshot silently');
+      state.lastSnapshot = currentSnapshot;
+      state.weeklySnapshot = {};
+      // Pre-seed milestones so we don't spam existing packages
+      for (const [id, snap] of Object.entries(currentSnapshot)) {
+        state.weeklySnapshot[id] = { seat_sisa: snap.seat_sisa };
+        const total = snap.seat_total;
+        const sisa = snap.seat_sisa;
+        if (total > 0 && sisa >= 0) {
+          const soldPct = Math.round(((total - sisa) / total) * 100);
+          const milestones = {};
+          for (const t of [50, 75, 90]) {
+            if (soldPct >= t) milestones[t] = new Date().toISOString();
+          }
+          if (Object.keys(milestones).length > 0) {
+            if (!sentNotifs[id]) sentNotifs[id] = {};
+            sentNotifs[id].milestones = milestones;
+          }
+        }
+      }
+      state.sentNotifications = sentNotifs;
+      await saveState(state);
+      return;
+    }
+
+    // 1. New packages
+    for (const [id, snap] of Object.entries(currentSnapshot)) {
+      if (!prevSnapshot[id] && snap.seat_sisa > 0) {
+        if (!sentNotifs[id]) sentNotifs[id] = {};
+        if (!sentNotifs[id].newPackage) {
+          sentNotifs[id].newPackage = { sentAt: new Date().toISOString() };
+          notifications.push({
+            type: 'newPackage',
+            text: buildNewPackage(currentById[id]),
+          });
+        }
+      }
+    }
+
+    // 2. Seat critical
+    for (const [id, snap] of Object.entries(currentSnapshot)) {
+      const seats = snap.seat_sisa;
+      const total = snap.seat_total;
+      if (seats <= 0) continue;
+      const isCritical = seats <= SEAT_CRITICAL_ABS || (total > 0 && seats / total <= SEAT_CRITICAL_PCT);
+      if (!isCritical) continue;
+
+      if (!sentNotifs[id]) sentNotifs[id] = {};
+      const prev = sentNotifs[id].seatCritical;
+      if (!prev || seats < prev.lastSeatCount) {
+        sentNotifs[id].seatCritical = { lastSeatCount: seats, sentAt: new Date().toISOString() };
+        notifications.push({
+          type: 'seatCritical',
+          text: buildSeatCritical(currentById[id]),
+        });
+      }
+    }
+
+    // 3. Sold out
+    for (const [id, prev] of Object.entries(prevSnapshot)) {
+      if (prev.seat_sisa > 0 && !currentSnapshot[id]) {
+        // Package disappeared (seat 0 or removed)
+        if (!sentNotifs[id]) sentNotifs[id] = {};
+        if (!sentNotifs[id].soldOut?.sentAt) {
+          const alternatives = findAlternatives(prev, packages);
+          sentNotifs[id].soldOut = { sentAt: new Date().toISOString() };
+          const talkingPoint = await aiSoldOutTalkingPoint(prev, alternatives);
+          let text = buildSoldOut(prev, alternatives);
+          if (talkingPoint) text += `\n\n💡 <b>Tips Agent:</b>\n${escHtml(talkingPoint)}`;
+          notifications.push({ type: 'soldOut', text });
+        }
+      }
+    }
+    // Also check packages that still exist but seat_sisa = 0
+    for (const [id, snap] of Object.entries(currentSnapshot)) {
+      if (snap.seat_sisa <= 0 && prevSnapshot[id]?.seat_sisa > 0) {
+        if (!sentNotifs[id]) sentNotifs[id] = {};
+        if (!sentNotifs[id].soldOut?.sentAt) {
+          const alternatives = findAlternatives(snap, packages);
+          sentNotifs[id].soldOut = { sentAt: new Date().toISOString() };
+          const talkingPoint = await aiSoldOutTalkingPoint(snap, alternatives);
+          let text = buildSoldOut(snap, alternatives);
+          if (talkingPoint) text += `\n\n💡 <b>Tips Agent:</b>\n${escHtml(talkingPoint)}`;
+          notifications.push({ type: 'soldOut', text });
+        }
+      }
+    }
+
+    // 4. Price changes
+    for (const [id, snap] of Object.entries(currentSnapshot)) {
+      if (!prevSnapshot[id]) continue;
+      const oldHarga = prevSnapshot[id].paket_harga || {};
+      const newHarga = snap.paket_harga || {};
+      const changes = [];
+
+      for (const [pType, rooms] of Object.entries(newHarga)) {
+        if (!rooms || typeof rooms !== 'object') continue;
+        for (const [rType, price] of Object.entries(rooms)) {
+          if (rType === 'Infant' || rType === 'Single') continue;
+          const newPrice = parseInt(price, 10);
+          const oldPrice = parseInt(oldHarga[pType]?.[rType], 10);
+          if (!isNaN(newPrice) && !isNaN(oldPrice) && newPrice !== oldPrice && newPrice > 0 && oldPrice > 0) {
+            changes.push({ paketType: pType, roomType: rType, oldPrice, newPrice });
+          }
+        }
+      }
+
+      if (changes.length > 0) {
+        if (!sentNotifs[id]) sentNotifs[id] = {};
+        sentNotifs[id].priceChange = { sentAt: new Date().toISOString() };
+        const pkg = currentById[id] || snap;
+        const analysis = await aiPriceAnalysis(pkg, changes);
+        let text = buildPriceChange(pkg, changes);
+        if (analysis) text += `\n\n💡 <b>Analisis:</b>\n${escHtml(analysis)}`;
+        notifications.push({ type: 'priceChange', text });
+      }
+    }
+
+    // 5. New promo
+    for (const [id, snap] of Object.entries(currentSnapshot)) {
+      if (!prevSnapshot[id]) continue;
+      if (snap.promo === '1' && prevSnapshot[id].promo !== '1' && snap.seat_sisa > 0) {
+        if (!sentNotifs[id]) sentNotifs[id] = {};
+        if (!sentNotifs[id].promoNew?.sentAt) {
+          sentNotifs[id].promoNew = { sentAt: new Date().toISOString() };
+          notifications.push({
+            type: 'promoNew',
+            text: buildPromoNew(currentById[id]),
+          });
+        }
+      }
+    }
+
+    // 6. Seat restock (was sold out, now has seats)
+    for (const [id, snap] of Object.entries(currentSnapshot)) {
+      if (snap.seat_sisa > 0 && prevSnapshot[id] && prevSnapshot[id].seat_sisa <= 0) {
+        if (!sentNotifs[id]) sentNotifs[id] = {};
+        // Reset soldOut so it can trigger again if needed
+        sentNotifs[id].soldOut = { sentAt: null };
+        sentNotifs[id].restock = { sentAt: new Date().toISOString() };
+        notifications.push({
+          type: 'restock',
+          text: buildSeatRestock(currentById[id]),
+        });
+      }
+    }
+
+    // 7. Milestone (50%, 75%, 90% sold)
+    for (const [id, snap] of Object.entries(currentSnapshot)) {
+      const total = snap.seat_total;
+      const sisa = snap.seat_sisa;
+      if (total <= 0 || sisa <= 0) continue;
+      const soldPct = Math.round(((total - sisa) / total) * 100);
+
+      if (!sentNotifs[id]) sentNotifs[id] = {};
+      if (!sentNotifs[id].milestones) sentNotifs[id].milestones = {};
+
+      for (const threshold of [50, 75, 90]) {
+        if (soldPct >= threshold && !sentNotifs[id].milestones[threshold]) {
+          sentNotifs[id].milestones[threshold] = new Date().toISOString();
+          notifications.push({
+            type: 'milestone',
+            text: buildMilestone(currentById[id], threshold),
+          });
+        }
+      }
+    }
+
+    // Update state
+    state.lastSnapshot = currentSnapshot;
+    state.sentNotifications = sentNotifs;
+
+    // Send or queue
+    if (notifications.length > 0) {
+      if (isOperationalHours()) {
+        let sent = 0;
+        for (const notif of notifications) {
+          await sendLongMessage(notif.text);
+          sent++;
+          if (sent % 20 === 0) await sleep(60000); // respect rate limit
+          else await sleep(1000);
+        }
+        log(`✅ Sent ${sent} notification(s)`);
+      } else {
+        // Queue for later
+        for (const notif of notifications) {
+          state.queue.push({ ...notif, queuedAt: new Date().toISOString() });
+        }
+        log(`📥 Queued ${notifications.length} notification(s) — outside operational hours`);
+      }
+    } else {
+      log('No changes detected');
+    }
+
+    await saveState(state);
+  } catch (err) {
+    warn('checkAndNotify error:', err.message);
+  }
+}
+
+// ─── Flush Queue ─────────────────────────────────────
+
+async function flushQueue() {
+  try {
+    if (!isOperationalHours()) return;
+
+    const state = await loadState();
+    if (!state || !state.queue || state.queue.length === 0) return;
+
+    log(`Flushing ${state.queue.length} queued notification(s)...`);
+
+    if (state.queue.length > 3) {
+      // Combine into one message
+      let combined = `📬 <b>NOTIFIKASI TERTUNDA</b> (${state.queue.length} item)\n`;
+      combined += `<i>Perubahan terdeteksi di luar jam operasional:</i>\n`;
+      for (const item of state.queue) {
+        combined += '\n━━━━━━━━━━━━━━━━━━━\n' + item.text;
+      }
+      await sendLongMessage(combined);
+    } else {
+      for (const item of state.queue) {
+        await sendLongMessage(item.text);
+        await sleep(1000);
+      }
+    }
+
+    state.queue = [];
+    await saveState(state);
+    log(`✅ Queue flushed`);
+  } catch (err) {
+    warn('flushQueue error:', err.message);
+  }
+}
+
+// ─── Weekly Report ───────────────────────────────────
+
+async function sendWeeklyReport() {
+  try {
+    const packages = await fetchAllPackages();
+    if (packages.length === 0) { warn('No packages for weekly report'); return; }
+
+    const state = await loadState() || freshState();
+    const weeklySnap = state.weeklySnapshot || {};
+
+    const now = new Date();
+    const weekAgo = new Date(now);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const dateRange = `${formatDateShort(weekAgo.toISOString())} — ${formatDateShort(now.toISOString())}`;
+
+    // Stats
+    const active = packages.filter(p => seatInt(p) > 0);
+    const soldOut = packages.filter(p => seatInt(p) <= 0);
+    const critical = active.filter(p => seatInt(p) <= SEAT_CRITICAL_ABS);
+    const promo = active.filter(p => p.promo === '1');
+
+    // Departures this week
+    const thisWeek = active.filter(p => {
+      const d = daysDiff(p.berangkat_tgl);
+      return d >= 0 && d <= 7;
+    }).sort((a, b) => new Date(a.berangkat_tgl) - new Date(b.berangkat_tgl));
+
+    // Top 3 most sold (seats decreased most compared to weekly snapshot)
+    const salesData = [];
+    for (const pkg of packages) {
+      const prev = weeklySnap[pkg.jadwal_id];
+      if (prev) {
+        const sold = prev.seat_sisa - seatInt(pkg);
+        if (sold > 0) salesData.push({ pkg, sold });
+      }
+    }
+    salesData.sort((a, b) => b.sold - a.sold);
+
+    let msg = `📊 <b>RINGKASAN MINGGUAN</b>\n${dateRange}\n\n`;
+    msg += `📦 Paket aktif: <b>${active.length}</b>\n`;
+    msg += `⛔ Sold out: <b>${soldOut.length}</b>\n`;
+    msg += `🔴 Seat kritis: <b>${critical.length}</b> paket\n`;
+
+    if (salesData.length > 0) {
+      msg += `\n🔥 <b>PALING LARIS MINGGU INI:</b>\n`;
+      for (let i = 0; i < Math.min(3, salesData.length); i++) {
+        const { pkg, sold } = salesData[i];
+        msg += `${i + 1}. ${escHtml(pkg.jadwal_nama)} — <b>${sold} seat</b> terjual\n`;
+      }
+    }
+
+    if (thisWeek.length > 0) {
+      msg += `\n✈️ <b>BERANGKAT MINGGU INI:</b>\n`;
+      for (const pkg of thisWeek.slice(0, 10)) {
+        msg += `• ${escHtml(pkg.jadwal_nama)} (${formatDateShort(pkg.berangkat_tgl)}) — sisa ${seatInt(pkg)} seat\n`;
+      }
+      if (thisWeek.length > 10) msg += `<i>...dan ${thisWeek.length - 10} lainnya</i>\n`;
+    }
+
+    if (promo.length > 0) {
+      msg += `\n🏷️ <b>PROMO AKTIF:</b>\n`;
+      const sorted = promo
+        .map(p => ({ pkg: p, price: getLowestPrice(p.paket_harga).lowest }))
+        .filter(x => x.price)
+        .sort((a, b) => a.price - b.price);
+      for (const { pkg, price } of sorted.slice(0, 5)) {
+        msg += `• ${escHtml(pkg.jadwal_nama)} — mulai ${formatRupiah(price)}\n`;
+      }
+      if (sorted.length > 5) msg += `<i>...dan ${sorted.length - 5} lainnya</i>\n`;
+    }
+
+    // AI weekly analysis
+    const aiAnalysis = await getWeeklyAIAnalysis(packages, salesData, weeklySnap);
+    if (aiAnalysis) {
+      msg += `\n🤖 <b>AI ANALISIS MINGGUAN:</b>\n${escHtml(aiAnalysis)}\n`;
+    }
+
+    await sendLongMessage(msg);
+
+    // Reset weekly snapshot
+    state.weeklySnapshot = {};
+    for (const pkg of packages) {
+      state.weeklySnapshot[pkg.jadwal_id] = { seat_sisa: seatInt(pkg) };
+    }
+    state.lastWeeklyReport = new Date().toISOString();
+    await saveState(state);
+
+    log(`✅ Weekly report sent`);
+  } catch (err) {
+    warn('sendWeeklyReport error:', err.message);
+  }
+}
+
+// ─── Daily Tips (Closing, Meta Ads, Google Ads) ──────
+
+const TIPS_CATEGORIES = [
+  {
+    key: 'closing',
+    label: '🎯 TIPS CLOSING',
+    prompt: `Kasih 1 tips closing penjualan paket umroh yang praktis dan bisa langsung dipraktekkin hari ini.
+
+Konteks: agent jualan via WhatsApp, Instagram, dan ketemu langsung. Jamaah biasanya ragu soal harga, tanggal, atau masih banding-bandingin.
+
+Format:
+- Judul tips (singkat, 3-5 kata)
+- Penjelasan 2-3 kalimat, langsung ke cara praktisnya
+- 1 contoh kalimat yang bisa langsung di-copy paste ke WhatsApp
+
+Jangan ulang tips yang umum banget kayak "follow up". Kasih yang spesifik dan actionable.`,
+  },
+  {
+    key: 'meta_ads',
+    label: '📱 TIPS META ADS',
+    prompt: `Kasih 1 tips Meta Ads (Facebook/Instagram Ads) untuk promosi paket umroh.
+
+Konteks: travel agent kecil-menengah, budget ads terbatas, target jamaah Indonesia.
+
+Format:
+- Judul tips (singkat, 3-5 kata)
+- Penjelasan 2-3 kalimat, langsung ke cara praktisnya
+- 1 contoh: bisa berupa contoh headline ads, targeting, atau strategi budget
+
+Fokus ke tips yang applicable untuk bisnis umroh. Jangan terlalu teknis.`,
+  },
+  {
+    key: 'google_ads',
+    label: '🔍 TIPS GOOGLE ADS',
+    prompt: `Kasih 1 tips Google Ads untuk promosi paket umroh.
+
+Konteks: travel agent kecil-menengah, budget ads terbatas, target orang yang lagi cari paket umroh di Google.
+
+Format:
+- Judul tips (singkat, 3-5 kata)
+- Penjelasan 2-3 kalimat, langsung ke cara praktisnya
+- 1 contoh: bisa berupa contoh keyword, headline iklan, atau strategi bidding
+
+Fokus ke tips yang applicable untuk bisnis umroh. Jangan terlalu teknis.`,
+  },
+];
+
+function getTipsCategory(slotIndex) {
+  // Rotate: use day-of-year * 2 + slot (0=morning, 1=evening) to cycle through 3 categories
+  const now = jakartaNow();
+  const startOfYear = new Date(now.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((now - startOfYear) / (1000 * 60 * 60 * 24));
+  const index = (dayOfYear * 2 + slotIndex) % TIPS_CATEGORIES.length;
+  return TIPS_CATEGORIES[index];
+}
+
+async function sendDailyTips(slotIndex) {
+  try {
+    const category = getTipsCategory(slotIndex);
+    const slotLabel = slotIndex === 0 ? 'Pagi' : 'Malam';
+
+    log(`Generating ${category.key} tips (${slotLabel})...`);
+
+    const tip = await askAI(AI_SYSTEM, category.prompt, 250);
+    if (!tip) {
+      warn('Failed to generate tips — AI returned empty');
+      return;
+    }
+
+    const msg = [
+      `${category.label}`,
+      ``,
+      escHtml(tip),
+    ].join('\n');
+
+    await sendLongMessage(msg);
+    log(`✅ Tips sent: ${category.key} (${slotLabel})`);
+  } catch (err) {
+    warn('sendDailyTips error:', err.message);
+  }
+}
+
+// ─── Periodic Update (every 4 hours) ─────────────────
+
+const PERIODIC_TOPICS = [
+  {
+    key: 'market_pulse',
+    label: '📊 UPDATE SIANG',
+    buildPrompt: (stats) => `Ini data paket umroh saat ini:
+
+${stats}
+
+Kasih "market pulse" singkat untuk tim agent:
+1. Kondisi pasar umroh hari ini dalam 1 kalimat (berdasarkan data seat & harga)
+2. 1 paket yang paling worth di-push sekarang & alasannya (1 kalimat)
+3. 1 kalimat motivasi jualan yang relevan dengan kondisi hari ini
+
+Singkat, praktis, langsung bisa dipake.`,
+  },
+  {
+    key: 'opportunity',
+    label: '💡 PELUANG SORE',
+    buildPrompt: (stats) => `Ini data paket umroh saat ini:
+
+${stats}
+
+Kasih analisis peluang untuk tim agent:
+1. Paket mana yang seat-nya masih banyak tapi harganya menarik — cocok di-push sore ini (1-2 kalimat)
+2. Strategi follow-up sore hari: apa yang harus dilakukan agent sebelum pulang kerja (1-2 kalimat)
+
+Singkat, praktis, langsung bisa dipake.`,
+  },
+  {
+    key: 'closing_recap',
+    label: '🌙 RECAP MALAM',
+    buildPrompt: (stats) => `Ini data paket umroh saat ini:
+
+${stats}
+
+Kasih recap malam untuk tim agent:
+1. Rangkuman singkat kondisi paket hari ini (seat terjual, yang kritis, dll) — 1-2 kalimat
+2. Apa yang harus disiapkan untuk besok pagi (1 kalimat)
+3. 1 insight menarik dari data hari ini yang bisa jadi bahan ngobrol sama jamaah
+
+Singkat, praktis, santai karena udah malam.`,
+  },
+];
+
+async function sendPeriodicUpdate(slotIndex) {
+  try {
+    if (!isOperationalHours()) {
+      log('Periodic update skipped — outside operational hours');
+      return;
+    }
+
+    const packages = await fetchAllPackages();
+    if (packages.length === 0) { warn('No packages for periodic update'); return; }
+
+    const topic = PERIODIC_TOPICS[slotIndex % PERIODIC_TOPICS.length];
+    log(`Generating periodic update: ${topic.key}...`);
+
+    const active = packages.filter(p => seatInt(p) > 0);
+    const soldOut = packages.filter(p => seatInt(p) <= 0);
+    const critical = active.filter(p => seatInt(p) <= SEAT_CRITICAL_ABS);
+    const promo = active.filter(p => p.promo === '1');
+
+    // Departing soon
+    const soon = active.filter(p => { const d = daysDiff(p.berangkat_tgl); return d >= 0 && d <= 14; })
+      .sort((a, b) => daysDiff(a.berangkat_tgl) - daysDiff(b.berangkat_tgl));
+
+    // Price range per airline
+    const airlines = {};
+    for (const p of active) {
+      const a = p.maskapai || 'LAINNYA';
+      if (!airlines[a]) airlines[a] = { count: 0, seats: 0, minPrice: Infinity };
+      airlines[a].count++;
+      airlines[a].seats += seatInt(p);
+      const { lowest } = getLowestPrice(p.paket_harga);
+      if (lowest && lowest < airlines[a].minPrice) airlines[a].minPrice = lowest;
+    }
+
+    // Most available seats
+    const mostSeats = [...active].sort((a, b) => seatInt(b) - seatInt(a)).slice(0, 5);
+
+    const stats = `Paket aktif: ${active.length}, Sold out: ${soldOut.length}, Seat kritis: ${critical.length}, Promo: ${promo.length}
+
+Per maskapai:
+${Object.entries(airlines).map(([a, d]) => `- ${a}: ${d.count} paket, ${d.seats} seat, mulai ${d.minPrice < Infinity ? formatRupiah(d.minPrice) : '-'}`).join('\n')}
+
+Berangkat dalam 14 hari:
+${soon.slice(0, 5).map(p => `- ${p.jadwal_nama} (H-${daysDiff(p.berangkat_tgl)}, ${p.maskapai}): sisa ${seatInt(p)} seat`).join('\n') || '(tidak ada)'}
+
+Seat terbanyak tersedia:
+${mostSeats.map(p => `- ${p.jadwal_nama} (${p.maskapai}, ${formatDateShort(p.berangkat_tgl)}): ${seatInt(p)} seat, mulai ${formatRupiah(getLowestPrice(p.paket_harga).lowest)}`).join('\n')}
+
+Seat kritis:
+${critical.slice(0, 5).map(p => `- ${p.jadwal_nama} (${p.maskapai}): sisa ${seatInt(p)} seat`).join('\n') || '(tidak ada)'}`;
+
+    const aiContent = await askAI(AI_SYSTEM, topic.buildPrompt(stats), 250);
+
+    let msg = `${topic.label} — ${formatDateShort(new Date().toISOString())}\n\n`;
+    msg += `📦 ${active.length} aktif | ⛔ ${soldOut.length} habis | 🔴 ${critical.length} kritis | 🏷️ ${promo.length} promo\n`;
+
+    if (soon.length > 0) {
+      msg += `\n✈️ <b>Segera berangkat:</b>\n`;
+      for (const p of soon.slice(0, 3)) {
+        msg += `• ${escHtml(p.jadwal_nama)} (H-${daysDiff(p.berangkat_tgl)}) — sisa ${seatInt(p)} seat\n`;
+      }
+    }
+
+    if (aiContent) {
+      msg += `\n🤖 <b>Insight:</b>\n${escHtml(aiContent)}\n`;
+    }
+
+    await sendLongMessage(msg);
+    log(`✅ Periodic update sent: ${topic.key}`);
+  } catch (err) {
+    warn('sendPeriodicUpdate error:', err.message);
+  }
+}
+
+// ─── Init ────────────────────────────────────────────
+
+export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate };
+
+export function initNotifier() {
+  loadConfig();
+
+  if (!BOT_TOKEN || !CHAT_ID) {
+    warn('TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set — notifier disabled');
+    return;
+  }
+
+  const mode = IS_PROD ? 'PRODUCTION' : 'DEVELOPMENT';
+  log(`Starting [${mode}] with year codes: [${YEAR_CODES.join(', ')}]`);
+
+  // Real-time check every 30 minutes
+  cron.schedule('*/30 * * * *', () => {
+    checkAndNotify();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // Flush queue at 08:00 WIB every day
+  cron.schedule('0 8 * * *', () => {
+    flushQueue();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // Daily AI briefing at 08:10 WIB every day
+  cron.schedule('10 8 * * *', () => {
+    sendDailyBriefing();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // Departure reminders at 08:15 WIB every day
+  cron.schedule('15 8 * * *', () => {
+    sendDepartureReminders();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // Hot deals at 09:00 WIB every day
+  cron.schedule('0 9 * * *', () => {
+    sendHotDeals();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // Weekly report Monday 08:20 WIB (runs after briefing)
+  cron.schedule('20 8 * * 1', () => {
+    sendWeeklyReport();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // Daily tips at 10:45 WIB (morning slot)
+  cron.schedule('45 10 * * *', () => {
+    sendDailyTips(0);
+  }, { timezone: 'Asia/Jakarta' });
+
+  // Daily tips at 19:15 WIB (evening slot)
+  cron.schedule('15 19 * * *', () => {
+    sendDailyTips(1);
+  }, { timezone: 'Asia/Jakarta' });
+
+  // Periodic updates every 4 hours: 12:00, 16:00, 20:00 WIB
+  cron.schedule('0 12 * * *', () => {
+    sendPeriodicUpdate(0);
+  }, { timezone: 'Asia/Jakarta' });
+
+  cron.schedule('0 16 * * *', () => {
+    sendPeriodicUpdate(1);
+  }, { timezone: 'Asia/Jakarta' });
+
+  cron.schedule('0 20 * * *', () => {
+    sendPeriodicUpdate(2);
+  }, { timezone: 'Asia/Jakarta' });
+
+  // Initial check after 15s delay (let Express settle)
+  setTimeout(() => {
+    log('Running initial check...');
+    checkAndNotify();
+  }, 15000);
+
+  log('✅ Notifier initialized');
+}

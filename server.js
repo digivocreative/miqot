@@ -8,6 +8,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect } from './laporan-api.js';
+import { initNotifier } from './telegram-notifier.js';
 
 dotenv.config();
 
@@ -1143,6 +1144,7 @@ app.get('{*path}', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Alhijaz server running on http://localhost:${PORT}`);
+  initNotifier();
 });
 
 // ── Keep Supabase alive (prevent free-tier pausing) ──

@@ -4,3 +4,4 @@ dist
 .dev.vars
 .env
 functions/umroh-landing.mjs
+data/*.json
