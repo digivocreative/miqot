@@ -53,6 +53,17 @@ Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 | Agents | `cyan-600` / `cyan-400` | `cyan-50` / `cyan-900/20` |
 | Jamaah | `amber-600` / `amber-400` | `amber-50` / `amber-900/20` |
 
+### Jamaah Page Colors
+
+| Context | Light | Dark |
+|---------|-------|------|
+| Lunas badge | `emerald-600` text | `emerald-400` text |
+| Belum lunas (sisa) | `amber-600` text | `amber-400` text |
+| Departure ≤10 days | `red-50` bg, `red-600` text | `red-900/20`, `red-400` |
+| Departure ≤30 days | `amber-50` bg, `amber-600` text | `amber-900/20`, `amber-400` |
+| Gender ring (P) | `ring-2 ring-pink-300` | same |
+| Gender ring (L) | `ring-2 ring-blue-300` | same |
+
 ---
 
 ## Layout
@@ -179,6 +190,72 @@ shadow-sm
 hover:shadow-lg hover:-translate-y-0.5
 transition-all duration-200
 active:scale-[0.97]
+```
+
+### Jamaah Page Components
+
+#### Command Bar (Search + Filters)
+
+```
+bg-white dark:bg-slate-800
+rounded-2xl
+border border-gray-100 dark:border-slate-700
+shadow-sm overflow-hidden
+```
+
+Inner: search input `h-9` + hijriah year select `h-9 text-[10px]` + filter button `w-9 h-9`
+
+#### Status Filter Pills (inside expandable panel)
+
+```
+flex-1 h-7 px-2.5 rounded-lg text-[10px] font-bold
+// Active:
+bg-emerald-500 text-white shadow-md shadow-emerald-500/20
+// Inactive:
+bg-gray-50 dark:bg-slate-900 text-gray-500 border border-gray-200
+```
+
+#### Jamaah Card (Collapsed)
+
+```
+bg-white dark:bg-slate-800
+rounded-2xl border border-gray-100 dark:border-slate-700
+shadow-sm overflow-hidden
+```
+
+Layout: Avatar (w-10 h-10, gender ring, lunas checkmark overlay) → Info (nama + paket) → Status (lunas/sisa + departure badge) → Chevron
+
+#### Avatar with Gender Ring + Lunas Overlay
+
+```html
+<div className="relative">
+  <div className="w-10 h-10 rounded-full ... ring-2 ring-pink-300"> <!-- or ring-blue-300 -->
+    {initials}
+  </div>
+  <!-- Lunas overlay -->
+  <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white">
+    <Check size={9} strokeWidth={3} />
+  </div>
+</div>
+```
+
+#### Expanded Detail (Jamaah)
+
+```
+px-3 pb-3 pt-2 border-t border-gray-50 dark:border-slate-700/50 space-y-3
+```
+
+Sections:
+1. **Payment card** — progress bar + bayar/sisa amounts
+2. **Info grid 2×2** — WhatsApp, Tgl Lahir, Tgl Daftar, Berangkat
+3. **Perlengkapan/Dokumen** — flex-wrap badge pills (✓/✗)
+4. **Action buttons** — WhatsApp + Tagih
+
+#### Sync Indicator
+
+```
+text-[10px] text-gray-400  // "Sync: Baru saja"
+text-[10px] font-semibold text-emerald-600 animate-pulse  // syncing
 ```
 
 ---
@@ -354,3 +431,5 @@ font-medium text-center
 - **Shadow**: `shadow-sm` (cards), `shadow-md shadow-{color}-500/20` (CTA), `shadow-2xl` (modals)
 - **State management**: `useState` + `useEffect` + `useCallback` (no external library)
 - **Language**: Code in English, UI text in Bahasa Indonesia
+- **Pagination**: Numbered buttons `w-8 h-8 rounded-xl text-xs font-bold` with active state using primary emerald
+- **Compact text**: Use `text-[9px]`–`text-[10px]` for metadata, `text-[11px]` for secondary info

@@ -15,14 +15,15 @@
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
-| **Database** | Supabase (PostgreSQL) — 2 tabel: `agents`, `capi_configs` |
+| **Database** | Supabase (PostgreSQL) — 3 tabel: `agents`, `capi_configs`, `jamaah` |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
-| **Scraping** | Playwright + Cheerio (modul Jamaah) |
+| **Scraping** | Native `fetch` + Cheerio (modul Jamaah/Laporan — lightweight, no Playwright) |
 | **Screenshot** | `modern-screenshot` (capture PackageCard untuk dibagikan) |
 | **Animation** | Framer Motion |
 | **Icons** | Lucide React |
 | **PWA** | vite-plugin-pwa (offline support, install banner) |
+| **Notifications** | Telegram Bot API + node-cron (seat alerts, weekly summary, AI insights) |
 | **Hosting** | VPS (Ubuntu), systemd service `miqot.service` |
 | **Deploy** | GitHub webhook → `deploy-webhook.js` → `deploy.sh` (pull + build + restart) |
 | **Container** | Docker + docker-compose (alternatif) |
@@ -40,7 +41,7 @@ Client (Browser)
     └──── Express server (port 3000)
               ├── /api/auth/*        ← JWT login/session
               ├── /api/admin/*       ← Agent CRUD, photo upload
-              ├── /api/jamaah/*      ← Scraping internal system
+              ├── /api/laporan/*     ← Jamaah management (login, sync, list)
               ├── /api/capi/*        ← Meta Conversion API config
               ├── /api/ai-copy       ← OpenAI proxy (caption generator)
               ├── /api/api-get/*     ← Proxy to jadwal.alhijaz.co (package data)
@@ -55,8 +56,9 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~770 lines) — API, proxy, auth, SPA serve
-├── jamaah-api.js           # Playwright scraping for internal Jamaah system
+├── server.js              # Express backend (~1284 lines) — API, proxy, auth, sync, SPA serve
+├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
+├── telegram-notifier.js    # Telegram alerts (seat, price, weekly summary, AI insights)
 ├── deploy-webhook.js       # GitHub webhook listener (port 9000) → auto deploy
 ├── deploy.sh               # Deploy script: pull, install, build, restart systemd
 ├── Dockerfile              # Docker multi-stage build
@@ -110,6 +112,11 @@ alhijaz/
 │   ├── hash-passwords.js       # Hash agent passwords with bcrypt
 │   ├── migrate-agents-to-supabase.js # Migrate agent data to Supabase
 │   ├── migrate-admin-columns.js     # Add email/role columns to agents table
+│   ├── migrate-jamaah-table.js      # Create jamaah table in Supabase
+│   ├── migrate-jamaah-columns.js    # Add perlengkapan/dokumen columns
+│   ├── fix-hijriah-year.js          # Fix hijriah year based on departure dates
+│   ├── debug-cols.js                # Debug legacy HTML table column structure
+│   ├── telegram-notify.mjs          # Manual telegram notification script
 │   └── sync-umroh-dates.mjs        # Sync departure dates for OG images
 │
 ├── public/                 # Static assets
@@ -119,7 +126,8 @@ alhijaz/
 │   └── *.png, *.svg, *.webp # Logos, icons
 │
 └── data/
-    └── capi/               # Local CAPI config files (dev only)
+    ├── notifier-state.json  # Telegram notifier state (persisted snapshot)
+    └── capi/               # Local CAPI config files (dev only, deprecated)
 ```
 
 ## 4. Konvensi & Aturan
@@ -152,10 +160,21 @@ alhijaz/
 - Compare 2 paket side-by-side
 - Meta CAPI config (Pixel ID, Access Token, event toggle)
 - Admin: manage all agents (CRUD)
-- Jamaah data viewer (scraping dari sistem internal legacy)
+- Jamaah management (sync dari sistem internal legacy, filter, sort, pagination)
+  - Progressive sync: first 10 jamaah shown immediately, rest synced in background
+  - Filter by hijriah year, payment status, departure window
+  - Sort by nama, sisa pembayaran, berangkat terdekat, pendaftaran terbaru
 
 ### Fitur Infrastruktur
 - AI Copywriting (OpenAI proxy — generate caption WhatsApp)
+- Telegram Notifier (node-cron based, runs inside Express process):
+  - Real-time alerts tiap 30 menit: seat kritis, sold out, paket baru, harga berubah
+  - Daily briefing (pagi): ringkasan + AI insight
+  - Departure reminders (H-7, H-3, H-1)
+  - Hot deal alerts (berangkat <14 hari, seat masih banyak)
+  - Weekly summary (Senin 08:00)
+  - AI-powered talking points via OpenAI
+- Background sync jamaah (semua agent, setiap 1 jam)
 - GitHub webhook auto-deploy (webhook → pull → build → restart)
 - Supabase keep-alive (ping setiap 3 hari, cegah free-tier pause)
 - OG image generation per agent
@@ -165,14 +184,17 @@ alhijaz/
 
 ### Tabel `agents`
 ```
-slug        TEXT PRIMARY KEY    -- "nikita", "andra", dll (lowercase)
-name        TEXT NOT NULL       -- "Nikita"
-website     TEXT                -- "alhijazindonesia.com"
-phone       TEXT                -- "62822900020"
-photo       TEXT                -- "/agents/nikita.jpg?v=1234"
-email       TEXT                -- "agent@email.com"
-password    TEXT                -- bcrypt hash
-role        TEXT DEFAULT 'agent' -- "agent" | "admin"
+slug              TEXT PRIMARY KEY    -- "nikita", "andra", dll (lowercase)
+name              TEXT NOT NULL       -- "Nikita"
+website           TEXT                -- "alhijazindonesia.com"
+phone             TEXT                -- "62822900020"
+photo             TEXT                -- "/agents/nikita.jpg?v=1234"
+email             TEXT                -- "agent@email.com"
+password          TEXT                -- bcrypt hash
+role              TEXT DEFAULT 'agent' -- "agent" | "admin"
+jamaah_username   TEXT                -- username sistem internal legacy
+jamaah_password   TEXT                -- AES-256-GCM encrypted
+jamaah_kantor     TEXT DEFAULT '2'    -- kode kantor ("2" = Cabang)
 ```
 
 ### Tabel `capi_configs`
@@ -184,6 +206,27 @@ test_event_code   TEXT               -- Meta test event code
 test_mode         BOOLEAN            -- true/false
 events            JSONB              -- { contact: { enabled, eventName, ... }, ... }
 updated_at        TIMESTAMPTZ
+```
+
+### Tabel `jamaah`
+```
+agent_slug    TEXT               -- FK to agents.slug (composite PK part)
+id_umroh      TEXT               -- e.g. "AIW0025094" (composite PK part)
+nama          TEXT               -- nama jamaah (composite PK part)
+jk            TEXT               -- "L" / "P"
+wa            TEXT               -- nomor WhatsApp
+tgl_lahir     DATE               -- tanggal lahir
+paket         TEXT               -- nama paket (e.g. "HEMAT Triple")
+bayar         INTEGER            -- jumlah yang sudah dibayar
+sisa          INTEGER            -- sisa pembayaran
+tgl_berangkat DATE               -- tanggal keberangkatan
+tgl_daftar    DATE               -- tanggal pendaftaran (dari col38 PENDAFTARAN)
+hijriah_year  TEXT               -- tahun hijriah (e.g. "1447")
+perlengkapan  JSONB              -- { batik: true, bergo: false, ... }
+dokumen       JSONB              -- { paspor: true, vaksin: false, ... }
+raw_data      JSONB              -- metadata parsing (jm_id, cols_count)
+synced_at     TIMESTAMPTZ        -- kapan terakhir di-sync
+-- UNIQUE(agent_slug, id_umroh, nama)
 ```
 
 ### Data Paket Umroh (External API)
@@ -219,12 +262,16 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | POST | `/api/capi/:slug/event` | — | Send event ke Meta (rate limited) |
 | POST | `/api/capi/:slug/validate` | — | Validate pixel + token |
 
-### Jamaah
+### Laporan / Jamaah
 | Method | Path | Auth | Deskripsi |
 |--------|------|------|-----------|
-| POST | `/api/jamaah/connect` | Bearer | Login ke sistem internal (Playwright) |
-| POST | `/api/jamaah/fetch` | Bearer | Fetch data dari session |
-| POST | `/api/jamaah/disconnect` | Bearer | Clear session |
+| GET | `/api/laporan/status` | Bearer | Check credentials + session + last sync |
+| POST | `/api/laporan/login` | Bearer | Login ke sistem internal (native fetch, auto-save credentials) |
+| POST | `/api/laporan/sync` | Bearer | Fetch → parse → progressive upsert to Supabase |
+| GET | `/api/laporan/sync-status` | Bearer | Check if background sync is in progress |
+| GET | `/api/laporan/jamaah` | Bearer | List jamaah (filter, search, sort, pagination) |
+| POST | `/api/laporan/disconnect` | Bearer | Clear in-memory session |
+| DELETE | `/api/laporan/credentials` | Bearer | Delete saved credentials from Supabase |
 
 ### Proxy
 | Method | Path | Deskripsi |
@@ -266,14 +313,19 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 ### Environment Variables
 | Variable | Deskripsi |
 |----------|-----------|
-| `OPENAI_API_KEY` | OpenAI API key untuk fitur AI Copywriting |
-| `CAPI_ENCRYPTION_KEY` | 32-byte base64 key untuk encrypt Meta access token |
+| `OPENAI_API_KEY` | OpenAI API key untuk fitur AI Copywriting + Telegram AI insights |
+| `CAPI_ENCRYPTION_KEY` | 32-byte base64 key untuk encrypt Meta access token + jamaah password |
 | `JWT_SECRET` | Secret key untuk JWT signing |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_ANON_KEY` | Supabase anon/public key (frontend) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (backend only) |
 | `VITE_SUPABASE_URL` | Same as SUPABASE_URL (exposed to frontend via Vite) |
 | `VITE_SUPABASE_ANON_KEY` | Same as SUPABASE_ANON_KEY (exposed to frontend) |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token untuk notifier |
+| `TELEGRAM_CHAT_ID` | Chat ID production untuk notifikasi |
+| `TELEGRAM_CHAT_ID_DEV` | Chat ID dev untuk testing notifikasi |
+| `NOTIFIER_YEAR_CODES` | Kode tahun paket yang di-monitor (default: "1448") |
+| `NOTIFIER_BASE_URL` | Base URL API untuk notifier (default: localhost:3000) |
 
 ### Deployment (Production)
 - Server: VPS Ubuntu, systemd service `miqot.service`
@@ -292,8 +344,10 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Auto-deploy pipeline (GitHub webhook)
 - Supabase migration (dari hardcoded data)
 - OG image generation
-- Jamaah data viewer (scraping)
+- Jamaah management (fetch + parse + sync ke Supabase, progressive UI)
 - AI Copywriting (OpenAI integration)
+- Telegram Notifier (real-time seat/price alerts, daily briefing, AI insights)
+- Background sync jamaah (hourly, all agents)
 
 ### Rencana / Backlog
 - [TODO] Testing suite
@@ -309,8 +363,10 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 | **JWT custom** (bukan Supabase Auth) | Auth hanya untuk agent/admin, sangat sederhana (slug + password), tidak perlu Supabase Auth overhead |
 | **Proxy semua external request** | Bypass CORS dari jadwal.alhijaz.co, kontrol caching, dan menjaga secret keys di server |
 | **Data paket tidak di-database** | Data paket di-own oleh sistem legacy (jadwal.alhijaz.co), cukup di-fetch & cache di client |
-| **Playwright untuk Jamaah** | Sistem internal legacy tidak punya API, harus login via browser lalu scrape |
+| **Native fetch + Cheerio untuk Jamaah** | Awalnya pakai Playwright (300MB+), diganti native fetch + Cheerio (lightweight) — cukup POST login + GET HTML + parse table |
 | **Supabase free tier + keep-alive** | Budget terbatas, keep-alive ping dari server cegah auto-pause |
+| **Telegram untuk notifikasi** | Agent lebih aktif di Telegram/WhatsApp daripada cek dashboard, notif otomatis lebih efektif |
+| **node-cron in-process** | Tidak perlu external cron/scheduler — cron jobs jalan di dalam Express process yang sama |
 
 ### Known Issues / Technical Debt
 - **PackageCard.tsx terlalu besar** (~103KB, 2000+ baris) — perlu di-split ke sub-components
@@ -318,7 +374,8 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - **No error boundary** — React errors bisa crash seluruh app
 - **Agent photos di-serve lokal** — idealnya pakai CDN/object storage
 - **CAPI endpoints tidak pakai auth** — hanya dilindungi oleh agent slug (not secret)
-- **Playwright dependency berat** — ~300MB, diperlukan hanya oleh fitur Jamaah
+- **server.js monolith** (~1284 baris) — perlu di-split ke route modules
+- **telegram-notifier.js besar** (~1340 baris) — bisa di-modularisasi
 
 ### Do's and Don'ts
 - ✅ **DO**: Selalu tambahkan `onError` fallback untuk semua `<img>` tag agent photo

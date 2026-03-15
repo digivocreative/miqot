@@ -222,19 +222,31 @@ export function parseLaporanHtml(html) {
     const paket = $(tds[6]).text().trim();
 
     // col7-15: PERLENGKAPAN (9 cols)
+    // Legacy HTML uses Font Awesome icons: <i class="fa fa-check"> (green) or <i class="fa fa-times"> (red)
     const perlengkapanKeys = ['batik', 'bergo', 'buku_doa', 'ikhram', 'koper', 'mukena', 'sabuk', 'syal', 'tas_paspor'];
     const perlengkapan = {};
     perlengkapanKeys.forEach((key, idx) => {
-      const val = tds.length > (7 + idx) ? $(tds[7 + idx]).text().trim() : '';
-      perlengkapan[key] = val !== '' && val !== '-';
+      if (tds.length > (7 + idx)) {
+        const cell = $(tds[7 + idx]);
+        // Check for fa-check icon (green checkmark) in HTML
+        const html = cell.html() || '';
+        perlengkapan[key] = html.includes('fa-check');
+      } else {
+        perlengkapan[key] = false;
+      }
     });
 
-    // col16-23: DOKUMEN (8 cols)
+    // col16-23: DOKUMEN (8 cols) — same icon pattern as perlengkapan
     const dokumenKeys = ['paspor', 'vaksin', 'buku_nikah', 'akta_lahir', 'ktp', 'kk', 'foto', 'pernyataan'];
     const dokumen = {};
     dokumenKeys.forEach((key, idx) => {
-      const val = tds.length > (16 + idx) ? $(tds[16 + idx]).text().trim() : '';
-      dokumen[key] = val !== '' && val !== '-';
+      if (tds.length > (16 + idx)) {
+        const cell = $(tds[16 + idx]);
+        const html = cell.html() || '';
+        dokumen[key] = html.includes('fa-check');
+      } else {
+        dokumen[key] = false;
+      }
     });
 
     // col33-34: BAYAR/SISA PAKET (only if enough columns)
@@ -250,6 +262,28 @@ export function parseLaporanHtml(html) {
       tgl_berangkat = parseDateDMY($(tds[37]).text().trim());
     }
 
+    // col28: NOMOR PASPOR (under DOKUMEN → PASPOR sub-header)
+    let no_paspor = null;
+    if (tds.length > 28) {
+      const raw = $(tds[28]).text().trim();
+      if (raw && raw !== '-') no_paspor = raw;
+    }
+
+    // col29: EXPIRED PASPOR (format: DD/MM/YYYY)
+    let paspor_expired = null;
+    if (tds.length > 29) {
+      paspor_expired = parseDateDMY($(tds[29]).text().trim());
+    }
+
+    // col38: PENDAFTARAN (format: "DD/MM/YYYY HH:MM:SS")
+    let tgl_daftar = null;
+    if (tds.length > 38) {
+      const raw = $(tds[38]).text().trim();
+      // Extract date part before the time (space separator)
+      const datePart = raw.split(' ')[0];
+      tgl_daftar = parseDateDMY(datePart);
+    }
+
     if (id_umroh && nama) {
       items.push({
         id_umroh,
@@ -263,7 +297,9 @@ export function parseLaporanHtml(html) {
         bayar,
         sisa,
         tgl_berangkat,
-        tgl_daftar: null, // Not in this table
+        tgl_daftar,
+        no_paspor,
+        paspor_expired,
         raw_data: { jm_id: jmIdSmall, cols_count: tds.length },
       });
     }
@@ -282,12 +318,17 @@ function parseRupiah(str) {
 // Convert DD/MM/YYYY or similar to YYYY-MM-DD for Supabase date columns
 function parseDateDMY(str) {
   if (!str || str === '-') return null;
+  // Reject zero dates (0000-00-00, 00/00/0000, etc.)
+  if (str.startsWith('0000') || str === '00/00/0000') return null;
   // Try DD/MM/YYYY
   const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  if (m) {
+    const result = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    return result.startsWith('0000') ? null : result;
+  }
   // Already YYYY-MM-DD? Return as-is
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-  return str; // fallback
+  return null; // Return null instead of raw string to prevent DB errors
 }
 
 // ── Disconnect: Remove session ──

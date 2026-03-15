@@ -10,8 +10,8 @@ Project ini adalah website jadwal keberangkatan Umrah yang memiliki halaman per 
 
 - Ketika halaman `/[slug-agent]/capi` dibuka, tampilkan form login sederhana yang meminta password.
 - Password bersifat statis per agent dan disimpan langsung di file `agents.ts` sebagai property baru, misalnya `capiPassword`.
-- Buatkan password untuk SEMUA agent yang ada di `agents.ts`. Format password: kombinasi nama hewan + kata sifat + angka 2 digit, huruf kecil semua, contoh: `sapi4nteng`, `kucing8erani`, `rubah5etia`, `elang7agah`, dsb. Setiap agent harus punya password yang unik.
-- Setelah login berhasil, simpan session di localStorage agar tidak perlu login ulang selama sesi browser masih aktif.
+- Password agent disimpan di Supabase (tabel `agents`), di-hash dengan bcrypt.
+- Autentikasi menggunakan JWT (7 hari expiry). Setelah login, token disimpan di localStorage.
 - Jika slug agent tidak valid, tampilkan halaman 404.
 
 ### 2. Halaman Settings CAPI (setelah login berhasil)
@@ -69,8 +69,9 @@ Pilihan event di setiap dropdown (standar Meta):
 
 ### 3. Penyimpanan Konfigurasi
 
-- Simpan konfigurasi CAPI setiap agent di file JSON di server, misalnya di folder `data/capi/[slug-agent].json`
-- Struktur data JSON:
+- Simpan konfigurasi CAPI setiap agent di **Supabase** (tabel `capi_configs`), bukan file JSON lokal.
+- Tabel sudah ada dengan kolom: `slug` (PK), `pixel_id`, `access_token`, `test_event_code`, `test_mode`, `events` (JSONB), `updated_at`.
+- Struktur data events:
 
 ```json
 {
@@ -100,7 +101,7 @@ Pilihan event di setiap dropdown (standar Meta):
 }
 ```
 
-- Access Token harus dienkripsi saat disimpan di server (gunakan encryption sederhana, misalnya AES dengan secret key dari environment variable `CAPI_ENCRYPTION_KEY`)
+- Access Token harus dienkripsi saat disimpan di Supabase (menggunakan AES-256-GCM dengan key dari environment variable `CAPI_ENCRYPTION_KEY`)
 - Saat ditampilkan di frontend setelah tersimpan, Access Token harus di-mask (tampilkan hanya 6 karakter pertama + `****`)
 
 ### 4. API Endpoint untuk Kirim Event ke Meta
@@ -123,7 +124,7 @@ Buat API endpoint yang akan dipanggil dari frontend untuk mengirim event ke Meta
 ```
 
 **Logic:**
-1. Baca konfigurasi CAPI agent dari file JSON
+1. Baca konfigurasi CAPI agent dari Supabase (`capi_configs` tabel)
 2. Cek apakah event tersebut enabled untuk agent ini
 3. Jika enabled, kirim event ke Meta Graph API: `POST https://graph.facebook.com/v21.0/{pixel_id}/events`
 4. Kirim dengan payload sesuai format Meta CAPI:
@@ -160,9 +161,9 @@ Buat file utility misalnya `lib/capi.ts` yang berisi:
 
 ## Catatan Teknis
 
-- Gunakan teknologi yang sudah ada di project (Next.js / React)
-- Untuk API route, gunakan Next.js API routes atau Route Handlers
-- Pastikan API endpoint memiliki rate limiting sederhana (misalnya max 10 request per detik per agent) untuk mencegah abuse
+- Gunakan teknologi yang sudah ada di project (Express + React SPA via Vite)
+- Untuk API route, gunakan Express routes di `server.js`
+- Pastikan API endpoint memiliki rate limiting sederhana (sudah diimplementasi: max 10 request per detik per agent) untuk mencegah abuse
 - Semua request ke Meta Graph API dilakukan dari server-side (JANGAN dari client/browser) agar Access Token tidak terekspos
 - Gunakan `fetch` untuk request ke Meta Graph API dari server
 

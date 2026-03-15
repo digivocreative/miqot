@@ -715,6 +715,8 @@ function buildRows(items, agentSlug, now) {
     hijriah_year: getHijriahYear(item.tgl_berangkat),
     perlengkapan: item.perlengkapan || {},
     dokumen: item.dokumen || {},
+    no_paspor: item.no_paspor || null,
+    paspor_expired: item.paspor_expired || null,
     raw_data: item.raw_data || null,
     synced_at: now,
   }));
@@ -739,14 +741,13 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 
   syncingAgents.set(slug, { isSyncing: true, totalSynced: 0, lastSync: null });
 
-  // Ensure session is active
-  if (!isSessionActive(agent.jamaah_username)) {
-    const decrypted = capiDecrypt(agent.jamaah_password);
-    const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
-    if (!loginResult.success) {
-      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
-      return res.status(401).json({ error: 'Gagal login ulang ke sistem internal' });
-    }
+  // Force fresh session to ensure clean state with legacy system
+  laporanDisconnect(agent.jamaah_username);
+  const decrypted = capiDecrypt(agent.jamaah_password);
+  const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
+  if (!loginResult.success) {
+    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+    return res.status(401).json({ error: 'Gagal login ulang ke sistem internal' });
   }
 
   // Determine which years to sync
@@ -762,19 +763,39 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     const range = HIJRIAH_YEARS[year];
     if (!range) continue;
 
-    const fetchResult = await fetchLaporan(agent.jamaah_username, {
-      kantor: agent.jamaah_kantor || '2',
-      agentId: agent.jamaah_username,
-      tglAwal: range.tglAwal,
-      tglAkhir: range.tglAkhir,
-    });
+    // Fetch from multiple kantor values to capture all jamaah
+    const kantorValues = [agent.jamaah_kantor || '2'];
+    if (!kantorValues.includes('0')) kantorValues.push('0');
 
-    if (!fetchResult.success) {
-      console.error(`[Sync] ${slug} year ${year}: fetch failed`);
-      continue;
+    let allItems = [];
+    const seenIds = new Set();
+
+    for (const kantor of kantorValues) {
+      const fetchResult = await fetchLaporan(agent.jamaah_username, {
+        kantor,
+        agentId: agent.jamaah_username,
+        tglAwal: range.tglAwal,
+        tglAkhir: range.tglAkhir,
+      });
+
+      if (!fetchResult.success) {
+        console.error(`[Sync] ${slug} year ${year} kantor ${kantor}: fetch failed`);
+        continue;
+      }
+
+      const { items: fetchedItems } = parseLaporanHtml(fetchResult.html);
+      console.log(`[Sync] ${slug} year ${year} kantor ${kantor}: ${fetchedItems.length} items`);
+      // Deduplicate by id_umroh + nama (matches DB unique constraint)
+      for (const item of fetchedItems) {
+        const key = `${item.id_umroh}|${item.nama}`;
+        if (!seenIds.has(key)) {
+          seenIds.add(key);
+          allItems.push(item);
+        }
+      }
     }
 
-    const { items } = parseLaporanHtml(fetchResult.html);
+    const items = allItems;
     console.log(`[Sync] ${slug} year ${year}: parsed ${items.length} items`);
 
     if (items.length === 0) continue;
@@ -875,7 +896,7 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   const offset = (pageNum - 1) * limitNum;
 
   // Default sort depends on filter
-  const effectiveSort = sort || (status === 'belum' || status === 'berangkat' ? 'berangkat' : 'nama');
+  const effectiveSort = sort || (status === 'belum' || status === 'berangkat' ? 'berangkat' : 'terbaru');
 
   // Build query
   let query = supabase
@@ -890,7 +911,7 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   } else if (effectiveSort === 'berangkat') {
     query = query.order('tgl_berangkat', { ascending: true, nullsFirst: false });
   } else if (effectiveSort === 'terbaru') {
-    query = query.order('synced_at', { ascending: false });
+    query = query.order('tgl_daftar', { ascending: false, nullsFirst: false });
   } else {
     query = query.order('nama', { ascending: true });
   }
@@ -1197,6 +1218,8 @@ async function syncOneAgent(agent) {
   syncingAgents.set(slug, { isSyncing: true, totalSynced: 0, lastSync: null });
 
   try {
+    // Force fresh session for each background sync
+    laporanDisconnect(agent.jamaah_username);
     const decrypted = capiDecrypt(agent.jamaah_password);
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
@@ -1213,19 +1236,39 @@ async function syncOneAgent(agent) {
       const range = HIJRIAH_YEARS[year];
       if (!range) continue;
 
-      const fetchResult = await fetchLaporan(agent.jamaah_username, {
-        kantor: agent.jamaah_kantor || '2',
-        agentId: agent.jamaah_username,
-        tglAwal: range.tglAwal,
-        tglAkhir: range.tglAkhir,
-      });
+      // Fetch from multiple kantor values to capture all jamaah
+      const kantorValues = [agent.jamaah_kantor || '2'];
+      if (!kantorValues.includes('0')) kantorValues.push('0');
 
-      if (!fetchResult.success) {
-        console.error(`[SYNC] ${slug} year ${year}: fetch failed`);
-        continue;
+      let allItems = [];
+      const seenIds = new Set();
+
+      for (const kantor of kantorValues) {
+        const fetchResult = await fetchLaporan(agent.jamaah_username, {
+          kantor,
+          agentId: agent.jamaah_username,
+          tglAwal: range.tglAwal,
+          tglAkhir: range.tglAkhir,
+        });
+
+        if (!fetchResult.success) {
+          console.error(`[SYNC] ${slug} year ${year} kantor ${kantor}: fetch failed`);
+          continue;
+        }
+
+        const { items: fetchedItems } = parseLaporanHtml(fetchResult.html);
+        console.log(`[SYNC] ${slug} year ${year} kantor ${kantor}: ${fetchedItems.length} items`);
+        for (const item of fetchedItems) {
+          const key = `${item.id_umroh}|${item.nama}`;
+          if (!seenIds.has(key)) {
+            seenIds.add(key);
+            allItems.push(item);
+          }
+        }
       }
 
-      const { items } = parseLaporanHtml(fetchResult.html);
+      console.log(`[SYNC] ${slug} year ${year}: allItems=${allItems.length} seenIds=${seenIds.size}`);
+      const items = allItems;
 
       if (items.length > 0) {
         const BATCH = 50;

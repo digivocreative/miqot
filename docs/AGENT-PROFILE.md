@@ -50,16 +50,13 @@ export interface AgentData {
   website: string;   // Domain website (tanpa https://)
   phone: string;     // Nomor WA format 628xxx (tanpa +)
   photo: string;     // Path foto di /public/agents/
+  email: string;     // Email agent
+  role: string;      // "agent" | "admin"
 }
 
-export const AGENTS_DATA: Record<string, AgentData> = {
-  'nila': {          // ← slug = key = bagian URL
-    name: 'Nila Novita Sari',
-    website: 'alhijaztourtravels.com',
-    phone: '6285211209049',
-    photo: '/agents/nila.jpg',
-  },
-};
+// Data agent di-fetch dari Supabase (tabel `agents`)
+// Tabel juga menyimpan: jamaah_username, jamaah_password (encrypted),
+// jamaah_kantor untuk koneksi ke sistem internal legacy
 ```
 
 > [!IMPORTANT]
@@ -121,6 +118,21 @@ const agent = AGENTS_DATA[slug?.toLowerCase()];
 
 ---
 
+## Dashboard Features per Agent
+
+Selain fitur publik (jadwal, CTA), agent yang sudah login juga memiliki akses ke:
+
+| Fitur | Deskripsi |
+|---|---|
+| Profil | Edit nama, website, phone, email, foto, slug |
+| Kalkulasi | Hitung harga per tipe kamar + generate PDF quotation |
+| Compare | Bandingkan 2 paket side-by-side |
+| Meta CAPI | Config Pixel ID, Access Token, event mapping, test mode |
+| Jamaah | Sync data jamaah dari sistem internal, filter/sort/search, lihat status pembayaran |
+| Admin | Manage semua agent (CRUD) — hanya role admin |
+
+---
+
 ## SEO & Link Preview
 
 ### Client-side (App.tsx)
@@ -137,8 +149,8 @@ const agent = AGENTS_DATA[slug?.toLowerCase()];
 
 ## Cara Menambah Agent Baru
 
-1. **Tambah entry** di Supabase Dashboard → tabel `agents`
-2. **Taruh foto** di `public/agents/[slug].jpg`
+1. **Tambah entry** di Supabase Dashboard → tabel `agents` (atau via Admin panel di dashboard)
+2. **Taruh foto** di `public/agents/[slug].jpg` (atau upload via dashboard)
 3. **Deploy:** `git add . && git commit -m "Add agent [name]" && git push`
 
 ---
