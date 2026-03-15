@@ -21,6 +21,8 @@ interface JamaahItem {
   tgl_berangkat: string | null;
   tgl_daftar: string | null;
   hijriah_year: string | null;
+  perlengkapan: Record<string, boolean> | null;
+  dokumen: Record<string, boolean> | null;
   synced_at: string;
 }
 
@@ -540,17 +542,30 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
                       ) : (
                         <span className="text-[10px] text-gray-400">—</span>
                       )}
-                      {daysUntil > 0 && (
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                          daysUntil <= 10
-                            ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
-                            : daysUntil <= 30
-                              ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
-                              : 'bg-gray-50 dark:bg-slate-700 text-gray-400 dark:text-slate-500'
-                        }`}>
-                          ✈ {daysUntil}hr
-                        </span>
-                      )}
+                      {daysUntil > 0 && (() => {
+                        let label = '';
+                        if (daysUntil <= 2) {
+                          label = `${daysUntil * 24}jam`;
+                        } else if (daysUntil <= 30) {
+                          label = `${daysUntil}hr`;
+                        } else if (daysUntil <= 365) {
+                          const months = Math.floor(daysUntil / 30);
+                          label = `${months}bln`;
+                        } else {
+                          label = `${Math.floor(daysUntil / 30)}bln`;
+                        }
+                        return (
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                            daysUntil <= 10
+                              ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+                              : daysUntil <= 30
+                                ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
+                                : 'bg-gray-50 dark:bg-slate-700 text-gray-400 dark:text-slate-500'
+                          }`}>
+                            ✈ {label}
+                          </span>
+                        );
+                      })()}
                     </div>
 
                     {/* Chevron */}
@@ -593,14 +608,53 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
                           <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{formatDate(item.tgl_lahir)}</p>
                         </div>
                         <div>
-                          <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">📋 Daftar</p>
-                          <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{formatDate(item.tgl_daftar)}</p>
+                          <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">🏷 ID Umroh</p>
+                          <p className="text-xs font-semibold text-gray-700 dark:text-slate-200 font-mono">{item.id_umroh || '-'}</p>
                         </div>
                         <div>
                           <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">✈️ Berangkat</p>
                           <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{formatDate(item.tgl_berangkat)}</p>
                         </div>
                       </div>
+
+                      {/* Section 3: Perlengkapan & Dokumen */}
+                      {item.perlengkapan && Object.keys(item.perlengkapan).length > 0 && (() => {
+                        const entries = Object.entries(item.perlengkapan);
+                        const done = entries.filter(([, v]) => v).length;
+                        const labels: Record<string, string> = { batik: 'Batik', bergo: 'Bergo', buku_doa: 'Buku Doa', ikhram: 'Ikhram', koper: 'Koper', mukena: 'Mukena', sabuk: 'Sabuk', syal: 'Syal', tas_paspor: 'Tas Paspor' };
+                        return (
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Perlengkapan</span>
+                              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">{done}/{entries.length}</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {entries.map(([key, val]) => (
+                                <span key={key} className={`text-[9px] font-bold px-1.5 py-0.5 rounded-lg border ${val ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800/40' : 'bg-gray-50 dark:bg-slate-800 text-gray-400 dark:text-slate-500 border-gray-100 dark:border-slate-700'}`}>
+                                  {val ? '✓' : '✗'} {labels[key] || key}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {item.dokumen && Object.keys(item.dokumen).length > 0 && (() => {
+                        const entries = Object.entries(item.dokumen);
+                        const labels: Record<string, string> = { paspor: 'Paspor', vaksin: 'Vaksin', buku_nikah: 'Buku Nikah', akta_lahir: 'Akta Lahir', ktp: 'KTP', kk: 'KK', foto: 'Foto', pernyataan: 'Pernyataan' };
+                        return (
+                          <div>
+                            <span className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Dokumen</span>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {entries.map(([key, val]) => (
+                                <span key={key} className={`text-[9px] font-bold px-1.5 py-0.5 rounded-lg border ${val ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800/40' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-800/40'}`}>
+                                  {val ? '✓' : '✗'} {labels[key] || key}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* Section 3: Action buttons */}
                       <div className="flex gap-2">
@@ -695,7 +749,8 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
           <img
             src="/logo-alhijaz.webp"
             alt="Alhijaz"
-            className="w-10 h-10 mx-auto mb-2 rounded-xl object-contain"
+            className="h-auto mx-auto mb-1 rounded-xl object-contain"
+            style={{ width: '8rem' }}
           />
           <h2 className="text-sm font-bold text-gray-800 dark:text-white">Login Sistem Internal</h2>
           <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">Masukkan kredensial untuk sinkronisasi data jamaah</p>

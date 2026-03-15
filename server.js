@@ -668,8 +668,37 @@ app.post('/api/laporan/login', authMiddleware, async (req, res) => {
   res.json({ ...result, username, kantor: k });
 });
 
-// Helper: build rows from parsed items
-function buildRows(items, agentSlug, hijriahYear, now) {
+// Hijriah year → Gregorian date range mapping
+// Only current + next year. Update when new Hijriah year starts.
+const HIJRIAH_YEARS = {
+  '1447': { tglAwal: '2025-06-26', tglAkhir: '2026-06-15' },
+  '1448': { tglAwal: '2026-06-16', tglAkhir: '2027-06-05' },
+};
+
+// Determine hijriah year from departure date
+const HIJRIAH_RANGES = [
+  { year: '1446', start: '2024-07-08', end: '2025-06-25' },
+  { year: '1447', start: '2025-06-26', end: '2026-06-15' },
+  { year: '1448', start: '2026-06-16', end: '2027-06-05' },
+];
+
+function getHijriahYear(tglBerangkat) {
+  if (!tglBerangkat) return null;
+  for (const range of HIJRIAH_RANGES) {
+    if (tglBerangkat >= range.start && tglBerangkat <= range.end) {
+      return range.year;
+    }
+  }
+  // Fallback: latest year if outside known ranges
+  return HIJRIAH_RANGES[HIJRIAH_RANGES.length - 1].year;
+}
+
+function getActiveHijriahYears() {
+  return Object.keys(HIJRIAH_YEARS).sort((a, b) => Number(b) - Number(a));
+}
+
+// Helper: build rows from parsed items — hijriah_year determined per item by tgl_berangkat
+function buildRows(items, agentSlug, now) {
   return items.map(item => ({
     agent_slug: agentSlug,
     id_umroh: item.id_umroh,
@@ -682,21 +711,12 @@ function buildRows(items, agentSlug, hijriahYear, now) {
     sisa: item.sisa || 0,
     tgl_berangkat: item.tgl_berangkat || null,
     tgl_daftar: item.tgl_daftar || null,
-    hijriah_year: hijriahYear || null,
+    hijriah_year: getHijriahYear(item.tgl_berangkat),
+    perlengkapan: item.perlengkapan || {},
+    dokumen: item.dokumen || {},
     raw_data: item.raw_data || null,
     synced_at: now,
   }));
-}
-
-// Hijriah year → Gregorian date range mapping
-// Only current + next year. Update when new Hijriah year starts.
-const HIJRIAH_YEARS = {
-  '1447': { tglAwal: '2025-06-26', tglAkhir: '2026-06-16' },
-  '1448': { tglAwal: '2026-06-17', tglAkhir: '2027-06-05' },
-};
-
-function getActiveHijriahYears() {
-  return Object.keys(HIJRIAH_YEARS).sort((a, b) => Number(b) - Number(a));
 }
 
 // Sync: fetch from legacy → parse → progressive upsert to Supabase
@@ -763,7 +783,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     if (!firstBatchSent) {
       const first10 = items.slice(0, 10);
       const rest = items.slice(10);
-      const firstRows = buildRows(first10, slug, year, now);
+      const firstRows = buildRows(first10, slug, now);
 
       const { error: firstErr } = await supabase
         .from('jamaah')
@@ -787,7 +807,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 
       // Upsert rest of first year async
       if (rest.length > 0) {
-        const restRows = buildRows(rest, slug, year, now);
+        const restRows = buildRows(rest, slug, now);
         const BATCH = 50;
         for (let i = 0; i < restRows.length; i += BATCH) {
           const batch = restRows.slice(i, i + BATCH);
@@ -798,7 +818,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
       }
     } else {
       // Subsequent years: upsert all in batches (response already sent)
-      const rows = buildRows(items, slug, year, now);
+      const rows = buildRows(items, slug, now);
       const BATCH = 50;
       for (let i = 0; i < rows.length; i += BATCH) {
         const batch = rows.slice(i, i + BATCH);
@@ -1209,7 +1229,7 @@ async function syncOneAgent(agent) {
         const BATCH = 50;
         for (let i = 0; i < items.length; i += BATCH) {
           const batch = items.slice(i, i + BATCH);
-          const rows = buildRows(batch, slug, year, syncTime);
+          const rows = buildRows(batch, slug, syncTime);
           const { error } = await supabase
             .from('jamaah')
             .upsert(rows, { onConflict: 'agent_slug,id_umroh,nama' });

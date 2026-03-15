@@ -221,6 +221,22 @@ export function parseLaporanHtml(html) {
     // col6: PAKET
     const paket = $(tds[6]).text().trim();
 
+    // col7-15: PERLENGKAPAN (9 cols)
+    const perlengkapanKeys = ['batik', 'bergo', 'buku_doa', 'ikhram', 'koper', 'mukena', 'sabuk', 'syal', 'tas_paspor'];
+    const perlengkapan = {};
+    perlengkapanKeys.forEach((key, idx) => {
+      const val = tds.length > (7 + idx) ? $(tds[7 + idx]).text().trim() : '';
+      perlengkapan[key] = val !== '' && val !== '-';
+    });
+
+    // col16-23: DOKUMEN (8 cols)
+    const dokumenKeys = ['paspor', 'vaksin', 'buku_nikah', 'akta_lahir', 'ktp', 'kk', 'foto', 'pernyataan'];
+    const dokumen = {};
+    dokumenKeys.forEach((key, idx) => {
+      const val = tds.length > (16 + idx) ? $(tds[16 + idx]).text().trim() : '';
+      dokumen[key] = val !== '' && val !== '-';
+    });
+
     // col33-34: BAYAR/SISA PAKET (only if enough columns)
     let bayar = 0, sisa = 0;
     if (tds.length > 34) {
@@ -242,6 +258,8 @@ export function parseLaporanHtml(html) {
         wa: wa || null,
         tgl_lahir,
         paket: paket || null,
+        perlengkapan,
+        dokumen,
         bayar,
         sisa,
         tgl_berangkat,
