@@ -34,6 +34,13 @@ const AGENTS = {
   aisyah:       { name: 'Siti Aisyah',         website: 'travelalhijazumrah.com',      phone: '6281225600900' },
   siska:        { name: 'Siska Fadia',         website: 'alhijazumroh.com',            phone: '6281188885291' },
   linda:        { name: 'Nurlinda Dewi',       website: 'alhijazcallcenter.com',       phone: '6282112094089' },
+  nina:         { name: 'Nina',                website: 'alhijazumrahtours.com',       phone: '6285943191075' },
+  sari:         { name: 'Sari',                website: 'alhijaz.co/sari',             phone: '6281907018220' },
+  isti:         { name: 'Isti',                website: 'al-hijaztravelumroh.com',     phone: '6281315002460' },
+  ferra:        { name: 'Ferra',               website: 'alhijaztourtravel.id',        phone: '62811802789' },
+  'jan-praba':  { name: 'Jan Praba',           website: 'alhijaz.co/jan-praba',        phone: '62816728940' },
+  ekawati:      { name: 'Ekawati',             website: 'alhijaz.co/ekawati',          phone: '62816728904' },
+  yeyen:        { name: 'Yeyen Saputra',       website: 'alhijazindowisataofficial.co.id', phone: '6281382286150' },
 };
 
 // ─── Helpers ───
