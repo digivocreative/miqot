@@ -50,6 +50,7 @@ Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 
 | Feature | Icon Color | Background |
 |---------|-----------|------------|
+| Jadwal | `emerald-600` / `emerald-400` | `emerald-50` / `emerald-900/20` |
 | Statistik | `emerald-600` / `emerald-400` | `emerald-50` / `emerald-900/20` |
 | Kalkulasi | `blue-600` / `blue-400` | `blue-50` / `blue-900/20` |
 | Compare | `violet-600` / `violet-400` | `violet-50` / `violet-900/20` |
@@ -210,6 +211,20 @@ hover:bg-gray-200 dark:hover:bg-slate-700
 transition-colors
 active:scale-95
 ```
+
+### Login/Dashboard Button (Header — Subtle)
+
+```
+w-8 h-8
+flex items-center justify-center
+rounded-xl
+bg-gray-100/80 dark:bg-slate-800/80
+text-gray-500 dark:text-slate-300
+hover:bg-gray-200 dark:hover:bg-slate-700
+transition-colors
+```
+
+Logic: Shows `LogIn` icon → `/login` when logged out, `LayoutDashboard` icon → `/dashboard` when logged in. Uses `isSessionValid()` from `authUtils.ts` to check session.
 
 ### Text Button (Danger/Secondary)
 
@@ -383,6 +398,16 @@ shadow-2xl max-h-[70vh] flex flex-col
 - Animation: Framer Motion `y: '100%' → 0`, duration 250ms, ease `[0.4, 0, 0.2, 1]`
 - Body scroll lock: `document.body.style.overflow = 'hidden'`
 
+### Bottom Sheet — AI Insight
+
+Same base as Calendar Detail bottom sheet, plus:
+- `max-h-[85vh] overflow-y-auto` (adaptive height, scrollable)
+- Header: amber sparkle icon `w-7 h-7` + "AI Insight" title + date subtitle
+- Body: 3 colored cards (emerald/blue/amber) with `px-3 py-2.5`
+- Labels: `text-[10px] font-bold uppercase tracking-wide`
+- Content: `text-[12px] leading-relaxed` with `**bold**` parsed to `<strong>`
+- No refresh button (cron-only generation)
+
 ### Calendar Widget (`UpcomingSchedule.tsx`)
 
 Mini calendar grid on Dashboard home:
@@ -392,6 +417,23 @@ Mini calendar grid on Dashboard home:
 - Click date with dots → opens bottom sheet with event details
 - Group cards: colored left border, group badge, pesawat, paket, TL
 - Data cached per month (no re-fetch when navigating back)
+
+### AI Insight Alert Bar (`CalendarInsight.tsx`)
+
+Compact 1-line alert below header, before calendar card:
+```
+flex items-center gap-2.5 px-3 py-2.5 rounded-xl
+bg-emerald-50 dark:bg-emerald-900/20
+border border-emerald-100 dark:border-emerald-800/40
+cursor-pointer active:scale-[0.98] transition-all
+```
+
+Layout: pulsing dot → sparkle icon → text (truncated) → close (X) button
+- Pulsing dot: `w-2 h-2 rounded-full bg-emerald-500` + `@keyframes pulse-glow`
+- Sparkle icon: `w-5 h-5 rounded-md bg-emerald-100`
+- Text: `text-[11px] font-medium truncate`
+- Close: dismisses alert, stores in `sessionStorage('insightDismissed')`
+- Click (except close) → opens AI Insight bottom sheet popup
 
 ---
 
@@ -465,6 +507,9 @@ uppercase tracking-wide
 | `Loader2` + `.animate-spin` | Loading state |
 | `Eye` / `EyeOff` | Password toggle |
 | `LogIn` / `LogOut` | Login / Disconnect |
+| `LayoutDashboard` | Dashboard button (header) |
+| `CalendarRange` | Jadwal menu (dashboard) |
+| `ExternalLink` | External link indicator |
 | `ChevronLeft` / `ChevronRight` | Navigation |
 | `ChevronDown` | "Lihat semua" expand |
 | `Search` | Filter submit |
@@ -472,7 +517,6 @@ uppercase tracking-wide
 | `User` / `Users` | Profile / Agent |
 | `UserPlus` | Jamaah baru (Statistik) |
 | `Settings` | Config / CAPI |
-| `Calculator` | Kalkulasi |
 | `ArrowLeftRight` | Compare |
 | `BarChart3` | Statistik menu |
 | `Building2` | Kantor |
@@ -631,3 +675,5 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 - **Compact text**: Use `text-[9px]`–`text-[10px]` for metadata, `text-[11px]` for secondary info
 - **Stat numbers**: Use `text-2xl font-bold` for headline stats
 - **Currency format**: `fmtRp()` for full format, `fmtRpShort()` for compact (e.g., "Rp2.5jt", "Rp500rb")
+- **Session isolation**: `clearSession()` wipes all agent-specific data (auth, CAPI sessions, UI state) on login/logout. Full page reload on navigation to prevent React state leaks between agents.
+- **Auth utility**: `isSessionValid()` from `src/utils/authUtils.ts` checks token existence only (no expiry check, no cleanup)

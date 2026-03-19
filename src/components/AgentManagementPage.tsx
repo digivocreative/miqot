@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Search, Plus, X, User, Globe, Phone as PhoneIcon, Mail, Lock,
   Shield, Building2, Eye, EyeOff, Loader2, ChevronRight, Check,
-  Trash2, AlertTriangle, Link as LinkIcon,
+  Trash2, AlertTriangle, Link as LinkIcon, AlertCircle,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PhotoCropModal from './PhotoCropModal';
+import { validateName, validatePhone, validateEmail, validateWebsite, validateSlug, validatePassword, cleanPhone, cleanWebsite } from '../utils/validation';
 
 // ── Types ──
 interface AgentItem {
@@ -205,13 +206,17 @@ export default function AgentManagementPage() {
     setCropImageUrl(null);
   };
 
-  // ── Form field updater ──
+  // ── Form field updater with auto-fix ──
   const setField = (key: keyof FormData, value: string) => {
+    let v = value;
+    // Auto-fix on change
+    if (key === 'phone') v = cleanPhone(v);
+    if (key === 'website') v = cleanWebsite(v);
     setForm(prev => {
-      const next = { ...prev, [key]: value };
+      const next = { ...prev, [key]: v };
       // Auto-generate slug from name (only in create mode and if slug hasn't been manually edited)
       if (key === 'name' && modalMode === 'create' && !slugManual) {
-        next.slug = slugify(value);
+        next.slug = slugify(v);
       }
       return next;
     });
@@ -219,16 +224,28 @@ export default function AgentManagementPage() {
     if (fieldErrors[key]) setFieldErrors(prev => { const n = { ...prev }; delete n[key]; return n; });
   };
 
+  // ── onBlur per-field validation ──
+  const handleFieldBlur = (key: string, value: string) => {
+    let err: string | null = null;
+    if (key === 'name') err = validateName(value);
+    else if (key === 'phone') err = validatePhone(value);
+    else if (key === 'email') err = validateEmail(value);
+    else if (key === 'website') err = validateWebsite(value);
+    else if (key === 'slug') err = validateSlug(value);
+    else if (key === 'password') err = validatePassword(value, modalMode === 'create');
+    if (err) setFieldErrors(prev => ({ ...prev, [key]: err! }));
+    else if (fieldErrors[key]) setFieldErrors(prev => { const n = { ...prev }; delete n[key]; return n; });
+  };
+
   // ── Client-side validation ──
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
-    if (!form.name || form.name.trim().length < 2) errs.name = 'Nama minimal 2 karakter';
-    if (!form.slug || form.slug.length < 2) errs.slug = 'Slug minimal 2 karakter';
-    else if (!/^[a-z0-9-]+$/.test(form.slug)) errs.slug = 'Hanya huruf kecil, angka, dan strip';
-    if (!form.phone || !/^62\d{8,}$/.test(form.phone.replace(/\s/g, ''))) errs.phone = 'Format 628xxx, min 10 digit';
-    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errs.email = 'Format email tidak valid';
-    if (modalMode === 'create' && (!form.password || form.password.length < 6)) errs.password = 'Minimal 6 karakter';
-    if (modalMode === 'edit' && form.password && form.password.length < 6) errs.password = 'Minimal 6 karakter';
+    const nameErr = validateName(form.name); if (nameErr) errs.name = nameErr;
+    const slugErr = validateSlug(form.slug); if (slugErr) errs.slug = slugErr;
+    const phoneErr = validatePhone(form.phone); if (phoneErr) errs.phone = phoneErr;
+    const emailErr = validateEmail(form.email); if (emailErr) errs.email = emailErr;
+    const websiteErr = validateWebsite(form.website); if (websiteErr) errs.website = websiteErr;
+    const pwErr = validatePassword(form.password, modalMode === 'create'); if (pwErr) errs.password = pwErr;
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -342,9 +359,14 @@ export default function AgentManagementPage() {
   }
 
   // ── Input helper ──
-  const inputCls = 'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500';
+  const inputBase = 'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border rounded-xl text-sm focus:ring-2 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500';
+  const inputCls = (key?: string) => `${inputBase} ${
+    key && fieldErrors[key]
+      ? 'border-red-300 dark:border-red-700 focus:ring-red-500 focus:border-red-500'
+      : 'border-gray-200 dark:border-slate-700 focus:ring-emerald-500 focus:border-emerald-500'
+  }`;
   const labelCls = 'flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide';
-  const errCls = 'text-[10px] text-red-500 dark:text-red-400 mt-1';
+  const errCls = 'text-[10px] text-red-500 dark:text-red-400 mt-1 flex items-center gap-1';
 
   return (
     <div className="space-y-3">
@@ -483,49 +505,55 @@ export default function AgentManagementPage() {
                 {/* Name */}
                 <div>
                   <label className={labelCls}><User size={12} /> Nama Lengkap</label>
-                  <input className={inputCls} placeholder="Masukkan nama agent" value={form.name}
-                    onChange={e => setField('name', e.target.value)} />
-                  {fieldErrors.name && <p className={errCls}>{fieldErrors.name}</p>}
+                  <input className={inputCls('name')} placeholder="Masukkan nama agent" value={form.name}
+                    onChange={e => setField('name', e.target.value)}
+                    onBlur={() => handleFieldBlur('name', form.name)} />
+                  {fieldErrors.name && <p className={errCls}><AlertCircle size={10} />{fieldErrors.name}</p>}
                 </div>
 
                 {/* Slug */}
                 <div>
                   <label className={labelCls}><LinkIcon size={12} /> Slug (URL)</label>
                   <input
-                    className={`${inputCls} lowercase`}
+                    className={`${inputCls('slug')} lowercase`}
                     placeholder="nama-agent"
                     value={form.slug}
                     onChange={e => { setSlugManual(true); setField('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')); }}
+                    onBlur={() => handleFieldBlur('slug', form.slug)}
                     disabled={modalMode === 'edit'}
                   />
                   <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">
                     alhijaz.co/{form.slug || '...'} — hanya huruf kecil, angka, dan strip
                   </p>
-                  {fieldErrors.slug && <p className={errCls}>{fieldErrors.slug}</p>}
+                  {fieldErrors.slug && <p className={errCls}><AlertCircle size={10} />{fieldErrors.slug}</p>}
                 </div>
 
                 {/* Email */}
                 <div>
                   <label className={labelCls}><Mail size={12} /> Email</label>
-                  <input className={inputCls} type="email" placeholder="agent@email.com" value={form.email}
-                    onChange={e => setField('email', e.target.value)} />
-                  {fieldErrors.email && <p className={errCls}>{fieldErrors.email}</p>}
+                  <input className={inputCls('email')} type="email" placeholder="agent@email.com" value={form.email}
+                    onChange={e => setField('email', e.target.value)}
+                    onBlur={() => handleFieldBlur('email', form.email)} />
+                  {fieldErrors.email && <p className={errCls}><AlertCircle size={10} />{fieldErrors.email}</p>}
                 </div>
 
                 {/* Phone */}
                 <div>
                   <label className={labelCls}><WaIcon size={12} /> No. WhatsApp</label>
-                  <input className={inputCls} placeholder="628xxxxxxxxxx" value={form.phone}
-                    onChange={e => setField('phone', e.target.value.replace(/\D/g, ''))} />
+                  <input className={inputCls('phone')} placeholder="628xxxxxxxxxx" value={form.phone}
+                    onChange={e => setField('phone', e.target.value)}
+                    onBlur={() => handleFieldBlur('phone', form.phone)} />
                   <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">Format: 628xxx tanpa + atau spasi</p>
-                  {fieldErrors.phone && <p className={errCls}>{fieldErrors.phone}</p>}
+                  {fieldErrors.phone && <p className={errCls}><AlertCircle size={10} />{fieldErrors.phone}</p>}
                 </div>
 
                 {/* Website */}
                 <div>
                   <label className={labelCls}><Globe size={12} /> Website</label>
-                  <input className={inputCls} placeholder="alhijazindonesia.com" value={form.website}
-                    onChange={e => setField('website', e.target.value)} />
+                  <input className={inputCls('website')} placeholder="alhijazindonesia.com" value={form.website}
+                    onChange={e => setField('website', e.target.value)}
+                    onBlur={() => handleFieldBlur('website', form.website)} />
+                  {fieldErrors.website && <p className={errCls}><AlertCircle size={10} />{fieldErrors.website}</p>}
                 </div>
               </div>
 
@@ -538,18 +566,19 @@ export default function AgentManagementPage() {
                   <label className={labelCls}><Lock size={12} /> {modalMode === 'create' ? 'Password' : 'Reset Password'}</label>
                   <div className="relative">
                     <input
-                      className={`${inputCls} pr-10`}
+                      className={`${inputCls('password')} pr-10`}
                       type={showPw ? 'text' : 'password'}
                       placeholder={modalMode === 'create' ? 'Minimal 6 karakter' : 'Kosongkan jika tidak ingin mengubah'}
                       value={form.password}
                       onChange={e => setField('password', e.target.value)}
+                      onBlur={() => handleFieldBlur('password', form.password)}
                     />
                     <button type="button" onClick={() => setShowPw(p => !p)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
                       {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
-                  {fieldErrors.password && <p className={errCls}>{fieldErrors.password}</p>}
+                  {fieldErrors.password && <p className={errCls}><AlertCircle size={10} />{fieldErrors.password}</p>}
                 </div>
 
                 {/* Role */}
@@ -582,7 +611,7 @@ export default function AgentManagementPage() {
                 {/* Username Internal */}
                 <div className="mb-3">
                   <label className={labelCls}><Building2 size={12} /> Username</label>
-                  <input className={inputCls} placeholder="Username sistem internal" value={form.jamaah_username}
+                  <input className={inputCls()} placeholder="Username sistem internal" value={form.jamaah_username}
                     onChange={e => setField('jamaah_username', e.target.value)} />
                 </div>
 
@@ -591,7 +620,7 @@ export default function AgentManagementPage() {
                   <label className={labelCls}><Lock size={12} /> Password</label>
                   <div className="relative">
                     <input
-                      className={`${inputCls} pr-10`}
+                      className={`${inputCls()} pr-10`}
                       type={showJamaahPw ? 'text' : 'password'}
                       placeholder="Password sistem internal"
                       value={form.jamaah_password}
@@ -609,7 +638,7 @@ export default function AgentManagementPage() {
                   <label className={labelCls}><Building2 size={12} /> Kode Kantor</label>
                   <div className="relative">
                     <select
-                      className={`${inputCls} appearance-none pr-8`}
+                      className={`${inputCls()} appearance-none pr-8`}
                       value={form.jamaah_kantor}
                       onChange={e => setField('jamaah_kantor', e.target.value)}
                     >

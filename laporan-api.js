@@ -126,6 +126,9 @@ export async function fetchLaporan(username, { kantor, agentId, tglAwal, tglAkhi
   const url = `${BASE}/pages/route/laporan_data_jamaah/_claporanm.php?.ob=${encodeURIComponent(ob)}&.tgw=${encodeURIComponent(tglAwal)}&.tgk=${encodeURIComponent(tglAkhir)}&.m=${encodeURIComponent(agentId)}`;
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000); // 30s timeout
+
     const res = await fetch(url, {
       method: 'GET',
       headers: {
@@ -135,7 +138,10 @@ export async function fetchLaporan(username, { kantor, agentId, tglAwal, tglAkhi
         'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
       },
       redirect: 'follow',
+      signal: controller.signal,
     });
+
+    clearTimeout(timeout);
 
     const html = await res.text();
 
@@ -151,6 +157,9 @@ export async function fetchLaporan(username, { kantor, agentId, tglAwal, tglAkhi
     };
 
   } catch (err) {
+    if (err.name === 'AbortError') {
+      return { success: false, error: 'Sistem internal tidak merespons (timeout)' };
+    }
     if (err.cause?.code === 'ECONNREFUSED' || err.cause?.code === 'ETIMEDOUT') {
       return { success: false, error: 'Sistem internal tidak merespons' };
     }

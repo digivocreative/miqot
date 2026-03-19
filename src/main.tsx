@@ -70,6 +70,16 @@ const singlePackageId = isSinglePackageWithAgent ? segments[1]
   : isBarePackageId ? segments[0]
   : null
 
+// ── Auto-redirect: logged-in agents go straight to dashboard ──
+import { isSessionValid } from './utils/authUtils'
+
+const currentPath = window.location.pathname.replace(/\/+$/, '') || '/'
+const shouldAutoRedirect = isSessionValid() && (currentPath === '/' || currentPath === '/login')
+
+if (shouldAutoRedirect) {
+  window.location.replace('/dashboard')
+}
+
 // ── Page Transition: inject overlay div & trigger reveal ──
 const overlay = document.createElement('div')
 overlay.className = 'page-transition-overlay'
@@ -112,14 +122,13 @@ function DashboardRouter() {
 
   useEffect(() => {
     if (!session) { setChecking(false); return }
-    // Verify token is still valid
+    // Verify token — but never auto-logout on failure (network error, server restart, etc.)
     fetch('/api/auth/me', { headers: { Authorization: `Bearer ${session.token}` } })
       .then(r => { if (!r.ok) throw new Error('expired'); return r.json() })
       .then(() => setChecking(false))
       .catch(() => {
-        // Token expired, clear and redirect
-        import('./components/LoginPage.tsx').then(mod => mod.clearSession())
-        setSession(null)
+        // Don't clear session — just proceed with existing session
+        // Agent should never be auto-logged out
         setChecking(false)
       })
   }, [session])
@@ -160,7 +169,10 @@ const renderPage = () => {
   return <App singlePackageId={singlePackageId} />
 }
 
-createRoot(document.getElementById('root')!).render(
-  renderPage()
-)
+// Only render if not auto-redirecting
+if (!shouldAutoRedirect) {
+  createRoot(document.getElementById('root')!).render(
+    renderPage()
+  )
+}
 

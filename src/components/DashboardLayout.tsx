@@ -3,6 +3,7 @@ import {
   Calculator, ArrowLeftRight, Settings,
   LogOut, Shield, Users, Moon, Sun, ChevronLeft, ChevronRight,
   Globe, Phone, LayoutGrid, User, BarChart3, Loader2,
+  CalendarRange, ExternalLink,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
@@ -72,9 +73,17 @@ interface MenuCard {
   borderDark: string;
   adminOnly?: boolean;
   hidden?: boolean;
+  openExternal?: boolean;
 }
 
 const MENU_CARDS: MenuCard[] = [
+  {
+    id: 'home', label: 'Jadwal', desc: 'Lihat paket',
+    icon: CalendarRange, color: 'text-emerald-600 dark:text-emerald-400',
+    bgLight: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20',
+    borderLight: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40',
+    openExternal: true,
+  },
   {
     id: 'jamaah', label: 'Jamaah', desc: 'Data jamaah',
     icon: Users, color: 'text-amber-600 dark:text-amber-400',
@@ -253,13 +262,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             >
               {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
             </button>
-            {/* Jamaah connection status in header */}
+            {/* Jamaah disconnect button in header */}
             {activeTab === 'jamaah' && jamaahConnected && jamaahUser && (
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-full">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">{jamaahUser}</span>
-                </div>
+              <div className="flex items-center shrink-0">
                 <button
                   onClick={() => setShowDisconnectConfirm(true)}
                   className="w-8 h-8 flex items-center justify-center rounded-xl bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors active:scale-95"
@@ -429,6 +434,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               <button
                 key={card.id}
                 onClick={async () => {
+                  if (card.openExternal) {
+                    window.open(`/${agentData.slug}`, '_blank');
+                    return;
+                  }
                   if (card.id === 'statistik') {
                     setCheckingStatistik(true);
                     try {
@@ -454,6 +463,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               >
                 {/* Decorative gradient blob */}
                 <div className={`absolute -top-4 -right-4 w-16 h-16 rounded-full ${card.bgLight} ${card.bgDark} opacity-60 blur-xl group-hover:opacity-80 transition-opacity`} />
+                {/* External link indicator */}
+                {card.openExternal && (
+                  <ExternalLink size={10} className="absolute top-2 right-2 text-gray-300 dark:text-slate-500" />
+                )}
                 <div className="relative flex flex-col items-center text-center">
                   {card.id === 'capi' ? (
                     <div className="w-11 h-11 rounded-xl bg-gray-50 dark:bg-gray-800/30 flex items-center justify-center border border-gray-200 dark:border-gray-700/40 mb-2 group-hover:scale-110 transition-transform duration-200">

@@ -15,7 +15,7 @@
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
-| **Database** | Supabase (PostgreSQL) — 4 tabel: `agents`, `capi_configs`, `jamaah`, `calendar_events` |
+| **Database** | Supabase (PostgreSQL) — 5 tabel: `agents`, `capi_configs`, `jamaah`, `calendar_events`, `calendar_insights` |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
 | **Charts** | Recharts (AreaChart, BarChart — untuk Statistik page) |
@@ -25,6 +25,7 @@
 | **Icons** | Lucide React |
 | **PWA** | vite-plugin-pwa (offline support, install banner) |
 | **Notifications** | Telegram Bot API + node-cron (seat alerts, weekly summary, AI insights) |
+| **Email** | Resend (transactional emails: password reset) |
 | **Hosting** | VPS (Ubuntu), systemd service `miqot.service` |
 | **Deploy** | GitHub webhook → `deploy-webhook.js` → `deploy.sh` (pull + build + restart) |
 | **Container** | Docker + docker-compose (alternatif) |
@@ -57,7 +58,7 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~1700 lines) — API, proxy, auth, sync, stats, SPA serve
+├── server.js              # Express backend (~2000 lines) — API, proxy, auth, sync, stats, AI insight, SPA serve
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
 ├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
 ├── jamaah-api.js           # Legacy: Playwright-based jamaah scraping (deprecated, replaced by laporan-api.js)
@@ -81,7 +82,9 @@ alhijaz/
 │   │   ├── JamaahPage.tsx      # View jamaah data, sync & filter (~1018 lines)
 │   │   ├── StatistikPage.tsx   # Dashboard statistik: ringkasan jamaah, komisi, chart tren (~678 lines)
 │   │   ├── UpcomingSchedule.tsx # Calendar widget — mini grid with colored dots + bottom sheet detail
+│   │   ├── CalendarInsight.tsx   # AI Insight alert bar + bottom sheet popup (OpenAI-generated)
 │   │   ├── DashboardProfile.tsx # Edit profile + photo crop modal
+│   │   ├── ResetPasswordPage.tsx # Reset password page (from email link)
 │   │   ├── FilterHeader.tsx    # Header filter (search, sort, filter mode)
 │   │   ├── DashboardLayout.tsx # Dashboard home + navigation + tab routing
 │   │   ├── QuotationDocument.tsx # react-pdf quotation template
@@ -92,7 +95,8 @@ alhijaz/
 │   │   ├── BrochureModal.tsx   # Fullscreen brochure viewer
 │   │   ├── CompactCard.tsx     # Compact card variant
 │   │   ├── FloatingAgentBar.tsx # Floating WhatsApp CTA bar
-│   │   ├── AgentProfile.tsx    # Agent info card on package
+│   │   ├── AgentProfile.tsx    # Agent info card on package page
+│   │   ├── PhotoCropModal.tsx  # Reusable photo crop modal (react-easy-crop)
 │   │   └── index.ts            # Barrel re-exports
 │   ├── data/
 │   │   ├── agents.ts           # Agent data + Supabase fetch + fallback
@@ -104,6 +108,7 @@ alhijaz/
 │   │   ├── supabase.ts         # Supabase client init (frontend/anon key)
 │   │   └── capi.ts             # Meta CAPI event sender
 │   ├── utils/
+│   │   ├── authUtils.ts        # Shared auth utility (isSessionValid)
 │   │   ├── filter-logic.ts     # Filter/sort logic for packages
 │   │   └── index.ts            # Re-exports
 │   └── types/
@@ -125,12 +130,12 @@ alhijaz/
 │   ├── add-perlengkapan-cols.js     # Add perlengkapan columns to jamaah table
 │   ├── migrate-paspor-columns.js    # Add no_paspor/paspor_expired columns
 │   ├── fix-hijriah-year.js          # Fix hijriah year based on departure dates
+│   ├── seed-bagas.js                # Create agent "bagas" with dummy jamaah data
 │   ├── debug-cols.js                # Debug legacy HTML table column structure
 │   ├── telegram-notify.mjs          # Manual telegram notification script
 │   └── sync-umroh-dates.mjs        # Sync departure dates for OG images
 │
 ├── public/                 # Static assets
-│   ├── agents/             # Agent profile photos (slug.jpg)
 │   ├── og/                 # OG images per agent (slug.png)
 │   ├── fonts/              # Custom fonts
 │   ├── logo-bank/          # Bank logos for quotation (bca.png, bsi.png, mandiri.png)
@@ -167,8 +172,12 @@ alhijaz/
 - AI-powered caption generator (OpenAI) untuk promosi WhatsApp
 
 ### Fitur Dashboard (Agent/Admin)
-- Login dengan JWT (7 days expiry)
-- Edit profil (nama, website, phone, email, slug, foto crop & upload)
+- Login dengan JWT (365 days expiry)
+- **Auto-redirect**: Agent yang sudah login otomatis redirect dari `/` atau `/login` ke `/dashboard` (synchronous, sebelum React render)
+- **Subtle login/dashboard button** di public header: `LogIn` icon jika belum login, `LayoutDashboard` icon jika sudah login
+- Lupa password → reset via email (Resend API)
+- Edit profil (nama, website, phone, email, slug, foto crop & upload ke Supabase Storage)
+- **Menu Jadwal** — menu pertama di dashboard, membuka halaman publik agent (`/{slug}`) di tab baru dengan `ExternalLink` indicator
 - **Statistik** — dashboard ringkasan data jamaah per tahun Hijriah:
   - Headline stats: Total Jamaah, Komisi Cair, Berangkat Segera, Jamaah Baru
   - Estimasi Komisi dengan 3-segment bar (Sudah Cair / Belum Cair / Potensi)
@@ -179,7 +188,7 @@ alhijaz/
   - Sync ulang data langsung dari halaman Statistik
 - Kalkulasi harga (hitung harga per tipe kamar + generate PDF quotation)
 - Compare 2 paket side-by-side
-- Meta CAPI config (Pixel ID, Access Token, event toggle)
+- Meta CAPI config (Pixel ID, Access Token, event toggle) — auto-bypass login dari dashboard
 - Admin: manage all agents (CRUD)
 - Jamaah management (sync dari sistem internal legacy, filter, sort, pagination)
   - Progressive sync: first 10 jamaah shown immediately, rest synced in background
@@ -192,6 +201,13 @@ alhijaz/
   - Navigasi bulan (prev/next) dengan caching data per bulan
   - Bottom sheet popup saat klik tanggal — detail group cards (pesawat, jam, paket, PAX, TL)
   - Data di-scrape dari internal system (FullCalendar events + _jmodal.php detail)
+- **AI Insight** — alert bar + bottom sheet popup (OpenAI-generated):
+  - 3 insight cards: Hari Ini, 7 Hari ke Depan, Cuaca Tanah Suci
+  - Data cuaca Mekah/Madinah (suhu rata-rata per bulan dari temperatureData.ts)
+  - Bahasa kasual & hangat (target: agen perempuan 40-50 tahun)
+  - Auto-generate via cron setiap hari jam 06:15 WIB + setelah calendar sync pertama
+  - In-memory cache + Supabase fallback
+  - Bold markdown parsing (`**text**` → `<strong>`)
 
 ### Fitur Infrastruktur
 - AI Copywriting (OpenAI proxy — generate caption WhatsApp)
@@ -207,6 +223,12 @@ alhijaz/
   - Login ke internal system → fetch halaman Beranda → parse FullCalendar events JSON
   - Fetch detail popup via `_jmodal.php` per event → parse HTML table (group, pesawat, jam, paket, PAX, staff, TL)
   - Upsert ke `calendar_events` table
+- AI Calendar Insight (OpenAI `gpt-4o-mini`):
+  - Generate via cron harian (06:15 WIB) + setelah first calendar sync jika cache kosong
+  - Prompt includes calendar events + Mekah/Madinah temperature data
+  - 3 fields: `today`, `weekly`, `cuaca`
+  - Cache: in-memory + Supabase `calendar_insights` table
+- Agent photo storage: Supabase Storage bucket `agent-photos` (migrated from local `/public/agents/`)
 - GitHub webhook auto-deploy (webhook → pull → build → restart)
 - Supabase keep-alive (ping setiap 3 hari, cegah free-tier pause)
 - OG image generation per agent
@@ -293,6 +315,8 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 |--------|------|------|-----------|
 | POST | `/api/auth/login` | — | Login, return JWT + user data |
 | GET | `/api/auth/me` | Bearer | Get current user data |
+| POST | `/api/auth/forgot-password` | — | Send password reset email via Resend |
+| POST | `/api/auth/reset-password` | — | Verify reset token + update password |
 
 ### Admin
 | Method | Path | Auth | Deskripsi |
@@ -330,6 +354,7 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | Method | Path | Auth | Deskripsi |
 |--------|------|------|-----------|
 | GET | `/api/calendar/events` | Bearer | Get calendar events (query: `month`, `year`) — grouped by date+type |
+| GET | `/api/calendar/insight` | Bearer | Get AI-generated insight (in-memory cache → Supabase fallback) |
 
 ### Jamaah (Legacy — deprecated)
 | Method | Path | Auth | Deskripsi |
@@ -352,8 +377,9 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | GET | `/:slug/umroh` | SSR landing page dengan OG meta tags |
 
 ### Auth Format
-- **JWT**: `Authorization: Bearer <token>`, 7 days expiry
+- **JWT**: `Authorization: Bearer <token>`, 365 days expiry
 - **Payload**: `{ slug, name, role }`
+- **Session isolation**: `clearSession()` wipes all agent-specific data (auth, CAPI sessions, UI state) on login/logout
 
 ### Response Format
 ```json
@@ -392,6 +418,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 | `TELEGRAM_CHAT_ID_DEV` | Chat ID dev untuk testing notifikasi |
 | `NOTIFIER_YEAR_CODES` | Kode tahun paket yang di-monitor (default: "1448") |
 | `NOTIFIER_BASE_URL` | Base URL API untuk notifier (default: localhost:3000) |
+| `RESEND_API_KEY` | Resend API key untuk transactional emails (password reset) |
 
 ### Deployment (Production)
 - Server: VPS Ubuntu, systemd service `miqot.service`
@@ -418,6 +445,17 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Single package view (deep link ke 1 paket)
 - Quotation PDF dengan logo bank (BCA, BSI, Mandiri)
 - Calendar scraping & display (internal system → Supabase → dashboard mini calendar + bottom sheet)
+- AI Calendar Insight (OpenAI `gpt-4o-mini`, cron daily, alert bar + popup, 3 cards incl. weather)
+- Password reset via email (Resend API)
+- Agent photo storage migrated to Supabase Storage
+- Photo crop modal (react-easy-crop) for profile & agent management
+- Easy login access (auto-redirect, header login/dashboard button, shared `authUtils.ts`)
+- Prevent auto-logout (365d JWT, simplified client-side auth check, no session cleanup on verification failure)
+- Session isolation (enhanced `clearSession()` wipes CAPI sessions, insight state; full page reload on login/logout)
+- Jadwal menu in dashboard (opens public page in new tab)
+- Removed redundant Hitung/Compare buttons from public header
+- CAPI auto-bypass login from dashboard context
+- Seed script for dummy agent "bagas" with 25 jamaah records
 
 ### Rencana / Backlog
 - [TODO] Testing suite
@@ -431,6 +469,8 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 |-----------|--------|
 | **Custom routing** (bukan React Router) | Butuh SPA yang bisa diterjemahkan jadi landing page per agent via URL slug, cukup sederhana tanpa nested routes |
 | **JWT custom** (bukan Supabase Auth) | Auth hanya untuk agent/admin, sangat sederhana (slug + password), tidak perlu Supabase Auth overhead |
+| **JWT 365d expiry** | Agent tidak boleh auto-logout — session harus bertahan sangat lama. Client tidak cek expiry. |
+| **Session isolation** | `clearSession()` wipes all agent-specific keys before new login to prevent data leak between agents. Full page reload (`window.location.href`) on login/logout to clear React state. |
 | **Proxy semua external request** | Bypass CORS dari jadwal.alhijaz.co, kontrol caching, dan menjaga secret keys di server |
 | **Data paket tidak di-database** | Data paket di-own oleh sistem legacy (jadwal.alhijaz.co), cukup di-fetch & cache di client |
 | **Native fetch + Cheerio untuk Jamaah** | Awalnya pakai Playwright (300MB+), diganti native fetch + Cheerio (lightweight) — cukup POST login + GET HTML + parse table |
@@ -446,9 +486,9 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - **CapiPage.tsx terlalu besar** (~1774 baris) — bisa di-modularisasi
 - **Tidak ada test suite** — risiko regresi saat refactor
 - **No error boundary** — React errors bisa crash seluruh app
-- **Agent photos di-serve lokal** — idealnya pakai CDN/object storage
+
 - **CAPI endpoints tidak pakai auth** — hanya dilindungi oleh agent slug (not secret)
-- **server.js monolith** (~1599 baris) — perlu di-split ke route modules
+- **server.js monolith** (~2000 baris) — perlu di-split ke route modules
 - **telegram-notifier.js besar** (~1340 baris) — bisa di-modularisasi
 - **jamaah-api.js masih ada** — file Playwright-based yang deprecated, bisa dihapus
 
@@ -461,3 +501,6 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - ❌ **DON'T**: Jangan hardcode agent data — selalu ambil dari Supabase (fallback di `agents.ts`)
 - ❌ **DON'T**: Jangan tambahkan `crossOrigin` pada img tag brosur/itinerary — bisa break loading
 - ❌ **DON'T**: Jangan import dari `jamaah-api.js` untuk fitur baru — gunakan `laporan-api.js`
+- ✅ **DO**: Selalu panggil `clearSession()` sebelum menyimpan sesi baru di login flow — cegah data leak
+- ❌ **DON'T**: Jangan cek JWT expiry di client-side — biarkan server yang handle validasi token
+- ❌ **DON'T**: Jangan clear session saat `/api/auth/me` gagal (bisa karena network error) — cegah auto-logout

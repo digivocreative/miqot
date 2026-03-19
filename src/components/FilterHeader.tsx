@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
+import { isSessionValid } from '@/utils/authUtils';
 import type { UmrohPackage } from '@/types';
 import { 
   FilterMode, 
@@ -10,7 +11,7 @@ import {
   type MonthGroup,
 } from '@/utils';
 import logoAlhijaz from '@/logo-alhijaz.webp';
-import { Sun, Moon, Search, X, SlidersHorizontal, Calculator, LayoutList } from 'lucide-react';
+import { Sun, Moon, Search, X, SlidersHorizontal, LayoutList, LogIn, LayoutDashboard } from 'lucide-react';
 import { AGENTS_DATA } from '@/data/agents';
 
 // ============================================
@@ -103,6 +104,7 @@ export function FilterHeader({
   const inputRef = useRef<HTMLInputElement>(null);
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
+  const loggedIn = useMemo(() => isSessionValid(), []);
 
 
 
@@ -185,69 +187,6 @@ export function FilterHeader({
            {/* Year Dropdown & Dark Mode Toggle */}
           <div className="flex items-center gap-2">
 
-             {/* Kalkulasi Icon – only if valid agent slug */}
-             {(() => {
-               const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0]?.toLowerCase();
-               if (!seg || !AGENTS_DATA[seg]) return null;
-               return (
-                 <button
-                   onClick={(e) => {
-                     e.preventDefault();
-                     document.body.classList.add('navigating');
-                     setTimeout(() => {
-                       window.location.href = `/${seg}/kalkulasi?transition=1`;
-                     }, 280);
-                   }}
-                   className="
-                     flex items-center gap-2
-                     px-3 h-[38px] rounded-xl
-                     bg-gray-100/80 text-gray-600
-                     hover:bg-gray-200/80
-                     dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700/80
-                     transition-all duration-200
-                     focus:outline-none focus:ring-2 focus:ring-emerald-500
-                   "
-                   aria-label="Kalkulasi Harga"
-                   title="Kalkulasi Harga"
-                 >
-                   <Calculator size={16} />
-                   <span className="text-xs font-medium">Hitung</span>
-                 </button>
-               );
-             })()}
-
-             {/* Compare Button */}
-             {(() => {
-               const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0]?.toLowerCase();
-               if (!seg || !AGENTS_DATA[seg]) return null;
-               return (
-                 <button
-                   onClick={() => {
-                     document.body.classList.add('navigating');
-                     setTimeout(() => {
-                       window.location.href = `/${seg}/compare?transition=1`;
-                     }, 280);
-                   }}
-                   className="
-                     flex items-center justify-center
-                     w-[38px] h-[38px] rounded-xl
-                     bg-gray-100/80 text-gray-600
-                     hover:bg-gray-200/80
-                     dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700/80
-                     hover:text-violet-600 dark:hover:text-violet-400
-                     transition-all duration-200
-                     focus:outline-none focus:ring-2 focus:ring-emerald-500
-                   "
-                   aria-label="Compare"
-                   title="Compare Paket"
-                 >
-                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                     <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-                   </svg>
-                 </button>
-               );
-             })()}
-
              {/* Dark Mode Toggle */}
              <button
               onClick={onToggleDarkMode}
@@ -264,6 +203,27 @@ export function FilterHeader({
             >
               {isDarkMode ? <Moon size={16} /> : <Sun size={16} />}
             </button>
+
+             {/* Login / Dashboard Button */}
+             <button
+               onClick={() => {
+                 window.location.href = loggedIn ? '/dashboard' : '/login';
+               }}
+               className="
+                 flex items-center justify-center
+                 w-[38px] h-[38px] rounded-xl
+                 bg-gray-100/80 text-gray-600
+                 hover:bg-gray-200/80
+                 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700/80
+                 transition-all duration-200
+                 focus:outline-none focus:ring-2 focus:ring-emerald-500
+                 active:scale-95
+               "
+               aria-label={loggedIn ? 'Dashboard' : 'Masuk'}
+               title={loggedIn ? 'Dashboard' : 'Masuk'}
+             >
+               {loggedIn ? <LayoutDashboard size={16} /> : <LogIn size={16} />}
+             </button>
 
            </div>
         </div>

@@ -177,7 +177,14 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
       setConnectedUser(username);
       setPassword('');
       onConnectionChange?.(true, username);
-      await handleSync(true);
+
+      // Immediately show data view — load whatever Supabase already has
+      setView('data');
+      setPage(1);
+      await fetchJamaah(1);
+
+      // Then trigger sync in background (non-blocking)
+      handleSync(false);
     } catch {
       setError('Gagal menghubungi server');
       setView('login');

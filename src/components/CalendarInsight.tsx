@@ -42,7 +42,13 @@ function truncateForBar(text: string, max = 50) {
 export default function CalendarInsight() {
   const [insight, setInsight] = useState<InsightData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showAlert, setShowAlert] = useState(() => sessionStorage.getItem('insightDismissed') !== 'true');
+  const [showAlert, setShowAlert] = useState(() => {
+    const dismissed = localStorage.getItem('insightDismissedDate');
+    if (!dismissed) return true;
+    // Show again if dismissed date is not today
+    const today = new Date().toISOString().slice(0, 10);
+    return dismissed !== today;
+  });
   const [showPopup, setShowPopup] = useState(false);
 
   const fetchInsight = useCallback(async () => {
@@ -67,7 +73,8 @@ export default function CalendarInsight() {
   const handleDismiss = (e: React.MouseEvent) => {
     e.stopPropagation();
     setShowAlert(false);
-    sessionStorage.setItem('insightDismissed', 'true');
+    const today = new Date().toISOString().slice(0, 10);
+    localStorage.setItem('insightDismissedDate', today);
   };
 
   // Don't show anything while loading or if no data
@@ -130,7 +137,7 @@ export default function CalendarInsight() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-              className="fixed inset-x-0 bottom-0 z-50 max-w-lg mx-auto bg-white dark:bg-slate-800 rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 shadow-2xl max-h-[70vh] flex flex-col"
+              className="fixed inset-x-0 bottom-0 z-50 max-w-lg mx-auto bg-white dark:bg-slate-800 rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 shadow-2xl max-h-[85vh] overflow-y-auto"
             >
               {/* Handle bar */}
               <div className="py-2 flex justify-center">
@@ -164,9 +171,9 @@ export default function CalendarInsight() {
                 <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/40 px-3 py-2.5">
                   <div className="flex items-center gap-1.5 mb-1">
                     <Plane size={12} className="text-emerald-500 dark:text-emerald-400" />
-                    <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">HARI INI</span>
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">HARI INI</span>
                   </div>
-                  <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
+                  <p className="text-[12px] text-gray-600 dark:text-slate-300 leading-relaxed">
                     {renderBold(insight.today)}
                   </p>
                 </div>
@@ -175,9 +182,9 @@ export default function CalendarInsight() {
                 <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/40 px-3 py-2.5">
                   <div className="flex items-center gap-1.5 mb-1">
                     <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                    <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide">7 HARI KE DEPAN</span>
+                    <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide">7 HARI KE DEPAN</span>
                   </div>
-                  <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
+                  <p className="text-[12px] text-gray-600 dark:text-slate-300 leading-relaxed">
                     {renderBold(insight.weekly)}
                   </p>
                 </div>
@@ -186,9 +193,9 @@ export default function CalendarInsight() {
                 <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/40 px-3 py-2.5">
                   <div className="flex items-center gap-1.5 mb-1">
                     <CloudSun size={12} className="text-amber-500 dark:text-amber-400" />
-                    <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide">CUACA TANAH SUCI</span>
+                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide">CUACA TANAH SUCI</span>
                   </div>
-                  <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
+                  <p className="text-[12px] text-gray-600 dark:text-slate-300 leading-relaxed">
                     {renderBold(insight.cuaca)}
                   </p>
                 </div>

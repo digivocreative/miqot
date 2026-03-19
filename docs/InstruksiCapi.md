@@ -18,9 +18,10 @@ CAPI config bisa diakses dari 2 tempat:
 
 ### 1. Autentikasi
 
-- **Standalone page** (`/[slug-agent]/capi`): Form login meminta password agent, diverifikasi via `POST /api/capi/:slug/login` (bcrypt compare).
-- **Dashboard**: Tidak perlu login ulang — menggunakan JWT session yang sudah aktif.
+- **Standalone page** (`/[slug-agent]/capi`): Form login meminta password agent, diverifikasi via `POST /api/capi/:slug/login` (bcrypt compare). Session disimpan di `localStorage`/`sessionStorage` dengan key `capi_session_{slug}`.
+- **Dashboard** (`hideHeader=true`): **Auto-bypass login** — tidak perlu password karena sudah terautentikasi via JWT session dashboard. Langsung tampil halaman settings.
 - Jika slug agent tidak valid, tampilkan halaman 404.
+- **Session cleanup**: Saat agent logout dari dashboard, semua `capi_session_*` keys di-clear oleh `clearSession()` untuk mencegah data leak antar agent.
 
 ### 2. Halaman Settings CAPI
 

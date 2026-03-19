@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, X, Pencil } from 'lucide-react';
+import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PhotoCropModal from './PhotoCropModal';
+import { validateName, validatePhone, validateEmail, validateWebsite, cleanPhone, cleanWebsite } from '../utils/validation';
 
 interface AgentProfile {
   slug: string;
@@ -14,6 +15,192 @@ interface AgentProfile {
 }
 
 
+
+// ── Password Change Modal ──
+function PasswordModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; onClose: () => void; onSuccess: () => void }) {
+  const [pw, setPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [pwError, setPwError] = useState('');
+  const [confirmError, setConfirmError] = useState('');
+  const [serverError, setServerError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [closing, setClosing] = useState(false);
+
+  // Scroll lock
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen]);
+
+  const reset = () => {
+    setPw(''); setConfirmPw(''); setShowPw(false); setShowConfirm(false);
+    setPwError(''); setConfirmError(''); setServerError('');
+  };
+
+  const handleClose = () => {
+    setClosing(true);
+    setTimeout(() => {
+      setClosing(false);
+      reset();
+      onClose();
+    }, 150);
+  };
+
+  const handleSave = async () => {
+    setPwError(''); setConfirmError(''); setServerError('');
+    let valid = true;
+    if (!pw) { setPwError('Password wajib diisi'); valid = false; }
+    else if (pw.length < 6) { setPwError('Password minimal 6 karakter'); valid = false; }
+    if (!confirmPw) { setConfirmError('Konfirmasi password wajib diisi'); valid = false; }
+    else if (pw !== confirmPw) { setConfirmError('Password tidak cocok'); valid = false; }
+    if (!valid) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/admin/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ password: pw }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setServerError(data.error || 'Gagal mengubah password');
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+      reset();
+      onClose();
+      onSuccess();
+    } catch {
+      setServerError('Gagal menghubungi server');
+      setSaving(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const animStyle = closing
+    ? { animation: 'pwModalOut 0.15s ease forwards' }
+    : { animation: 'pwModalIn 0.15s ease' };
+  const overlayAnim = closing
+    ? { animation: 'pwOverlayOut 0.15s ease forwards' }
+    : { animation: 'pwOverlayIn 0.15s ease' };
+
+  return (
+    <>
+      <style>{`
+        @keyframes pwOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes pwOverlayOut { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes pwModalIn { from { opacity: 0; transform: translate(-50%, -50%) scale(0.95); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+        @keyframes pwModalOut { from { opacity: 1; transform: translate(-50%, -50%) scale(1); } to { opacity: 0; transform: translate(-50%, -50%) scale(0.95); } }
+      `}</style>
+      {/* Overlay */}
+      <div
+        className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+        style={overlayAnim}
+        onClick={handleClose}
+      />
+      {/* Modal */}
+      <div
+        className="fixed top-1/2 left-1/2 z-50 w-[calc(100%-2rem)] max-w-sm bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl"
+        style={{ ...animStyle, transform: 'translate(-50%, -50%)' }}
+      >
+        {/* Header */}
+        <div className="px-5 pt-5 pb-1">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center text-emerald-500 dark:text-emerald-400 mx-auto mb-2">
+            <Lock size={20} />
+          </div>
+          <p className="text-sm font-bold text-gray-800 dark:text-white text-center">Ubah Password</p>
+          <p className="text-[11px] text-gray-400 dark:text-slate-500 text-center mt-1">Masukkan password baru kamu</p>
+        </div>
+
+        {/* Form */}
+        <div className="px-5 pt-4 space-y-3">
+          {/* Password Baru */}
+          <div>
+            <label className="text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 block">Password Baru</label>
+            <div className="relative">
+              <input
+                type={showPw ? 'text' : 'password'}
+                value={pw}
+                onChange={e => { setPw(e.target.value); setPwError(''); }}
+                placeholder="Minimal 6 karakter"
+                autoFocus
+                className="w-full px-3 py-2.5 pr-10 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw(!showPw)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 transition-colors"
+              >
+                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+            {pwError && <p className="text-[10px] text-red-500 dark:text-red-400 mt-1">{pwError}</p>}
+          </div>
+
+          {/* Konfirmasi Password */}
+          <div>
+            <label className="text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 block">Konfirmasi Password</label>
+            <div className="relative">
+              <input
+                type={showConfirm ? 'text' : 'password'}
+                value={confirmPw}
+                onChange={e => { setConfirmPw(e.target.value); setConfirmError(''); }}
+                placeholder="Ketik ulang password baru"
+                className="w-full px-3 py-2.5 pr-10 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirm(!showConfirm)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 transition-colors"
+              >
+                {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+            {confirmError && <p className="text-[10px] text-red-500 dark:text-red-400 mt-1">{confirmError}</p>}
+          </div>
+        </div>
+
+        {/* Server error */}
+        {serverError && (
+          <div className="mx-5 mt-3 p-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium text-center">
+            {serverError}
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="px-5 pt-4 pb-5 flex gap-2">
+          <button
+            type="button"
+            onClick={handleClose}
+            className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+          >
+            Batal
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95 disabled:opacity-70"
+          >
+            {saving ? (
+              <><Loader2 size={16} className="animate-spin" /> Menyimpan...</>
+            ) : (
+              <><Save size={16} /> Simpan</>
+            )}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Main Profile Component ──
 export default function DashboardProfile({ agent, onUpdated }: { agent: AgentProfile; onUpdated: () => void }) {
   const [name, setName] = useState(agent.name);
@@ -22,7 +209,10 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
   const [email, setEmail] = useState(agent.email || '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [savedMessage, setSavedMessage] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [photoUrl, setPhotoUrl] = useState(agent.photo);
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -33,14 +223,49 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
   const [savingSlug, setSavingSlug] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Field error helpers ──
+  const clearFieldError = (key: string) => {
+    if (fieldErrors[key]) setFieldErrors(prev => { const n = { ...prev }; delete n[key]; return n; });
+  };
+
+  const handleBlur = (key: string, value: string) => {
+    let err: string | null = null;
+    if (key === 'name') err = validateName(value);
+    else if (key === 'phone') err = validatePhone(value);
+    else if (key === 'email') err = validateEmail(value);
+    else if (key === 'website') err = validateWebsite(value);
+    if (err) setFieldErrors(prev => ({ ...prev, [key]: err! }));
+    else clearFieldError(key);
+  };
+
+  const validateAll = (): boolean => {
+    const errs: Record<string, string> = {};
+    const nameErr = validateName(name); if (nameErr) errs.name = nameErr;
+    const phoneErr = validatePhone(phone); if (phoneErr) errs.phone = phoneErr;
+    const emailErr = validateEmail(email); if (emailErr) errs.email = emailErr;
+    const websiteErr = validateWebsite(website); if (websiteErr) errs.website = websiteErr;
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  // ── Input class with error state ──
+  const inputCls = (key: string) =>
+    `w-full px-3 py-2.5 bg-white dark:bg-slate-900 border ${
+      fieldErrors[key]
+        ? 'border-red-300 dark:border-red-700 focus:ring-red-500 focus:border-red-500'
+        : 'border-gray-200 dark:border-slate-700 focus:ring-emerald-500 focus:border-emerald-500'
+    } rounded-xl text-sm focus:ring-2 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500`;
+
   const handleSave = async () => {
     setError('');
+    if (!validateAll()) return;
     setSaving(true);
     try {
+      const body: Record<string, string> = { name, website, phone, email };
       const res = await fetch('/api/admin/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ name, website, phone, email }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -50,8 +275,9 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
       }
       setSaving(false);
       setSaved(true);
+      setSavedMessage('Profil disimpan.');
       onUpdated();
-      setTimeout(() => setSaved(false), 2000);
+      setTimeout(() => { setSaved(false); setSavedMessage(''); }, 2500);
     } catch {
       setError('Gagal menghubungi server');
       setSaving(false);
@@ -121,6 +347,12 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
       });
       const data = await res.json();
       if (res.ok && data.success) {
+        // Server returns new JWT when slug changes — update stored session
+        if (data.newToken && data.user) {
+          const session = { token: data.newToken, user: data.user };
+          const storage = localStorage.getItem('auth_session') ? localStorage : sessionStorage;
+          storage.setItem('auth_session', JSON.stringify(session));
+        }
         setSlugValue(newSlug);
         onUpdated();
       } else {
@@ -142,6 +374,8 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
   };
 
   const hasChanges = name !== agent.name || website !== agent.website || phone !== agent.phone || email !== (agent.email || '');
+  const requiredMissing = !name.trim() || !phone.trim();
+  const hasErrors = Object.keys(fieldErrors).length > 0;
 
   return (
     <div className="space-y-4">
@@ -293,9 +527,11 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
             <input
               type="text"
               value={name}
-              onChange={e => setName(e.target.value)}
-              className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white"
+              onChange={e => { setName(e.target.value); clearFieldError('name'); }}
+              onBlur={() => handleBlur('name', name)}
+              className={inputCls('name')}
             />
+            {fieldErrors.name && <p className="text-[10px] text-red-500 dark:text-red-400 mt-1 flex items-center gap-1"><AlertCircle size={10} />{fieldErrors.name}</p>}
           </div>
 
           <div>
@@ -305,10 +541,12 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
             <input
               type="text"
               value={website}
-              onChange={e => setWebsite(e.target.value)}
+              onChange={e => { setWebsite(cleanWebsite(e.target.value)); clearFieldError('website'); }}
+              onBlur={() => handleBlur('website', website)}
               placeholder="contoh: alhijaz.co/nikita"
-              className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400"
+              className={inputCls('website')}
             />
+            {fieldErrors.website && <p className="text-[10px] text-red-500 dark:text-red-400 mt-1 flex items-center gap-1"><AlertCircle size={10} />{fieldErrors.website}</p>}
           </div>
 
           <div>
@@ -318,10 +556,12 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
             <input
               type="tel"
               value={phone}
-              onChange={e => setPhone(e.target.value)}
+              onChange={e => { setPhone(cleanPhone(e.target.value)); clearFieldError('phone'); }}
+              onBlur={() => handleBlur('phone', phone)}
               placeholder="628xxxxxxxxxx"
-              className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400"
+              className={inputCls('phone')}
             />
+            {fieldErrors.phone && <p className="text-[10px] text-red-500 dark:text-red-400 mt-1 flex items-center gap-1"><AlertCircle size={10} />{fieldErrors.phone}</p>}
           </div>
 
           <div>
@@ -331,11 +571,40 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
             <input
               type="email"
               value={email}
-              onChange={e => setEmail(e.target.value)}
+              onChange={e => { setEmail(e.target.value); clearFieldError('email'); }}
+              onBlur={() => handleBlur('email', email)}
               placeholder="agent@email.com"
-              className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400"
+              className={inputCls('email')}
             />
+            {fieldErrors.email && <p className="text-[10px] text-red-500 dark:text-red-400 mt-1 flex items-center gap-1"><AlertCircle size={10} />{fieldErrors.email}</p>}
           </div>
+
+        {/* Separator + Password Section */}
+        <div className="border-t border-gray-100 dark:border-slate-700/50 pt-4 mt-4">
+          <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">KATA SANDI</p>
+          <button
+            type="button"
+            onClick={() => setShowPasswordModal(true)}
+            className="flex items-center justify-between w-full px-3 py-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer active:scale-[0.98]"
+          >
+            <div className="flex items-center gap-2">
+              <Lock size={16} className="text-gray-500 dark:text-slate-400" />
+              <span className="text-sm font-medium text-gray-700 dark:text-slate-200">Ubah Password</span>
+            </div>
+            <ChevronRight size={16} className="text-gray-400 dark:text-slate-500" />
+          </button>
+        </div>
+
+        {/* Password Change Modal */}
+        <PasswordModal
+          isOpen={showPasswordModal}
+          onClose={() => setShowPasswordModal(false)}
+          onSuccess={() => {
+            setSaved(true);
+            setSavedMessage('Password berhasil diubah.');
+            setTimeout(() => { setSaved(false); setSavedMessage(''); }, 2500);
+          }}
+        />
         </div>
 
         {/* Error */}
@@ -345,14 +614,21 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
           </div>
         )}
 
+        {/* Saved toast message */}
+        {saved && savedMessage && (
+          <div className="mt-2 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50 rounded-xl text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+            {savedMessage}
+          </div>
+        )}
+
         {/* Save Button */}
         <button
           onClick={handleSave}
-          disabled={saving || saved || !hasChanges}
+          disabled={saving || saved || !hasChanges || requiredMissing || hasErrors}
           className={`mt-5 w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all duration-300 active:scale-95 ${
             saved
               ? 'bg-emerald-500 text-white'
-              : hasChanges
+              : hasChanges && !requiredMissing && !hasErrors
                 ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
                 : 'bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed'
           }`}

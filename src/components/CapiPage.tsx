@@ -115,10 +115,16 @@ export default function CapiPage({ agentSlug, hideHeader = false }: { agentSlug:
   }, []);
 
   // Check stored session on mount (check both storages)
+  // When accessed from dashboard (hideHeader=true), auto-bypass login
   useEffect(() => {
-    const sessionKey = `capi_session_${agentSlug}`;
-    if (localStorage.getItem(sessionKey) || sessionStorage.getItem(sessionKey)) {
+    if (hideHeader) {
+      // Already authenticated via dashboard — skip CAPI login
       setIsLoggedIn(true);
+    } else {
+      const sessionKey = `capi_session_${agentSlug}`;
+      if (localStorage.getItem(sessionKey) || sessionStorage.getItem(sessionKey)) {
+        setIsLoggedIn(true);
+      }
     }
     import('@/data/agents').then(mod => {
       const agent = mod.AGENTS_DATA[agentSlug];

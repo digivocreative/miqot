@@ -27,8 +27,23 @@ export function getStoredSession(): AuthSession | null {
 }
 
 export function clearSession() {
+  // Remove auth session
   localStorage.removeItem('auth_session');
   sessionStorage.removeItem('auth_session');
+
+  // Remove all CAPI sessions (capi_session_*)
+  for (const storage of [localStorage, sessionStorage]) {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (key && key.startsWith('capi_session_')) keysToRemove.push(key);
+    }
+    keysToRemove.forEach(k => storage.removeItem(k));
+  }
+
+  // Clear session-scoped UI state
+  sessionStorage.removeItem('insightDismissed'); // legacy cleanup
+  localStorage.removeItem('insightDismissedDate');
 }
 
 export function getAuthHeaders(): Record<string, string> {
@@ -91,6 +106,8 @@ export default function LoginPage({ onLogin }: { onLogin: (session: AuthSession)
       }
 
       const session: AuthSession = { token: data.token, user: data.user };
+      // Clear any previous agent's session data before storing new session
+      clearSession();
       if (rememberMe) {
         localStorage.setItem('auth_session', JSON.stringify(session));
       } else {
