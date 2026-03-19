@@ -232,6 +232,13 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 {activeCard?.label}
               </h1>
             </div>
+            {/* Dark mode toggle */}
+            <button
+              onClick={() => setIsDarkMode(p => !p)}
+              className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors active:scale-95 shrink-0"
+            >
+              {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
             {/* Jamaah connection status in header */}
             {activeTab === 'jamaah' && jamaahConnected && jamaahUser && (
               <div className="flex items-center gap-2 shrink-0">

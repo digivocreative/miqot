@@ -1,6 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, X, ZoomIn, ZoomOut, Pencil } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, X, Pencil } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import PhotoCropModal from './PhotoCropModal';
 
 interface AgentProfile {
   slug: string;
@@ -12,221 +13,6 @@ interface AgentProfile {
   role: string;
 }
 
-// ── Crop Modal ──
-function CropModal({ imageUrl, onSave, onClose }: {
-  imageUrl: string;
-  onSave: (croppedDataUrl: string) => void;
-  onClose: () => void;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imgRef = useRef<HTMLImageElement | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [dragging, setDragging] = useState(false);
-  const dragStart = useRef({ x: 0, y: 0 });
-  const offsetStart = useRef({ x: 0, y: 0 });
-  const [imgLoaded, setImgLoaded] = useState(false);
-
-  const CANVAS_SIZE = 280;
-  const OUTPUT_SIZE = 400;
-
-  // Load image
-  useEffect(() => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      imgRef.current = img;
-      setImgLoaded(true);
-      // Fit image to canvas initially
-      const scale = CANVAS_SIZE / Math.min(img.width, img.height);
-      setZoom(scale);
-      setOffset({
-        x: (CANVAS_SIZE - img.width * scale) / 2,
-        y: (CANVAS_SIZE - img.height * scale) / 2,
-      });
-    };
-    img.src = imageUrl;
-  }, [imageUrl]);
-
-  // Draw canvas
-  const draw = useCallback(() => {
-    const canvas = canvasRef.current;
-    const img = imgRef.current;
-    if (!canvas || !img) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    canvas.width = CANVAS_SIZE;
-    canvas.height = CANVAS_SIZE;
-
-    ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-
-    // Draw circle clip
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(CANVAS_SIZE / 2, CANVAS_SIZE / 2, CANVAS_SIZE / 2, 0, Math.PI * 2);
-    ctx.clip();
-
-    // Draw image
-    ctx.drawImage(img, offset.x, offset.y, img.width * zoom, img.height * zoom);
-
-    ctx.restore();
-  }, [zoom, offset, imgLoaded]);
-
-  useEffect(() => {
-    draw();
-  }, [draw]);
-
-  // Mouse/touch handlers for dragging
-  const handlePointerDown = (e: React.PointerEvent) => {
-    setDragging(true);
-    dragStart.current = { x: e.clientX, y: e.clientY };
-    offsetStart.current = { ...offset };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!dragging) return;
-    setOffset({
-      x: offsetStart.current.x + (e.clientX - dragStart.current.x),
-      y: offsetStart.current.y + (e.clientY - dragStart.current.y),
-    });
-  };
-
-  const handlePointerUp = () => setDragging(false);
-
-  // Zoom with wheel
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.02 : 0.02;
-    setZoom(z => Math.max(0.1, z + delta));
-  };
-
-  const handleZoom = (dir: number) => {
-    setZoom(z => Math.max(0.1, z + dir * 0.05));
-  };
-
-  // Export cropped image
-  const handleSave = () => {
-    const img = imgRef.current;
-    if (!img) return;
-
-    const outCanvas = document.createElement('canvas');
-    outCanvas.width = OUTPUT_SIZE;
-    outCanvas.height = OUTPUT_SIZE;
-    const ctx = outCanvas.getContext('2d');
-    if (!ctx) return;
-
-    // Scale factor from display to output
-    const scale = OUTPUT_SIZE / CANVAS_SIZE;
-
-    ctx.beginPath();
-    ctx.arc(OUTPUT_SIZE / 2, OUTPUT_SIZE / 2, OUTPUT_SIZE / 2, 0, Math.PI * 2);
-    ctx.clip();
-
-    ctx.drawImage(
-      img,
-      offset.x * scale,
-      offset.y * scale,
-      img.width * zoom * scale,
-      img.height * zoom * scale
-    );
-
-    onSave(outCanvas.toDataURL('image/jpeg', 0.9));
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 dark:border-slate-700">
-          <h3 className="text-sm font-bold text-gray-800 dark:text-white">Crop Foto Profil</h3>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-white transition-colors"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* Canvas Area */}
-        <div className="flex flex-col items-center px-5 py-5 bg-gray-50 dark:bg-slate-900">
-          <div
-            className="relative rounded-full overflow-hidden cursor-grab active:cursor-grabbing"
-            style={{
-              width: CANVAS_SIZE,
-              height: CANVAS_SIZE,
-              boxShadow: '0 0 0 3px rgba(16,185,129,0.3), inset 0 0 60px rgba(0,0,0,0.1)',
-            }}
-          >
-            <canvas
-              ref={canvasRef}
-              width={CANVAS_SIZE}
-              height={CANVAS_SIZE}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onWheel={handleWheel}
-              style={{ width: CANVAS_SIZE, height: CANVAS_SIZE, touchAction: 'none' }}
-            />
-          </div>
-
-          {/* Zoom controls */}
-          <div className="flex items-center gap-4 mt-4">
-            <button
-              type="button"
-              onClick={() => handleZoom(-1)}
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors active:scale-95"
-            >
-              <ZoomOut size={16} />
-            </button>
-            <input
-              type="range"
-              min="0.1"
-              max="3"
-              step="0.01"
-              value={zoom}
-              onChange={e => setZoom(parseFloat(e.target.value))}
-              className="w-32 h-1 bg-gray-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-emerald-500"
-            />
-            <button
-              type="button"
-              onClick={() => handleZoom(1)}
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors active:scale-95"
-            >
-              <ZoomIn size={16} />
-            </button>
-          </div>
-          <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-2">Geser untuk mengatur posisi</p>
-        </div>
-
-        {/* Actions */}
-        <div className="flex gap-3 px-5 py-4 border-t border-gray-100 dark:border-slate-700">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-gray-600 dark:text-slate-300 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
-          >
-            Batal
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 transition-colors active:scale-95"
-          >
-            Simpan Foto
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Main Profile Component ──
 export default function DashboardProfile({ agent, onUpdated }: { agent: AgentProfile; onUpdated: () => void }) {
@@ -275,25 +61,32 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      setCropImage(reader.result as string);
-    };
-    reader.readAsDataURL(file);
-    // Reset input so same file can be selected again
+    // Validate type
+    if (!['image/jpeg', 'image/png'].includes(file.type)) {
+      setError('Format foto harus JPG atau PNG');
+      e.target.value = '';
+      return;
+    }
+    // Validate size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Ukuran foto maksimal 5MB');
+      e.target.value = '';
+      return;
+    }
+    setCropImage(URL.createObjectURL(file));
     e.target.value = '';
   };
 
-  const handleCropSave = async (croppedDataUrl: string) => {
+  const handleCropSave = async (croppedBase64: string) => {
+    // Cleanup object URL
+    if (cropImage) URL.revokeObjectURL(cropImage);
     setCropImage(null);
     setUploadingPhoto(true);
     try {
       const res = await fetch('/api/admin/photo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ image: croppedDataUrl }),
+        body: JSON.stringify({ image: croppedBase64 }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -306,6 +99,11 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
       setError('Gagal menghubungi server');
     }
     setUploadingPhoto(false);
+  };
+
+  const handleCropClose = () => {
+    if (cropImage) URL.revokeObjectURL(cropImage);
+    setCropImage(null);
   };
 
   const handleSlugSave = async () => {
@@ -348,13 +146,12 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
   return (
     <div className="space-y-4">
       {/* Crop Modal */}
-      {cropImage && (
-        <CropModal
-          imageUrl={cropImage}
-          onSave={handleCropSave}
-          onClose={() => setCropImage(null)}
-        />
-      )}
+      <PhotoCropModal
+        isOpen={!!cropImage}
+        imageUrl={cropImage || ''}
+        onClose={handleCropClose}
+        onCropComplete={handleCropSave}
+      />
 
       {/* Hidden file input */}
       <input

@@ -5,6 +5,7 @@ import {
   Trash2, AlertTriangle, Link as LinkIcon,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import PhotoCropModal from './PhotoCropModal';
 
 // ── Types ──
 interface AgentItem {
@@ -68,6 +69,7 @@ export default function AgentManagementPage() {
   const [initialForm, setInitialForm] = useState<FormData>({ ...EMPTY_FORM });
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<string | null>(null); // base64
+  const [cropImageUrl, setCropImageUrl] = useState<string | null>(null); // objectURL for crop modal
   const [showPw, setShowPw] = useState(false);
   const [showJamaahPw, setShowJamaahPw] = useState(false);
   const [slugManual, setSlugManual] = useState(false);
@@ -118,6 +120,7 @@ export default function AgentManagementPage() {
     setInitialForm(f);
     setPhotoPreview(null);
     setPhotoFile(null);
+    if (cropImageUrl) { URL.revokeObjectURL(cropImageUrl); setCropImageUrl(null); }
     setSlugManual(false);
     setShowPw(false);
     setShowJamaahPw(false);
@@ -145,6 +148,7 @@ export default function AgentManagementPage() {
     setInitialForm(f);
     setPhotoPreview(agent.photo || null);
     setPhotoFile(null);
+    if (cropImageUrl) { URL.revokeObjectURL(cropImageUrl); setCropImageUrl(null); }
     setSlugManual(true);
     setShowPw(false);
     setShowJamaahPw(false);
@@ -173,27 +177,32 @@ export default function AgentManagementPage() {
   const handlePhotoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      // Create a canvas to crop center-square and resize to 300x300
-      const img = new Image();
-      img.onload = () => {
-        const size = Math.min(img.width, img.height);
-        const ox = (img.width - size) / 2;
-        const oy = (img.height - size) / 2;
-        const canvas = document.createElement('canvas');
-        canvas.width = 300; canvas.height = 300;
-        const ctx = canvas.getContext('2d')!;
-        ctx.drawImage(img, ox, oy, size, size, 0, 0, 300, 300);
-        const cropped = canvas.toDataURL('image/jpeg', 0.85);
-        setPhotoPreview(cropped);
-        setPhotoFile(cropped);
-      };
-      img.src = dataUrl;
-    };
-    reader.readAsDataURL(file);
-    e.target.value = ''; // reset
+    // Validate type
+    if (!['image/jpeg', 'image/png'].includes(file.type)) {
+      setServerError('Format foto harus JPG atau PNG');
+      e.target.value = '';
+      return;
+    }
+    // Validate size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setServerError('Ukuran foto maksimal 5MB');
+      e.target.value = '';
+      return;
+    }
+    setCropImageUrl(URL.createObjectURL(file));
+    e.target.value = '';
+  };
+
+  const handleCropComplete = (croppedBase64: string) => {
+    if (cropImageUrl) URL.revokeObjectURL(cropImageUrl);
+    setCropImageUrl(null);
+    setPhotoPreview(croppedBase64);
+    setPhotoFile(croppedBase64);
+  };
+
+  const handleCropClose = () => {
+    if (cropImageUrl) URL.revokeObjectURL(cropImageUrl);
+    setCropImageUrl(null);
   };
 
   // ── Form field updater ──
@@ -409,6 +418,14 @@ export default function AgentManagementPage() {
 
       {/* Hidden file input */}
       <input ref={fileRef} type="file" accept="image/jpeg,image/png" className="hidden" onChange={handlePhotoPick} />
+
+      {/* Photo Crop Modal */}
+      <PhotoCropModal
+        isOpen={!!cropImageUrl}
+        imageUrl={cropImageUrl || ''}
+        onClose={handleCropClose}
+        onCropComplete={handleCropComplete}
+      />
 
       {/* ── Slide-up Modal ── */}
       {modalOpen && (

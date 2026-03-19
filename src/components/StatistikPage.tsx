@@ -266,6 +266,107 @@ function OutstandingRow({ item }: { item: OutstandingItem }) {
   );
 }
 
+// ── Skeleton ──
+function StatistikSkeleton() {
+  const pulse = 'bg-gray-200 dark:bg-slate-700 animate-pulse';
+  const pulseFaint = 'bg-gray-100 dark:bg-slate-700/60 animate-pulse';
+  const card = 'bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm';
+
+  return (
+    <div className="px-4 pt-4 pb-8 space-y-3 max-w-lg mx-auto">
+
+      {/* Section 1: Headline Stats */}
+      <div className="grid grid-cols-2 gap-2.5">
+        {[0, 1, 2, 3].map(i => (
+          <div key={i} className={`${card} p-3.5`}>
+            <div className={`w-8 h-8 rounded-lg ${pulse}`} />
+            <div className={`h-7 w-16 rounded-md ${pulse} mt-3`} />
+            <div className={`h-3 w-24 rounded-md ${pulseFaint} mt-2`} />
+          </div>
+        ))}
+      </div>
+
+      {/* Section 2: Estimasi Komisi */}
+      <div className={`${card} p-4`}>
+        <div className="flex items-center justify-between">
+          <div className={`h-3 w-28 rounded-md ${pulse}`} />
+          <div className={`h-3 w-16 rounded-md ${pulse}`} />
+        </div>
+        <div className={`h-8 w-44 rounded-md ${pulse} mt-3`} />
+        <div className={`h-3 w-32 rounded-md ${pulseFaint} mt-1.5`} />
+        <div className={`h-3 w-full rounded-full ${pulse} mt-4`} />
+        <div className="flex justify-between mt-3">
+          <div className={`h-3 w-20 rounded-md ${pulse}`} />
+          <div className={`h-3 w-20 rounded-md ${pulse}`} />
+          <div className={`h-3 w-20 rounded-md ${pulse}`} />
+        </div>
+        <div className="mt-3 space-y-2">
+          <div className={`h-12 w-full rounded-xl ${pulseFaint}`} />
+          <div className={`h-12 w-full rounded-xl ${pulseFaint}`} />
+          <div className={`h-12 w-full rounded-xl ${pulseFaint}`} />
+        </div>
+      </div>
+
+      {/* Section 3: Tren Jamaah Baru */}
+      <div className={`${card} p-4`}>
+        <div className={`h-3 w-32 rounded-md ${pulse}`} />
+        <div className={`h-3 w-52 rounded-md ${pulseFaint} mt-1`} />
+        <div className={`h-[160px] w-full rounded-xl ${pulseFaint} mt-4`} />
+      </div>
+
+      {/* Section 4: Berangkat Mendatang */}
+      <div className={`${card} overflow-hidden`}>
+        <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+          <div className={`h-3 w-36 rounded-md ${pulse}`} />
+          <div className={`w-5 h-5 rounded ${pulse}`} />
+        </div>
+        {[0, 1, 2].map(i => (
+          <div key={i} className="px-4 py-3 flex items-center gap-3 border-b border-gray-50 dark:border-slate-700/50">
+            <div className={`w-9 h-9 rounded-full ${pulse} shrink-0`} />
+            <div className="flex-1">
+              <div className={`h-3.5 w-36 rounded-md ${pulse}`} />
+              <div className={`h-3 w-24 rounded-md ${pulseFaint} mt-1.5`} />
+            </div>
+            <div className={`h-5 w-14 rounded-md ${pulse}`} />
+          </div>
+        ))}
+      </div>
+
+      {/* Section 5: Jamaah Belum Lunas */}
+      <div className={`${card} overflow-hidden`}>
+        <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+          <div className={`h-3 w-36 rounded-md ${pulse}`} />
+          <div className={`w-5 h-5 rounded ${pulse}`} />
+        </div>
+        {[0, 1, 2].map(i => (
+          <div key={i} className="px-4 py-3 flex items-center gap-3 border-b border-gray-50 dark:border-slate-700/50">
+            <div className={`w-9 h-9 rounded-full ${pulse} shrink-0`} />
+            <div className="flex-1">
+              <div className={`h-3.5 w-36 rounded-md ${pulse}`} />
+              <div className={`h-3 w-24 rounded-md ${pulseFaint} mt-1.5`} />
+            </div>
+            <div className={`h-5 w-14 rounded-md ${pulse}`} />
+          </div>
+        ))}
+      </div>
+
+      {/* Section 6: Status Pembayaran */}
+      <div className={`${card} p-4`}>
+        <div className="flex items-center justify-between">
+          <div className={`h-3 w-32 rounded-md ${pulse}`} />
+          <div className={`h-3 w-16 rounded-md ${pulse}`} />
+        </div>
+        <div className={`h-3 w-full rounded-full ${pulse} mt-3`} />
+        <div className="flex justify-between mt-2">
+          <div className={`h-3 w-28 rounded-md ${pulse}`} />
+          <div className={`h-3 w-28 rounded-md ${pulse}`} />
+        </div>
+        <div className={`h-12 w-full rounded-xl ${pulseFaint} mt-3`} />
+      </div>
+    </div>
+  );
+}
+
 // ── Component ──
 export default function StatistikPage({ agentSlug, onHeaderRight }: {
   agentSlug: string;
@@ -372,12 +473,7 @@ export default function StatistikPage({ agentSlug, onHeaderRight }: {
 
   // Loading
   if (loading && !data) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 size={24} className="animate-spin text-emerald-500" />
-        <span className="ml-2 text-sm text-gray-500 dark:text-slate-400">Memuat statistik...</span>
-      </div>
-    );
+    return <StatistikSkeleton />;
   }
 
   // Error

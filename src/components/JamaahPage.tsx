@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Eye, EyeOff, LogIn, Loader2, User, Lock, Search,
   Calendar, Building2, Trash2, KeyRound, ChevronDown, ChevronUp,
@@ -316,9 +317,36 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
   // ── Loading / Syncing / Connecting ──
   if (view === 'loading') {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 size={24} className="animate-spin text-emerald-500" />
-        <span className="ml-2 text-sm text-gray-500 dark:text-slate-400">Memeriksa status...</span>
+      <div className="px-4 pt-4 pb-8 space-y-2">
+        {/* Skeleton command bar */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm px-3 py-1.5 flex items-center gap-2">
+          <div className="w-3.5 h-3.5 rounded bg-gray-200 dark:bg-slate-700 animate-pulse shrink-0" />
+          <div className="flex-1 h-9 rounded-lg bg-gray-100 dark:bg-slate-700/40 animate-pulse" />
+          <div className="h-9 w-14 rounded-lg bg-gray-100 dark:bg-slate-700/40 animate-pulse shrink-0" />
+          <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-slate-700/40 animate-pulse shrink-0" />
+        </div>
+        {/* Skeleton sync info */}
+        <div className="flex items-center justify-between px-1 mt-2">
+          <div className="h-3 w-32 rounded-md bg-gray-200 dark:bg-slate-700 animate-pulse" />
+          <div className="h-3 w-20 rounded-md bg-gray-200 dark:bg-slate-700 animate-pulse" />
+        </div>
+        {/* Skeleton cards */}
+        <div className="space-y-1.5">
+          {[0, 1, 2, 3, 4, 5].map(i => (
+            <div key={i} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm px-3 py-3 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-slate-700 animate-pulse shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="h-4 w-40 rounded-md bg-gray-200 dark:bg-slate-700 animate-pulse" />
+                <div className="h-3 w-28 rounded-md bg-gray-100 dark:bg-slate-700/60 animate-pulse mt-1.5" />
+              </div>
+              <div className="flex flex-col items-end gap-1.5 shrink-0">
+                <div className="h-3.5 w-16 rounded-md bg-gray-200 dark:bg-slate-700 animate-pulse" />
+                <div className="h-3 w-20 rounded-md bg-gray-100 dark:bg-slate-700/60 animate-pulse" />
+              </div>
+              <div className="w-3.5 h-3.5 rounded bg-gray-100 dark:bg-slate-700/40 animate-pulse shrink-0" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -397,7 +425,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
     ];
 
     return (
-      <div className="px-4 pt-4 pb-8 space-y-2">
+      <div className={`px-4 pt-4 pb-8 space-y-2 transition-opacity ${loadingData && data ? 'opacity-50 pointer-events-none' : ''}`}>
 
         {/* Command bar */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
@@ -525,8 +553,21 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
 
         {/* Jamaah list */}
         {loadingData && !data ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 size={20} className="animate-spin text-emerald-500" />
+          <div className="space-y-1.5">
+            {[0, 1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm px-3 py-3 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-slate-700 animate-pulse shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="h-4 w-40 rounded-md bg-gray-200 dark:bg-slate-700 animate-pulse" />
+                  <div className="h-3 w-28 rounded-md bg-gray-100 dark:bg-slate-700/60 animate-pulse mt-1.5" />
+                </div>
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  <div className="h-3.5 w-16 rounded-md bg-gray-200 dark:bg-slate-700 animate-pulse" />
+                  <div className="h-3 w-20 rounded-md bg-gray-100 dark:bg-slate-700/60 animate-pulse" />
+                </div>
+                <div className="w-3.5 h-3.5 rounded bg-gray-100 dark:bg-slate-700/40 animate-pulse shrink-0" />
+              </div>
+            ))}
           </div>
         ) : data?.items.length === 0 ? (
           <div className="text-center py-12">
@@ -597,7 +638,11 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
               return (
                 <div
                   key={item.id}
-                  className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden"
+                  className={`bg-white dark:bg-slate-800 rounded-2xl border shadow-sm overflow-hidden transition-all duration-200 ${
+                    isExpanded
+                      ? 'border-emerald-200 dark:border-emerald-800/40 shadow-md shadow-emerald-500/5'
+                      : 'border-gray-100 dark:border-slate-700'
+                  }`}
                 >
                   {/* Collapsed row */}
                   <button
@@ -658,11 +703,29 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
                     </div>
 
                     {/* Chevron */}
-                    <ChevronDown size={14} className={`text-gray-300 dark:text-slate-600 shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                    <motion.div
+                      animate={{ rotate: isExpanded ? 180 : 0 }}
+                      transition={{ duration: 0.2, ease: 'easeInOut' }}
+                      className="text-gray-300 dark:text-slate-600 shrink-0"
+                    >
+                      <ChevronDown size={14} />
+                    </motion.div>
                   </button>
 
                   {/* Expanded detail */}
+                  <AnimatePresence initial={false}>
                   {isExpanded && (
+                    <motion.div
+                      key="expanded-content"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{
+                        height: { duration: 0.25, ease: [0.4, 0, 0.2, 1] },
+                        opacity: { duration: 0.2, ease: 'easeInOut' }
+                      }}
+                      style={{ overflow: 'hidden' }}
+                    >
                     <div className="border-t border-gray-50 dark:border-slate-700/50">
 
                       {/* ─── Section 1: Pembayaran (colored block) ─── */}
@@ -862,7 +925,9 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
                         )}
                       </div>
                     </div>
+                    </motion.div>
                   )}
+                  </AnimatePresence>
                 </div>
               );
             })}
