@@ -908,11 +908,13 @@ app.post('/api/laporan/login', authMiddleware, async (req, res) => {
   res.json({ ...result, username, kantor: k });
 });
 
-// Hijriah year → Gregorian date range mapping
-// Only current + next year. Update when new Hijriah year starts.
+// Hijriah year → Gregorian date range mapping (for FETCHING from legacy system)
+// tglAwal is shifted 4 months earlier to capture jamaah registered before the
+// Hijriah year boundary but departing within the year. The actual hijriah_year
+// assignment uses HIJRIAH_RANGES below (based on tgl_berangkat).
 const HIJRIAH_YEARS = {
-  '1447': { tglAwal: '2025-06-26', tglAkhir: '2026-06-15' },
-  '1448': { tglAwal: '2026-06-16', tglAkhir: '2027-06-05' },
+  '1447': { tglAwal: '2024-12-26', tglAkhir: '2026-06-15' },
+  '1448': { tglAwal: '2025-12-16', tglAkhir: '2027-06-05' },
 };
 
 // Determine hijriah year from departure date
@@ -1002,37 +1004,21 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     const range = HIJRIAH_YEARS[year];
     if (!range) continue;
 
-    // Fetch from multiple kantor values to capture all jamaah
-    const kantorValues = [agent.jamaah_kantor || '2'];
-    if (!kantorValues.includes('0')) kantorValues.push('0');
+    const kantor = agent.jamaah_kantor || '2';
+    const fetchResult = await fetchLaporan(agent.jamaah_username, {
+      kantor,
+      agentId: agent.jamaah_username,
+      tglAwal: range.tglAwal,
+      tglAkhir: range.tglAkhir,
+    });
 
-    let allItems = [];
-    const seenIds = new Set();
-
-    for (const kantor of kantorValues) {
-      const fetchResult = await fetchLaporan(agent.jamaah_username, {
-        kantor,
-        agentId: agent.jamaah_username,
-        tglAwal: range.tglAwal,
-        tglAkhir: range.tglAkhir,
-      });
-
-      if (!fetchResult.success) {
-        console.error(`[Sync] ${slug} year ${year} kantor ${kantor}: fetch failed`);
-        continue;
-      }
-
-      const { items: fetchedItems } = parseLaporanHtml(fetchResult.html);
-      console.log(`[Sync] ${slug} year ${year} kantor ${kantor}: ${fetchedItems.length} items`);
-      // Deduplicate by id_umroh + nama (matches DB unique constraint)
-      for (const item of fetchedItems) {
-        const key = `${item.id_umroh}|${item.nama}`;
-        if (!seenIds.has(key)) {
-          seenIds.add(key);
-          allItems.push(item);
-        }
-      }
+    if (!fetchResult.success) {
+      console.error(`[Sync] ${slug} year ${year} kantor ${kantor}: fetch failed`);
+      continue;
     }
+
+    const { items: allItems } = parseLaporanHtml(fetchResult.html);
+    console.log(`[Sync] ${slug} year ${year} kantor ${kantor}: ${allItems.length} items`);
 
     const items = allItems;
     console.log(`[Sync] ${slug} year ${year}: parsed ${items.length} items`);
@@ -2020,38 +2006,23 @@ async function syncOneAgent(agent) {
       const range = HIJRIAH_YEARS[year];
       if (!range) continue;
 
-      // Fetch from multiple kantor values to capture all jamaah
-      const kantorValues = [agent.jamaah_kantor || '2'];
-      if (!kantorValues.includes('0')) kantorValues.push('0');
+      const kantor = agent.jamaah_kantor || '2';
+      const fetchResult = await fetchLaporan(agent.jamaah_username, {
+        kantor,
+        agentId: agent.jamaah_username,
+        tglAwal: range.tglAwal,
+        tglAkhir: range.tglAkhir,
+      });
 
-      let allItems = [];
-      const seenIds = new Set();
-
-      for (const kantor of kantorValues) {
-        const fetchResult = await fetchLaporan(agent.jamaah_username, {
-          kantor,
-          agentId: agent.jamaah_username,
-          tglAwal: range.tglAwal,
-          tglAkhir: range.tglAkhir,
-        });
-
-        if (!fetchResult.success) {
-          console.error(`[SYNC] ${slug} year ${year} kantor ${kantor}: fetch failed`);
-          continue;
-        }
-
-        const { items: fetchedItems } = parseLaporanHtml(fetchResult.html);
-        console.log(`[SYNC] ${slug} year ${year} kantor ${kantor}: ${fetchedItems.length} items`);
-        for (const item of fetchedItems) {
-          const key = `${item.id_umroh}|${item.nama}`;
-          if (!seenIds.has(key)) {
-            seenIds.add(key);
-            allItems.push(item);
-          }
-        }
+      if (!fetchResult.success) {
+        console.error(`[SYNC] ${slug} year ${year} kantor ${kantor}: fetch failed`);
+        continue;
       }
 
-      console.log(`[SYNC] ${slug} year ${year}: allItems=${allItems.length} seenIds=${seenIds.size}`);
+      const { items: allItems } = parseLaporanHtml(fetchResult.html);
+      console.log(`[SYNC] ${slug} year ${year} kantor ${kantor}: ${allItems.length} items`);
+
+      console.log(`[SYNC] ${slug} year ${year}: ${allItems.length} items`);
       const items = allItems;
 
       if (items.length > 0) {
