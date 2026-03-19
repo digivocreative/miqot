@@ -335,17 +335,25 @@ app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), asy
 
     // Upload to Supabase Storage bucket 'agent-photos'
     const fileName = `${slug}.jpg`;
+
+    // Remove existing file first (upsert can be unreliable)
+    await supabase.storage.from('agent-photos').remove([fileName]);
+
     const { error: uploadError } = await supabase.storage
       .from('agent-photos')
       .upload(fileName, buffer, {
         contentType: 'image/jpeg',
-        upsert: true, // overwrite if exists
+        upsert: true,
       });
-    if (uploadError) throw uploadError;
+    if (uploadError) {
+      console.error('Supabase Storage upload error:', uploadError);
+      throw uploadError;
+    }
 
     // Get public URL with cache buster
     const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(fileName);
     const photoUrl = `${urlData.publicUrl}?v=${Date.now()}`;
+    console.log(`[Photo] ${slug} uploaded → ${photoUrl}`);
     await supabase.from('agents').update({ photo: photoUrl }).eq('slug', slug);
 
     // Invalidate cache

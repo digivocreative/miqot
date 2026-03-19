@@ -197,9 +197,22 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       if (res.ok) {
         const data = await res.json();
         setAgentData(data);
+        // Persist updated agent data to localStorage session
+        const raw = localStorage.getItem('auth_session') || sessionStorage.getItem('auth_session');
+        if (raw) {
+          try {
+            const sess = JSON.parse(raw);
+            sess.user = { ...sess.user, ...data };
+            const storage = localStorage.getItem('auth_session') ? localStorage : sessionStorage;
+            storage.setItem('auth_session', JSON.stringify(sess));
+          } catch { /* ignore */ }
+        }
       }
     } catch { /* ignore */ }
   }, []);
+
+  // Refresh agent data on mount to get latest photo/profile from server
+  useEffect(() => { refreshAgent(); }, [refreshAgent]);
 
   const handleLogout = () => {
     clearSession();
