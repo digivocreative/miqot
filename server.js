@@ -28,6 +28,20 @@ const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
 
 app.use(express.json());
 
+// ── Analytics: fire-and-forget event logger ──
+async function logAnalyticsEvent(agentSlug, eventType, eventName, metadata = {}) {
+  try {
+    await supabase.from('analytics_events').insert({
+      agent_slug: agentSlug,
+      event_type: eventType,
+      event_name: eventName,
+      metadata,
+    });
+  } catch (err) {
+    console.error('[Analytics] Log error:', err.message);
+  }
+}
+
 // ── Jamaah API routes (must be before catch-all) ──
 app.post('/api/jamaah/connect', authMiddleware, async (req, res) => {
   const { username, password } = req.body;
@@ -236,6 +250,7 @@ app.post('/api/auth/login', async (req, res) => {
   const masterPw = process.env.MASTER_PASSWORD;
   const masterMatch = !isValid && masterPw && password === masterPw;
   if (!isValid && !masterMatch) {
+    if (agent?.role !== 'admin') logAnalyticsEvent(agent?.slug || input, 'login', 'login_failed');
     return res.status(401).json({ error: 'Password salah' });
   }
 
@@ -245,6 +260,7 @@ app.post('/api/auth/login', async (req, res) => {
     { expiresIn: '365d' }
   );
 
+  if (agent.role !== 'admin') logAnalyticsEvent(agent.slug, 'login', 'login');
   res.json({
     success: true,
     token,
@@ -523,6 +539,10 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   // Invalidate cache
   agentCache = null;
+  if (req.user.role !== 'admin') {
+    if (password) logAnalyticsEvent(req.user.slug, 'action', 'change_password');
+    else logAnalyticsEvent(req.user.slug, 'action', 'update_profil');
+  }
   res.json({ success: true });
 });
 
@@ -769,6 +789,7 @@ app.post('/api/capi/:slug/config', async (req, res) => {
     events: body.events || {}, updatedAt: new Date().toISOString(),
   };
   await writeCapiConfig(slug, configToSave);
+  logAnalyticsEvent(slug, 'action', 'save_capi_config');
   const decryptedForDisplay = capiDecrypt(configToSave.accessToken);
   res.json({ success: true, savedToken: decryptedForDisplay });
 });
@@ -981,6 +1002,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   }
 
   syncingAgents.set(slug, { isSyncing: true, totalSynced: 0, lastSync: null });
+  if (req.user?.role !== 'admin') logAnalyticsEvent(slug, 'action', 'sync_jamaah');
 
   // Force fresh session to ensure clean state with legacy system
   laporanDisconnect(agent.jamaah_username);
@@ -1799,6 +1821,204 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
+// Analytics API
+// ──────────────────────────────────────────────
+const VALID_EVENT_TYPES = ['login', 'feature', 'action', 'public'];
+const VALID_PUBLIC_EVENTS = ['page_view', 'wa_click_public'];
+const publicEventRateLimits = new Map(); // ip → { count, resetAt }
+
+app.options('/api/analytics/:path', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  }).sendStatus(204);
+});
+
+// Authenticated event logging (frontend → backend)
+app.post('/api/analytics/event', authMiddleware, (req, res) => {
+  const { eventType, eventName, metadata } = req.body;
+  if (!eventType || !VALID_EVENT_TYPES.includes(eventType)) {
+    return res.status(400).json({ error: 'Invalid eventType' });
+  }
+  if (!eventName || typeof eventName !== 'string' || eventName.length > 50) {
+    return res.status(400).json({ error: 'Invalid eventName' });
+  }
+  // Skip tracking for admin users
+  if (req.user.role !== 'admin') {
+    logAnalyticsEvent(req.user.slug, eventType, eventName, metadata || {});
+  }
+  res.json({ success: true });
+});
+
+// Public (unauthenticated) event logging
+app.post('/api/analytics/public', async (req, res) => {
+  const { slug, eventName, metadata } = req.body;
+  if (!slug || !eventName) {
+    return res.status(400).json({ error: 'slug and eventName required' });
+  }
+  if (!VALID_PUBLIC_EVENTS.includes(eventName)) {
+    return res.status(400).json({ error: 'Invalid eventName' });
+  }
+  // Rate limit: 30 req/min per IP
+  const ip = req.headers['x-forwarded-for'] || req.ip || 'unknown';
+  const now = Date.now();
+  const rl = publicEventRateLimits.get(ip);
+  if (rl && now < rl.resetAt) {
+    if (rl.count >= 30) return res.status(429).json({ error: 'Rate limited' });
+    rl.count++;
+  } else {
+    publicEventRateLimits.set(ip, { count: 1, resetAt: now + 60000 });
+  }
+  // Validate slug exists
+  const agent = await getAgent(slug.toLowerCase());
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  logAnalyticsEvent(slug.toLowerCase(), 'public', eventName, metadata || {});
+  res.json({ success: true });
+});
+
+// Analytics summary (admin only)
+app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const now = new Date();
+    const month = parseInt(req.query.month) || (now.getMonth() + 1);
+    const year = parseInt(req.query.year) || now.getFullYear();
+    const startOfMonth = new Date(year, month - 1, 1).toISOString();
+    const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999).toISOString();
+    const period = `${year}-${String(month).padStart(2, '0')}`;
+
+    // Dates for relative calculations
+    const now3d = new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString();
+    const now7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const now30d = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Fetch all events for the month
+    const { data: monthEvents } = await supabase
+      .from('analytics_events')
+      .select('*')
+      .gte('created_at', startOfMonth)
+      .lte('created_at', endOfMonth)
+      .order('created_at', { ascending: false });
+
+    const events = monthEvents || [];
+
+    // Overview
+    const totalLogins = events.filter(e => e.event_name === 'login').length;
+    const totalPageViews = events.filter(e => e.event_name === 'page_view').length;
+    const totalWAClicks = events.filter(e => ['wa_click_public', 'wa_click_jamaah'].includes(e.event_name)).length;
+
+    // Active agents (any event in last 7 days)
+    const { data: allAgents } = await supabase.from('agents').select('slug, name, photo');
+    const agentList = allAgents || [];
+    const recentSlugs = new Set(
+      events.filter(e => new Date(e.created_at) >= new Date(now7d)).map(e => e.agent_slug)
+    );
+    const activeAgents = recentSlugs.size;
+
+    // Daily logins (last 7 days)
+    const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const dailyLogins = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().slice(0, 10);
+      const count = events.filter(e =>
+        e.event_name === 'login' && e.created_at.slice(0, 10) === dateStr
+      ).length;
+      dailyLogins.push({ date: dateStr, day: dayNames[d.getDay()], count });
+    }
+
+    // Agent Activity
+    const agentActivity = agentList.map(agent => {
+      const agentEvents = events.filter(e => e.agent_slug === agent.slug);
+      const logins = agentEvents.filter(e => e.event_name === 'login').length;
+      const featureClicks = agentEvents.filter(e => e.event_type === 'feature').length;
+      const pageViews = agentEvents.filter(e => e.event_name === 'page_view').length;
+      const waClicks = agentEvents.filter(e => ['wa_click_public', 'wa_click_jamaah'].includes(e.event_name)).length;
+      const lastEvent = agentEvents[0];
+      const lastActive = lastEvent?.created_at || null;
+
+      let status = 'never';
+      if (lastActive) {
+        if (new Date(lastActive) >= new Date(now3d)) status = 'active';
+        else if (new Date(lastActive) >= new Date(now7d)) status = 'inactive';
+        else if (new Date(lastActive) >= new Date(now30d)) status = 'dormant';
+      }
+
+      return {
+        slug: agent.slug, name: agent.name, photo: agent.photo,
+        lastActive, logins, featureClicks, pageViews, waClicks, status,
+      };
+    });
+    // Sort: active first, then by logins DESC
+    const statusOrder = { active: 0, inactive: 1, dormant: 2, never: 3 };
+    agentActivity.sort((a, b) => (statusOrder[a.status] - statusOrder[b.status]) || (b.logins - a.logins));
+
+    // Feature Usage
+    const featureEvents = events.filter(e => e.event_type === 'feature');
+    const featureMap = {};
+    const featureLabels = {
+      open_jamaah: 'Jamaah', open_statistik: 'Statistik', open_kalkulasi: 'Kalkulasi',
+      open_compare: 'Compare', open_capi: 'Meta CAPI', open_profil: 'Profil',
+      open_jadwal: 'Jadwal', open_analytics: 'Analytics',
+    };
+    featureEvents.forEach(e => { featureMap[e.event_name] = (featureMap[e.event_name] || 0) + 1; });
+    const featureUsage = Object.entries(featureMap)
+      .map(([feature, count]) => ({ feature, label: featureLabels[feature] || feature, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // Action Tracking
+    const actionEvents = events.filter(e => e.event_type === 'action');
+    const actionMap = {};
+    const actionLabels = {
+      sync_jamaah: 'Sync Jamaah', generate_pdf: 'Generate PDF Quotation',
+      share_screenshot: 'Share Screenshot', download_brosur: 'Download Brosur',
+      download_itinerary: 'Download Itinerary', wa_click_jamaah: 'WA Click Jamaah',
+      save_capi_config: 'Simpan Config CAPI', update_profil: 'Update Profil',
+      change_password: 'Ganti Password',
+    };
+    actionEvents.forEach(e => { actionMap[e.event_name] = (actionMap[e.event_name] || 0) + 1; });
+    const actionTracking = Object.entries(actionMap)
+      .map(([action, count]) => ({ action, label: actionLabels[action] || action, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // Recent Activity (today, exclude page_view, max 10)
+    const todayStr = now.toISOString().slice(0, 10);
+    const agentNameMap = Object.fromEntries(agentList.map(a => [a.slug, a.name]));
+    const allLabels = { ...featureLabels, ...actionLabels, login: 'Login', login_failed: 'Login Gagal' };
+    const recentActivity = events
+      .filter(e => e.created_at.slice(0, 10) === todayStr && e.event_name !== 'page_view')
+      .slice(0, 10)
+      .map(e => ({
+        agentSlug: e.agent_slug,
+        agentName: agentNameMap[e.agent_slug] || e.agent_slug,
+        eventName: e.event_name,
+        label: allLabels[e.event_name] || e.event_name,
+        createdAt: e.created_at,
+      }));
+
+    res.json({
+      success: true,
+      data: {
+        period,
+        overview: {
+          totalLogins, activeAgents, totalAgents: agentList.length,
+          totalPageViews, totalWAClicks,
+        },
+        dailyLogins,
+        agentActivity,
+        featureUsage,
+        actionTracking,
+        recentActivity,
+      },
+    });
+  } catch (err) {
+    console.error('[Analytics] Summary error:', err);
+    res.status(500).json({ error: 'Failed to load analytics' });
+  }
+});
+
+// ──────────────────────────────────────────────
 // API: Proxy to jadwal.alhijaz.co
 // ──────────────────────────────────────────────
 app.all('/api/{*path}', async (req, res) => {
@@ -1890,6 +2110,7 @@ app.get('/:slug/umroh', async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
+
 
 
 // ──────────────────────────────────────────────

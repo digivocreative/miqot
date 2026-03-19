@@ -487,6 +487,38 @@ function capiDevPlugin() {
   };
 }
 
+// Vite plugin: proxy /api/analytics/* to local Express server
+function analyticsDevPlugin() {
+  return {
+    name: 'analytics-dev-proxy',
+    configureServer(server: any) {
+      server.middlewares.use(async (req: any, res: any, next: any) => {
+        if (!req.url?.startsWith('/api/analytics')) return next();
+        try {
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (req.headers.authorization) headers['Authorization'] = req.headers.authorization;
+          let body: string | undefined;
+          if (req.method === 'POST') {
+            body = '';
+            for await (const chunk of req) body += chunk;
+          }
+          const upstream = await fetch(`http://localhost:3000${req.url}`, {
+            method: req.method,
+            headers,
+            body: body || undefined,
+          });
+          const data = await upstream.text();
+          res.writeHead(upstream.status, { 'Content-Type': 'application/json' });
+          res.end(data);
+        } catch (err: any) {
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Express server not reachable', message: err.message }));
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(commitHash),
@@ -495,6 +527,7 @@ export default defineConfig({
   plugins: [
     umrohLandingDevPlugin(),
     aiCopyDevPlugin(),
+    analyticsDevPlugin(),
     capiDevPlugin(),
     react(),
     VitePWA({
@@ -620,6 +653,7 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
+
       '/agents': {
         target: 'http://localhost:3000',
         changeOrigin: true,

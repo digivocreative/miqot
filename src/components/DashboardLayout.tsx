@@ -3,7 +3,7 @@ import {
   Calculator, ArrowLeftRight, Settings,
   LogOut, Shield, Users, Moon, Sun, ChevronLeft, ChevronRight,
   Globe, Phone, LayoutGrid, User, BarChart3, Loader2,
-  CalendarRange, ExternalLink, Send,
+  CalendarRange, ExternalLink, Send, TrendingUp,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
@@ -16,8 +16,10 @@ import StatistikPage from './StatistikPage';
 import AgentManagementPage from './AgentManagementPage';
 import UpcomingSchedule from './UpcomingSchedule';
 import CalendarInsight from './CalendarInsight';
+import AnalyticsPage from './AnalyticsPage';
+import { trackEvent } from '../utils/analytics';
 
-type TabId = 'home' | 'profile' | 'kalkulasi' | 'compare' | 'caption' | 'capi' | 'agents' | 'jamaah' | 'statistik';
+type TabId = 'home' | 'profile' | 'kalkulasi' | 'compare' | 'caption' | 'capi' | 'agents' | 'jamaah' | 'statistik' | 'analytics';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
@@ -28,6 +30,7 @@ const SLUG_TO_TAB: Record<string, TabId> = {
   jamaah: 'jamaah',
   statistik: 'statistik',
   profile: 'profile',
+  analytics: 'analytics',
 };
 
 const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
@@ -38,6 +41,7 @@ const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
   jamaah: 'jamaah',
   statistik: 'statistik',
   profile: 'profile',
+  analytics: 'analytics',
 };
 
 function getTabFromPath(): TabId {
@@ -59,6 +63,7 @@ const TAB_TITLES: Record<TabId, string> = {
   agents: 'Agents',
   jamaah: 'Jamaah',
   statistik: 'Statistik',
+  analytics: 'Analytics',
 };
 
 interface MenuCard {
@@ -135,6 +140,13 @@ const MENU_CARDS: MenuCard[] = [
     borderLight: 'border-cyan-100', borderDark: 'dark:border-cyan-800/40',
     adminOnly: true,
   },
+  {
+    id: 'analytics', label: 'Analytics', desc: 'Statistik app',
+    icon: TrendingUp, color: 'text-cyan-600 dark:text-cyan-400',
+    bgLight: 'bg-cyan-50', bgDark: 'dark:bg-cyan-900/20',
+    borderLight: 'border-cyan-100', borderDark: 'dark:border-cyan-800/40',
+    adminOnly: true,
+  },
 ];
 
 export default function DashboardLayout({ session, onLogout }: { session: AuthSession; onLogout: () => void }) {
@@ -152,6 +164,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [showStatAlert, setShowStatAlert] = useState(false);
   const [statAlertClosing, setStatAlertClosing] = useState(false);
   const [showComingSoon, setShowComingSoon] = useState(false);
+  // Analytics header slot for month dropdown
+  const [analyticsHeaderRight, setAnalyticsHeaderRight] = useState<React.ReactNode>(null);
 
   const closeStatAlert = useCallback(() => {
     setStatAlertClosing(true);
@@ -284,6 +298,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             )}
             {/* Statistik year selector in header */}
             {activeTab === 'statistik' && statistikHeaderRight}
+            {/* Analytics month selector in header */}
+            {activeTab === 'analytics' && analyticsHeaderRight}
           </div>
         </header>
 
@@ -372,6 +388,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               }}
             />
           )}
+          {activeTab === 'analytics' && isAdmin && (
+            <AnalyticsPage onHeaderRight={setAnalyticsHeaderRight} />
+          )}
         </main>
       </div>
     );
@@ -446,10 +465,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     return;
                   }
                   if (card.openExternal) {
+                    trackEvent('feature', 'open_jadwal');
                     window.open(`/${agentData.slug}`, '_blank');
                     return;
                   }
                   if (card.id === 'statistik') {
+                    trackEvent('feature', 'open_statistik');
                     setCheckingStatistik(true);
                     try {
                       const res = await fetch('/api/laporan/status', { headers: getAuthHeaders() });
@@ -467,6 +488,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     }
                     return;
                   }
+                  const eventMap: Record<string, string> = {
+                    jamaah: 'open_jamaah', kalkulasi: 'open_kalkulasi', compare: 'open_compare',
+                    capi: 'open_capi', profile: 'open_profil', analytics: 'open_analytics',
+                  };
+                  if (eventMap[card.id]) trackEvent('feature', eventMap[card.id]);
                   navigateTab(card.id);
                 }}
                 className="group relative overflow-hidden bg-white dark:bg-slate-800 rounded-2xl p-3.5 border border-gray-100 dark:border-slate-700 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.97]"

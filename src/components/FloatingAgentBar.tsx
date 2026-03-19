@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { AgentData } from '../data/agents';
 import { AGENTS_DATA } from '../data/agents';
 import { sendCapiEvent } from '../lib/capi';
+import { trackPublicEvent } from '../utils/analytics';
 
 interface FloatingAgentBarProps {
   agent: AgentData;
@@ -42,7 +43,10 @@ export default function FloatingAgentBar({ agent }: FloatingAgentBarProps) {
   const agentSlug = Object.entries(AGENTS_DATA).find(([, v]) => v === agent)?.[0] || '';
 
   const handleCtaClick = () => {
-    if (agentSlug) sendCapiEvent(agentSlug, 'contact');
+    if (agentSlug) {
+      sendCapiEvent(agentSlug, 'contact');
+      trackPublicEvent(agentSlug, 'wa_click_public', { source: 'floating_bar' });
+    }
   };
 
   return (

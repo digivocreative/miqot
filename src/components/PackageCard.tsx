@@ -16,6 +16,7 @@ import logoAlhijaz from '@/logo-alhijaz.webp';
 import { getDistance } from '@/data/hotelService';
 import { getTemperature } from '@/data/temperatureData';
 import { sendCapiEvent } from '@/lib/capi';
+import { trackEvent, trackPublicEvent } from '@/utils/analytics';
 
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
@@ -1279,6 +1280,8 @@ _________________________
   // Share from the full-screen preview overlay
   const handleShareScreenshot = async () => {
     if (!previewImage) return;
+    trackEvent('action', 'share_screenshot', { paket: pkg.nama });
+    trackPublicEvent(agentSlug, 'wa_click_public', { source: 'screenshot_share', paket: pkg.nama });
 
     try {
       const blob = await (await fetch(previewImage)).blob();
@@ -1667,6 +1670,7 @@ _________________________
                 onClick={(e) => {
                   e.stopPropagation();
                   fireViewContent();
+                  trackEvent('action', 'download_itinerary', { paket: pkg.nama });
                   setIsItineraryOpen(true);
                 }}
                 className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:border-slate-700 dark:hover:border-blue-500"
@@ -1691,6 +1695,7 @@ _________________________
                 onClick={(e) => {
                   e.stopPropagation();
                   fireViewContent();
+                  trackEvent('action', 'download_brosur', { paket: pkg.nama });
                   setIsBrochureOpen(true);
                 }}
                 className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/30 dark:border-slate-700 dark:hover:border-orange-500"

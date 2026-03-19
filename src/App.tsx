@@ -8,6 +8,7 @@ import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agen
 import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
 import { sendCapiEvent } from '@/lib/capi';
+import { trackPublicEvent } from '@/utils/analytics';
 
 // ============================================
 // Main App Component
@@ -147,6 +148,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     if (!currentAgentSlug || capiPageViewFired[0]) return;
     capiPageViewFired[1](true);
     sendCapiEvent(currentAgentSlug, 'pageView');
+    trackPublicEvent(currentAgentSlug, 'page_view', { path: window.location.pathname });
   }, [currentAgentSlug]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── CAPI: Search event (debounced) ──

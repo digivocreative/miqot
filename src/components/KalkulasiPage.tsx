@@ -5,6 +5,7 @@ if (typeof window !== 'undefined' && !window.Buffer) {
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { pdf } from '@react-pdf/renderer';
+import { trackEvent } from '../utils/analytics';
 import { Document as PdfDoc, Page as PdfPage, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -469,6 +470,7 @@ function ResultModal({
 
   const handlePdfClick = () => {
     setPdfBtnLoading(true);
+    trackEvent('action', 'generate_pdf', { paket: pkg?.nama || '' });
     onGeneratePDF(); // start generating in the background
     setTimeout(() => {
       setPdfBtnLoading(false);
