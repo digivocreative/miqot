@@ -1022,7 +1022,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
               type="text"
               value={username}
               onChange={e => { setUsername(e.target.value.toUpperCase()); setError(''); }}
-              placeholder="SMxxxx"
+              placeholder="SM12345"
               maxLength={12}
               autoCapitalize="characters"
               autoCorrect="off"
@@ -1040,7 +1040,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={e => { setPassword(e.target.value); setError(''); }}
-                placeholder="Masukkan password"
+                placeholder="Kata Sandi"
                 className="w-full px-3 py-2.5 pr-10 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400"
               />
               <button
