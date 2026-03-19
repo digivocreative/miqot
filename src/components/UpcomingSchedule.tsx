@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Plane, User, X } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Plane, User, Clock, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
 
@@ -19,30 +19,59 @@ interface CalendarEvent {
   details: EventDetail[];
 }
 
-const TYPE_CONFIG = {
-  manasik: {
-    label: 'MANASIK',
-    dotColor: 'bg-purple-500',
-    textColor: 'text-purple-600 dark:text-purple-400',
-    bgColor: 'bg-purple-50 dark:bg-purple-900/20',
-    borderColor: 'border-l-purple-400',
-  },
+type TabKey = 'keberangkatan' | 'kepulangan' | 'manasik';
+
+const TAB_CONFIG: Record<TabKey, {
+  label: string;
+  dotColor: string;
+  activeTab: string;
+  badgeBg: string;
+  borderColor: string;
+  textColor: string;
+  textColorDark: string;
+  iconColor: string;
+  footerBg: string;
+  footerBorder: string;
+}> = {
   keberangkatan: {
-    label: 'KEBERANGKATAN',
+    label: 'Berangkat',
     dotColor: 'bg-emerald-500',
-    textColor: 'text-emerald-600 dark:text-emerald-400',
-    bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
+    activeTab: 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20',
+    badgeBg: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/40',
     borderColor: 'border-l-emerald-400',
+    textColor: 'text-emerald-600',
+    textColorDark: 'dark:text-emerald-400',
+    iconColor: 'text-emerald-400 dark:text-emerald-400',
+    footerBg: 'bg-emerald-50 dark:bg-emerald-900/20',
+    footerBorder: 'border-emerald-100 dark:border-emerald-800/40',
   },
   kepulangan: {
-    label: 'KEPULANGAN',
+    label: 'Pulang',
     dotColor: 'bg-blue-500',
-    textColor: 'text-blue-600 dark:text-blue-400',
-    bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+    activeTab: 'bg-blue-500 text-white shadow-md shadow-blue-500/20',
+    badgeBg: 'bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800/40',
     borderColor: 'border-l-blue-400',
+    textColor: 'text-blue-600',
+    textColorDark: 'dark:text-blue-400',
+    iconColor: 'text-blue-400 dark:text-blue-400',
+    footerBg: 'bg-blue-50 dark:bg-blue-900/20',
+    footerBorder: 'border-blue-100 dark:border-blue-800/40',
   },
-} as const;
+  manasik: {
+    label: 'Manasik',
+    dotColor: 'bg-violet-500',
+    activeTab: 'bg-violet-500 text-white shadow-md shadow-violet-500/20',
+    badgeBg: 'bg-violet-50 dark:bg-violet-900/20 border-violet-100 dark:border-violet-800/40',
+    borderColor: 'border-l-violet-400',
+    textColor: 'text-violet-600',
+    textColorDark: 'dark:text-violet-400',
+    iconColor: 'text-violet-400 dark:text-violet-400',
+    footerBg: 'bg-violet-50 dark:bg-violet-900/20',
+    footerBorder: 'border-violet-100 dark:border-violet-800/40',
+  },
+};
 
+const TAB_ORDER: TabKey[] = ['keberangkatan', 'kepulangan', 'manasik'];
 const MONTH_NAMES = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 const DAY_HEADERS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
 
@@ -54,22 +83,18 @@ export default function UpcomingSchedule() {
   const now = useMemo(() => new Date(), []);
   const [currentMonth, setCurrentMonth] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<TabKey>('keberangkatan');
   const [calendarData, setCalendarData] = useState<Record<string, CalendarEvent[]>>({});
   const [loading, setLoading] = useState(true);
 
-  // Fetch data for a specific month (with caching)
   const fetchMonth = useCallback(async (year: number, month: number) => {
     const key = cacheKey(year, month);
     if (calendarData[key]) return;
-
     try {
       const res = await fetch(`/api/calendar/events?month=${month}&year=${year}`, {
         headers: getAuthHeaders(),
       });
-      if (!res.ok) {
-        setCalendarData(prev => ({ ...prev, [key]: [] }));
-        return;
-      }
+      if (!res.ok) { setCalendarData(prev => ({ ...prev, [key]: [] })); return; }
       const result = await res.json();
       const events: CalendarEvent[] = result.success ? (result.data?.events || []) : [];
       setCalendarData(prev => ({ ...prev, [key]: events }));
@@ -78,14 +103,12 @@ export default function UpcomingSchedule() {
     }
   }, [calendarData]);
 
-  // Initial fetch
   useEffect(() => {
     setLoading(true);
     fetchMonth(currentMonth.year, currentMonth.month).finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch when month changes
   useEffect(() => {
     const key = cacheKey(currentMonth.year, currentMonth.month);
     if (!calendarData[key]) {
@@ -95,7 +118,6 @@ export default function UpcomingSchedule() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMonth.year, currentMonth.month]);
 
-  // Body scroll lock
   useEffect(() => {
     if (selectedDay !== null) {
       document.body.style.overflow = 'hidden';
@@ -124,7 +146,6 @@ export default function UpcomingSchedule() {
   const key = cacheKey(currentMonth.year, currentMonth.month);
   const monthEvents = calendarData[key] || [];
 
-  // Event map: day number → Set of event types
   const eventMap = useMemo(() => {
     const map: Record<number, Set<string>> = {};
     for (const ev of monthEvents) {
@@ -135,7 +156,6 @@ export default function UpcomingSchedule() {
     return map;
   }, [monthEvents]);
 
-  // Calendar grid cells
   const cells = useMemo(() => {
     const firstDay = new Date(currentMonth.year, currentMonth.month - 1, 1).getDay();
     const daysInMonth = new Date(currentMonth.year, currentMonth.month, 0).getDate();
@@ -151,12 +171,28 @@ export default function UpcomingSchedule() {
     currentMonth.month === now.getMonth() + 1 &&
     currentMonth.year === now.getFullYear();
 
-  // Events for selected day (bottom sheet)
-  const selectedEvents = useMemo(() => {
-    if (selectedDay === null) return [];
+  // Events for selected day, grouped by type
+  const selectedEventsByType = useMemo(() => {
+    if (selectedDay === null) return {} as Record<TabKey, EventDetail[]>;
     const dateStr = `${currentMonth.year}-${String(currentMonth.month).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
-    return monthEvents.filter(ev => ev.date === dateStr);
+    const result: Record<TabKey, EventDetail[]> = { keberangkatan: [], kepulangan: [], manasik: [] };
+    for (const ev of monthEvents) {
+      if (ev.date === dateStr && result[ev.type as TabKey]) {
+        const valid = ev.details.filter(d => d.group_number && d.group_number !== '-' && d.pax > 0);
+        result[ev.type as TabKey].push(...valid);
+      }
+    }
+    return result;
   }, [selectedDay, monthEvents, currentMonth.year, currentMonth.month]);
+
+  // Auto-select first tab that has data when opening bottom sheet
+  useEffect(() => {
+    if (selectedDay !== null) {
+      const firstWithData = TAB_ORDER.find(t => (selectedEventsByType[t]?.length || 0) > 0);
+      if (firstWithData) setActiveTab(firstWithData);
+      else setActiveTab('keberangkatan');
+    }
+  }, [selectedDay, selectedEventsByType]);
 
   // Loading skeleton
   if (loading && monthEvents.length === 0) {
@@ -182,6 +218,10 @@ export default function UpcomingSchedule() {
     );
   }
 
+  const tabConfig = TAB_CONFIG[activeTab];
+  const activeDetails = selectedEventsByType[activeTab] || [];
+  const totalPax = activeDetails.reduce((s, d) => s + (d.pax || 0), 0);
+
   return (
     <>
       {/* ── Calendar Card (fixed size) ── */}
@@ -195,16 +235,10 @@ export default function UpcomingSchedule() {
             </span>
           </div>
           <div className="flex items-center gap-1">
-            <button
-              onClick={prevMonth}
-              className="w-7 h-7 rounded-lg bg-gray-50 dark:bg-slate-700 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-600 transition-colors active:scale-95"
-            >
+            <button onClick={prevMonth} className="w-7 h-7 rounded-lg bg-gray-50 dark:bg-slate-700 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-600 transition-colors active:scale-95">
               <ChevronLeft size={16} />
             </button>
-            <button
-              onClick={nextMonth}
-              className="w-7 h-7 rounded-lg bg-gray-50 dark:bg-slate-700 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-600 transition-colors active:scale-95"
-            >
+            <button onClick={nextMonth} className="w-7 h-7 rounded-lg bg-gray-50 dark:bg-slate-700 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-600 transition-colors active:scale-95">
               <ChevronRight size={16} />
             </button>
           </div>
@@ -213,9 +247,7 @@ export default function UpcomingSchedule() {
         {/* Day Headers */}
         <div className="grid grid-cols-7 px-3">
           {DAY_HEADERS.map(d => (
-            <div key={d} className="text-center text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase py-1">
-              {d}
-            </div>
+            <div key={d} className="text-center text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase py-1">{d}</div>
           ))}
         </div>
 
@@ -228,7 +260,6 @@ export default function UpcomingSchedule() {
           <div className="grid grid-cols-7 px-3 pb-2">
             {cells.map((day, i) => {
               if (day === null) return <div key={`blank-${i}`} className="py-1.5" />;
-
               const types = eventMap[day];
               const hasEvent = types && types.size > 0;
               const today = isToday(day);
@@ -237,36 +268,17 @@ export default function UpcomingSchedule() {
               return (
                 <button
                   key={day}
-                  onClick={() => {
-                    if (!hasEvent) return;
-                    setSelectedDay(selected ? null : day);
-                  }}
-                  className={`flex flex-col items-center py-1.5 rounded-lg transition-colors ${
-                    selected ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''
-                  } ${hasEvent ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700/30' : 'cursor-default'}`}
+                  onClick={() => { if (!hasEvent) return; setSelectedDay(selected ? null : day); }}
+                  className={`flex flex-col items-center py-1.5 rounded-lg transition-colors ${selected ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''} ${hasEvent ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700/30' : 'cursor-default'}`}
                 >
                   {today ? (
-                    <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-semibold">
-                      {day}
-                    </div>
+                    <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-semibold">{day}</div>
                   ) : (
-                    <span className={`text-xs font-semibold leading-6 ${
-                      selected
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : hasEvent
-                          ? 'text-gray-700 dark:text-slate-300'
-                          : 'text-gray-400 dark:text-slate-500'
-                    }`}>
-                      {day}
-                    </span>
+                    <span className={`text-xs font-semibold leading-6 ${selected ? 'text-emerald-600 dark:text-emerald-400' : hasEvent ? 'text-gray-700 dark:text-slate-300' : 'text-gray-400 dark:text-slate-500'}`}>{day}</span>
                   )}
                   {hasEvent ? (
                     <div className="flex gap-0.5 mt-1">
-                      {(['manasik', 'keberangkatan', 'kepulangan'] as const).map(t =>
-                        types.has(t) ? (
-                          <div key={t} className={`w-1.5 h-1.5 rounded-full ${TYPE_CONFIG[t].dotColor}`} />
-                        ) : null
-                      )}
+                      {TAB_ORDER.map(t => types.has(t) ? <div key={t} className={`w-1.5 h-1.5 rounded-full ${TAB_CONFIG[t].dotColor}`} /> : null)}
                     </div>
                   ) : (
                     <div className="h-1.5 mt-1" />
@@ -279,12 +291,10 @@ export default function UpcomingSchedule() {
 
         {/* Legend */}
         <div className="px-4 py-2 border-t border-gray-50 dark:border-slate-700/50 flex gap-3">
-          {(['manasik', 'keberangkatan', 'kepulangan'] as const).map(t => (
+          {TAB_ORDER.map(t => (
             <div key={t} className="flex items-center gap-1">
-              <div className={`w-1.5 h-1.5 rounded-full ${TYPE_CONFIG[t].dotColor}`} />
-              <span className="text-[8px] font-semibold text-gray-400 dark:text-slate-500 uppercase">
-                {TYPE_CONFIG[t].label}
-              </span>
+              <div className={`w-1.5 h-1.5 rounded-full ${TAB_CONFIG[t].dotColor}`} />
+              <span className="text-[8px] font-semibold text-gray-400 dark:text-slate-500 uppercase">{TAB_CONFIG[t].label}</span>
             </div>
           ))}
         </div>
@@ -294,7 +304,6 @@ export default function UpcomingSchedule() {
       <AnimatePresence>
         {selectedDay !== null && (
           <>
-            {/* Overlay */}
             <motion.div
               key="overlay"
               initial={{ opacity: 0 }}
@@ -305,7 +314,6 @@ export default function UpcomingSchedule() {
               onClick={() => setSelectedDay(null)}
             />
 
-            {/* Sheet */}
             <motion.div
               key="sheet"
               initial={{ y: '100%' }}
@@ -332,84 +340,107 @@ export default function UpcomingSchedule() {
                 </button>
               </div>
 
-              {/* Body */}
-              <div className="flex-1 overflow-y-auto px-4 pb-4">
-                {selectedEvents.length === 0 ? (
-                  <div className="py-8 text-center text-[11px] text-gray-400 dark:text-slate-500">
-                    Tidak ada jadwal
-                  </div>
-                ) : (
-                  selectedEvents.map(event => {
-                    const config = TYPE_CONFIG[event.type] || TYPE_CONFIG.manasik;
-                    const validDetails = event.details.filter(d => d.group_number && d.group_number !== '-' && d.pax > 0);
-                    const totalPax = validDetails.reduce((s, d) => s + (d.pax || 0), 0);
+              {/* Pill Tabs */}
+              <div className="px-4 pb-3">
+                <div className="bg-gray-50 dark:bg-slate-900 rounded-xl p-1 flex gap-1">
+                  {TAB_ORDER.map(t => {
+                    const conf = TAB_CONFIG[t];
+                    const count = (selectedEventsByType[t] || []).length;
+                    const isActive = activeTab === t;
 
                     return (
-                      <div key={`${event.date}_${event.type}`}>
-                        {/* Event type header */}
-                        <div className="flex items-center justify-between py-2">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${config.bgColor} ${config.textColor}`}>
-                              {config.label}
-                            </span>
-                            <span className="text-[10px] text-gray-500 dark:text-slate-400">
-                              {validDetails.length > 0 && `${validDetails.length} group · ${totalPax} pax`}
-                            </span>
+                      <button
+                        key={t}
+                        onClick={() => setActiveTab(t)}
+                        className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all duration-200 flex items-center justify-center gap-1.5 ${
+                          isActive
+                            ? conf.activeTab
+                            : 'text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'
+                        }`}
+                      >
+                        {conf.label}
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-md ${
+                          isActive ? 'bg-white/20' : 'bg-gray-200/60 dark:bg-slate-700'
+                        }`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Content */}
+              {activeDetails.length === 0 ? (
+                <div className="py-12 text-center">
+                  <span className="text-[11px] text-gray-400 dark:text-slate-500">
+                    Tidak ada {tabConfig.label.toLowerCase()} di tanggal ini
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div className="flex-1 overflow-y-auto">
+                    {activeDetails.map((detail, i) => (
+                      <div
+                        key={i}
+                        className={`px-4 py-3 flex gap-3 items-start hover:bg-gray-50 dark:hover:bg-slate-700/40 transition-colors ${
+                          i > 0 ? 'border-t border-gray-100 dark:border-slate-700' : ''
+                        }`}
+                      >
+                        {/* Left — Group Badge */}
+                        <div className="flex-shrink-0 pt-0.5">
+                          <div className={`w-10 h-10 rounded-xl border flex flex-col items-center justify-center shadow-sm ${tabConfig.badgeBg}`}>
+                            <span className={`text-[8px] font-bold uppercase leading-none ${tabConfig.textColor} ${tabConfig.textColorDark}`}>GRP</span>
+                            <span className={`text-sm font-extrabold leading-none ${tabConfig.textColor} ${tabConfig.textColorDark}`}>{detail.group_number || '-'}</span>
                           </div>
                         </div>
 
-                        {/* Group cards */}
-                        <div className="space-y-1.5 mb-3">
-                          {validDetails.map((detail, di) => (
-                            <div
-                              key={di}
-                              className={`bg-gray-50 dark:bg-slate-700/30 rounded-xl px-3 py-2.5 border border-gray-100 dark:border-slate-600/30 border-l-2 ${config.borderColor}`}
-                            >
-                              {/* Row 1: Group + Jam + PAX */}
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[10px] font-bold text-gray-700 dark:text-slate-200 bg-white dark:bg-slate-600/50 px-2 py-0.5 rounded-md border border-gray-200 dark:border-slate-500/30">
-                                    Group {detail.group_number}
-                                  </span>
-                                  <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">
-                                    {detail.jam || '-'}
-                                  </span>
-                                </div>
-                                <span className="text-[11px] font-bold text-gray-700 dark:text-slate-200">
-                                  {detail.pax} pax
-                                </span>
-                              </div>
+                        {/* Center — Info */}
+                        <div className="flex-1 min-w-0">
+                          {/* Pesawat */}
+                          <div className="flex items-center gap-1.5 text-[10px]">
+                            <Plane size={11} className={`${tabConfig.iconColor} shrink-0`} />
+                            <span className="font-bold text-gray-800 dark:text-white truncate">{detail.pesawat || '-'}</span>
+                          </div>
+                          {/* Paket */}
+                          <p className="text-[10px] text-gray-600 dark:text-slate-300 mt-1 leading-relaxed">
+                            {detail.paket || '-'}
+                          </p>
+                          {/* Jam + TL */}
+                          <div className="flex items-center gap-3 mt-1.5">
+                            <span className="flex items-center gap-1 text-[9px] text-gray-600 dark:text-slate-300 font-semibold">
+                              <Clock size={10} className={`${tabConfig.iconColor} shrink-0`} />
+                              {detail.jam || '-'}
+                            </span>
+                            {detail.tour_leader && detail.tour_leader !== '-' && (
+                              <span className="flex items-center gap-1 text-[9px] text-gray-500 dark:text-slate-400 truncate">
+                                <User size={10} className="text-gray-400 dark:text-slate-400 shrink-0" />
+                                {detail.tour_leader}
+                              </span>
+                            )}
+                          </div>
+                        </div>
 
-                              {/* Row 2: Pesawat */}
-                              <div className="flex items-center gap-1.5 mt-1.5">
-                                <Plane size={11} className="text-gray-300 dark:text-slate-500 shrink-0" />
-                                <span className="text-[10px] text-gray-500 dark:text-slate-400">
-                                  {detail.pesawat || '-'}
-                                </span>
-                              </div>
-
-                              {/* Row 3: Paket */}
-                              <p className="text-[10px] text-gray-600 dark:text-slate-300 leading-relaxed mt-1">
-                                {detail.paket || '-'}
-                              </p>
-
-                              {/* Row 4: Tour Leader */}
-                              {detail.tour_leader && detail.tour_leader !== '-' && (
-                                <div className="flex items-center gap-1.5 mt-1.5">
-                                  <User size={10} className="text-gray-300 dark:text-slate-500 shrink-0" />
-                                  <span className="text-[9px] font-medium text-gray-400 dark:text-slate-500">
-                                    TL: {detail.tour_leader}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          ))}
+                        {/* Right — PAX */}
+                        <div className="flex-shrink-0 text-right pt-0.5">
+                          <div className="text-lg font-extrabold text-gray-800 dark:text-white leading-none">{detail.pax || 0}</div>
+                          <div className="text-[8px] font-bold text-gray-500 dark:text-slate-400 uppercase mt-0.5">PAX</div>
                         </div>
                       </div>
-                    );
-                  })
-                )}
-              </div>
+                    ))}
+                  </div>
+
+                  {/* Footer Summary */}
+                  <div className={`sticky bottom-0 ${tabConfig.footerBg} border-t ${tabConfig.footerBorder} px-4 py-2.5 flex items-center justify-between`}>
+                    <span className={`text-[10px] font-bold ${tabConfig.textColor} ${tabConfig.textColorDark}`}>
+                      Total {tabConfig.label}
+                    </span>
+                    <span className={`text-xs font-extrabold ${tabConfig.textColor} ${tabConfig.textColorDark}`}>
+                      {activeDetails.length} group · {totalPax} pax
+                    </span>
+                  </div>
+                </>
+              )}
             </motion.div>
           </>
         )}

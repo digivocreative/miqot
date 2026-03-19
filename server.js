@@ -987,6 +987,192 @@ app.get('/api/calendar/events', authMiddleware, async (req, res) => {
   }
 });
 
+// ──────────────────────────────────────────────
+// API: Calendar AI Insight
+// ──────────────────────────────────────────────
+let insightRefreshLast = 0; // timestamp of last manual refresh
+
+async function generateCalendarInsight() {
+  console.log('[AI Insight] Starting generation...');
+  const OPENAI_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_KEY) {
+    console.warn('[AI Insight] OPENAI_API_KEY not configured — skipping');
+    return null;
+  }
+
+  // Query events: today → +7 days
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const nextWeek = new Date(today);
+  nextWeek.setDate(nextWeek.getDate() + 7);
+  const nextWeekStr = nextWeek.toISOString().split('T')[0];
+
+  // Also get the full current month for summary
+  const monthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+  const monthEnd = today.getMonth() === 11
+    ? `${today.getFullYear() + 1}-01-01`
+    : `${today.getFullYear()}-${String(today.getMonth() + 2).padStart(2, '0')}-01`;
+
+  let weekEvents, monthEvents;
+  try {
+    const [weekResult, monthResult] = await Promise.all([
+      supabase.from('calendar_events').select('*').gte('event_date', todayStr).lte('event_date', nextWeekStr).order('event_date'),
+      supabase.from('calendar_events').select('event_date, event_type, pax, paket, group_number').gte('event_date', monthStart).lt('event_date', monthEnd).eq('event_type', 'keberangkatan'),
+    ]);
+    weekEvents = weekResult.data || [];
+    monthEvents = monthResult.data || [];
+    console.log(`[AI Insight] Found ${weekEvents.length} week events, ${monthEvents.length} month events`);
+  } catch (err) {
+    console.error('[AI Insight] Supabase query error:', err.message);
+    return null;
+  }
+
+  if (weekEvents.length === 0 && monthEvents.length === 0) {
+    console.log('[AI Insight] No calendar data — skipping generation');
+    return null;
+  }
+
+  // Build context string
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const formatDate = (d) => {
+    const parts = d.split('-');
+    return `${parseInt(parts[2])} ${monthNames[parseInt(parts[1]) - 1]}`;
+  };
+
+  // Group week events by date + type
+  const weekSummary = {};
+  for (const ev of weekEvents) {
+    const key = `${ev.event_date}_${ev.event_type}`;
+    if (!weekSummary[key]) weekSummary[key] = { date: ev.event_date, type: ev.event_type, groups: [], totalPax: 0 };
+    weekSummary[key].groups.push({ group: ev.group_number, pax: ev.pax || 0, paket: ev.paket });
+    weekSummary[key].totalPax += ev.pax || 0;
+  }
+
+  let calendarDataString = `Hari ini: ${formatDate(todayStr)}\n\n`;
+  calendarDataString += `=== JADWAL 7 HARI KE DEPAN ===\n`;
+  const sortedWeek = Object.values(weekSummary).sort((a, b) => a.date.localeCompare(b.date));
+  if (sortedWeek.length === 0) {
+    calendarDataString += `Tidak ada jadwal keberangkatan/kepulangan/manasik 7 hari ke depan.\n`;
+  } else {
+    for (const item of sortedWeek) {
+      calendarDataString += `${formatDate(item.date)} — ${item.type}: ${item.groups.length} group, ${item.totalPax} jamaah\n`;
+      for (const g of item.groups) {
+        if (g.group && g.pax > 0) calendarDataString += `  Group ${g.group}: ${g.pax} jamaah, paket ${g.paket || '-'}\n`;
+      }
+    }
+  }
+
+  // Month summary
+  const monthTotalPax = monthEvents.reduce((s, e) => s + (e.pax || 0), 0);
+  const monthDates = [...new Set(monthEvents.map(e => e.event_date))];
+  const paketCount = {};
+  for (const e of monthEvents) {
+    const p = e.paket || 'Lainnya';
+    paketCount[p] = (paketCount[p] || 0) + 1;
+  }
+  const topPaket = Object.entries(paketCount).sort((a, b) => b[1] - a[1]).slice(0, 3);
+
+  calendarDataString += `\n=== RINGKASAN BULAN ${monthNames[today.getMonth()].toUpperCase()} ===\n`;
+  calendarDataString += `Total keberangkatan: ${monthDates.length} hari, ${monthEvents.length} group, ${monthTotalPax} jamaah\n`;
+  if (topPaket.length > 0) {
+    calendarDataString += `Paket terlaris: ${topPaket.map(([p, c]) => `${p} (${c} group)`).join(', ')}\n`;
+  }
+
+  const prompt = `Kamu adalah asisten untuk agen travel umroh Alhijaz. Agen-agen ini mayoritas ibu-ibu usia 40-50 tahun. 
+
+Tugas kamu: buat 3 insight singkat berdasarkan data jadwal berikut. Gunakan bahasa Indonesia yang HANGAT dan KASUAL — seperti ngobrol sesama teman kerja. Jangan pakai bahasa baku/kaku/formal. Boleh pakai kata seperti "rame", "lumayan", "nih", "yuk", "dong", "banget", "Alhamdulillah". Jangan pakai kata "signifikan", "terkait", "berdasarkan data", atau bahasa laporan.
+
+Untuk angka penting (jumlah jamaah, jumlah group, tanggal), bungkus dengan **bold** markdown. Contoh: **336 jamaah**, **3 group**, **tanggal 25**.
+
+Data jadwal:
+${calendarDataString}
+
+Buat 3 bagian (HARUS dalam format JSON, tanpa backtick/markdown di luar value):
+{
+  "today": "Ringkasan hari ini. Kalau tidak ada jadwal hari ini, kasih tahu kapan jadwal terdekat. Maksimal 2 kalimat.",
+  "weekly": "Ringkasan 7 hari ke depan. Sebutkan hari paling rame, group terbesar, total jamaah. Maksimal 3 kalimat.",
+  "talkingPoint": "Satu paragraf singkat yang bisa agent copy-paste atau pakai sebagai inspirasi chat ke calon jamaah. Harus persuasif tapi natural, tidak terasa seperti iklan. Boleh mulai dengan 'Alhamdulillah'. Maksimal 3 kalimat."
+}`;
+
+  try {
+    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_KEY}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        max_tokens: 500,
+      }),
+    });
+
+    if (!openaiRes.ok) {
+      const errBody = await openaiRes.text();
+      console.error('[AI Insight] OpenAI error:', errBody);
+      return null;
+    }
+
+    const result = await openaiRes.json();
+    const content = result.choices?.[0]?.message?.content || '';
+
+    // Parse JSON from response (handle potential markdown wrapping)
+    const jsonStr = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const parsed = JSON.parse(jsonStr);
+
+    const data = {
+      today: parsed.today || '',
+      weekly: parsed.weekly || '',
+      talkingPoint: parsed.talkingPoint || '',
+      generatedAt: new Date().toISOString(),
+    };
+
+    // Persist to Supabase
+    const { error: upsertErr } = await supabase
+      .from('calendar_insights')
+      .upsert({ id: 'latest', data, generated_at: data.generatedAt }, { onConflict: 'id' });
+    if (upsertErr) console.error('[AI Insight] Supabase save error:', upsertErr.message);
+
+    console.log('[AI Insight] Generated successfully');
+    return data;
+  } catch (err) {
+    console.error('[AI Insight] Generation error:', err.message);
+    return null;
+  }
+}
+
+// GET — return insight from Supabase
+app.get('/api/calendar/insight', authMiddleware, async (req, res) => {
+  try {
+    const { data: row, error } = await supabase
+      .from('calendar_insights')
+      .select('data')
+      .eq('id', 'latest')
+      .single();
+    if (error || !row) {
+      return res.json({ success: false, error: 'Insight belum tersedia' });
+    }
+    res.json({ success: true, data: row.data });
+  } catch {
+    res.json({ success: false, error: 'Insight belum tersedia' });
+  }
+});
+
+// POST — force regenerate (rate-limited: 1x per 5 min)
+app.post('/api/calendar/insight/refresh', authMiddleware, async (req, res) => {
+  const now = Date.now();
+  if (now - insightRefreshLast < 5 * 60 * 1000) {
+    const waitSec = Math.ceil((5 * 60 * 1000 - (now - insightRefreshLast)) / 1000);
+    return res.status(429).json({ error: `Tunggu ${waitSec} detik lagi untuk refresh`, retryAfter: waitSec });
+  }
+  insightRefreshLast = now;
+
+  const data = await generateCalendarInsight();
+  if (!data) {
+    return res.status(500).json({ error: 'Gagal generate insight' });
+  }
+  res.json({ success: true, data });
+});
+
 // Jamaah list: read from Supabase with filters, search, pagination, sorting
 app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   const {
@@ -1717,3 +1903,22 @@ async function runCalendarSync() {
 // Initial calendar sync 60s after startup, then every 12 hours
 setTimeout(runCalendarSync, 60 * 1000);
 setInterval(runCalendarSync, 12 * 60 * 60 * 1000);
+
+// ── AI Insight: generate daily at 01:00 WIB ──
+function scheduleInsightCron() {
+  const now = new Date();
+  // Next 01:00 WIB (UTC+7 → 18:00 UTC day before)
+  const target = new Date(now);
+  target.setUTCHours(18, 0, 0, 0); // 01:00 WIB = 18:00 UTC
+  if (target <= now) target.setDate(target.getDate() + 1);
+  const msUntil = target - now;
+  console.log(`[AI Insight] Next cron in ${Math.round(msUntil / 60000)} minutes (01:00 WIB)`);
+  setTimeout(async () => {
+    try { await generateCalendarInsight(); } catch (e) { console.error('[AI Insight] Cron error:', e.message); }
+    // Then repeat every 24 hours
+    setInterval(async () => {
+      try { await generateCalendarInsight(); } catch (e) { console.error('[AI Insight] Cron error:', e.message); }
+    }, 24 * 60 * 60 * 1000);
+  }, msUntil);
+}
+scheduleInsightCron();

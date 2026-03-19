@@ -43,6 +43,7 @@ Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 | **Warning/Accent** | `amber-50` bg, `amber-600` text | `amber-900/20`, `amber-400` | Jamaah, admin badge, komisi potensi |
 | **Info** | `blue-50` bg, `blue-600` text | `blue-900/20`, `blue-400` | Kalkulasi, profile, komisi belum cair |
 | **Violet** | `violet-50` bg, `violet-600` text | `violet-900/20`, `violet-400` | Compare, jamaah baru stats |
+| **Purple** | `purple-50` bg, `purple-600` text | `purple-900/20`, `purple-400` | Manasik event (calendar) |
 | **Neutral** | `gray-50`–`gray-600` | `slate-400`–`slate-700` | Borders, secondary text |
 
 ### Feature Card Colors (Dashboard Menu)
@@ -80,6 +81,14 @@ Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 | Comparison ↑ badge | `text-emerald-600` | `text-emerald-400` |
 | Comparison ↓ badge | `text-red-500` | `text-red-400` |
 | Chart grid stroke | `#f1f5f9` | `#1e293b` |
+
+### Calendar Event Colors
+
+| Event Type | Dot | Badge Text | Badge BG | Border Left |
+|------------|-----|-----------|----------|-------------|
+| Manasik | `bg-purple-500` | `text-purple-600` / `purple-400` | `bg-purple-50` / `purple-900/20` | `border-l-purple-400` |
+| Keberangkatan | `bg-emerald-500` | `text-emerald-600` / `emerald-400` | `bg-emerald-50` / `emerald-900/20` | `border-l-emerald-400` |
+| Kepulangan | `bg-blue-500` | `text-blue-600` / `blue-400` | `bg-blue-50` / `blue-900/20` | `border-l-blue-400` |
 
 ---
 
@@ -357,6 +366,33 @@ shadow-2xl flex flex-col overflow-hidden
 - Content: `flex-1 overflow-y-auto`
 - Animations: `fadeIn 150ms`, `slideUp 200ms`
 
+### Bottom Sheet (Calendar Detail)
+
+```
+fixed inset-x-0 bottom-0 z-50
+max-w-lg mx-auto
+bg-white dark:bg-slate-800
+rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700
+shadow-2xl max-h-[70vh] flex flex-col
+```
+
+- Backdrop: `fixed inset-0 z-50 bg-black/40 backdrop-blur-sm`
+- Handle bar: `w-10 h-1 rounded-full bg-gray-300 dark:bg-slate-600`
+- Header: `px-4 pb-2` with date title + close button `w-8 h-8`
+- Body: `flex-1 overflow-y-auto px-4 pb-4`
+- Animation: Framer Motion `y: '100%' → 0`, duration 250ms, ease `[0.4, 0, 0.2, 1]`
+- Body scroll lock: `document.body.style.overflow = 'hidden'`
+
+### Calendar Widget (`UpcomingSchedule.tsx`)
+
+Mini calendar grid on Dashboard home:
+- Header: month/year + prev/next arrows
+- Grid: 7-col (Min-Sab), colored dots under dates with events
+- Legend: `text-[8px]` dots for Manasik, Keberangkatan, Kepulangan
+- Click date with dots → opens bottom sheet with event details
+- Group cards: colored left border, group badge, pesawat, paket, TL
+- Data cached per month (no re-fetch when navigating back)
+
 ---
 
 ## Form Inputs
@@ -563,6 +599,7 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 | Page transition | Curtain overlay (see `index.css`) |
 | Modal fade-in | `fadeIn 150ms ease-out` |
 | Modal slide-up | `slideUp 200ms ease-out` |
+| Bottom sheet slide-up | Framer Motion `y: '100%' → 0`, 250ms, ease `[0.4, 0, 0.2, 1]` |
 | Disconnect modal | `dc-backdrop-enter/exit`, `dc-card-enter/exit` (see `index.css`) |
 | Chart bar transition | `transition-all duration-500` |
 

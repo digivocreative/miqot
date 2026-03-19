@@ -14,6 +14,7 @@ import JamaahPage from './JamaahPage';
 import StatistikPage from './StatistikPage';
 import AgentManagementPage from './AgentManagementPage';
 import UpcomingSchedule from './UpcomingSchedule';
+import CalendarInsight from './CalendarInsight';
 
 type TabId = 'home' | 'profile' | 'kalkulasi' | 'compare' | 'caption' | 'capi' | 'agents' | 'jamaah' | 'statistik';
 
@@ -75,13 +76,6 @@ interface MenuCard {
 
 const MENU_CARDS: MenuCard[] = [
   {
-    id: 'profile', label: 'Edit Profil', desc: '',
-    icon: User, color: 'text-blue-600 dark:text-blue-400',
-    bgLight: 'bg-blue-50', bgDark: 'dark:bg-blue-900/20',
-    borderLight: 'border-blue-100', borderDark: 'dark:border-blue-800/40',
-    hidden: true,
-  },
-  {
     id: 'jamaah', label: 'Jamaah', desc: 'Data jamaah',
     icon: Users, color: 'text-amber-600 dark:text-amber-400',
     bgLight: 'bg-amber-50', bgDark: 'dark:bg-amber-900/20',
@@ -110,6 +104,12 @@ const MENU_CARDS: MenuCard[] = [
     icon: Settings, color: 'text-gray-600 dark:text-gray-400',
     bgLight: 'bg-gray-50', bgDark: 'dark:bg-gray-800/30',
     borderLight: 'border-gray-200', borderDark: 'dark:border-gray-700/40',
+  },
+  {
+    id: 'profile', label: 'Profil', desc: 'Edit profil',
+    icon: User, color: 'text-blue-600 dark:text-blue-400',
+    bgLight: 'bg-blue-50', bgDark: 'dark:bg-blue-900/20',
+    borderLight: 'border-blue-100', borderDark: 'dark:border-blue-800/40',
   },
   {
     id: 'agents', label: 'Agents', desc: 'Lihat & edit agent',
@@ -366,14 +366,34 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // ── Home / Card Grid ──
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 transition-colors">
-      {/* Minimal top bar */}
+      {/* Header with avatar */}
       <header className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center border border-emerald-100 dark:border-emerald-800/40">
-              <LayoutGrid size={16} className="text-emerald-600 dark:text-emerald-400" />
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => navigateTab('profile')}
+              className="relative shrink-0 active:scale-95 transition-transform"
+              title="Edit Profil"
+            >
+              <img
+                src={agentData.photo}
+                alt={agentData.name}
+                className="w-9 h-9 rounded-full object-cover border-2 border-emerald-200 dark:border-emerald-700 shadow-sm"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(agentData.name)}&background=random&size=72`;
+                }}
+              />
+            </button>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{agentData.name}</p>
+                {isAdmin && (
+                  <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-[9px] font-bold rounded-full uppercase shrink-0">
+                    <Shield size={8} /> Admin
+                  </span>
+                )}
+              </div>
             </div>
-            <p className="text-sm font-bold text-gray-800 dark:text-white">Dashboard</p>
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -394,47 +414,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       </header>
 
       <main className="max-w-lg mx-auto px-4 pt-5 pb-8">
-        {/* ── Agent Profile Card ── */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 border border-gray-100 dark:border-slate-700 shadow-sm mb-5">
-          <div className="flex items-center gap-3.5">
-            <img
-              src={agentData.photo}
-              alt={agentData.name}
-              className="w-14 h-14 rounded-full object-cover border-2 border-emerald-100 dark:border-emerald-800/50 shadow-md shrink-0"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(agentData.name)}&background=random`;
-              }}
-            />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5">
-                <h2 className="text-[15px] font-bold text-gray-800 dark:text-white truncate">
-                  {agentData.name}
-                </h2>
-                {isAdmin && (
-                  <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-[9px] font-bold rounded-full uppercase shrink-0">
-                    <Shield size={8} /> Admin
-                  </span>
-                )}
-              </div>
-              <p className="flex items-center gap-1 text-xs text-gray-500 dark:text-slate-400 mt-0.5 truncate">
-                <Globe size={11} className="shrink-0" /> {agentData.website || agentData.slug}
-              </p>
-              <p className="flex items-center gap-1 text-xs text-gray-500 dark:text-slate-400 mt-0.5">
-                <Phone size={11} className="shrink-0" /> {agentData.phone?.replace(/^62/, '0').replace(/(\d{4})(\d{4})(\d+)/, '$1-$2-$3')}
-              </p>
-            </div>
-            <button
-              onClick={() => navigateTab('profile')}
-              className="shrink-0 w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-400 dark:text-slate-500 hover:bg-gray-200 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-slate-300 transition-all active:scale-95"
-              title="Edit Profil"
-            >
-              <Settings size={16} />
-            </button>
-          </div>
-        </div>
 
         {/* ── Upcoming Schedule ── */}
         <UpcomingSchedule />
+
+        {/* ── AI Insight ── */}
+        <CalendarInsight />
 
         {/* ── Feature Cards Grid ── */}
         <div className="grid grid-cols-3 gap-3">

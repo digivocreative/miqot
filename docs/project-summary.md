@@ -15,11 +15,11 @@
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
-| **Database** | Supabase (PostgreSQL) — 3 tabel: `agents`, `capi_configs`, `jamaah` |
+| **Database** | Supabase (PostgreSQL) — 4 tabel: `agents`, `capi_configs`, `jamaah`, `calendar_events` |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
 | **Charts** | Recharts (AreaChart, BarChart — untuk Statistik page) |
-| **Scraping** | Native `fetch` + Cheerio (modul Jamaah/Laporan — lightweight, no Playwright) |
+| **Scraping** | Native `fetch` + Cheerio (jamaah/laporan + calendar — lightweight, no Playwright) |
 | **Screenshot** | `modern-screenshot` (capture PackageCard untuk dibagikan) |
 | **Animation** | Framer Motion |
 | **Icons** | Lucide React |
@@ -57,8 +57,9 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~1599 lines) — API, proxy, auth, sync, stats, SPA serve
+├── server.js              # Express backend (~1700 lines) — API, proxy, auth, sync, stats, SPA serve
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
+├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
 ├── jamaah-api.js           # Legacy: Playwright-based jamaah scraping (deprecated, replaced by laporan-api.js)
 ├── telegram-notifier.js    # Telegram alerts (seat, price, weekly summary, AI insights)
 ├── deploy-webhook.js       # GitHub webhook listener (port 9000) → auto deploy
@@ -72,13 +73,14 @@ alhijaz/
 │   ├── main.tsx            # Entry point — routing, PWA registration, page resolution
 │   ├── App.tsx             # Main SPA component — package list, filters, layout
 │   ├── index.css           # Global CSS (TailwindCSS + custom animations)
-│   ├── components/         # 19 React components
+│   ├── components/         # 20 React components
 │   │   ├── PackageCard.tsx     # Card paket umroh (komponen terbesar, ~103KB, 2241 lines)
 │   │   ├── CapiPage.tsx        # Meta Conversion API config UI (~1774 lines)
 │   │   ├── KalkulasiPage.tsx   # Hitung harga + generate quotation PDF (~1493 lines)
 │   │   ├── ComparePage.tsx     # Bandingkan 2 paket side-by-side (~1084 lines)
 │   │   ├── JamaahPage.tsx      # View jamaah data, sync & filter (~1018 lines)
 │   │   ├── StatistikPage.tsx   # Dashboard statistik: ringkasan jamaah, komisi, chart tren (~678 lines)
+│   │   ├── UpcomingSchedule.tsx # Calendar widget — mini grid with colored dots + bottom sheet detail
 │   │   ├── DashboardProfile.tsx # Edit profile + photo crop modal
 │   │   ├── FilterHeader.tsx    # Header filter (search, sort, filter mode)
 │   │   ├── DashboardLayout.tsx # Dashboard home + navigation + tab routing
@@ -118,6 +120,7 @@ alhijaz/
 │   ├── migrate-agents-to-supabase.js # Migrate agent data to Supabase
 │   ├── migrate-admin-columns.js     # Add email/role columns to agents table
 │   ├── migrate-jamaah-table.js      # Create jamaah table in Supabase
+│   ├── migrate-calendar-table.js    # Create calendar_events table in Supabase
 │   ├── migrate-jamaah-columns.js    # Add perlengkapan/dokumen columns
 │   ├── add-perlengkapan-cols.js     # Add perlengkapan columns to jamaah table
 │   ├── migrate-paspor-columns.js    # Add no_paspor/paspor_expired columns
@@ -184,6 +187,11 @@ alhijaz/
   - Filter by hijriah year, payment status, departure window
   - Sort by nama, sisa pembayaran, berangkat terdekat, pendaftaran terbaru
   - Perlengkapan & dokumen tracking (batik, bergo, paspor, dll)
+- **Kalender** — mini calendar widget di Dashboard home:
+  - Calendar grid bulanan dengan colored dots (Manasik, Keberangkatan, Kepulangan)
+  - Navigasi bulan (prev/next) dengan caching data per bulan
+  - Bottom sheet popup saat klik tanggal — detail group cards (pesawat, jam, paket, PAX, TL)
+  - Data di-scrape dari internal system (FullCalendar events + _jmodal.php detail)
 
 ### Fitur Infrastruktur
 - AI Copywriting (OpenAI proxy — generate caption WhatsApp)
@@ -195,6 +203,10 @@ alhijaz/
   - Weekly summary (Senin 08:00)
   - AI-powered talking points via OpenAI
 - Background sync jamaah (semua agent, setiap 1 jam)
+- Calendar sync (scrape FullCalendar dari internal system, setiap 12 jam via `setInterval`)
+  - Login ke internal system → fetch halaman Beranda → parse FullCalendar events JSON
+  - Fetch detail popup via `_jmodal.php` per event → parse HTML table (group, pesawat, jam, paket, PAX, staff, TL)
+  - Upsert ke `calendar_events` table
 - GitHub webhook auto-deploy (webhook → pull → build → restart)
 - Supabase keep-alive (ping setiap 3 hari, cegah free-tier pause)
 - OG image generation per agent
@@ -252,6 +264,23 @@ synced_at     TIMESTAMPTZ        -- kapan terakhir di-sync
 -- UNIQUE(agent_slug, id_umroh, nama)
 ```
 
+### Tabel `calendar_events`
+```
+id            TEXT PRIMARY KEY     -- "{date}_{type}_{group}" e.g. "2026-03-25_keberangkatan_163"
+event_date    DATE NOT NULL        -- tanggal event
+event_type    TEXT NOT NULL        -- "manasik" | "keberangkatan" | "kepulangan"
+group_number  TEXT                 -- nomor group ("163")
+pesawat       TEXT                 -- "SAUDIA - SV 827"
+jam           TEXT                 -- "00.40"
+paket         TEXT                 -- nama paket
+pax           INTEGER DEFAULT 0   -- jumlah jamaah
+staff         TEXT                 -- nama staff
+tour_leader   TEXT                 -- nama TL
+raw_data      JSONB                -- data mentah scraping
+synced_at     TIMESTAMPTZ          -- terakhir sync
+-- Indexes: event_date, event_type
+```
+
 ### Data Paket Umroh (External API)
 Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhijaz.co/jadwal/api-get/{yearCode}` dan di-cache di browser (localStorage). Lihat `UmrohPackage` type di `src/types/umroh-package.ts`.
 
@@ -296,6 +325,11 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | GET | `/api/laporan/stats` | Bearer | Statistik jamaah: total, lunas, komisi, tren, berangkat, outstanding |
 | POST | `/api/laporan/disconnect` | Bearer | Clear in-memory session |
 | DELETE | `/api/laporan/credentials` | Bearer | Delete saved credentials from Supabase |
+
+### Calendar
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| GET | `/api/calendar/events` | Bearer | Get calendar events (query: `month`, `year`) — grouped by date+type |
 
 ### Jamaah (Legacy — deprecated)
 | Method | Path | Auth | Deskripsi |
@@ -383,6 +417,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Background sync jamaah (hourly, all agents, multi-kantor)
 - Single package view (deep link ke 1 paket)
 - Quotation PDF dengan logo bank (BCA, BSI, Mandiri)
+- Calendar scraping & display (internal system → Supabase → dashboard mini calendar + bottom sheet)
 
 ### Rencana / Backlog
 - [TODO] Testing suite

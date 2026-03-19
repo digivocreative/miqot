@@ -158,8 +158,6 @@ const renderPage = () => {
 }
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    {renderPage()}
-  </StrictMode>,
+  renderPage()
 )
 
