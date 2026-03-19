@@ -9,6 +9,7 @@ import bcrypt from 'bcrypt';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect } from './laporan-api.js';
 import { initNotifier } from './telegram-notifier.js';
+import { syncCalendar } from './calendar-api.js';
 
 dotenv.config();
 
@@ -292,14 +293,19 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
     const { data: existing } = await supabase.from('agents').select('slug').eq('slug', newSlug).single();
     if (existing) return res.status(400).json({ error: 'Slug sudah digunakan' });
     updates.slug = newSlug;
-    // Rename photo file if exists
-    const oldPath = resolve(__dirname, 'public', 'agents', `${req.user.slug}.jpg`);
-    const newPath = resolve(__dirname, 'public', 'agents', `${newSlug}.jpg`);
+    // Rename photo in Supabase Storage (copy + delete)
     try {
-      if (existsSync(oldPath)) {
-        const { renameSync } = await import('fs');
-        renameSync(oldPath, newPath);
-        updates.photo = `/agents/${newSlug}.jpg?v=${Date.now()}`;
+      const oldFile = `${req.user.slug}.jpg`;
+      const newFile = `${newSlug}.jpg`;
+      const { data: downloaded } = await supabase.storage.from('agent-photos').download(oldFile);
+      if (downloaded) {
+        const arrayBuf = await downloaded.arrayBuffer();
+        await supabase.storage.from('agent-photos').upload(newFile, Buffer.from(arrayBuf), {
+          contentType: 'image/jpeg', upsert: true,
+        });
+        await supabase.storage.from('agent-photos').remove([oldFile]);
+        const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(newFile);
+        updates.photo = `${urlData.publicUrl}?v=${Date.now()}`;
       }
     } catch (e) { /* ignore rename errors */ }
   }
@@ -314,7 +320,7 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
   res.json({ success: true });
 });
 
-// Upload profile photo (base64 JPEG)
+// Upload profile photo (base64 JPEG) → Supabase Storage
 app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), async (req, res) => {
   const { image, slug: targetSlug } = req.body; // base64 data URL, optional slug for admin
   if (!image) return res.status(400).json({ error: 'No image provided' });
@@ -327,14 +333,19 @@ app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), asy
     const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // Save to public/agents/{slug}.jpg
-    const agentsDir = resolve(__dirname, 'public', 'agents');
-    if (!existsSync(agentsDir)) mkdirSync(agentsDir, { recursive: true });
-    const filePath = resolve(agentsDir, `${slug}.jpg`);
-    writeFileSync(filePath, buffer);
+    // Upload to Supabase Storage bucket 'agent-photos'
+    const fileName = `${slug}.jpg`;
+    const { error: uploadError } = await supabase.storage
+      .from('agent-photos')
+      .upload(fileName, buffer, {
+        contentType: 'image/jpeg',
+        upsert: true, // overwrite if exists
+      });
+    if (uploadError) throw uploadError;
 
-    // Update photo path in Supabase with cache buster
-    const photoUrl = `/agents/${slug}.jpg?v=${Date.now()}`;
+    // Get public URL with cache buster
+    const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(fileName);
+    const photoUrl = `${urlData.publicUrl}?v=${Date.now()}`;
     await supabase.from('agents').update({ photo: photoUrl }).eq('slug', slug);
 
     // Invalidate cache
@@ -890,6 +901,82 @@ app.get('/api/laporan/sync-status', authMiddleware, async (req, res) => {
     });
   }
   res.json({ success: true, data: state });
+});
+
+// ──────────────────────────────────────────────
+// API: Calendar Events
+// ──────────────────────────────────────────────
+app.get('/api/calendar/events', authMiddleware, async (req, res) => {
+  const { month, year } = req.query;
+  if (!month || !year) {
+    return res.status(400).json({ error: 'month dan year wajib diisi' });
+  }
+
+  const m = parseInt(month, 10);
+  const y = parseInt(year, 10);
+  if (isNaN(m) || m < 1 || m > 12 || isNaN(y)) {
+    return res.status(400).json({ error: 'month (1-12) dan year harus valid' });
+  }
+
+  try {
+    // Build date range for the month
+    const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
+    const endMonth = m === 12 ? 1 : m + 1;
+    const endYear = m === 12 ? y + 1 : y;
+    const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+
+    const { data: events, error } = await supabase
+      .from('calendar_events')
+      .select('*')
+      .gte('event_date', startDate)
+      .lt('event_date', endDate)
+      .order('event_date', { ascending: true });
+
+    if (error) {
+      console.error('[Calendar API] Query error:', error.message);
+      return res.status(500).json({ error: 'Gagal mengambil data kalender' });
+    }
+
+    // Group by date + type
+    const grouped = {};
+    for (const ev of (events || [])) {
+      const key = `${ev.event_date}_${ev.event_type}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          date: ev.event_date,
+          type: ev.event_type,
+          details: [],
+        };
+      }
+      grouped[key].details.push({
+        group_number: ev.group_number,
+        pesawat: ev.pesawat,
+        jam: ev.jam,
+        paket: ev.paket,
+        pax: ev.pax,
+        staff: ev.staff,
+        tour_leader: ev.tour_leader,
+      });
+    }
+
+    // Get last sync time
+    const { data: lastSyncRow } = await supabase
+      .from('calendar_events')
+      .select('synced_at')
+      .order('synced_at', { ascending: false })
+      .limit(1);
+
+    res.json({
+      success: true,
+      data: {
+        events: Object.values(grouped),
+        lastSync: lastSyncRow?.[0]?.synced_at || null,
+      },
+    });
+  } catch (err) {
+    console.error('[Calendar API] Error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Jamaah list: read from Supabase with filters, search, pagination, sorting
@@ -1609,3 +1696,16 @@ async function syncAllAgents() {
 // Run initial sync 30s after startup, then every 1 hour
 setTimeout(syncAllAgents, 30 * 1000);
 setInterval(syncAllAgents, 60 * 60 * 1000);
+
+// ── Calendar sync: every 12 hours (shared data, doesn't change often) ──
+async function runCalendarSync() {
+  try {
+    await syncCalendar(supabase, capiDecrypt);
+  } catch (err) {
+    console.error('[Calendar] Sync error:', err.message);
+  }
+}
+
+// Initial calendar sync 60s after startup, then every 12 hours
+setTimeout(runCalendarSync, 60 * 1000);
+setInterval(runCalendarSync, 12 * 60 * 60 * 1000);

@@ -13,6 +13,7 @@ import DashboardProfile from './DashboardProfile';
 import JamaahPage from './JamaahPage';
 import StatistikPage from './StatistikPage';
 import AgentManagementPage from './AgentManagementPage';
+import UpcomingSchedule from './UpcomingSchedule';
 
 type TabId = 'home' | 'profile' | 'kalkulasi' | 'compare' | 'caption' | 'capi' | 'agents' | 'jamaah' | 'statistik';
 
@@ -418,6 +419,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             </button>
           </div>
         </div>
+
+        {/* ── Upcoming Schedule ── */}
+        <UpcomingSchedule />
 
         {/* ── Feature Cards Grid ── */}
         <div className="grid grid-cols-3 gap-3">

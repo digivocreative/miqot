@@ -544,7 +544,8 @@ export default defineConfig({
           },
           {
             // Agent photos: always try network first, fallback to cache for offline
-            urlPattern: /^\/agents\/.*\.(?:jpg|jpeg|png|webp)$/i,
+            // Matches local /agents/ paths and Supabase Storage URLs
+            urlPattern: /(?:^\/agents\/|supabase\.co\/storage\/.*agent-photos\/).*\.(?:jpg|jpeg|png|webp)/i,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'agent-photos',
@@ -612,6 +613,10 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/api/laporan': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+      '/api/calendar': {
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
