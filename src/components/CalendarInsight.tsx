@@ -1,17 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Sparkles, RefreshCw, Loader2, Plane, Calendar, Lightbulb, X } from 'lucide-react';
+import { Sparkles, Plane, Calendar, CloudSun, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
 
 interface InsightData {
   today: string;
   weekly: string;
-  talkingPoint: string;
+  cuaca: string;
   generatedAt: string;
 }
 
 /** Parse **bold** markdown to <strong> elements */
 function renderBold(text: string) {
+  if (!text) return null;
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
   return parts.map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**')) {
@@ -21,29 +22,26 @@ function renderBold(text: string) {
   });
 }
 
-function formatInsightTime(iso: string) {
+function formatInsightDate(iso: string) {
   try {
     const d = new Date(iso);
-    const day = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long' });
-    const time = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
-    return `${day}, ${time} WIB`;
+    return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
   } catch {
     return '';
   }
 }
 
-/** Truncate text to ~50 chars */
+/** Truncate text to ~50 chars, strip bold markers */
 function truncateForBar(text: string, max = 50) {
   if (!text) return '';
-  if (text.length <= max) return text.replace(/\*\*/g, '');
-  return text.replace(/\*\*/g, '').slice(0, max).trim() + '…';
+  const clean = text.replace(/\*\*/g, '');
+  if (clean.length <= max) return clean;
+  return clean.slice(0, max).trim() + '…';
 }
 
 export default function CalendarInsight() {
   const [insight, setInsight] = useState<InsightData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState('');
   const [showAlert, setShowAlert] = useState(() => sessionStorage.getItem('insightDismissed') !== 'true');
   const [showPopup, setShowPopup] = useState(false);
 
@@ -51,10 +49,8 @@ export default function CalendarInsight() {
     try {
       const res = await fetch('/api/calendar/insight', { headers: getAuthHeaders() });
       const data = await res.json();
-      console.log('[CalendarInsight] API response:', data);
       if (data.success && data.data) {
         setInsight(data.data);
-        setError('');
       }
     } catch { /* ignore */ }
     setLoading(false);
@@ -67,29 +63,6 @@ export default function CalendarInsight() {
     document.body.style.overflow = showPopup ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
   }, [showPopup]);
-
-  const handleRefresh = async () => {
-    if (refreshing) return;
-    setRefreshing(true);
-    setError('');
-    try {
-      const res = await fetch('/api/calendar/insight/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-      });
-      const data = await res.json();
-      if (res.status === 429) {
-        setError(data.error || 'Tunggu beberapa menit');
-      } else if (data.success && data.data) {
-        setInsight(data.data);
-      } else {
-        setError(data.error || 'Gagal generate insight');
-      }
-    } catch {
-      setError('Gagal menghubungi server');
-    }
-    setRefreshing(false);
-  };
 
   const handleDismiss = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -173,86 +146,52 @@ export default function CalendarInsight() {
                   <div>
                     <span className="text-sm font-bold text-gray-800 dark:text-white">AI Insight</span>
                     {insight?.generatedAt && (
-                      <p className="text-[9px] text-gray-400 dark:text-slate-500">{formatInsightTime(insight.generatedAt)}</p>
+                      <p className="text-[9px] text-gray-400 dark:text-slate-500">{formatInsightDate(insight.generatedAt)}</p>
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleRefresh}
-                    disabled={refreshing}
-                    className="flex items-center gap-1 text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors disabled:opacity-50"
-                  >
-                    {refreshing ? (
-                      <><Loader2 size={12} className="animate-spin" /> Generating...</>
-                    ) : (
-                      <><RefreshCw size={12} /> Refresh</>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setShowPopup(false)}
-                    className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
+                <button
+                  onClick={() => setShowPopup(false)}
+                  className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+                >
+                  <X size={16} />
+                </button>
               </div>
 
               {/* Body */}
               <div className="flex-1 overflow-y-auto px-4 pb-5 space-y-2">
-                {/* Rate limit message */}
-                {error && (
-                  <p className="text-[9px] text-amber-500 dark:text-amber-400 text-center py-1">{error}</p>
-                )}
-
-                {insight ? (
-                  <>
-                    {/* Card 1 — Hari Ini (emerald) */}
-                    <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/40 px-3 py-2.5">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <Plane size={12} className="text-emerald-500 dark:text-emerald-400" />
-                        <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">HARI INI</span>
-                      </div>
-                      <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
-                        {renderBold(insight.today)}
-                      </p>
-                    </div>
-
-                    {/* Card 2 — 7 Hari ke Depan (blue) */}
-                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/40 px-3 py-2.5">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                        <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide">7 HARI KE DEPAN</span>
-                      </div>
-                      <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
-                        {renderBold(insight.weekly)}
-                      </p>
-                    </div>
-
-                    {/* Card 3 — Talking Point (amber) */}
-                    <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/40 px-3 py-2.5">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <Lightbulb size={12} className="text-amber-500 dark:text-amber-400" />
-                        <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide">TALKING POINT</span>
-                      </div>
-                      <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
-                        {renderBold(insight.talkingPoint)}
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  /* Error / Loading state */
-                  <div className="bg-gray-50 dark:bg-slate-700/30 rounded-xl px-3 py-6 text-center">
-                    <p className="text-[11px] text-gray-400 dark:text-slate-500">Insight belum tersedia. Coba refresh nanti ya.</p>
-                    <button
-                      onClick={handleRefresh}
-                      disabled={refreshing}
-                      className="mt-2 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 active:scale-95"
-                    >
-                      {refreshing ? 'Generating...' : 'Coba Lagi'}
-                    </button>
+                {/* Card 1 — Hari Ini (emerald) */}
+                <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/40 px-3 py-2.5">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Plane size={12} className="text-emerald-500 dark:text-emerald-400" />
+                    <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">HARI INI</span>
                   </div>
-                )}
+                  <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
+                    {renderBold(insight.today)}
+                  </p>
+                </div>
+
+                {/* Card 2 — 7 Hari ke Depan (blue) */}
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/40 px-3 py-2.5">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
+                    <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide">7 HARI KE DEPAN</span>
+                  </div>
+                  <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
+                    {renderBold(insight.weekly)}
+                  </p>
+                </div>
+
+                {/* Card 3 — Cuaca Tanah Suci (amber) */}
+                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/40 px-3 py-2.5">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <CloudSun size={12} className="text-amber-500 dark:text-amber-400" />
+                    <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide">CUACA TANAH SUCI</span>
+                  </div>
+                  <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
+                    {renderBold(insight.cuaca)}
+                  </p>
+                </div>
               </div>
             </motion.div>
           </>

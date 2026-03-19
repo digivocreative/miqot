@@ -402,7 +402,7 @@ export default function LoginPage({ onLogin }: { onLogin: (session: AuthSession)
                     {forgotLoading ? (
                       <><Loader2 size={18} className="animate-spin" /> Mengirim...</>
                     ) : (
-                      <>Kirim Link Reset <ArrowRight size={18} /></>
+                      <>Reset Password <ArrowRight size={18} /></>
                     )}
                   </button>
 

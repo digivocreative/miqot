@@ -303,9 +303,9 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     }
 
     await resend.emails.send({
-      from: 'Alhijaz Indowisata <onboarding@resend.dev>',
+      from: 'Alhijaz.co <bismillah@alhijaz.co>',
       to: agent.email,
-      subject: 'Reset Password - Alhijaz Dashboard',
+      subject: 'Permintaan Reset Password',
       html: `
 <!DOCTYPE html>
 <html>
@@ -1121,8 +1121,12 @@ app.get('/api/calendar/events', authMiddleware, async (req, res) => {
 // ──────────────────────────────────────────────
 // API: Calendar AI Insight
 // ──────────────────────────────────────────────
-let insightCache = null; // in-memory fallback: {today, weekly, talkingPoint, generatedAt}
+let insightCache = null; // in-memory fallback: {today, weekly, cuaca, generatedAt}
 let insightRefreshLast = 0; // timestamp of last manual refresh
+
+// Mekah/Madinah monthly average temperatures (°C)
+const MEKAH_TEMPS = { 1:{low:18,high:30},2:{low:18,high:31},3:{low:20,high:34},4:{low:23,high:38},5:{low:26,high:41},6:{low:27,high:43},7:{low:28,high:43},8:{low:28,high:43},9:{low:27,high:42},10:{low:24,high:38},11:{low:21,high:34},12:{low:19,high:31} };
+const MADINAH_TEMPS = { 1:{low:10,high:22},2:{low:12,high:25},3:{low:15,high:29},4:{low:20,high:34},5:{low:24,high:39},6:{low:26,high:42},7:{low:27,high:42},8:{low:27,high:41},9:{low:25,high:40},10:{low:20,high:35},11:{low:15,high:28},12:{low:11,high:23} };
 
 async function generateCalendarInsight() {
   console.log('[AI Insight] Starting generation...');
@@ -1210,20 +1214,30 @@ async function generateCalendarInsight() {
     calendarDataString += `Paket terlaris: ${topPaket.map(([p, c]) => `${p} (${c} group)`).join(', ')}\n`;
   }
 
+  // Weather data for prompt
+  const currentMonth = today.getMonth() + 1;
+  const mekahT = MEKAH_TEMPS[currentMonth];
+  const madinahT = MADINAH_TEMPS[currentMonth];
+  const mekahCondition = mekahT.high >= 39 ? 'sangat panas' : mekahT.high >= 30 ? 'panas' : 'hangat';
+  const madinahCondition = madinahT.high >= 39 ? 'sangat panas' : madinahT.high >= 30 ? 'panas' : 'hangat';
+
   const prompt = `Kamu adalah asisten untuk agen travel umroh Alhijaz. Agen-agen ini mayoritas ibu-ibu usia 40-50 tahun. 
 
-Tugas kamu: buat 3 insight singkat berdasarkan data jadwal berikut. Gunakan bahasa Indonesia yang HANGAT dan KASUAL — seperti ngobrol sesama teman kerja. Jangan pakai bahasa baku/kaku/formal. Boleh pakai kata seperti "rame", "lumayan", "nih", "yuk", "dong", "banget", "Alhamdulillah". Jangan pakai kata "signifikan", "terkait", "berdasarkan data", atau bahasa laporan.
+Tugas kamu: buat 3 insight singkat berdasarkan data jadwal dan cuaca berikut. Gunakan bahasa Indonesia yang HANGAT dan KASUAL — seperti ngobrol sesama teman kerja. Jangan pakai bahasa baku/kaku/formal. Boleh pakai kata seperti "rame", "lumayan", "nih", "yuk", "dong", "banget", "Alhamdulillah". Jangan pakai kata "signifikan", "terkait", "berdasarkan data", atau bahasa laporan.
 
-Untuk angka penting (jumlah jamaah, jumlah group, tanggal), bungkus dengan **bold** markdown. Contoh: **336 jamaah**, **3 group**, **tanggal 25**.
+Bungkus angka/tanggal penting dengan **bold** (contoh: **25 Maret**, **336 jamaah**).
 
-Data jadwal:
+Data jadwal 7 hari ke depan:
 ${calendarDataString}
+
+Data cuaca Mekah bulan ini: suhu ${mekahT.low}-${mekahT.high}°C, kondisi ${mekahCondition}
+Data cuaca Madinah bulan ini: suhu ${madinahT.low}-${madinahT.high}°C, kondisi ${madinahCondition}
 
 Buat 3 bagian (HARUS dalam format JSON, tanpa backtick/markdown di luar value):
 {
-  "today": "Ringkasan hari ini. Kalau tidak ada jadwal hari ini, kasih tahu kapan jadwal terdekat. Maksimal 2 kalimat.",
-  "weekly": "Ringkasan 7 hari ke depan. Sebutkan hari paling rame, group terbesar, total jamaah. Maksimal 3 kalimat.",
-  "talkingPoint": "Satu paragraf singkat yang bisa agent copy-paste atau pakai sebagai inspirasi chat ke calon jamaah. Harus persuasif tapi natural, tidak terasa seperti iklan. Boleh mulai dengan 'Alhamdulillah'. Maksimal 3 kalimat."
+  "today": "Ringkasan hari ini. Kalau tidak ada jadwal hari ini, kasih tahu kapan jadwal terdekat dan apa yang perlu disiapkan. Maksimal 2 kalimat.",
+  "weekly": "Ringkasan 7 hari ke depan + PENGINGAT/TO-DO untuk agent. Sebutkan hari paling rame, group terbesar, total jamaah. Lalu kasih action items spesifik, misal: 'Manasik tanggal X, kabari jamaah Group Y.' atau 'Group Z berangkat N hari lagi, cek kelengkapan dokumen.' Maksimal 4-5 kalimat.",
+  "cuaca": "Info cuaca Mekah dan Madinah minggu ini yang relevan untuk jamaah yang mau berangkat. Kasih tips praktis buat agent ingetin jamaahnya, misal bawa payung, minum yang banyak, pakai sunblock, dll. Harus hangat dan perhatian, kayak ibu-ibu ngingetin anaknya. Maksimal 3 kalimat."
 }`;
 
   try {
@@ -1234,7 +1248,7 @@ Buat 3 bagian (HARUS dalam format JSON, tanpa backtick/markdown di luar value):
         model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
-        max_tokens: 500,
+        max_tokens: 600,
       }),
     });
 
@@ -1254,7 +1268,7 @@ Buat 3 bagian (HARUS dalam format JSON, tanpa backtick/markdown di luar value):
     const data = {
       today: parsed.today || '',
       weekly: parsed.weekly || '',
-      talkingPoint: parsed.talkingPoint || '',
+      cuaca: parsed.cuaca || '',
       generatedAt: new Date().toISOString(),
     };
 
@@ -1298,22 +1312,6 @@ app.get('/api/calendar/insight', authMiddleware, async (req, res) => {
     }
   } catch { /* table may not exist */ }
   res.json({ success: false, error: 'Insight belum tersedia' });
-});
-
-// POST — force regenerate (rate-limited: 1x per 5 min)
-app.post('/api/calendar/insight/refresh', authMiddleware, async (req, res) => {
-  const now = Date.now();
-  if (now - insightRefreshLast < 5 * 60 * 1000) {
-    const waitSec = Math.ceil((5 * 60 * 1000 - (now - insightRefreshLast)) / 1000);
-    return res.status(429).json({ error: `Tunggu ${waitSec} detik lagi untuk refresh`, retryAfter: waitSec });
-  }
-  insightRefreshLast = now;
-
-  const data = await generateCalendarInsight();
-  if (!data) {
-    return res.status(500).json({ error: 'Gagal generate insight' });
-  }
-  res.json({ success: true, data });
 });
 
 // Jamaah list: read from Supabase with filters, search, pagination, sorting
@@ -2038,6 +2036,10 @@ setInterval(syncAllAgents, 60 * 60 * 1000);
 async function runCalendarSync() {
   try {
     await syncCalendar(supabase, capiDecrypt);
+    // Generate AI insight after first sync (if cache is empty or stale format)
+    if (!insightCache || !insightCache.cuaca) {
+      try { await generateCalendarInsight(); } catch (e) { console.error('[AI Insight] Post-sync error:', e.message); }
+    }
   } catch (err) {
     console.error('[Calendar] Sync error:', err.message);
   }
