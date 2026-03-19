@@ -452,7 +452,7 @@ export default function ResetPasswordPage() {
 
           {/* Footer */}
           <p style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', marginTop: 24 }}>
-            © 2025 Alhijaz Indowisata
+            © {new Date().getFullYear()} Alhijaz Indowisata
           </p>
         </div>
       </div>

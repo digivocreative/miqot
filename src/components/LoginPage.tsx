@@ -476,7 +476,7 @@ export default function LoginPage({ onLogin }: { onLogin: (session: AuthSession)
                   htmlFor="login-slug"
                   style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}
                 >
-                  Username
+                  Username atau Email
                 </label>
                 <input
                   ref={slugRef}
@@ -485,7 +485,7 @@ export default function LoginPage({ onLogin }: { onLogin: (session: AuthSession)
                   value={slug}
                   onChange={e => { setSlug(e.target.value); clearError(); }}
                   onFocus={clearError}
-                  placeholder="nikita"
+                  placeholder="prabowo@alhijaz.co"
                   autoFocus
                   required
                   autoCapitalize="none"
@@ -653,7 +653,7 @@ export default function LoginPage({ onLogin }: { onLogin: (session: AuthSession)
 
           {/* Footer */}
           <p style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', marginTop: 24 }}>
-            © 2025 Alhijaz Indowisata
+            © {new Date().getFullYear()} Alhijaz Indowisata
           </p>
         </div>
       </div>

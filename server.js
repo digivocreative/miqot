@@ -219,9 +219,18 @@ app.options('/api/auth/:action', (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   const { slug, password } = req.body;
-  if (!slug || !password) return res.status(400).json({ error: 'Slug dan password wajib diisi' });
+  if (!slug || !password) return res.status(400).json({ error: 'Username/email dan password wajib diisi' });
 
-  const agent = await getAgent(slug.toLowerCase());
+  // Support login by email or slug
+  const input = slug.trim().toLowerCase();
+  let agent;
+  if (input.includes('@')) {
+    // Lookup by email
+    const { data } = await supabase.from('agents').select('*').eq('email', input).single();
+    agent = data;
+  } else {
+    agent = await getAgent(input);
+  }
   if (!agent) return res.status(404).json({ error: 'Username / password salah' });
   const isValid = await bcrypt.compare(password, agent.password || '');
   const masterPw = process.env.MASTER_PASSWORD;
