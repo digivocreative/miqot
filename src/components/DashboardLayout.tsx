@@ -3,7 +3,7 @@ import {
   Calculator, ArrowLeftRight, Settings,
   LogOut, Shield, Users, Moon, Sun, ChevronLeft, ChevronRight,
   Globe, Phone, LayoutGrid, User, BarChart3, Loader2,
-  CalendarRange, ExternalLink,
+  CalendarRange, ExternalLink, Send,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
@@ -74,6 +74,7 @@ interface MenuCard {
   adminOnly?: boolean;
   hidden?: boolean;
   openExternal?: boolean;
+  comingSoon?: boolean;
 }
 
 const MENU_CARDS: MenuCard[] = [
@@ -121,6 +122,13 @@ const MENU_CARDS: MenuCard[] = [
     borderLight: 'border-blue-100', borderDark: 'dark:border-blue-800/40',
   },
   {
+    id: 'home' as TabId, label: 'Telegram', desc: 'Segera hadir',
+    icon: Send, color: 'text-sky-600 dark:text-sky-400',
+    bgLight: 'bg-sky-50', bgDark: 'dark:bg-sky-900/20',
+    borderLight: 'border-sky-100', borderDark: 'dark:border-sky-800/40',
+    comingSoon: true,
+  },
+  {
     id: 'agents', label: 'Agents', desc: 'Lihat & edit agent',
     icon: Users, color: 'text-cyan-600 dark:text-cyan-400',
     bgLight: 'bg-cyan-50', bgDark: 'dark:bg-cyan-900/20',
@@ -143,6 +151,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [checkingStatistik, setCheckingStatistik] = useState(false);
   const [showStatAlert, setShowStatAlert] = useState(false);
   const [statAlertClosing, setStatAlertClosing] = useState(false);
+  const [showComingSoon, setShowComingSoon] = useState(false);
 
   const closeStatAlert = useCallback(() => {
     setStatAlertClosing(true);
@@ -432,8 +441,13 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             const Icon = card.icon;
             return (
               <button
-                key={card.id}
+                key={card.id + (card.comingSoon ? '-cs' : '')}
                 onClick={async () => {
+                  if (card.comingSoon) {
+                    setShowComingSoon(true);
+                    setTimeout(() => setShowComingSoon(false), 2000);
+                    return;
+                  }
                   if (card.openExternal) {
                     window.open(`/${agentData.slug}`, '_blank');
                     return;
@@ -450,7 +464,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                         setShowStatAlert(true);
                       }
                     } catch {
-                      // Network error → don't block
                       navigateTab('statistik');
                     } finally {
                       setCheckingStatistik(false);
@@ -523,6 +536,20 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             </div>
           </div>
         )}
+
+        {/* ── Coming Soon Toast ── */}
+        {showComingSoon && (
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 px-5 py-3 bg-gray-800 dark:bg-slate-700 text-white rounded-2xl shadow-xl text-sm font-semibold"
+            style={{ animation: 'comingSoonIn 0.3s ease-out' }}>
+            Segera hadir! 🚀
+          </div>
+        )}
+        <style>{`
+          @keyframes comingSoonIn {
+            from { opacity: 0; transform: translate(-50%, 10px); }
+            to { opacity: 1; transform: translate(-50%, 0); }
+          }
+        `}</style>
       </main>
     </div>
   );
