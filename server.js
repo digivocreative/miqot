@@ -271,9 +271,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email wajib diisi' });
 
-  // Always return success to prevent email enumeration
-  const successMsg = { success: true, message: 'Jika email terdaftar, link reset password telah dikirim.' };
-
   try {
     // Find agent by email
     const { data: agent } = await supabase
@@ -282,7 +279,9 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       .eq('email', email.trim().toLowerCase())
       .single();
 
-    if (!agent || !agent.email) return res.json(successMsg);
+    if (!agent || !agent.email) {
+      return res.status(404).json({ error: 'Email tidak terdaftar' });
+    }
 
     // Generate reset token (1 hour expiry)
     const resetToken = jwt.sign(
@@ -300,7 +299,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     // Send email via Resend
     if (!resend) {
       console.error('[Auth] RESEND_API_KEY not configured');
-      return res.json(successMsg);
+      return res.status(500).json({ error: 'Server belum dikonfigurasi untuk mengirim email' });
     }
 
     await resend.emails.send({
@@ -340,10 +339,10 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     });
 
     console.log(`[Auth] Password reset email sent to ${agent.email} for slug: ${agent.slug}`);
-    res.json(successMsg);
+    res.json({ success: true, message: 'Link reset password telah dikirim ke email Anda.' });
   } catch (err) {
     console.error('[Auth] Forgot password error:', err);
-    res.json(successMsg); // Still return success
+    res.status(500).json({ error: 'Gagal mengirim email reset password' });
   }
 });
 
