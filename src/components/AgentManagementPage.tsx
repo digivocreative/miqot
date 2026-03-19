@@ -1,0 +1,714 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  Search, Plus, X, User, Globe, Phone as PhoneIcon, Mail, Lock,
+  Shield, Building2, Eye, EyeOff, Loader2, ChevronRight, Check,
+  Trash2, AlertTriangle, Link as LinkIcon,
+} from 'lucide-react';
+import { getAuthHeaders } from './LoginPage';
+
+// ── Types ──
+interface AgentItem {
+  slug: string;
+  name: string;
+  website: string;
+  phone: string;
+  email: string;
+  photo: string;
+  role: string;
+  jamaah_username: string;
+  jamaah_password: string;
+  jamaah_kantor: string;
+}
+
+interface FormData {
+  name: string;
+  slug: string;
+  email: string;
+  phone: string;
+  website: string;
+  password: string;
+  role: string;
+  jamaah_username: string;
+  jamaah_password: string;
+  jamaah_kantor: string;
+}
+
+const EMPTY_FORM: FormData = {
+  name: '', slug: '', email: '', phone: '', website: '',
+  password: '', role: 'agent',
+  jamaah_username: '', jamaah_password: '', jamaah_kantor: '2',
+};
+
+function slugify(name: string): string {
+  return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+// ── Reusable WhatsApp inline SVG icon ──
+function WaIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className="shrink-0"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.625.846 5.059 2.284 7.034L.789 23.492a.5.5 0 0 0 .612.616l4.556-1.473A11.94 11.94 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22a9.94 9.94 0 0 1-5.39-1.583l-.386-.232-3.007.973.998-2.927-.256-.406A9.935 9.935 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg>
+  );
+}
+
+// ── Main Component ──
+export default function AgentManagementPage() {
+  // List state
+  const [agents, setAgents] = useState<AgentItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Modal state
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
+  const [editingAgent, setEditingAgent] = useState<AgentItem | null>(null);
+  const [modalClosing, setModalClosing] = useState(false);
+
+  // Form state
+  const [form, setForm] = useState<FormData>({ ...EMPTY_FORM });
+  const [initialForm, setInitialForm] = useState<FormData>({ ...EMPTY_FORM });
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<string | null>(null); // base64
+  const [showPw, setShowPw] = useState(false);
+  const [showJamaahPw, setShowJamaahPw] = useState(false);
+  const [slugManual, setSlugManual] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [serverError, setServerError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // Delete state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteClosing, setDeleteClosing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Unsaved changes confirm
+  const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
+
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // ── Fetch agents ──
+  const fetchAgents = useCallback(() => {
+    setLoading(true);
+    fetch('/api/admin/agents', { headers: getAuthHeaders() })
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setAgents(data); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { fetchAgents(); }, [fetchAgents]);
+
+  // ── Filtered list ──
+  const filtered = searchQuery.trim()
+    ? agents.filter(a => {
+        const q = searchQuery.toLowerCase();
+        return a.name.toLowerCase().includes(q)
+          || a.slug.toLowerCase().includes(q)
+          || (a.phone || '').includes(q)
+          || (a.email || '').toLowerCase().includes(q);
+      })
+    : agents;
+
+  // ── Dirty check ──
+  const isDirty = JSON.stringify(form) !== JSON.stringify(initialForm) || !!photoFile;
+
+  // ── Open modal ──
+  const openCreate = () => {
+    const f = { ...EMPTY_FORM };
+    setForm(f);
+    setInitialForm(f);
+    setPhotoPreview(null);
+    setPhotoFile(null);
+    setSlugManual(false);
+    setShowPw(false);
+    setShowJamaahPw(false);
+    setServerError('');
+    setFieldErrors({});
+    setModalMode('create');
+    setEditingAgent(null);
+    setModalOpen(true);
+  };
+
+  const openEdit = (agent: AgentItem) => {
+    const f: FormData = {
+      name: agent.name || '',
+      slug: agent.slug || '',
+      email: agent.email || '',
+      phone: agent.phone || '',
+      website: agent.website || '',
+      password: '',
+      role: agent.role || 'agent',
+      jamaah_username: agent.jamaah_username || '',
+      jamaah_password: '',
+      jamaah_kantor: agent.jamaah_kantor || '2',
+    };
+    setForm(f);
+    setInitialForm(f);
+    setPhotoPreview(agent.photo || null);
+    setPhotoFile(null);
+    setSlugManual(true);
+    setShowPw(false);
+    setShowJamaahPw(false);
+    setServerError('');
+    setFieldErrors({});
+    setModalMode('edit');
+    setEditingAgent(agent);
+    setModalOpen(true);
+  };
+
+  // ── Close modal (with animation) ──
+  const closeModal = useCallback(() => {
+    setModalClosing(true);
+    setTimeout(() => {
+      setModalOpen(false);
+      setModalClosing(false);
+    }, 200);
+  }, []);
+
+  const tryCloseModal = () => {
+    if (isDirty) { setShowUnsavedConfirm(true); return; }
+    closeModal();
+  };
+
+  // ── Photo picker ──
+  const handlePhotoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      // Create a canvas to crop center-square and resize to 300x300
+      const img = new Image();
+      img.onload = () => {
+        const size = Math.min(img.width, img.height);
+        const ox = (img.width - size) / 2;
+        const oy = (img.height - size) / 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = 300; canvas.height = 300;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, ox, oy, size, size, 0, 0, 300, 300);
+        const cropped = canvas.toDataURL('image/jpeg', 0.85);
+        setPhotoPreview(cropped);
+        setPhotoFile(cropped);
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ''; // reset
+  };
+
+  // ── Form field updater ──
+  const setField = (key: keyof FormData, value: string) => {
+    setForm(prev => {
+      const next = { ...prev, [key]: value };
+      // Auto-generate slug from name (only in create mode and if slug hasn't been manually edited)
+      if (key === 'name' && modalMode === 'create' && !slugManual) {
+        next.slug = slugify(value);
+      }
+      return next;
+    });
+    // Clear field error
+    if (fieldErrors[key]) setFieldErrors(prev => { const n = { ...prev }; delete n[key]; return n; });
+  };
+
+  // ── Client-side validation ──
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {};
+    if (!form.name || form.name.trim().length < 2) errs.name = 'Nama minimal 2 karakter';
+    if (!form.slug || form.slug.length < 2) errs.slug = 'Slug minimal 2 karakter';
+    else if (!/^[a-z0-9-]+$/.test(form.slug)) errs.slug = 'Hanya huruf kecil, angka, dan strip';
+    if (!form.phone || !/^62\d{8,}$/.test(form.phone.replace(/\s/g, ''))) errs.phone = 'Format 628xxx, min 10 digit';
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errs.email = 'Format email tidak valid';
+    if (modalMode === 'create' && (!form.password || form.password.length < 6)) errs.password = 'Minimal 6 karakter';
+    if (modalMode === 'edit' && form.password && form.password.length < 6) errs.password = 'Minimal 6 karakter';
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  // ── Save ──
+  const handleSave = async () => {
+    if (!validate()) return;
+    setSaving(true);
+    setServerError('');
+
+    try {
+      const isCreate = modalMode === 'create';
+      const url = isCreate ? '/api/admin/agents' : `/api/admin/agents/${editingAgent!.slug}`;
+      const method = isCreate ? 'POST' : 'PUT';
+
+      // Build body — only include changed/non-empty fields for edit
+      const body: Record<string, string> = {};
+      if (isCreate) {
+        body.slug = form.slug;
+        body.name = form.name;
+        body.password = form.password;
+        if (form.phone) body.phone = form.phone;
+        if (form.email) body.email = form.email;
+        if (form.website) body.website = form.website;
+        if (form.role) body.role = form.role;
+        if (form.jamaah_username) body.jamaah_username = form.jamaah_username;
+        if (form.jamaah_password) body.jamaah_password = form.jamaah_password;
+        if (form.jamaah_kantor) body.jamaah_kantor = form.jamaah_kantor;
+      } else {
+        // Edit: send all fields so admin can clear them
+        body.name = form.name;
+        body.phone = form.phone;
+        body.email = form.email;
+        body.website = form.website;
+        body.role = form.role;
+        body.jamaah_username = form.jamaah_username;
+        body.jamaah_kantor = form.jamaah_kantor;
+        if (form.password) body.password = form.password;
+        if (form.jamaah_password) body.jamaah_password = form.jamaah_password;
+      }
+
+      const resp = await fetch(url, {
+        method,
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const result = await resp.json();
+      if (!resp.ok || result.error) {
+        setServerError(result.error || 'Gagal menyimpan');
+        setSaving(false);
+        return;
+      }
+
+      // Upload photo if changed
+      const targetSlug = isCreate ? form.slug : editingAgent!.slug;
+      if (photoFile) {
+        await fetch('/api/admin/photo', {
+          method: 'POST',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: photoFile, slug: targetSlug }),
+        });
+      }
+
+      closeModal();
+      fetchAgents();
+    } catch {
+      setServerError('Terjadi kesalahan jaringan');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── Delete ──
+  const handleDelete = async () => {
+    if (!editingAgent) return;
+    setDeleting(true);
+    try {
+      const resp = await fetch(`/api/admin/agents/${editingAgent.slug}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      const result = await resp.json();
+      if (!resp.ok || result.error) {
+        setServerError(result.error || 'Gagal menghapus');
+        setDeleting(false);
+        setShowDeleteConfirm(false);
+        return;
+      }
+      setShowDeleteConfirm(false);
+      closeModal();
+      fetchAgents();
+    } catch {
+      setServerError('Terjadi kesalahan jaringan');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const closeDelete = () => {
+    setDeleteClosing(true);
+    setTimeout(() => { setShowDeleteConfirm(false); setDeleteClosing(false); }, 200);
+  };
+
+  // ── Render: Loading ──
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // ── Input helper ──
+  const inputCls = 'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500';
+  const labelCls = 'flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide';
+  const errCls = 'text-[10px] text-red-500 dark:text-red-400 mt-1';
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
+          Semua Agent ({agents.length})
+        </p>
+        <button
+          onClick={openCreate}
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-600 text-white transition-colors active:scale-95 shadow-sm shadow-emerald-500/20"
+        >
+          <Plus size={14} /> Tambah
+        </button>
+      </div>
+
+      {/* Search */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden mb-3">
+        <div className="flex items-center gap-2 px-3 py-2">
+          <Search size={16} className="text-gray-400 shrink-0" />
+          <input
+            type="text"
+            placeholder="Cari agent..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="flex-1 text-sm bg-transparent outline-none text-gray-700 dark:text-white placeholder-gray-300 dark:placeholder-slate-500"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="text-gray-300 hover:text-gray-500 transition-colors">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Agent List */}
+      {filtered.map(a => (
+        <button
+          key={a.slug}
+          onClick={() => openEdit(a)}
+          className="w-full bg-white dark:bg-slate-800 rounded-xl p-3 border border-gray-100 dark:border-slate-700 shadow-sm flex items-center gap-3 text-left hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.98]"
+        >
+          <img
+            src={a.photo}
+            alt={a.name}
+            className="w-10 h-10 rounded-full object-cover border-2 border-white dark:border-slate-700 shadow-sm shrink-0"
+            onError={e => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(a.name)}&background=random`; }}
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{a.name}</p>
+              {a.role === 'admin' && (
+                <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40 shrink-0">
+                  ADMIN
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">{a.slug} · {a.phone}</p>
+          </div>
+          <ChevronRight size={16} className="text-gray-300 dark:text-slate-600 shrink-0" />
+        </button>
+      ))}
+
+      {filtered.length === 0 && (
+        <div className="text-center py-12">
+          <p className="text-sm text-gray-400 dark:text-slate-500">
+            {searchQuery ? 'Tidak ada agent yang cocok' : 'Belum ada agent'}
+          </p>
+        </div>
+      )}
+
+      {/* Hidden file input */}
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png" className="hidden" onChange={handlePhotoPick} />
+
+      {/* ── Slide-up Modal ── */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-50">
+          {/* Backdrop */}
+          <div
+            className={`absolute inset-0 ${modalClosing ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
+            style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' } as React.CSSProperties}
+            onClick={tryCloseModal}
+          />
+          {/* Panel */}
+          <div
+            className="absolute inset-x-0 bottom-0 max-w-lg mx-auto bg-white dark:bg-slate-800 rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 shadow-2xl flex flex-col max-h-[90vh]"
+            style={{
+              animation: modalClosing
+                ? 'slideDown 200ms ease-in forwards'
+                : 'slideUp 250ms ease-out forwards',
+            }}
+          >
+            {/* Header */}
+            <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-700/50 flex items-center justify-between flex-shrink-0">
+              <p className="text-sm font-bold text-gray-800 dark:text-white">
+                {modalMode === 'create' ? 'Tambah Agent Baru' : 'Edit Agent'}
+              </p>
+              <button
+                onClick={tryCloseModal}
+                className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-gray-500 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+              {/* Photo */}
+              <div className="flex flex-col items-center">
+                {photoPreview ? (
+                  <img src={photoPreview} alt="Preview" className="w-20 h-20 rounded-full object-cover border-2 border-gray-100 dark:border-slate-700 shadow-sm" />
+                ) : (
+                  <div className="w-20 h-20 rounded-full bg-gray-50 dark:bg-slate-700 flex items-center justify-center border-2 border-gray-100 dark:border-slate-600">
+                    <User size={28} className="text-gray-300 dark:text-slate-500" />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 mt-2"
+                >
+                  {modalMode === 'edit' ? 'Ganti Foto' : 'Upload Foto'}
+                </button>
+              </div>
+
+              {/* Section 2: Basic Info */}
+              <div className="space-y-3">
+                {/* Name */}
+                <div>
+                  <label className={labelCls}><User size={12} /> Nama Lengkap</label>
+                  <input className={inputCls} placeholder="Masukkan nama agent" value={form.name}
+                    onChange={e => setField('name', e.target.value)} />
+                  {fieldErrors.name && <p className={errCls}>{fieldErrors.name}</p>}
+                </div>
+
+                {/* Slug */}
+                <div>
+                  <label className={labelCls}><LinkIcon size={12} /> Slug (URL)</label>
+                  <input
+                    className={`${inputCls} lowercase`}
+                    placeholder="nama-agent"
+                    value={form.slug}
+                    onChange={e => { setSlugManual(true); setField('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')); }}
+                    disabled={modalMode === 'edit'}
+                  />
+                  <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">
+                    alhijaz.co/{form.slug || '...'} — hanya huruf kecil, angka, dan strip
+                  </p>
+                  {fieldErrors.slug && <p className={errCls}>{fieldErrors.slug}</p>}
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label className={labelCls}><Mail size={12} /> Email</label>
+                  <input className={inputCls} type="email" placeholder="agent@email.com" value={form.email}
+                    onChange={e => setField('email', e.target.value)} />
+                  {fieldErrors.email && <p className={errCls}>{fieldErrors.email}</p>}
+                </div>
+
+                {/* Phone */}
+                <div>
+                  <label className={labelCls}><WaIcon size={12} /> No. WhatsApp</label>
+                  <input className={inputCls} placeholder="628xxxxxxxxxx" value={form.phone}
+                    onChange={e => setField('phone', e.target.value.replace(/\D/g, ''))} />
+                  <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">Format: 628xxx tanpa + atau spasi</p>
+                  {fieldErrors.phone && <p className={errCls}>{fieldErrors.phone}</p>}
+                </div>
+
+                {/* Website */}
+                <div>
+                  <label className={labelCls}><Globe size={12} /> Website</label>
+                  <input className={inputCls} placeholder="alhijazindonesia.com" value={form.website}
+                    onChange={e => setField('website', e.target.value)} />
+                </div>
+              </div>
+
+              {/* Section 3: Account & Security */}
+              <div className="border-t border-gray-100 dark:border-slate-700/50 pt-4">
+                <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">AKUN & KEAMANAN</p>
+
+                {/* Password */}
+                <div className="mb-3">
+                  <label className={labelCls}><Lock size={12} /> {modalMode === 'create' ? 'Password' : 'Reset Password'}</label>
+                  <div className="relative">
+                    <input
+                      className={`${inputCls} pr-10`}
+                      type={showPw ? 'text' : 'password'}
+                      placeholder={modalMode === 'create' ? 'Minimal 6 karakter' : 'Kosongkan jika tidak ingin mengubah'}
+                      value={form.password}
+                      onChange={e => setField('password', e.target.value)}
+                    />
+                    <button type="button" onClick={() => setShowPw(p => !p)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
+                      {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  {fieldErrors.password && <p className={errCls}>{fieldErrors.password}</p>}
+                </div>
+
+                {/* Role */}
+                <div>
+                  <label className={labelCls}><Shield size={12} /> Role</label>
+                  <div className="flex gap-2">
+                    {['agent', 'admin'].map(r => (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => setField('role', r)}
+                        className={`flex-1 py-2 rounded-xl text-xs font-bold text-center transition-all ${
+                          form.role === r
+                            ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                            : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700'
+                        }`}
+                      >
+                        {r === 'agent' ? 'Agent' : 'Admin'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 4: Internal System */}
+              <div className="border-t border-gray-100 dark:border-slate-700/50 pt-4">
+                <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-1">KONEKSI SISTEM INTERNAL</p>
+                <p className="text-[10px] text-gray-400 dark:text-slate-500 mb-3">Credentials untuk login ke sistem jamaah internal Alhijaz</p>
+
+                {/* Username Internal */}
+                <div className="mb-3">
+                  <label className={labelCls}><Building2 size={12} /> Username</label>
+                  <input className={inputCls} placeholder="Username sistem internal" value={form.jamaah_username}
+                    onChange={e => setField('jamaah_username', e.target.value)} />
+                </div>
+
+                {/* Password Internal */}
+                <div className="mb-3">
+                  <label className={labelCls}><Lock size={12} /> Password</label>
+                  <div className="relative">
+                    <input
+                      className={`${inputCls} pr-10`}
+                      type={showJamaahPw ? 'text' : 'password'}
+                      placeholder="Password sistem internal"
+                      value={form.jamaah_password}
+                      onChange={e => setField('jamaah_password', e.target.value)}
+                    />
+                    <button type="button" onClick={() => setShowJamaahPw(p => !p)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
+                      {showJamaahPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Kantor */}
+                <div>
+                  <label className={labelCls}><Building2 size={12} /> Kode Kantor</label>
+                  <div className="relative">
+                    <select
+                      className={`${inputCls} appearance-none pr-8`}
+                      value={form.jamaah_kantor}
+                      onChange={e => setField('jamaah_kantor', e.target.value)}
+                    >
+                      <option value="1">Pusat</option>
+                      <option value="2">Cabang</option>
+                    </select>
+                    <ChevronRight size={14} className="absolute right-3 top-1/2 -translate-y-1/2 rotate-90 text-gray-400 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Server Error */}
+            {serverError && (
+              <div className="mx-4 mb-2 p-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium text-center">
+                {serverError}
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="px-4 py-3 border-t border-gray-100 dark:border-slate-700/50 flex-shrink-0">
+              {modalMode === 'create' ? (
+                <div className="flex gap-2">
+                  <button onClick={tryCloseModal}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95">
+                    Batal
+                  </button>
+                  <button onClick={handleSave} disabled={saving}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-70 flex items-center justify-center gap-1.5">
+                    {saving ? <><Loader2 size={16} className="animate-spin" /> Menyimpan...</> : <><Check size={16} /> Simpan Agent</>}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <button onClick={() => setShowDeleteConfirm(true)}
+                      className="py-2.5 px-4 rounded-xl text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors active:scale-95 flex items-center gap-1.5">
+                      <Trash2 size={14} /> Hapus
+                    </button>
+                    <button onClick={handleSave} disabled={saving}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-70 flex items-center justify-center gap-1.5">
+                      {saving ? <><Loader2 size={16} className="animate-spin" /> Menyimpan...</> : 'Simpan Perubahan'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Slide-up/down keyframes injected once */}
+          <style>{`
+            @keyframes slideUp {
+              from { transform: translateY(100%); }
+              to   { transform: translateY(0); }
+            }
+            @keyframes slideDown {
+              from { transform: translateY(0); }
+              to   { transform: translateY(100%); }
+            }
+          `}</style>
+        </div>
+      )}
+
+      {/* ── Delete Confirmation ── */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center px-4"
+          onClick={closeDelete}
+          style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' } as React.CSSProperties}>
+          <div
+            className={`w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl p-5 ${deleteClosing ? 'dc-card-exit' : 'dc-card-enter'}`}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex justify-center">
+              <AlertTriangle size={24} className="text-red-500" />
+            </div>
+            <p className="text-sm font-bold text-gray-800 dark:text-white text-center mt-3">Hapus Agent?</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400 text-center mt-1.5 leading-relaxed">
+              Agent <span className="font-semibold">{editingAgent?.name}</span> akan dihapus permanen. Data jamaah dan konfigurasi CAPI juga akan terhapus.
+            </p>
+            <div className="flex gap-2 mt-4">
+              <button onClick={closeDelete}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95">
+                Batal
+              </button>
+              <button onClick={handleDelete} disabled={deleting}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-500 hover:bg-red-600 text-white shadow-md shadow-red-500/20 transition-all active:scale-95 disabled:opacity-70 flex items-center justify-center gap-1.5">
+                {deleting ? <Loader2 size={16} className="animate-spin" /> : 'Ya, Hapus'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Unsaved Changes Confirm ── */}
+      {showUnsavedConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center px-4"
+          style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' } as React.CSSProperties}
+          onClick={() => setShowUnsavedConfirm(false)}>
+          <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl p-5 dc-card-enter"
+            onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-bold text-gray-800 dark:text-white text-center">Perubahan Belum Disimpan</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400 text-center mt-1.5 leading-relaxed">
+              Yakin ingin keluar? Perubahan yang belum disimpan akan hilang.
+            </p>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setShowUnsavedConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95">
+                Kembali
+              </button>
+              <button onClick={() => { setShowUnsavedConfirm(false); closeModal(); }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-500 hover:bg-red-600 text-white shadow-md shadow-red-500/20 transition-all active:scale-95">
+                Ya, Keluar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

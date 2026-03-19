@@ -316,8 +316,11 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
 
 // Upload profile photo (base64 JPEG)
 app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), async (req, res) => {
-  const { image } = req.body; // base64 data URL
+  const { image, slug: targetSlug } = req.body; // base64 data URL, optional slug for admin
   if (!image) return res.status(400).json({ error: 'No image provided' });
+
+  // Admin can upload for any agent; non-admin only for themselves
+  const slug = (req.user.role === 'admin' && targetSlug) ? targetSlug.toLowerCase() : req.user.slug;
 
   try {
     // Extract base64 data
@@ -327,12 +330,12 @@ app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), asy
     // Save to public/agents/{slug}.jpg
     const agentsDir = resolve(__dirname, 'public', 'agents');
     if (!existsSync(agentsDir)) mkdirSync(agentsDir, { recursive: true });
-    const filePath = resolve(agentsDir, `${req.user.slug}.jpg`);
+    const filePath = resolve(agentsDir, `${slug}.jpg`);
     writeFileSync(filePath, buffer);
 
     // Update photo path in Supabase with cache buster
-    const photoUrl = `/agents/${req.user.slug}.jpg?v=${Date.now()}`;
-    await supabase.from('agents').update({ photo: photoUrl }).eq('slug', req.user.slug);
+    const photoUrl = `/agents/${slug}.jpg?v=${Date.now()}`;
+    await supabase.from('agents').update({ photo: photoUrl }).eq('slug', slug);
 
     // Invalidate cache
     agentCache = null;
@@ -346,15 +349,17 @@ app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), asy
 app.get('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
   const { data, error } = await supabase
     .from('agents')
-    .select('slug, name, website, phone, email, photo, role')
+    .select('slug, name, website, phone, email, photo, role, jamaah_username, jamaah_password, jamaah_kantor')
     .order('name');
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  // Don't expose raw encrypted password — just indicate if it's set
+  const safe = (data || []).map(a => ({ ...a, jamaah_password: a.jamaah_password ? '••••••' : '' }));
+  res.json(safe);
 });
 
 // Update any agent (admin only)
 app.put('/api/admin/agents/:slug', authMiddleware, adminOnly, async (req, res) => {
-  const { name, website, phone, email, role, password: rawPassword } = req.body;
+  const { name, website, phone, email, role, password: rawPassword, jamaah_username, jamaah_password, jamaah_kantor } = req.body;
   const updates = {};
   if (name !== undefined) updates.name = name;
   if (website !== undefined) updates.website = website;
@@ -362,6 +367,9 @@ app.put('/api/admin/agents/:slug', authMiddleware, adminOnly, async (req, res) =
   if (email !== undefined) updates.email = email;
   if (role !== undefined) updates.role = role;
   if (rawPassword !== undefined) updates.password = await bcrypt.hash(rawPassword, 12);
+  if (jamaah_username !== undefined) updates.jamaah_username = jamaah_username || null;
+  if (jamaah_password !== undefined) updates.jamaah_password = jamaah_password ? capiEncrypt(jamaah_password) : null;
+  if (jamaah_kantor !== undefined) updates.jamaah_kantor = jamaah_kantor || '2';
 
   const { error } = await supabase
     .from('agents')
@@ -374,17 +382,21 @@ app.put('/api/admin/agents/:slug', authMiddleware, adminOnly, async (req, res) =
 
 // Create new agent (admin only)
 app.post('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
-  const { slug, name, website, phone, photo, password: rawPassword, role } = req.body;
+  const { slug, name, website, phone, photo, password: rawPassword, role, jamaah_username, jamaah_password, jamaah_kantor } = req.body;
   if (!slug || !name || !rawPassword) {
     return res.status(400).json({ error: 'slug, name, dan password wajib diisi' });
   }
   const hashedPassword = await bcrypt.hash(rawPassword, 12);
-  const { error } = await supabase.from('agents').insert({
+  const insert = {
     slug: slug.toLowerCase(),
     name, website: website || '', phone: phone || '',
     photo: photo || `/agents/${slug.toLowerCase()}.jpg`,
     password: hashedPassword, role: role || 'agent',
-  });
+  };
+  if (jamaah_username) insert.jamaah_username = jamaah_username;
+  if (jamaah_password) insert.jamaah_password = capiEncrypt(jamaah_password);
+  if (jamaah_kantor) insert.jamaah_kantor = jamaah_kantor;
+  const { error } = await supabase.from('agents').insert(insert);
   if (error) return res.status(500).json({ error: error.message });
   agentCache = null;
   res.json({ success: true });
@@ -1026,6 +1038,279 @@ app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   agentCache = null;
   res.json({ success: true });
+});
+
+// ──────────────────────────────────────────────
+// API: Stats — aggregated jamaah statistics
+// ──────────────────────────────────────────────
+app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
+  const slug = req.user.slug;
+
+  try {
+    // ── availableYears ──
+    const { data: ayData } = await supabase
+      .from('jamaah')
+      .select('hijriah_year')
+      .eq('agent_slug', slug)
+      .not('hijriah_year', 'is', null);
+    const availableYears = [...new Set((ayData || []).map(r => r.hijriah_year))].sort((a, b) => b.localeCompare(a));
+
+    // Determine hijriah year — default to current Islamic year, fallback to latest available
+    let year = req.query.year || null;
+    if (!year) {
+      const parts = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', { year: 'numeric' }).formatToParts(new Date());
+      const hijriYear = (parts.find(p => p.type === 'year')?.value || '').replace(/\s*AH$/, '');
+      year = availableYears.includes(hijriYear) ? hijriYear : (availableYears[0] || null);
+    }
+
+    // Base filter
+    const baseMatch = { agent_slug: slug };
+    if (year) baseMatch.hijriah_year = year;
+
+    // ── totalJamaah ──
+    const { count: totalJamaah } = await supabase
+      .from('jamaah')
+      .select('*', { count: 'exact', head: true })
+      .match(baseMatch);
+
+    // ── lunas: sisa = 0 ──
+    const { count: lunas } = await supabase
+      .from('jamaah')
+      .select('*', { count: 'exact', head: true })
+      .match(baseMatch)
+      .or('sisa.eq.0,sisa.is.null');
+
+    // ── belumLunas: sisa > 0 ──
+    const { count: belumLunas } = await supabase
+      .from('jamaah')
+      .select('*', { count: 'exact', head: true })
+      .match(baseMatch)
+      .gt('sisa', 0);
+
+    // ── totalOutstanding: SUM(sisa) where sisa > 0 ──
+    let outQ = supabase.from('jamaah').select('sisa').eq('agent_slug', slug).gt('sisa', 0);
+    if (year) outQ = outQ.eq('hijriah_year', year);
+    const { data: outData } = await outQ;
+    const totalOutstanding = outData ? outData.reduce((s, r) => s + (r.sisa || 0), 0) : 0;
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const now = new Date();
+
+    // ── berangkatSegera: jamaah in the nearest upcoming departure month ──
+    let bebQ = supabase.from('jamaah')
+      .select('nama, paket, jk, tgl_berangkat, sisa, wa')
+      .eq('agent_slug', slug)
+      .gte('tgl_berangkat', todayStr)
+      .order('tgl_berangkat', { ascending: true })
+      .order('nama', { ascending: true });
+    if (year) bebQ = bebQ.eq('hijriah_year', year);
+    const { data: bebRows } = await bebQ;
+
+    let berangkatBulanIni = [];
+    let berangkatSegera = 0;
+    let berangkatBulan = null;
+    const todayDate = new Date(todayStr);
+
+    if (bebRows && bebRows.length > 0) {
+      const firstMonth = bebRows[0].tgl_berangkat.substring(0, 7);
+      berangkatBulanIni = bebRows
+        .filter(r => r.tgl_berangkat && r.tgl_berangkat.substring(0, 7) === firstMonth)
+        .map(r => {
+          const dep = new Date(r.tgl_berangkat);
+          const diffDays = Math.ceil((dep.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
+          return {
+            nama: r.nama,
+            paket: r.paket,
+            jk: r.jk,
+            tgl_berangkat: r.tgl_berangkat,
+            hari_lagi: diffDays,
+            lunas: !r.sisa || r.sisa === 0,
+            sisa: r.sisa || 0,
+            wa: r.wa,
+          };
+        });
+      berangkatSegera = berangkatBulanIni.length;
+      // Format month label: "Maret 2026"
+      const fm = new Date(firstMonth + '-01');
+      berangkatBulan = fm.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+    }
+
+    // ── jamaahBaru: tgl_daftar in current month ──
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const monthEnd = nextMonth.toISOString().split('T')[0];
+    let jbQ = supabase.from('jamaah').select('*', { count: 'exact', head: true })
+      .match(baseMatch).gte('tgl_daftar', monthStart).lt('tgl_daftar', monthEnd);
+    const { count: jamaahBaru } = await jbQ;
+
+    // ── lunasPercent ──
+    const total = totalJamaah || 0;
+    const lunasPercent = total > 0 ? Math.round(((lunas || 0) / total) * 100) : 0;
+
+    // ── comparison vs previous month ──
+    // totalJamaah: prev = jamaah registered before this month
+    const { count: prevTotal } = await supabase
+      .from('jamaah')
+      .select('*', { count: 'exact', head: true })
+      .match(baseMatch)
+      .lt('tgl_daftar', monthStart);
+
+    // jamaahBaru: prev = registrations in previous month
+    const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthStart = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}-01`;
+    const { count: prevJamaahBaru } = await supabase
+      .from('jamaah')
+      .select('*', { count: 'exact', head: true })
+      .match(baseMatch)
+      .gte('tgl_daftar', prevMonthStart)
+      .lt('tgl_daftar', monthStart);
+
+    const comparison = {
+      totalJamaah: { prev: prevTotal || 0, diff: (totalJamaah || 0) - (prevTotal || 0) },
+      komisiCair: null,
+      berangkatSegera: { prev: null, diff: null },
+      jamaahBaru: { prev: prevJamaahBaru || 0, diff: (jamaahBaru || 0) - (prevJamaahBaru || 0) },
+    };
+
+    // ── trend: 7 months group by tgl_daftar ──
+    const sevenMonthsAgo = new Date();
+    sevenMonthsAgo.setMonth(sevenMonthsAgo.getMonth() - 6);
+    const tmStr = `${sevenMonthsAgo.getFullYear()}-${String(sevenMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
+    let trendQ = supabase.from('jamaah').select('tgl_daftar').eq('agent_slug', slug)
+      .gte('tgl_daftar', tmStr).order('tgl_daftar', { ascending: true });
+    if (year) trendQ = trendQ.eq('hijriah_year', year);
+    const { data: trendRows } = await trendQ;
+
+    const trendMap = new Map();
+    if (trendRows) {
+      for (const row of trendRows) {
+        if (!row.tgl_daftar) continue;
+        const bulan = row.tgl_daftar.substring(0, 7);
+        trendMap.set(bulan, (trendMap.get(bulan) || 0) + 1);
+      }
+    }
+    const trend = Array.from(trendMap.entries())
+      .map(([bulan, count]) => ({ bulan, count }))
+      .sort((a, b) => a.bulan.localeCompare(b.bulan));
+
+    // ── outstandingList: jamaah with sisa > 0, sorted by sisa DESC ──
+    let olQ = supabase.from('jamaah')
+      .select('nama, paket, jk, sisa, tgl_berangkat, wa')
+      .eq('agent_slug', slug)
+      .gt('sisa', 0)
+      .order('sisa', { ascending: false })
+      .order('tgl_berangkat', { ascending: true });
+    if (year) olQ = olQ.eq('hijriah_year', year);
+    const { data: olRows } = await olQ;
+
+    const outstandingList = (olRows || []).map(r => {
+      let hari_lagi = null;
+      if (r.tgl_berangkat) {
+        const dep = new Date(r.tgl_berangkat);
+        hari_lagi = Math.ceil((dep.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
+      }
+      return {
+        nama: r.nama,
+        paket: r.paket,
+        jk: r.jk,
+        sisa: r.sisa,
+        tgl_berangkat: r.tgl_berangkat,
+        hari_lagi,
+        wa: r.wa,
+      };
+    });
+
+    // ── komisi ──
+    const KOMISI_HEMAT = 1300000;
+    const KOMISI_REGULER = 1800000;
+    const getRate = (p) => (p && p.toLowerCase().includes('hemat') ? KOMISI_HEMAT : KOMISI_REGULER);
+
+    let komisiQ = supabase.from('jamaah').select('paket, sisa, tgl_berangkat').eq('agent_slug', slug);
+    if (year) komisiQ = komisiQ.eq('hijriah_year', year);
+    const { data: komisiRows } = await komisiQ;
+
+    let sudahCair = 0, sudahCairCount = 0;
+    let belumCair = 0, belumCairCount = 0;
+    let potensi = 0, potensiCount = 0;
+    let hematCount = 0, hematTotal = 0, regulerCount = 0, regulerTotal = 0;
+    for (const r of (komisiRows || [])) {
+      const rate = getRate(r.paket);
+      const isLunas = !r.sisa || r.sisa === 0;
+      const departed = r.tgl_berangkat && r.tgl_berangkat < todayStr;
+      if (isLunas && departed) { sudahCair += rate; sudahCairCount++; }
+      else if (isLunas) { belumCair += rate; belumCairCount++; }
+      else { potensi += rate; potensiCount++; }
+      if (r.paket && r.paket.toLowerCase().includes('hemat')) { hematCount++; hematTotal += rate; }
+      else { regulerCount++; regulerTotal += rate; }
+    }
+    // chartBulanan: komisi cair grouped by departure month (7 months)
+    const chartMap = new Map();
+    // Build 7-month skeleton
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      chartMap.set(ym, { bulan: ym, total: 0, count: 0 });
+    }
+    for (const r of (komisiRows || [])) {
+      if (!r.tgl_berangkat || r.tgl_berangkat >= todayStr) continue;
+      const isLunas = !r.sisa || r.sisa === 0;
+      if (!isLunas) continue;
+      const ym = r.tgl_berangkat.substring(0, 7);
+      if (chartMap.has(ym)) {
+        const entry = chartMap.get(ym);
+        entry.total += getRate(r.paket);
+        entry.count++;
+      }
+    }
+    const chartBulanan = Array.from(chartMap.values());
+
+    const komisi = {
+      totalKomisi: sudahCair + belumCair + potensi,
+      sudahCair, sudahCairCount,
+      belumCair, belumCairCount,
+      potensi, potensiCount,
+      breakdown: {
+        hemat: { count: hematCount, rate: KOMISI_HEMAT, total: hematTotal },
+        reguler: { count: regulerCount, rate: KOMISI_REGULER, total: regulerTotal },
+      },
+      chartBulanan,
+    };
+
+    // ── lastSync ──
+    const { data: syncData } = await supabase
+      .from('jamaah')
+      .select('synced_at')
+      .eq('agent_slug', slug)
+      .order('synced_at', { ascending: false })
+      .limit(1);
+    const lastSync = syncData?.[0]?.synced_at || null;
+
+    res.json({
+      success: true,
+      data: {
+        totalJamaah: totalJamaah || 0,
+        lunas: lunas || 0,
+        belumLunas: belumLunas || 0,
+        totalOutstanding,
+        berangkatSegera,
+        berangkatBulan,
+        jamaahBaru: jamaahBaru || 0,
+        lunasPercent,
+        comparison,
+        trend,
+        berangkatBulanIni,
+        outstandingList,
+        availableYears,
+        komisi,
+        hijriahYear: year || null,
+        lastSync,
+      },
+    });
+  } catch (err) {
+    console.error('[Stats] Error:', err);
+    res.status(500).json({ error: 'Gagal memuat statistik', message: err.message });
+  }
 });
 
 // ──────────────────────────────────────────────

@@ -1,22 +1,30 @@
-# Prompt: Fitur Meta Conversion API (CAPI) untuk Agent
+# Fitur Meta Conversion API (CAPI) untuk Agent
 
 ## Konteks Project
 
-Project ini adalah website jadwal keberangkatan Umrah yang memiliki halaman per agent di route `domain/[slug-agent]`. Setiap agent sudah didefinisikan di file `agents.ts`. Sekarang saya ingin menambahkan fitur agar setiap agent bisa mengkonfigurasi Meta Conversion API (CAPI) mereka sendiri melalui halaman settings yang bisa diakses di `domain/[slug-agent]/capi`.
+Project ini adalah website jadwal keberangkatan Umrah yang memiliki halaman per agent di route `domain/[slug-agent]`. Setiap agent sudah didefinisikan di Supabase (tabel `agents`). Fitur ini memungkinkan setiap agent mengkonfigurasi Meta Conversion API (CAPI) mereka sendiri.
 
-## Fitur yang Dibutuhkan
+**Status: ✅ Sudah diimplementasi sepenuhnya.**
 
-### 1. Halaman Login (`/[slug-agent]/capi`)
+## Akses CAPI Config
 
-- Ketika halaman `/[slug-agent]/capi` dibuka, tampilkan form login sederhana yang meminta password.
-- Password bersifat statis per agent dan disimpan langsung di file `agents.ts` sebagai property baru, misalnya `capiPassword`.
-- Password agent disimpan di Supabase (tabel `agents`), di-hash dengan bcrypt.
-- Autentikasi menggunakan JWT (7 hari expiry). Setelah login, token disimpan di localStorage.
+CAPI config bisa diakses dari 2 tempat:
+1. **Standalone page**: `domain/[slug-agent]/capi` — login dengan password agent sendiri
+2. **Dashboard**: Menu "Meta CAPI" di dashboard setelah login (menggunakan session JWT yang sudah ada)
+
+---
+
+## Fitur yang Sudah Diimplementasi
+
+### 1. Autentikasi
+
+- **Standalone page** (`/[slug-agent]/capi`): Form login meminta password agent, diverifikasi via `POST /api/capi/:slug/login` (bcrypt compare).
+- **Dashboard**: Tidak perlu login ulang — menggunakan JWT session yang sudah aktif.
 - Jika slug agent tidak valid, tampilkan halaman 404.
 
-### 2. Halaman Settings CAPI (setelah login berhasil)
+### 2. Halaman Settings CAPI
 
-Setelah login, tampilkan halaman settings dengan layout yang clean dan rapi, terdiri dari beberapa section:
+Layout card-based dengan 3 section utama:
 
 #### Section 1: Meta Credentials
 
@@ -26,11 +34,7 @@ Setelah login, tampilkan halaman settings dengan layout yang clean dan rapi, ter
 
 #### Section 2: Event Mapping
 
-Tampilkan daftar event yang bisa di-track, masing-masing dengan:
-- Toggle on/off untuk enable/disable event tersebut
-- Dropdown untuk memilih event name yang akan dikirim ke Meta
-
-Daftar event:
+Daftar event yang bisa di-track, masing-masing dengan toggle on/off dan dropdown event name:
 
 | # | Heading / Label | Deskripsi | Default Event | Default State |
 |---|---|---|---|---|
@@ -40,37 +44,28 @@ Daftar event:
 | 4 | User Klik WhatsApp/CTA | Ketika user klik tombol WhatsApp atau CTA hubungi agent | `Contact` | ON |
 
 Pilihan event di setiap dropdown (standar Meta):
-- `PageView`
-- `Search`
-- `ViewContent`
-- `Contact`
-- `Lead`
-- `CompleteRegistration`
-- `AddToCart`
-- `AddToWishlist`
-- `InitiateCheckout`
-- `Purchase`
-- `Subscribe`
+- `PageView`, `Search`, `ViewContent`, `Contact`, `Lead`, `CompleteRegistration`
+- `AddToCart`, `AddToWishlist`, `InitiateCheckout`, `Purchase`, `Subscribe`
 - `CustomEvent` (jika dipilih, tampilkan input text tambahan untuk custom event name)
 
 #### Section 3: Mode & Status
 
-- **Toggle Test Mode / Live Mode** — Jika Test Mode aktif, semua event dikirim dengan `test_event_code` yang diisi di Section 1. Jika Test Event Code kosong tapi Test Mode aktif, tampilkan warning.
-- **Status koneksi** — Setelah save, lakukan validasi sederhana ke Meta Graph API untuk mengecek apakah Pixel ID dan Access Token valid. Tampilkan status:
+- **Toggle Test Mode / Live Mode** — Jika Test Mode aktif, semua event dikirim dengan `test_event_code`. Warning jika Test Event Code kosong tapi Test Mode aktif.
+- **Status koneksi** — Setelah save, validasi ke Meta Graph API:
   - ✅ "Connected — Pixel aktif" jika valid
   - ❌ "Error — Pixel ID atau Access Token tidak valid" jika gagal
   - ⚠️ "Belum dikonfigurasi" jika credentials belum diisi
 
 #### Tombol Simpan
 
-- Tombol "Simpan Konfigurasi" di bagian bawah
-- Setelah klik simpan, validasi input (Pixel ID & Access Token wajib), lalu simpan konfigurasi
-- Tampilkan toast/notifikasi sukses atau error
+- "Simpan Konfigurasi" di bagian bawah
+- Validasi input (Pixel ID & Access Token wajib)
+- Toast/notifikasi sukses atau error
 
 ### 3. Penyimpanan Konfigurasi
 
-- Simpan konfigurasi CAPI setiap agent di **Supabase** (tabel `capi_configs`), bukan file JSON lokal.
-- Tabel sudah ada dengan kolom: `slug` (PK), `pixel_id`, `access_token`, `test_event_code`, `test_mode`, `events` (JSONB), `updated_at`.
+- Disimpan di **Supabase** (tabel `capi_configs`).
+- Tabel kolom: `slug` (PK), `pixel_id`, `access_token`, `test_event_code`, `test_mode`, `events` (JSONB), `updated_at`.
 - Struktur data events:
 
 ```json
@@ -101,76 +96,71 @@ Pilihan event di setiap dropdown (standar Meta):
 }
 ```
 
-- Access Token harus dienkripsi saat disimpan di Supabase (menggunakan AES-256-GCM dengan key dari environment variable `CAPI_ENCRYPTION_KEY`)
-- Saat ditampilkan di frontend setelah tersimpan, Access Token harus di-mask (tampilkan hanya 6 karakter pertama + `****`)
+- **Enkripsi**: Access Token di-encrypt dengan AES-256-GCM (`CAPI_ENCRYPTION_KEY` env var) sebelum disimpan
+- **Display**: Setelah tersimpan, Access Token di-mask (6 karakter pertama + `****`)
 
-### 4. API Endpoint untuk Kirim Event ke Meta
+### 4. API Endpoints
 
-Buat API endpoint yang akan dipanggil dari frontend untuk mengirim event ke Meta Conversion API:
+Semua endpoint sudah diimplementasi di `server.js`:
 
-**Endpoint:** `POST /api/capi/[slug-agent]/event`
+| Method | Path | Deskripsi |
+|--------|------|-----------|
+| POST | `/api/capi/:slug/login` | Verify password (bcrypt) |
+| GET | `/api/capi/:slug/config` | Get config (token decrypted) |
+| POST | `/api/capi/:slug/config` | Save config (token encrypted) |
+| DELETE | `/api/capi/:slug/config` | Reset config |
+| POST | `/api/capi/:slug/event` | Send event ke Meta (rate limited: 10 req/s per agent) |
+| POST | `/api/capi/:slug/validate` | Validate pixel + token via Meta Graph API |
 
-**Request body:**
-```json
-{
-  "eventName": "PageView",
-  "eventId": "unique-event-id-untuk-deduplication",
-  "sourceUrl": "https://domain.com/slug-agent",
-  "userAgent": "Mozilla/5.0...",
-  "fbc": "fb.1.xxxxx",
-  "fbp": "fb.1.xxxxx",
-  "timestamp": 1709280000
-}
-```
-
-**Logic:**
-1. Baca konfigurasi CAPI agent dari Supabase (`capi_configs` tabel)
-2. Cek apakah event tersebut enabled untuk agent ini
-3. Jika enabled, kirim event ke Meta Graph API: `POST https://graph.facebook.com/v21.0/{pixel_id}/events`
-4. Kirim dengan payload sesuai format Meta CAPI:
-   - `event_name` — dari konfigurasi
-   - `event_time` — timestamp
-   - `event_id` — untuk deduplication dengan browser pixel
-   - `event_source_url` — URL halaman
-   - `user_data` — minimal `client_user_agent`, `fbc`, `fbp`
-   - `action_source` — "website"
-5. Jika test mode aktif, sertakan `test_event_code` di request
+**Event endpoint logic:**
+1. Baca konfigurasi CAPI agent dari Supabase
+2. Decrypt access token (AES-256-GCM)
+3. Kirim event ke `POST https://graph.facebook.com/v21.0/{pixel_id}/events`
+4. Payload: `event_name`, `event_time`, `event_source_url`, `user_data`, `custom_data`, `action_source`
+5. Jika test mode aktif, sertakan `test_event_code`
 6. Return response sukses/gagal
 
-### 5. Integrasi di Frontend (Trigger Event)
+### 5. Integrasi Frontend (Event Triggers)
 
-Di halaman agent (`/[slug-agent]`), tambahkan logic untuk trigger event CAPI pada momen yang tepat:
+Diimplementasi di `App.tsx` dan `src/lib/capi.ts`:
 
-1. **PageView** — Trigger saat halaman jadwal pertama kali di-load (gunakan `useEffect` dengan dependency kosong)
-2. **Search** — Trigger saat user melakukan search/filter
-3. **ViewContent** — Trigger saat user klik download brosur, itinerary, simpan, hitung, compare, atau bagikan
-4. **Contact** — Trigger saat user klik tombol WhatsApp atau CTA
+1. **PageView** — `useEffect` saat pertama kali load (fire-once guard)
+2. **Search** — Debounced 1 detik setelah user ketik di search box
+3. **ViewContent** — Saat user klik download brosur, itinerary, simpan, hitung, compare, atau bagikan
+4. **Contact** — Saat user klik tombol WhatsApp atau CTA
 
-Untuk setiap trigger:
-- Generate `event_id` yang unik (gunakan `crypto.randomUUID()` atau format `{eventName}-{timestamp}-{random}`)
-- Ambil `fbc` dan `fbp` dari cookie browser (jika ada)
-- Kirim ke API endpoint `/api/capi/[slug-agent]/event` secara async (jangan blocking UI)
-- Jangan tampilkan error ke user jika gagal (silent fail), cukup log di console
+Setiap trigger:
+- **Silent fail**: Error tidak ditampilkan ke user, hanya log di console
+- Cookie `fbc`/`fbp` diambil jika tersedia
+- Request dikirim ke server secara async (non-blocking UI)
 
-### 6. Buat Helper/Utility
+### 6. Helper/Utility
 
-Buat file utility misalnya `lib/capi.ts` yang berisi:
-- Function `sendCapiEvent(slug, eventKey, sourceUrl)` — helper untuk trigger event dari komponen manapun
-- Function `getMetaCookies()` — ambil `fbc` dan `fbp` dari cookies
-- Function `generateEventId(eventName)` — generate unique event ID
+**File:** `src/lib/capi.ts`
+
+```typescript
+// Helper function — panggil dari komponen manapun
+sendCapiEvent(slug: string, eventKey: string, sourceUrl?: string): Promise<void>
+
+// Internal helpers
+getMetaCookies(): { fbc, fbp }
+generateEventId(eventName: string): string
+```
+
+---
 
 ## Catatan Teknis
 
-- Gunakan teknologi yang sudah ada di project (Express + React SPA via Vite)
-- Untuk API route, gunakan Express routes di `server.js`
-- Pastikan API endpoint memiliki rate limiting sederhana (sudah diimplementasi: max 10 request per detik per agent) untuk mencegah abuse
-- Semua request ke Meta Graph API dilakukan dari server-side (JANGAN dari client/browser) agar Access Token tidak terekspos
-- Gunakan `fetch` untuk request ke Meta Graph API dari server
+- Semua request ke Meta Graph API dilakukan dari **server-side** — Access Token tidak pernah terekspos ke browser
+- Rate limiting: max 10 request per detik per agent slug
+- CAPI endpoints **tidak menggunakan auth JWT** — hanya dilindungi oleh slug (known limitation, lihat Technical Debt di project-summary.md)
+- Enkripsi menggunakan fungsi yang sama (`capiEncrypt`/`capiDecrypt`) yang juga dipakai untuk encrypt jamaah password
 
-## UI/UX Guidelines
+## UI/UX
 
-- Halaman login: minimalis, centered, dengan branding sederhana
-- Halaman settings: gunakan card-based layout dengan section yang jelas
-- Gunakan warna hijau untuk status aktif/connected, merah untuk error, kuning untuk warning
-- Responsive — harus bisa diakses dari mobile karena agent mungkin setup dari HP
-- Tampilkan tooltip/help text kecil di setiap field untuk membantu agent yang tidak familiar dengan Meta CAPI
+- Halaman login: minimalis, centered, branding sederhana
+- Halaman settings: card-based layout dengan section yang jelas
+- Warna hijau (connected), merah (error), kuning (warning)
+- Responsive — bisa diakses dari mobile
+- Tooltip/help text di setiap field
+- **Dark mode**: ✅ Fully supported

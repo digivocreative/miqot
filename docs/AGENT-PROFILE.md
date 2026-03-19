@@ -102,6 +102,9 @@ const agent = AGENTS_DATA[slug?.toLowerCase()];
 | `alhijaz.co/nila` | `nila` | ✅ | Agent mode aktif |
 | `alhijaz.co/xyz` | `xyz` | ❌ | Tampilan standar |
 
+> [!NOTE]
+> Agent detection terjadi 2 kali: pertama saat mount (dari hardcoded data), kemudian setelah `loadAgentsFromSupabase()` selesai (re-detect dengan data Supabase terbaru).
+
 ---
 
 ## Perilaku Agent Mode
@@ -115,6 +118,7 @@ const agent = AGENTS_DATA[slug?.toLowerCase()];
 | Meta Description | Default | Dinamis dengan nama agent |
 | OG Tags (link preview) | Default | Dinamis (via middleware) |
 | Screenshot (html2canvas) | — | AgentProfile **di-exclude** |
+| CAPI Events | ❌ Not sent | ✅ PageView, Search, ViewContent, Contact |
 
 ---
 
@@ -125,6 +129,7 @@ Selain fitur publik (jadwal, CTA), agent yang sudah login juga memiliki akses ke
 | Fitur | Deskripsi |
 |---|---|
 | Profil | Edit nama, website, phone, email, foto, slug |
+| Statistik | Ringkasan data jamaah: total, komisi, tren, berangkat mendatang, outstanding |
 | Kalkulasi | Hitung harga per tipe kamar + generate PDF quotation |
 | Compare | Bandingkan 2 paket side-by-side |
 | Meta CAPI | Config Pixel ID, Access Token, event mapping, test mode |
@@ -142,7 +147,7 @@ Selain fitur publik (jadwal, CTA), agent yang sudah login juga memiliki akses ke
 ### Server-side (server.js)
 - Express `server.js` mengubah HTML sebelum dikirim ke client/crawler
 - Inject `<title>`, `<meta description>`, dan OG tags
-- Data agent diambil dari Supabase (dengan in-memory cache)
+- Data agent diambil dari Supabase (dengan in-memory cache, TTL 5 menit)
 - **Wajib** untuk link preview di WhatsApp, Facebook, Twitter
 
 ---

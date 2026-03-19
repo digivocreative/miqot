@@ -366,7 +366,7 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
       />
 
       {/* Avatar + Info Card */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-gray-100 dark:border-slate-700 shadow-sm">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-gray-100 dark:border-slate-700 shadow-sm !mt-0">
         <div className="flex flex-col items-center mb-6">
           {/* Photo with edit button */}
           <div className="relative inline-block mb-3">

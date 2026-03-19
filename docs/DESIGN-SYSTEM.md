@@ -16,6 +16,7 @@ Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 | Body text | — | `text-sm` | 400 |
 | Caption / meta | — | `text-[10px]`–`text-[11px]` | `font-medium` |
 | Badge | — | `text-[9px]` | `font-bold` + `uppercase` |
+| Stat headline | — | `text-2xl` | `font-bold` |
 
 ---
 
@@ -37,16 +38,18 @@ Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 | Role | Light | Dark | Usage |
 |------|-------|------|-------|
 | **Primary (Emerald)** | `emerald-500` / `emerald-600` | `emerald-400` | CTA buttons, focus rings, success |
-| **Success** | `emerald-50` bg, `emerald-500` text | `emerald-900/20`, `emerald-300` | Session bars, status |
+| **Success** | `emerald-50` bg, `emerald-500` text | `emerald-900/20`, `emerald-300` | Session bars, status, komisi cair |
 | **Error** | `red-50` bg, `red-600` text | `red-900/20`, `red-400` | Error messages, disconnect |
-| **Warning/Accent** | `amber-50` bg, `amber-600` text | `amber-900/20`, `amber-400` | Jamaah, admin badge |
-| **Info** | `blue-50` bg, `blue-600` text | `blue-900/20`, `blue-400` | Kalkulasi, profile |
+| **Warning/Accent** | `amber-50` bg, `amber-600` text | `amber-900/20`, `amber-400` | Jamaah, admin badge, komisi potensi |
+| **Info** | `blue-50` bg, `blue-600` text | `blue-900/20`, `blue-400` | Kalkulasi, profile, komisi belum cair |
+| **Violet** | `violet-50` bg, `violet-600` text | `violet-900/20`, `violet-400` | Compare, jamaah baru stats |
 | **Neutral** | `gray-50`–`gray-600` | `slate-400`–`slate-700` | Borders, secondary text |
 
 ### Feature Card Colors (Dashboard Menu)
 
 | Feature | Icon Color | Background |
 |---------|-----------|------------|
+| Statistik | `emerald-600` / `emerald-400` | `emerald-50` / `emerald-900/20` |
 | Kalkulasi | `blue-600` / `blue-400` | `blue-50` / `blue-900/20` |
 | Compare | `violet-600` / `violet-400` | `violet-50` / `violet-900/20` |
 | Meta CAPI | `gray-600` / `gray-400` | `gray-50` / `gray-800/30` |
@@ -64,6 +67,20 @@ Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 | Gender ring (P) | `ring-2 ring-pink-300` | same |
 | Gender ring (L) | `ring-2 ring-blue-300` | same |
 
+### Statistik Page Colors
+
+| Context | Light | Dark |
+|---------|-------|------|
+| Komisi Cair bar | `bg-emerald-500` | same |
+| Komisi Belum Cair bar | `bg-blue-400` | same |
+| Komisi Potensi bar | `bg-gray-200` | `bg-slate-600` |
+| Jamaah Baru stat | `text-violet-600` | `text-violet-400` |
+| Departure ≤15 days badge | `bg-red-50 text-red-600` | `bg-red-900/20 text-red-400` |
+| Departure >15 days badge | `bg-amber-50 text-amber-600` | `bg-amber-900/20 text-amber-400` |
+| Comparison ↑ badge | `text-emerald-600` | `text-emerald-400` |
+| Comparison ↓ badge | `text-red-500` | `text-red-400` |
+| Chart grid stroke | `#f1f5f9` | `#1e293b` |
+
 ---
 
 ## Layout
@@ -79,7 +96,7 @@ min-h-screen bg-gradient-to-b from-gray-50 to-gray-100
 
 - **Max width**: `max-w-lg` (32rem / 512px) — mobile-first, centered
 - **Page padding**: `px-4 pt-4 pb-8`
-- **Card spacing**: `space-y-4` atau `mb-5`
+- **Card spacing**: `space-y-4` atau `mb-5` (regular), `space-y-3` (Statistik), `space-y-1.5` (compact view)
 
 ### Header (Sticky)
 
@@ -119,6 +136,18 @@ overflow-hidden
 </div>
 ```
 
+### Stat Card (Statistik Page)
+
+```
+bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5
+```
+
+Inner structure:
+- Icon badge: `w-8 h-8 rounded-lg {bg-color} flex items-center justify-center border {border-color} mb-2`
+- Value: `text-2xl font-bold`
+- Label: `text-[10px] text-gray-400 font-medium`
+- Comparison: `text-[9px] font-semibold` (green/red/gray)
+
 ### Status Bar (Connected)
 
 ```
@@ -134,6 +163,12 @@ flex items-center justify-between
 p-3 bg-blue-50 dark:bg-blue-900/15
 border border-blue-100 dark:border-blue-800/30
 rounded-xl
+```
+
+### Komisi Detail Row (Statistik)
+
+```
+bg-{color}-50 dark:bg-{color}-900/20 rounded-xl border border-{color}-100 dark:border-{color}-800/40 px-3 py-2.5 flex items-center justify-between
 ```
 
 ---
@@ -190,6 +225,14 @@ shadow-sm
 hover:shadow-lg hover:-translate-y-0.5
 transition-all duration-200
 active:scale-[0.97]
+```
+
+### "Lihat Semua" Expand Button (Statistik)
+
+```
+w-full py-2.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400
+hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20 transition-colors
+border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-center gap-1
 ```
 
 ### Jamaah Page Components
@@ -260,6 +303,62 @@ text-[10px] font-semibold text-emerald-600 animate-pulse  // syncing
 
 ---
 
+## Charts (Recharts)
+
+Digunakan di `StatistikPage.tsx` untuk menampilkan tren dan komisi.
+
+### AreaChart (Tren Jamaah Baru)
+
+```tsx
+<ResponsiveContainer width="100%" height={160}>
+  <AreaChart data={chartData} margin={{ top: 8, right: 12, left: -20, bottom: 0 }}>
+    <CartesianGrid horizontal vertical={false} strokeDasharray="3 3" stroke={gridStroke} />
+    <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+    <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} allowDecimals={false} />
+    <Area type="monotone" dataKey="count" stroke="#10b981" strokeWidth={2.5} fill="url(#emeraldGrad)"
+      dot={{ r: 3.5, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }} />
+  </AreaChart>
+</ResponsiveContainer>
+```
+
+### BarChart (Komisi Cair per Bulan)
+
+```tsx
+<ResponsiveContainer width="100%" height={160}>
+  <BarChart data={komisiChartData} margin={{ top: 10, right: 10, bottom: 0, left: -10 }}>
+    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+    <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+    <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} tickFormatter={v => v >= 1000000 ? `${v/1000000}jt` : String(v)} />
+    <Bar dataKey="total" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={32} />
+  </BarChart>
+</ResponsiveContainer>
+```
+
+### Custom Tooltip
+
+```
+bg-white dark:bg-slate-800 shadow-lg border border-gray-100 dark:border-slate-700 rounded-xl px-3 py-2 text-xs
+```
+
+---
+
+## Modals
+
+### StatListModal (Statistik Page)
+
+```
+fixed inset-x-4 top-8 bottom-8 z-50 max-w-lg mx-auto
+bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700
+shadow-2xl flex flex-col overflow-hidden
+```
+
+- Backdrop: `fixed inset-0 z-50 bg-black/50 backdrop-blur-sm`
+- Header: `px-4 py-3 border-b` with title + close button `w-8 h-8 rounded-lg`
+- Content: `flex-1 overflow-y-auto`
+- Animations: `fadeIn 150ms`, `slideUp 200ms`
+
+---
+
 ## Form Inputs
 
 ### Text Input / Select
@@ -276,6 +375,14 @@ transition-all
 text-gray-800 dark:text-white
 placeholder:text-gray-400
 disabled:opacity-50
+```
+
+### Hijriah Year Select (Compact — Header)
+
+```
+h-8 text-[10px] font-bold text-gray-600 dark:text-slate-300
+bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700
+rounded-lg px-2 pr-6 outline-none appearance-none cursor-pointer
 ```
 
 ### Password Input (with toggle)
@@ -323,15 +430,31 @@ uppercase tracking-wide
 | `Eye` / `EyeOff` | Password toggle |
 | `LogIn` / `LogOut` | Login / Disconnect |
 | `ChevronLeft` / `ChevronRight` | Navigation |
+| `ChevronDown` | "Lihat semua" expand |
 | `Search` | Filter submit |
 | `Calendar` | Date-related |
 | `User` / `Users` | Profile / Agent |
+| `UserPlus` | Jamaah baru (Statistik) |
 | `Settings` | Config / CAPI |
 | `Calculator` | Kalkulasi |
 | `ArrowLeftRight` | Compare |
+| `BarChart3` | Statistik menu |
 | `Building2` | Kantor |
 | `Moon` / `Sun` | Dark mode toggle |
 | `Shield` | Admin badge |
+| `Wallet` | Komisi |
+| `Plane` | Berangkat segera |
+| `RefreshCw` | Sync ulang |
+| `X` | Close modal/dialog |
+
+### WhatsApp Icon (Custom SVG)
+
+Used in `StatistikPage.tsx` and `AgentProfile.tsx` — inline SVG, not from Lucide:
+```tsx
+<svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor">
+  <path d="M17.472 14.382c-.297-.149..." />
+</svg>
+```
 
 ---
 
@@ -359,6 +482,12 @@ text-xs text-red-600 dark:text-red-400
 font-medium text-center
 ```
 
+### Block Error (Full page — Statistik)
+
+```
+p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-2xl text-center
+```
+
 ---
 
 ## Loading States
@@ -381,6 +510,28 @@ font-medium text-center
   <><Icon size={16} /> Label</>
 )}
 ```
+
+---
+
+## Progress Bars
+
+### Payment Progress (Jamaah)
+
+```
+h-3 rounded-full bg-gray-100 dark:bg-slate-700 overflow-hidden
+  └─ h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500
+```
+
+### Komisi 3-Segment Bar (Statistik)
+
+```
+h-3 rounded-full bg-gray-100 dark:bg-slate-700 overflow-hidden flex
+  └─ bg-emerald-500 (Sudah Cair)
+  └─ bg-blue-400 (Belum Cair)
+  └─ remaining space = Potensi
+```
+
+Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 
 ---
 
@@ -407,7 +558,13 @@ font-medium text-center
 | Transition | `transition-all duration-200` atau `transition-colors` |
 | Pulse dot | `w-2 h-2 rounded-full bg-emerald-500 animate-pulse` |
 | Spin loader | `animate-spin` (Lucide `Loader2`) |
+| Spin refresh | `animate-spin` (Lucide `RefreshCw` — saat syncing) |
+| Pulse text | `animate-pulse` (saat syncing) |
 | Page transition | Curtain overlay (see `index.css`) |
+| Modal fade-in | `fadeIn 150ms ease-out` |
+| Modal slide-up | `slideUp 200ms ease-out` |
+| Disconnect modal | `dc-backdrop-enter/exit`, `dc-card-enter/exit` (see `index.css`) |
+| Chart bar transition | `transition-all duration-500` |
 
 ---
 
@@ -417,9 +574,11 @@ font-medium text-center
 |---------|-------------------|
 | Line clamp | `.line-clamp-1`, `.line-clamp-2` |
 | Hide scrollbar | `.no-scrollbar` |
+| Mask gradient | `.mask-image-gradient` |
 | AI button glow | `.ai-border-glow` (conic gradient, rotating) |
 | Page transition overlay | `.page-transition-overlay` |
 | Legacy table styling | `.laporan-content table/th/td` |
+| Disconnect modal anims | `.dc-backdrop-enter/exit`, `.dc-card-enter/exit` |
 
 ---
 
@@ -433,3 +592,5 @@ font-medium text-center
 - **Language**: Code in English, UI text in Bahasa Indonesia
 - **Pagination**: Numbered buttons `w-8 h-8 rounded-xl text-xs font-bold` with active state using primary emerald
 - **Compact text**: Use `text-[9px]`–`text-[10px]` for metadata, `text-[11px]` for secondary info
+- **Stat numbers**: Use `text-2xl font-bold` for headline stats
+- **Currency format**: `fmtRp()` for full format, `fmtRpShort()` for compact (e.g., "Rp2.5jt", "Rp500rb")

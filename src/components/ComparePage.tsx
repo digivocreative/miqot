@@ -717,9 +717,9 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
       )}
 
       {/* ── MAIN CONTENT ── */}
-      <div className="max-w-3xl mx-auto px-5 pb-10">
+      <div className="max-w-3xl mx-auto px-4 pb-10">
         {/* Package Selectors Card */}
-        <div className="mt-6 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-5">
+        <div className="mt-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-5">
           <SearchableSelect
             options={packageOptions}
             value={paketA}

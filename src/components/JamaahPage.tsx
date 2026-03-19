@@ -253,6 +253,15 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
+  // Auto-refresh jamaah data every 5 minutes
+  useEffect(() => {
+    if (view !== 'data') return;
+    const autoRef = setInterval(() => {
+      if (!syncing && !backgroundSyncing) fetchJamaah(page);
+    }, 5 * 60 * 1000);
+    return () => clearInterval(autoRef);
+  }, [view, syncing, backgroundSyncing, fetchJamaah, page]);
+
   // ── Delete credentials ──
   const handleDeleteCreds = async () => {
     setDeletingCreds(true);
@@ -922,11 +931,11 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
           <img
             src="/logo-alhijaz.webp"
             alt="Alhijaz"
-            className="h-auto mx-auto mb-1 rounded-xl object-contain"
+            className="h-auto mx-auto mb-3 rounded-xl object-contain"
             style={{ width: '8rem' }}
           />
-          <h2 className="text-sm font-bold text-gray-800 dark:text-white">Login Sistem Internal</h2>
-          <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">Masukkan kredensial untuk sinkronisasi data jamaah</p>
+          <h2 className="text-[15px] font-bold text-gray-800 dark:text-white">AIW Agent Login</h2>
+          <p className="text-[12px] text-gray-500 dark:text-slate-500 mt-0.5">Login untuk sinkronisasi data jamaah.</p>
         </div>
 
         <form onSubmit={handleLogin} className="p-5 space-y-4">

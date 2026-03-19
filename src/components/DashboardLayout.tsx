@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Calculator, ArrowLeftRight, Settings,
   LogOut, Shield, Users, Moon, Sun, ChevronLeft, ChevronRight,
-  Globe, Phone, LayoutGrid, User,
+  Globe, Phone, LayoutGrid, User, BarChart3, Loader2,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
@@ -11,8 +11,10 @@ import ComparePage from './ComparePage';
 import CapiPage from './CapiPage';
 import DashboardProfile from './DashboardProfile';
 import JamaahPage from './JamaahPage';
+import StatistikPage from './StatistikPage';
+import AgentManagementPage from './AgentManagementPage';
 
-type TabId = 'home' | 'profile' | 'kalkulasi' | 'compare' | 'caption' | 'capi' | 'agents' | 'jamaah';
+type TabId = 'home' | 'profile' | 'kalkulasi' | 'compare' | 'caption' | 'capi' | 'agents' | 'jamaah' | 'statistik';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
@@ -21,6 +23,7 @@ const SLUG_TO_TAB: Record<string, TabId> = {
   capi: 'capi',
   agents: 'agents',
   jamaah: 'jamaah',
+  statistik: 'statistik',
   profile: 'profile',
 };
 
@@ -30,6 +33,7 @@ const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
   capi: 'capi',
   agents: 'agents',
   jamaah: 'jamaah',
+  statistik: 'statistik',
   profile: 'profile',
 };
 
@@ -51,6 +55,7 @@ const TAB_TITLES: Record<TabId, string> = {
   capi: 'Meta CAPI',
   agents: 'Agents',
   jamaah: 'Jamaah',
+  statistik: 'Statistik',
 };
 
 interface MenuCard {
@@ -74,6 +79,18 @@ const MENU_CARDS: MenuCard[] = [
     bgLight: 'bg-blue-50', bgDark: 'dark:bg-blue-900/20',
     borderLight: 'border-blue-100', borderDark: 'dark:border-blue-800/40',
     hidden: true,
+  },
+  {
+    id: 'jamaah', label: 'Jamaah', desc: 'Data jamaah',
+    icon: Users, color: 'text-amber-600 dark:text-amber-400',
+    bgLight: 'bg-amber-50', bgDark: 'dark:bg-amber-900/20',
+    borderLight: 'border-amber-100', borderDark: 'dark:border-amber-800/40',
+  },
+  {
+    id: 'statistik', label: 'Statistik', desc: 'Ringkasan data',
+    icon: BarChart3, color: 'text-emerald-600 dark:text-emerald-400',
+    bgLight: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20',
+    borderLight: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40',
   },
   {
     id: 'kalkulasi', label: 'Kalkulasi', desc: 'Hitung harga paket',
@@ -100,12 +117,6 @@ const MENU_CARDS: MenuCard[] = [
     borderLight: 'border-cyan-100', borderDark: 'dark:border-cyan-800/40',
     adminOnly: true,
   },
-  {
-    id: 'jamaah', label: 'Jamaah', desc: 'Data jamaah',
-    icon: Users, color: 'text-amber-600 dark:text-amber-400',
-    bgLight: 'bg-amber-50', bgDark: 'dark:bg-amber-900/20',
-    borderLight: 'border-amber-100', borderDark: 'dark:border-amber-800/40',
-  },
 ];
 
 export default function DashboardLayout({ session, onLogout }: { session: AuthSession; onLogout: () => void }) {
@@ -116,6 +127,20 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [jamaahUser, setJamaahUser] = useState('');
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [disconnectClosing, setDisconnectClosing] = useState(false);
+  // Statistik header slot for year dropdown
+  const [statistikHeaderRight, setStatistikHeaderRight] = useState<React.ReactNode>(null);
+  // Jamaah status: lazy check on Statistik click
+  const [checkingStatistik, setCheckingStatistik] = useState(false);
+  const [showStatAlert, setShowStatAlert] = useState(false);
+  const [statAlertClosing, setStatAlertClosing] = useState(false);
+
+  const closeStatAlert = useCallback(() => {
+    setStatAlertClosing(true);
+    setTimeout(() => {
+      setShowStatAlert(false);
+      setStatAlertClosing(false);
+    }, 200);
+  }, []);
 
   const closeDisconnect = useCallback(() => {
     setDisconnectClosing(true);
@@ -149,7 +174,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  // Set initial history state on mount (replaceState so back works correctly)
+  // Set initial history state on mount
   useEffect(() => {
     window.history.replaceState({ tab: activeTab }, '', window.location.pathname);
     document.title = TAB_TITLES[activeTab] || 'Dashboard';
@@ -222,6 +247,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 </button>
               </div>
             )}
+            {/* Statistik year selector in header */}
+            {activeTab === 'statistik' && statistikHeaderRight}
           </div>
         </header>
 
@@ -273,7 +300,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         {/* Sub-page content */}
         <main className="max-w-lg mx-auto">
           {activeTab === 'profile' && (
-            <div className="px-4 pt-4">
+            <div className="px-4 pt-4 pb-8">
               <DashboardProfile agent={agentData} onUpdated={refreshAgent} />
             </div>
           )}
@@ -294,8 +321,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           )}
           {activeTab === 'agents' && isAdmin && (
             <div className="px-4 pt-4">
-              <AgentsTab />
+              <AgentManagementPage />
             </div>
+          )}
+          {activeTab === 'statistik' && (
+            <StatistikPage agentSlug={agentData.slug} onHeaderRight={setStatistikHeaderRight} />
           )}
           {activeTab === 'jamaah' && (
             <JamaahPage
@@ -389,7 +419,28 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             return (
               <button
                 key={card.id}
-                onClick={() => navigateTab(card.id)}
+                onClick={async () => {
+                  if (card.id === 'statistik') {
+                    setCheckingStatistik(true);
+                    try {
+                      const res = await fetch('/api/laporan/status', { headers: getAuthHeaders() });
+                      const result = await res.json();
+                      const d = result.success ? result.data : {};
+                      if (d.hasCredentials || d.lastSync) {
+                        navigateTab('statistik');
+                      } else {
+                        setShowStatAlert(true);
+                      }
+                    } catch {
+                      // Network error → don't block
+                      navigateTab('statistik');
+                    } finally {
+                      setCheckingStatistik(false);
+                    }
+                    return;
+                  }
+                  navigateTab(card.id);
+                }}
                 className="group relative overflow-hidden bg-white dark:bg-slate-800 rounded-2xl p-3.5 border border-gray-100 dark:border-slate-700 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.97]"
               >
                 {/* Decorative gradient blob */}
@@ -401,7 +452,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     </div>
                   ) : (
                     <div className={`w-11 h-11 rounded-xl ${card.bgLight} ${card.bgDark} flex items-center justify-center border ${card.borderLight} ${card.borderDark} mb-2 group-hover:scale-110 transition-transform duration-200`}>
-                      <Icon size={22} className={card.color} strokeWidth={1.8} />
+                      {card.id === 'statistik' && checkingStatistik
+                        ? <Loader2 size={22} className={card.color} strokeWidth={1.8} style={{ animation: 'spin 1s linear infinite' }} />
+                        : <Icon size={22} className={card.color} strokeWidth={1.8} />}
                     </div>
                   )}
                   <p className="text-[12px] font-bold text-gray-800 dark:text-white leading-tight">
@@ -412,66 +465,45 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             );
           })}
         </div>
+
+        {/* ── Statistik Not Ready Alert ── */}
+        {showStatAlert && (
+          <div
+            className={`fixed inset-0 z-50 flex items-center justify-center px-4 ${statAlertClosing ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
+            onClick={closeStatAlert}
+            style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
+          >
+            <div
+              className={`w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl p-5 ${statAlertClosing ? 'dc-card-exit' : 'dc-card-enter'}`}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex justify-center">
+                <BarChart3 size={24} className="text-emerald-500" />
+              </div>
+              <p className="text-sm font-bold text-gray-800 dark:text-white text-center mt-3">
+                Statistik Belum Tersedia
+              </p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 text-center mt-1.5 leading-relaxed">
+                Login di halaman Jamaah terlebih dahulu untuk melihat statistik.
+              </p>
+              <button
+                onClick={() => { closeStatAlert(); setTimeout(() => navigateTab('jamaah'), 200); }}
+                className="w-full py-2.5 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 mt-4"
+              >
+                Login Sekarang
+              </button>
+              <button
+                onClick={closeStatAlert}
+                className="w-full py-2 rounded-xl text-xs font-semibold text-gray-400 dark:text-slate-500 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors mt-2"
+              >
+                Nanti
+              </button>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
 }
 
 // ── Agents Tab (Admin only) ──
-function AgentsTab() {
-  const [agents, setAgents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch('/api/admin/agents', { headers: getAuthHeaders() })
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setAgents(data); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="w-8 h-8 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between mb-1">
-        <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
-          Semua Agent ({agents.length})
-        </p>
-      </div>
-      {agents.map(a => (
-        <div
-          key={a.slug}
-          className="bg-white dark:bg-slate-800 rounded-xl p-3 border border-gray-100 dark:border-slate-700 shadow-sm flex items-center gap-3"
-        >
-          <img
-            src={a.photo}
-            alt={a.name}
-            className="w-10 h-10 rounded-full object-cover border-2 border-white dark:border-slate-700 shadow-sm"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(a.name)}&background=random`;
-            }}
-          />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
-              <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{a.name}</p>
-              {a.role === 'admin' && (
-                <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-[9px] font-bold rounded-full">
-                  ADMIN
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">{a.slug} · {a.phone}</p>
-          </div>
-          <ChevronRight size={16} className="text-gray-300 dark:text-slate-600 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}

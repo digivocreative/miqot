@@ -1045,7 +1045,7 @@ export default function KalkulasiPage({ agent, hideHeader = false }: { agent?: A
       {/* ══════════════════════════════ */}
       {/* MAIN CONTENT                  */}
       {/* ══════════════════════════════ */}
-      <div className="max-w-3xl mx-auto px-5 pb-10">
+      <div className="max-w-3xl mx-auto px-4 pb-10">
 
           {/* ══════════════════════════════ */}
           {/* SECTION: Pilih Paket          */}
