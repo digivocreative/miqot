@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect } from './laporan-api.js';
 import { initNotifier } from './telegram-notifier.js';
@@ -260,6 +261,137 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     phone: agent.phone,
     email: agent.email || '',
   });
+});
+
+// ── Resend client (transactional emails) ──
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+// Forgot password: send reset link via email
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email wajib diisi' });
+
+  // Always return success to prevent email enumeration
+  const successMsg = { success: true, message: 'Jika email terdaftar, link reset password telah dikirim.' };
+
+  try {
+    // Find agent by email
+    const { data: agent } = await supabase
+      .from('agents')
+      .select('slug, name, email')
+      .eq('email', email.trim().toLowerCase())
+      .single();
+
+    if (!agent || !agent.email) return res.json(successMsg);
+
+    // Generate reset token (1 hour expiry)
+    const resetToken = jwt.sign(
+      { slug: agent.slug, purpose: 'password-reset' },
+      JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    // Build reset URL
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const baseUrl = `${protocol}://${host}`;
+    const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
+
+    // Send email via Resend
+    if (!resend) {
+      console.error('[Auth] RESEND_API_KEY not configured');
+      return res.json(successMsg);
+    }
+
+    await resend.emails.send({
+      from: 'Alhijaz Indowisata <onboarding@resend.dev>',
+      to: agent.email,
+      subject: 'Reset Password - Alhijaz Dashboard',
+      html: `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f0fdf4;font-family:'Segoe UI',Roboto,sans-serif">
+  <div style="max-width:480px;margin:0 auto;padding:40px 24px">
+    <div style="background:#fff;border-radius:16px;padding:32px 24px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">
+      <div style="text-align:center;margin-bottom:24px">
+        <div style="width:48px;height:48px;background:#d1fae5;border-radius:50%;display:inline-flex;align-items:center;justify-content:center">
+          <span style="font-size:24px">🔐</span>
+        </div>
+      </div>
+      <h1 style="font-size:20px;font-weight:700;color:#064e3b;text-align:center;margin:0 0 8px">Reset Password</h1>
+      <p style="font-size:14px;color:#6b7280;text-align:center;margin:0 0 24px;line-height:1.5">
+        Assalamu'alaikum <strong>${agent.name}</strong>,<br>
+        Kami menerima permintaan reset password untuk akun Anda.
+      </p>
+      <div style="text-align:center;margin-bottom:24px">
+        <a href="${resetUrl}" style="display:inline-block;padding:14px 32px;background:#065f46;color:#fff;text-decoration:none;border-radius:12px;font-size:15px;font-weight:600;letter-spacing:0.3px">Atur Password Baru</a>
+      </div>
+      <p style="font-size:12px;color:#9ca3af;text-align:center;line-height:1.5;margin:0">
+        Link ini berlaku selama <strong>1 jam</strong>. Jika Anda tidak meminta reset password, abaikan email ini.
+      </p>
+    </div>
+    <p style="font-size:11px;color:#9ca3af;text-align:center;margin-top:16px">
+      © ${new Date().getFullYear()} Alhijaz Indowisata
+    </p>
+  </div>
+</body>
+</html>`,
+    });
+
+    console.log(`[Auth] Password reset email sent to ${agent.email} for slug: ${agent.slug}`);
+    res.json(successMsg);
+  } catch (err) {
+    console.error('[Auth] Forgot password error:', err);
+    res.json(successMsg); // Still return success
+  }
+});
+
+// Reset password: verify token and update password
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) {
+    return res.status(400).json({ error: 'Token dan password baru wajib diisi' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password minimal 6 karakter' });
+  }
+
+  try {
+    // Verify reset token
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded.purpose !== 'password-reset') {
+      return res.status(400).json({ error: 'Token tidak valid' });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Update in Supabase
+    const { error } = await supabase
+      .from('agents')
+      .update({ password: hashedPassword })
+      .eq('slug', decoded.slug);
+
+    if (error) {
+      console.error('[Auth] Reset password DB error:', error.message);
+      return res.status(500).json({ error: 'Gagal memperbarui password' });
+    }
+
+    // Invalidate agent cache
+    agentCache = null;
+    console.log(`[Auth] Password reset successful for slug: ${decoded.slug}`);
+    res.json({ success: true, message: 'Password berhasil diperbarui' });
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(400).json({ error: 'Link reset password sudah kedaluwarsa. Silakan minta link baru.' });
+    }
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(400).json({ error: 'Token tidak valid' });
+    }
+    console.error('[Auth] Reset password error:', err);
+    res.status(500).json({ error: 'Terjadi kesalahan server' });
+  }
 });
 
 // ──────────────────────────────────────────────
@@ -990,6 +1122,7 @@ app.get('/api/calendar/events', authMiddleware, async (req, res) => {
 // ──────────────────────────────────────────────
 // API: Calendar AI Insight
 // ──────────────────────────────────────────────
+let insightCache = null; // in-memory fallback: {today, weekly, talkingPoint, generatedAt}
 let insightRefreshLast = 0; // timestamp of last manual refresh
 
 async function generateCalendarInsight() {
@@ -1126,11 +1259,18 @@ Buat 3 bagian (HARUS dalam format JSON, tanpa backtick/markdown di luar value):
       generatedAt: new Date().toISOString(),
     };
 
-    // Persist to Supabase
-    const { error: upsertErr } = await supabase
-      .from('calendar_insights')
-      .upsert({ id: 'latest', data, generated_at: data.generatedAt }, { onConflict: 'id' });
-    if (upsertErr) console.error('[AI Insight] Supabase save error:', upsertErr.message);
+    // Save to in-memory cache
+    insightCache = data;
+
+    // Persist to Supabase (best-effort, not blocking)
+    try {
+      const { error: upsertErr } = await supabase
+        .from('calendar_insights')
+        .upsert({ id: 'latest', data, generated_at: data.generatedAt }, { onConflict: 'id' });
+      if (upsertErr) console.warn('[AI Insight] Supabase save warning:', upsertErr.message);
+    } catch (e) {
+      console.warn('[AI Insight] Supabase save failed (table may not exist):', e.message);
+    }
 
     console.log('[AI Insight] Generated successfully');
     return data;
@@ -1140,21 +1280,25 @@ Buat 3 bagian (HARUS dalam format JSON, tanpa backtick/markdown di luar value):
   }
 }
 
-// GET — return insight from Supabase
+// GET — return insight (in-memory first, then Supabase fallback)
 app.get('/api/calendar/insight', authMiddleware, async (req, res) => {
+  // Try in-memory cache first
+  if (insightCache) {
+    return res.json({ success: true, data: insightCache });
+  }
+  // Fallback to Supabase
   try {
     const { data: row, error } = await supabase
       .from('calendar_insights')
       .select('data')
       .eq('id', 'latest')
       .single();
-    if (error || !row) {
-      return res.json({ success: false, error: 'Insight belum tersedia' });
+    if (!error && row?.data) {
+      insightCache = row.data; // warm up in-memory
+      return res.json({ success: true, data: row.data });
     }
-    res.json({ success: true, data: row.data });
-  } catch {
-    res.json({ success: false, error: 'Insight belum tersedia' });
-  }
+  } catch { /* table may not exist */ }
+  res.json({ success: false, error: 'Insight belum tersedia' });
 });
 
 // POST — force regenerate (rate-limited: 1x per 5 min)

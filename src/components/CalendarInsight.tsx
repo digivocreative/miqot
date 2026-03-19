@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Sparkles, RefreshCw, Loader2, Plane, Calendar, Lightbulb } from 'lucide-react';
+import { Sparkles, RefreshCw, Loader2, Plane, Calendar, Lightbulb, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
 
 interface InsightData {
@@ -31,11 +32,20 @@ function formatInsightTime(iso: string) {
   }
 }
 
+/** Truncate text to ~50 chars */
+function truncateForBar(text: string, max = 50) {
+  if (!text) return '';
+  if (text.length <= max) return text.replace(/\*\*/g, '');
+  return text.replace(/\*\*/g, '').slice(0, max).trim() + '…';
+}
+
 export default function CalendarInsight() {
   const [insight, setInsight] = useState<InsightData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [showAlert, setShowAlert] = useState(() => sessionStorage.getItem('insightDismissed') !== 'true');
+  const [showPopup, setShowPopup] = useState(false);
 
   const fetchInsight = useCallback(async () => {
     try {
@@ -45,17 +55,18 @@ export default function CalendarInsight() {
       if (data.success && data.data) {
         setInsight(data.data);
         setError('');
-      } else {
-        setError(data.error || 'No data');
       }
-    } catch (err) {
-      console.error('[CalendarInsight] Fetch error:', err);
-      setError('Fetch failed');
-    }
+    } catch { /* ignore */ }
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchInsight(); }, [fetchInsight]);
+
+  // Lock scroll when popup is open
+  useEffect(() => {
+    document.body.style.overflow = showPopup ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [showPopup]);
 
   const handleRefresh = async () => {
     if (refreshing) return;
@@ -80,116 +91,181 @@ export default function CalendarInsight() {
     setRefreshing(false);
   };
 
-  // Loading skeleton
-  if (loading) {
-    return (
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden mb-5">
-        <div className="px-4 py-3 flex items-center gap-2">
-          <div className="w-7 h-7 bg-gray-100 dark:bg-slate-700 rounded-lg animate-pulse" />
-          <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded animate-pulse" />
-        </div>
-        <div className="px-4 pb-4 space-y-2">
-          <div className="bg-gray-50 dark:bg-slate-700/30 rounded-xl h-16 animate-pulse" />
-          <div className="bg-gray-50 dark:bg-slate-700/30 rounded-xl h-16 animate-pulse" />
-          <div className="bg-gray-50 dark:bg-slate-700/30 rounded-xl h-16 animate-pulse" />
-        </div>
-      </div>
-    );
-  }
+  const handleDismiss = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowAlert(false);
+    sessionStorage.setItem('insightDismissed', 'true');
+  };
 
-  // No insight data — don't render anything
-  if (!insight && !error) {
-    return <div className="hidden" />;
-  }
+  // Don't show anything while loading or if no data
+  if (loading || !insight) return null;
+
+  // Summary text for alert bar
+  const barText = truncateForBar(insight.today || insight.weekly);
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden mb-5">
-      {/* Header */}
-      <div className="px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 flex items-center justify-center">
-            <Sparkles size={14} className="text-amber-500 dark:text-amber-400" />
-          </div>
-          <div>
-            <span className="text-[11px] font-bold text-gray-700 dark:text-slate-200">AI Insight</span>
-            {insight?.generatedAt && (
-              <p className="text-[9px] text-gray-400 dark:text-slate-500">{formatInsightTime(insight.generatedAt)}</p>
-            )}
-          </div>
-        </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="flex items-center gap-1 text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors active:scale-95 disabled:opacity-50"
+    <>
+      {/* ── Alert Bar ── */}
+      {showAlert && (
+        <div
+          onClick={() => setShowPopup(true)}
+          className="flex items-center gap-2.5 px-3 py-2.5 mb-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 cursor-pointer hover:bg-emerald-100/60 dark:hover:bg-emerald-800/30 active:scale-[0.98] transition-all"
         >
-          {refreshing ? (
-            <><Loader2 size={12} className="animate-spin" /> Generating...</>
-          ) : (
-            <><RefreshCw size={12} /> Refresh</>
-          )}
-        </button>
-      </div>
+          {/* Pulsing dot */}
+          <div className="relative flex-shrink-0">
+            <div className="w-2 h-2 rounded-full bg-emerald-500" style={{ animation: 'pulse-glow 2s ease-in-out infinite' }} />
+          </div>
 
-      {/* Error state */}
-      {error && !insight && (
-        <div className="px-4 pb-4">
-          <div className="bg-gray-50 dark:bg-slate-700/30 rounded-xl px-3 py-4 text-center">
-            <p className="text-[11px] text-gray-400 dark:text-slate-500">Insight belum tersedia. Coba refresh nanti.</p>
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="mt-2 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 active:scale-95"
+          {/* Sparkle icon */}
+          <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-800/40 flex items-center justify-center flex-shrink-0">
+            <Sparkles size={11} className="text-emerald-500 dark:text-emerald-400" />
+          </div>
+
+          {/* Text */}
+          <p className="flex-1 text-[11px] text-gray-600 dark:text-slate-300 font-medium truncate">
+            <span className="font-bold text-emerald-600 dark:text-emerald-400">AI Insight</span>
+            {' — '}{barText}
+          </p>
+
+          {/* Close */}
+          <button
+            onClick={handleDismiss}
+            className="w-5 h-5 rounded-md flex items-center justify-center text-emerald-400 dark:text-emerald-500 hover:text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-800/40 transition-colors flex-shrink-0"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* ── Bottom Sheet Popup ── */}
+      <AnimatePresence>
+        {showPopup && (
+          <>
+            <motion.div
+              key="insight-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+              onClick={() => setShowPopup(false)}
+            />
+
+            <motion.div
+              key="insight-sheet"
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+              className="fixed inset-x-0 bottom-0 z-50 max-w-lg mx-auto bg-white dark:bg-slate-800 rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 shadow-2xl max-h-[70vh] flex flex-col"
             >
-              {refreshing ? 'Generating...' : 'Coba Lagi'}
-            </button>
-          </div>
-        </div>
-      )}
+              {/* Handle bar */}
+              <div className="py-2 flex justify-center">
+                <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-slate-600" />
+              </div>
 
-      {/* Rate limit message */}
-      {error && insight && (
-        <div className="px-4 pb-1">
-          <p className="text-[9px] text-amber-500 dark:text-amber-400 text-center">{error}</p>
-        </div>
-      )}
+              {/* Header */}
+              <div className="px-4 pb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 flex items-center justify-center">
+                    <Sparkles size={14} className="text-amber-500 dark:text-amber-400" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-bold text-gray-800 dark:text-white">AI Insight</span>
+                    {insight?.generatedAt && (
+                      <p className="text-[9px] text-gray-400 dark:text-slate-500">{formatInsightTime(insight.generatedAt)}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    className="flex items-center gap-1 text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors disabled:opacity-50"
+                  >
+                    {refreshing ? (
+                      <><Loader2 size={12} className="animate-spin" /> Generating...</>
+                    ) : (
+                      <><RefreshCw size={12} /> Refresh</>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setShowPopup(false)}
+                    className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
 
-      {/* 3 Mini Cards */}
-      {insight && (
-        <div className="px-4 pb-4 space-y-2">
-          {/* Card 1 — Hari Ini (emerald) */}
-          <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/40 px-3 py-2.5">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Plane size={12} className="text-emerald-500 dark:text-emerald-400" />
-              <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">HARI INI</span>
-            </div>
-            <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
-              {renderBold(insight.today)}
-            </p>
-          </div>
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto px-4 pb-5 space-y-2">
+                {/* Rate limit message */}
+                {error && (
+                  <p className="text-[9px] text-amber-500 dark:text-amber-400 text-center py-1">{error}</p>
+                )}
 
-          {/* Card 2 — 7 Hari ke Depan (blue) */}
-          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/40 px-3 py-2.5">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-              <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide">7 HARI KE DEPAN</span>
-            </div>
-            <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
-              {renderBold(insight.weekly)}
-            </p>
-          </div>
+                {insight ? (
+                  <>
+                    {/* Card 1 — Hari Ini (emerald) */}
+                    <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/40 px-3 py-2.5">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Plane size={12} className="text-emerald-500 dark:text-emerald-400" />
+                        <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">HARI INI</span>
+                      </div>
+                      <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
+                        {renderBold(insight.today)}
+                      </p>
+                    </div>
 
-          {/* Card 3 — Talking Point (amber) */}
-          <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/40 px-3 py-2.5">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Lightbulb size={12} className="text-amber-500 dark:text-amber-400" />
-              <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide">TALKING POINT</span>
-            </div>
-            <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
-              {renderBold(insight.talkingPoint)}
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
+                    {/* Card 2 — 7 Hari ke Depan (blue) */}
+                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/40 px-3 py-2.5">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
+                        <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide">7 HARI KE DEPAN</span>
+                      </div>
+                      <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
+                        {renderBold(insight.weekly)}
+                      </p>
+                    </div>
+
+                    {/* Card 3 — Talking Point (amber) */}
+                    <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/40 px-3 py-2.5">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Lightbulb size={12} className="text-amber-500 dark:text-amber-400" />
+                        <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide">TALKING POINT</span>
+                      </div>
+                      <p className="text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed">
+                        {renderBold(insight.talkingPoint)}
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  /* Error / Loading state */
+                  <div className="bg-gray-50 dark:bg-slate-700/30 rounded-xl px-3 py-6 text-center">
+                    <p className="text-[11px] text-gray-400 dark:text-slate-500">Insight belum tersedia. Coba refresh nanti ya.</p>
+                    <button
+                      onClick={handleRefresh}
+                      disabled={refreshing}
+                      className="mt-2 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 active:scale-95"
+                    >
+                      {refreshing ? 'Generating...' : 'Coba Lagi'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Pulse glow animation */}
+      <style>{`
+        @keyframes pulse-glow {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.3); }
+          50% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+        }
+      `}</style>
+    </>
   );
 }

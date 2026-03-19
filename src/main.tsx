@@ -35,6 +35,7 @@ const updateSW = registerSW({
 const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)
 const isLogin = segments.length === 1 && segments[0] === 'login'
 const isDashboard = segments.length >= 1 && segments[0] === 'dashboard'
+const isResetPassword = segments.length === 1 && segments[0] === 'reset-password'
 const isKalkulasi = segments.length >= 2 && segments[1] === 'kalkulasi'
 const isCompare = (segments.length >= 2 && segments[1] === 'compare') || (segments.length === 1 && segments[0] === 'compare')
 const isCapi = segments.length >= 2 && segments[1] === 'capi'
@@ -48,7 +49,7 @@ const agentSlugForCapi = isCapi ? segments[0]?.toLowerCase() : null
 
 // Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
 import { getFilterModeFromSlug } from '@/utils'
-const knownFirstSegments = ['login', 'dashboard', 'compare']
+const knownFirstSegments = ['login', 'dashboard', 'compare', 'reset-password']
 const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi']
 
 // Case 1: /:agent/:jadwalId (2 segments, first is agent)
@@ -92,6 +93,7 @@ if (searchParams.has('transition')) {
 import { useState, useEffect } from 'react'
 import LoginPage, { getStoredSession, type AuthSession } from './components/LoginPage.tsx'
 import DashboardLayout from './components/DashboardLayout.tsx'
+import ResetPasswordPage from './components/ResetPasswordPage.tsx'
 
 function LoginRouter() {
   const [session, setSession] = useState<AuthSession | null>(null)
@@ -144,6 +146,7 @@ function DashboardRouter() {
 // Determine which page to render
 const renderPage = () => {
   if (isLogin) return <LoginRouter />
+  if (isResetPassword) return <ResetPasswordPage />
   if (isDashboard) return <DashboardRouter />
   if (isCapi && agentSlugForCapi) {
     // Check if agent slug is valid

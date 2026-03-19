@@ -415,11 +415,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
       <main className="max-w-lg mx-auto px-4 pt-5 pb-8">
 
+        {/* ── AI Insight Alert Bar ── */}
+        <CalendarInsight />
+
         {/* ── Upcoming Schedule ── */}
         <UpcomingSchedule />
-
-        {/* ── AI Insight ── */}
-        <CalendarInsight />
 
         {/* ── Feature Cards Grid ── */}
         <div className="grid grid-cols-3 gap-3">
