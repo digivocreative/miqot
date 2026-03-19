@@ -192,7 +192,7 @@ alhijaz/
 - Admin: manage all agents (CRUD)
 - Jamaah management (sync dari sistem internal legacy, filter, sort, pagination)
   - Progressive sync: first 10 jamaah shown immediately, rest synced in background
-  - Multi-kantor sync: fetches from multiple kantor values to capture all jamaah
+  - Fetch range diperlebar 6 bulan sebelum awal tahun Hijriah untuk capture jamaah yang didaftarkan lebih awal
   - Filter by hijriah year, payment status, departure window
   - Sort by nama, sisa pembayaran, berangkat terdekat, pendaftaran terbaru
   - Perlengkapan & dokumen tracking (batik, bergo, paspor, dll)
@@ -218,7 +218,7 @@ alhijaz/
   - Hot deal alerts (berangkat <14 hari, seat masih banyak)
   - Weekly summary (Senin 08:00)
   - AI-powered talking points via OpenAI
-- Background sync jamaah (semua agent, setiap 1 jam)
+- Background sync jamaah (semua agent, setiap 1 jam, per kantor agent masing-masing)
 - Calendar sync (scrape FullCalendar dari internal system, setiap 12 jam via `setInterval`)
   - Login ke internal system → fetch halaman Beranda → parse FullCalendar events JSON
   - Fetch detail popup via `_jmodal.php` per event → parse HTML table (group, pesawat, jam, paket, PAX, staff, TL)
@@ -441,7 +441,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Jamaah management (fetch + parse + sync ke Supabase, progressive UI, perlengkapan/dokumen/paspor tracking)
 - AI Copywriting (OpenAI integration)
 - Telegram Notifier (real-time seat/price alerts, daily briefing, AI insights)
-- Background sync jamaah (hourly, all agents, multi-kantor)
+- Background sync jamaah (hourly, all agents, single kantor per agent, 6-month widened fetch range)
 - Single package view (deep link ke 1 paket)
 - Quotation PDF dengan logo bank (BCA, BSI, Mandiri)
 - Calendar scraping & display (internal system → Supabase → dashboard mini calendar + bottom sheet)
@@ -479,7 +479,8 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 | **Supabase free tier + keep-alive** | Budget terbatas, keep-alive ping dari server cegah auto-pause |
 | **Telegram untuk notifikasi** | Agent lebih aktif di Telegram/WhatsApp daripada cek dashboard, notif otomatis lebih efektif |
 | **node-cron in-process** | Tidak perlu external cron/scheduler — cron jobs jalan di dalam Express process yang sama |
-| **Multi-kantor sync** | Jamaah bisa terdaftar di kantor cabang atau pusat, fetch dari multiple kantor values dan deduplikasi by `id_umroh|nama` |
+| **Single-kantor sync** | Fetch hanya dari kantor agent yang terdaftar (jamaah_kantor), tidak fetch kantor lain |
+| **Widened fetch range** | `HIJRIAH_YEARS.tglAwal` dimundurkan 6 bulan dari awal tahun Hijriah untuk capture jamaah yang didaftarkan lebih awal tapi berangkat di tahun Hijriah tersebut. `HIJRIAH_RANGES` (penentuan hijriah_year berdasarkan tgl_berangkat) tetap akurat |
 
 ### Known Issues / Technical Debt
 - **PackageCard.tsx terlalu besar** (~103KB, 2241 baris) — perlu di-split ke sub-components

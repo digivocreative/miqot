@@ -432,9 +432,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         {/* ── AI Insight Alert Bar ── */}
         <CalendarInsight />
 
-        {/* ── Upcoming Schedule ── */}
-        <UpcomingSchedule />
-
         {/* ── Feature Cards Grid ── */}
         <div className="grid grid-cols-3 gap-3">
           {visibleCards.map(card => {
@@ -499,6 +496,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               </button>
             );
           })}
+        </div>
+
+        {/* ── Upcoming Schedule ── */}
+        <div className="mt-4">
+          <UpcomingSchedule />
         </div>
 
         {/* ── Statistik Not Ready Alert ── */}
