@@ -556,6 +556,23 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
 app.get('/api/telegram/link', authMiddleware, async (req, res) => {
   try {
     const { slug } = req.user;
+
+    // Check credentials before generating token
+    const { data: agentData, error: agentErr } = await supabase
+      .from('agents')
+      .select('jamaah_username, jamaah_password')
+      .eq('slug', slug)
+      .single();
+
+    if (agentErr) throw agentErr;
+
+    if (!agentData.jamaah_username || !agentData.jamaah_password) {
+      return res.status(400).json({
+        error: 'CREDENTIALS_REQUIRED',
+        message: 'Kamu perlu login ke sistem internal terlebih dahulu di menu Jamaah.'
+      });
+    }
+
     const randomPart = Math.random().toString(36).substring(2, 8);
     const token = `${slug}_${randomPart}`;
 
@@ -583,7 +600,7 @@ app.get('/api/telegram/status', authMiddleware, async (req, res) => {
     const { slug } = req.user;
     const { data, error } = await supabase
       .from('agents')
-      .select('telegram_chat_id')
+      .select('telegram_chat_id, jamaah_username, jamaah_password')
       .eq('slug', slug)
       .single();
 
@@ -594,6 +611,7 @@ app.get('/api/telegram/status', authMiddleware, async (req, res) => {
       data: {
         connected: !!data.telegram_chat_id,
         chatId: data.telegram_chat_id || null,
+        hasCredentials: !!(data.jamaah_username && data.jamaah_password),
       }
     });
   } catch (err) {

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle, Unlink } from 'lucide-react';
+import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle, Unlink, LogIn } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PhotoCropModal from './PhotoCropModal';
 import { validateName, validatePhone, validateEmail, validateWebsite, cleanPhone, cleanWebsite } from '../utils/validation';
@@ -47,7 +47,7 @@ const NOTIFICATION_GROUPS = [
 
 // ── Exported Telegram Section for SettingsPage ──
 export function TelegramSection({ agent }: { agent: AgentProfile }) {
-  const [telegramStatus, setTelegramStatus] = useState<{ connected: boolean; chatId: string | null }>({ connected: false, chatId: null });
+  const [telegramStatus, setTelegramStatus] = useState<{ connected: boolean; chatId: string | null; hasCredentials: boolean }>({ connected: false, chatId: null, hasCredentials: true });
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [statusLoading, setStatusLoading] = useState(true);
   const [prefs, setPrefs] = useState<Record<string, boolean>>({});
@@ -55,6 +55,12 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
   const [showDisconnect, setShowDisconnect] = useState(false);
   const [closingDisconnect, setClosingDisconnect] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  // Internal system login (for agents without credentials)
+  const [sysUsername, setSysUsername] = useState('');
+  const [sysPassword, setSysPassword] = useState('');
+  const [showSysPassword, setShowSysPassword] = useState(false);
+  const [sysLoginError, setSysLoginError] = useState('');
+  const [sysLoginLoading, setSysLoginLoading] = useState(false);
 
   useEffect(() => {
     const checkTelegramStatus = async () => {
@@ -125,7 +131,7 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
     try {
       const res = await fetch('/api/telegram/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
       const json = await res.json();
-      if (json.success) setTelegramStatus({ connected: false, chatId: null });
+      if (json.success) setTelegramStatus({ connected: false, chatId: null, hasCredentials: true });
     } catch { /* ignore */ }
     setDisconnecting(false);
     setShowDisconnect(false);
@@ -318,8 +324,112 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
             </>
           )}
         </>
+      ) : !telegramStatus.hasCredentials ? (
+        /* ── No credentials — inline login form (matches JamaahPage exactly) ── */
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+          {/* Header */}
+          <div className="px-5 pt-5 pb-4 text-center border-b border-gray-50 dark:border-slate-700/50">
+            <img
+              src="/logo-alhijaz.webp"
+              alt="Alhijaz"
+              className="h-auto mx-auto mb-3 rounded-xl object-contain"
+              style={{ width: '8rem' }}
+            />
+            <h2 className="text-[15px] font-bold text-gray-800 dark:text-white">AIW Agent Login</h2>
+            <p className="text-[12px] text-gray-500 dark:text-slate-500 mt-0.5">Login untuk mengaktifkan notifikasi Telegram.</p>
+          </div>
+
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            setSysLoginError('');
+            if (!sysUsername || !sysPassword) { setSysLoginError('Username dan password wajib diisi'); return; }
+            if (sysUsername.length < 3 || !sysUsername.startsWith('SM')) { setSysLoginError('Username tidak valid (contoh: SM12345)'); return; }
+            setSysLoginLoading(true);
+            try {
+              const res = await fetch('/api/laporan/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({ username: sysUsername, password: sysPassword, kantor: '2' }),
+              });
+              const result = await res.json();
+              if (!res.ok || !result.success) {
+                setSysLoginError(result.error || 'Login gagal');
+                setSysLoginLoading(false);
+                return;
+              }
+              setSysPassword('');
+              setTelegramStatus(prev => ({ ...prev, hasCredentials: true }));
+            } catch {
+              setSysLoginError('Gagal menghubungi server');
+            }
+            setSysLoginLoading(false);
+          }} className="p-5 space-y-4">
+            {/* Username */}
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide">
+                <User size={12} /> Username
+              </label>
+              <input
+                type="text"
+                value={sysUsername}
+                onChange={e => { setSysUsername(e.target.value.toUpperCase()); setSysLoginError(''); }}
+                placeholder="SM12345"
+                maxLength={12}
+                autoCapitalize="characters"
+                autoCorrect="off"
+                className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400"
+              />
+            </div>
+
+            {/* Password */}
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide">
+                <Lock size={12} /> Password
+              </label>
+              <div className="relative">
+                <input
+                  type={showSysPassword ? 'text' : 'password'}
+                  value={sysPassword}
+                  onChange={e => { setSysPassword(e.target.value); setSysLoginError(''); }}
+                  placeholder="Kata Sandi"
+                  className="w-full px-3 py-2.5 pr-10 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSysPassword(!showSysPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 transition-colors"
+                >
+                  {showSysPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Error */}
+            {sysLoginError && (
+              <div className="flex items-center justify-center gap-1.5 py-2">
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#ef4444" strokeWidth="2" style={{ flexShrink: 0 }}>
+                  <path d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+                <span className="text-xs font-medium text-red-500">{sysLoginError}</span>
+              </div>
+            )}
+
+            {/* Submit */}
+            <button
+              type="submit"
+              disabled={sysLoginLoading}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95"
+            >
+              {sysLoginLoading ? (
+                <><Loader2 size={16} className="animate-spin" /> Login...</>
+              ) : (
+                <><LogIn size={16} /> Login</>
+              )}
+            </button>
+          </form>
+        </div>
       ) : (
-        <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 p-5 text-center">
+        <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 text-center">
           <div className="w-12 h-12 rounded-full bg-[#2AABEE]/10 dark:bg-[#2AABEE]/20 mx-auto mb-3 flex items-center justify-center">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="#2AABEE"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
           </div>
@@ -333,6 +443,13 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
               try {
                 const res = await fetch('/api/telegram/link', { headers: { ...getAuthHeaders() } });
                 const json = await res.json();
+                if (!res.ok && json.error === 'CREDENTIALS_REQUIRED') {
+                  if (confirm('Kamu perlu login ke sistem internal terlebih dahulu.\n\nBuka halaman Jamaah sekarang?')) {
+                    window.location.hash = '#jamaah';
+                  }
+                  setTelegramLoading(false);
+                  return;
+                }
                 if (json.success) {
                   window.location.href = json.data.deepLink;
                 } else {
