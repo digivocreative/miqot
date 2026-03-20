@@ -210,6 +210,7 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
   const [email, setEmail] = useState(agent.email || '');
   const [telegramStatus, setTelegramStatus] = useState<{ connected: boolean; chatId: string | null }>({ connected: false, chatId: null });
   const [telegramLoading, setTelegramLoading] = useState(false);
+  const [telegramDeepLink, setTelegramDeepLink] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [savedMessage, setSavedMessage] = useState('');
@@ -630,54 +631,73 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
               <Send size={28} className="text-gray-300 dark:text-slate-600 mx-auto mb-2" />
               <p className="text-sm font-semibold text-gray-600 dark:text-slate-300">Belum Terhubung</p>
               <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Hubungkan Telegram untuk menerima notifikasi keberangkatan jamaah.</p>
-              <button
-                type="button"
-                disabled={telegramLoading}
-                onClick={async () => {
-                  setTelegramLoading(true);
-                  try {
-                    const res = await fetch('/api/telegram/link', { headers: { ...getAuthHeaders() } });
-                    const json = await res.json();
-                    if (json.success) {
-                      window.open(json.data.deepLink, '_blank');
-                      let attempts = 0;
-                      telegramPollerRef.current = setInterval(async () => {
-                        attempts++;
-                        try {
-                          const statusRes = await fetch('/api/telegram/status', { headers: { ...getAuthHeaders() } });
-                          const statusJson = await statusRes.json();
-                          if (statusJson.success && statusJson.data.connected) {
+
+              {telegramLoading && telegramDeepLink ? (
+                <>
+                  <a
+                    href={telegramDeepLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 w-full py-2.5 rounded-xl text-sm font-bold text-white shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 shadow-blue-500/20"
+                  >
+                    <Send size={16} /> Buka Telegram
+                  </a>
+                  <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-2 flex items-center justify-center gap-1">
+                    <Loader2 size={10} className="animate-spin" /> Menunggu koneksi dari Telegram...
+                  </p>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  disabled={telegramLoading}
+                  onClick={async () => {
+                    setTelegramLoading(true);
+                    try {
+                      const res = await fetch('/api/telegram/link', { headers: { ...getAuthHeaders() } });
+                      const json = await res.json();
+                      if (json.success) {
+                        setTelegramDeepLink(json.data.deepLink);
+                        let attempts = 0;
+                        telegramPollerRef.current = setInterval(async () => {
+                          attempts++;
+                          try {
+                            const statusRes = await fetch('/api/telegram/status', { headers: { ...getAuthHeaders() } });
+                            const statusJson = await statusRes.json();
+                            if (statusJson.success && statusJson.data.connected) {
+                              if (telegramPollerRef.current) clearInterval(telegramPollerRef.current);
+                              telegramPollerRef.current = null;
+                              setTelegramStatus(statusJson.data);
+                              setTelegramLoading(false);
+                              setTelegramDeepLink('');
+                            }
+                          } catch { /* ignore */ }
+                          if (attempts >= 30) {
                             if (telegramPollerRef.current) clearInterval(telegramPollerRef.current);
                             telegramPollerRef.current = null;
-                            setTelegramStatus(statusJson.data);
                             setTelegramLoading(false);
+                            setTelegramDeepLink('');
                           }
-                        } catch { /* ignore */ }
-                        if (attempts >= 30) {
-                          if (telegramPollerRef.current) clearInterval(telegramPollerRef.current);
-                          telegramPollerRef.current = null;
-                          setTelegramLoading(false);
-                        }
-                      }, 2000);
-                    } else {
+                        }, 2000);
+                      } else {
+                        setTelegramLoading(false);
+                      }
+                    } catch {
                       setTelegramLoading(false);
                     }
-                  } catch {
-                    setTelegramLoading(false);
-                  }
-                }}
-                className={`mt-3 w-full py-2.5 rounded-xl text-sm font-bold text-white shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 ${
-                  telegramLoading
-                    ? 'bg-blue-400 opacity-70 cursor-wait shadow-blue-400/20'
-                    : 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/20'
-                }`}
-              >
-                {telegramLoading ? (
-                  <><Loader2 size={16} className="animate-spin" /> Menghubungkan...</>
-                ) : (
-                  <><Send size={16} /> Hubungkan Telegram</>
-                )}
-              </button>
+                  }}
+                  className={`mt-3 w-full py-2.5 rounded-xl text-sm font-bold text-white shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 ${
+                    telegramLoading
+                      ? 'bg-blue-400 opacity-70 cursor-wait shadow-blue-400/20'
+                      : 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/20'
+                  }`}
+                >
+                  {telegramLoading ? (
+                    <><Loader2 size={16} className="animate-spin" /> Menghubungkan...</>
+                  ) : (
+                    <><Send size={16} /> Hubungkan Telegram</>
+                  )}
+                </button>
+              )}
             </div>
           )}
         </div>
