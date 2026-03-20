@@ -53,13 +53,11 @@ interface HajiStats {
 
 type ViewState = 'loading' | 'login' | 'connecting' | 'data';
 
-const BASE_INTERNAL = 'http://115.124.86.220';
 
 function resolveInternalUrl(url: string | null): string {
   if (!url) return '';
-  if (url.startsWith('http')) return url;
-  if (url.startsWith('/')) return `${BASE_INTERNAL}${url}`;
-  return `${BASE_INTERNAL}/aiw/staff/pages/${url}`;
+  // Proxy through our server to avoid Mixed Content (HTTPS→HTTP) blocking
+  return `/api/haji/doc-proxy?url=${encodeURIComponent(url)}`;
 }
 
 // ── Status color helpers ──
@@ -96,6 +94,104 @@ function formatSyncTime(d: string | null) {
     if (diffHr < 24) return `${diffHr}j lalu`;
     return date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }) + ', ' + date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
   } catch { return d; }
+}
+
+// ── Document Viewer with auth proxy ──
+function DocViewerPopup({ url, title, onClose }: { url: string; title: string; onClose: () => void }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [docLoading, setDocLoading] = useState(true);
+  const [docError, setDocError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(url, { headers: { ...getAuthHeaders() } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        if (!cancelled) {
+          setBlobUrl(URL.createObjectURL(blob));
+          setDocLoading(false);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setDocError(err.message || 'Gagal memuat dokumen');
+          setDocLoading(false);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [url]);
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+  }, [blobUrl]);
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
+      initial={{ opacity: 0, y: '100%' }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: '100%' }}
+      transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700 shrink-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl">
+        <div className="flex flex-col min-w-0">
+          <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{title}</p>
+          <span className="text-[10px] text-gray-400 dark:text-slate-500">Dokumen</span>
+        </div>
+        <button onClick={onClose} className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0">
+          <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><line x1={18} y1={6} x2={6} y2={18}/><line x1={6} y1={6} x2={18} y2={18}/></svg>
+        </button>
+      </div>
+
+      {/* Content */}
+      {docLoading ? (
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 size={28} className="animate-spin text-emerald-500" />
+        </div>
+      ) : docError ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-8">
+          <p className="text-sm text-red-500 font-medium text-center">{docError}</p>
+          <button onClick={onClose} className="text-xs text-gray-500 underline">Tutup</button>
+        </div>
+      ) : (
+        <iframe
+          src={blobUrl || ''}
+          className="flex-1 w-full bg-gray-100 dark:bg-slate-950"
+          title={title}
+        />
+      )}
+
+      {/* Footer with share */}
+      {blobUrl && (
+        <div className="shrink-0 p-4 border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+          <button
+            onClick={async () => {
+              if (navigator.share) {
+                try {
+                  const res = await fetch(blobUrl);
+                  const blob = await res.blob();
+                  const file = new File([blob], `${title}.pdf`, { type: blob.type });
+                  await navigator.share({ title, files: [file] });
+                } catch (err: any) {
+                  if (err?.name !== 'AbortError') window.open(blobUrl, '_blank');
+                }
+              } else {
+                window.open(blobUrl, '_blank');
+              }
+            }}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98]"
+          >
+            <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx={18} cy={5} r={3}/><circle cx={6} cy={12} r={3}/><circle cx={18} cy={19} r={3}/><line x1={8.59} y1={13.51} x2={15.42} y2={17.49}/><line x1={15.41} y1={6.51} x2={8.59} y2={10.49}/></svg>
+            Bagikan Dokumen
+          </button>
+        </div>
+      )}
+    </motion.div>
+  );
 }
 
 interface HajiPageProps {
@@ -412,7 +508,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
               onChange={e => { setThnHijriyah(e.target.value); setPage(1); }}
               className="h-9 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0 rounded-lg border border-emerald-200 dark:border-emerald-800/40 outline-none cursor-pointer shrink-0"
             >
-              <option value="">Semua Tahun</option>
+              <option value="">Tahun</option>
               {tahunOptions.map(y => (
                 <option key={y} value={y}>{y} H</option>
               ))}
@@ -748,50 +844,11 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
       {/* Document viewer popup — full screen with animation */}
       <AnimatePresence>
         {docViewer && (
-          <motion.div
-            className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
-            initial={{ opacity: 0, y: '100%' }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700 shrink-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl">
-              <div className="flex flex-col min-w-0">
-                <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{docViewer.title}</p>
-                <span className="text-[10px] text-gray-400 dark:text-slate-500">Dokumen</span>
-              </div>
-              <button onClick={() => setDocViewer(null)} className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0">
-                <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><line x1={18} y1={6} x2={6} y2={18}/><line x1={6} y1={6} x2={18} y2={18}/></svg>
-              </button>
-            </div>
-            {/* Iframe */}
-            <iframe
-              src={docViewer.url}
-              className="flex-1 w-full bg-gray-100 dark:bg-slate-950"
-              title={docViewer.title}
-            />
-            {/* Footer with share */}
-            <div className="shrink-0 p-4 border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
-              <button
-                onClick={async () => {
-                  if (navigator.share) {
-                    try {
-                      await navigator.share({ title: docViewer.title, url: docViewer.url });
-                    } catch (err: any) {
-                      if (err?.name !== 'AbortError') window.open(docViewer.url, '_blank');
-                    }
-                  } else {
-                    window.open(docViewer.url, '_blank');
-                  }
-                }}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98]"
-              >
-                <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx={18} cy={5} r={3}/><circle cx={6} cy={12} r={3}/><circle cx={18} cy={19} r={3}/><line x1={8.59} y1={13.51} x2={15.42} y2={17.49}/><line x1={15.41} y1={6.51} x2={8.59} y2={10.49}/></svg>
-                Bagikan Dokumen
-              </button>
-            </div>
-          </motion.div>
+          <DocViewerPopup
+            url={docViewer.url}
+            title={docViewer.title}
+            onClose={() => setDocViewer(null)}
+          />
         )}
       </AnimatePresence>
       </>

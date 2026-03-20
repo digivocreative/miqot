@@ -2396,6 +2396,59 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/haji/doc-proxy — proxy internal documents to avoid Mixed Content
+app.get('/api/haji/doc-proxy', authMiddleware, async (req, res) => {
+  try {
+    const { url } = req.query;
+    if (!url) return res.status(400).json({ error: 'URL parameter required' });
+
+    // Security: only allow proxying to the known internal server
+    const BASE_INTERNAL = 'http://115.124.86.220';
+    let targetUrl = url;
+
+    // Resolve relative paths
+    if (targetUrl.startsWith('/')) {
+      targetUrl = `${BASE_INTERNAL}${targetUrl}`;
+    } else if (!targetUrl.startsWith('http')) {
+      targetUrl = `${BASE_INTERNAL}/aiw/staff/pages/${targetUrl}`;
+    }
+
+    // Block requests to anything outside the internal server
+    if (!targetUrl.startsWith(BASE_INTERNAL)) {
+      return res.status(403).json({ error: 'Forbidden: only internal documents allowed' });
+    }
+
+    // Get session cookies for PHP pages (pernyataan needs auth)
+    const { slug } = req.user;
+    const agent = await getAgent(slug);
+    const sessionCookies = agent?.jamaah_username ? getSessionCookie(agent.jamaah_username) : null;
+
+    const headers = {};
+    if (sessionCookies) headers['Cookie'] = sessionCookies;
+
+    const response = await fetch(targetUrl, { headers, redirect: 'follow' });
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: `Failed to fetch document: ${response.status}` });
+    }
+
+    // Forward content type
+    const contentType = response.headers.get('content-type');
+    if (contentType) res.setHeader('Content-Type', contentType);
+
+    // Forward content disposition if present (for PDF downloads)
+    const disposition = response.headers.get('content-disposition');
+    if (disposition) res.setHeader('Content-Disposition', disposition);
+
+    // Stream the response body
+    const buffer = Buffer.from(await response.arrayBuffer());
+    res.send(buffer);
+  } catch (err) {
+    console.error('[doc-proxy] Error:', err.message);
+    res.status(500).json({ error: 'Gagal memuat dokumen' });
+  }
+});
+
 // ──────────────────────────────────────────────
 // Analytics API
 // ──────────────────────────────────────────────
