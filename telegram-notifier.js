@@ -746,7 +746,7 @@ async function sendAgentDepartureReminders() {
 
     const { data: agents, error: aErr } = await supabaseAdmin
       .from('agents')
-      .select('slug, name, telegram_chat_id')
+      .select('slug, name, telegram_chat_id, notification_prefs')
       .not('telegram_chat_id', 'is', null);
 
     if (aErr || !agents || agents.length === 0) { log('No agents with telegram_chat_id'); return; }
@@ -773,6 +773,9 @@ async function sendAgentDepartureReminders() {
       // Anti-duplicate per agent per day
       const stateKey = `departure_pagi_${slug}_${todayStr}`;
       if (state.sentDepartureReminders[stateKey]) continue;
+
+      // Check notification preference
+      if (agent.notification_prefs?.departure === false) continue;
 
       // Categorize by milestone
       const h1List  = jamaahList.filter(j => j.tgl_berangkat === targets.h1);
@@ -840,7 +843,7 @@ async function departureReminderSore() {
 
     const { data: agents, error: aErr } = await supabaseAdmin
       .from('agents')
-      .select('slug, name, telegram_chat_id')
+      .select('slug, name, telegram_chat_id, notification_prefs')
       .not('telegram_chat_id', 'is', null);
 
     if (aErr || !agents || agents.length === 0) return;
@@ -866,6 +869,9 @@ async function departureReminderSore() {
 
       const stateKey = `departure_sore_${slug}_${todayStr}`;
       if (state.sentDepartureReminders[stateKey]) continue;
+
+      // Check notification preference
+      if (agent.notification_prefs?.departure === false) continue;
 
       const names = jamaahList.map(j => `→ ${titleCase(j.nama)}`).join('\n');
 
@@ -979,7 +985,7 @@ async function passportReminder() {
     // Query agents dengan telegram_chat_id
     const { data: agents, error: aError } = await supabaseAdmin
       .from('agents')
-      .select('slug, name, telegram_chat_id')
+      .select('slug, name, telegram_chat_id, notification_prefs')
       .not('telegram_chat_id', 'is', null);
 
     if (aError) throw aError;
@@ -1005,6 +1011,9 @@ async function passportReminder() {
       // Anti-duplikat per hari
       const stateKey = `paspor_${slug}_${today}`;
       if (state.sentDepartureReminders?.[stateKey]) continue;
+
+      // Check notification preference
+      if (agent.notification_prefs?.paspor === false) continue;
 
       // Categorize
       const belumKumpul = jamaahList.filter(j => j.dokumen?.paspor !== true);
@@ -1090,7 +1099,7 @@ async function manasikReminder() {
     // Query agents dengan telegram_chat_id
     const { data: agents, error: aError } = await supabaseAdmin
       .from('agents')
-      .select('slug, name, telegram_chat_id')
+      .select('slug, name, telegram_chat_id, notification_prefs')
       .not('telegram_chat_id', 'is', null);
 
     if (aError) throw aError;
@@ -1105,6 +1114,9 @@ async function manasikReminder() {
     for (const agent of agents) {
       const stateKey = `manasik_${agent.slug}_${targetDate}`;
       if (state.sentDepartureReminders?.[stateKey]) continue;
+
+      // Check notification preference
+      if (agent.notification_prefs?.manasik === false) continue;
 
       try {
         await sendTelegramToAgent(agent.telegram_chat_id, message);

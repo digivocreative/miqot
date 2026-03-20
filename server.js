@@ -620,6 +620,77 @@ app.post('/api/telegram/disconnect', authMiddleware, async (req, res) => {
   }
 });
 
+// ── Telegram Notification Preferences ──
+
+const DEFAULT_NOTIFICATION_PREFS = {
+  departure: true, paspor: true, pelunasan: true, perlengkapan: true,
+  manasik: true, seat_alert: true, paket_baru: true, perubahan_harga: true,
+  pembayaran_masuk: true, ringkasan_mingguan: true,
+};
+
+app.get('/api/telegram/prefs', authMiddleware, async (req, res) => {
+  try {
+    const { slug } = req.user;
+    const { data, error } = await supabase
+      .from('agents')
+      .select('notification_prefs')
+      .eq('slug', slug)
+      .single();
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      data: { ...DEFAULT_NOTIFICATION_PREFS, ...(data.notification_prefs || {}) },
+    });
+  } catch (err) {
+    console.error('[telegram-prefs] Get error:', err);
+    res.status(500).json({ error: 'Gagal mengambil preferensi notifikasi' });
+  }
+});
+
+app.put('/api/telegram/prefs', authMiddleware, async (req, res) => {
+  try {
+    const { slug } = req.user;
+    const updates = req.body;
+
+    const validKeys = Object.keys(DEFAULT_NOTIFICATION_PREFS);
+    const filtered = {};
+    for (const [key, value] of Object.entries(updates)) {
+      if (validKeys.includes(key) && typeof value === 'boolean') {
+        filtered[key] = value;
+      }
+    }
+
+    if (Object.keys(filtered).length === 0) {
+      return res.status(400).json({ error: 'Tidak ada preferensi valid yang diupdate' });
+    }
+
+    const { data: existing, error: fetchErr } = await supabase
+      .from('agents')
+      .select('notification_prefs')
+      .eq('slug', slug)
+      .single();
+
+    if (fetchErr) throw fetchErr;
+
+    const merged = { ...DEFAULT_NOTIFICATION_PREFS, ...(existing.notification_prefs || {}), ...filtered };
+
+    const { error: updateErr } = await supabase
+      .from('agents')
+      .update({ notification_prefs: merged })
+      .eq('slug', slug);
+
+    if (updateErr) throw updateErr;
+
+    agentCache = null;
+    res.json({ success: true, data: merged });
+  } catch (err) {
+    console.error('[telegram-prefs] Update error:', err);
+    res.status(500).json({ error: 'Gagal update preferensi notifikasi' });
+  }
+});
+
 // Telegram Bot Webhook (public — no JWT auth, called by Telegram)
 app.post('/api/telegram/webhook', async (req, res) => {
   try {
