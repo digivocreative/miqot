@@ -226,16 +226,25 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
   const [savingSlug, setSavingSlug] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Check Telegram status on mount ──
+  // ── Check Telegram status on mount + when returning from Telegram ──
   useEffect(() => {
     const checkTelegramStatus = async () => {
       try {
         const res = await fetch('/api/telegram/status', { headers: { ...getAuthHeaders() } });
         const json = await res.json();
-        if (json.success) setTelegramStatus(json.data);
+        if (json.success) {
+          setTelegramStatus(json.data);
+          setTelegramLoading(false);
+        }
       } catch { /* ignore */ }
     };
     checkTelegramStatus();
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') checkTelegramStatus();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
 
   // ── Field error helpers ──
