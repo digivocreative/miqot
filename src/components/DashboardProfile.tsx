@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle } from 'lucide-react';
+import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PhotoCropModal from './PhotoCropModal';
 import { validateName, validatePhone, validateEmail, validateWebsite, cleanPhone, cleanWebsite } from '../utils/validation';
@@ -10,6 +10,7 @@ interface AgentProfile {
   website: string;
   phone: string;
   email: string;
+  telegram_chat_id?: string;
   photo: string;
   role: string;
 }
@@ -207,6 +208,8 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
   const [website, setWebsite] = useState(agent.website);
   const [phone, setPhone] = useState(agent.phone);
   const [email, setEmail] = useState(agent.email || '');
+  const [telegramStatus, setTelegramStatus] = useState<{ connected: boolean; chatId: string | null }>({ connected: false, chatId: null });
+  const [telegramLoading, setTelegramLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [savedMessage, setSavedMessage] = useState('');
@@ -222,6 +225,20 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
   const [slugInput, setSlugInput] = useState(agent.slug);
   const [savingSlug, setSavingSlug] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const telegramPollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Check Telegram status on mount ──
+  useEffect(() => {
+    const checkTelegramStatus = async () => {
+      try {
+        const res = await fetch('/api/telegram/status', { headers: { ...getAuthHeaders() } });
+        const json = await res.json();
+        if (json.success) setTelegramStatus(json.data);
+      } catch { /* ignore */ }
+    };
+    checkTelegramStatus();
+    return () => { if (telegramPollerRef.current) clearInterval(telegramPollerRef.current); };
+  }, []);
 
   // ── Field error helpers ──
   const clearFieldError = (key: string) => {
@@ -578,6 +595,91 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
             />
             {fieldErrors.email && <p className="text-[10px] text-red-500 dark:text-red-400 mt-1 flex items-center gap-1"><AlertCircle size={10} />{fieldErrors.email}</p>}
           </div>
+
+        {/* Separator + Telegram Section (rollout: nikita only) */}
+        {agent.slug === 'nikita' && (
+        <div className="border-t border-gray-100 dark:border-slate-700/50 pt-4 mt-4">
+          <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">NOTIFIKASI TELEGRAM</p>
+
+          {telegramStatus.connected ? (
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/40 p-4">
+              <div className="flex items-center gap-2 justify-center mb-1">
+                <CheckCircle2 size={16} className="text-emerald-500" />
+                <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Telegram Terhubung</span>
+              </div>
+              <p className="text-xs text-emerald-600/70 dark:text-emerald-400/70 mt-1 text-center">Kamu akan menerima notifikasi keberangkatan jamaah di Telegram.</p>
+              <div className="flex justify-end mt-3">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!confirm('Putuskan koneksi Telegram? Kamu tidak akan menerima notifikasi lagi.')) return;
+                    try {
+                      const res = await fetch('/api/telegram/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
+                      const json = await res.json();
+                      if (json.success) setTelegramStatus({ connected: false, chatId: null });
+                    } catch { /* ignore */ }
+                  }}
+                  className="text-xs font-semibold text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  Putuskan
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-gray-50 dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-4 text-center">
+              <Send size={28} className="text-gray-300 dark:text-slate-600 mx-auto mb-2" />
+              <p className="text-sm font-semibold text-gray-600 dark:text-slate-300">Belum Terhubung</p>
+              <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Hubungkan Telegram untuk menerima notifikasi keberangkatan jamaah.</p>
+              <button
+                type="button"
+                disabled={telegramLoading}
+                onClick={async () => {
+                  setTelegramLoading(true);
+                  try {
+                    const res = await fetch('/api/telegram/link', { headers: { ...getAuthHeaders() } });
+                    const json = await res.json();
+                    if (json.success) {
+                      window.open(json.data.deepLink, '_blank');
+                      let attempts = 0;
+                      telegramPollerRef.current = setInterval(async () => {
+                        attempts++;
+                        try {
+                          const statusRes = await fetch('/api/telegram/status', { headers: { ...getAuthHeaders() } });
+                          const statusJson = await statusRes.json();
+                          if (statusJson.success && statusJson.data.connected) {
+                            if (telegramPollerRef.current) clearInterval(telegramPollerRef.current);
+                            telegramPollerRef.current = null;
+                            setTelegramStatus(statusJson.data);
+                            setTelegramLoading(false);
+                          }
+                        } catch { /* ignore */ }
+                        if (attempts >= 30) {
+                          if (telegramPollerRef.current) clearInterval(telegramPollerRef.current);
+                          telegramPollerRef.current = null;
+                          setTelegramLoading(false);
+                        }
+                      }, 2000);
+                    }
+                  } catch {
+                    setTelegramLoading(false);
+                  }
+                }}
+                className={`mt-3 w-full py-2.5 rounded-xl text-sm font-bold text-white shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 ${
+                  telegramLoading
+                    ? 'bg-blue-400 opacity-70 cursor-wait shadow-blue-400/20'
+                    : 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/20'
+                }`}
+              >
+                {telegramLoading ? (
+                  <><Loader2 size={16} className="animate-spin" /> Menghubungkan...</>
+                ) : (
+                  <><Send size={16} /> Hubungkan Telegram</>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+        )}
 
         {/* Separator + Password Section */}
         <div className="border-t border-gray-100 dark:border-slate-700/50 pt-4 mt-4">

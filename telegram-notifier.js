@@ -14,13 +14,14 @@ import fs from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createClient } from '@supabase/supabase-js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATE_FILE = path.join(__dirname, 'data', 'notifier-state.json');
 const DATA_DIR = path.join(__dirname, 'data');
 
 // Lazy-loaded after dotenv.config() runs
-let YEAR_CODES, BASE_URL, BOT_TOKEN, CHAT_ID, CHAT_ID_DEV, TELEGRAM_API, OPENAI_KEY, IS_PROD;
+let YEAR_CODES, BASE_URL, BOT_TOKEN, CHAT_ID, CHAT_ID_DEV, TELEGRAM_API, OPENAI_KEY, IS_PROD, supabaseAdmin;
 
 function loadConfig() {
   YEAR_CODES = (process.env.NOTIFIER_YEAR_CODES || '1448').split(',').map(s => s.trim());
@@ -31,6 +32,9 @@ function loadConfig() {
   TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
   OPENAI_KEY = process.env.OPENAI_API_KEY || '';
   IS_PROD = process.env.NODE_ENV === 'production';
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+  }
 }
 
 const SEAT_CRITICAL_ABS = 10;
@@ -166,6 +170,29 @@ async function sendTelegramMessage(text) {
 }
 
 const FOOTER = '\n\n<i>🤖 Pesan ini dikirim otomatis. Analisis dibantu AI, data bisa berubah sewaktu-waktu.</i>';
+
+// Send to a specific agent's Telegram chat ID (for per-agent notifications)
+async function sendTelegramToAgent(chatId, message) {
+  if (!BOT_TOKEN || !chatId) return;
+  try {
+    const res = await fetch(`${TELEGRAM_API}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      warn(`Failed to send to agent chat ${chatId}:`, err);
+    }
+  } catch (err) {
+    warn(`sendTelegramToAgent error for ${chatId}:`, err.message);
+  }
+}
 
 async function sendLongMessage(text) {
   text += FOOTER;
@@ -602,6 +629,171 @@ async function sendDepartureReminders() {
     log('✅ Departure reminders checked');
   } catch (err) {
     warn('sendDepartureReminders error:', err.message);
+  }
+}
+
+// ─── Agent Departure Reminders (H-14, H-7, H-3, H-1) per agent ──
+
+const BULAN_ID = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+
+function formatTanggalID(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return `${d.getDate()} ${BULAN_ID[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+async function sendAgentDepartureReminders() {
+  if (!supabaseAdmin) {
+    warn('Supabase not configured — skipping agent departure reminders');
+    return;
+  }
+
+  try {
+    log('Checking agent departure reminders...');
+
+    // Calculate milestone dates in WIB
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    const addDays = (base, days) => {
+      const d = new Date(base + 'T00:00:00+07:00');
+      d.setDate(d.getDate() + days);
+      return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    };
+
+    const milestones = [
+      { days: 1, label: 'H-1', date: addDays(todayStr, 1) },
+      { days: 3, label: 'H-3', date: addDays(todayStr, 3) },
+      { days: 7, label: 'H-7', date: addDays(todayStr, 7) },
+      { days: 14, label: 'H-14', date: addDays(todayStr, 14) },
+    ];
+
+    const targetDates = milestones.map(m => m.date);
+
+    // Query jamaah with departures on milestone dates
+    const { data: jamaahData, error: jErr } = await supabaseAdmin
+      .from('jamaah')
+      .select('agent_slug, nama, sisa, tgl_berangkat')
+      .in('tgl_berangkat', targetDates);
+
+    if (jErr) {
+      warn('Failed to query jamaah for departure reminders:', jErr.message);
+      return;
+    }
+
+    if (!jamaahData || jamaahData.length === 0) {
+      log('No jamaah departures on milestone dates');
+      return;
+    }
+
+    // Query agents with telegram_chat_id
+    const { data: agents, error: aErr } = await supabaseAdmin
+      .from('agents')
+      .select('slug, name, telegram_chat_id')
+      .not('telegram_chat_id', 'is', null);
+
+    if (aErr || !agents || agents.length === 0) {
+      log('No agents with telegram_chat_id configured');
+      return;
+    }
+
+    const agentMap = {};
+    for (const a of agents) {
+      if (a.telegram_chat_id) agentMap[a.slug] = a;
+    }
+
+    // Load state for anti-duplicate
+    const state = await loadState() || freshState();
+    if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
+
+    // Group jamaah by agent_slug, then by milestone
+    const agentMilestones = {};
+    for (const j of jamaahData) {
+      if (!agentMap[j.agent_slug]) continue; // agent doesn't have telegram_chat_id
+
+      const milestone = milestones.find(m => m.date === j.tgl_berangkat);
+      if (!milestone) continue;
+
+      // Anti-duplicate check
+      const stateKey = `departure_${j.agent_slug}_${j.tgl_berangkat}_${milestone.label.toLowerCase().replace('-', '')}`;
+      if (state.sentDepartureReminders[stateKey]) continue;
+
+      if (!agentMilestones[j.agent_slug]) agentMilestones[j.agent_slug] = {};
+      if (!agentMilestones[j.agent_slug][milestone.label]) {
+        agentMilestones[j.agent_slug][milestone.label] = {
+          date: milestone.date,
+          days: milestone.days,
+          jamaah: [],
+          belumLunas: 0,
+          stateKey,
+        };
+      }
+      agentMilestones[j.agent_slug][milestone.label].jamaah.push(j);
+      if (j.sisa && parseFloat(j.sisa) > 0) {
+        agentMilestones[j.agent_slug][milestone.label].belumLunas++;
+      }
+    }
+
+    // Build and send messages per agent
+    let sentCount = 0;
+    const stateKeysToMark = [];
+
+    for (const [agentSlug, msData] of Object.entries(agentMilestones)) {
+      const agent = agentMap[agentSlug];
+      if (!agent) continue;
+
+      // Build message — sorted by closest first (H-1, H-3, H-7, H-14)
+      const sortedLabels = Object.keys(msData).sort((a, b) => {
+        return msData[a].days - msData[b].days;
+      });
+
+      let msg = `🕋 <b>Reminder Keberangkatan</b>\n`;
+
+      for (const label of sortedLabels) {
+        const ms = msData[label];
+        const tanggal = formatTanggalID(ms.date);
+        const count = ms.jamaah.length;
+        const belumLunas = ms.belumLunas;
+
+        let dateLabel = tanggal;
+        if (ms.days === 1) dateLabel = `Besok, ${tanggal}`;
+
+        msg += `\n📅 <b>${label}</b> — ${dateLabel}`;
+        msg += `\n• ${count} jamaah berangkat`;
+        if (belumLunas > 0) msg += ` (${belumLunas} belum lunas)`;
+        msg += '\n';
+
+        stateKeysToMark.push(ms.stateKey);
+      }
+
+      msg += `\n💡 Cek detail di dashboard → Jamaah`;
+
+      try {
+        await sendTelegramToAgent(agent.telegram_chat_id, msg);
+        sentCount++;
+        // Mark all milestone keys as sent
+        for (const key of stateKeysToMark) {
+          state.sentDepartureReminders[key] = new Date().toISOString();
+        }
+        log(`✅ Departure reminder sent to ${agentSlug} (${sortedLabels.join(', ')})`);
+      } catch (err) {
+        warn(`Failed to send departure reminder to ${agentSlug}:`, err.message);
+      }
+
+      // Rate limit delay
+      if (sentCount > 0) await sleep(500);
+    }
+
+    // Clean up old state keys (older than 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    for (const [key, sentAt] of Object.entries(state.sentDepartureReminders)) {
+      if (key.startsWith('departure_') && new Date(sentAt) < thirtyDaysAgo) {
+        delete state.sentDepartureReminders[key];
+      }
+    }
+
+    await saveState(state);
+    log(`✅ Agent departure reminders done: ${sentCount} agent(s) notified`);
+  } catch (err) {
+    warn('sendAgentDepartureReminders error:', err.message);
   }
 }
 
@@ -1264,7 +1456,7 @@ ${critical.slice(0, 5).map(p => `- ${p.jadwal_nama} (${p.maskapai}): sisa ${seat
 
 // ─── Init ────────────────────────────────────────────
 
-export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate };
+export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders };
 
 export function initNotifier() {
   loadConfig();
@@ -1328,6 +1520,11 @@ export function initNotifier() {
 
   cron.schedule('0 20 * * *', () => {
     sendPeriodicUpdate(2);
+  }, { timezone: 'Asia/Jakarta' });
+
+  // CRON: Departure Reminder (H-14, H-7, H-3, H-1) — per agent via Telegram DM
+  cron.schedule('0 7 * * *', () => {
+    sendAgentDepartureReminders();
   }, { timezone: 'Asia/Jakarta' });
 
   // Initial check after 15s delay (let Express settle)

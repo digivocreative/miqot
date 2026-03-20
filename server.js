@@ -288,6 +288,7 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     website: agent.website,
     phone: agent.phone,
     email: agent.email || '',
+    telegram_chat_id: agent.telegram_chat_id || '',
   });
 });
 
@@ -441,12 +442,13 @@ app.options('/api/admin/agents/:slug', (req, res) => {
 
 // Update own profile
 app.put('/api/admin/profile', authMiddleware, async (req, res) => {
-  const { name, website, phone, email, slug: newSlug, password } = req.body;
+  const { name, website, phone, email, telegram_chat_id, slug: newSlug, password } = req.body;
   const updates = {};
   if (name !== undefined) updates.name = name;
   if (website !== undefined) updates.website = website;
   if (phone !== undefined) updates.phone = phone;
   if (email !== undefined) updates.email = email;
+  if (telegram_chat_id !== undefined) updates.telegram_chat_id = telegram_chat_id;
   // Handle optional password change
   if (password) {
     if (password.length < 6) {
@@ -525,6 +527,7 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
           website: updatedAgent?.website || '',
           phone: updatedAgent?.phone || '',
           email: updatedAgent?.email || '',
+          telegram_chat_id: updatedAgent?.telegram_chat_id || '',
         },
       });
     } catch (e) {
@@ -545,6 +548,146 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
     else logAnalyticsEvent(req.user.slug, 'action', 'update_profil');
   }
   res.json({ success: true });
+});
+
+// === TELEGRAM LINK API ===
+
+// Generate deep link for agent to connect Telegram
+app.get('/api/telegram/link', authMiddleware, async (req, res) => {
+  try {
+    const { slug } = req.user;
+    const randomPart = Math.random().toString(36).substring(2, 8);
+    const token = `${slug}_${randomPart}`;
+
+    const { error } = await supabase
+      .from('agents')
+      .update({ telegram_link_token: token })
+      .eq('slug', slug);
+
+    if (error) throw error;
+
+    agentCache = null;
+    const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'alhijaz_alert_bot';
+    const deepLink = `https://t.me/${botUsername}?start=${token}`;
+
+    res.json({ success: true, data: { deepLink, token } });
+  } catch (err) {
+    console.error('[telegram-link] Error:', err);
+    res.status(500).json({ error: 'Gagal generate link Telegram' });
+  }
+});
+
+// Check if agent has connected Telegram
+app.get('/api/telegram/status', authMiddleware, async (req, res) => {
+  try {
+    const { slug } = req.user;
+    const { data, error } = await supabase
+      .from('agents')
+      .select('telegram_chat_id')
+      .eq('slug', slug)
+      .single();
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      data: {
+        connected: !!data.telegram_chat_id,
+        chatId: data.telegram_chat_id || null,
+      }
+    });
+  } catch (err) {
+    console.error('[telegram-status] Error:', err);
+    res.status(500).json({ error: 'Gagal cek status Telegram' });
+  }
+});
+
+// Disconnect Telegram
+app.post('/api/telegram/disconnect', authMiddleware, async (req, res) => {
+  try {
+    const { slug } = req.user;
+    const { error } = await supabase
+      .from('agents')
+      .update({ telegram_chat_id: null, telegram_link_token: null })
+      .eq('slug', slug);
+
+    if (error) throw error;
+    agentCache = null;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[telegram-disconnect] Error:', err);
+    res.status(500).json({ error: 'Gagal putuskan Telegram' });
+  }
+});
+
+// Telegram Bot Webhook (public — no JWT auth, called by Telegram)
+app.post('/api/telegram/webhook', async (req, res) => {
+  try {
+    res.sendStatus(200); // Always respond 200
+
+    const update = req.body;
+    if (!update?.message?.text) return;
+
+    const text = update.message.text;
+    const chatId = update.message.chat.id.toString();
+
+    // Helper to send message via bot
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const sendMsg = async (cid, msg, parseMode) => {
+      if (!botToken) return;
+      const body = { chat_id: cid, text: msg };
+      if (parseMode) body.parse_mode = parseMode;
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    };
+
+    // Handle /start {token}
+    if (text.startsWith('/start ')) {
+      const token = text.replace('/start ', '').trim();
+      if (!token) return;
+
+      const { data: agent, error } = await supabase
+        .from('agents')
+        .select('slug, name')
+        .eq('telegram_link_token', token)
+        .single();
+
+      if (error || !agent) {
+        await sendMsg(chatId, '❌ Token tidak valid atau sudah kadaluarsa. Silakan generate link baru dari dashboard.');
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from('agents')
+        .update({ telegram_chat_id: chatId, telegram_link_token: null })
+        .eq('slug', agent.slug);
+
+      if (updateError) {
+        console.error('[telegram-webhook] Update error:', updateError);
+        return;
+      }
+
+      agentCache = null;
+
+      await sendMsg(chatId,
+        `✅ <b>Berhasil terhubung!</b>\n\nHalo ${agent.name}, akun Telegram kamu sekarang terhubung dengan dashboard Alhijaz. Kamu akan menerima notifikasi keberangkatan jamaah di sini.\n\n💡 Kamu bisa putuskan koneksi kapan saja dari halaman Profil di dashboard.`,
+        'HTML'
+      );
+
+      console.log(`[telegram-webhook] Agent ${agent.slug} connected with chat_id ${chatId}`);
+    }
+
+    // Handle /start without token
+    else if (text === '/start') {
+      await sendMsg(chatId, '👋 Halo! Untuk menghubungkan akun, silakan klik tombol "Hubungkan Telegram" dari dashboard Alhijaz kamu.');
+    }
+
+  } catch (err) {
+    console.error('[telegram-webhook] Error:', err);
+  }
 });
 
 // Upload profile photo (base64 JPEG) → Supabase Storage
