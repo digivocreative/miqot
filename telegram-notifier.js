@@ -632,13 +632,83 @@ async function sendDepartureReminders() {
   }
 }
 
-// ─── Agent Departure Reminders (H-14, H-7, H-3, H-1) per agent ──
+// ─── Agent Departure Reminders — Conversational ─────
 
 const BULAN_ID = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 
 function formatTanggalID(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
   return `${d.getDate()} ${BULAN_ID[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function formatTanggalShortID(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return `${d.getDate()} ${BULAN_ID[d.getMonth()].substring(0, 3)}`;
+}
+
+function titleCase(str) {
+  return (str || '').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// ── Pagi (07:00 WIB) — semua milestone, conversational ──
+
+function buildPagiMessage(agentName, milestones) {
+  const parts = [];
+
+  // H-1: Paling detail — sebut nama satu-satu
+  if (milestones.h1.list.length > 0) {
+    const { list } = milestones.h1;
+    const names = list.map(j => `→ ${titleCase(j.nama)}${j.sisa && parseFloat(j.sisa) > 0 ? ' ⚠️ belum lunas' : ''}`);
+    parts.push(
+      `⚠️ <b>Besok</b> ada ${list.length} jamaah kamu berangkat:\n` +
+      names.join('\n') + '\n' +
+      'Pastikan dokumen &amp; perlengkapan sudah lengkap ya!'
+    );
+  }
+
+  // H-3: Nama (max 3) + highlight belum lunas
+  if (milestones.h3.list.length > 0) {
+    const { list, date } = milestones.h3;
+    const belumLunas = list.filter(j => j.sisa && parseFloat(j.sisa) > 0).length;
+    const dateStr = formatTanggalShortID(date);
+    const shownNames = list.slice(0, 3).map(j =>
+      `→ ${titleCase(j.nama)}${j.sisa && parseFloat(j.sisa) > 0 ? ' ⚠️ belum lunas' : ''}`
+    );
+    const sisanya = list.length > 3 ? `\n→ dan ${list.length - 3} lainnya` : '';
+    const followUp = belumLunas > 0 ? '\nMungkin bisa follow up pembayarannya hari ini?' : '';
+    parts.push(
+      `3 hari lagi (${dateStr}) ada ${list.length} jamaah, termasuk:\n` +
+      shownNames.join('\n') + sisanya + followUp
+    );
+  }
+
+  // H-7: Jumlah + warning belum lunas
+  if (milestones.h7.list.length > 0) {
+    const { list, date } = milestones.h7;
+    const belumLunas = list.filter(j => j.sisa && parseFloat(j.sisa) > 0).length;
+    const dateStr = formatTanggalShortID(date);
+    const blNote = belumLunas > 0 ? `, ${belumLunas} belum lunas` : '';
+    parts.push(
+      `Minggu depan (${dateStr}) ada ${list.length} jamaah berangkat${blNote}. Mulai siapin dokumen dan perlengkapan ya.`
+    );
+  }
+
+  // H-14: Heads up ringan
+  if (milestones.h14.list.length > 0) {
+    const { list, date } = milestones.h14;
+    const belumLunas = list.filter(j => j.sisa && parseFloat(j.sisa) > 0).length;
+    const dateStr = formatTanggalShortID(date);
+    const blNote = belumLunas > 0 ? `, ${belumLunas} di antaranya belum lunas` : '';
+    parts.push(
+      `Heads up — tanggal ${dateStr} ada ${list.length} jamaah${blNote}. Masih ada waktu untuk follow up 🙂`
+    );
+  }
+
+  if (parts.length === 0) return null;
+
+  return `🕋 Halo ${agentName}!\n\n` +
+    parts.join('\n\n') +
+    '\n\n💡 Cek detail di dashboard → Jamaah';
 }
 
 async function sendAgentDepartureReminders() {
@@ -648,9 +718,8 @@ async function sendAgentDepartureReminders() {
   }
 
   try {
-    log('Checking agent departure reminders...');
+    log('Checking agent departure reminders (pagi)...');
 
-    // Calculate milestone dates in WIB
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
     const addDays = (base, days) => {
       const d = new Date(base + 'T00:00:00+07:00');
@@ -658,142 +727,170 @@ async function sendAgentDepartureReminders() {
       return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
     };
 
-    const milestones = [
-      { days: 1, label: 'H-1', date: addDays(todayStr, 1) },
-      { days: 3, label: 'H-3', date: addDays(todayStr, 3) },
-      { days: 7, label: 'H-7', date: addDays(todayStr, 7) },
-      { days: 14, label: 'H-14', date: addDays(todayStr, 14) },
-    ];
+    const targets = {
+      h1:  addDays(todayStr, 1),
+      h3:  addDays(todayStr, 3),
+      h7:  addDays(todayStr, 7),
+      h14: addDays(todayStr, 14),
+    };
 
-    const targetDates = milestones.map(m => m.date);
+    const allDates = Object.values(targets);
 
-    // Query jamaah with departures on milestone dates
     const { data: jamaahData, error: jErr } = await supabaseAdmin
       .from('jamaah')
       .select('agent_slug, nama, sisa, tgl_berangkat')
-      .in('tgl_berangkat', targetDates);
+      .in('tgl_berangkat', allDates);
 
-    if (jErr) {
-      warn('Failed to query jamaah for departure reminders:', jErr.message);
-      return;
-    }
+    if (jErr) { warn('Failed to query jamaah:', jErr.message); return; }
+    if (!jamaahData || jamaahData.length === 0) { log('No jamaah on milestone dates'); return; }
 
-    if (!jamaahData || jamaahData.length === 0) {
-      log('No jamaah departures on milestone dates');
-      return;
-    }
-
-    // Query agents with telegram_chat_id
     const { data: agents, error: aErr } = await supabaseAdmin
       .from('agents')
       .select('slug, name, telegram_chat_id')
       .not('telegram_chat_id', 'is', null);
 
-    if (aErr || !agents || agents.length === 0) {
-      log('No agents with telegram_chat_id configured');
-      return;
-    }
+    if (aErr || !agents || agents.length === 0) { log('No agents with telegram_chat_id'); return; }
 
     const agentMap = {};
-    for (const a of agents) {
-      if (a.telegram_chat_id) agentMap[a.slug] = a;
-    }
+    for (const a of agents) { if (a.telegram_chat_id) agentMap[a.slug] = a; }
 
-    // Load state for anti-duplicate
     const state = await loadState() || freshState();
     if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
 
-    // Group jamaah by agent_slug, then by milestone
-    const agentMilestones = {};
+    // Group jamaah per agent
+    const perAgent = {};
     for (const j of jamaahData) {
-      if (!agentMap[j.agent_slug]) continue; // agent doesn't have telegram_chat_id
+      if (!agentMap[j.agent_slug]) continue;
+      if (!perAgent[j.agent_slug]) perAgent[j.agent_slug] = [];
+      perAgent[j.agent_slug].push(j);
+    }
 
-      const milestone = milestones.find(m => m.date === j.tgl_berangkat);
-      if (!milestone) continue;
+    let sentCount = 0;
 
-      // Anti-duplicate check
-      const stateKey = `departure_${j.agent_slug}_${j.tgl_berangkat}_${milestone.label.toLowerCase().replace('-', '')}`;
+    for (const [slug, jamaahList] of Object.entries(perAgent)) {
+      const agent = agentMap[slug];
+
+      // Anti-duplicate per agent per day
+      const stateKey = `departure_pagi_${slug}_${todayStr}`;
       if (state.sentDepartureReminders[stateKey]) continue;
 
-      if (!agentMilestones[j.agent_slug]) agentMilestones[j.agent_slug] = {};
-      if (!agentMilestones[j.agent_slug][milestone.label]) {
-        agentMilestones[j.agent_slug][milestone.label] = {
-          date: milestone.date,
-          days: milestone.days,
-          jamaah: [],
-          belumLunas: 0,
-          stateKey,
-        };
-      }
-      agentMilestones[j.agent_slug][milestone.label].jamaah.push(j);
-      if (j.sisa && parseFloat(j.sisa) > 0) {
-        agentMilestones[j.agent_slug][milestone.label].belumLunas++;
-      }
-    }
+      // Categorize by milestone
+      const h1List  = jamaahList.filter(j => j.tgl_berangkat === targets.h1);
+      const h3List  = jamaahList.filter(j => j.tgl_berangkat === targets.h3);
+      const h7List  = jamaahList.filter(j => j.tgl_berangkat === targets.h7);
+      const h14List = jamaahList.filter(j => j.tgl_berangkat === targets.h14);
 
-    // Build and send messages per agent
-    let sentCount = 0;
-    const stateKeysToMark = [];
-
-    for (const [agentSlug, msData] of Object.entries(agentMilestones)) {
-      const agent = agentMap[agentSlug];
-      if (!agent) continue;
-
-      // Build message — sorted by closest first (H-1, H-3, H-7, H-14)
-      const sortedLabels = Object.keys(msData).sort((a, b) => {
-        return msData[a].days - msData[b].days;
+      const message = buildPagiMessage(agent.name, {
+        h1:  { list: h1List,  date: targets.h1 },
+        h3:  { list: h3List,  date: targets.h3 },
+        h7:  { list: h7List,  date: targets.h7 },
+        h14: { list: h14List, date: targets.h14 },
       });
 
-      let msg = `🕋 <b>Reminder Keberangkatan</b>\n`;
-
-      for (const label of sortedLabels) {
-        const ms = msData[label];
-        const tanggal = formatTanggalID(ms.date);
-        const count = ms.jamaah.length;
-        const belumLunas = ms.belumLunas;
-
-        let dateLabel = tanggal;
-        if (ms.days === 1) dateLabel = `Besok, ${tanggal}`;
-
-        msg += `\n📅 <b>${label}</b> — ${dateLabel}`;
-        msg += `\n• ${count} jamaah berangkat`;
-        if (belumLunas > 0) msg += ` (${belumLunas} belum lunas)`;
-        msg += '\n';
-
-        stateKeysToMark.push(ms.stateKey);
-      }
-
-      msg += `\n💡 Cek detail di dashboard → Jamaah`;
+      if (!message) continue;
 
       try {
-        await sendTelegramToAgent(agent.telegram_chat_id, msg);
+        await sendTelegramToAgent(agent.telegram_chat_id, message);
+        state.sentDepartureReminders[stateKey] = new Date().toISOString();
         sentCount++;
-        // Mark all milestone keys as sent
-        for (const key of stateKeysToMark) {
-          state.sentDepartureReminders[key] = new Date().toISOString();
-        }
-        log(`✅ Departure reminder sent to ${agentSlug} (${sortedLabels.join(', ')})`);
+        log(`✅ Departure pagi sent to ${slug}`);
       } catch (err) {
-        warn(`Failed to send departure reminder to ${agentSlug}:`, err.message);
+        warn(`Failed to send pagi to ${slug}:`, err.message);
       }
 
-      // Rate limit delay
-      if (sentCount > 0) await sleep(500);
+      await sleep(500);
     }
 
-    // Clean up old state keys (older than 30 days)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    // Clean up old keys (>30 days)
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 30);
     for (const [key, sentAt] of Object.entries(state.sentDepartureReminders)) {
-      if (key.startsWith('departure_') && new Date(sentAt) < thirtyDaysAgo) {
-        delete state.sentDepartureReminders[key];
-      }
+      if (new Date(sentAt) < cutoff) delete state.sentDepartureReminders[key];
     }
 
     await saveState(state);
-    log(`✅ Agent departure reminders done: ${sentCount} agent(s) notified`);
+    log(`✅ Departure pagi done: ${sentCount} agent(s) notified`);
   } catch (err) {
     warn('sendAgentDepartureReminders error:', err.message);
+  }
+}
+
+// ── Sore (17:00 WIB) — H-1 only, urgent ──
+
+async function departureReminderSore() {
+  if (!supabaseAdmin) return;
+
+  try {
+    log('Checking departure reminder sore (H-1 only)...');
+
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    const tomorrow = (() => {
+      const d = new Date(todayStr + 'T00:00:00+07:00');
+      d.setDate(d.getDate() + 1);
+      return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    })();
+
+    const { data: jamaahData, error: jErr } = await supabaseAdmin
+      .from('jamaah')
+      .select('agent_slug, nama, sisa, tgl_berangkat')
+      .eq('tgl_berangkat', tomorrow);
+
+    if (jErr) { warn('Sore query error:', jErr.message); return; }
+    if (!jamaahData || jamaahData.length === 0) { log('No H-1 jamaah for sore reminder'); return; }
+
+    const { data: agents, error: aErr } = await supabaseAdmin
+      .from('agents')
+      .select('slug, name, telegram_chat_id')
+      .not('telegram_chat_id', 'is', null);
+
+    if (aErr || !agents || agents.length === 0) return;
+
+    const agentMap = {};
+    for (const a of agents) { if (a.telegram_chat_id) agentMap[a.slug] = a; }
+
+    const state = await loadState() || freshState();
+    if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
+
+    // Group per agent
+    const perAgent = {};
+    for (const j of jamaahData) {
+      if (!agentMap[j.agent_slug]) continue;
+      if (!perAgent[j.agent_slug]) perAgent[j.agent_slug] = [];
+      perAgent[j.agent_slug].push(j);
+    }
+
+    let sentCount = 0;
+
+    for (const [slug, jamaahList] of Object.entries(perAgent)) {
+      const agent = agentMap[slug];
+
+      const stateKey = `departure_sore_${slug}_${todayStr}`;
+      if (state.sentDepartureReminders[stateKey]) continue;
+
+      const names = jamaahList.map(j => `→ ${titleCase(j.nama)}`).join('\n');
+
+      const message =
+        `⏰ <b>Reminder — besok berangkat!</b>\n\n` +
+        `${agent.name}, ${jamaahList.length} jamaah kamu berangkat besok pagi:\n` +
+        `${names}\n\n` +
+        `Pastikan semua sudah ready ya! 🙏`;
+
+      try {
+        await sendTelegramToAgent(agent.telegram_chat_id, message);
+        state.sentDepartureReminders[stateKey] = new Date().toISOString();
+        sentCount++;
+        log(`✅ Departure sore sent to ${slug}`);
+      } catch (err) {
+        warn(`Failed to send sore to ${slug}:`, err.message);
+      }
+
+      await sleep(500);
+    }
+
+    await saveState(state);
+    log(`✅ Departure sore done: ${sentCount} agent(s) notified`);
+  } catch (err) {
+    warn('departureReminderSore error:', err.message);
   }
 }
 
@@ -1456,7 +1553,7 @@ ${critical.slice(0, 5).map(p => `- ${p.jadwal_nama} (${p.maskapai}): sisa ${seat
 
 // ─── Init ────────────────────────────────────────────
 
-export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders };
+export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore };
 
 export function initNotifier() {
   loadConfig();
@@ -1522,9 +1619,14 @@ export function initNotifier() {
     sendPeriodicUpdate(2);
   }, { timezone: 'Asia/Jakarta' });
 
-  // CRON: Departure Reminder (H-14, H-7, H-3, H-1) — per agent via Telegram DM
+  // CRON: Departure Reminder Pagi (07:00 WIB) — semua milestone, conversational
   cron.schedule('0 7 * * *', () => {
     sendAgentDepartureReminders();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // CRON: Departure Reminder Sore (17:00 WIB) — H-1 only, urgent
+  cron.schedule('0 17 * * *', () => {
+    departureReminderSore();
   }, { timezone: 'Asia/Jakarta' });
 
   // Initial check after 15s delay (let Express settle)

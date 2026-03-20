@@ -603,8 +603,8 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
             {fieldErrors.email && <p className="text-[10px] text-red-500 dark:text-red-400 mt-1 flex items-center gap-1"><AlertCircle size={10} />{fieldErrors.email}</p>}
           </div>
 
-        {/* Separator + Telegram Section (rollout: nikita only) */}
-        {agent.slug === 'nikita' && (
+        {/* Separator + Telegram Section (rollout: nikita, selfiah) */}
+        {['nikita', 'selfiah'].includes(agent.slug) && (
         <div className="border-t border-gray-100 dark:border-slate-700/50 pt-4 mt-4">
           <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">NOTIFIKASI TELEGRAM</p>
 
