@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle } from 'lucide-react';
+import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle, Unlink } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PhotoCropModal from './PhotoCropModal';
 import { validateName, validatePhone, validateEmail, validateWebsite, cleanPhone, cleanWebsite } from '../utils/validation';
@@ -51,6 +51,9 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [prefs, setPrefs] = useState<Record<string, boolean>>({});
   const [prefsLoading, setPrefsLoading] = useState(true);
+  const [showDisconnect, setShowDisconnect] = useState(false);
+  const [closingDisconnect, setClosingDisconnect] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   useEffect(() => {
     const checkTelegramStatus = async () => {
@@ -83,6 +86,14 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
     }
   }, [telegramStatus.connected]);
 
+  // Scroll lock for disconnect dialog
+  useEffect(() => {
+    if (showDisconnect) {
+      document.body.style.overflow = 'hidden';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [showDisconnect]);
+
   const handleToggle = async (key: string) => {
     const newValue = !prefs[key];
     setPrefs(prev => ({ ...prev, [key]: newValue }));
@@ -99,45 +110,44 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
     }
   };
 
+  const handleCloseDisconnect = () => {
+    setClosingDisconnect(true);
+    setTimeout(() => {
+      setClosingDisconnect(false);
+      setShowDisconnect(false);
+    }, 150);
+  };
+
+  const handleDisconnect = async () => {
+    setDisconnecting(true);
+    try {
+      const res = await fetch('/api/telegram/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
+      const json = await res.json();
+      if (json.success) setTelegramStatus({ connected: false, chatId: null });
+    } catch { /* ignore */ }
+    setDisconnecting(false);
+    setShowDisconnect(false);
+  };
+
   return (
     <div>
       <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">NOTIFIKASI TELEGRAM</p>
 
       {telegramStatus.connected ? (
         <>
-          {/* Status card */}
-          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#2AABEE] to-[#229ED9] p-4 shadow-lg shadow-[#2AABEE]/20">
-            <div className="absolute -right-3 -top-3 opacity-10">
-              <svg width="80" height="80" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
+          {/* Compact status badge */}
+          <div className="flex items-center gap-3 px-3.5 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-blue-700">
+            <div className="flex-shrink-0 w-8 h-8 rounded-[10px] bg-white/20 flex items-center justify-center">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
             </div>
-            <div className="relative flex items-center gap-3">
-              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-green-300 animate-pulse" />
-                  <span className="text-sm font-bold text-white">Telegram Aktif</span>
-                </div>
-                <p className="text-xs text-white/70 mt-0.5">Notifikasi keberangkatan jamaah akan dikirim ke Telegram kamu.</p>
-              </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-bold text-white">Telegram Aktif</p>
+              <p className="text-[10px] text-white/75">Notifikasi dikirim ke akun kamu</p>
             </div>
-            <div className="relative flex justify-end mt-3 pt-2 border-t border-white/15">
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!confirm('Putuskan koneksi Telegram? Kamu tidak akan menerima notifikasi lagi.')) return;
-                  try {
-                    const res = await fetch('/api/telegram/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
-                    const json = await res.json();
-                    if (json.success) setTelegramStatus({ connected: false, chatId: null });
-                  } catch { /* ignore */ }
-                }}
-                className="text-[11px] font-medium text-white/60 hover:text-white/90 transition-colors"
-              >
-                Putuskan Koneksi
-              </button>
-            </div>
+            <div
+              className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0"
+              style={{ boxShadow: '0 0 0 2px rgba(74,222,128,0.3)' }}
+            />
           </div>
 
           {/* Toggle list — notification preferences */}
@@ -179,6 +189,72 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
               </div>
             </div>
           ))}
+
+          {/* Putuskan Koneksi — at the bottom */}
+          <button
+            type="button"
+            onClick={() => setShowDisconnect(true)}
+            className="flex items-center justify-center gap-1.5 w-full py-3 mt-8 text-xs font-medium text-red-500 dark:text-red-400 active:opacity-70 transition-colors"
+          >
+            <Unlink size={14} />
+            Putuskan Koneksi
+          </button>
+
+          {/* Disconnect Confirmation Dialog */}
+          {showDisconnect && (
+            <>
+              <style>{`
+                @keyframes dcOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+                @keyframes dcOverlayOut { from { opacity: 1; } to { opacity: 0; } }
+                @keyframes dcModalIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+                @keyframes dcModalOut { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(16px); } }
+              `}</style>
+              {/* Backdrop */}
+              <div
+                className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+                style={{ animation: closingDisconnect ? 'dcOverlayOut 0.15s ease forwards' : 'dcOverlayIn 0.15s ease' }}
+                onClick={handleCloseDisconnect}
+              />
+              {/* Dialog card */}
+              <div
+                className="fixed inset-x-4 z-50 max-w-sm mx-auto bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl p-5 text-center"
+                style={{
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  animation: closingDisconnect ? 'dcModalOut 0.15s ease forwards' : 'dcModalIn 0.2s cubic-bezier(0.16,1,0.3,1)',
+                }}
+              >
+                {/* Icon */}
+                <div className="w-10 h-10 rounded-xl mx-auto mb-3 flex items-center justify-center bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/40">
+                  <Unlink size={20} className="text-red-500" />
+                </div>
+                {/* Title */}
+                <p className="text-sm font-semibold text-gray-800 dark:text-white">Putuskan Telegram?</p>
+                {/* Description */}
+                <p className="text-xs text-gray-500 dark:text-slate-400 leading-relaxed mb-4 mt-1">
+                  Kamu tidak akan menerima notifikasi keberangkatan dan alert lainnya.
+                </p>
+                {/* Buttons */}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCloseDisconnect}
+                    className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 active:scale-95 transition-all"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDisconnect}
+                    disabled={disconnecting}
+                    className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-red-500 text-white active:scale-95 transition-all disabled:opacity-70"
+                  >
+                    {disconnecting ? 'Memutus...' : 'Putuskan'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </>
       ) : (
         <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 p-5 text-center">

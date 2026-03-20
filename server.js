@@ -10,7 +10,7 @@ import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
-import { initNotifier } from './telegram-notifier.js';
+import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar } from './calendar-api.js';
 
 dotenv.config();
@@ -2805,10 +2805,21 @@ async function syncOneAgent(agent) {
       const items = allItems;
 
       if (items.length > 0) {
+        // Fetch existing bayar data BEFORE upsert for payment detection
+        const { data: existingData } = await supabase
+          .from('jamaah')
+          .select('id_umroh, nama, bayar')
+          .eq('agent_slug', slug);
+
+        const existingMap = {};
+        (existingData || []).forEach(j => { existingMap[`${j.id_umroh}_${j.nama}`] = j.bayar || 0; });
+
+        const allNewRows = [];
         const BATCH = 50;
         for (let i = 0; i < items.length; i += BATCH) {
           const batch = items.slice(i, i + BATCH);
           const rows = buildRows(batch, slug, syncTime);
+          allNewRows.push(...rows);
           const { error } = await supabase
             .from('jamaah')
             .upsert(rows, { onConflict: 'agent_slug,id_umroh,nama' });
@@ -2816,6 +2827,30 @@ async function syncOneAgent(agent) {
           totalSynced += batch.length;
           syncingAgents.set(slug, { isSyncing: true, totalSynced, lastSync: syncTime });
         }
+
+        // Detect pembayaran masuk
+        const pembayaranBaru = [];
+        for (const row of allNewRows) {
+          const key = `${row.id_umroh}_${row.nama}`;
+          if (!(key in existingMap)) continue; // Jamaah baru, skip
+          const bayarBefore = existingMap[key];
+          const bayarAfter = row.bayar || 0;
+          if (bayarAfter > bayarBefore) {
+            pembayaranBaru.push({
+              nama: row.nama,
+              jumlah: bayarAfter - bayarBefore,
+              totalBayar: bayarAfter,
+              sisa: row.sisa || 0,
+              isLunas: !row.sisa || row.sisa === 0,
+            });
+          }
+        }
+        if (pembayaranBaru.length > 0) {
+          notifyPembayaranMasuk(slug, pembayaranBaru).catch(e =>
+            console.error(`[SYNC] ${slug}: pembayaran notif error:`, e.message)
+          );
+        }
+
         console.log(`[SYNC] ${slug} year ${year}: ${items.length} jamaah synced`);
       }
     }

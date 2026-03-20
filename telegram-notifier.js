@@ -194,6 +194,36 @@ async function sendTelegramToAgent(chatId, message) {
   }
 }
 
+// Broadcast a message to all agents with telegram_chat_id, checking notification_prefs
+async function broadcastToAgents(changeType, messageBuilder) {
+  try {
+    if (!supabaseAdmin) return;
+
+    const { data: agents, error } = await supabaseAdmin
+      .from('agents')
+      .select('slug, name, telegram_chat_id, notification_prefs')
+      .not('telegram_chat_id', 'is', null);
+
+    if (error || !agents || agents.length === 0) return;
+
+    for (const agent of agents) {
+      if (agent.notification_prefs?.[changeType] === false) continue;
+
+      const message = messageBuilder(agent.name);
+      if (!message) continue;
+
+      try {
+        await sendTelegramToAgent(agent.telegram_chat_id, message);
+      } catch (err) {
+        warn(`[broadcast-${changeType}] Failed for ${agent.slug}:`, err.message);
+      }
+      await new Promise(r => setTimeout(r, 300));
+    }
+  } catch (err) {
+    warn(`[broadcast-${changeType}] Error:`, err.message);
+  }
+}
+
 async function sendLongMessage(text) {
   text += FOOTER;
   if (text.length <= 4000) {
@@ -1138,6 +1168,313 @@ async function manasikReminder() {
   }
 }
 
+// ─── Perlengkapan Reminder (Senin 11:00 WIB) ────────
+
+function buildPerlengkapanMessage(agentName, jamaahList, today) {
+  const daysLeft = (dateStr) => {
+    const d = new Date(dateStr + 'T00:00:00+07:00');
+    const t = new Date(today + 'T00:00:00+07:00');
+    return Math.ceil((d - t) / (1000 * 60 * 60 * 24));
+  };
+
+  const getMissing = (perlengkapan) => {
+    if (!perlengkapan) return ['semua'];
+    return Object.entries(perlengkapan)
+      .filter(([, v]) => v === false)
+      .map(([k]) => k.replace(/_/g, ' '));
+  };
+
+  const shown = jamaahList.slice(0, 5);
+  const remaining = jamaahList.length - shown.length;
+
+  const lines = shown.map(j => {
+    const hari = daysLeft(j.tgl_berangkat);
+    const missing = getMissing(j.perlengkapan);
+    const missingStr = missing.length <= 3
+      ? missing.join(', ')
+      : `${missing.slice(0, 3).join(', ')} +${missing.length - 3} lainnya`;
+    return `→ ${titleCase(j.nama)} (${hari} hari lagi)\n   Kurang: ${missingStr}`;
+  });
+
+  const sisanya = remaining > 0 ? `\n→ dan ${remaining} jamaah lainnya` : '';
+
+  return `📦 Halo ${agentName}!\n\n` +
+    `<b>${jamaahList.length} jamaah</b> perlengkapannya belum lengkap dan berangkat dalam 30 hari:\n\n` +
+    lines.join('\n') + sisanya + '\n\n' +
+    'Yuk diinfokan supaya jamaah bisa siapin sebelum berangkat 🙏\n\n' +
+    '💡 Cek detail di dashboard → Jamaah';
+}
+
+async function perlengkapanReminder() {
+  try {
+    if (!supabaseAdmin) { warn('perlengkapanReminder: no supabaseAdmin'); return; }
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    const addDays = (dateStr, days) => {
+      const d = new Date(dateStr + 'T00:00:00+07:00');
+      d.setDate(d.getDate() + days);
+      return d.toISOString().split('T')[0];
+    };
+    const maxDate = addDays(today, 30);
+
+    const { data: jamaahData, error: jError } = await supabaseAdmin
+      .from('jamaah')
+      .select('agent_slug, nama, tgl_berangkat, perlengkapan')
+      .gte('tgl_berangkat', today)
+      .lte('tgl_berangkat', maxDate);
+
+    if (jError) throw jError;
+    if (!jamaahData || jamaahData.length === 0) { log('[perlengkapan] No jamaah departing within 30 days'); return; }
+
+    // Filter: perlengkapan belum lengkap
+    const incomplete = jamaahData.filter(j => {
+      if (!j.perlengkapan) return true;
+      return Object.values(j.perlengkapan).some(v => v === false);
+    });
+
+    if (incomplete.length === 0) { log('[perlengkapan] All equipment complete'); return; }
+
+    const { data: agents, error: aError } = await supabaseAdmin
+      .from('agents')
+      .select('slug, name, telegram_chat_id, notification_prefs')
+      .not('telegram_chat_id', 'is', null);
+
+    if (aError) throw aError;
+    if (!agents || agents.length === 0) return;
+
+    const agentMap = {};
+    agents.forEach(a => { agentMap[a.slug] = a; });
+
+    const perAgent = {};
+    incomplete.forEach(j => {
+      if (!agentMap[j.agent_slug]) return;
+      if (!perAgent[j.agent_slug]) perAgent[j.agent_slug] = [];
+      perAgent[j.agent_slug].push(j);
+    });
+
+    const state = await loadState() || freshState();
+    let sentCount = 0;
+
+    for (const [slug, jamaahList] of Object.entries(perAgent)) {
+      const agent = agentMap[slug];
+
+      const stateKey = `perlengkapan_${slug}_${today}`;
+      if (state.sentDepartureReminders?.[stateKey]) continue;
+
+      // Check notification preference
+      if (agent.notification_prefs?.perlengkapan === false) continue;
+
+      const sorted = [...jamaahList].sort((a, b) =>
+        a.tgl_berangkat.localeCompare(b.tgl_berangkat)
+      );
+
+      const message = buildPerlengkapanMessage(agent.name, sorted, today);
+      if (!message) continue;
+
+      try {
+        await sendTelegramToAgent(agent.telegram_chat_id, message);
+        if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
+        state.sentDepartureReminders[stateKey] = new Date().toISOString();
+        sentCount++;
+        log(`✅ Perlengkapan reminder sent to ${slug}`);
+      } catch (err) {
+        warn(`Failed perlengkapan reminder to ${slug}:`, err.message);
+      }
+
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    await saveState(state);
+    log(`✅ Perlengkapan reminder done: ${sentCount} agent(s) notified`);
+  } catch (err) {
+    warn('perlengkapanReminder error:', err.message);
+  }
+}
+
+// ─── Ringkasan Mingguan (Senin 10:00 WIB) ─────────
+
+function fmtRpShort(amount) {
+  if (amount >= 1_000_000_000) return `Rp${(amount / 1_000_000_000).toFixed(1)}M`;
+  if (amount >= 1_000_000) return `Rp${(amount / 1_000_000).toFixed(1)}jt`;
+  if (amount >= 1_000) return `Rp${(amount / 1_000).toFixed(0)}rb`;
+  return `Rp${amount}`;
+}
+
+function buildWeeklyMessage(agentName, stats) {
+  const parts = [];
+
+  parts.push(`📊 <b>Ringkasan Minggu Ini</b>`);
+
+  parts.push(
+    `👥 Total jamaah: <b>${stats.total}</b>\n` +
+    `✅ Lunas: ${stats.lunas} • ⏳ Belum lunas: ${stats.belumLunas}` +
+    (stats.totalOutstanding > 0 ? `\n💰 Total outstanding: <b>${fmtRpShort(stats.totalOutstanding)}</b>` : '')
+  );
+
+  const weekItems = [];
+  if (stats.berangkatMingguIni > 0) weekItems.push(`🕋 ${stats.berangkatMingguIni} jamaah berangkat`);
+  if (stats.manasikCount > 0) weekItems.push(`🕌 ${stats.manasikCount} jadwal manasik`);
+  if (stats.keberangkatanCount > 0 && stats.berangkatMingguIni === 0) weekItems.push(`✈️ ${stats.keberangkatanCount} group berangkat`);
+  if (weekItems.length > 0) {
+    parts.push(`<b>Minggu ini:</b>\n` + weekItems.join('\n'));
+  } else {
+    parts.push(`<b>Minggu ini:</b> Tidak ada keberangkatan atau manasik.`);
+  }
+
+  const actions = [];
+  if (stats.belumPaspor > 0) actions.push(`📛 ${stats.belumPaspor} jamaah belum kumpul paspor`);
+  if (stats.belumPerlengkapan > 0) actions.push(`📦 ${stats.belumPerlengkapan} jamaah perlengkapan belum lengkap`);
+  if (stats.belumLunas > 0) actions.push(`💰 ${stats.belumLunas} jamaah belum lunas`);
+  if (actions.length > 0) {
+    parts.push(`<b>Perlu follow up:</b>\n` + actions.join('\n'));
+  }
+
+  return `Halo ${agentName}! 👋\n\n` +
+    parts.join('\n\n') +
+    '\n\nSemangat minggu ini! 💪\n💡 Cek detail di dashboard';
+}
+
+async function weeklySummary() {
+  try {
+    if (!supabaseAdmin) { warn('weeklySummary: no supabaseAdmin'); return; }
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    const addDays = (dateStr, days) => {
+      const d = new Date(dateStr + 'T00:00:00+07:00');
+      d.setDate(d.getDate() + days);
+      return d.toISOString().split('T')[0];
+    };
+    const endOfWeek = addDays(today, 7);
+    const endOfMonth = addDays(today, 30);
+
+    const { data: agents, error: aError } = await supabaseAdmin
+      .from('agents')
+      .select('slug, name, telegram_chat_id, notification_prefs')
+      .not('telegram_chat_id', 'is', null);
+
+    if (aError) throw aError;
+    if (!agents || agents.length === 0) return;
+
+    const state = await loadState() || freshState();
+    let sentCount = 0;
+
+    for (const agent of agents) {
+      const stateKey = `weekly_${agent.slug}_${today}`;
+      if (state.sentDepartureReminders?.[stateKey]) continue;
+
+      if (agent.notification_prefs?.ringkasan_mingguan === false) continue;
+
+      const { data: jamaahData, error: jError } = await supabaseAdmin
+        .from('jamaah')
+        .select('nama, sisa, tgl_berangkat, dokumen, perlengkapan')
+        .eq('agent_slug', agent.slug);
+
+      if (jError) { warn(`[weekly] Error fetching jamaah for ${agent.slug}:`, jError.message); continue; }
+      if (!jamaahData || jamaahData.length === 0) continue;
+
+      const total = jamaahData.length;
+      const lunas = jamaahData.filter(j => !j.sisa || j.sisa === 0).length;
+      const belumLunas = jamaahData.filter(j => j.sisa && j.sisa > 0).length;
+      const totalOutstanding = jamaahData.reduce((sum, j) => sum + (j.sisa || 0), 0);
+
+      const berangkatMingguIni = jamaahData.filter(j =>
+        j.tgl_berangkat && j.tgl_berangkat >= today && j.tgl_berangkat < endOfWeek
+      );
+      const berangkatBulanIni = jamaahData.filter(j =>
+        j.tgl_berangkat && j.tgl_berangkat >= today && j.tgl_berangkat <= endOfMonth
+      );
+      const belumPaspor = berangkatBulanIni.filter(j => j.dokumen?.paspor !== true);
+      const belumPerlengkapan = berangkatBulanIni.filter(j => {
+        if (!j.perlengkapan) return true;
+        return Object.values(j.perlengkapan).some(v => v === false);
+      });
+
+      const { data: events } = await supabaseAdmin
+        .from('calendar_events')
+        .select('event_type, event_date, group_number, pax')
+        .gte('event_date', today)
+        .lt('event_date', endOfWeek);
+
+      const manasikCount = (events || []).filter(e => e.event_type === 'manasik').length;
+      const keberangkatanCount = (events || []).filter(e => e.event_type === 'keberangkatan').length;
+
+      const message = buildWeeklyMessage(agent.name, {
+        total, lunas, belumLunas, totalOutstanding,
+        berangkatMingguIni: berangkatMingguIni.length,
+        berangkatBulanIni: berangkatBulanIni.length,
+        belumPaspor: belumPaspor.length,
+        belumPerlengkapan: belumPerlengkapan.length,
+        manasikCount, keberangkatanCount,
+      });
+
+      try {
+        await sendTelegramToAgent(agent.telegram_chat_id, message);
+        if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
+        state.sentDepartureReminders[stateKey] = new Date().toISOString();
+        sentCount++;
+        log(`✅ Weekly summary sent to ${agent.slug}`);
+      } catch (err) {
+        warn(`Failed weekly summary to ${agent.slug}:`, err.message);
+      }
+
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    await saveState(state);
+    log(`✅ Weekly summary done: ${sentCount} agent(s) notified`);
+  } catch (err) {
+    warn('weeklySummary error:', err.message);
+  }
+}
+
+// ─── Pembayaran Masuk (triggered by sync) ────────
+
+function buildPembayaranMessage(agentName, pembayaranList) {
+  const lines = pembayaranList.map(p => {
+    const status = p.isLunas ? ' ✅ LUNAS!' : ` (sisa ${fmtRpShort(p.sisa)})`;
+    return `→ ${titleCase(p.nama)} — <b>+${fmtRpShort(p.jumlah)}</b>${status}`;
+  });
+
+  const totalMasuk = pembayaranList.reduce((sum, p) => sum + p.jumlah, 0);
+  const lunasCount = pembayaranList.filter(p => p.isLunas).length;
+
+  let footer = '';
+  if (lunasCount > 0) {
+    footer = `\n🎉 ${lunasCount} jamaah sudah LUNAS!`;
+  }
+
+  return `💵 Halo ${agentName}!\n\n` +
+    `<b>Pembayaran masuk!</b>\n\n` +
+    lines.join('\n') + '\n\n' +
+    `Total masuk: <b>${fmtRpShort(totalMasuk)}</b>` +
+    footer + '\n\n' +
+    '💡 Cek detail di dashboard → Jamaah';
+}
+
+async function notifyPembayaranMasuk(agentSlug, pembayaranList) {
+  try {
+    if (!supabaseAdmin) return;
+
+    const { data: agent, error } = await supabaseAdmin
+      .from('agents')
+      .select('slug, name, telegram_chat_id, notification_prefs')
+      .eq('slug', agentSlug)
+      .single();
+
+    if (error || !agent) return;
+    if (!agent.telegram_chat_id) return;
+    if (agent.notification_prefs?.pembayaran_masuk === false) return;
+
+    const message = buildPembayaranMessage(agent.name, pembayaranList);
+    if (!message) return;
+
+    await sendTelegramToAgent(agent.telegram_chat_id, message);
+    log(`✅ Pembayaran notif sent to ${agentSlug}: ${pembayaranList.length} payment(s)`);
+  } catch (err) {
+    warn(`[pembayaran-notif] Error for ${agentSlug}:`, err.message);
+  }
+}
+
 // ─── Hot Deal (berangkat < 14 hari, seat masih banyak) ─
 
 async function sendHotDeals() {
@@ -1301,6 +1638,7 @@ async function checkAndNotify() {
           notifications.push({
             type: 'newPackage',
             text: buildNewPackage(currentById[id]),
+            agentBroadcast: { type: 'paket_baru', pkg: currentById[id] },
           });
         }
       }
@@ -1321,6 +1659,7 @@ async function checkAndNotify() {
         notifications.push({
           type: 'seatCritical',
           text: buildSeatCritical(currentById[id]),
+          agentBroadcast: { type: 'seat_alert', pkg: currentById[id] },
         });
       }
     }
@@ -1381,7 +1720,7 @@ async function checkAndNotify() {
         const analysis = await aiPriceAnalysis(pkg, changes);
         let text = buildPriceChange(pkg, changes);
         if (analysis) text += `\n\n💡 <b>Analisis:</b>\n${escHtml(analysis)}`;
-        notifications.push({ type: 'priceChange', text });
+        notifications.push({ type: 'priceChange', text, agentBroadcast: { type: 'perubahan_harga', pkg, changes } });
       }
     }
 
@@ -1450,6 +1789,56 @@ async function checkAndNotify() {
           else await sleep(1000);
         }
         log(`✅ Sent ${sent} notification(s)`);
+
+        // Agent broadcast for seat_alert, paket_baru, perubahan_harga
+        for (const notif of notifications) {
+          if (!notif.agentBroadcast) continue;
+          const { type: bType, pkg: bPkg, changes: bChanges } = notif.agentBroadcast;
+
+          if (bType === 'seat_alert') {
+            const paketNama = escHtml(bPkg.jadwal_nama || '');
+            const tglBerangkat = formatDateShort(bPkg.berangkat_tgl);
+            const sisaSeat = seatInt(bPkg);
+            await broadcastToAgents('seat_alert', (agentName) =>
+              `🪑 Halo ${agentName}!\n\n` +
+              `<b>Seat tinggal sedikit!</b>\n\n` +
+              `${paketNama}\n` +
+              `Berangkat: ${tglBerangkat}\n` +
+              `Sisa seat: <b>${sisaSeat}</b>\n\n` +
+              `Segera infokan ke calon jamaah yang berminat! 🏃‍♂️`
+            );
+          } else if (bType === 'paket_baru') {
+            const paketNama = escHtml(bPkg.jadwal_nama || '');
+            const tglBerangkat = formatDateShort(bPkg.berangkat_tgl);
+            const { lowest } = getLowestPrice(bPkg.paket_harga);
+            const hargaMulai = lowest ? formatRupiah(lowest) : '-';
+            const totalSeat = seatTotal(bPkg);
+            await broadcastToAgents('paket_baru', (agentName) =>
+              `🆕 Halo ${agentName}!\n\n` +
+              `<b>Paket baru tersedia!</b>\n\n` +
+              `${paketNama}\n` +
+              `Berangkat: ${tglBerangkat}\n` +
+              `Harga mulai: <b>${hargaMulai}</b>\n` +
+              `Seat: ${totalSeat}\n\n` +
+              `Cek detail dan mulai promosikan ke calon jamaah! 🎉`
+            );
+          } else if (bType === 'perubahan_harga' && bChanges) {
+            const paketNama = escHtml(bPkg.jadwal_nama || bPkg.jadwal_id || '');
+            const tglBerangkat = formatDateShort(bPkg.berangkat_tgl);
+            const changeLines = bChanges.map(c => {
+              const direction = c.newPrice > c.oldPrice ? '📈 naik' : '📉 turun';
+              return `${escHtml(c.paketType)} ${escHtml(c.roomType)}: ${formatRupiah(c.oldPrice)} → ${formatRupiah(c.newPrice)} (${direction})`;
+            }).join('\n');
+            await broadcastToAgents('perubahan_harga', (agentName) =>
+              `💲 Halo ${agentName}!\n\n` +
+              `<b>Perubahan harga paket!</b>\n\n` +
+              `${paketNama}\n` +
+              `Berangkat: ${tglBerangkat}\n\n` +
+              `${changeLines}\n\n` +
+              `Update info ke jamaah yang sudah tanya ya!`
+            );
+          }
+        }
       } else {
         // Queue for later
         for (const notif of notifications) {
@@ -1797,7 +2186,7 @@ ${critical.slice(0, 5).map(p => `- ${p.jadwal_nama} (${p.maskapai}): sisa ${seat
 
 // ─── Init ────────────────────────────────────────────
 
-export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, manasikReminder };
+export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyPembayaranMasuk };
 
 export function initNotifier() {
   loadConfig();
@@ -1881,6 +2270,16 @@ export function initNotifier() {
   // CRON: Manasik Reminder H-3 (14:00 WIB)
   cron.schedule('0 14 * * *', () => {
     manasikReminder();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // CRON: Perlengkapan Reminder (Senin 11:00 WIB)
+  cron.schedule('0 11 * * 1', () => {
+    perlengkapanReminder();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // CRON: Ringkasan Mingguan (Senin 10:00 WIB)
+  cron.schedule('0 10 * * 1', () => {
+    weeklySummary();
   }, { timezone: 'Asia/Jakarta' });
 
   // Initial check after 15s delay (let Express settle)
