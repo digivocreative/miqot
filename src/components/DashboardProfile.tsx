@@ -329,10 +329,6 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
             type="button"
             disabled={telegramLoading}
             onClick={async () => {
-              if (!['nikita', 'selfiah'].includes(agent.slug)) {
-                alert('Segera hadir! 🚀');
-                return;
-              }
               setTelegramLoading(true);
               try {
                 const res = await fetch('/api/telegram/link', { headers: { ...getAuthHeaders() } });
@@ -957,7 +953,7 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
           </div>
 
         {/* Telegram Section — only shown in standalone mode */}
-        {mode === 'standalone' && ['nikita', 'selfiah'].includes(agent.slug) && (
+        {mode === 'standalone' && (
         <div className="border-t border-gray-100 dark:border-slate-700/50 pt-4 mt-4">
           <TelegramSection agent={agent} />
         </div>
