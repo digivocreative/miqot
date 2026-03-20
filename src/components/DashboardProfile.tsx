@@ -609,13 +609,23 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
           <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">NOTIFIKASI TELEGRAM</p>
 
           {telegramStatus.connected ? (
-            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/40 p-4">
-              <div className="flex items-center gap-2 justify-center mb-1">
-                <CheckCircle2 size={16} className="text-emerald-500" />
-                <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Telegram Terhubung</span>
+            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#2AABEE] to-[#229ED9] p-4 shadow-lg shadow-[#2AABEE]/20">
+              <div className="absolute -right-3 -top-3 opacity-10">
+                <svg width="80" height="80" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
               </div>
-              <p className="text-xs text-emerald-600/70 dark:text-emerald-400/70 mt-1 text-center">Kamu akan menerima notifikasi keberangkatan jamaah di Telegram.</p>
-              <div className="flex justify-end mt-3">
+              <div className="relative flex items-center gap-3">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-green-300 animate-pulse" />
+                    <span className="text-sm font-bold text-white">Telegram Aktif</span>
+                  </div>
+                  <p className="text-xs text-white/70 mt-0.5">Notifikasi keberangkatan jamaah akan dikirim ke Telegram kamu.</p>
+                </div>
+              </div>
+              <div className="relative flex justify-end mt-3 pt-2 border-t border-white/15">
                 <button
                   type="button"
                   onClick={async () => {
@@ -626,17 +636,19 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
                       if (json.success) setTelegramStatus({ connected: false, chatId: null });
                     } catch { /* ignore */ }
                   }}
-                  className="text-xs font-semibold text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 px-3 py-1.5 rounded-lg transition-colors"
+                  className="text-[11px] font-medium text-white/60 hover:text-white/90 transition-colors"
                 >
-                  Putuskan
+                  Putuskan Koneksi
                 </button>
               </div>
             </div>
           ) : (
-            <div className="bg-gray-50 dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-4 text-center">
-              <Send size={28} className="text-gray-300 dark:text-slate-600 mx-auto mb-2" />
-              <p className="text-sm font-semibold text-gray-600 dark:text-slate-300">Belum Terhubung</p>
-              <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Hubungkan Telegram untuk menerima notifikasi keberangkatan jamaah.</p>
+            <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 p-5 text-center">
+              <div className="w-12 h-12 rounded-full bg-[#2AABEE]/10 dark:bg-[#2AABEE]/20 mx-auto mb-3 flex items-center justify-center">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="#2AABEE"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
+              </div>
+              <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">Hubungkan Telegram</p>
+              <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Terima notifikasi keberangkatan jamaah langsung di Telegram.</p>
               <button
                 type="button"
                 disabled={telegramLoading}
@@ -654,16 +666,19 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
                     setTelegramLoading(false);
                   }
                 }}
-                className={`mt-3 w-full py-2.5 rounded-xl text-sm font-bold text-white shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 ${
+                className={`mt-4 w-full py-2.5 rounded-xl text-sm font-bold text-white shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${
                   telegramLoading
-                    ? 'bg-blue-400 opacity-70 cursor-wait shadow-blue-400/20'
-                    : 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/20'
+                    ? 'bg-[#2AABEE]/70 cursor-wait shadow-[#2AABEE]/10'
+                    : 'bg-gradient-to-r from-[#2AABEE] to-[#229ED9] hover:shadow-[#2AABEE]/30 shadow-[#2AABEE]/20'
                 }`}
               >
                 {telegramLoading ? (
                   <><Loader2 size={16} className="animate-spin" /> Menghubungkan...</>
                 ) : (
-                  <><Send size={16} /> Hubungkan Telegram</>
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
+                    Hubungkan Telegram
+                  </>
                 )}
               </button>
             </div>
