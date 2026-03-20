@@ -1503,25 +1503,44 @@ async function generateCalendarInsight() {
     return `${parseInt(parts[2])} ${monthNames[parseInt(parts[1]) - 1]}`;
   };
 
-  // Group week events by date + type
+  // Group week events by date + type, filtering out ghost entries (null group or 0 pax)
+  const validEvents = weekEvents.filter(ev => ev.group_number && ev.pax > 0);
   const weekSummary = {};
-  for (const ev of weekEvents) {
+  for (const ev of validEvents) {
     const key = `${ev.event_date}_${ev.event_type}`;
     if (!weekSummary[key]) weekSummary[key] = { date: ev.event_date, type: ev.event_type, groups: [], totalPax: 0 };
     weekSummary[key].groups.push({ group: ev.group_number, pax: ev.pax || 0, paket: ev.paket });
     weekSummary[key].totalPax += ev.pax || 0;
   }
 
-  let calendarDataString = `Hari ini: ${formatDate(todayStr)}\n\n`;
-  calendarDataString += `=== JADWAL 7 HARI KE DEPAN ===\n`;
-  const sortedWeek = Object.values(weekSummary).sort((a, b) => a.date.localeCompare(b.date));
-  if (sortedWeek.length === 0) {
+  // Separate today's events from future events explicitly
+  const todayEvents = Object.values(weekSummary).filter(e => e.date === todayStr);
+  const futureEvents = Object.values(weekSummary).filter(e => e.date !== todayStr).sort((a, b) => a.date.localeCompare(b.date));
+
+  let calendarDataString = `Tanggal hari ini: ${formatDate(todayStr)}\n\n`;
+
+  // TODAY section — explicit and unambiguous
+  calendarDataString += `=== HARI INI (${formatDate(todayStr)}) ===\n`;
+  if (todayEvents.length === 0) {
+    calendarDataString += `TIDAK ADA jadwal keberangkatan/kepulangan/manasik hari ini. Kosong.\n`;
+  } else {
+    for (const item of todayEvents) {
+      calendarDataString += `${item.type}: ${item.groups.length} group, ${item.totalPax} jamaah\n`;
+      for (const g of item.groups) {
+        calendarDataString += `  Group ${g.group}: ${g.pax} jamaah, paket ${g.paket || '-'}\n`;
+      }
+    }
+  }
+
+  // FUTURE section
+  calendarDataString += `\n=== JADWAL 7 HARI KE DEPAN (TIDAK termasuk hari ini) ===\n`;
+  if (futureEvents.length === 0) {
     calendarDataString += `Tidak ada jadwal keberangkatan/kepulangan/manasik 7 hari ke depan.\n`;
   } else {
-    for (const item of sortedWeek) {
+    for (const item of futureEvents) {
       calendarDataString += `${formatDate(item.date)} — ${item.type}: ${item.groups.length} group, ${item.totalPax} jamaah\n`;
       for (const g of item.groups) {
-        if (g.group && g.pax > 0) calendarDataString += `  Group ${g.group}: ${g.pax} jamaah, paket ${g.paket || '-'}\n`;
+        calendarDataString += `  Group ${g.group}: ${g.pax} jamaah, paket ${g.paket || '-'}\n`;
       }
     }
   }
@@ -1590,12 +1609,14 @@ VARIASI BAHASA (WAJIB):
 LARANGAN:
 - JANGAN gunakan sapaan berdasarkan waktu (Pagi, Siang, Sore, Malam, Selamat pagi, dll) karena insight ini berlaku seharian, bukan hanya pagi.
 - JANGAN gunakan sebutan gender spesifik (ladies, girls, bu, pak, bro, sis, dll) karena agent terdiri dari pria dan wanita. Gunakan "kita", "kamu", atau langsung ke topik tanpa menyebut gender.
+- JANGAN PERNAH mengarang atau membuat data yang tidak ada di input. Jika data menunjukkan "TIDAK ADA jadwal hari ini", maka field "today" WAJIB mengatakan tidak ada jadwal. DILARANG KERAS menyebut ada group berangkat hari ini kalau datanya kosong.
+- Semua angka (jumlah group, jamaah, tanggal) HARUS sesuai persis dengan data yang diberikan. Jangan membulatkan atau mengubah angka.
 
 Bungkus angka/tanggal penting dengan **bold** (contoh: **25 Maret**, **336 jamaah**).
 
 Buat 3 bagian (HARUS dalam format JSON, tanpa backtick/markdown di luar value):
 {
-  "today": "Ringkasan hari ini. Kalau tidak ada jadwal hari ini, kasih tahu kapan jadwal terdekat dan apa yang perlu disiapkan. Maksimal 2 kalimat.",
+  "today": "Ringkasan hari ini BERDASARKAN DATA SECTION 'HARI INI'. Jika section 'HARI INI' menunjukkan TIDAK ADA jadwal, WAJIB bilang hari ini kosong/santai, lalu sebut kapan jadwal terdekat berikutnya dari section '7 HARI KE DEPAN'. Jangan mengarang ada keberangkatan hari ini kalau datanya kosong. Maksimal 2 kalimat.",
   "weekly": "Ringkasan 7 hari ke depan + PENGINGAT/TO-DO untuk agent. Sebutkan hari paling rame, group terbesar, total jamaah. Lalu kasih action items spesifik, misal: 'Manasik tanggal X, kabari jamaah Group Y.' atau 'Group Z berangkat N hari lagi, cek kelengkapan dokumen.' Maksimal 4-5 kalimat.",
   "cuaca": "Info cuaca Mekah dan Madinah minggu ini yang relevan untuk jamaah yang mau berangkat. Kasih tips praktis buat agent ingetin jamaahnya, misal bawa payung, minum yang banyak, pakai sunblock, dll. Harus hangat dan perhatian, kayak ibu-ibu ngingetin anaknya. Maksimal 3 kalimat."
 }`;
@@ -2297,6 +2318,7 @@ app.get('/api/haji/jamaah', authMiddleware, async (req, res) => {
     const {
       search = '',
       thn_hijriyah = '',
+      thn_masehi = '',
       jenis = '',
       status_bayar = '',
       page = '1',
@@ -2314,6 +2336,9 @@ app.get('/api/haji/jamaah', authMiddleware, async (req, res) => {
     }
     if (thn_hijriyah) {
       query = query.eq('thn_hijriyah', thn_hijriyah);
+    }
+    if (thn_masehi) {
+      query = query.eq('thn_masehi', thn_masehi);
     }
     if (jenis) {
       query = query.eq('jenis', jenis);
@@ -2362,10 +2387,10 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
     const cicilan = data.filter(d => d.status_bayar === 'CICILAN').length;
     const belumBayar = data.filter(d => d.status_bayar === 'BELUM BAYAR').length;
 
-    // Group by thn_hijriyah
+    // Group by thn_masehi
     const byTahun = {};
     data.forEach(d => {
-      const key = d.thn_hijriyah || 'unknown';
+      const key = d.thn_masehi || 'unknown';
       if (!byTahun[key]) byTahun[key] = 0;
       byTahun[key]++;
     });

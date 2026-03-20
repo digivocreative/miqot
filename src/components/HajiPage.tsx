@@ -221,7 +221,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
   // Filters
   const [search, setSearch] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [thnHijriyah, setThnHijriyah] = useState('');
+  const [thnMasehi, setThnMasehi] = useState('');
   const [jenisFilter, setJenisFilter] = useState('');
   const [page, setPage] = useState(1);
   const LIMIT = 10;
@@ -298,7 +298,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
     try {
       const params = new URLSearchParams({ page: String(p), limit: String(LIMIT) });
       if (searchQuery) params.set('search', searchQuery);
-      if (thnHijriyah) params.set('thn_hijriyah', thnHijriyah);
+      if (thnMasehi) params.set('thn_masehi', thnMasehi);
       if (jenisFilter) params.set('jenis', jenisFilter);
       const res = await fetch(`/api/haji/jamaah?${params}`, { headers: { ...getAuthHeaders() } });
       const result = await res.json();
@@ -313,7 +313,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
       setError('Gagal menghubungi server');
     }
     setLoading(false);
-  }, [searchQuery, thnHijriyah, jenisFilter, page]);
+  }, [searchQuery, thnMasehi, jenisFilter, page]);
 
   // ── Load data when view=data ──
   useEffect(() => {
@@ -321,7 +321,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
       fetchStats();
       fetchJamaah(page);
     }
-  }, [view, searchQuery, thnHijriyah, jenisFilter, page]);
+  }, [view, searchQuery, thnMasehi, jenisFilter, page]);
 
   // ── Auto-sync on first load if connected but no data ──
   useEffect(() => {
@@ -504,13 +504,13 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
               className="flex-1 h-9 bg-transparent text-xs text-gray-800 dark:text-white placeholder:text-gray-400 outline-none min-w-0"
             />
             <select
-              value={thnHijriyah}
-              onChange={e => { setThnHijriyah(e.target.value); setPage(1); }}
+              value={thnMasehi}
+              onChange={e => { setThnMasehi(e.target.value); setPage(1); }}
               className="h-9 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0 rounded-lg border border-emerald-200 dark:border-emerald-800/40 outline-none cursor-pointer shrink-0"
             >
               <option value="">Tahun</option>
               {tahunOptions.map(y => (
-                <option key={y} value={y}>{y} H</option>
+                <option key={y} value={y}>{y}</option>
               ))}
             </select>
             <button
@@ -614,7 +614,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
               <p className="text-xs text-gray-400 dark:text-slate-500">Tidak ada data yang cocok dengan pencarian</p>
             ) : (
               <>
-                <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Belum ada data haji{thnHijriyah ? ` untuk ${thnHijriyah} H` : ''}</p>
+                <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Belum ada data haji{thnMasehi ? ` untuk ${thnMasehi}` : ''}</p>
                 <button
                   onClick={handleSync}
                   disabled={syncing}
