@@ -3119,3 +3119,4 @@ setTimeout(async () => {
     console.error('[AI Insight] Startup check error:', e.message);
   }
 }, 90 * 1000); // 90s after startup (after calendar sync has a chance to run)
+// deployed 20260320225909
