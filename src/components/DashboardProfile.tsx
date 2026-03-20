@@ -173,18 +173,42 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
         </div>
       ) : telegramStatus.connected ? (
         <>
-          {/* Compact status badge */}
-          <div className="flex items-center gap-3 px-3.5 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-blue-700">
-            <div className="flex-shrink-0 w-8 h-8 rounded-[10px] bg-white/20 flex items-center justify-center">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
+          {/* Telegram brand status badge */}
+          <style>{`
+            @keyframes tgFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+            @keyframes tgPulseGlow { 0%, 100% { box-shadow: 0 0 0 0 rgba(74,222,128,0.6); } 50% { box-shadow: 0 0 0 4px rgba(74,222,128,0); } }
+          `}</style>
+          <div
+            className="flex items-center gap-3 px-3.5 py-3 rounded-2xl relative overflow-hidden"
+            style={{ background: 'linear-gradient(135deg, #2AABEE, #229ED9)' }}
+          >
+            {/* Background ornament */}
+            <svg
+              width="90" height="90" viewBox="0 0 24 24"
+              className="absolute -right-[15px] -bottom-[25px] pointer-events-none"
+              style={{ fill: 'rgba(255,255,255,0.05)', transform: 'rotate(-20deg)' }}
+            >
+              <path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/>
+            </svg>
+
+            {/* Floating icon with glow ring */}
+            <div
+              className="flex-shrink-0 w-9 h-9 rounded-full bg-white/20 flex items-center justify-center relative z-10"
+              style={{ boxShadow: '0 0 0 3px rgba(255,255,255,0.1)', animation: 'tgFloat 3s ease-in-out infinite' }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
             </div>
-            <div className="flex-1 min-w-0">
+
+            {/* Text */}
+            <div className="flex-1 min-w-0 relative z-10">
               <p className="text-[13px] font-bold text-white">Telegram Aktif</p>
               <p className="text-[10px] text-white/75">Notifikasi dikirim ke akun kamu</p>
             </div>
+
+            {/* Pulse-glow green dot */}
             <div
-              className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0"
-              style={{ boxShadow: '0 0 0 2px rgba(74,222,128,0.3)' }}
+              className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0 relative z-10"
+              style={{ animation: 'tgPulseGlow 2s ease-in-out infinite' }}
             />
           </div>
 
@@ -244,24 +268,23 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
               <style>{`
                 @keyframes dcOverlayIn { from { opacity: 0; } to { opacity: 1; } }
                 @keyframes dcOverlayOut { from { opacity: 1; } to { opacity: 0; } }
-                @keyframes dcModalIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
-                @keyframes dcModalOut { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(16px); } }
+                @keyframes dcModalIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+                @keyframes dcModalOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.92); } }
               `}</style>
               {/* Backdrop */}
               <div
                 className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-                style={{ animation: closingDisconnect ? 'dcOverlayOut 0.15s ease forwards' : 'dcOverlayIn 0.15s ease' }}
+                style={{ animation: closingDisconnect ? 'dcOverlayOut 0.15s ease forwards' : 'dcOverlayIn 0.2s ease' }}
                 onClick={handleCloseDisconnect}
               />
-              {/* Dialog card */}
-              <div
-                className="fixed inset-x-4 z-50 max-w-sm mx-auto bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl p-5 text-center"
-                style={{
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  animation: closingDisconnect ? 'dcModalOut 0.15s ease forwards' : 'dcModalIn 0.2s cubic-bezier(0.16,1,0.3,1)',
-                }}
-              >
+              {/* Centered wrapper */}
+              <div className="fixed inset-0 z-50 flex items-center justify-center px-4 pointer-events-none">
+                <div
+                  className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl p-5 text-center pointer-events-auto"
+                  style={{
+                    animation: closingDisconnect ? 'dcModalOut 0.15s ease forwards' : 'dcModalIn 0.25s cubic-bezier(0.16,1,0.3,1)',
+                  }}
+                >
                 {/* Icon */}
                 <div className="w-10 h-10 rounded-xl mx-auto mb-3 flex items-center justify-center bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/40">
                   <Unlink size={20} className="text-red-500" />
@@ -290,6 +313,7 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
                     {disconnecting ? 'Memutus...' : 'Putuskan'}
                   </button>
                 </div>
+              </div>
               </div>
             </>
           )}

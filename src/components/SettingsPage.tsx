@@ -53,7 +53,7 @@ export default function SettingsPage({ agent, onUpdated }: { agent: AgentData; o
       {/* Segmented Control Tab Bar */}
       <div className="sticky top-[53px] z-20 bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700">
         <div className="max-w-lg mx-auto px-4 py-2">
-          <div className="flex gap-1 p-1 bg-gray-100 dark:bg-slate-900 rounded-xl w-full">
+          <div className="flex gap-1 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl w-full">
             {TAB_CONFIG.map(tab => {
               const isActive = activeTab === tab.id;
               const Icon = tab.icon;
