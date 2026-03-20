@@ -16,6 +16,7 @@
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
 | **Database** | Supabase (PostgreSQL) — 5 tabel: `agents`, `capi_configs`, `jamaah`, `calendar_events`, `calendar_insights` |
+| **Telegram** | Telegram Bot API — group alerts (node-cron) + per-agent DM (deep link connect, departure reminders) |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
 | **Charts** | Recharts (AreaChart, BarChart — untuk Statistik page) |
@@ -62,7 +63,7 @@ alhijaz/
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
 ├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
 ├── jamaah-api.js           # Legacy: Playwright-based jamaah scraping (deprecated, replaced by laporan-api.js)
-├── telegram-notifier.js    # Telegram alerts (seat, price, weekly summary, AI insights)
+├── telegram-notifier.js    # Telegram alerts (seat, price, weekly, AI insights, per-agent departure reminders)
 ├── deploy-webhook.js       # GitHub webhook listener (port 9000) → auto deploy
 ├── deploy.sh               # Deploy script: pull, install, build, restart systemd
 ├── Dockerfile              # Docker multi-stage build
@@ -84,7 +85,7 @@ alhijaz/
 │   │   ├── StatistikPage.tsx   # Dashboard statistik: ringkasan jamaah, komisi, chart tren (~678 lines)
 │   │   ├── UpcomingSchedule.tsx # Calendar widget — mini grid with colored dots + bottom sheet detail
 │   │   ├── CalendarInsight.tsx   # AI Insight alert bar + bottom sheet popup (OpenAI-generated)
-│   │   ├── DashboardProfile.tsx # Edit profile + photo crop modal
+│   │   ├── DashboardProfile.tsx # Edit profile + photo crop + Telegram deep link connect
 │   │   ├── ResetPasswordPage.tsx # Reset password page (from email link)
 │   │   ├── FilterHeader.tsx    # Header filter (search, sort, filter mode)
 │   │   ├── DashboardLayout.tsx # Dashboard home + navigation + tab routing
@@ -130,6 +131,8 @@ alhijaz/
 │   ├── migrate-jamaah-columns.js    # Add perlengkapan/dokumen columns
 │   ├── add-perlengkapan-cols.js     # Add perlengkapan columns to jamaah table
 │   ├── migrate-paspor-columns.js    # Add no_paspor/paspor_expired columns
+│   ├── migrate-telegram-link.js     # Add telegram_chat_id + telegram_link_token columns
+│   ├── setup-telegram-webhook.js    # Register Telegram bot webhook URL
 │   ├── fix-hijriah-year.js          # Fix hijriah year based on departure dates
 │   ├── seed-bagas.js                # Create agent "bagas" with dummy jamaah data
 │   ├── debug-cols.js                # Debug legacy HTML table column structure
@@ -178,6 +181,7 @@ alhijaz/
 - **Subtle login/dashboard button** di public header: `LogIn` icon jika belum login, `LayoutDashboard` icon jika sudah login
 - Lupa password → reset via email (Resend API)
 - Edit profil (nama, website, phone, email, slug, foto crop & upload ke Supabase Storage)
+- **Telegram Connect** — hubungkan akun Telegram via deep link untuk terima notifikasi personal (controlled rollout per agent)
 - **Menu Jadwal** — menu pertama di dashboard, membuka halaman publik agent (`/{slug}`) di tab baru dengan `ExternalLink` indicator
 - **Statistik** — dashboard ringkasan data jamaah per tahun Hijriah:
   - Headline stats: Total Jamaah, Komisi Cair, Berangkat Segera, Jamaah Baru
@@ -220,12 +224,12 @@ alhijaz/
 ### Fitur Infrastruktur
 - AI Copywriting (OpenAI proxy — generate caption WhatsApp)
 - Telegram Notifier (node-cron based, runs inside Express process):
-  - Real-time alerts tiap 30 menit: seat kritis, sold out, paket baru, harga berubah
-  - Daily briefing (pagi): ringkasan + AI insight
-  - Departure reminders (H-7, H-3, H-1)
-  - Hot deal alerts (berangkat <14 hari, seat masih banyak)
-  - Weekly summary (Senin 08:00)
-  - AI-powered talking points via OpenAI
+  - **Group chat** (TELEGRAM_CHAT_ID): real-time alerts (seat/price), daily briefing, weekly summary, hot deals, AI insights
+  - **Per-agent DM** (telegram_chat_id): departure reminders conversational
+    - Pagi (07:00 WIB): semua milestone H-14/H-7/H-3/H-1 dalam 1 pesan, progressive detail
+    - Sore (17:00 WIB): H-1 only, urgent reminder
+    - Anti-duplikat via state keys per agent per hari
+  - Deep link connect: agent klik tombol di dashboard → Telegram bot auto-link chat_id
 - Background sync jamaah (semua agent, setiap 1 jam, per kantor agent masing-masing)
 - Calendar sync (scrape FullCalendar dari internal system, setiap 12 jam via `setInterval`)
   - Login ke internal system → fetch halaman Beranda → parse FullCalendar events JSON
@@ -258,6 +262,8 @@ role              TEXT DEFAULT 'agent' -- "agent" | "admin"
 jamaah_username   TEXT                -- username sistem internal legacy
 jamaah_password   TEXT                -- AES-256-GCM encrypted
 jamaah_kantor     TEXT DEFAULT '2'    -- kode kantor ("2" = Cabang)
+telegram_chat_id  TEXT                -- Telegram chat ID (diisi otomatis via deep link)
+telegram_link_token TEXT              -- Token sementara untuk deep link connect
 ```
 
 ### Tabel `capi_configs`
@@ -358,6 +364,14 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | POST | `/api/laporan/disconnect` | Bearer | Clear in-memory session |
 | DELETE | `/api/laporan/credentials` | Bearer | Delete saved credentials from Supabase |
 
+### Telegram
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| GET | `/api/telegram/link` | Bearer | Generate deep link token + URL untuk connect Telegram |
+| GET | `/api/telegram/status` | Bearer | Check apakah Telegram sudah terhubung |
+| POST | `/api/telegram/disconnect` | Bearer | Putuskan koneksi Telegram (clear chat_id + token) |
+| POST | `/api/telegram/webhook` | — | Webhook handler dari Telegram bot (process /start {token}) |
+
 ### Calendar
 | Method | Path | Auth | Deskripsi |
 |--------|------|------|-----------|
@@ -421,8 +435,10 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (backend only) |
 | `VITE_SUPABASE_URL` | Same as SUPABASE_URL (exposed to frontend via Vite) |
 | `VITE_SUPABASE_ANON_KEY` | Same as SUPABASE_ANON_KEY (exposed to frontend) |
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token untuk notifier |
-| `TELEGRAM_CHAT_ID` | Chat ID production untuk notifikasi |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token untuk notifier + deep link bot |
+| `TELEGRAM_BOT_USERNAME` | Username bot Telegram (tanpa @, untuk deep link URL) |
+| `TELEGRAM_WEBHOOK_URL` | Webhook URL untuk Telegram bot (e.g. `https://alhijaz.co/api/telegram/webhook`) |
+| `TELEGRAM_CHAT_ID` | Chat ID production untuk notifikasi group |
 | `TELEGRAM_CHAT_ID_DEV` | Chat ID dev untuk testing notifikasi |
 | `NOTIFIER_YEAR_CODES` | Kode tahun paket yang di-monitor (default: "1448") |
 | `NOTIFIER_BASE_URL` | Base URL API untuk notifier (default: localhost:3000) |
@@ -449,6 +465,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Jamaah management (fetch + parse + sync ke Supabase, progressive UI, perlengkapan/dokumen/paspor tracking)
 - AI Copywriting (OpenAI integration)
 - Telegram Notifier (real-time seat/price alerts, daily briefing, AI insights)
+- Telegram per-agent: deep link connect, conversational departure reminders (pagi H-14/H-7/H-3/H-1 + sore H-1)
 - Background sync jamaah (hourly, all agents, single kantor per agent, 6-month widened fetch range)
 - Single package view (deep link ke 1 paket)
 - Quotation PDF dengan logo bank (BCA, BSI, Mandiri)
@@ -499,7 +516,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 
 - **CAPI endpoints tidak pakai auth** — hanya dilindungi oleh agent slug (not secret)
 - **server.js monolith** (~2000 baris) — perlu di-split ke route modules
-- **telegram-notifier.js besar** (~1340 baris) — bisa di-modularisasi
+- **telegram-notifier.js besar** (~1640 baris) — bisa di-modularisasi
 - **jamaah-api.js masih ada** — file Playwright-based yang deprecated, bisa dihapus
 
 ### Do's and Don'ts

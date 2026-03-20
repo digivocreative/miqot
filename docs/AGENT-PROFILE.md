@@ -129,6 +129,7 @@ Selain fitur publik (jadwal, CTA), agent yang sudah login juga memiliki akses ke
 | Fitur | Deskripsi |
 |---|---|
 | Profil | Edit nama, website, phone, email, foto, slug |
+| Telegram | Hubungkan akun Telegram via deep link — terima departure reminder personal (controlled rollout) |
 | Statistik | Ringkasan data jamaah: total, komisi, tren, berangkat mendatang, outstanding |
 | Kalkulasi | Hitung harga per tipe kamar + generate PDF quotation |
 | Compare | Bandingkan 2 paket side-by-side |
