@@ -49,6 +49,7 @@ const NOTIFICATION_GROUPS = [
 export function TelegramSection({ agent }: { agent: AgentProfile }) {
   const [telegramStatus, setTelegramStatus] = useState<{ connected: boolean; chatId: string | null }>({ connected: false, chatId: null });
   const [telegramLoading, setTelegramLoading] = useState(false);
+  const [statusLoading, setStatusLoading] = useState(true);
   const [prefs, setPrefs] = useState<Record<string, boolean>>({});
   const [prefsLoading, setPrefsLoading] = useState(true);
   const [showDisconnect, setShowDisconnect] = useState(false);
@@ -65,6 +66,7 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
           setTelegramLoading(false);
         }
       } catch { /* ignore */ }
+      setStatusLoading(false);
     };
     checkTelegramStatus();
     const onVisible = () => { if (document.visibilityState === 'visible') checkTelegramStatus(); };
@@ -129,11 +131,47 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
     setShowDisconnect(false);
   };
 
+  // Skeleton rows helper
+  const SkeletonRow = ({ isLast }: { isLast: boolean }) => (
+    <div className={`px-4 py-3 flex items-center justify-between${isLast ? '' : ' border-b border-gray-100 dark:border-slate-700'}`}>
+      <div className="flex items-start gap-3 flex-1 min-w-0">
+        <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-slate-700 animate-pulse flex-shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="h-3 w-28 bg-gray-200 dark:bg-slate-700 rounded-md animate-pulse" />
+          <div className="h-2.5 w-20 bg-gray-200 dark:bg-slate-700 rounded-md animate-pulse mt-1.5" />
+        </div>
+      </div>
+      <div className="w-9 h-5 rounded-full bg-gray-200 dark:bg-slate-700 animate-pulse flex-shrink-0" />
+    </div>
+  );
+
+  const SkeletonGroup = ({ rows }: { rows: number }) => (
+    <div className="rounded-2xl border border-gray-100 dark:border-slate-700 overflow-hidden">
+      {Array.from({ length: rows }).map((_, i) => (
+        <SkeletonRow key={i} isLast={i === rows - 1} />
+      ))}
+    </div>
+  );
+
   return (
     <div>
       <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">NOTIFIKASI TELEGRAM</p>
 
-      {telegramStatus.connected ? (
+      {statusLoading ? (
+        /* ── Skeleton Loading ── */
+        <div>
+          {/* Status badge skeleton */}
+          <div className="h-14 w-full rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
+
+          {/* Section: JAMAAH */}
+          <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md animate-pulse mt-5 mb-2 ml-1" />
+          <SkeletonGroup rows={5} />
+
+          {/* Section: PAKET */}
+          <div className="h-3 w-12 bg-gray-200 dark:bg-slate-700 rounded-md animate-pulse mt-5 mb-2 ml-1" />
+          <SkeletonGroup rows={3} />
+        </div>
+      ) : telegramStatus.connected ? (
         <>
           {/* Compact status badge */}
           <div className="flex items-center gap-3 px-3.5 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-blue-700">
