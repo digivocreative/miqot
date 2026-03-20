@@ -89,6 +89,11 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
             type="button"
             disabled={telegramLoading}
             onClick={async () => {
+              // Rollout: hanya nikita & selfiah yang bisa connect
+              if (!['nikita', 'selfiah'].includes(agent.slug)) {
+                alert('Segera hadir! 🚀');
+                return;
+              }
               setTelegramLoading(true);
               try {
                 const res = await fetch('/api/telegram/link', { headers: { ...getAuthHeaders() } });
