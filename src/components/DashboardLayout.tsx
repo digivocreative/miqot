@@ -57,6 +57,16 @@ function getSubTabFromPath(): 'umroh' | 'haji' {
   return 'umroh';
 }
 
+function getSettingsTabFromPath(): 'profil' | 'telegram' | 'capi' {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  // /dashboard/settings/telegram or /dashboard/settings/capi
+  if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'settings') {
+    const sub = segments[2] as 'profil' | 'telegram' | 'capi';
+    if (['profil', 'telegram', 'capi'].includes(sub)) return sub;
+  }
+  return 'profil';
+}
+
 const TAB_TITLES: Record<TabId, string> = {
   home: 'Dashboard',
   settings: 'Settings',
@@ -341,7 +351,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         {/* Sub-page content */}
         <main className="max-w-lg mx-auto">
           {activeTab === 'settings' && (
-            <SettingsPage agent={agentData} onUpdated={refreshAgent} />
+            <SettingsPage agent={agentData} onUpdated={refreshAgent} initialTab={getSettingsTabFromPath()} />
           )}
           {activeTab === 'kalkulasi' && (
             <KalkulasiPage agent={{

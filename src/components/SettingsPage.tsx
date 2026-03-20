@@ -23,29 +23,40 @@ const TAB_CONFIG: { id: SettingsTab; label: string; icon: typeof User }[] = [
   { id: 'capi', label: 'CAPI', icon: Code },
 ];
 
-export default function SettingsPage({ agent, onUpdated }: { agent: AgentData; onUpdated: () => void }) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
-    const hash = window.location.hash.replace('#', '') as SettingsTab;
-    if (['profil', 'telegram', 'capi'].includes(hash)) return hash;
-    return 'profil';
-  });
+export default function SettingsPage({ agent, onUpdated, initialTab }: { agent: AgentData; onUpdated: () => void; initialTab?: SettingsTab }) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab || 'profil');
 
-  // Update hash on tab change
+  // Update tab on URL change (browser back/forward)
   const switchTab = (tab: SettingsTab) => {
     setActiveTab(tab);
-    window.history.replaceState(null, '', `/dashboard/settings${tab !== 'profil' ? '#' + tab : ''}`);
-    // Scroll to top on tab switch
+    const url = `/dashboard/settings/${tab}`;
+    window.history.pushState(null, '', url);
     window.scrollTo({ top: 0 });
   };
 
-  // Listen for hash changes
+  // Listen for popstate (browser back/forward)
   useEffect(() => {
-    const onHashChange = () => {
-      const hash = window.location.hash.replace('#', '') as SettingsTab;
-      if (['profil', 'telegram', 'capi'].includes(hash)) setActiveTab(hash);
+    const onPopState = () => {
+      const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+      if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'settings') {
+        const sub = segments[2] as SettingsTab;
+        if (['profil', 'telegram', 'capi'].includes(sub)) {
+          setActiveTab(sub);
+          return;
+        }
+      }
+      setActiveTab('profil');
     };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  // Set initial URL if it's just /dashboard/settings (no sub-tab)
+  useEffect(() => {
+    const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+    if (segments.length === 2 && segments[0] === 'dashboard' && segments[1] === 'settings') {
+      window.history.replaceState(null, '', `/dashboard/settings/${activeTab}`);
+    }
   }, []);
 
   return (

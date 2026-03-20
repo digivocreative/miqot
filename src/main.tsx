@@ -157,8 +157,8 @@ const renderPage = () => {
   if (isResetPassword) return <ResetPasswordPage />
   if (isDashboard) return <DashboardRouter />
   if (isCapi) {
-    // Redirect /:slug/capi to /dashboard/settings#capi
-    window.location.replace('/dashboard/settings#capi')
+    // Redirect /:slug/capi to /dashboard/settings/capi
+    window.location.replace('/dashboard/settings/capi')
     return null
   }
   if (isKalkulasi) return <KalkulasiPage agent={agentSlugForKalkulasi} />
