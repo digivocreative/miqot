@@ -128,12 +128,10 @@ Selain fitur publik (jadwal, CTA), agent yang sudah login juga memiliki akses ke
 
 | Fitur | Deskripsi |
 |---|---|
-| Profil | Edit nama, website, phone, email, foto, slug |
-| Telegram | Hubungkan akun Telegram via deep link — terima departure reminder personal (controlled rollout) |
+| **Settings** | Unified page (3 tab): Profil • Telegram • CAPI |
 | Statistik | Ringkasan data jamaah: total, komisi, tren, berangkat mendatang, outstanding |
 | Kalkulasi | Hitung harga per tipe kamar + generate PDF quotation |
 | Compare | Bandingkan 2 paket side-by-side |
-| Meta CAPI | Config Pixel ID, Access Token, event mapping, test mode |
 | Jamaah | Sync data jamaah dari sistem internal, filter/sort/search, lihat status pembayaran |
 | Admin | Manage semua agent (CRUD) — hanya role admin |
 

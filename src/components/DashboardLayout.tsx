@@ -1,46 +1,43 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Calculator, ArrowLeftRight, Settings,
-  LogOut, Shield, Users, Moon, Sun, ChevronLeft, ChevronRight,
-  Globe, Phone, LayoutGrid, User, BarChart3, Loader2,
-  CalendarRange, ExternalLink, Send, TrendingUp,
+  LogOut, Shield, Users, Moon, Sun, ChevronLeft,
+  BarChart3, Loader2,
+  CalendarRange, ExternalLink, TrendingUp,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
 import KalkulasiPage from './KalkulasiPage';
 import ComparePage from './ComparePage';
-import CapiPage from './CapiPage';
-import DashboardProfile from './DashboardProfile';
 import JamaahPage from './JamaahPage';
 import StatistikPage from './StatistikPage';
 import AgentManagementPage from './AgentManagementPage';
 import UpcomingSchedule from './UpcomingSchedule';
 import CalendarInsight from './CalendarInsight';
 import AnalyticsPage from './AnalyticsPage';
+import SettingsPage from './SettingsPage';
 import { trackEvent } from '../utils/analytics';
 
-type TabId = 'home' | 'profile' | 'kalkulasi' | 'compare' | 'caption' | 'capi' | 'agents' | 'jamaah' | 'statistik' | 'analytics';
+type TabId = 'home' | 'settings' | 'kalkulasi' | 'compare' | 'caption' | 'agents' | 'jamaah' | 'statistik' | 'analytics';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
   kalkulasi: 'kalkulasi',
   compare: 'compare',
-  capi: 'capi',
   agents: 'agents',
   jamaah: 'jamaah',
   statistik: 'statistik',
-  profile: 'profile',
+  settings: 'settings',
   analytics: 'analytics',
 };
 
 const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
   kalkulasi: 'kalkulasi',
   compare: 'compare',
-  capi: 'capi',
   agents: 'agents',
   jamaah: 'jamaah',
   statistik: 'statistik',
-  profile: 'profile',
+  settings: 'settings',
   analytics: 'analytics',
 };
 
@@ -62,11 +59,10 @@ function getSubTabFromPath(): 'umroh' | 'haji' {
 
 const TAB_TITLES: Record<TabId, string> = {
   home: 'Dashboard',
-  profile: 'Edit Profil',
+  settings: 'Settings',
   kalkulasi: 'Kalkulasi',
   compare: 'Compare',
   caption: 'Caption',
-  capi: 'Meta CAPI',
   agents: 'Agents',
   jamaah: 'Jamaah',
   statistik: 'Statistik',
@@ -103,7 +99,6 @@ const MENU_CARDS: MenuCard[] = [
     bgLight: 'bg-amber-50', bgDark: 'dark:bg-amber-900/20',
     borderLight: 'border-amber-100', borderDark: 'dark:border-amber-800/40',
   },
-
   {
     id: 'statistik', label: 'Statistik', desc: 'Ringkasan data',
     icon: BarChart3, color: 'text-emerald-600 dark:text-emerald-400',
@@ -123,23 +118,10 @@ const MENU_CARDS: MenuCard[] = [
     borderLight: 'border-violet-100', borderDark: 'dark:border-violet-800/40',
   },
   {
-    id: 'capi', label: 'Meta CAPI', desc: 'Pixel & access token',
+    id: 'settings', label: 'Settings', desc: 'Profil, Telegram & CAPI',
     icon: Settings, color: 'text-gray-600 dark:text-gray-400',
     bgLight: 'bg-gray-50', bgDark: 'dark:bg-gray-800/30',
     borderLight: 'border-gray-200', borderDark: 'dark:border-gray-700/40',
-  },
-  {
-    id: 'profile', label: 'Profil', desc: 'Edit profil',
-    icon: User, color: 'text-blue-600 dark:text-blue-400',
-    bgLight: 'bg-blue-50', bgDark: 'dark:bg-blue-900/20',
-    borderLight: 'border-blue-100', borderDark: 'dark:border-blue-800/40',
-  },
-  {
-    id: 'home' as TabId, label: 'Telegram', desc: 'Segera hadir',
-    icon: Send, color: 'text-sky-600 dark:text-sky-400',
-    bgLight: 'bg-sky-50', bgDark: 'dark:bg-sky-900/20',
-    borderLight: 'border-sky-100', borderDark: 'dark:border-sky-800/40',
-    comingSoon: true,
   },
   {
     id: 'agents', label: 'Agents', desc: 'Lihat & edit agent',
@@ -358,10 +340,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
         {/* Sub-page content */}
         <main className="max-w-lg mx-auto">
-          {activeTab === 'profile' && (
-            <div className="px-4 pt-4 pb-8">
-              <DashboardProfile agent={agentData} onUpdated={refreshAgent} />
-            </div>
+          {activeTab === 'settings' && (
+            <SettingsPage agent={agentData} onUpdated={refreshAgent} />
           )}
           {activeTab === 'kalkulasi' && (
             <KalkulasiPage agent={{
@@ -374,9 +354,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               name: agentData.name, website: agentData.website,
               phone: agentData.phone, photo: agentData.photo,
             }} hideHeader />
-          )}
-          {activeTab === 'capi' && (
-            <CapiPage agentSlug={agentData.slug} hideHeader />
           )}
           {activeTab === 'agents' && isAdmin && (
             <div className="px-4 pt-4">
@@ -414,9 +391,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <button
-              onClick={() => navigateTab('profile')}
+              onClick={() => navigateTab('settings')}
               className="relative shrink-0 active:scale-95 transition-transform"
-              title="Edit Profil"
+              title="Settings"
             >
               <img
                 src={agentData.photo}
@@ -500,7 +477,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   }
                   const eventMap: Record<string, string> = {
                     jamaah: 'open_jamaah', kalkulasi: 'open_kalkulasi', compare: 'open_compare',
-                    capi: 'open_capi', profile: 'open_profil', analytics: 'open_analytics',
+                    settings: 'open_settings', analytics: 'open_analytics',
                   };
                   if (eventMap[card.id]) trackEvent('feature', eventMap[card.id]);
                   navigateTab(card.id);
@@ -514,9 +491,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   <ExternalLink size={10} className="absolute top-2 right-2 text-gray-300 dark:text-slate-500" />
                 )}
                 <div className="relative flex flex-col items-center text-center">
-                  {card.id === 'capi' ? (
+                  {card.id === 'settings' ? (
                     <div className="w-11 h-11 rounded-xl bg-gray-50 dark:bg-gray-800/30 flex items-center justify-center border border-gray-200 dark:border-gray-700/40 mb-2 group-hover:scale-110 transition-transform duration-200">
-                      <img src="/logo-meta.png" alt="Meta" className="w-6 h-6 object-contain" />
+                      <Settings size={22} className="text-gray-600 dark:text-gray-400" strokeWidth={1.8} />
                     </div>
                   ) : (
                     <div className={`w-11 h-11 rounded-xl ${card.bgLight} ${card.bgDark} flex items-center justify-center border ${card.borderLight} ${card.borderDark} mb-2 group-hover:scale-110 transition-transform duration-200`}>

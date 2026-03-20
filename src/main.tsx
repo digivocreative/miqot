@@ -16,7 +16,6 @@ console.log(
 )
 import KalkulasiPage from './components/KalkulasiPage.tsx'
 import ComparePage from './components/ComparePage.tsx'
-import CapiPage from './components/CapiPage.tsx'
 import { AGENTS_DATA } from '@/data/agents'
 
 // Register Service Worker for PWA
@@ -39,18 +38,18 @@ const isResetPassword = segments.length === 1 && segments[0] === 'reset-password
 const isKalkulasi = segments.length >= 2 && segments[1] === 'kalkulasi'
 const isCompare = (segments.length >= 2 && segments[1] === 'compare') || (segments.length === 1 && segments[0] === 'compare')
 const isCapi = segments.length >= 2 && segments[1] === 'capi'
+
+// Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
+import { getFilterModeFromSlug } from '@/utils'
+const knownFirstSegments = ['login', 'dashboard', 'compare', 'reset-password']
+const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi']
+
 const agentSlugForKalkulasi = isKalkulasi
   ? AGENTS_DATA[segments[0]?.toLowerCase()] || null
   : null
 const agentSlugForCompare = isCompare && segments.length >= 2
   ? AGENTS_DATA[segments[0]?.toLowerCase()] || null
   : null
-const agentSlugForCapi = isCapi ? segments[0]?.toLowerCase() : null
-
-// Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
-import { getFilterModeFromSlug } from '@/utils'
-const knownFirstSegments = ['login', 'dashboard', 'compare', 'reset-password']
-const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi']
 
 // Case 1: /:agent/:jadwalId (2 segments, first is agent)
 const isSinglePackageWithAgent = !isKalkulasi && !isCompare
@@ -157,12 +156,10 @@ const renderPage = () => {
   if (isLogin) return <LoginRouter />
   if (isResetPassword) return <ResetPasswordPage />
   if (isDashboard) return <DashboardRouter />
-  if (isCapi && agentSlugForCapi) {
-    // Check if agent slug is valid
-    if (!AGENTS_DATA[agentSlugForCapi]) {
-      return <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'#0f172a',color:'#e2e8f0',fontFamily:'Inter,sans-serif'}}><div style={{textAlign:'center'}}><h1 style={{fontSize:48,margin:'0 0 8px'}}>404</h1><p style={{color:'#94a3b8'}}>Username / password salah</p></div></div>
-    }
-    return <CapiPage agentSlug={agentSlugForCapi} />
+  if (isCapi) {
+    // Redirect /:slug/capi to /dashboard/settings#capi
+    window.location.replace('/dashboard/settings#capi')
+    return null
   }
   if (isKalkulasi) return <KalkulasiPage agent={agentSlugForKalkulasi} />
   if (isCompare) return <ComparePage agent={agentSlugForCompare} />

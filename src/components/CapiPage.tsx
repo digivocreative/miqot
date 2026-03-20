@@ -97,7 +97,7 @@ function EventDropdown({ value, onChange }: { value: string; onChange: (v: strin
 
 // ── Main Component ──
 
-export default function CapiPage({ agentSlug, hideHeader = false }: { agentSlug: string; hideHeader?: boolean }) {
+export default function CapiPage({ agentSlug, hideHeader = false, embedded = false }: { agentSlug: string; hideHeader?: boolean; embedded?: boolean }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [agentName, setAgentName] = useState('');
@@ -115,9 +115,9 @@ export default function CapiPage({ agentSlug, hideHeader = false }: { agentSlug:
   }, []);
 
   // Check stored session on mount (check both storages)
-  // When accessed from dashboard (hideHeader=true), auto-bypass login
+  // When accessed from dashboard (hideHeader=true or embedded=true), auto-bypass login
   useEffect(() => {
-    if (hideHeader) {
+    if (hideHeader || embedded) {
       // Already authenticated via dashboard — skip CAPI login
       setIsLoggedIn(true);
     } else {

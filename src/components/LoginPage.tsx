@@ -31,16 +31,6 @@ export function clearSession() {
   localStorage.removeItem('auth_session');
   sessionStorage.removeItem('auth_session');
 
-  // Remove all CAPI sessions (capi_session_*)
-  for (const storage of [localStorage, sessionStorage]) {
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < storage.length; i++) {
-      const key = storage.key(i);
-      if (key && key.startsWith('capi_session_')) keysToRemove.push(key);
-    }
-    keysToRemove.forEach(k => storage.removeItem(k));
-  }
-
   // Clear session-scoped UI state
   sessionStorage.removeItem('insightDismissed'); // legacy cleanup
   localStorage.removeItem('insightDismissedDate');

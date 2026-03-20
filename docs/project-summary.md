@@ -85,7 +85,8 @@ alhijaz/
 │   │   ├── StatistikPage.tsx   # Dashboard statistik: ringkasan jamaah, komisi, chart tren (~678 lines)
 │   │   ├── UpcomingSchedule.tsx # Calendar widget — mini grid with colored dots + bottom sheet detail
 │   │   ├── CalendarInsight.tsx   # AI Insight alert bar + bottom sheet popup (OpenAI-generated)
-│   │   ├── DashboardProfile.tsx # Edit profile + photo crop + Telegram deep link connect
+│   │   ├── DashboardProfile.tsx # Edit profile + photo crop (embedded in SettingsPage)
+│   │   ├── SettingsPage.tsx    # Unified settings: 3 tabs (Profil, Telegram, CAPI)
 │   │   ├── ResetPasswordPage.tsx # Reset password page (from email link)
 │   │   ├── FilterHeader.tsx    # Header filter (search, sort, filter mode)
 │   │   ├── DashboardLayout.tsx # Dashboard home + navigation + tab routing
@@ -181,7 +182,10 @@ alhijaz/
 - **Subtle login/dashboard button** di public header: `LogIn` icon jika belum login, `LayoutDashboard` icon jika sudah login
 - Lupa password → reset via email (Resend API)
 - Edit profil (nama, website, phone, email, slug, foto crop & upload ke Supabase Storage)
-- **Telegram Connect** — hubungkan akun Telegram via deep link untuk terima notifikasi personal (controlled rollout per agent)
+- **Settings Page** — unified settings dengan 3 tab:
+  - **Profil**: edit profil agent
+  - **Telegram**: hubungkan Telegram via deep link untuk notifikasi personal
+  - **CAPI**: Meta Pixel & Conversions API configuration
 - **Menu Jadwal** — menu pertama di dashboard, membuka halaman publik agent (`/{slug}`) di tab baru dengan `ExternalLink` indicator
 - **Statistik** — dashboard ringkasan data jamaah per tahun Hijriah:
   - Headline stats: Total Jamaah, Komisi Cair, Berangkat Segera, Jamaah Baru

@@ -15,6 +15,114 @@ interface AgentProfile {
   role: string;
 }
 
+// ── Exported Telegram Section for SettingsPage ──
+export function TelegramSection({ agent }: { agent: AgentProfile }) {
+  const [telegramStatus, setTelegramStatus] = useState<{ connected: boolean; chatId: string | null }>({ connected: false, chatId: null });
+  const [telegramLoading, setTelegramLoading] = useState(false);
+
+  useEffect(() => {
+    const checkTelegramStatus = async () => {
+      try {
+        const res = await fetch('/api/telegram/status', { headers: { ...getAuthHeaders() } });
+        const json = await res.json();
+        if (json.success) {
+          setTelegramStatus(json.data);
+          setTelegramLoading(false);
+        }
+      } catch { /* ignore */ }
+    };
+    checkTelegramStatus();
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') checkTelegramStatus();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
+
+  return (
+    <div>
+      <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">NOTIFIKASI TELEGRAM</p>
+
+      {telegramStatus.connected ? (
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#2AABEE] to-[#229ED9] p-4 shadow-lg shadow-[#2AABEE]/20">
+          <div className="absolute -right-3 -top-3 opacity-10">
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
+          </div>
+          <div className="relative flex items-center gap-3">
+            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-green-300 animate-pulse" />
+                <span className="text-sm font-bold text-white">Telegram Aktif</span>
+              </div>
+              <p className="text-xs text-white/70 mt-0.5">Notifikasi keberangkatan jamaah akan dikirim ke Telegram kamu.</p>
+            </div>
+          </div>
+          <div className="relative flex justify-end mt-3 pt-2 border-t border-white/15">
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirm('Putuskan koneksi Telegram? Kamu tidak akan menerima notifikasi lagi.')) return;
+                try {
+                  const res = await fetch('/api/telegram/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
+                  const json = await res.json();
+                  if (json.success) setTelegramStatus({ connected: false, chatId: null });
+                } catch { /* ignore */ }
+              }}
+              className="text-[11px] font-medium text-white/60 hover:text-white/90 transition-colors"
+            >
+              Putuskan Koneksi
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 p-5 text-center">
+          <div className="w-12 h-12 rounded-full bg-[#2AABEE]/10 dark:bg-[#2AABEE]/20 mx-auto mb-3 flex items-center justify-center">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="#2AABEE"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
+          </div>
+          <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">Hubungkan Telegram</p>
+          <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Terima notifikasi keberangkatan jamaah langsung di Telegram.</p>
+          <button
+            type="button"
+            disabled={telegramLoading}
+            onClick={async () => {
+              setTelegramLoading(true);
+              try {
+                const res = await fetch('/api/telegram/link', { headers: { ...getAuthHeaders() } });
+                const json = await res.json();
+                if (json.success) {
+                  window.location.href = json.data.deepLink;
+                } else {
+                  setTelegramLoading(false);
+                }
+              } catch {
+                setTelegramLoading(false);
+              }
+            }}
+            className={`mt-4 w-full py-2.5 rounded-xl text-sm font-bold text-white shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${
+              telegramLoading
+                ? 'bg-[#2AABEE]/70 cursor-wait shadow-[#2AABEE]/10'
+                : 'bg-gradient-to-r from-[#2AABEE] to-[#229ED9] hover:shadow-[#2AABEE]/30 shadow-[#2AABEE]/20'
+            }`}
+          >
+            {telegramLoading ? (
+              <><Loader2 size={16} className="animate-spin" /> Menghubungkan...</>
+            ) : (
+              <>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
+                Hubungkan Telegram
+              </>
+            )}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 
 // ── Password Change Modal ──
@@ -203,7 +311,7 @@ function PasswordModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; onClos
 }
 
 // ── Main Profile Component ──
-export default function DashboardProfile({ agent, onUpdated }: { agent: AgentProfile; onUpdated: () => void }) {
+export default function DashboardProfile({ agent, onUpdated, mode = 'standalone' }: { agent: AgentProfile; onUpdated: () => void; mode?: 'standalone' | 'embedded' }) {
   const [name, setName] = useState(agent.name);
   const [website, setWebsite] = useState(agent.website);
   const [phone, setPhone] = useState(agent.phone);
@@ -603,86 +711,10 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
             {fieldErrors.email && <p className="text-[10px] text-red-500 dark:text-red-400 mt-1 flex items-center gap-1"><AlertCircle size={10} />{fieldErrors.email}</p>}
           </div>
 
-        {/* Separator + Telegram Section (rollout: nikita, selfiah) */}
-        {['nikita', 'selfiah'].includes(agent.slug) && (
+        {/* Telegram Section — only shown in standalone mode */}
+        {mode === 'standalone' && ['nikita', 'selfiah'].includes(agent.slug) && (
         <div className="border-t border-gray-100 dark:border-slate-700/50 pt-4 mt-4">
-          <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">NOTIFIKASI TELEGRAM</p>
-
-          {telegramStatus.connected ? (
-            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#2AABEE] to-[#229ED9] p-4 shadow-lg shadow-[#2AABEE]/20">
-              <div className="absolute -right-3 -top-3 opacity-10">
-                <svg width="80" height="80" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
-              </div>
-              <div className="relative flex items-center gap-3">
-                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-green-300 animate-pulse" />
-                    <span className="text-sm font-bold text-white">Telegram Aktif</span>
-                  </div>
-                  <p className="text-xs text-white/70 mt-0.5">Notifikasi keberangkatan jamaah akan dikirim ke Telegram kamu.</p>
-                </div>
-              </div>
-              <div className="relative flex justify-end mt-3 pt-2 border-t border-white/15">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!confirm('Putuskan koneksi Telegram? Kamu tidak akan menerima notifikasi lagi.')) return;
-                    try {
-                      const res = await fetch('/api/telegram/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
-                      const json = await res.json();
-                      if (json.success) setTelegramStatus({ connected: false, chatId: null });
-                    } catch { /* ignore */ }
-                  }}
-                  className="text-[11px] font-medium text-white/60 hover:text-white/90 transition-colors"
-                >
-                  Putuskan Koneksi
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 p-5 text-center">
-              <div className="w-12 h-12 rounded-full bg-[#2AABEE]/10 dark:bg-[#2AABEE]/20 mx-auto mb-3 flex items-center justify-center">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="#2AABEE"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
-              </div>
-              <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">Hubungkan Telegram</p>
-              <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Terima notifikasi keberangkatan jamaah langsung di Telegram.</p>
-              <button
-                type="button"
-                disabled={telegramLoading}
-                onClick={async () => {
-                  setTelegramLoading(true);
-                  try {
-                    const res = await fetch('/api/telegram/link', { headers: { ...getAuthHeaders() } });
-                    const json = await res.json();
-                    if (json.success) {
-                      window.location.href = json.data.deepLink;
-                    } else {
-                      setTelegramLoading(false);
-                    }
-                  } catch {
-                    setTelegramLoading(false);
-                  }
-                }}
-                className={`mt-4 w-full py-2.5 rounded-xl text-sm font-bold text-white shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${
-                  telegramLoading
-                    ? 'bg-[#2AABEE]/70 cursor-wait shadow-[#2AABEE]/10'
-                    : 'bg-gradient-to-r from-[#2AABEE] to-[#229ED9] hover:shadow-[#2AABEE]/30 shadow-[#2AABEE]/20'
-                }`}
-              >
-                {telegramLoading ? (
-                  <><Loader2 size={16} className="animate-spin" /> Menghubungkan...</>
-                ) : (
-                  <>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.53 8.09l-1.83 8.63c-.13.62-.5.77-.99.48l-2.75-2.03-1.33 1.27c-.15.15-.27.27-.55.27l.2-2.8 5.07-4.58c.22-.2-.05-.3-.34-.12L8.83 13.3l-2.7-.84c-.59-.18-.6-.59.12-.87l10.55-4.07c.49-.18.92.12.73.87z"/></svg>
-                    Hubungkan Telegram
-                  </>
-                )}
-              </button>
-            </div>
-          )}
+          <TelegramSection agent={agent} />
         </div>
         )}
 

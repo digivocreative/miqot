@@ -894,6 +894,149 @@ async function departureReminderSore() {
   }
 }
 
+// ─── Passport Reminder (09:30 WIB) — paspor belum kumpul / expired ─
+
+function buildPassportMessage(agentName, belumKumpul, expired, today) {
+  const parts = [];
+
+  // Paspor expired — kritis, tampilkan duluan
+  if (expired.length > 0) {
+    const names = expired.map(j => {
+      const berangkat = formatTanggalID(j.tgl_berangkat);
+      return `→ ${titleCase(j.nama)} (berangkat ${berangkat})`;
+    });
+    parts.push(
+      `🚨 <b>${expired.length} jamaah paspor expired</b> sebelum keberangkatan:\n` +
+      names.join('\n') + '\n' +
+      'Segera infokan untuk perpanjang paspor!'
+    );
+  }
+
+  // Paspor belum dikumpulkan
+  if (belumKumpul.length > 0) {
+    const daysLeft = (dateStr) => {
+      const d = new Date(dateStr + 'T00:00:00+07:00');
+      const t = new Date(today + 'T00:00:00+07:00');
+      return Math.ceil((d - t) / (1000 * 60 * 60 * 24));
+    };
+
+    // Sort by soonest departure
+    const sorted = [...belumKumpul].sort((a, b) =>
+      a.tgl_berangkat.localeCompare(b.tgl_berangkat)
+    );
+
+    const names = sorted.map(j => {
+      const hari = daysLeft(j.tgl_berangkat);
+      return `→ ${titleCase(j.nama)} — berangkat ${hari} hari lagi`;
+    });
+
+    parts.push(
+      `📋 <b>${belumKumpul.length} jamaah belum kumpul paspor</b>:\n` +
+      names.join('\n') + '\n' +
+      'Yuk di-follow up supaya proses visa lancar.'
+    );
+  }
+
+  if (parts.length === 0) return null;
+
+  return `📛 Halo ${agentName}!\n\n` +
+    parts.join('\n\n') +
+    '\n\n💡 Cek detail di dashboard → Jamaah';
+}
+
+async function passportReminder() {
+  try {
+    if (!supabaseAdmin) { warn('passportReminder: no supabaseAdmin'); return; }
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    const addDays = (dateStr, days) => {
+      const d = new Date(dateStr + 'T00:00:00+07:00');
+      d.setDate(d.getDate() + days);
+      return d.toISOString().split('T')[0];
+    };
+    const maxDate = addDays(today, 30);
+
+    // Query jamaah berangkat dalam 30 hari ke depan
+    const { data: jamaahData, error: jError } = await supabaseAdmin
+      .from('jamaah')
+      .select('agent_slug, nama, tgl_berangkat, dokumen, paspor_expired')
+      .gte('tgl_berangkat', today)
+      .lte('tgl_berangkat', maxDate);
+
+    if (jError) throw jError;
+    if (!jamaahData || jamaahData.length === 0) { log('[passport] No jamaah departing within 30 days'); return; }
+
+    // Filter: paspor belum dikumpulkan ATAU paspor expired sebelum berangkat
+    const problemJamaah = jamaahData.filter(j => {
+      const pasporCollected = j.dokumen?.paspor === true;
+      const pasporExpiredBeforeDepart = j.paspor_expired && j.tgl_berangkat
+        && j.paspor_expired < j.tgl_berangkat;
+      return !pasporCollected || pasporExpiredBeforeDepart;
+    });
+
+    if (problemJamaah.length === 0) { log('[passport] All passports OK'); return; }
+
+    // Query agents dengan telegram_chat_id
+    const { data: agents, error: aError } = await supabaseAdmin
+      .from('agents')
+      .select('slug, name, telegram_chat_id')
+      .not('telegram_chat_id', 'is', null);
+
+    if (aError) throw aError;
+    if (!agents || agents.length === 0) return;
+
+    const agentMap = {};
+    agents.forEach(a => { agentMap[a.slug] = a; });
+
+    // Group per agent
+    const perAgent = {};
+    problemJamaah.forEach(j => {
+      if (!agentMap[j.agent_slug]) return;
+      if (!perAgent[j.agent_slug]) perAgent[j.agent_slug] = [];
+      perAgent[j.agent_slug].push(j);
+    });
+
+    const state = await loadState() || freshState();
+    let sentCount = 0;
+
+    for (const [slug, jamaahList] of Object.entries(perAgent)) {
+      const agent = agentMap[slug];
+
+      // Anti-duplikat per hari
+      const stateKey = `paspor_${slug}_${today}`;
+      if (state.sentDepartureReminders?.[stateKey]) continue;
+
+      // Categorize
+      const belumKumpul = jamaahList.filter(j => j.dokumen?.paspor !== true);
+      const expired = jamaahList.filter(j => {
+        return j.dokumen?.paspor === true
+          && j.paspor_expired
+          && j.paspor_expired < j.tgl_berangkat;
+      });
+
+      const message = buildPassportMessage(agent.name, belumKumpul, expired, today);
+      if (!message) continue;
+
+      try {
+        await sendTelegramToAgent(agent.telegram_chat_id, message);
+        if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
+        state.sentDepartureReminders[stateKey] = new Date().toISOString();
+        sentCount++;
+        log(`✅ Passport reminder sent to ${slug}`);
+      } catch (err) {
+        warn(`Failed passport reminder to ${slug}:`, err.message);
+      }
+
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    await saveState(state);
+    log(`✅ Passport reminder done: ${sentCount} agent(s) notified`);
+  } catch (err) {
+    warn('passportReminder error:', err.message);
+  }
+}
+
 // ─── Hot Deal (berangkat < 14 hari, seat masih banyak) ─
 
 async function sendHotDeals() {
@@ -1553,7 +1696,7 @@ ${critical.slice(0, 5).map(p => `- ${p.jadwal_nama} (${p.maskapai}): sisa ${seat
 
 // ─── Init ────────────────────────────────────────────
 
-export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore };
+export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder };
 
 export function initNotifier() {
   loadConfig();
@@ -1627,6 +1770,11 @@ export function initNotifier() {
   // CRON: Departure Reminder Sore (17:00 WIB) — H-1 only, urgent
   cron.schedule('0 17 * * *', () => {
     departureReminderSore();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // CRON: Passport Reminder (09:30 WIB) — paspor belum kumpul / expired
+  cron.schedule('30 9 * * *', () => {
+    passportReminder();
   }, { timezone: 'Asia/Jakarta' });
 
   // Initial check after 15s delay (let Express settle)
