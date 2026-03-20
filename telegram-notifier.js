@@ -1037,6 +1037,95 @@ async function passportReminder() {
   }
 }
 
+// ─── Manasik Reminder H-3 (14:00 WIB) ───────────────
+
+const HARI_ID = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+function formatTanggalLengkap(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00+07:00');
+  return `${HARI_ID[d.getDay()]}, ${d.getDate()} ${BULAN_ID[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function buildManasikMessage(events, manasikDate) {
+  const dateStr = formatTanggalLengkap(manasikDate);
+
+  const details = events.map(e => {
+    const parts = [];
+    if (e.group_number) parts.push(`Group ${e.group_number}`);
+    if (e.paket) parts.push(e.paket);
+    if (e.pax) parts.push(`${e.pax} jamaah`);
+    if (e.jam) parts.push(`jam ${e.jam}`);
+    return `→ ${parts.join(' • ')}`;
+  });
+
+  return `🕌 <b>Manasik 3 hari lagi!</b>\n\n` +
+    `📅 ${dateStr}\n\n` +
+    details.join('\n') + '\n\n' +
+    'Jangan lupa kabari jamaah yang ikut manasik ya! Ingatkan waktu, tempat, dan perlengkapan yang perlu dibawa. 🙏\n\n' +
+    '💡 Cek detail di dashboard → Kalender';
+}
+
+async function manasikReminder() {
+  try {
+    if (!supabaseAdmin) { warn('manasikReminder: no supabaseAdmin'); return; }
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    const addDays = (dateStr, days) => {
+      const d = new Date(dateStr + 'T00:00:00+07:00');
+      d.setDate(d.getDate() + days);
+      return d.toISOString().split('T')[0];
+    };
+    const targetDate = addDays(today, 3);
+
+    // Query manasik events H-3
+    const { data: events, error: eError } = await supabaseAdmin
+      .from('calendar_events')
+      .select('*')
+      .eq('event_type', 'manasik')
+      .eq('event_date', targetDate);
+
+    if (eError) throw eError;
+    if (!events || events.length === 0) { log('[manasik] No manasik events on ' + targetDate); return; }
+
+    // Query agents dengan telegram_chat_id
+    const { data: agents, error: aError } = await supabaseAdmin
+      .from('agents')
+      .select('slug, name, telegram_chat_id')
+      .not('telegram_chat_id', 'is', null);
+
+    if (aError) throw aError;
+    if (!agents || agents.length === 0) return;
+
+    const message = buildManasikMessage(events, targetDate);
+    if (!message) return;
+
+    const state = await loadState() || freshState();
+    let sentCount = 0;
+
+    for (const agent of agents) {
+      const stateKey = `manasik_${agent.slug}_${targetDate}`;
+      if (state.sentDepartureReminders?.[stateKey]) continue;
+
+      try {
+        await sendTelegramToAgent(agent.telegram_chat_id, message);
+        if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
+        state.sentDepartureReminders[stateKey] = new Date().toISOString();
+        sentCount++;
+        log(`✅ Manasik reminder sent to ${agent.slug}`);
+      } catch (err) {
+        warn(`Failed manasik reminder to ${agent.slug}:`, err.message);
+      }
+
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    await saveState(state);
+    log(`✅ Manasik reminder done: ${sentCount} agent(s) notified`);
+  } catch (err) {
+    warn('manasikReminder error:', err.message);
+  }
+}
+
 // ─── Hot Deal (berangkat < 14 hari, seat masih banyak) ─
 
 async function sendHotDeals() {
@@ -1696,7 +1785,7 @@ ${critical.slice(0, 5).map(p => `- ${p.jadwal_nama} (${p.maskapai}): sisa ${seat
 
 // ─── Init ────────────────────────────────────────────
 
-export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder };
+export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, manasikReminder };
 
 export function initNotifier() {
   loadConfig();
@@ -1775,6 +1864,11 @@ export function initNotifier() {
   // CRON: Passport Reminder (09:30 WIB) — paspor belum kumpul / expired
   cron.schedule('30 9 * * *', () => {
     passportReminder();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // CRON: Manasik Reminder H-3 (14:00 WIB)
+  cron.schedule('0 14 * * *', () => {
+    manasikReminder();
   }, { timezone: 'Asia/Jakarta' });
 
   // Initial check after 15s delay (let Express settle)
