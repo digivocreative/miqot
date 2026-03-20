@@ -659,6 +659,8 @@ export default function DashboardProfile({ agent, onUpdated }: { agent: AgentPro
                           setTelegramLoading(false);
                         }
                       }, 2000);
+                    } else {
+                      setTelegramLoading(false);
                     }
                   } catch {
                     setTelegramLoading(false);
