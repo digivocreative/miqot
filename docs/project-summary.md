@@ -16,7 +16,7 @@
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
 | **Database** | Supabase (PostgreSQL) — 5 tabel: `agents`, `capi_configs`, `jamaah`, `calendar_events`, `calendar_insights` |
-| **Telegram** | Telegram Bot API — group alerts (node-cron) + per-agent DM (deep link connect, departure reminders) |
+| **Telegram** | Telegram Bot API — group alerts (node-cron) + per-agent DM (deep link connect, departure reminders, pembayaran masuk) |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
 | **Charts** | Recharts (AreaChart, BarChart — untuk Statistik page) |
@@ -59,11 +59,11 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~2000 lines) — API, proxy, auth, sync, stats, AI insight, SPA serve
+├── server.js              # Express backend (~2200 lines) — API, proxy, auth, sync, stats, AI insight, SPA serve
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
 ├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
 ├── jamaah-api.js           # Legacy: Playwright-based jamaah scraping (deprecated, replaced by laporan-api.js)
-├── telegram-notifier.js    # Telegram alerts (seat, price, weekly, AI insights, per-agent departure reminders)
+├── telegram-notifier.js    # Telegram alerts (seat, price, weekly, AI insights, per-agent departure reminders, pembayaran masuk)
 ├── deploy-webhook.js       # GitHub webhook listener (port 9000) → auto deploy
 ├── deploy.sh               # Deploy script: pull, install, build, restart systemd
 ├── Dockerfile              # Docker multi-stage build
@@ -85,8 +85,8 @@ alhijaz/
 │   │   ├── StatistikPage.tsx   # Dashboard statistik: ringkasan jamaah, komisi, chart tren (~678 lines)
 │   │   ├── UpcomingSchedule.tsx # Calendar widget — mini grid with colored dots + bottom sheet detail
 │   │   ├── CalendarInsight.tsx   # AI Insight alert bar + bottom sheet popup (OpenAI-generated)
-│   │   ├── DashboardProfile.tsx # Edit profile + photo crop (embedded in SettingsPage)
-│   │   ├── SettingsPage.tsx    # Unified settings: 3 tabs (Profil, Telegram, CAPI)
+│   │   ├── DashboardProfile.tsx # Edit profile + photo crop + Telegram section (notification prefs, disconnect dialog)
+│   │   ├── SettingsPage.tsx    # Unified settings: iOS segmented control (3 tabs: Profil, Telegram, CAPI)
 │   │   ├── ResetPasswordPage.tsx # Reset password page (from email link)
 │   │   ├── FilterHeader.tsx    # Header filter (search, sort, filter mode)
 │   │   ├── DashboardLayout.tsx # Dashboard home + navigation + tab routing
@@ -182,10 +182,11 @@ alhijaz/
 - **Subtle login/dashboard button** di public header: `LogIn` icon jika belum login, `LayoutDashboard` icon jika sudah login
 - Lupa password → reset via email (Resend API)
 - Edit profil (nama, website, phone, email, slug, foto crop & upload ke Supabase Storage)
-- **Settings Page** — unified settings dengan 3 tab:
-  - **Profil**: edit profil agent
-  - **Telegram**: hubungkan Telegram via deep link untuk notifikasi personal
-  - **CAPI**: Meta Pixel & Conversions API configuration
+- **Settings Page** — unified settings dengan iOS segmented control (3 tab dengan Lucide icons):
+  - **Profil** (`User` icon): edit profil agent
+  - **Telegram** (`Send` icon): hubungkan Telegram via deep link, **notification preferences** (10 kategori toggle per group: Jamaah, Paket, Lainnya), disconnect dialog
+  - **CAPI** (`Code` icon): Meta Pixel & Conversions API configuration
+  - Tab bar: segmented control (`bg-gray-100 dark:bg-slate-800 rounded-xl p-1`), active = white bg + emerald text + shadow, inactive = transparent + gray
 - **Menu Jadwal** — menu pertama di dashboard, membuka halaman publik agent (`/{slug}`) di tab baru dengan `ExternalLink` indicator
 - **Statistik** — dashboard ringkasan data jamaah per tahun Hijriah:
   - Headline stats: Total Jamaah, Komisi Cair, Berangkat Segera, Jamaah Baru
@@ -233,6 +234,8 @@ alhijaz/
     - Pagi (07:00 WIB): semua milestone H-14/H-7/H-3/H-1 dalam 1 pesan, progressive detail
     - Sore (17:00 WIB): H-1 only, urgent reminder
     - Anti-duplikat via state keys per agent per hari
+  - **Pembayaran masuk** detection: saat sync jamaah, bandingkan `bayar` before vs after → kirim notif ke agent jika ada kenaikan pembayaran
+  - **Notification preferences**: per-agent toggle (10 kategori: departure, paspor, pelunasan, perlengkapan, manasik, seat_alert, paket_baru, perubahan_harga, pembayaran_masuk, ringkasan_mingguan). Disimpan di `agents.notification_prefs` (JSONB)
   - Deep link connect: agent klik tombol di dashboard → Telegram bot auto-link chat_id
 - Background sync jamaah (semua agent, setiap 1 jam, per kantor agent masing-masing)
 - Calendar sync (scrape FullCalendar dari internal system, setiap 12 jam via `setInterval`)
@@ -268,6 +271,7 @@ jamaah_password   TEXT                -- AES-256-GCM encrypted
 jamaah_kantor     TEXT DEFAULT '2'    -- kode kantor ("2" = Cabang)
 telegram_chat_id  TEXT                -- Telegram chat ID (diisi otomatis via deep link)
 telegram_link_token TEXT              -- Token sementara untuk deep link connect
+notification_prefs JSONB              -- Per-agent notification preferences (10 toggles, default semua true)
 ```
 
 ### Tabel `capi_configs`
@@ -374,6 +378,8 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | GET | `/api/telegram/link` | Bearer | Generate deep link token + URL untuk connect Telegram |
 | GET | `/api/telegram/status` | Bearer | Check apakah Telegram sudah terhubung |
 | POST | `/api/telegram/disconnect` | Bearer | Putuskan koneksi Telegram (clear chat_id + token) |
+| GET | `/api/telegram/prefs` | Bearer | Get notification preferences (merged with defaults) |
+| PUT | `/api/telegram/prefs` | Bearer | Update notification preferences (partial update, JSONB merge) |
 | POST | `/api/telegram/webhook` | — | Webhook handler dari Telegram bot (process /start {token}) |
 
 ### Calendar
@@ -470,6 +476,9 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - AI Copywriting (OpenAI integration)
 - Telegram Notifier (real-time seat/price alerts, daily briefing, AI insights)
 - Telegram per-agent: deep link connect, conversational departure reminders (pagi H-14/H-7/H-3/H-1 + sore H-1)
+- Telegram notification preferences (10 categories, per-agent toggle, JSONB in agents table)
+- Pembayaran masuk detection (sync-time comparison, auto-notify agent via Telegram DM)
+- Settings page: iOS segmented control tab bar (Lucide icons), Telegram brand badge with animations, skeleton loading, disconnect confirmation dialog
 - Background sync jamaah (hourly, all agents, single kantor per agent, 6-month widened fetch range)
 - Single package view (deep link ke 1 paket)
 - Quotation PDF dengan logo bank (BCA, BSI, Mandiri)

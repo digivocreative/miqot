@@ -131,6 +131,52 @@ border-b border-gray-100 dark:border-slate-700/50
 
 ---
 
+## Segmented Control (Settings Tab Bar)
+
+iOS-style tab bar used in `SettingsPage.tsx`:
+
+### Container
+
+```
+bg-gray-100 dark:bg-slate-800 rounded-xl p-1 flex gap-1 w-full
+```
+
+Wrapped inside sticky header: `sticky top-[53px] z-20 bg-white dark:bg-slate-800 border-b`
+
+### Tab Item (Active)
+
+```
+flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg
+bg-white dark:bg-slate-700
+shadow-sm (0 1px 3px rgba(0,0,0,0.08))
+text-emerald-500 dark:text-emerald-400
+font-semibold
+transition-all duration-200
+```
+
+### Tab Item (Inactive)
+
+```
+flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg
+bg-transparent
+text-gray-400 dark:text-slate-500
+font-medium
+active:opacity-70
+transition-all duration-200
+```
+
+### Tab Config
+
+| Tab | Label | Lucide Icon | Size | strokeWidth |
+|-----|-------|-------------|------|-------------|
+| 1 | Profil | `User` | 13 | 2.2 |
+| 2 | Telegram | `Send` | 13 | 2.2 |
+| 3 | CAPI | `Code` | 13 | 2.2 |
+
+Label: `text-[11px]`
+
+---
+
 ## Cards
 
 ### Standard Card
@@ -462,6 +508,73 @@ flex flex-col
 
 ---
 
+## Telegram Components
+
+### Status Badge (Connected)
+
+Compact Telegram-brand badge used in `DashboardProfile.tsx` `TelegramSection`:
+
+```
+flex items-center gap-3 px-3.5 py-3 rounded-2xl
+position: relative, overflow: hidden
+background: linear-gradient(135deg, #2AABEE, #229ED9)  ← Telegram brand, NOT Tailwind blue
+```
+
+Inner elements:
+- **Background ornament**: Telegram SVG logo `w-[90px] h-[90px]`, `fill: rgba(255,255,255,0.05)`, `absolute -right-[15px] -bottom-[25px]`, `rotate(-20deg)`
+- **Icon**: `w-9 h-9 rounded-full bg-white/20`, glow ring `box-shadow: 0 0 0 3px rgba(255,255,255,0.1)`, float animation `tgFloat 3s ease-in-out infinite` (translateY 0→-2px→0)
+- **Text**: title `text-[13px] font-bold text-white`, subtitle `text-[10px] text-white/75`
+- **Green dot**: `w-2 h-2 rounded-full bg-green-400`, pulse-glow animation `tgPulseGlow 2s ease-in-out infinite`
+
+### Notification Toggle List
+
+Grouped by section (JAMAAH × 5, PAKET × 3, LAINNYA × 2):
+
+```
+Section header: text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500 mt-5 mb-2 px-1
+Card: bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm
+Row: px-4 py-3 flex items-center justify-between, border-b border-gray-50 dark:border-slate-700/50
+```
+
+Row inner:
+- Emoji: `text-base flex-shrink-0 mt-0.5`
+- Label: `text-sm font-semibold text-gray-700 dark:text-slate-200`
+- Desc: `text-[11px] text-gray-400 dark:text-slate-500 mt-0.5`
+- Toggle: `w-10 h-6 rounded-full` (emerald-500 on / gray-200 off), thumb `w-5 h-5 rounded-full bg-white shadow-sm`
+
+### Disconnect Button
+
+```
+flex items-center justify-center gap-1.5 w-full py-3 mt-8
+text-xs font-medium text-red-500 dark:text-red-400
+active:opacity-70 transition-colors
+```
+
+Icon: `Unlink` (Lucide, size 14)
+
+### Disconnect Confirmation Dialog
+
+```
+Backdrop: fixed inset-0 z-50 bg-black/50 backdrop-blur-sm
+Wrapper: fixed inset-0 z-50 flex items-center justify-center px-4 pointer-events-none
+Card: w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl border shadow-2xl p-5 text-center pointer-events-auto
+```
+
+Animation: scale `0.92→1` (open) / `1→0.92` (close), `cubic-bezier(0.16,1,0.3,1)` 250ms
+
+### Telegram Tab Skeleton
+
+Shown while `statusLoading === true` (before initial API response):
+
+```
+Status badge: h-14 w-full rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse
+Section header: h-3 w-16/w-12 rounded-md animate-pulse
+Toggle rows: px-4 py-3 with circle (w-8 h-8), text (h-3 w-28 + h-2.5 w-20), toggle pill (w-9 h-5)
+All: bg-gray-200 dark:bg-slate-700 animate-pulse
+```
+
+---
+
 ## Form Inputs
 
 ### Text Input / Select
@@ -551,6 +664,9 @@ uppercase tracking-wide
 | `Plane` | Berangkat segera |
 | `RefreshCw` | Sync ulang |
 | `X` | Close modal/dialog |
+| `Send` | Telegram tab (segmented control) |
+| `Code` | CAPI tab (segmented control) |
+| `Unlink` | Disconnect Telegram |
 
 ### WhatsApp Icon (Custom SVG)
 
@@ -558,6 +674,15 @@ Used in `StatistikPage.tsx`, `AgentProfile.tsx`, and `HajiPage.tsx` — inline S
 ```tsx
 <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor">
   <path d="M17.472 14.382c-.297-.149..." />
+</svg>
+```
+
+### Telegram Icon (Custom SVG)
+
+Used in `DashboardProfile.tsx` (TelegramSection badge + CTA) — inline SVG, not from Lucide:
+```tsx
+<svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+  <path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12..." />
 </svg>
 ```
 
@@ -669,7 +794,7 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 | Modal fade-in | `fadeIn 150ms ease-out` |
 | Modal slide-up | `slideUp 200ms ease-out` |
 | Bottom sheet slide-up | Framer Motion `y: '100%' → 0`, 250ms, ease `[0.4, 0, 0.2, 1]` |
-| Disconnect modal | `dc-backdrop-enter/exit`, `dc-card-enter/exit` (see `index.css`) |
+| Disconnect modal | `dcModalIn/Out` — `scale(0.92→1)` 250ms `cubic-bezier(0.16,1,0.3,1)` |
 | Chart bar transition | `transition-all duration-500` |
 
 ---
@@ -684,7 +809,8 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 | AI button glow | `.ai-border-glow` (conic gradient, rotating) |
 | Page transition overlay | `.page-transition-overlay` |
 | Legacy table styling | `.laporan-content table/th/td` |
-| Disconnect modal anims | `.dc-backdrop-enter/exit`, `.dc-card-enter/exit` |
+| Disconnect modal anims | `dcOverlayIn/Out`, `dcModalIn/Out` (inline `<style>` in component) |
+| Telegram badge anims | `tgFloat` (icon bob), `tgPulseGlow` (green dot pulse) (inline `<style>`) |
 
 ---
 

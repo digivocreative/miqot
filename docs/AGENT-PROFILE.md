@@ -128,7 +128,7 @@ Selain fitur publik (jadwal, CTA), agent yang sudah login juga memiliki akses ke
 
 | Fitur | Deskripsi |
 |---|---|
-| **Settings** | Unified page (3 tab): Profil • Telegram • CAPI |
+| **Settings** | Unified page with iOS segmented control (3 tabs): Profil (edit profile) • Telegram (connect, 10-category notification toggles, disconnect dialog) • CAPI |
 | Statistik | Ringkasan data jamaah: total, komisi, tren, berangkat mendatang, outstanding |
 | Kalkulasi | Hitung harga per tipe kamar + generate PDF quotation |
 | Compare | Bandingkan 2 paket side-by-side |
