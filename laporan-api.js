@@ -340,6 +340,17 @@ function parseDateDMY(str) {
   return null; // Return null instead of raw string to prevent DB errors
 }
 
+// ── Get session cookie for reuse (e.g. haji sync) ──
+export function getSessionCookie(username) {
+  const session = sessions.get(username);
+  if (!session) return null;
+  if (Date.now() - session.createdAt > SESSION_TTL) {
+    sessions.delete(username);
+    return null;
+  }
+  return session.cookie;
+}
+
 // ── Disconnect: Remove session ──
 export function disconnect(username) {
   const existed = sessions.delete(username);

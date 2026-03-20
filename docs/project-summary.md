@@ -79,7 +79,8 @@ alhijaz/
 │   │   ├── CapiPage.tsx        # Meta Conversion API config UI (~1774 lines)
 │   │   ├── KalkulasiPage.tsx   # Hitung harga + generate quotation PDF (~1493 lines)
 │   │   ├── ComparePage.tsx     # Bandingkan 2 paket side-by-side (~1084 lines)
-│   │   ├── JamaahPage.tsx      # View jamaah data, sync & filter (~1018 lines)
+│   │   ├── JamaahPage.tsx      # View jamaah umroh data, sync & filter (~1018 lines)
+│   │   ├── HajiPage.tsx        # View jamaah haji data (embedded as tab in Jamaah), login to legacy, sync, document viewer popup
 │   │   ├── StatistikPage.tsx   # Dashboard statistik: ringkasan jamaah, komisi, chart tren (~678 lines)
 │   │   ├── UpcomingSchedule.tsx # Calendar widget — mini grid with colored dots + bottom sheet detail
 │   │   ├── CalendarInsight.tsx   # AI Insight alert bar + bottom sheet popup (OpenAI-generated)
@@ -190,12 +191,19 @@ alhijaz/
 - Compare 2 paket side-by-side
 - Meta CAPI config (Pixel ID, Access Token, event toggle) — auto-bypass login dari dashboard
 - Admin: manage all agents (CRUD)
-- Jamaah management (sync dari sistem internal legacy, filter, sort, pagination)
-  - Progressive sync: first 10 jamaah shown immediately, rest synced in background
-  - Fetch range diperlebar 6 bulan sebelum awal tahun Hijriah untuk capture jamaah yang didaftarkan lebih awal
-  - Filter by hijriah year, payment status, departure window
-  - Sort by nama, sisa pembayaran, berangkat terdekat, pendaftaran terbaru
-  - Perlengkapan & dokumen tracking (batik, bergo, paspor, dll)
+- Jamaah management — 2 tab: **Umroh** (`/dashboard/jamaah/umroh`) dan **Haji** (`/dashboard/jamaah/haji`)
+  - Tab Umroh: sync dari sistem internal legacy, filter, sort, pagination
+    - Progressive sync: first 10 jamaah shown immediately, rest synced in background
+    - Fetch range diperlebar 6 bulan sebelum awal tahun Hijriah untuk capture jamaah yang didaftarkan lebih awal
+    - Filter by hijriah year, payment status, departure window
+    - Sort by nama, sisa pembayaran, berangkat terdekat, pendaftaran terbaru
+    - Perlengkapan & dokumen tracking (batik, bergo, paspor, dll)
+  - Tab Haji (`HajiPage.tsx`): login ke legacy system, sync, list jamaah haji
+    - Card collapsed: avatar (gender ring, lunas checkmark), nama, `{id_haji} • {paket}`, tahun masehi keberangkatan (orange bold)
+    - Card expanded: detail grid (Thn Hijriyah, Jenis, Perwakilan, Marketing, Staff, Status Bayar), telp, alamat
+    - Action buttons (30/50/20): BPIH (blue), Pernyataan (violet), WhatsApp icon (emerald filled)
+    - BPIH & Pernyataan → full-screen document viewer popup (iframe, framer-motion slide-up animation, native share)
+    - URL routing: slug-based tab switching di Jamaah page
 - **Kalender** — mini calendar widget di Dashboard home:
   - Calendar grid bulanan dengan colored dots (Manasik, Keberangkatan, Kepulangan)
   - Navigasi bulan (prev/next) dengan caching data per bulan
@@ -456,6 +464,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Removed redundant Hitung/Compare buttons from public header
 - CAPI auto-bypass login from dashboard context
 - Seed script for dummy agent "bagas" with 25 jamaah records
+- Haji tab integration (embedded in Jamaah page, slug-based URL routing, legacy login, card list, document viewer popup)
 
 ### Rencana / Backlog
 - [TODO] Testing suite

@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Eye, EyeOff, LogIn, Loader2, User, Lock, Search,
+  Eye, EyeOff, LogIn, Loader2, User, Users, Lock, Search,
   Calendar, Building2, Trash2, KeyRound, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, RefreshCw,
-  ArrowUpDown, SlidersHorizontal, X, Check,
+  ArrowUpDown, SlidersHorizontal, X, Check, Landmark,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
+import HajiPage from './HajiPage';
 
 // ── Types ──
 interface JamaahItem {
@@ -48,10 +49,11 @@ type SortKey = 'nama' | 'sisa_desc' | 'berangkat' | 'terbaru';
 interface JamaahPageProps {
   jamaahConnected?: boolean;
   jamaahUser?: string;
+  initialSubTab?: 'umroh' | 'haji';
   onConnectionChange?: (connected: boolean, user: string) => void;
 }
 
-export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionChange }: JamaahPageProps) {
+export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab = 'umroh', onConnectionChange }: JamaahPageProps) {
   // Compute current Hijriah year dynamically
   const currentHijriYear = (() => {
     const now = new Date();
@@ -87,7 +89,15 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [deletingCreds, setDeletingCreds] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [subTab, setSubTab] = useState<'umroh' | 'haji'>(initialSubTab);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Switch sub-tab and update URL
+  const switchSubTab = useCallback((tab: 'umroh' | 'haji') => {
+    setSubTab(tab);
+    window.history.replaceState(null, '', `/dashboard/jamaah/${tab}`);
+    document.title = tab === 'haji' ? 'Jamaah - Haji' : 'Jamaah';
+  }, []);
 
   // ── Check status on mount / handle parent disconnect ──
   useEffect(() => {
@@ -423,6 +433,36 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
     );
   }
 
+  // ── Sub-tab: Haji ──
+  if (view === 'data' && subTab === 'haji') {
+    return (
+      <div className="px-4 pt-4 pb-8 space-y-2">
+        {/* Sub-tab switcher */}
+        <div className="flex gap-1 bg-gray-100 dark:bg-slate-800 p-1 rounded-xl">
+          <button
+            onClick={() => switchSubTab('umroh')}
+            className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg text-xs font-bold transition-all bg-transparent text-gray-500 dark:text-slate-400"
+          >
+            <Users size={14} />
+            Umroh
+          </button>
+          <button
+            onClick={() => switchSubTab('haji')}
+            className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg text-xs font-bold transition-all bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm"
+          >
+            <Landmark size={14} />
+            Haji
+          </button>
+        </div>
+        <HajiPage
+          jamaahConnected={jamaahConnected}
+          jamaahUser={jamaahUser}
+          onConnectionChange={onConnectionChange}
+        />
+      </div>
+    );
+  }
+
   // ── Data View ──
   if (view === 'data') {
     const SORT_OPTIONS: { key: SortKey; label: string }[] = [
@@ -434,6 +474,24 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, onConnectionCh
 
     return (
       <div className={`px-4 pt-4 pb-8 space-y-2 transition-opacity ${loadingData && data ? 'opacity-50 pointer-events-none' : ''}`}>
+
+        {/* Sub-tab switcher */}
+        <div className="flex gap-1 bg-gray-100 dark:bg-slate-800 p-1 rounded-xl">
+          <button
+            onClick={() => switchSubTab('umroh')}
+            className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg text-xs font-bold transition-all bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm"
+          >
+            <Users size={14} />
+            Umroh
+          </button>
+          <button
+            onClick={() => switchSubTab('haji')}
+            className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg text-xs font-bold transition-all bg-transparent text-gray-500 dark:text-slate-400"
+          >
+            <Landmark size={14} />
+            Haji
+          </button>
+        </div>
 
         {/* Command bar */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">

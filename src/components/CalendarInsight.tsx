@@ -103,8 +103,7 @@ export default function CalendarInsight() {
 
           {/* Text */}
           <p className="flex-1 text-[11px] text-gray-600 dark:text-slate-300 font-medium truncate">
-            <span className="font-bold text-emerald-600 dark:text-emerald-400">AI Insight</span>
-            {' — '}{barText}
+            {barText}
           </p>
 
           {/* Close */}

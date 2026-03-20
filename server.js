@@ -8,7 +8,8 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
-import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect } from './laporan-api.js';
+import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie } from './laporan-api.js';
+import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
 import { initNotifier } from './telegram-notifier.js';
 import { syncCalendar } from './calendar-api.js';
 
@@ -1207,6 +1208,15 @@ app.get('/api/calendar/events', authMiddleware, async (req, res) => {
 // API: Calendar AI Insight
 // ──────────────────────────────────────────────
 let insightCache = null; // in-memory fallback: {today, weekly, cuaca, generatedAt}
+
+// Check if insight is stale (dateFor is not today in WIB / UTC+7)
+function isInsightStale(cache) {
+  if (!cache || !cache.generatedAt) return true;
+  // If no dateFor field (old format), always stale — forces regeneration
+  if (!cache.dateFor) return true;
+  const nowWIB = new Date(Date.now() + 7 * 60 * 60 * 1000);
+  return cache.dateFor !== nowWIB.toISOString().slice(0, 10);
+}
 let insightRefreshLast = 0; // timestamp of last manual refresh
 
 // Mekah/Madinah monthly average temperatures (°C)
@@ -1221,18 +1231,19 @@ async function generateCalendarInsight() {
     return null;
   }
 
-  // Query events: today → +7 days
+  // Query events: today → +7 days (use WIB / UTC+7 to get correct local date)
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
-  const nextWeek = new Date(today);
+  const todayWIB = new Date(today.getTime() + 7 * 60 * 60 * 1000);
+  const todayStr = todayWIB.toISOString().split('T')[0];
+  const nextWeek = new Date(todayWIB);
   nextWeek.setDate(nextWeek.getDate() + 7);
   const nextWeekStr = nextWeek.toISOString().split('T')[0];
 
-  // Also get the full current month for summary
-  const monthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
-  const monthEnd = today.getMonth() === 11
-    ? `${today.getFullYear() + 1}-01-01`
-    : `${today.getFullYear()}-${String(today.getMonth() + 2).padStart(2, '0')}-01`;
+  // Also get the full current month for summary (use WIB date)
+  const monthStart = `${todayWIB.getUTCFullYear()}-${String(todayWIB.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  const monthEnd = todayWIB.getUTCMonth() === 11
+    ? `${todayWIB.getUTCFullYear() + 1}-01-01`
+    : `${todayWIB.getUTCFullYear()}-${String(todayWIB.getUTCMonth() + 2).padStart(2, '0')}-01`;
 
   let weekEvents, monthEvents;
   try {
@@ -1300,23 +1311,52 @@ async function generateCalendarInsight() {
   }
 
   // Weather data for prompt
-  const currentMonth = today.getMonth() + 1;
+  const currentMonth = todayWIB.getUTCMonth() + 1;
   const mekahT = MEKAH_TEMPS[currentMonth];
   const madinahT = MADINAH_TEMPS[currentMonth];
   const mekahCondition = mekahT.high >= 39 ? 'sangat panas' : mekahT.high >= 30 ? 'panas' : 'hangat';
   const madinahCondition = madinahT.high >= 39 ? 'sangat panas' : madinahT.high >= 30 ? 'panas' : 'hangat';
 
-  const prompt = `Kamu adalah asisten untuk agen travel umroh Alhijaz. Agen-agen ini mayoritas ibu-ibu usia 40-50 tahun. 
+  // Random style hint — pick 1 each time to vary tone
+  const styleHints = [
+    'Mulai dengan sapaan hangat.',
+    'Mulai langsung ke poin penting, tanpa basa-basi.',
+    'Buka dengan pertanyaan retoris.',
+    'Gunakan nada sedikit playful dan ceria.',
+    'Buka dengan fun fact atau observasi menarik.',
+    'Gunakan nada tenang dan reassuring.',
+    'Mulai dengan "heads up" atau alert tone yang friendly.',
+    'Buka dengan apresiasi atau motivasi singkat.',
+  ];
+  const randomStyle = styleHints[Math.floor(Math.random() * styleHints.length)];
+
+  const systemPrompt = `Kamu adalah asisten untuk agen travel umroh Alhijaz. Agen-agen ini mayoritas ibu-ibu usia 40-50 tahun. 
 
 Tugas kamu: buat 3 insight singkat berdasarkan data jadwal dan cuaca berikut. Gunakan bahasa Indonesia yang HANGAT dan KASUAL — seperti ngobrol sesama teman kerja. Jangan pakai bahasa baku/kaku/formal. Boleh pakai kata seperti "rame", "lumayan", "nih", "yuk", "dong", "banget", "Alhamdulillah". Jangan pakai kata "signifikan", "terkait", "berdasarkan data", atau bahasa laporan.
 
+VARIASI BAHASA (WAJIB):
+- JANGAN pernah buka kalimat dengan pola yang sama setiap hari. Variasikan pembuka — kadang mulai dari sapaan, kadang dari fakta menarik, kadang dari pertanyaan, kadang dari reminder langsung.
+- Contoh variasi pembuka field "today":
+  • "Pagi! Hari ini ada 3 group berangkat loh..."
+  • "Cek jadwal hari ini yuk — tanggal 22 Maret lumayan padat..."
+  • "Alhamdulillah hari ini agak santai, nggak ada keberangkatan..."
+  • "Heads up! Ada 2 group yang berangkat hari ini..."
+  • "Hari Kamis ini kosong dari keberangkatan, tapi besok..."
+  • "Selamat pagi! Jadwal hari ini cukup seru nih..."
+- Contoh variasi pembuka field "weekly":
+  • "Minggu ini lumayan padat — total 5 group berangkat..."
+  • "Siap-siap ya, minggu depan bakal rame..."
+  • "Untuk 7 hari ke depan, yang paling perlu diperhatiin itu..."
+  • "Weekly update: ada beberapa group besar yang berangkat..."
+- Contoh variasi pembuka field "cuaca":
+  • "Soal cuaca, Mekah lagi panas-panasnya nih..."
+  • "Buat jamaah yang mau berangkat, cuaca di Tanah Suci..."
+  • "Update cuaca: Madinah lagi adem, tapi Mekah..."
+  • "Jangan lupa ingetin jamaah soal cuaca ya..."
+- Gunakan hari dalam minggu (Senin, Selasa, dst) secara natural, jangan selalu sebut tanggal angka di awal kalimat.
+- Variasikan juga gaya penutup — jangan selalu "jangan lupa" atau "pastikan".
+
 Bungkus angka/tanggal penting dengan **bold** (contoh: **25 Maret**, **336 jamaah**).
-
-Data jadwal 7 hari ke depan:
-${calendarDataString}
-
-Data cuaca Mekah bulan ini: suhu ${mekahT.low}-${mekahT.high}°C, kondisi ${mekahCondition}
-Data cuaca Madinah bulan ini: suhu ${madinahT.low}-${madinahT.high}°C, kondisi ${madinahCondition}
 
 Buat 3 bagian (HARUS dalam format JSON, tanpa backtick/markdown di luar value):
 {
@@ -1325,13 +1365,24 @@ Buat 3 bagian (HARUS dalam format JSON, tanpa backtick/markdown di luar value):
   "cuaca": "Info cuaca Mekah dan Madinah minggu ini yang relevan untuk jamaah yang mau berangkat. Kasih tips praktis buat agent ingetin jamaahnya, misal bawa payung, minum yang banyak, pakai sunblock, dll. Harus hangat dan perhatian, kayak ibu-ibu ngingetin anaknya. Maksimal 3 kalimat."
 }`;
 
+  const userPrompt = `Data jadwal 7 hari ke depan:
+${calendarDataString}
+
+Data cuaca Mekah bulan ini: suhu ${mekahT.low}-${mekahT.high}°C, kondisi ${mekahCondition}
+Data cuaca Madinah bulan ini: suhu ${madinahT.low}-${madinahT.high}°C, kondisi ${madinahCondition}
+
+Gaya penulisan hari ini: ${randomStyle}`;
+
   try {
     const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_KEY}` },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
         temperature: 0.7,
         max_tokens: 600,
       }),
@@ -1354,6 +1405,7 @@ Buat 3 bagian (HARUS dalam format JSON, tanpa backtick/markdown di luar value):
       today: parsed.today || '',
       weekly: parsed.weekly || '',
       cuaca: parsed.cuaca || '',
+      dateFor: todayStr,
       generatedAt: new Date().toISOString(),
     };
 
@@ -1821,6 +1873,295 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
+// API: Haji — scrape & manage haji data
+// ──────────────────────────────────────────────
+
+// POST /api/haji/sync — progressive sync (same pattern as umroh)
+app.post('/api/haji/sync', authMiddleware, async (req, res) => {
+  const { slug } = req.user;
+
+  try {
+    const agent = await getAgent(slug);
+    if (!agent?.jamaah_username || !agent?.jamaah_password) {
+      return res.status(400).json({
+        error: 'Belum terhubung ke sistem internal. Silakan login di halaman Jamaah terlebih dahulu.'
+      });
+    }
+
+    // Prevent concurrent sync (same as umroh)
+    const state = syncingAgents.get(slug);
+    if (state?.isSyncing) {
+      return res.json({ success: true, data: { initialCount: 0, syncing: true, message: 'Sync sudah berjalan' } });
+    }
+
+    syncingAgents.set(slug, { isSyncing: true, totalSynced: 0, lastSync: null });
+
+    // Login fresh to legacy system
+    laporanDisconnect(agent.jamaah_username);
+    const decrypted = capiDecrypt(agent.jamaah_password);
+    const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
+    if (!loginResult.success) {
+      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+      return res.status(401).json({ error: 'Gagal login ke sistem internal. Silakan login ulang.' });
+    }
+
+    const sessionCookies = getSessionCookie(agent.jamaah_username);
+    if (!sessionCookies) {
+      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+      return res.status(400).json({ error: 'Session cookies tidak tersedia setelah login.' });
+    }
+
+    // Step 1: Fetch the haji list
+    const hajiList = await fetchHajiList(sessionCookies);
+    const uniqueIds = [...new Set(hajiList.map(h => h.id_haji))];
+    console.log(`[haji-sync] ${slug}: found ${hajiList.length} entries, ${uniqueIds.length} unique`);
+
+    if (uniqueIds.length === 0) {
+      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: new Date().toISOString() });
+      return res.json({ success: true, data: { initialCount: 0, syncing: false } });
+    }
+
+    // Step 2: Fetch first 2 batches (up to 10 detail pages) for immediate response
+    const BATCH_SIZE = 5;
+    const firstBatchIds = uniqueIds.slice(0, 10);
+    const restIds = uniqueIds.slice(10);
+    const now = new Date().toISOString();
+    const firstRows = [];
+
+    for (let i = 0; i < firstBatchIds.length; i += BATCH_SIZE) {
+      const batch = firstBatchIds.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(async (idHaji) => {
+          const details = await fetchHajiDetail(sessionCookies, idHaji);
+          const listEntry = hajiList.find(h => h.id_haji === idHaji);
+          return details.map(detail => ({
+            agent_slug: slug,
+            id_haji: idHaji,
+            id_jamaah: detail.id_jamaah,
+            nama: detail.nama,
+            jk: detail.jk,
+            alamat: detail.alamat,
+            telp: detail.telp,
+            thn_hijriyah: listEntry.thn_hijriyah,
+            thn_masehi: listEntry.thn_masehi,
+            perwakilan: listEntry.perwakilan,
+            marketing: listEntry.marketing,
+            paket: listEntry.paket,
+            staff: listEntry.staff,
+            jenis: listEntry.jenis,
+            status_bayar: detail.status_bayar,
+            status_berangkat: detail.status_berangkat,
+            bpih_url: detail.bpih_url,
+            surat_pernyataan_url: detail.surat_pernyataan_url,
+            synced_at: now,
+          }));
+        })
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled') firstRows.push(...r.value);
+        else if (r.reason?.message === 'SESSION_EXPIRED') throw r.reason;
+      }
+    }
+
+    // Upsert first batch
+    if (firstRows.length > 0) {
+      const { error: firstErr } = await supabase
+        .from('jamaah_haji')
+        .upsert(firstRows, { onConflict: 'agent_slug,id_haji,id_jamaah' });
+      if (firstErr) console.error('[haji-sync] First batch upsert error:', firstErr.message);
+    }
+
+    const moreToSync = restIds.length > 0;
+    syncingAgents.set(slug, { isSyncing: moreToSync, totalSynced: firstRows.length, lastSync: now });
+
+    // Respond immediately with first batch
+    res.json({
+      success: true,
+      data: { initialCount: firstRows.length, total: hajiList.length, syncing: moreToSync },
+    });
+
+    // Step 3: Continue syncing rest in background
+    if (moreToSync) {
+      (async () => {
+        try {
+          const bgRows = [];
+          for (let i = 0; i < restIds.length; i += BATCH_SIZE) {
+            const batch = restIds.slice(i, i + BATCH_SIZE);
+            const results = await Promise.allSettled(
+              batch.map(async (idHaji) => {
+                const details = await fetchHajiDetail(sessionCookies, idHaji);
+                const listEntry = hajiList.find(h => h.id_haji === idHaji);
+                return details.map(detail => ({
+                  agent_slug: slug,
+                  id_haji: idHaji,
+                  id_jamaah: detail.id_jamaah,
+                  nama: detail.nama,
+                  jk: detail.jk,
+                  alamat: detail.alamat,
+                  telp: detail.telp,
+                  thn_hijriyah: listEntry.thn_hijriyah,
+                  thn_masehi: listEntry.thn_masehi,
+                  perwakilan: listEntry.perwakilan,
+                  marketing: listEntry.marketing,
+                  paket: listEntry.paket,
+                  staff: listEntry.staff,
+                  jenis: listEntry.jenis,
+                  status_bayar: detail.status_bayar,
+                  status_berangkat: detail.status_berangkat,
+                  bpih_url: detail.bpih_url,
+                  surat_pernyataan_url: detail.surat_pernyataan_url,
+                  synced_at: now,
+                }));
+              })
+            );
+            for (const r of results) {
+              if (r.status === 'fulfilled') bgRows.push(...r.value);
+              else if (r.reason?.message === 'SESSION_EXPIRED') throw r.reason;
+            }
+            // Upsert in batches of 50
+            if (bgRows.length >= 50 || i + BATCH_SIZE >= restIds.length) {
+              if (bgRows.length > 0) {
+                const { error } = await supabase
+                  .from('jamaah_haji')
+                  .upsert(bgRows, { onConflict: 'agent_slug,id_haji,id_jamaah' });
+                if (error) console.error('[haji-sync] BG batch error:', error.message);
+                syncingAgents.set(slug, {
+                  isSyncing: true,
+                  totalSynced: firstRows.length + bgRows.length,
+                  lastSync: now,
+                });
+                bgRows.length = 0; // clear
+              }
+            }
+            if (i + BATCH_SIZE < restIds.length) await new Promise(r => setTimeout(r, 100));
+          }
+          console.log(`[haji-sync] ${slug}: background sync complete`);
+          syncingAgents.set(slug, { isSyncing: false, totalSynced: firstRows.length, lastSync: now });
+        } catch (err) {
+          console.error('[haji-sync] BG sync error:', err.message);
+          syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+        }
+      })();
+    }
+  } catch (err) {
+    console.error('[haji] Sync error:', err);
+    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+    if (!res.headersSent) {
+      if (err.message === 'SESSION_EXPIRED') {
+        return res.status(401).json({ error: 'Session expired. Silakan login ulang.' });
+      }
+      res.status(500).json({ error: 'Gagal sync data haji: ' + err.message });
+    }
+  }
+});
+
+// GET /api/haji/jamaah — list jamaah haji with filters
+app.get('/api/haji/jamaah', authMiddleware, async (req, res) => {
+  try {
+    const { slug } = req.user;
+    const {
+      search = '',
+      thn_hijriyah = '',
+      jenis = '',
+      status_bayar = '',
+      page = '1',
+      limit = '20'
+    } = req.query;
+
+    let query = supabase
+      .from('jamaah_haji')
+      .select('*', { count: 'exact' })
+      .eq('agent_slug', slug)
+      .order('id_haji', { ascending: false });
+
+    if (search) {
+      query = query.or(`nama.ilike.%${search}%,id_haji.ilike.%${search}%,id_jamaah.ilike.%${search}%`);
+    }
+    if (thn_hijriyah) {
+      query = query.eq('thn_hijriyah', thn_hijriyah);
+    }
+    if (jenis) {
+      query = query.eq('jenis', jenis);
+    }
+    if (status_bayar) {
+      query = query.eq('status_bayar', status_bayar);
+    }
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const from = (pageNum - 1) * limitNum;
+    query = query.range(from, from + limitNum - 1);
+
+    const { data, error, count } = await query;
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      data,
+      total: count,
+      page: pageNum,
+      limit: limitNum
+    });
+  } catch (err) {
+    console.error('[haji] List error:', err);
+    res.status(500).json({ error: 'Gagal mengambil data haji' });
+  }
+});
+
+// GET /api/haji/stats — aggregated haji statistics
+app.get('/api/haji/stats', authMiddleware, async (req, res) => {
+  try {
+    const { slug } = req.user;
+
+    const { data, error } = await supabase
+      .from('jamaah_haji')
+      .select('id_haji, thn_hijriyah, thn_masehi, status_bayar, jenis, paket')
+      .eq('agent_slug', slug);
+
+    if (error) throw error;
+
+    const total = data.length;
+    const uniqueHaji = [...new Set(data.map(d => d.id_haji))].length;
+    const lunas = data.filter(d => d.status_bayar === 'LUNAS').length;
+    const cicilan = data.filter(d => d.status_bayar === 'CICILAN').length;
+    const belumBayar = data.filter(d => d.status_bayar === 'BELUM BAYAR').length;
+
+    // Group by thn_hijriyah
+    const byTahun = {};
+    data.forEach(d => {
+      const key = d.thn_hijriyah || 'unknown';
+      if (!byTahun[key]) byTahun[key] = 0;
+      byTahun[key]++;
+    });
+
+    // Group by jenis
+    const byJenis = {};
+    data.forEach(d => {
+      const key = d.jenis || 'unknown';
+      if (!byJenis[key]) byJenis[key] = 0;
+      byJenis[key]++;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        total,
+        uniqueHaji,
+        lunas,
+        cicilan,
+        belumBayar,
+        byTahun,
+        byJenis
+      }
+    });
+  } catch (err) {
+    console.error('[haji] Stats error:', err);
+    res.status(500).json({ error: 'Gagal mengambil statistik haji' });
+  }
+});
+
+// ──────────────────────────────────────────────
 // Analytics API
 // ──────────────────────────────────────────────
 const VALID_EVENT_TYPES = ['login', 'feature', 'action', 'public'];
@@ -2262,7 +2603,77 @@ async function syncOneAgent(agent) {
       }
     }
 
-    console.log(`[SYNC] ${slug}: total ${totalSynced} jamaah synced`);
+    console.log(`[SYNC] ${slug}: total ${totalSynced} umroh synced`);
+
+    // ── Haji sync (reuse same session) ──
+    try {
+      const sessionCookies = getSessionCookie(agent.jamaah_username);
+      if (sessionCookies) {
+        const hajiList = await fetchHajiList(sessionCookies);
+        const uniqueIds = [...new Set(hajiList.map(h => h.id_haji))];
+        console.log(`[SYNC] ${slug}: found ${uniqueIds.length} unique haji entries`);
+
+        if (uniqueIds.length > 0) {
+          const HAJI_BATCH = 5;
+          let hajiSynced = 0;
+          const allHajiRows = [];
+
+          for (let i = 0; i < uniqueIds.length; i += HAJI_BATCH) {
+            const batch = uniqueIds.slice(i, i + HAJI_BATCH);
+            const results = await Promise.allSettled(
+              batch.map(async (idHaji) => {
+                const details = await fetchHajiDetail(sessionCookies, idHaji);
+                const listEntry = hajiList.find(h => h.id_haji === idHaji);
+                return details.map(detail => ({
+                  agent_slug: slug,
+                  id_haji: idHaji,
+                  id_jamaah: detail.id_jamaah,
+                  nama: detail.nama,
+                  jk: detail.jk,
+                  alamat: detail.alamat,
+                  telp: detail.telp,
+                  thn_hijriyah: listEntry.thn_hijriyah,
+                  thn_masehi: listEntry.thn_masehi,
+                  perwakilan: listEntry.perwakilan,
+                  marketing: listEntry.marketing,
+                  paket: listEntry.paket,
+                  staff: listEntry.staff,
+                  jenis: listEntry.jenis,
+                  status_bayar: detail.status_bayar,
+                  status_berangkat: detail.status_berangkat,
+                  bpih_url: detail.bpih_url,
+                  surat_pernyataan_url: detail.surat_pernyataan_url,
+                  synced_at: syncTime,
+                }));
+              })
+            );
+            for (const r of results) {
+              if (r.status === 'fulfilled') allHajiRows.push(...r.value);
+            }
+
+            // Upsert in batches of 50
+            if (allHajiRows.length >= 50 || i + HAJI_BATCH >= uniqueIds.length) {
+              if (allHajiRows.length > 0) {
+                const { error: hajiErr } = await supabase
+                  .from('jamaah_haji')
+                  .upsert(allHajiRows, { onConflict: 'agent_slug,id_haji,id_jamaah' });
+                if (hajiErr) console.error(`[SYNC] ${slug} haji batch error:`, hajiErr.message);
+                hajiSynced += allHajiRows.length;
+                allHajiRows.length = 0;
+              }
+            }
+
+            // Small delay between batches
+            if (i + HAJI_BATCH < uniqueIds.length) await new Promise(r => setTimeout(r, 100));
+          }
+          console.log(`[SYNC] ${slug}: ${hajiSynced} haji jamaah synced`);
+        }
+      }
+    } catch (hajiErr) {
+      console.error(`[SYNC] ${slug} haji error:`, hajiErr.message);
+      // Don't fail the whole sync if haji fails
+    }
+
     syncingAgents.set(slug, { isSyncing: false, totalSynced, lastSync: syncTime });
     laporanDisconnect(agent.jamaah_username);
   } catch (err) {
@@ -2306,7 +2717,7 @@ async function runCalendarSync() {
   try {
     await syncCalendar(supabase, capiDecrypt);
     // Generate AI insight after first sync (if cache is empty or stale format)
-    if (!insightCache || !insightCache.cuaca) {
+    if (isInsightStale(insightCache)) {
       try { await generateCalendarInsight(); } catch (e) { console.error('[AI Insight] Post-sync error:', e.message); }
     }
   } catch (err) {
@@ -2318,15 +2729,15 @@ async function runCalendarSync() {
 setTimeout(runCalendarSync, 60 * 1000);
 setInterval(runCalendarSync, 12 * 60 * 60 * 1000);
 
-// ── AI Insight: generate daily at 01:00 WIB ──
+// ── AI Insight: generate daily at 01:00 WIB + on startup if stale ──
 function scheduleInsightCron() {
   const now = new Date();
   // Next 01:00 WIB (UTC+7 → 18:00 UTC day before)
   const target = new Date(now);
-  target.setUTCHours(18, 0, 0, 0); // 01:00 WIB = 18:00 UTC
+  target.setUTCHours(23, 0, 0, 0); // 06:00 WIB = 23:00 UTC
   if (target <= now) target.setDate(target.getDate() + 1);
   const msUntil = target - now;
-  console.log(`[AI Insight] Next cron in ${Math.round(msUntil / 60000)} minutes (01:00 WIB)`);
+  console.log(`[AI Insight] Next cron in ${Math.round(msUntil / 60000)} minutes (06:00 WIB)`);
   setTimeout(async () => {
     try { await generateCalendarInsight(); } catch (e) { console.error('[AI Insight] Cron error:', e.message); }
     // Then repeat every 24 hours
@@ -2336,3 +2747,27 @@ function scheduleInsightCron() {
   }, msUntil);
 }
 scheduleInsightCron();
+
+// ── AI Insight: warm up cache from Supabase on startup, regenerate if stale ──
+setTimeout(async () => {
+  try {
+    // Warm up cache from Supabase first
+    if (!insightCache) {
+      const { data: row } = await supabase
+        .from('calendar_insights')
+        .select('data')
+        .eq('id', 'latest')
+        .single();
+      if (row?.data) insightCache = row.data;
+    }
+    // Regenerate if stale (not generated today WIB)
+    if (isInsightStale(insightCache)) {
+      console.log('[AI Insight] Startup: insight is stale, regenerating...');
+      await generateCalendarInsight();
+    } else {
+      console.log('[AI Insight] Startup: insight is fresh, skipping generation');
+    }
+  } catch (e) {
+    console.error('[AI Insight] Startup check error:', e.message);
+  }
+}, 90 * 1000); // 90s after startup (after calendar sync has a chance to run)

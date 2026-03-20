@@ -69,6 +69,16 @@ Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 | Gender ring (P) | `ring-2 ring-pink-300` | same |
 | Gender ring (L) | `ring-2 ring-blue-300` | same |
 
+### Haji Page Colors
+
+| Context | Light | Dark |
+|---------|-------|------|
+| Tahun masehi badge (right) | `text-orange-600 font-bold` | `text-orange-400` |
+| BPIH button | `blue-50` bg, `blue-600` text, `border-blue-100` | `blue-900/20`, `blue-400`, `blue-800/40` |
+| Pernyataan button | `violet-50` bg, `violet-600` text, `border-violet-100` | `violet-900/20`, `violet-400`, `violet-800/40` |
+| WhatsApp button | `bg-emerald-500 text-white` (filled) | same |
+| Avatar/Gender ring | Same as Jamaah Page | same |
+
 ### Statistik Page Colors
 
 | Context | Light | Dark |
@@ -435,6 +445,21 @@ Layout: pulsing dot → sparkle icon → text (truncated) → close (X) button
 - Close: dismisses alert, stores in `sessionStorage('insightDismissed')`
 - Click (except close) → opens AI Insight bottom sheet popup
 
+### Document Viewer (Haji Page)
+
+Full-screen iframe-based popup for viewing BPIH/Surat Pernyataan documents:
+```
+fixed inset-0 z-[9999]
+bg-white dark:bg-slate-900
+flex flex-col
+```
+
+- Animation: Framer Motion `y: '100%' → 0`, spring damping=28 stiffness=300
+- Header: title + subtitle "Dokumen" + close button (rounded-full)
+- Content: `<iframe>` flex-1 loading internal system URL directly
+- Footer: "Bagikan Dokumen" CTA button (emerald) — uses `navigator.share()` (native share) with URL fallback to `window.open()`
+- Why iframe: internal system URLs (115.124.86.220) have CORS restrictions — react-pdf fetch fails, but iframe can load directly
+
 ---
 
 ## Form Inputs
@@ -529,7 +554,7 @@ uppercase tracking-wide
 
 ### WhatsApp Icon (Custom SVG)
 
-Used in `StatistikPage.tsx` and `AgentProfile.tsx` — inline SVG, not from Lucide:
+Used in `StatistikPage.tsx`, `AgentProfile.tsx`, and `HajiPage.tsx` — inline SVG `WaIcon` component, not from Lucide:
 ```tsx
 <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor">
   <path d="M17.472 14.382c-.297-.149..." />

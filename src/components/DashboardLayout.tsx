@@ -53,6 +53,13 @@ function getTabFromPath(): TabId {
   return 'home';
 }
 
+function getSubTabFromPath(): 'umroh' | 'haji' {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  // /dashboard/jamaah/haji
+  if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'jamaah' && segments[2] === 'haji') return 'haji';
+  return 'umroh';
+}
+
 const TAB_TITLES: Record<TabId, string> = {
   home: 'Dashboard',
   profile: 'Edit Profil',
@@ -96,6 +103,7 @@ const MENU_CARDS: MenuCard[] = [
     bgLight: 'bg-amber-50', bgDark: 'dark:bg-amber-900/20',
     borderLight: 'border-amber-100', borderDark: 'dark:border-amber-800/40',
   },
+
   {
     id: 'statistik', label: 'Statistik', desc: 'Ringkasan data',
     icon: BarChart3, color: 'text-emerald-600 dark:text-emerald-400',
@@ -382,12 +390,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             <JamaahPage
               jamaahConnected={jamaahConnected}
               jamaahUser={jamaahUser}
+              initialSubTab={getSubTabFromPath()}
               onConnectionChange={(connected, user) => {
                 setJamaahConnected(connected);
                 setJamaahUser(user);
               }}
             />
           )}
+
           {activeTab === 'analytics' && isAdmin && (
             <AnalyticsPage onHeaderRight={setAnalyticsHeaderRight} />
           )}
