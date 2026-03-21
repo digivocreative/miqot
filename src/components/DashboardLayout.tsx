@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Calculator, ArrowLeftRight, Settings,
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
-  BarChart3, Loader2,
+  BarChart3, Loader2, Sparkles,
   CalendarRange, ExternalLink, TrendingUp,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
@@ -16,9 +16,11 @@ import UpcomingSchedule from './UpcomingSchedule';
 import CalendarInsight from './CalendarInsight';
 import AnalyticsPage from './AnalyticsPage';
 import SettingsPage from './SettingsPage';
+import AIToolsPage from './AIToolsPage';
+import VoiceOverPage from './VoiceOverPage';
 import { trackEvent } from '../utils/analytics';
 
-type TabId = 'home' | 'settings' | 'kalkulasi' | 'compare' | 'caption' | 'agents' | 'jamaah' | 'statistik' | 'analytics';
+type TabId = 'home' | 'settings' | 'kalkulasi' | 'compare' | 'caption' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
@@ -29,6 +31,7 @@ const SLUG_TO_TAB: Record<string, TabId> = {
   statistik: 'statistik',
   settings: 'settings',
   analytics: 'analytics',
+  'ai-tools': 'ai-tools',
 };
 
 const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
@@ -39,6 +42,7 @@ const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
   statistik: 'statistik',
   settings: 'settings',
   analytics: 'analytics',
+  'ai-tools': 'ai-tools',
 };
 
 function getTabFromPath(): TabId {
@@ -67,6 +71,15 @@ function getSettingsTabFromPath(): 'profil' | 'telegram' | 'capi' {
   return 'profil';
 }
 
+function getAIToolsSubFromPath(): string | null {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  // /dashboard/ai-tools/voice-over
+  if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'ai-tools') {
+    return segments[2];
+  }
+  return null;
+}
+
 const TAB_TITLES: Record<TabId, string> = {
   home: 'Dashboard',
   settings: 'Settings',
@@ -77,6 +90,7 @@ const TAB_TITLES: Record<TabId, string> = {
   jamaah: 'Jamaah',
   statistik: 'Statistik',
   analytics: 'Analytics',
+  'ai-tools': 'AI Tools',
 };
 
 interface MenuCard {
@@ -126,6 +140,12 @@ const MENU_CARDS: MenuCard[] = [
     icon: ArrowLeftRight, color: 'text-violet-600 dark:text-violet-400',
     bgLight: 'bg-violet-50', bgDark: 'dark:bg-violet-900/20',
     borderLight: 'border-violet-100', borderDark: 'dark:border-violet-800/40',
+  },
+  {
+    id: 'ai-tools', label: 'AI Tools', desc: 'Voice over & AI lainnya',
+    icon: Sparkles, color: 'text-purple-600 dark:text-purple-400',
+    bgLight: 'bg-purple-50', bgDark: 'dark:bg-purple-900/20',
+    borderLight: 'border-purple-100', borderDark: 'dark:border-purple-800/40',
   },
   {
     id: 'settings', label: 'Settings', desc: 'Profil, Telegram & CAPI',
@@ -210,7 +230,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // Set initial history state on mount
   useEffect(() => {
     window.history.replaceState({ tab: activeTab }, '', window.location.pathname);
-    document.title = TAB_TITLES[activeTab] || 'Dashboard';
+    document.title = (activeTab === 'ai-tools' && getAIToolsSubFromPath() === 'voice-over')
+      ? 'Voice Over'
+      : TAB_TITLES[activeTab] || 'Dashboard';
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
@@ -263,7 +285,16 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         <header className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50">
           <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
             <button
-              onClick={() => navigateTab('home')}
+              onClick={() => {
+                // If on AI Tools sub-page, go back to AI Tools hub
+                if (activeTab === 'ai-tools' && getAIToolsSubFromPath()) {
+                  window.history.pushState({}, '', '/dashboard/ai-tools');
+                  setActiveTab('home');
+                  setTimeout(() => setActiveTab('ai-tools'), 0);
+                  return;
+                }
+                navigateTab('home');
+              }}
               className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-all active:scale-95"
             >
               <ChevronLeft size={18} strokeWidth={2.5} />
@@ -275,7 +306,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 </div>
               )}
               <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">
-                {activeCard?.label}
+                {activeTab === 'ai-tools' && getAIToolsSubFromPath() === 'voice-over'
+                  ? 'Voice Over'
+                  : activeCard?.label}
               </h1>
             </div>
             {/* Dark mode toggle */}
@@ -388,6 +421,22 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           {activeTab === 'analytics' && isAdmin && (
             <AnalyticsPage onHeaderRight={setAnalyticsHeaderRight} />
           )}
+
+          {activeTab === 'ai-tools' && (() => {
+            const sub = getAIToolsSubFromPath();
+            if (sub === 'voice-over') return <VoiceOverPage />;
+            return (
+              <AIToolsPage
+                onNavigate={(toolId) => {
+                  window.history.pushState({}, '', `/dashboard/ai-tools/${toolId}`);
+                  document.title = toolId === 'voice-over' ? 'Voice Over' : 'AI Tools';
+                  // Force re-render by toggling tab
+                  setActiveTab('home');
+                  setTimeout(() => setActiveTab('ai-tools'), 0);
+                }}
+              />
+            );
+          })()}
         </main>
       </div>
     );

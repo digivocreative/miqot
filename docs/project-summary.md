@@ -15,7 +15,7 @@
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
-| **Database** | Supabase (PostgreSQL) — 5 tabel: `agents`, `capi_configs`, `jamaah`, `calendar_events`, `calendar_insights` |
+| **Database** | Supabase (PostgreSQL) — 6 tabel: `agents`, `capi_configs`, `jamaah`, `calendar_events`, `calendar_insights`, `ai_credits` |
 | **Telegram** | Telegram Bot API — group alerts (node-cron) + per-agent DM (deep link connect, departure reminders, pembayaran masuk) |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
@@ -47,6 +47,7 @@ Client (Browser)
               ├── /api/laporan/*     ← Jamaah management (login, sync, list, stats)
               ├── /api/capi/*        ← Meta Conversion API config
               ├── /api/ai-copy       ← OpenAI proxy (caption generator)
+              ├── /api/ai-tools/*    ← AI Tools (voice over script & TTS)
               ├── /api/api-get/*     ← Proxy to jadwal.alhijaz.co (package data)
               ├── /itinerary/*       ← Proxy PDF/images from jadwal.alhijaz.co
               ├── /brosur/*          ← Proxy brochure images
@@ -59,7 +60,7 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~2200 lines) — API, proxy, auth, sync, stats, AI insight, SPA serve
+├── server.js              # Express backend (~2400 lines) — API, proxy, auth, sync, stats, AI insight, AI tools, SPA serve
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
 ├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
 ├── jamaah-api.js           # Legacy: Playwright-based jamaah scraping (deprecated, replaced by laporan-api.js)
@@ -99,6 +100,8 @@ alhijaz/
 │   │   ├── CompactCard.tsx     # Compact card variant
 │   │   ├── FloatingAgentBar.tsx # Floating WhatsApp CTA bar
 │   │   ├── AgentProfile.tsx    # Agent info card on package page
+│   │   ├── AIToolsPage.tsx     # AI Tools hub page (tool cards grid)
+│   │   ├── VoiceOverPage.tsx   # Voice Over Generator (3-step: script → voice → audio player)
 │   │   ├── PhotoCropModal.tsx  # Reusable photo crop modal (react-easy-crop)
 │   │   └── index.ts            # Barrel re-exports
 │   ├── data/
@@ -225,6 +228,15 @@ alhijaz/
   - Auto-generate via cron setiap hari jam 06:15 WIB + setelah calendar sync pertama
   - In-memory cache + Supabase fallback
   - Bold markdown parsing (`**text**` → `<strong>`)
+- **AI Tools** — Hub page (`/dashboard/ai-tools`) untuk fitur-fitur AI:
+  - **Voice Over Generator** (`/dashboard/ai-tools/voice-over`):
+    - Step 1: Script — pilih paket (drop-down dari data-service) atau tulis manual, pilih durasi (10/20/30 detik), AI generate script via OpenAI GPT-4o-mini (bahasa santai/gaul, karakter dibatasi per durasi)
+    - Step 2: Voice — pilih gender (Wanita/Pria) → pilih suara dari 8 voice Chirp3-HD (4 wanita: Dwi, Afaf, Misko, Nissa + 4 pria: Achmad, Sofyan, Rizky, Miko), 2-column grid layout
+    - Step 3: Result — custom audio player (play/pause, progress bar, seek, time display), download MP3 langsung, download WAV (on-demand API call), auto-scroll ke hasil
+    - Uses Google Cloud TTS API v1 (Chirp3-HD voices, `id-ID` language, speakingRate 1.1, headphone audio profile)
+    - Credit system: 25K karakter/agent/bulan, stored in `ai_credits` table, auto-reset setiap 30 hari
+    - Char limit: 1000 karakter per script
+  - "Segera Hadir" card (disabled) untuk fitur AI mendatang
 
 ### Fitur Infrastruktur
 - AI Copywriting (OpenAI proxy — generate caption WhatsApp)
@@ -325,6 +337,14 @@ synced_at     TIMESTAMPTZ          -- terakhir sync
 -- Indexes: event_date, event_type
 ```
 
+### Tabel `ai_credits`
+```
+agent_slug    TEXT PRIMARY KEY     -- FK to agents.slug
+chars_used    INTEGER DEFAULT 0    -- karakter TTS yang sudah dipakai
+first_used_at TIMESTAMPTZ          -- timestamp pertama kali pakai (reset setelah 30 hari)
+created_at    TIMESTAMPTZ          -- record creation time
+```
+
 ### Data Paket Umroh (External API)
 Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhijaz.co/jadwal/api-get/{yearCode}` dan di-cache di browser (localStorage). Lihat `UmrohPackage` type di `src/types/umroh-package.ts`.
 
@@ -382,6 +402,13 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | PUT | `/api/telegram/prefs` | Bearer | Update notification preferences (partial update, JSONB merge) |
 | POST | `/api/telegram/webhook` | — | Webhook handler dari Telegram bot (process /start {token}) |
 
+### AI Tools
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| GET | `/api/ai-tools/credits` | Bearer | Get credit usage (quota 25K/agent/bulan, remaining, reset info) |
+| POST | `/api/ai-tools/generate-script` | Bearer | Generate script voice over dari data paket (OpenAI GPT-4o-mini, bahasa santai) |
+| POST | `/api/ai-tools/generate-voice` | Bearer | Convert script ke audio MP3/WAV (Google Cloud TTS Chirp3-HD, credit deduction) |
+
 ### Calendar
 | Method | Path | Auth | Deskripsi |
 |--------|------|------|-----------|
@@ -437,7 +464,8 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 ### Environment Variables
 | Variable | Deskripsi |
 |----------|-----------|
-| `OPENAI_API_KEY` | OpenAI API key untuk fitur AI Copywriting + Telegram AI insights |
+| `OPENAI_API_KEY` | OpenAI API key untuk fitur AI Copywriting + Telegram AI insights + AI Tools (script generation) |
+| `GOOGLE_TTS_API_KEY` | Google Cloud TTS API key untuk Voice Over Generator (Chirp3-HD voices) |
 | `CAPI_ENCRYPTION_KEY` | 32-byte base64 key untuk encrypt Meta access token + jamaah password |
 | `JWT_SECRET` | Secret key untuk JWT signing |
 | `SUPABASE_URL` | Supabase project URL |
@@ -495,6 +523,10 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - CAPI auto-bypass login from dashboard context
 - Seed script for dummy agent "bagas" with 25 jamaah records
 - Haji tab integration (embedded in Jamaah page, slug-based URL routing, legacy login, card list, document viewer popup)
+- AI Tools hub page + Voice Over Generator (3-step flow: script generation, voice selection, audio player with download)
+- Voice Over upgraded to Google Cloud TTS Chirp3-HD (8 voices: 4 wanita + 4 pria, natural Indonesian)
+- AI credit system (25K chars/agent/month, `ai_credits` table, auto-reset 30 days, banner with progress bar)
+- Script generation with casual/gaul Indonesian, duration-aware character limits, AI-friendly word choices
 
 ### Rencana / Backlog
 - [TODO] Testing suite

@@ -2673,6 +2673,281 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
 });
 
 // ──────────────────────────────────────────────
+// === AI TOOLS API ===
+// ──────────────────────────────────────────────
+
+// ── Credit helpers ──
+
+const AI_AGENT_QUOTA = 25_000; // 25K chars per agent per month
+
+function shouldResetCredits(firstUsedAt) {
+  if (!firstUsedAt) return false;
+  const now = new Date();
+  const first = new Date(firstUsedAt);
+  const daysDiff = (now - first) / (1000 * 60 * 60 * 24);
+  return daysDiff >= 30;
+}
+
+// Get credit info for current agent
+app.get('/api/ai-tools/credits', authMiddleware, async (req, res) => {
+  try {
+    const { slug } = req.user;
+    const quota = AI_AGENT_QUOTA;
+
+    const { data: credit } = await supabase
+      .from('ai_credits')
+      .select('*')
+      .eq('agent_slug', slug)
+      .maybeSingle();
+
+    let charsUsed = 0;
+    let daysUntilReset = 30;
+
+    if (credit) {
+      if (shouldResetCredits(credit.first_used_at)) {
+        await supabase
+          .from('ai_credits')
+          .update({ chars_used: 0, first_used_at: new Date().toISOString() })
+          .eq('agent_slug', slug);
+        charsUsed = 0;
+        daysUntilReset = 30;
+      } else {
+        charsUsed = credit.chars_used || 0;
+        if (credit.first_used_at) {
+          const daysPassed = (new Date() - new Date(credit.first_used_at)) / (1000 * 60 * 60 * 24);
+          daysUntilReset = Math.max(0, Math.ceil(30 - daysPassed));
+        }
+      }
+    }
+
+    const remaining = Math.max(0, quota - charsUsed);
+
+    res.json({
+      success: true,
+      data: {
+        quota,
+        used: charsUsed,
+        remaining,
+        daysUntilReset,
+        percentUsed: Math.round((charsUsed / quota) * 100),
+      }
+    });
+  } catch (err) {
+    console.error('[ai-credits] Error:', err);
+    res.status(500).json({ error: 'Gagal mengambil data kredit' });
+  }
+});
+
+// Generate promotional script from paket data using OpenAI
+app.post('/api/ai-tools/generate-script', authMiddleware, async (req, res) => {
+  try {
+    const { paketData, duration } = req.body;
+
+    if (!paketData) {
+      return res.status(400).json({ error: 'Data paket diperlukan' });
+    }
+
+    const OPENAI_KEY = process.env.OPENAI_API_KEY;
+    if (!OPENAI_KEY) {
+      return res.status(500).json({ error: 'OPENAI_API_KEY not configured' });
+    }
+
+    const charGuide = {
+      10: { range: '30-50 karakter', max: 50, sentences: '1-2 kalimat pendek', tokens: 60 },
+      20: { range: '60-100 karakter', max: 100, sentences: '2-3 kalimat', tokens: 120 },
+      30: { range: '100-150 karakter', max: 150, sentences: '3-5 kalimat', tokens: 180 },
+    };
+
+    const guide = charGuide[duration] || charGuide[30];
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `Kamu adalah copywriter untuk travel umroh. Buat script voice over promosi yang catchy dan cocok untuk sosial media (Reels, TikTok, WA Status).
+
+ATURAN KETAT:
+- Bahasa Indonesia SANTAI dan GAUL, BUKAN bahasa baku/formal. Contoh: "Yuk", "Buruan", "Cuma", "Banget", "Udah", "Gak mau rugi kan?"
+- MAKSIMAL ${guide.max} karakter. JANGAN LEBIH. Hitung karaktermu.
+- Panjang ideal: ${guide.range} (${guide.sentences})
+- Pakai kalimat pendek dan punchy, jangan berbelit-belit
+- HINDARI kata-kata yang sulit diucapkan AI: kata asing, singkatan, angka desimal, istilah teknis
+- Tulis angka dalam kata (contoh: "sembilan hari" bukan "9 hari", "dua puluh juta" bukan "20jt")
+- Jangan gunakan emoji atau simbol
+- Jangan gunakan sapaan waktu (pagi/siang/malam)
+- Buka dengan hook yang bikin penasaran
+- Sebutkan 1-2 keunggulan utama saja
+- Tutup dengan ajakan yang bikin FOMO
+- Jangan sebutkan nama agent
+- Tulis HANYA script-nya, tanpa keterangan tambahan
+- INGAT: durasi ${duration} detik = script SANGAT ${duration <= 10 ? 'PENDEK' : duration <= 20 ? 'SINGKAT' : 'RINGKAS'}`
+          },
+          {
+            role: 'user',
+            content: `Buat script voice over ${duration} detik (MAKSIMAL ${guide.max} karakter) untuk paket umroh ini:
+
+Nama Paket: ${paketData.nama}
+Tanggal Berangkat: ${paketData.tgl_berangkat}
+Maskapai: ${paketData.maskapai || '-'}
+Hotel Mekkah: ${paketData.hotel_mekkah || '-'}
+Hotel Madinah: ${paketData.hotel_madinah || '-'}
+Harga mulai: ${paketData.harga || '-'}
+Seat tersisa: ${paketData.seat_sisa || '-'}`
+          }
+        ],
+        max_tokens: guide.tokens,
+        temperature: 0.7,
+      }),
+    });
+
+    const data = await response.json();
+    const generatedScript = data.choices?.[0]?.message?.content?.trim() || '';
+
+    res.json({ success: true, data: { script: generatedScript } });
+  } catch (err) {
+    console.error('[ai-tools] Generate script error:', err);
+    res.status(500).json({ error: 'Gagal generate script' });
+  }
+});
+
+// Convert script to audio using Google Cloud TTS (Chirp 3: HD Indonesian voices)
+app.post('/api/ai-tools/generate-voice', authMiddleware, async (req, res) => {
+  try {
+    const { script, voice, format = 'mp3' } = req.body;
+    const { slug } = req.user;
+
+    if (!script || !voice) {
+      return res.status(400).json({ error: 'Script dan voice diperlukan' });
+    }
+
+    if (script.length > 1000) {
+      return res.status(400).json({ error: 'Script terlalu panjang (max 1000 karakter)' });
+    }
+
+    const validVoices = [
+      // Wanita
+      'id-ID-Chirp3-HD-Aoede', 'id-ID-Chirp3-HD-Kore',
+      'id-ID-Chirp3-HD-Leda', 'id-ID-Chirp3-HD-Zephyr',
+      // Pria
+      'id-ID-Chirp3-HD-Puck', 'id-ID-Chirp3-HD-Charon',
+      'id-ID-Chirp3-HD-Fenrir', 'id-ID-Chirp3-HD-Orus',
+    ];
+    if (!validVoices.includes(voice)) {
+      return res.status(400).json({ error: 'Voice tidak valid' });
+    }
+
+    const apiKey = process.env.GOOGLE_TTS_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'Google TTS API key belum dikonfigurasi' });
+    }
+
+    // === Credit check ===
+    const scriptLength = script.length;
+    const quota = AI_AGENT_QUOTA;
+
+    let { data: credit } = await supabase
+      .from('ai_credits')
+      .select('*')
+      .eq('agent_slug', slug)
+      .maybeSingle();
+
+    if (!credit) {
+      const now = new Date().toISOString();
+      await supabase
+        .from('ai_credits')
+        .upsert({
+          agent_slug: slug,
+          chars_used: 0,
+          first_used_at: now,
+        });
+      credit = { agent_slug: slug, chars_used: 0, first_used_at: now };
+    }
+
+    if (credit.first_used_at && shouldResetCredits(credit.first_used_at)) {
+      await supabase
+        .from('ai_credits')
+        .update({ chars_used: 0, first_used_at: new Date().toISOString() })
+        .eq('agent_slug', slug);
+      credit.chars_used = 0;
+    }
+
+    const remaining = quota - (credit.chars_used || 0);
+
+    if (scriptLength > remaining) {
+      return res.status(403).json({
+        error: 'QUOTA_EXCEEDED',
+        message: `Kuota tidak cukup. Sisa: ${remaining} karakter, dibutuhkan: ${scriptLength} karakter.`,
+        remaining,
+        needed: scriptLength,
+      });
+    }
+
+    // === Google Cloud TTS API call ===
+    const audioEncoding = format === 'wav' ? 'LINEAR16' : 'MP3';
+
+    const response = await fetch(
+      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          input: { text: script },
+          voice: {
+            languageCode: 'id-ID',
+            name: voice,
+          },
+          audioConfig: {
+            audioEncoding,
+            sampleRateHertz: 24000,
+            speakingRate: 1.1,
+            effectsProfileId: ['headphone-class-device'],
+          },
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || !data.audioContent) {
+      console.error('[ai-tools] Google TTS error:', data.error || data);
+      return res.status(500).json({ error: 'Gagal generate voice over' });
+    }
+
+    // Deduct credits after successful TTS
+    const newCharsUsed = (credit.chars_used || 0) + scriptLength;
+    console.log(`[ai-credits] Deducting: slug=${slug}, old=${credit.chars_used || 0}, scriptLen=${scriptLength}, new=${newCharsUsed}`);
+    const { error: deductError } = await supabase
+      .from('ai_credits')
+      .update({ chars_used: newCharsUsed })
+      .eq('agent_slug', slug);
+    if (deductError) {
+      console.error('[ai-credits] Deduction FAILED:', deductError);
+    } else {
+      console.log(`[ai-credits] Deduction OK: ${slug} now at ${newCharsUsed} chars_used`);
+    }
+
+    const audioBuffer = Buffer.from(data.audioContent, 'base64');
+
+    const contentType = format === 'wav' ? 'audio/wav' : 'audio/mpeg';
+    const ext = format === 'wav' ? 'wav' : 'mp3';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="voiceover.${ext}"`);
+    res.send(audioBuffer);
+
+  } catch (err) {
+    console.error('[ai-tools] Generate voice error:', err);
+    res.status(500).json({ error: 'Gagal generate voice over' });
+  }
+});
+
+// ──────────────────────────────────────────────
 // API: Proxy to jadwal.alhijaz.co
 // ──────────────────────────────────────────────
 app.all('/api/{*path}', async (req, res) => {
@@ -2764,8 +3039,6 @@ app.get('/:slug/umroh', async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
-
-
 
 // ──────────────────────────────────────────────
 // Static files + SPA fallback with OG injection

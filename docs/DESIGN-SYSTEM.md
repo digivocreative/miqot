@@ -57,6 +57,8 @@ Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 | Meta CAPI | `gray-600` / `gray-400` | `gray-50` / `gray-800/30` |
 | Agents | `cyan-600` / `cyan-400` | `cyan-50` / `cyan-900/20` |
 | Jamaah | `amber-600` / `amber-400` | `amber-50` / `amber-900/20` |
+| AI Tools | `purple-600` / `purple-400` | `purple-50` / `purple-900/20` |
+| Settings | `gray-600` / `gray-400` | `gray-50` / `gray-800/30` |
 
 ### Jamaah Page Colors
 
@@ -506,6 +508,79 @@ flex flex-col
 - Footer: "Bagikan Dokumen" CTA button (emerald) — uses `navigator.share()` (native share) with URL fallback to `window.open()`
 - Why iframe: internal system URLs (115.124.86.220) have CORS restrictions — react-pdf fetch fails, but iframe can load directly
 
+### AI Tools Hub (`AIToolsPage.tsx`)
+
+Hub page for AI tools — grid of tool cards:
+
+```
+w-full text-left bg-white dark:bg-slate-800 rounded-2xl
+border border-gray-100 dark:border-slate-700 shadow-sm p-4
+hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] transition-all
+```
+
+- Icon box: `w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-900/20`
+- Icon: `text-purple-600 dark:text-purple-400` (Lucide `Mic`, `Sparkles`)
+- Title: `text-sm font-bold mt-3`
+- Desc: `text-xs text-gray-400 mt-0.5`
+- Disabled card: `opacity-50 cursor-default` (no hover effects)
+
+### Voice Over Generator (`VoiceOverPage.tsx`)
+
+3-step flow: Script → Voice → Result.
+
+#### Mode Toggle (Dari Paket / Tulis Manual)
+
+```
+flex gap-2
+button: flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold
+active: bg-purple-500 text-white shadow-md shadow-purple-500/20
+inactive: bg-gray-50 dark:bg-slate-900 text-gray-500 border border-gray-200 dark:border-slate-700
+```
+
+#### Duration Pills
+
+```
+px-3 py-1.5 rounded-lg text-xs font-bold
+active: bg-purple-500 text-white
+inactive: bg-gray-50 dark:bg-slate-900 text-gray-500 border border-gray-200
+```
+
+#### Voice Selection (2-Column Grid)
+
+```
+grid grid-cols-2 gap-2
+button: px-3 py-2.5 rounded-xl border cursor-pointer flex items-center gap-2 text-left
+selected: border-purple-500 bg-purple-50 dark:bg-purple-900/20
+unselected: border-gray-200 dark:border-slate-700
+```
+
+Radio dot: `w-3.5 h-3.5 rounded-full border-2`, inner `w-1.5 h-1.5 rounded-full bg-purple-500`
+Name: `text-xs font-semibold`
+Desc: `text-[10px] text-gray-400 truncate`
+
+#### CTA Button (Generate)
+
+```
+w-full py-3 rounded-xl text-sm font-bold
+bg-purple-500 hover:bg-purple-600 text-white
+shadow-md shadow-purple-500/20
+active:scale-95 disabled:opacity-50
+```
+
+#### Audio Player (Result)
+
+```
+bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-5
+animation: voResultIn 0.3s ease-out (translateY 8px→0, opacity 0→1)
+```
+
+- Play/Pause button: `w-12 h-12 rounded-full bg-purple-500 text-white shadow-lg shadow-purple-500/30`
+- Progress bar: `h-1.5 rounded-full bg-gray-200 dark:bg-slate-700` → fill `bg-purple-500`
+- Seek dot (hover): `w-3 h-3 rounded-full bg-purple-500 shadow-md opacity-0 group-hover:opacity-100`
+- Time display: `text-xs text-gray-400 font-mono`
+- Download MP3: solid purple CTA `bg-purple-500 text-white rounded-xl`
+- Download WAV: outline purple `text-purple-600 bg-purple-50 border border-purple-200 rounded-xl`
+
 ---
 
 ## Telegram Components
@@ -667,6 +742,12 @@ uppercase tracking-wide
 | `Send` | Telegram tab (segmented control) |
 | `Code` | CAPI tab (segmented control) |
 | `Unlink` | Disconnect Telegram |
+| `Sparkles` | AI Tools menu, generate script |
+| `Mic` | Voice Over Generator |
+| `Play` / `Pause` | Audio player controls |
+| `Download` | Download buttons (MP3/WAV) |
+| `Package` | "Dari Paket" mode toggle |
+| `PenLine` | "Tulis Manual" mode toggle |
 
 ### WhatsApp Icon (Custom SVG)
 

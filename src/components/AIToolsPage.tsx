@@ -1,0 +1,85 @@
+import { Mic, Image, Quote } from 'lucide-react';
+
+interface AIToolsPageProps {
+  onNavigate: (sub: string) => void;
+}
+
+const TOOLS = [
+  {
+    id: 'voice-over',
+    name: 'Voice Over Generator',
+    desc: 'Buat voice over promosi paket umroh & haji',
+    icon: Mic,
+    color: 'purple',
+    route: 'voice-over',
+    active: true,
+  },
+  {
+    id: 'brosur',
+    name: 'Brosur Generator',
+    desc: 'Generate brosur dengan watermark agent',
+    icon: Image,
+    color: 'pink',
+    route: null,
+    active: false,
+  },
+  {
+    id: 'testimoni',
+    name: 'Testimoni Formatter',
+    desc: 'Ubah testimoni jamaah jadi post promosi',
+    icon: Quote,
+    color: 'amber',
+    route: null,
+    active: false,
+  },
+];
+
+const iconStyles: Record<string, { bg: string; text: string }> = {
+  purple: {
+    bg: 'bg-purple-50 dark:bg-purple-900/20',
+    text: 'text-purple-600 dark:text-purple-400',
+  },
+  pink: {
+    bg: 'bg-pink-50 dark:bg-pink-900/20',
+    text: 'text-pink-600 dark:text-pink-400',
+  },
+  amber: {
+    bg: 'bg-amber-50 dark:bg-amber-900/20',
+    text: 'text-amber-600 dark:text-amber-400',
+  },
+};
+
+export default function AIToolsPage({ onNavigate }: AIToolsPageProps) {
+  return (
+    <div className="px-4 pt-4 pb-8">
+      <div className="flex flex-col gap-3">
+        {TOOLS.map(tool => {
+          const Icon = tool.icon;
+          const { bg, text } = iconStyles[tool.color];
+          return (
+            <div
+              key={tool.id}
+              onClick={() => tool.active && tool.route && onNavigate(tool.route)}
+              className={`relative bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4 transition-all ${
+                tool.active
+                  ? 'hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] cursor-pointer'
+                  : 'opacity-60 cursor-default'
+              }`}
+            >
+              {!tool.active && (
+                <span className="absolute top-3 right-3 text-[8px] font-bold uppercase tracking-wide bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500 px-2 py-0.5 rounded-full">
+                  Segera Hadir
+                </span>
+              )}
+              <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center`}>
+                <Icon size={20} className={text} />
+              </div>
+              <h3 className="text-sm font-bold text-gray-800 dark:text-white mt-3">{tool.name}</h3>
+              <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">{tool.desc}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

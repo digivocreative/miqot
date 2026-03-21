@@ -995,7 +995,7 @@ async function passportReminder() {
     // Query jamaah berangkat dalam 30 hari ke depan
     const { data: jamaahData, error: jError } = await supabaseAdmin
       .from('jamaah')
-      .select('agent_slug, nama, tgl_berangkat, dokumen, paspor_expired')
+      .select('agent_slug, nama, tgl_berangkat, dokumen, paspor_expired, no_paspor')
       .gte('tgl_berangkat', today)
       .lte('tgl_berangkat', maxDate);
 
@@ -1003,8 +1003,11 @@ async function passportReminder() {
     if (!jamaahData || jamaahData.length === 0) { log('[passport] No jamaah departing within 30 days'); return; }
 
     // Filter: paspor belum dikumpulkan ATAU paspor expired sebelum berangkat
+    // Paspor dianggap sudah dikumpulkan jika SALAH SATU:
+    //   - dokumen.paspor === true (checkbox di legacy system), ATAU
+    //   - no_paspor ada isi (nomor paspor sudah di-input)
     const problemJamaah = jamaahData.filter(j => {
-      const pasporCollected = j.dokumen?.paspor === true;
+      const pasporCollected = j.dokumen?.paspor === true || (j.no_paspor && j.no_paspor.trim() !== '');
       const pasporExpiredBeforeDepart = j.paspor_expired && j.tgl_berangkat
         && j.paspor_expired < j.tgl_berangkat;
       return !pasporCollected || pasporExpiredBeforeDepart;
@@ -1045,10 +1048,11 @@ async function passportReminder() {
       // Check notification preference
       if (agent.notification_prefs?.paspor === false) continue;
 
-      // Categorize
-      const belumKumpul = jamaahList.filter(j => j.dokumen?.paspor !== true);
+      // Paspor dianggap collected jika checkbox ATAU nomor paspor ada
+      const belumKumpul = jamaahList.filter(j => j.dokumen?.paspor !== true && !(j.no_paspor && j.no_paspor.trim() !== ''));
       const expired = jamaahList.filter(j => {
-        return j.dokumen?.paspor === true
+        const collected = j.dokumen?.paspor === true || (j.no_paspor && j.no_paspor.trim() !== '');
+        return collected
           && j.paspor_expired
           && j.paspor_expired < j.tgl_berangkat;
       });
@@ -1366,7 +1370,7 @@ async function weeklySummary() {
 
       const { data: jamaahData, error: jError } = await supabaseAdmin
         .from('jamaah')
-        .select('nama, sisa, tgl_berangkat, dokumen, perlengkapan')
+        .select('nama, sisa, tgl_berangkat, dokumen, perlengkapan, no_paspor')
         .eq('agent_slug', agent.slug);
 
       if (jError) { warn(`[weekly] Error fetching jamaah for ${agent.slug}:`, jError.message); continue; }
@@ -1383,7 +1387,7 @@ async function weeklySummary() {
       const berangkatBulanIni = jamaahData.filter(j =>
         j.tgl_berangkat && j.tgl_berangkat >= today && j.tgl_berangkat <= endOfMonth
       );
-      const belumPaspor = berangkatBulanIni.filter(j => j.dokumen?.paspor !== true);
+      const belumPaspor = berangkatBulanIni.filter(j => j.dokumen?.paspor !== true && !(j.no_paspor && j.no_paspor.trim() !== ''));
       const belumPerlengkapan = berangkatBulanIni.filter(j => {
         if (!j.perlengkapan) return true;
         return Object.values(j.perlengkapan).some(v => v === false);
