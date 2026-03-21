@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { getPackages } from '../services/data-service';
 import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 
 // ── Voice definitions ──
 const VOICES = [
@@ -154,7 +155,10 @@ export default function VoiceOverPage() {
         body: JSON.stringify({ paketData, duration }),
       });
       const json = await res.json();
-      if (json.success && json.data?.script) setScript(json.data.script);
+      if (json.success && json.data?.script) {
+        setScript(json.data.script);
+        trackEvent('action', 'generate_script', { duration, mode: 'paket' });
+      }
     } catch { /* silent */ }
     setGeneratingScript(false);
   };
@@ -187,6 +191,7 @@ export default function VoiceOverPage() {
       const url = URL.createObjectURL(blob);
       setAudioUrl(url);
       fetchCredits();
+      trackEvent('action', 'generate_voice', { voice: selectedVoice, chars: script.length });
       setTimeout(() => {
         resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 100);
@@ -200,6 +205,7 @@ export default function VoiceOverPage() {
     a.href = audioUrl;
     a.download = 'voiceover.mp3';
     a.click();
+    trackEvent('action', 'download_voiceover', { format: 'mp3' });
   };
 
   const handleDownloadWav = async () => {
@@ -219,6 +225,7 @@ export default function VoiceOverPage() {
       a.click();
       URL.revokeObjectURL(url);
       fetchCredits();
+      trackEvent('action', 'download_voiceover', { format: 'wav' });
     } catch { /* silent */ }
     setDownloadingWav(false);
   };

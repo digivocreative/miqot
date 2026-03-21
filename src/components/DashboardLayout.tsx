@@ -536,7 +536,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   }
                   const eventMap: Record<string, string> = {
                     jamaah: 'open_jamaah', kalkulasi: 'open_kalkulasi', compare: 'open_compare',
-                    settings: 'open_settings', analytics: 'open_analytics',
+                    settings: 'open_settings', analytics: 'open_analytics', 'ai-tools': 'open_ai_tools',
                   };
                   if (eventMap[card.id]) trackEvent('feature', eventMap[card.id]);
                   navigateTab(card.id);
