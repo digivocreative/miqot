@@ -1,4 +1,8 @@
+// ⚠️ HARUS baris pertama — sebelum import apapun
+import './instrument.mjs';
+
 import express from 'express';
+import * as Sentry from '@sentry/node';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -3038,6 +3042,25 @@ app.get('/:slug/umroh', async (req, res) => {
     console.error('Umroh landing error:', err);
     res.status(500).send('Internal Server Error');
   }
+});
+
+// ============================
+// Test route — hapus setelah verifikasi Sentry berhasil
+// ============================
+app.get('/debug-sentry', (req, res) => {
+  throw new Error('Sentry test error — this is intentional!');
+});
+
+// ============================
+// Sentry error handler — HARUS setelah semua routes
+// dan SEBELUM custom error handler lainnya
+// ============================
+Sentry.setupExpressErrorHandler(app);
+
+// Fallback error handler (setelah Sentry)
+app.use((err, req, res, next) => {
+  console.error('[server] Unhandled error:', err.message);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 // ──────────────────────────────────────────────
