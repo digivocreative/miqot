@@ -47,6 +47,263 @@ async function logAnalyticsEvent(agentSlug, eventType, eventName, metadata = {})
   }
 }
 
+// ── Quiz Lead Submit (public — no auth) ──
+
+app.post('/api/quiz/:slug/submit', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const { nama, wa, answers, recommended } = req.body;
+
+    if (!nama || !wa) {
+      return res.status(400).json({ error: 'Nama dan nomor WA wajib diisi' });
+    }
+
+    // Validate agent slug
+    const agents = await getAgents();
+    const agent = agents[slug];
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent tidak ditemukan' });
+    }
+
+    // Insert lead
+    const { data, error } = await supabase
+      .from('quiz_leads')
+      .insert({
+        agent_slug: slug,
+        nama,
+        wa,
+        answers: answers || {},
+        recommended: recommended || [],
+        status: 'baru',
+      })
+      .select('id')
+      .single();
+
+    if (error) throw error;
+
+    // Log analytics
+    logAnalyticsEvent(slug, 'quiz', 'quiz_lead_submit', { nama, wa });
+
+    // Send Telegram notification (fire-and-forget)
+    try {
+      const prefs = { ...DEFAULT_NOTIFICATION_PREFS, ...(agent.notification_prefs || {}) };
+      if (agent.telegram_chat_id && prefs.quiz_lead !== false) {
+        const a = answers || {};
+        const formatTgPrice = (price) => {
+          if (typeof price === 'string' && price.startsWith('Rp')) return price;
+          const num = Number(price);
+          if (!num || isNaN(num)) return 'Lihat di dashboard';
+          return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num);
+        };
+        const priorityLabels = {
+          hotel: 'Hotel Dekat Masjid', duration: 'Durasi Lebih Lama',
+          soon: 'Keberangkatan Cepat', flexible: 'Jadwal Fleksibel',
+          price: 'Harga Terjangkau', airline: 'Maskapai Nyaman',
+        };
+        const priorityText = (Array.isArray(a.priority) ? a.priority : []).map(p => priorityLabels[p] || p).join(', ') || '-';
+
+        const kelasMap = { hemat: 'Hemat / Promo', reguler: 'Reguler', premium: 'Premium / VIP', all: 'Semua' };
+        const destiMap = { umroh_only: 'Umroh Saja', plus_turki: 'Plus Turki', plus_other: 'Plus Dubai / Lainnya', all: 'Semua' };
+        const roomMap = { quad: 'Quad (4 orang)', triple: 'Triple (3 orang)', double: 'Double (2 orang)', unsure: 'Belum tahu' };
+        const paxMap = { '1': 'Sendiri', '2': '2 orang', '3-5': '3–5 orang', '6+': '6+ orang' };
+        const BULAN_TG = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+        const fmtDeparture = (raw) => {
+          if (!raw || raw === '-') return '-';
+          if (raw === 'flexible') return 'Fleksibel';
+          const rm = raw.match(/(\d{4})-(\d{1,2})_(\d{4})-(\d{1,2})/);
+          if (rm) { const [,y1,m1,y2,m2] = rm; return y1===y2 ? `${BULAN_TG[+m1]||m1} – ${BULAN_TG[+m2]||m2} ${y1}` : `${BULAN_TG[+m1]||m1} ${y1} – ${BULAN_TG[+m2]||m2} ${y2}`; }
+          const sm = raw.match(/(\d{4})-(\d{1,2})/);
+          if (sm) return `${BULAN_TG[+sm[2]]||sm[2]} ${sm[1]}`;
+          return raw;
+        };
+        const fmtBudget = (raw) => {
+          if (!raw || raw === '-') return '-';
+          if (raw === 'flexible') return 'Fleksibel';
+          const m = raw.match(/^(\d+)-(\d+)$/);
+          if (m) { const fj = (n) => { const j=n/1e6; return j%1===0?`${j}jt`:`${j.toFixed(1)}jt`; }; return +m[1]===0 ? `Di bawah ${fj(+m[2])}` : `${fj(+m[1])} – ${fj(+m[2])}`; }
+          return raw;
+        };
+
+        const recs = (Array.isArray(recommended) ? recommended : [])
+          .slice(0, 3)
+          .map((r, i) => `  ${i + 1}. <b>${r.name || '-'}</b>\n      <i>${formatTgPrice(r.price)}</i> · ${r.match || 0}% cocok`)
+          .join('\n\n');
+
+        const message = [
+          `📋 <b>Lead Baru Masuk</b>`,
+          ``,
+          `👤 <b><u>${nama}</u></b>`,
+          `📱 ${wa ? '+' + wa : '-'}`,
+          ``,
+          `─────────────────`,
+          ``,
+          `🕋 <b>Preferensi</b>`,
+          ``,
+          `📅 Berangkat: <b>${fmtDeparture(a.departure)}</b>`,
+          `✈️ Kelas: <b>${kelasMap[a.packageClass] || a.packageClass || '-'}</b>`,
+          `🌏 Destinasi: <b>${destiMap[a.destination] || a.destination || '-'}</b>`,
+          `💰 Budget: <b>${fmtBudget(a.budget)}</b>/orang`,
+          `🛏️ Kamar: <b>${roomMap[a.room] || a.room || '-'}</b>`,
+          `👥 Rombongan: <b>${paxMap[a.pax] || a.pax || '-'}</b>`,
+          `🎯 Prioritas: <b>${priorityText}</b>`,
+          ``,
+          `─────────────────`,
+          ``,
+          `📦 <b>Rekomendasi</b>`,
+          ``,
+          recs || '<i>Tidak ada rekomendasi</i>',
+          ``,
+          `─────────────────`,
+          `<i>Lihat detail lengkap di Dashboard → Leads</i>`,
+        ].join('\n');
+
+        const botToken = process.env.TELEGRAM_BOT_TOKEN;
+        if (botToken) {
+          fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: agent.telegram_chat_id,
+              text: message,
+              parse_mode: 'HTML',
+              disable_web_page_preview: true,
+            }),
+          }).catch(err => console.warn('[quiz-telegram] Send failed:', err.message));
+        }
+      }
+    } catch (tgErr) {
+      console.warn('[quiz-telegram] Notification error:', tgErr.message);
+    }
+
+    res.json({ success: true, id: data.id });
+  } catch (err) {
+    console.error('[quiz-submit] Error:', err);
+    res.status(500).json({ error: 'Gagal menyimpan data quiz' });
+  }
+});
+
+// ── Leads Management (auth required) ──
+
+app.get('/api/leads/stats', authMiddleware, async (req, res) => {
+  try {
+    const { slug } = req.user;
+    const { after } = req.query;
+
+    const { data, error } = await supabase
+      .from('quiz_leads')
+      .select('status, created_at')
+      .eq('agent_slug', slug);
+
+    if (error) throw error;
+
+    const stats = { total: 0, baru: 0, dihubungi: 0, closing: 0, tidak_berminat: 0, new_since: 0 };
+    for (const row of (data || [])) {
+      stats.total++;
+      if (stats[row.status] !== undefined) stats[row.status]++;
+    }
+
+    // new_since: count leads baru created after the given timestamp
+    if (after) {
+      const afterDate = new Date(after);
+      stats.new_since = (data || []).filter(r => r.status === 'baru' && new Date(r.created_at) > afterDate).length;
+    } else {
+      stats.new_since = stats.baru;
+    }
+
+    res.json({ success: true, data: stats });
+  } catch (err) {
+    console.error('[leads-stats] Error:', err);
+    res.status(500).json({ error: 'Gagal mengambil statistik leads' });
+  }
+});
+
+app.get('/api/leads', authMiddleware, async (req, res) => {
+  try {
+    const { slug } = req.user;
+    const { status, search, after, page = '1', limit = '20' } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const offset = (pageNum - 1) * limitNum;
+
+    let query = supabase
+      .from('quiz_leads')
+      .select('*', { count: 'exact' })
+      .eq('agent_slug', slug)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limitNum - 1);
+
+    if (status && ['baru', 'dihubungi', 'closing', 'tidak_berminat'].includes(status)) {
+      query = query.eq('status', status);
+    }
+
+    if (after) {
+      query = query.gt('created_at', after);
+    }
+
+    if (search) {
+      query = query.ilike('nama', `%${search}%`);
+    }
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      data: data || [],
+      total: count || 0,
+      page: pageNum,
+      limit: limitNum,
+    });
+  } catch (err) {
+    console.error('[leads-list] Error:', err);
+    res.status(500).json({ error: 'Gagal mengambil data leads' });
+  }
+});
+
+app.put('/api/leads/:id/status', authMiddleware, async (req, res) => {
+  try {
+    const { slug } = req.user;
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const validStatuses = ['baru', 'dihubungi', 'closing', 'tidak_berminat'];
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({ error: 'Status tidak valid' });
+    }
+
+    const { error } = await supabase
+      .from('quiz_leads')
+      .update({ status })
+      .eq('id', id)
+      .eq('agent_slug', slug);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[leads-status] Error:', err);
+    res.status(500).json({ error: 'Gagal update status lead' });
+  }
+});
+
+app.delete('/api/leads/:id', authMiddleware, async (req, res) => {
+  try {
+    const { slug } = req.user;
+    const { id } = req.params;
+
+    const { error } = await supabase
+      .from('quiz_leads')
+      .delete()
+      .eq('id', id)
+      .eq('agent_slug', slug);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[leads-delete] Error:', err);
+    res.status(500).json({ error: 'Gagal menghapus lead' });
+  }
+});
+
 // ── Jamaah API routes (must be before catch-all) ──
 app.post('/api/jamaah/connect', authMiddleware, async (req, res) => {
   const { username, password } = req.body;
@@ -647,7 +904,7 @@ app.post('/api/telegram/disconnect', authMiddleware, async (req, res) => {
 const DEFAULT_NOTIFICATION_PREFS = {
   departure: true, paspor: true, pelunasan: true, perlengkapan: true,
   manasik: true, seat_alert: true, paket_baru: true, perubahan_harga: true,
-  pembayaran_masuk: true, ringkasan_mingguan: true,
+  pembayaran_masuk: true, ringkasan_mingguan: true, quiz_lead: true,
 };
 
 app.get('/api/telegram/prefs', authMiddleware, async (req, res) => {

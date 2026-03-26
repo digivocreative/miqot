@@ -7,6 +7,7 @@ import type { UmrohPackage } from '@/types';
 import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agents';
 import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
+import QuizPage from '@/components/QuizPage';
 import { sendCapiEvent } from '@/lib/capi';
 import { trackPublicEvent } from '@/utils/analytics';
 
@@ -34,6 +35,10 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [sortOrder, setSortOrder] = useState<SortOrder | null>('TANGGAL_TERDEKAT');
   const [compactDetailId, setCompactDetailId] = useState<string | null>(null);
+  const [showQuiz, setShowQuiz] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('quiz') === 'results';
+  });
   const [isCompactView, setIsCompactView] = useState(() => {
     return localStorage.getItem('compactView') === 'true';
   });
@@ -711,7 +716,25 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       {/* ============================================ */}
       {/* FLOATING AGENT BAR (only in agent mode) */}
       {/* ============================================ */}
-      {currentAgent && <FloatingAgentBar agent={currentAgent} />}
+      {currentAgent && <FloatingAgentBar agent={currentAgent} onQuizOpen={() => setShowQuiz(true)} />}
+
+      {/* ============================================ */}
+      {/* QUIZ OVERLAY */}
+      {/* ============================================ */}
+      {showQuiz && currentAgent && currentAgentSlug && (
+        <QuizPage
+          agent={currentAgent}
+          agentSlug={currentAgentSlug}
+          onClose={() => {
+            setShowQuiz(false);
+            // Clean quiz param from URL
+            const url = new URL(window.location.href);
+            url.searchParams.delete('quiz');
+            window.history.replaceState({}, '', url.pathname);
+          }}
+          packages={packages}
+        />
+      )}
 
       {/* ============================================ */}
       {/* COMPACT DETAIL MODAL */}

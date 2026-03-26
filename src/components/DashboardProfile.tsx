@@ -41,6 +41,7 @@ const NOTIFICATION_GROUPS = [
     items: [
       { key: 'pembayaran_masuk',   emoji: '💵', label: 'Pembayaran Masuk',   desc: 'Jamaah melakukan pembayaran' },
       { key: 'ringkasan_mingguan', emoji: '📊', label: 'Ringkasan Mingguan', desc: 'Laporan mingguan setiap Senin' },
+      { key: 'quiz_lead',          emoji: '📋', label: 'Lead dari Quiz',     desc: 'Notifikasi saat ada calon jamaah yang mengisi quiz' },
     ]
   },
 ];

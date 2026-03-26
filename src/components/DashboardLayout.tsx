@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Calculator, ArrowLeftRight, Settings,
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
-  BarChart3, Loader2, Sparkles,
+  BarChart3, Loader2, Sparkles, UserPlus, ChevronRight,
   CalendarRange, ExternalLink, TrendingUp,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
@@ -18,9 +18,10 @@ import AnalyticsPage from './AnalyticsPage';
 import SettingsPage from './SettingsPage';
 import AIToolsPage from './AIToolsPage';
 import VoiceOverPage from './VoiceOverPage';
+import LeadsPage from './LeadsPage';
 import { trackEvent } from '../utils/analytics';
 
-type TabId = 'home' | 'settings' | 'kalkulasi' | 'compare' | 'caption' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools';
+type TabId = 'home' | 'settings' | 'kalkulasi' | 'compare' | 'caption' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'leads';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
@@ -32,6 +33,7 @@ const SLUG_TO_TAB: Record<string, TabId> = {
   settings: 'settings',
   analytics: 'analytics',
   'ai-tools': 'ai-tools',
+  leads: 'leads',
 };
 
 const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
@@ -43,6 +45,7 @@ const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
   settings: 'settings',
   analytics: 'analytics',
   'ai-tools': 'ai-tools',
+  leads: 'leads',
 };
 
 function getTabFromPath(): TabId {
@@ -91,6 +94,7 @@ const TAB_TITLES: Record<TabId, string> = {
   statistik: 'Statistik',
   analytics: 'Analytics',
   'ai-tools': 'AI Tools',
+  leads: 'Leads',
 };
 
 interface MenuCard {
@@ -128,6 +132,12 @@ const MENU_CARDS: MenuCard[] = [
     icon: BarChart3, color: 'text-emerald-600 dark:text-emerald-400',
     bgLight: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20',
     borderLight: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40',
+  },
+  {
+    id: 'leads', label: 'Leads', desc: 'Data calon jamaah',
+    icon: UserPlus, color: 'text-blue-600 dark:text-blue-400',
+    bgLight: 'bg-blue-50', bgDark: 'dark:bg-blue-900/20',
+    borderLight: 'border-blue-100', borderDark: 'dark:border-blue-800/40',
   },
   {
     id: 'kalkulasi', label: 'Kalkulasi', desc: 'Hitung harga paket',
@@ -186,6 +196,35 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [showComingSoon, setShowComingSoon] = useState(false);
   // Analytics header slot for month dropdown
   const [analyticsHeaderRight, setAnalyticsHeaderRight] = useState<React.ReactNode>(null);
+  // Leads widget state
+  const [leadsNewCount, setLeadsNewCount] = useState(0);
+  const [leadsNewItems, setLeadsNewItems] = useState<{ id: string; nama: string; budget: string; departure: string; created_at: string }[]>([]);
+
+  // Fetch leads count for badge + widget (hybrid: only count leads after last_seen)
+  const fetchLeadsBadge = useCallback(async () => {
+    const lastSeen = localStorage.getItem(`leads_last_seen_${session.user.slug}`) || '';
+    const afterParam = lastSeen ? `&after=${encodeURIComponent(lastSeen)}` : '';
+    try {
+      const res = await fetch(`/api/leads/stats${lastSeen ? `?after=${encodeURIComponent(lastSeen)}` : ''}`, { headers: getAuthHeaders() });
+      const json = await res.json();
+      if (json.success) setLeadsNewCount(json.data.new_since ?? json.data.baru ?? 0);
+    } catch { /* silent */ }
+    try {
+      const res = await fetch(`/api/leads?status=baru${afterParam}&limit=2`, { headers: getAuthHeaders() });
+      const json = await res.json();
+      if (json.success && json.data) {
+        setLeadsNewItems(json.data.map((l: any) => ({
+          id: l.id,
+          nama: l.nama,
+          budget: l.answers?.budget || '-',
+          departure: l.answers?.departure || '-',
+          created_at: l.created_at,
+        })));
+      }
+    } catch { /* silent */ }
+  }, [session.user.slug]);
+
+  useEffect(() => { fetchLeadsBadge(); }, [fetchLeadsBadge]);
 
   const closeStatAlert = useCallback(() => {
     setStatAlertClosing(true);
@@ -205,6 +244,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
   // Navigate tab + update URL
   const navigateTab = useCallback((tab: TabId, replace = false) => {
+    // When navigating to leads, mark as seen → reset badge
+    if (tab === 'leads') {
+      localStorage.setItem(`leads_last_seen_${session.user.slug}`, new Date().toISOString());
+      setLeadsNewCount(0);
+      setLeadsNewItems([]);
+    }
     setActiveTab(tab);
     document.title = TAB_TITLES[tab] || 'Dashboard';
     const slug = TAB_TO_SLUG[tab];
@@ -418,6 +463,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             />
           )}
 
+          {activeTab === 'leads' && (
+            <LeadsPage />
+          )}
+
           {activeTab === 'analytics' && isAdmin && (
             <AnalyticsPage onHeaderRight={setAnalyticsHeaderRight} />
           )}
@@ -497,6 +546,48 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         {/* ── AI Insight Alert Bar ── */}
         <CalendarInsight />
 
+        {/* ── Leads Widget ── */}
+        {leadsNewCount > 0 && (
+          <div className="mb-4 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+            <div className="px-3.5 py-3 flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/40 flex items-center justify-center">
+                <UserPlus size={16} className="text-blue-500" />
+              </div>
+              <span className="text-sm font-bold text-gray-800 dark:text-white flex-1">Lead Baru</span>
+              <span className="px-2 py-0.5 rounded-full bg-blue-500 text-white text-[10px] font-bold">{leadsNewCount}</span>
+            </div>
+            <div className="px-3.5 pb-2 space-y-2">
+              {leadsNewItems.map(item => (
+                <div key={item.id} className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-blue-500 flex items-center justify-center flex-shrink-0">
+                    <span className="text-white text-[11px] font-bold">{item.nama.charAt(0).toUpperCase()}</span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-gray-800 dark:text-white truncate">{item.nama}</p>
+                    <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{item.budget} · {item.departure}</p>
+                  </div>
+                  <span className="text-[10px] text-gray-300 dark:text-slate-600 flex-shrink-0">
+                    {(() => {
+                      const diff = Date.now() - new Date(item.created_at).getTime();
+                      const mins = Math.floor(diff / 60000);
+                      if (mins < 60) return `${mins}m`;
+                      const hrs = Math.floor(mins / 60);
+                      if (hrs < 24) return `${hrs}h`;
+                      return `${Math.floor(hrs / 24)}d`;
+                    })()}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => navigateTab('leads')}
+              className="w-full flex items-center justify-center gap-1 py-2.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 border-t border-gray-50 dark:border-slate-700/50 hover:bg-gray-50 dark:hover:bg-slate-700/30 transition-colors"
+            >
+              Lihat Semua <ChevronRight size={12} />
+            </button>
+          </div>
+        )}
+
         {/* ── Feature Cards Grid ── */}
         <div className="grid grid-cols-3 gap-3">
           {visibleCards.map(card => {
@@ -537,6 +628,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   const eventMap: Record<string, string> = {
                     jamaah: 'open_jamaah', kalkulasi: 'open_kalkulasi', compare: 'open_compare',
                     settings: 'open_settings', analytics: 'open_analytics', 'ai-tools': 'open_ai_tools',
+                    leads: 'open_leads',
                   };
                   if (eventMap[card.id]) trackEvent('feature', eventMap[card.id]);
                   navigateTab(card.id);
@@ -548,6 +640,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 {/* External link indicator */}
                 {card.openExternal && (
                   <ExternalLink size={10} className="absolute top-2 right-2 text-gray-300 dark:text-slate-500" />
+                )}
+                {/* Leads notification badge */}
+                {card.id === 'leads' && leadsNewCount > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center z-10">{leadsNewCount > 9 ? '9+' : leadsNewCount}</span>
                 )}
                 <div className="relative flex flex-col items-center text-center">
                   {card.id === 'settings' ? (
