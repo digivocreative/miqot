@@ -3302,13 +3302,6 @@ app.get('/:slug/umroh', async (req, res) => {
 });
 
 // ============================
-// Test route — hapus setelah verifikasi Sentry berhasil
-// ============================
-app.get('/debug-sentry', (req, res) => {
-  throw new Error('Sentry test error — this is intentional!');
-});
-
-// ============================
 // Sentry error handler — HARUS setelah semua routes
 // dan SEBELUM custom error handler lainnya
 // ============================
