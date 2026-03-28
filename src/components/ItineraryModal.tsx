@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Loader2, AlertCircle, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { X, Share2, Loader2, AlertCircle, ZoomIn, ZoomOut, RotateCcw, Sparkles, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+import WebItineraryView, { type ItineraryContent } from './WebItineraryView';
+import type { UmrohPackage } from '@/types';
 
 // Setup PDF.js Worker — primary CDN with fallback
 try {
@@ -20,24 +22,37 @@ try {
 // Types
 // ============================================
 
+type ItineraryTab = 'web' | 'pdf';
+
 interface ItineraryModalProps {
   isOpen: boolean;
   onClose: () => void;
   fileUrl: string;
   title: string;
+  paket?: UmrohPackage;
+  agentSlug?: string | null;
+  agentName?: string | null;
+  agentPhone?: string | null;
+  agentPhoto?: string | null;
 }
 
 // ============================================
 // Component
 // ============================================
 
-export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryModalProps) {
+export function ItineraryModal({ isOpen, onClose, fileUrl, title, paket, agentSlug, agentName, agentPhone, agentPhoto }: ItineraryModalProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [isSharing, setIsSharing] = useState(false);
   const [isPdfLoading, setIsPdfLoading] = useState(true);
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'unknown'>('unknown');
   const [pdfWidth, setPdfWidth] = useState(0);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // ── Tab state ──
+  const [activeTab, setActiveTab] = useState<ItineraryTab>('web');
+  const [itineraryContent, setItineraryContent] = useState<ItineraryContent | null>(null);
+  const [itineraryLoading, setItineraryLoading] = useState(false);
+  const [itineraryError, setItineraryError] = useState<string | null>(null);
 
   // ── Pinch-to-zoom state ──
   const [scale, setScale] = useState(1);
@@ -68,6 +83,10 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
       setNumPages(null);
       setScale(1);
       setOrigin({ x: 50, y: 50 });
+      setActiveTab('web');
+      setItineraryContent(null);
+      setItineraryLoading(false);
+      setItineraryError(null);
     }
   }, [isOpen, fileUrl]);
 
@@ -99,6 +118,47 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     console.error('react-pdf load error:', error);
     setIsPdfLoading(false);
   }
+
+  // ── Fetch itinerary (lazy) ──
+  const fetchItinerary = useCallback(async () => {
+    if (itineraryContent || itineraryLoading || !paket) return;
+    setItineraryLoading(true);
+    setItineraryError(null);
+
+    try {
+      // Build the actual PDF URL (use original URL so server can download it)
+      const pdfOriginalUrl = fileUrl ? fileUrl.replace(/^http:\/\//i, 'https://') : '';
+      if (!pdfOriginalUrl) {
+        setItineraryError('URL PDF tidak tersedia.');
+        return;
+      }
+
+      const meta = {
+        nama_paket: paket.nama,
+        maskapai: paket.maskapai,
+        tgl_berangkat: paket.keberangkatan?.tgl,
+      };
+
+      const params = new URLSearchParams({
+        pdfUrl: pdfOriginalUrl,
+        meta: JSON.stringify(meta),
+      });
+
+      const res = await fetch(`/api/itinerary/${paket.jadwalId}?${params}`);
+      const json = await res.json();
+      if (json.success) setItineraryContent(json.data);
+      else setItineraryError(json.error || 'Gagal memuat itinerary.');
+    } catch {
+      setItineraryError('Koneksi gagal. Coba lagi.');
+    } finally {
+      setItineraryLoading(false);
+    }
+  }, [paket, fileUrl, itineraryContent, itineraryLoading]);
+
+  // Trigger fetch when web tab activates
+  useEffect(() => {
+    if (activeTab === 'web' && isOpen) fetchItinerary();
+  }, [activeTab, isOpen, fetchItinerary]);
 
   // ── Pinch-to-zoom helpers ──
   const getTouchDistance = (touches: React.TouchList) => {
@@ -226,8 +286,8 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
         <div className="flex flex-col">
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">Detail Itinerary</h2>
           <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
-            {fileType === 'pdf' ? 'Dokumen PDF' : 'Gambar'}
-            {numPages && fileType === 'pdf' ? ` · ${numPages} halaman` : ''}
+            {activeTab === 'web' ? 'Web View' : (fileType === 'pdf' ? 'Dokumen PDF' : 'Gambar')}
+            {activeTab === 'pdf' && numPages && fileType === 'pdf' ? ` · ${numPages} halaman` : ''}
           </span>
         </div>
         <button
@@ -238,141 +298,187 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
         </button>
       </div>
 
-      {/* ─── SCROLLABLE CONTENT (PDF/IMAGE VIEWER) ─── */}
-      <div
-        ref={contentRef}
-        className="flex-1 overflow-auto bg-gray-100 dark:bg-slate-950 px-4 pb-6 relative"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        {/* Floating Zoom Controls */}
-        {proxyUrl && !isPdfLoading && (
-          <div className="sticky top-3 z-20 flex justify-end pointer-events-none pr-1" style={{ marginBottom: -48 }}>
-            <div className="pointer-events-auto flex items-center gap-0.5 bg-black/70 backdrop-blur-md rounded-full px-1 py-1 shadow-lg">
-              <button
-                type="button"
-                onClick={zoomOut}
-                disabled={scale <= 1}
-                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                aria-label="Zoom out"
-              >
-                <ZoomOut size={18} />
-              </button>
-              <button
-                type="button"
-                onClick={resetZoom}
-                className="min-w-[44px] text-center text-xs font-semibold text-white px-1 py-1 rounded-full hover:bg-white/20 transition-colors"
-                aria-label="Reset zoom"
-              >
-                {Math.round(scale * 100)}%
-              </button>
-              <button
-                type="button"
-                onClick={zoomIn}
-                disabled={scale >= 3}
-                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                aria-label="Zoom in"
-              >
-                <ZoomIn size={18} />
-              </button>
+      {/* ─── TAB BAR ─── */}
+      {paket && (
+        <div className="flex gap-1.5 px-4 py-2 border-b border-gray-100 dark:border-slate-700/50 bg-white dark:bg-slate-800">
+          <button
+            onClick={() => setActiveTab('web')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'web'
+                ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700'
+            }`}
+          >
+            <Sparkles size={12} strokeWidth={2} />
+            Web View
+          </button>
+          <button
+            onClick={() => setActiveTab('pdf')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'pdf'
+                ? 'bg-gray-700 dark:bg-slate-600 text-white'
+                : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700'
+            }`}
+          >
+            <FileText size={12} strokeWidth={2} />
+            PDF Asli
+          </button>
+        </div>
+      )}
+
+      {/* ─── CONTENT AREA ─── */}
+      {activeTab === 'web' && paket ? (
+        <div className="flex-1 overflow-auto">
+          <WebItineraryView
+            content={itineraryContent}
+            loading={itineraryLoading}
+            error={itineraryError}
+            paket={paket}
+            agentSlug={agentSlug || null}
+            agentName={agentName || null}
+            agentPhone={agentPhone || null}
+            agentPhoto={agentPhoto || null}
+          />
+        </div>
+      ) : (
+        <>
+          {/* ─── SCROLLABLE CONTENT (PDF/IMAGE VIEWER) ─── */}
+          <div
+            ref={contentRef}
+            className="flex-1 overflow-auto bg-gray-100 dark:bg-slate-950 px-4 pb-6 relative"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
+            {/* Floating Zoom Controls */}
+            {proxyUrl && !isPdfLoading && (
+              <div className="sticky top-3 z-20 flex justify-end pointer-events-none pr-1" style={{ marginBottom: -48 }}>
+                <div className="pointer-events-auto flex items-center gap-0.5 bg-black/70 backdrop-blur-md rounded-full px-1 py-1 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={zoomOut}
+                    disabled={scale <= 1}
+                    className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                    aria-label="Zoom out"
+                  >
+                    <ZoomOut size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetZoom}
+                    className="min-w-[44px] text-center text-xs font-semibold text-white px-1 py-1 rounded-full hover:bg-white/20 transition-colors"
+                    aria-label="Reset zoom"
+                  >
+                    {Math.round(scale * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={zoomIn}
+                    disabled={scale >= 3}
+                    className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                    aria-label="Zoom in"
+                  >
+                    <ZoomIn size={18} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div
+              style={{
+                transform: `scale(${scale})`,
+                transformOrigin: `${origin.x}% ${origin.y}%`,
+                transition: scale === 1 ? 'transform 0.2s ease-out' : 'none',
+              }}
+            >
+            <div className="flex justify-center pt-4">
+
+            {/* Empty State */}
+            {!proxyUrl && (
+              <div className="flex flex-col items-center text-gray-400 dark:text-slate-500 gap-2 py-10 self-center">
+                <AlertCircle className="w-10 h-10" />
+                <p>File Itinerary belum tersedia.</p>
+              </div>
+            )}
+
+            {/* PDF Renderer via react-pdf */}
+            {proxyUrl && fileType === 'pdf' && (
+              <div className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[50vh] flex flex-col items-center justify-center relative">
+                <Document
+                  file={proxyUrl}
+                  onLoadSuccess={onDocumentLoadSuccess}
+                  onLoadError={onDocumentLoadError}
+                  loading={
+                    <div className="flex flex-col items-center gap-3 py-10">
+                      <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                      <span className="text-sm text-gray-500 dark:text-slate-400">Memuat Dokumen...</span>
+                    </div>
+                  }
+                  error={
+                    <div className="flex flex-col items-center gap-2 py-10 text-red-500">
+                      <AlertCircle className="w-8 h-8" />
+                      <span className="text-sm">Gagal memuat PDF.</span>
+                    </div>
+                  }
+                  className="w-full flex flex-col items-center gap-4"
+                >
+                  {numPages && Array.from(new Array(numPages), (_, index) => (
+                    <Page
+                      key={`page_${index + 1}`}
+                      pageNumber={index + 1}
+                      renderTextLayer={false}
+                      renderAnnotationLayer={false}
+                      className="shadow-md rounded-lg overflow-hidden w-full max-w-full"
+                      width={pdfWidth || 400}
+                    />
+                  ))}
+                </Document>
+              </div>
+            )}
+
+            {/* Image Renderer (fallback for .jpg/.png) */}
+            {proxyUrl && fileType === 'image' && (
+              <div className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-md w-full">
+                <img
+                  src={proxyUrl}
+                  alt={`Itinerary ${title}`}
+                  className="w-full h-auto rounded-lg"
+                  onLoad={() => setIsPdfLoading(false)}
+                />
+              </div>
+            )}
+            </div>
             </div>
           </div>
-        )}
 
-        <div
-          style={{
-            transform: `scale(${scale})`,
-            transformOrigin: `${origin.x}% ${origin.y}%`,
-            transition: scale === 1 ? 'transform 0.2s ease-out' : 'none',
-          }}
-        >
-        <div className="flex justify-center pt-4">
-
-        {/* Empty State */}
-        {!proxyUrl && (
-          <div className="flex flex-col items-center text-gray-400 dark:text-slate-500 gap-2 py-10 self-center">
-            <AlertCircle className="w-10 h-10" />
-            <p>File Itinerary belum tersedia.</p>
-          </div>
-        )}
-
-        {/* PDF Renderer via react-pdf */}
-        {proxyUrl && fileType === 'pdf' && (
-          <div className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[50vh] flex flex-col items-center justify-center relative">
-            <Document
-              file={proxyUrl}
-              onLoadSuccess={onDocumentLoadSuccess}
-              onLoadError={onDocumentLoadError}
-              loading={
-                <div className="flex flex-col items-center gap-3 py-10">
-                  <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
-                  <span className="text-sm text-gray-500 dark:text-slate-400">Memuat Dokumen...</span>
-                </div>
-              }
-              error={
-                <div className="flex flex-col items-center gap-2 py-10 text-red-500">
-                  <AlertCircle className="w-8 h-8" />
-                  <span className="text-sm">Gagal memuat PDF.</span>
-                </div>
-              }
-              className="w-full flex flex-col items-center gap-4"
+          {/* ─── FOOTER ─── */}
+          <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            <button
+              onClick={handleShareItinerary}
+              disabled={isSharing || !proxyUrl}
+              className="
+                w-full flex items-center justify-center gap-2 py-3.5 px-4
+                rounded-xl font-bold text-white
+                bg-emerald-600 hover:bg-emerald-700
+                shadow-lg shadow-emerald-500/20
+                transition-all duration-200 active:scale-[0.98] disabled:opacity-70
+              "
             >
-              {numPages && Array.from(new Array(numPages), (_, index) => (
-                <Page
-                  key={`page_${index + 1}`}
-                  pageNumber={index + 1}
-                  renderTextLayer={false}
-                  renderAnnotationLayer={false}
-                  className="shadow-md rounded-lg overflow-hidden w-full max-w-full"
-                  width={pdfWidth || 400}
-                />
-              ))}
-            </Document>
+              {isSharing ? (
+                <>
+                  <Loader2 size={20} className="animate-spin" />
+                  <span>Menyiapkan File...</span>
+                </>
+              ) : (
+                <>
+                  <Share2 size={20} />
+                  <span>Bagikan Itinerary</span>
+                </>
+              )}
+            </button>
           </div>
-        )}
-
-        {/* Image Renderer (fallback for .jpg/.png) */}
-        {proxyUrl && fileType === 'image' && (
-          <div className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-md w-full">
-            <img
-              src={proxyUrl}
-              alt={`Itinerary ${title}`}
-              className="w-full h-auto rounded-lg"
-              onLoad={() => setIsPdfLoading(false)}
-            />
-          </div>
-        )}
-        </div>
-        </div>
-      </div>
-
-      {/* ─── FOOTER ─── */}
-      <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-        <button
-          onClick={handleShareItinerary}
-          disabled={isSharing || !proxyUrl}
-          className="
-            w-full flex items-center justify-center gap-2 py-3.5 px-4
-            rounded-xl font-bold text-white
-            bg-emerald-600 hover:bg-emerald-700
-            shadow-lg shadow-emerald-500/20
-            transition-all duration-200 active:scale-[0.98] disabled:opacity-70
-          "
-        >
-          {isSharing ? (
-            <>
-              <Loader2 size={20} className="animate-spin" />
-              <span>Menyiapkan File...</span>
-            </>
-          ) : (
-            <>
-              <Share2 size={20} />
-              <span>Bagikan Itinerary</span>
-            </>
-          )}
-        </button>
-      </div>
+        </>
+      )}
 
         </motion.div>
       )}

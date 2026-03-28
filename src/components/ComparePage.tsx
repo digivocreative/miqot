@@ -650,23 +650,19 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
       await document.fonts.ready;
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      const { domToPng } = await import('modern-screenshot');
-      const imageDataUrl = await domToPng(wrapper, { scale: 2, backgroundColor: '#ffffff' });
+      const { snapdom } = await import('@zumer/snapdom');
+      const result = await snapdom(wrapper, { scale: 2, backgroundColor: '#ffffff' });
+      const blob = await result.toBlob({ type: 'png' });
 
       document.body.removeChild(wrapper);
 
       // Share or download
-      const blob = await (await fetch(imageDataUrl)).blob();
       const file = new File([blob], 'Perbandingan_Paket.png', { type: 'image/png' });
-      const shareData = { title: 'Perbandingan Paket Umroh', files: [file] };
+      const shareData = { files: [file] };
       if (navigator.canShare && navigator.canShare(shareData)) {
         try { await navigator.share(shareData); } catch { /* cancelled */ }
       } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = 'Perbandingan_Paket.png';
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        await result.download({ type: 'png', filename: 'Perbandingan_Paket' });
       }
     } catch (err) {
       console.error('Screenshot export failed:', err);

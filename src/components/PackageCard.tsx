@@ -907,7 +907,7 @@ _________________________
         spans.forEach(span => {
           const el = span as HTMLElement;
           const text = el.textContent?.trim();
-          // Remove the "/" separator physically (modern-screenshot ignores display:none)
+          // Remove the "/" separator physically (snapdom ignores display:none)
           if (text === '/') {
             el.remove();
             return;
@@ -957,7 +957,7 @@ _________________________
       });
 
       // E. REMOVE AGENT PROFILE from clone body (moved to header)
-      // Must physically remove — modern-screenshot ignores display:none
+      // Must physically remove — snapdom ignores display:none
       const agentProfileEl = clone.querySelector('[data-agent-profile]');
       if (agentProfileEl) {
         // Remove the wrapper div (px-0) too if it exists
@@ -1234,7 +1234,7 @@ _________________________
       wrapper.appendChild(clone);
       document.body.appendChild(wrapper);
 
-      // 4. RENDER WITH MODERN-SCREENSHOT
+      // 4. RENDER WITH SNAPDOM
 
       // 4a. Pastikan semua font (Inter, dll) sudah terload sempurna
       await document.fonts.ready;
@@ -1243,22 +1243,16 @@ _________________________
       await new Promise(resolve => setTimeout(resolve, 300));
 
       // 4c. Render the wrapper (which contains header + clone)
-      const { domToPng } = await import('modern-screenshot');
-      const imageDataUrl = await domToPng(wrapper, {
+      const { snapdom } = await import('@zumer/snapdom');
+      const result = await snapdom(wrapper, {
         scale: 2,
         backgroundColor: '#ffffff',
-        font: {
-          preferredFormat: 'woff2',
-          cssText: interFontCSS,
-        },
-        filter: (node: Node) => {
-          if (node instanceof HTMLElement) {
-            if (node.hasAttribute('data-screenshot-ignore')) return false;
-            if (node.hasAttribute('data-agent-profile')) return false;
-          }
-          return true;
-        },
+        exclude: ['[data-screenshot-ignore]', '[data-agent-profile]'],
       });
+
+      // Convert to dataUrl for preview overlay
+      const canvas = await result.toCanvas();
+      const imageDataUrl = canvas.toDataURL('image/png');
 
       // Cleanup
       document.body.removeChild(wrapper);
@@ -1987,6 +1981,11 @@ _________________________
             onClose={() => setIsItineraryOpen(false)}
             fileUrl={pkg.itineraryUrl}
             title={pkg.nama}
+            paket={pkg}
+            agentSlug={agentSlug || null}
+            agentName={currentAgent?.name || null}
+            agentPhone={currentAgent?.phone || null}
+            agentPhoto={currentAgent?.photo || null}
           />
         </Suspense>
       )}

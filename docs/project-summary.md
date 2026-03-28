@@ -15,7 +15,7 @@
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
-| **Database** | Supabase (PostgreSQL) — 6 tabel: `agents`, `capi_configs`, `jamaah`, `calendar_events`, `calendar_insights`, `ai_credits` |
+| **Database** | Supabase (PostgreSQL) — 7 tabel: `agents`, `capi_configs`, `jamaah`, `calendar_events`, `calendar_insights`, `ai_credits`, `quiz_leads` |
 | **Telegram** | Telegram Bot API — group alerts (node-cron) + per-agent DM (deep link connect, departure reminders, pembayaran masuk) |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
@@ -27,6 +27,7 @@
 | **PWA** | vite-plugin-pwa (offline support, install banner) |
 | **Notifications** | Telegram Bot API + node-cron (seat alerts, weekly summary, AI insights) |
 | **Email** | Resend (transactional emails: password reset) |
+| **Error Tracking** | Sentry (Node.js SDK + Express integration via `instrument.mjs`) |
 | **Hosting** | VPS (Ubuntu), systemd service `miqot.service` |
 | **Deploy** | GitHub webhook → `deploy-webhook.js` → `deploy.sh` (pull + build + restart) |
 | **Container** | Docker + docker-compose (alternatif) |
@@ -60,7 +61,8 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~2400 lines) — API, proxy, auth, sync, stats, AI insight, AI tools, SPA serve
+├── server.js              # Express backend (~3600 lines) — API, proxy, auth, sync, stats, AI insight, AI tools, quiz/leads, SPA serve
+├── instrument.mjs         # Sentry initialization (must be imported before everything else)
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
 ├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
 ├── jamaah-api.js           # Legacy: Playwright-based jamaah scraping (deprecated, replaced by laporan-api.js)
@@ -76,12 +78,14 @@ alhijaz/
 │   ├── main.tsx            # Entry point — routing, PWA registration, page resolution
 │   ├── App.tsx             # Main SPA component — package list, filters, layout
 │   ├── index.css           # Global CSS (TailwindCSS + custom animations)
-│   ├── components/         # 20 React components
+│   ├── components/         # 22 React components
 │   │   ├── PackageCard.tsx     # Card paket umroh (komponen terbesar, ~103KB, 2241 lines)
+│   │   ├── QuizPage.tsx        # Quiz rekomendasi paket umroh (~1406 lines) — 6-step quiz, matching engine, PDF export, result cards
 │   │   ├── CapiPage.tsx        # Meta Conversion API config UI (~1774 lines)
 │   │   ├── KalkulasiPage.tsx   # Hitung harga + generate quotation PDF (~1493 lines)
 │   │   ├── ComparePage.tsx     # Bandingkan 2 paket side-by-side (~1084 lines)
 │   │   ├── JamaahPage.tsx      # View jamaah umroh data, sync & filter (~1018 lines)
+│   │   ├── LeadsPage.tsx       # Lead management dashboard (~766 lines) — stat cards, search, status filter, framer-motion expand/collapse, skeleton loading
 │   │   ├── HajiPage.tsx        # View jamaah haji data (embedded as tab in Jamaah), login to legacy, sync, document viewer popup
 │   │   ├── StatistikPage.tsx   # Dashboard statistik: ringkasan jamaah, komisi, chart tren (~678 lines)
 │   │   ├── UpcomingSchedule.tsx # Calendar widget — mini grid with colored dots + bottom sheet detail
@@ -236,7 +240,24 @@ alhijaz/
     - Uses Google Cloud TTS API v1 (Chirp3-HD voices, `id-ID` language, speakingRate 1.1, headphone audio profile)
     - Credit system: 25K karakter/agent/bulan, stored in `ai_credits` table, auto-reset setiap 30 hari
     - Char limit: 1000 karakter per script
-  - "Segera Hadir" card (disabled) untuk fitur AI mendatang
+  - **Kartu Nama Digital** (`/dashboard/ai-tools/business-card`): Generate digital business cards dengan opsi desain premium (gradient, glassmorphism) dan QR code profile.
+  - **Haji Plus** (`/dashboard/ai-tools/haji-plus`): Visualisasi data jamaah Haji Plus per tahun, grafik Recharts (multi-color bar chart), stat cards ber-icon, dan fitur export infografis PNG.
+  - **Brosur Generator** (`/dashboard/ai-tools/brosur`): Segera hadir (disabled) untuk fitur mendatang.
+- **Quiz Rekomendasi** (`QuizPage.tsx`) — Public quiz flow per agent (`/:slug`)
+  - 6-step quiz: Departure, Package Class + Destination, Budget, Priority (max 2), Room + Pax, Contact (Nama + WA)
+  - Matching engine: filter paket by departure/class/destination/budget, score by hotel proximity + duration + urgency + flexibility
+  - Fallback tiers: relax budget ±20% → relax package type → sold-out fillers
+  - Result: top 3 cards with match %, price, hotel, maskapai, departure, seat indicator
+  - PDF export via `@react-pdf/renderer` (downloadable recommendation summary)
+  - Submit → save to `quiz_leads` table + Telegram notification to agent
+- **Leads Management** (`LeadsPage.tsx`) — Dashboard lead tracking
+  - Stat cards: Semua, Baru, Proses, Closing (animated with `active:scale-95`)
+  - Search by name, filter by status
+  - Lead cards: avatar with status-colored ring, expand/collapse with framer-motion `AnimatePresence`
+  - Expanded: preferensi detail, recommendation list, status update dropdown, WhatsApp + delete actions
+  - Skeleton loading for stat cards + search bar + lead cards on initial fetch
+  - Empty states: "Belum ada lead" (UserPlus icon) / "Tidak ditemukan" (Search icon)
+  - Sync indicator: total leads + last updated timestamp
 
 ### Fitur Infrastruktur
 - AI Copywriting (OpenAI proxy — generate caption WhatsApp)
@@ -246,8 +267,14 @@ alhijaz/
     - Pagi (07:00 WIB): semua milestone H-14/H-7/H-3/H-1 dalam 1 pesan, progressive detail
     - Sore (17:00 WIB): H-1 only, urgent reminder
     - Anti-duplikat via state keys per agent per hari
+  - **Quiz lead notification**: saat lead baru submit quiz → Telegram DM ke agent with HTML formatting:
+    - Format: `📋 Lead Baru Masuk` header, nama bold+underline, preferensi section (departure/kelas/destinasi/budget/kamar/rombongan/prioritas), top 3 rekomendasi (bold name, italic price, match %)
+    - Human-readable labels: raw values (`reguler`, `plus_turki`, `0-35900000`) → formatted (`Reguler`, `Plus Turki`, `Di bawah 35.9jt`)
+    - Price format: handles pre-formatted `Rp xxx` strings + numeric fallback with `Intl.NumberFormat`
+    - Separator lines `─────────────────` between sections
+    - `parse_mode: 'HTML'` with `<b>`, `<u>`, `<i>` tags
   - **Pembayaran masuk** detection: saat sync jamaah, bandingkan `bayar` before vs after → kirim notif ke agent jika ada kenaikan pembayaran
-  - **Notification preferences**: per-agent toggle (10 kategori: departure, paspor, pelunasan, perlengkapan, manasik, seat_alert, paket_baru, perubahan_harga, pembayaran_masuk, ringkasan_mingguan). Disimpan di `agents.notification_prefs` (JSONB)
+  - **Notification preferences**: per-agent toggle (11 kategori: departure, paspor, pelunasan, perlengkapan, manasik, seat_alert, paket_baru, perubahan_harga, pembayaran_masuk, ringkasan_mingguan, quiz_lead). Disimpan di `agents.notification_prefs` (JSONB)
   - Deep link connect: agent klik tombol di dashboard → Telegram bot auto-link chat_id
 - Background sync jamaah (semua agent, setiap 1 jam, per kantor agent masing-masing)
 - Calendar sync (scrape FullCalendar dari internal system, setiap 12 jam via `setInterval`)
@@ -259,6 +286,7 @@ alhijaz/
   - Prompt includes calendar events + Mekah/Madinah temperature data
   - 3 fields: `today`, `weekly`, `cuaca`
   - Cache: in-memory + Supabase `calendar_insights` table
+- Sentry error tracking (`@sentry/node` + `instrument.mjs`): automatic Express error capture, runs before all imports
 - Agent photo storage: Supabase Storage bucket `agent-photos` (migrated from local `/public/agents/`)
 - GitHub webhook auto-deploy (webhook → pull → build → restart)
 - Supabase keep-alive (ping setiap 3 hari, cegah free-tier pause)
@@ -345,6 +373,19 @@ first_used_at TIMESTAMPTZ          -- timestamp pertama kali pakai (reset setela
 created_at    TIMESTAMPTZ          -- record creation time
 ```
 
+### Tabel `quiz_leads`
+```
+id            UUID PRIMARY KEY DEFAULT gen_random_uuid()
+agent_slug    TEXT NOT NULL        -- FK to agents.slug
+nama          TEXT NOT NULL        -- nama calon jamaah
+wa            TEXT NOT NULL        -- nomor WA (format 628xxx)
+answers       JSONB DEFAULT '{}'   -- quiz answers (departure, packageClass, destination, budget, priority[], room, pax)
+recommended   JSONB DEFAULT '[]'   -- top 3 recommended packages [{jadwal_id, name, price, match}]
+status        TEXT DEFAULT 'baru'  -- 'baru' | 'dihubungi' | 'closing' | 'tidak_berminat'
+created_at    TIMESTAMPTZ DEFAULT now()
+-- Indexes: agent_slug, status, created_at DESC
+```
+
 ### Data Paket Umroh (External API)
 Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhijaz.co/jadwal/api-get/{yearCode}` dan di-cache di browser (localStorage). Lihat `UmrohPackage` type di `src/types/umroh-package.ts`.
 
@@ -401,6 +442,15 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | GET | `/api/telegram/prefs` | Bearer | Get notification preferences (merged with defaults) |
 | PUT | `/api/telegram/prefs` | Bearer | Update notification preferences (partial update, JSONB merge) |
 | POST | `/api/telegram/webhook` | — | Webhook handler dari Telegram bot (process /start {token}) |
+
+### Quiz & Leads
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| POST | `/api/quiz/:slug/submit` | — | Submit quiz answers + recommendations (public, no auth). Saves to `quiz_leads`, sends Telegram notification |
+| GET | `/api/leads/stats` | Bearer | Get lead stats by status (total, baru, dihubungi, closing, tidak_berminat, new_since) |
+| GET | `/api/leads` | Bearer | List leads (filter: status, search, after; pagination: page, limit) |
+| PUT | `/api/leads/:id/status` | Bearer | Update lead status |
+| DELETE | `/api/leads/:id` | Bearer | Delete lead |
 
 ### AI Tools
 | Method | Path | Auth | Deskripsi |
@@ -481,6 +531,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 | `NOTIFIER_YEAR_CODES` | Kode tahun paket yang di-monitor (default: "1448") |
 | `NOTIFIER_BASE_URL` | Base URL API untuk notifier (default: localhost:3000) |
 | `RESEND_API_KEY` | Resend API key untuk transactional emails (password reset) |
+| `SENTRY_DSN` | Sentry DSN untuk error tracking (server-side, loaded in `instrument.mjs`) |
 
 ### Deployment (Production)
 - Server: VPS Ubuntu, systemd service `miqot.service`
@@ -527,10 +578,17 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Voice Over upgraded to Google Cloud TTS Chirp3-HD (8 voices: 4 wanita + 4 pria, natural Indonesian)
 - AI credit system (25K chars/agent/month, `ai_credits` table, auto-reset 30 days, banner with progress bar)
 - Script generation with casual/gaul Indonesian, duration-aware character limits, AI-friendly word choices
+- Quiz rekomendasi paket (6-step public quiz, matching engine, PDF export, result cards)
+- Leads management dashboard (stat cards, search, status filter, framer-motion expand/collapse, skeleton loading, empty states)
+- Telegram quiz lead notification (HTML formatted, human-readable labels, separator sections, price formatting)
+- Sentry error tracking (server-side, `@sentry/node` + `instrument.mjs`)
+- UI Polish Haji Plus Dashboard (stat cards dengan icon badges, ornamen dekoratif hero card, EMERALD_PALETTE untuk chart bars, custom spacing, override header tool icon)
+- Dynamic navbar icon/color override logic untuk AI Tools sub-pages (Haji Plus, Voice Over, Kartu Nama)
+- Kartu Nama Digital revamped to rich high-fidelity templates (gradient, glassmorphism, dynamic user data)
+- AI Web Itinerary View with vertical timeline, time badges, OpenAI extraction + Supabase caching
 
 ### Rencana / Backlog
 - [TODO] Testing suite
-- [TODO] Monitoring & error tracking (Sentry atau sejenis)
 - [TODO] Image optimization pipeline (sharp/CDN)
 
 ## 10. Catatan & Keputusan Teknis

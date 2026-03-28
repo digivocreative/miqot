@@ -3,7 +3,7 @@ import {
   Calculator, ArrowLeftRight, Settings,
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
   BarChart3, Loader2, Sparkles, UserPlus, ChevronRight,
-  CalendarRange, ExternalLink, TrendingUp,
+  CalendarRange, ExternalLink, TrendingUp, Mic, CreditCard,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
@@ -18,6 +18,9 @@ import AnalyticsPage from './AnalyticsPage';
 import SettingsPage from './SettingsPage';
 import AIToolsPage from './AIToolsPage';
 import VoiceOverPage from './VoiceOverPage';
+import BusinessCardPage from './BusinessCardPage';
+import HajiPlusPage from './HajiPlusPage';
+import HajiPlusExportPage from './HajiPlusExportPage';
 import LeadsPage from './LeadsPage';
 import { trackEvent } from '../utils/analytics';
 
@@ -76,8 +79,12 @@ function getSettingsTabFromPath(): 'profil' | 'telegram' | 'capi' {
 
 function getAIToolsSubFromPath(): string | null {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
-  // /dashboard/ai-tools/voice-over
+  // /dashboard/ai-tools/voice-over OR /dashboard/ai-tools/haji-plus/export
   if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'ai-tools') {
+    // Handle nested sub-paths like haji-plus/export
+    if (segments.length >= 4 && segments[2] === 'haji-plus' && segments[3] === 'export') {
+      return 'haji-plus/export';
+    }
     return segments[2];
   }
   return null;
@@ -93,7 +100,7 @@ const TAB_TITLES: Record<TabId, string> = {
   jamaah: 'Jamaah',
   statistik: 'Statistik',
   analytics: 'Analytics',
-  'ai-tools': 'AI Tools',
+  'ai-tools': 'Tools',
   leads: 'Leads',
 };
 
@@ -152,7 +159,7 @@ const MENU_CARDS: MenuCard[] = [
     borderLight: 'border-violet-100', borderDark: 'dark:border-violet-800/40',
   },
   {
-    id: 'ai-tools', label: 'AI Tools', desc: 'Voice over & AI lainnya',
+    id: 'ai-tools', label: 'Tools', desc: 'Voice over & AI lainnya',
     icon: Sparkles, color: 'text-purple-600 dark:text-purple-400',
     bgLight: 'bg-purple-50', bgDark: 'dark:bg-purple-900/20',
     borderLight: 'border-purple-100', borderDark: 'dark:border-purple-800/40',
@@ -275,8 +282,13 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // Set initial history state on mount
   useEffect(() => {
     window.history.replaceState({ tab: activeTab }, '', window.location.pathname);
-    document.title = (activeTab === 'ai-tools' && getAIToolsSubFromPath() === 'voice-over')
+    const aiSub = getAIToolsSubFromPath();
+    document.title = (activeTab === 'ai-tools' && aiSub === 'voice-over')
       ? 'Voice Over'
+      : (activeTab === 'ai-tools' && aiSub === 'business-card')
+      ? 'Kartu Nama'
+      : (activeTab === 'ai-tools' && (aiSub === 'haji-plus' || aiSub === 'haji-plus/export'))
+      ? (aiSub === 'haji-plus/export' ? 'Export Infografis' : 'Haji Plus')
       : TAB_TITLES[activeTab] || 'Dashboard';
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -331,8 +343,17 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
             <button
               onClick={() => {
-                // If on AI Tools sub-page, go back to AI Tools hub
+                // If on AI Tools sub-page, go back appropriately
                 if (activeTab === 'ai-tools' && getAIToolsSubFromPath()) {
+                  const aiSub = getAIToolsSubFromPath();
+                  // Export page → go back to haji-plus
+                  if (aiSub === 'haji-plus/export') {
+                    window.history.pushState({}, '', '/dashboard/ai-tools/haji-plus');
+                    document.title = 'Haji Plus';
+                    setActiveTab('home');
+                    setTimeout(() => setActiveTab('ai-tools'), 0);
+                    return;
+                  }
                   window.history.pushState({}, '', '/dashboard/ai-tools');
                   setActiveTab('home');
                   setTimeout(() => setActiveTab('ai-tools'), 0);
@@ -345,16 +366,38 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               <ChevronLeft size={18} strokeWidth={2.5} />
             </button>
             <div className="flex items-center gap-2 flex-1 min-w-0">
-              {activeCard && (
-                <div className={`w-8 h-8 rounded-lg ${activeCard.bgLight} ${activeCard.bgDark} flex items-center justify-center border ${activeCard.borderLight} ${activeCard.borderDark}`}>
-                  <activeCard.icon size={16} className={activeCard.color} />
-                </div>
-              )}
-              <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">
-                {activeTab === 'ai-tools' && getAIToolsSubFromPath() === 'voice-over'
-                  ? 'Voice Over'
-                  : activeCard?.label}
-              </h1>
+              {(() => {
+                const aiSub = activeTab === 'ai-tools' ? getAIToolsSubFromPath() : null;
+                // Override icon/color for AI Tools sub-pages
+                const AI_SUB_STYLES: Record<string, { icon: React.ElementType; bg: string; bgDark: string; border: string; borderDark: string; color: string; label: string }> = {
+                  'voice-over': { icon: Mic, bg: 'bg-purple-50', bgDark: 'dark:bg-purple-900/20', border: 'border-purple-100', borderDark: 'dark:border-purple-800/40', color: 'text-purple-600 dark:text-purple-400', label: 'Voice Over' },
+                  'business-card': { icon: CreditCard, bg: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20', border: 'border-teal-100', borderDark: 'dark:border-teal-800/40', color: 'text-teal-600 dark:text-teal-400', label: 'Kartu Nama' },
+                  'haji-plus': { icon: BarChart3, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Haji Plus' },
+                  'haji-plus/export': { icon: BarChart3, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Export Infografis' },
+                };
+                const sub = aiSub && AI_SUB_STYLES[aiSub] ? AI_SUB_STYLES[aiSub] : null;
+                if (sub) {
+                  const SubIcon = sub.icon;
+                  return (
+                    <>
+                      <div className={`w-8 h-8 rounded-lg ${sub.bg} ${sub.bgDark} flex items-center justify-center border ${sub.border} ${sub.borderDark}`}>
+                        <SubIcon size={16} className={sub.color} />
+                      </div>
+                      <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">{sub.label}</h1>
+                    </>
+                  );
+                }
+                return (
+                  <>
+                    {activeCard && (
+                      <div className={`w-8 h-8 rounded-lg ${activeCard.bgLight} ${activeCard.bgDark} flex items-center justify-center border ${activeCard.borderLight} ${activeCard.borderDark}`}>
+                        <activeCard.icon size={16} className={activeCard.color} />
+                      </div>
+                    )}
+                    <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">{activeCard?.label}</h1>
+                  </>
+                );
+              })()}
             </div>
             {/* Dark mode toggle */}
             <button
@@ -474,11 +517,19 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           {activeTab === 'ai-tools' && (() => {
             const sub = getAIToolsSubFromPath();
             if (sub === 'voice-over') return <VoiceOverPage />;
+            if (sub === 'business-card') return <BusinessCardPage agent={agentData} />;
+            if (sub === 'haji-plus/export') return <HajiPlusExportPage agent={agentData} />;
+            if (sub === 'haji-plus') return <HajiPlusPage agent={agentData} onExport={() => {
+              window.history.pushState({}, '', '/dashboard/ai-tools/haji-plus/export');
+              document.title = 'Export Infografis';
+              setActiveTab('home');
+              setTimeout(() => setActiveTab('ai-tools'), 0);
+            }} />;
             return (
               <AIToolsPage
                 onNavigate={(toolId) => {
                   window.history.pushState({}, '', `/dashboard/ai-tools/${toolId}`);
-                  document.title = toolId === 'voice-over' ? 'Voice Over' : 'AI Tools';
+                  document.title = toolId === 'voice-over' ? 'Voice Over' : toolId === 'business-card' ? 'Kartu Nama' : toolId === 'haji-plus' ? 'Haji Plus' : 'Tools';
                   // Force re-render by toggling tab
                   setActiveTab('home');
                   setTimeout(() => setActiveTab('ai-tools'), 0);

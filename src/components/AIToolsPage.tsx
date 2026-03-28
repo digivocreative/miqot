@@ -1,4 +1,4 @@
-import { Mic, Image, Quote } from 'lucide-react';
+import { Mic, Image, CreditCard, BarChart3 } from 'lucide-react';
 
 interface AIToolsPageProps {
   onNavigate: (sub: string) => void;
@@ -15,20 +15,29 @@ const TOOLS = [
     active: true,
   },
   {
+    id: 'haji-plus',
+    name: 'Infografis Haji Plus',
+    desc: 'Grafik data jamaah haji plus per tahun',
+    icon: BarChart3,
+    color: 'emerald',
+    route: 'haji-plus',
+    active: true,
+  },
+  {
+    id: 'business-card',
+    name: 'Kartu Nama Digital',
+    desc: 'Dengan 5 pilihan desain, lengkap dengan QR code.',
+    icon: CreditCard,
+    color: 'teal',
+    route: 'business-card',
+    active: false,
+  },
+  {
     id: 'brosur',
     name: 'Brosur Generator',
     desc: 'Generate brosur dengan watermark agent',
     icon: Image,
     color: 'pink',
-    route: null,
-    active: false,
-  },
-  {
-    id: 'testimoni',
-    name: 'Testimoni Formatter',
-    desc: 'Ubah testimoni jamaah jadi post promosi',
-    icon: Quote,
-    color: 'amber',
     route: null,
     active: false,
   },
@@ -39,6 +48,10 @@ const iconStyles: Record<string, { bg: string; text: string }> = {
     bg: 'bg-purple-50 dark:bg-purple-900/20',
     text: 'text-purple-600 dark:text-purple-400',
   },
+  teal: {
+    bg: 'bg-teal-50 dark:bg-teal-900/20',
+    text: 'text-teal-600 dark:text-teal-400',
+  },
   pink: {
     bg: 'bg-pink-50 dark:bg-pink-900/20',
     text: 'text-pink-600 dark:text-pink-400',
@@ -46,6 +59,10 @@ const iconStyles: Record<string, { bg: string; text: string }> = {
   amber: {
     bg: 'bg-amber-50 dark:bg-amber-900/20',
     text: 'text-amber-600 dark:text-amber-400',
+  },
+  emerald: {
+    bg: 'bg-emerald-50 dark:bg-emerald-900/20',
+    text: 'text-emerald-600 dark:text-emerald-400',
   },
 };
 

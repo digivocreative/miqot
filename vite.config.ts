@@ -653,6 +653,10 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
+      '/api/haji-plus': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
       '/api/haji': {
         target: 'http://localhost:3000',
         changeOrigin: true,
@@ -671,6 +675,10 @@ export default defineConfig({
       },
       '/api/leads': {
         target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/itinerary': {
+        target: 'http://localhost:3000',
         changeOrigin: true,
       },
 

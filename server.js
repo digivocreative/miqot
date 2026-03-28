@@ -16,6 +16,7 @@ import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive,
 import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
 import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar } from './calendar-api.js';
+import { PDFParse as pdfParse } from 'pdf-parse';
 
 dotenv.config();
 
@@ -480,6 +481,135 @@ app.options('/api/ai-copy', (req, res) => {
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   }).sendStatus(204);
+});
+
+// ──────────────────────────────────────────────
+// API: AI Itinerary (PDF extraction + OpenAI structuring + Supabase cache)
+// ──────────────────────────────────────────────
+
+app.get('/api/itinerary/:jadwalId', async (req, res) => {
+  const { jadwalId } = req.params;
+
+  try {
+    // 1. Check Supabase cache
+    const { data: cached } = await supabase
+      .from('itineraries')
+      .select('content, generated_at')
+      .eq('jadwal_id', jadwalId)
+      .single();
+
+    if (cached) {
+      return res.json({ success: true, data: cached.content, cached: true });
+    }
+
+    // 2. Cache miss — get PDF URL from query param
+    const pdfUrl = req.query.pdfUrl;
+    if (!pdfUrl) {
+      return res.status(400).json({ error: 'pdfUrl wajib diisi' });
+    }
+
+    // 3. Download the actual PDF and extract text
+    console.log(`[Itinerary] Downloading PDF: ${pdfUrl}`);
+    const pdfRes = await fetch(pdfUrl, { signal: AbortSignal.timeout(15000) });
+    if (!pdfRes.ok) {
+      console.error(`[Itinerary] PDF download failed: ${pdfRes.status}`);
+      return res.status(502).json({ error: 'Gagal mengunduh PDF itinerary' });
+    }
+    const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+    const parser = new pdfParse({ data: pdfBuffer });
+    await parser.load();
+    const textResult = await parser.getText();
+    await parser.destroy();
+    const pdfText = textResult?.text?.trim() || '';
+
+    if (!pdfText || pdfText.length < 50) {
+      return res.status(400).json({ error: 'PDF tidak mengandung teks yang cukup' });
+    }
+    console.log(`[Itinerary] Extracted ${pdfText.length} chars from PDF`);
+
+    // 4. Parse extra metadata
+    let meta = {};
+    try { meta = JSON.parse(req.query.meta || '{}'); } catch { /* ignore */ }
+
+    // 5. Generate via OpenAI — structure the extracted text
+    const OPENAI_KEY = process.env.OPENAI_API_KEY;
+    if (!OPENAI_KEY) {
+      return res.status(500).json({ error: 'OPENAI_API_KEY not configured' });
+    }
+
+    const prompt = `Berikut adalah teks yang diekstrak dari dokumen PDF itinerary perjalanan umroh:
+
+--- MULAI TEKS PDF ---
+${pdfText.substring(0, 6000)}
+--- AKHIR TEKS PDF ---
+
+Metadata paket:
+- Nama paket: ${meta.nama_paket || ''}
+- Maskapai: ${meta.maskapai || ''}
+- Tanggal berangkat: ${meta.tgl_berangkat || ''}
+
+TUGAS: Strukturkan teks PDF di atas menjadi JSON. HANYA gunakan informasi yang ADA di teks PDF. JANGAN menambahkan, mengarang, atau mengasumsikan informasi apapun yang tidak ada di teks.
+
+Kembalikan JSON dengan struktur PERSIS ini:
+{
+  "days": [
+    {
+      "dayNumber": "Hari 1",
+      "title": "Judul singkat dari PDF (maks 6 kata)",
+      "location": "Kota/rute sesuai PDF",
+      "activities": [
+        { "time": "08:00", "text": "Aktivitas persis dari PDF" },
+        { "time": "12:00", "text": "Aktivitas kedua dari PDF" }
+      ]
+    }
+  ]
+}
+
+Panduan:
+- Ambil SEMUA hari yang disebutkan di PDF, jangan skip
+- Jika PDF menggabungkan beberapa hari (misal "Hari 3-5"), ikuti format itu
+- Tiap aktivitas maksimal 15 kata, bahasa Indonesia yang rapi
+- Field "time": ambil jam dari PDF jika tersedia (format "HH:MM"). Jika PDF hanya menyebut waktu umum, gunakan "Pagi", "Siang", "Sore", "Malam", atau "Subuh". Jika tidak ada info waktu sama sekali, gunakan "-"
+- JANGAN mengarang aktivitas atau jam yang tidak ada di PDF`;
+
+    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_KEY}`,
+      },
+      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: 'Kamu adalah asisten yang mengekstrak dan menstrukturkan data dari dokumen PDF. Kamu HANYA menggunakan informasi yang ada di teks PDF. Kamu TIDAK PERNAH menambahkan informasi baru yang tidak ada di dokumen asli.' },
+          { role: 'user', content: prompt },
+        ],
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    if (!openaiRes.ok) {
+      const errBody = await openaiRes.text();
+      console.error('[Itinerary] OpenAI error:', errBody);
+      return res.status(503).json({ error: 'AI structuring failed' });
+    }
+
+    const aiResult = await openaiRes.json();
+    const content = JSON.parse(aiResult.choices[0].message.content);
+
+    // 6. Cache in Supabase
+    await supabase.from('itineraries').insert({ jadwal_id: jadwalId, content });
+
+    return res.json({ success: true, data: content, cached: false });
+  } catch (err) {
+    console.error('[Itinerary] Error:', err.message);
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      return res.status(503).json({ error: 'Timeout — coba lagi' });
+    }
+    return res.status(500).json({ error: 'Internal error' });
+  }
 });
 
 // ──────────────────────────────────────────────
@@ -3209,6 +3339,44 @@ app.post('/api/ai-tools/generate-voice', authMiddleware, async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
+// Haji Plus API (MUST be before /api/{*path} catch-all proxy)
+// ──────────────────────────────────────────────
+app.get('/api/haji-plus/data', authMiddleware, async (req, res) => {
+  try {
+    const cached = await getHajiPlusData();
+
+    if (!cached || !cached.data || cached.data.length === 0) {
+      return res.status(404).json({ error: 'Data belum tersedia' });
+    }
+
+    const data = cached.data;
+    const total = data.reduce((s, d) => s + d.pax, 0);
+    const avg = Math.round(total / data.length);
+    const peak = data.reduce((max, d) => d.pax > max.pax ? d : max, data[0]);
+    const min = data.reduce((mn, d) => d.pax < mn.pax ? d : mn, data[0]);
+    const currentYear = new Date().getFullYear();
+    const current = data.find(d => d.year === currentYear) || null;
+
+    res.json({
+      success: true,
+      data: {
+        items: data,
+        total,
+        average: avg,
+        peak,
+        min,
+        current,
+        yearCount: data.length,
+        synced_at: cached.synced_at,
+      },
+    });
+  } catch (err) {
+    console.error('[HajiPlus] API error:', err);
+    res.status(500).json({ error: 'Gagal mengambil data' });
+  }
+});
+
+// ──────────────────────────────────────────────
 // API: Proxy to jadwal.alhijaz.co
 // ──────────────────────────────────────────────
 app.all('/api/{*path}', async (req, res) => {
@@ -3300,6 +3468,97 @@ app.get('/:slug/umroh', async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
+
+// ──────────────────────────────────────────────
+// Haji Plus: Scrape + Sync + API
+// ──────────────────────────────────────────────
+
+let hajiPlusCache = null;
+
+async function scrapeHajiPlusData() {
+  const cheerio = await import('cheerio');
+  const url = 'https://alhijazindowisata.com/jadwal/grafik-haji-khusus/alhijaz-indowisata';
+
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const html = await res.text();
+  const $ = cheerio.load(html);
+
+  // Row 0: <th>TAHUN</th><th>2026</th>... (years in th)
+  // Row 1: <th>JUMLAH</th><td>482</td>... (pax in td)
+  const rows = $('table tr');
+  if (rows.length < 2) throw new Error('Table structure changed');
+
+  const years = [];
+  const paxes = [];
+
+  rows.eq(0).find('th, td').each((_, el) => {
+    const text = $(el).text().trim();
+    if (/^\d{4}$/.test(text)) years.push(parseInt(text));
+  });
+
+  rows.eq(1).find('td').each((_, el) => {
+    const text = $(el).text().trim().replace(/[^\d]/g, '');
+    if (text) paxes.push(parseInt(text));
+  });
+
+  if (years.length === 0 || years.length !== paxes.length) {
+    throw new Error(`Parse mismatch: ${years.length} years, ${paxes.length} pax values`);
+  }
+
+  return years.map((year, i) => ({ year, pax: paxes[i] }));
+}
+
+async function syncHajiPlusData() {
+  try {
+    console.log('[HajiPlus] Syncing data...');
+    const data = await scrapeHajiPlusData();
+
+    const { error } = await supabase
+      .from('haji_plus_stats')
+      .upsert({
+        id: 'current',
+        data: data,
+        synced_at: new Date().toISOString(),
+      });
+
+    if (error) throw error;
+
+    // Update in-memory cache
+    hajiPlusCache = { data, synced_at: new Date().toISOString() };
+    console.log(`[HajiPlus] Synced: ${data.length} years, total ${data.reduce((s, d) => s + d.pax, 0)} pax`);
+  } catch (err) {
+    console.error('[HajiPlus] Sync failed:', err.message);
+  }
+}
+
+async function getHajiPlusData() {
+  if (hajiPlusCache) return hajiPlusCache;
+
+  // Fallback to Supabase
+  try {
+    const { data, error } = await supabase
+      .from('haji_plus_stats')
+      .select('*')
+      .eq('id', 'current')
+      .single();
+
+    if (!error && data) {
+      hajiPlusCache = { data: data.data, synced_at: data.synced_at };
+      return hajiPlusCache;
+    }
+    console.log('[HajiPlus] DB fallback: no data or error:', error?.message);
+  } catch (err) {
+    console.error('[HajiPlus] getHajiPlusData exception:', err.message);
+  }
+
+  return null;
+}
 
 // ============================
 // Sentry error handler — HARUS setelah semua routes
@@ -3665,4 +3924,24 @@ setTimeout(async () => {
     console.error('[AI Insight] Startup check error:', e.message);
   }
 }, 90 * 1000); // 90s after startup (after calendar sync has a chance to run)
-// deployed 20260320225909
+
+// ── Haji Plus sync: daily at 05:00 WIB + on startup ──
+setTimeout(() => syncHajiPlusData(), 10 * 1000); // 10s after startup
+
+function scheduleHajiPlusCron() {
+  const now = new Date();
+  // Next 05:00 WIB (UTC+7 → 22:00 UTC day before)
+  const target = new Date(now);
+  target.setUTCHours(22, 0, 0, 0);
+  if (target <= now) target.setDate(target.getDate() + 1);
+  const msUntil = target - now;
+  console.log(`[HajiPlus] Next cron in ${Math.round(msUntil / 60000)} minutes (05:00 WIB)`);
+  setTimeout(async () => {
+    try { await syncHajiPlusData(); } catch (e) { console.error('[HajiPlus] Cron error:', e.message); }
+    // Then repeat every 24 hours
+    setInterval(async () => {
+      try { await syncHajiPlusData(); } catch (e) { console.error('[HajiPlus] Cron error:', e.message); }
+    }, 24 * 60 * 60 * 1000);
+  }, msUntil);
+}
+scheduleHajiPlusCron();
