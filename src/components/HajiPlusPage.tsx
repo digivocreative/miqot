@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Download, RefreshCw, BarChart3 as BarChart3Icon, Users, TrendingUp, CalendarRange } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, LabelList } from 'recharts';
 import { getAuthHeaders } from './LoginPage';
 
 // ── Types ──
@@ -151,6 +151,7 @@ export default function HajiPlusPage({ agent, onExport }: HajiPlusPageProps) {
                 {data.items.map((_, index) => (
                   <Cell key={index} fill={['#065f46','#0d9488','#10b981','#34d399','#6ee7b7','#059669','#047857','#0f766e','#14b8a6','#2dd4bf'][index % 10]} />
                 ))}
+                <LabelList dataKey="pax" position="inside" style={{ fontSize: 9, fontWeight: 600, fill: 'white' }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>

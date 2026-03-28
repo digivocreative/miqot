@@ -15,7 +15,7 @@ import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
 import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
-import { syncCalendar } from './calendar-api.js';
+import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 
 dotenv.config();
@@ -1826,6 +1826,19 @@ app.get('/api/calendar/events', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('[Calendar API] Error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ──────────────────────────────────────────────
+// API: Calendar Kumpul Enrichment (manual trigger)
+// ──────────────────────────────────────────────
+app.post('/api/calendar/enrich-kumpul', authMiddleware, async (req, res) => {
+  try {
+    await enrichKeberangkatanWithKumpul(supabase);
+    res.json({ success: true, message: 'Enrichment complete — check server logs' });
+  } catch (err) {
+    console.error('[KumpulParser] Manual trigger error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

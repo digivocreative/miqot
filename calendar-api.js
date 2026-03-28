@@ -317,8 +317,12 @@ async function extractKumpulFromPdf(itineraryUrl) {
     await parser.destroy();
     const text = textResult?.text?.trim() || '';
 
-    if (!text || text.length < 50) return null;
+    if (!text || text.length < 50) {
+      console.log(`[KumpulParser] PDF text too short (${text.length} chars)`);
+      return null;
+    }
 
+    console.log(`[KumpulParser] PDF text (${text.length} chars), first 500:\n${text.substring(0, 500)}`);
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
 
     let jamKumpul = null;
@@ -365,7 +369,9 @@ async function extractKumpulFromPdf(itineraryUrl) {
 }
 
 // ── Enrich keberangkatan events with kumpul data from itinerary PDFs ──
-async function enrichKeberangkatanWithKumpul(supabase) {
+export async function enrichKeberangkatanWithKumpul(supabase) {
+  console.log('[KumpulParser] Starting enrichment...');
+
   // 1. Get keberangkatan events missing jam_kumpul
   const { data: events, error } = await supabase
     .from('calendar_events')
@@ -374,7 +380,14 @@ async function enrichKeberangkatanWithKumpul(supabase) {
     .is('jam_kumpul', null)
     .gt('pax', 0);
 
-  if (error || !events?.length) return;
+  if (error) {
+    console.error('[KumpulParser] Query error:', error.message);
+    return;
+  }
+  if (!events?.length) {
+    console.log('[KumpulParser] No events need enrichment');
+    return;
+  }
 
   console.log(`[KumpulParser] ${events.length} keberangkatan events need kumpul data`);
 
@@ -385,7 +398,10 @@ async function enrichKeberangkatanWithKumpul(supabase) {
       headers: { 'User-Agent': 'Mozilla/5.0' },
       signal: AbortSignal.timeout(15000),
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      console.error('[KumpulParser] Package API returned', res.status);
+      return;
+    }
     const json = await res.json();
     packages = json.aaData || [];
   } catch (err) {
@@ -393,6 +409,7 @@ async function enrichKeberangkatanWithKumpul(supabase) {
     return;
   }
 
+  console.log(`[KumpulParser] ${packages.length} packages from API`);
   if (!packages.length) return;
 
   let enriched = 0;
@@ -407,10 +424,17 @@ async function enrichKeberangkatanWithKumpul(supabase) {
       return nameMatch && dateMatch;
     });
 
-    if (!matchedPkg?.itinerary) continue;
+    if (!matchedPkg) {
+      console.log(`[KumpulParser] No package match for: ${event.paket} (${event.event_date})`);
+      continue;
+    }
+    if (!matchedPkg.itinerary) {
+      console.log(`[KumpulParser] No itinerary URL for: ${matchedPkg.jadwal_nama}`);
+      continue;
+    }
 
     // 4. Extract kumpul info from PDF
-    console.log(`[KumpulParser] Processing: ${event.paket} (${event.event_date})`);
+    console.log(`[KumpulParser] Processing: ${event.paket} (${event.event_date}) → ${matchedPkg.itinerary}`);
     const kumpulInfo = await extractKumpulFromPdf(matchedPkg.itinerary);
 
     if (kumpulInfo?.jamKumpul) {
