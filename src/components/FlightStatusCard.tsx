@@ -122,7 +122,7 @@ function RouteLine({ flight }: { flight: FlightData }) {
 
 // ── Component ──
 
-export default function FlightStatusCard() {
+export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (count: number) => void }) {
   const [flights, setFlights] = useState<FlightData[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -146,11 +146,16 @@ export default function FlightStatusCard() {
       if (!res.ok) throw new Error('API error');
       const data = await res.json();
       if (data.success) {
-        setFlights(data.data || []);
+        const list = data.data || [];
+        setFlights(list);
         setNotReady(false);
+        onFlightCount?.(list.length);
       }
     } catch {
-      if (flights.length === 0) setNotReady(true);
+      if (flights.length === 0) {
+        setNotReady(true);
+        onFlightCount?.(0);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);

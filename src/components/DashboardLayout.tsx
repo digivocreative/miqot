@@ -204,6 +204,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [showComingSoon, setShowComingSoon] = useState(false);
   // Analytics header slot for month dropdown
   const [analyticsHeaderRight, setAnalyticsHeaderRight] = useState<React.ReactNode>(null);
+  // Flight status position
+  const [flightCount, setFlightCount] = useState(-1); // -1 = not loaded yet
   // Leads widget state
   const [leadsNewCount, setLeadsNewCount] = useState(0);
   const [leadsNewItems, setLeadsNewItems] = useState<{ id: string; nama: string; budget: string; departure: string; created_at: string }[]>([]);
@@ -718,14 +720,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           })}
         </div>
 
-        {/* ── Upcoming Schedule ── */}
-        <div className="mt-4">
-          <UpcomingSchedule />
-        </div>
-
-        {/* ── Flight Status ── */}
-        <div className="mt-4">
-          <FlightStatusCard />
+        {/* ── Flight Status + Upcoming Schedule (flight card goes above calendar when has flights) ── */}
+        <div className="flex flex-col mt-4 gap-4">
+          <div style={{ order: flightCount > 0 ? 0 : 2 }}>
+            <FlightStatusCard onFlightCount={setFlightCount} />
+          </div>
+          <div style={{ order: 1 }}>
+            <UpcomingSchedule />
+          </div>
         </div>
 
         {/* ── Statistik Not Ready Alert ── */}
