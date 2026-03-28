@@ -2211,7 +2211,7 @@ app.get('/api/calendar/insight', authMiddleware, async (req, res) => {
  */
 function parseFlightFromCalendar(pesawat) {
   if (!pesawat) return null;
-  const match = pesawat.match(/^(.+?)\s*-\s*([A-Z]{2})\s*(\d+)$/i);
+  const match = pesawat.match(/^(.+?)\s*[-~]\s*([A-Z]{2})\s*(\d+)$/i);
   if (!match) return null;
   return {
     airline: match[1].trim(),
