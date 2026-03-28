@@ -2204,6 +2204,43 @@ app.get('/api/calendar/insight', authMiddleware, async (req, res) => {
 // API: Flight Status (AirLabs Integration)
 // ──────────────────────────────────────────────
 
+// Known Alhijaz Umroh/Haji routes — used as fallback when AirLabs hasn't responded yet
+const KNOWN_ROUTES = {
+  'SV821':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'MED', arrCity: 'Madinah',  durationMin: 570, depTerminal: '3' },
+  'SV822':  { dep: 'MED', depCity: 'Madinah',  arr: 'CGK', arrCity: 'Jakarta',  durationMin: 570 },
+  'SV827':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'JED', arrCity: 'Jeddah',   durationMin: 540, depTerminal: '3' },
+  'SV828':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
+  'SV816':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'JED', arrCity: 'Jeddah',   durationMin: 540, depTerminal: '3' },
+  'SV817':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
+  'SV820':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
+  'GA980':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'JED', arrCity: 'Jeddah',   durationMin: 540, depTerminal: '2' },
+  'GA981':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
+  'GA982':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'MED', arrCity: 'Madinah',  durationMin: 570, depTerminal: '2' },
+  'GA983':  { dep: 'MED', depCity: 'Madinah',  arr: 'CGK', arrCity: 'Jakarta',  durationMin: 570 },
+  'EK357':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'JED', arrCity: 'Jeddah',   durationMin: 780, depTerminal: '3' },
+  'EK358':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 780 },
+  'EK356':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'DXB', arrCity: 'Dubai',    durationMin: 480, depTerminal: '3' },
+  'ID6580': { dep: 'CGK', depCity: 'Jakarta',  arr: 'JED', arrCity: 'Jeddah',   durationMin: 540, depTerminal: '2' },
+  'ID6581': { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
+};
+
+function lookupRoute(flightIata, eventType) {
+  const route = KNOWN_ROUTES[flightIata];
+  if (route) return route;
+  if (eventType === 'keberangkatan') return { dep: 'CGK', depCity: 'Jakarta', arr: 'JED', arrCity: 'Jeddah', durationMin: 540 };
+  if (eventType === 'kepulangan')    return { dep: 'JED', depCity: 'Jeddah',  arr: 'CGK', arrCity: 'Jakarta', durationMin: 540 };
+  return null;
+}
+
+function estimateArrival(depTimeStr, durationMin) {
+  if (!depTimeStr || !durationMin) return null;
+  try {
+    const dep = new Date(depTimeStr);
+    if (isNaN(dep.getTime())) return null;
+    return new Date(dep.getTime() + durationMin * 60 * 1000).toISOString();
+  } catch { return null; }
+}
+
 /**
  * Parse flight info from calendar_events.pesawat field
  * Input: "SAUDIA - SV 827" or "GARUDA INDONESIA - GA 987"
@@ -2287,6 +2324,18 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent) {
   const parsed = parseFlightFromCalendar(calendarEvent.pesawat);
   if (!parsed) return null;
 
+  // Validate: AirLabs returns today's flight — dep date (in WIB) must match event_date
+  const apiDepDate = apiData.dep_time_utc || apiData.dep_actual_utc || apiData.dep_time;
+  if (apiDepDate) {
+    // Convert API UTC time to WIB (UTC+7) and extract date
+    const apiDateWIB = new Date(new Date(apiDepDate).getTime() + 7 * 60 * 60 * 1000)
+      .toISOString().split('T')[0];
+    if (apiDateWIB !== calendarEvent.event_date) {
+      console.log(`[FlightAPI] Date mismatch (WIB): API=${apiDateWIB}, event=${calendarEvent.event_date} — skipping`);
+      return null;
+    }
+  }
+
   // Determine status
   let status = 'scheduled';
   if (apiData.status === 'active' || apiData.status === 'en-route') status = 'en-route';
@@ -2307,7 +2356,7 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent) {
     progress = 100;
   }
 
-  return {
+  const result = {
     id: `${calendarEvent.event_date}_${parsed.flightIata}`,
     event_date: calendarEvent.event_date,
     flight_iata: parsed.flightIata,
@@ -2340,6 +2389,25 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent) {
     raw_api: apiData,
     synced_at: new Date().toISOString(),
   };
+
+  // Enrich missing fields from route lookup
+  const route = lookupRoute(parsed.flightIata, calendarEvent.event_type);
+  if (route) {
+    if (!result.dep_iata) result.dep_iata = route.dep;
+    if (!result.dep_city) result.dep_city = route.depCity;
+    if (!result.dep_terminal && route.depTerminal) result.dep_terminal = route.depTerminal;
+    if (!result.arr_iata) result.arr_iata = route.arr;
+    if (!result.arr_city) result.arr_city = route.arrCity;
+    if (!result.arr_scheduled) {
+      const depTime = result.dep_scheduled || result.dep_actual || `${calendarEvent.event_date}T${(calendarEvent.jam || '00:00').replace('.', ':')}:00`;
+      result.arr_scheduled = estimateArrival(depTime, route.durationMin);
+    }
+    if (!result.arr_estimated && result.arr_scheduled) {
+      result.arr_estimated = result.arr_scheduled;
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -2384,9 +2452,9 @@ function formatFlightForFrontend(row) {
 function shouldPollFlight(eventDate, eventType) {
   if (eventType !== 'keberangkatan' && eventType !== 'kepulangan') return false;
   const now = new Date();
-  const flightDate = new Date(eventDate);
-  const diffHours = (flightDate - now) / (1000 * 60 * 60);
-  return diffHours >= -24 && diffHours <= 24;
+  const todayStr = now.toISOString().split('T')[0];
+  // Only poll today and yesterday — AirLabs can't return future flight data
+  return eventDate <= todayStr && eventDate >= new Date(now.getTime() - 24*60*60*1000).toISOString().split('T')[0];
 }
 
 // In-memory flight cache
@@ -2457,10 +2525,20 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
         .eq('id', flightId)
         .single();
 
-      // If in Supabase and fresh (< 5 min), use it
+      // If in Supabase and fresh (< 5 min), use it — but validate date matches
       if (existing && existing.synced_at) {
         const age = Date.now() - new Date(existing.synced_at).getTime();
-        if (age < 5 * 60 * 1000) {
+        // Validate: dep_scheduled WIB date must match event_date
+        let dateValid = true;
+        if (existing.dep_scheduled) {
+          const depWIB = new Date(new Date(existing.dep_scheduled).getTime() + 7 * 60 * 60 * 1000)
+            .toISOString().split('T')[0];
+          if (depWIB !== event.event_date) {
+            dateValid = false;
+            await supabase.from('flight_status').delete().eq('id', flightId);
+          }
+        }
+        if (dateValid && age < 5 * 60 * 1000) {
           const formatted = formatFlightForFrontend(existing);
           setCachedFlight(flightId, formatted);
           flights.push(formatted);
@@ -2490,31 +2568,59 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
         const formatted = formatFlightForFrontend(existing);
         flights.push(formatted);
       } else {
-        // Minimal entry from calendar data
+        // Fallback: enrich from calendar + route lookup
+        const route = lookupRoute(parsed.flightIata, event.event_type);
+        const depTimeStr = `${event.event_date}T${(event.jam || '00:00').replace('.', ':')}:00`;
+        const arrEstimate = route ? estimateArrival(depTimeStr, route.durationMin) : null;
+
+        // Determine status from date: past flights = landed, future = scheduled
+        const eventDay = new Date(event.event_date + 'T00:00:00');
+        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+        let fallbackStatus = 'scheduled';
+        let fallbackProgress = 0;
+        if (eventDay < todayStart) {
+          fallbackStatus = 'landed';
+          fallbackProgress = 100;
+        }
+
         flights.push({
           id: flightId,
           flightNumber: `${parsed.airlineCode} ${parsed.flightNumber}`,
           airline: parsed.airline,
           airlineLogo: null,
           group: event.group_number || '',
-          status: 'scheduled',
-          depCity: '', depCode: '', depTerminal: null, depGate: null,
-          depScheduled: `${event.event_date}T${(event.jam || '00:00').replace('.', ':')}:00`,
+          status: fallbackStatus,
+          depCity: route?.depCity || '',
+          depCode: route?.dep || '',
+          depTerminal: route?.depTerminal || null, depGate: null,
+          depScheduled: depTimeStr,
           depActual: null,
-          arrCity: '', arrCode: '', arrTerminal: null, arrGate: null,
-          arrScheduled: null, arrEstimated: null,
+          arrCity: route?.arrCity || '',
+          arrCode: route?.arr || '',
+          arrTerminal: null, arrGate: null,
+          arrScheduled: arrEstimate,
+          arrEstimated: arrEstimate,
           pax: event.pax || 0,
           tourLeader: event.tour_leader || '',
           lat: null, lng: null, alt: null, speed: null,
-          progress: 0,
+          progress: fallbackProgress,
           delayed: 0,
         });
       }
     }
 
     // Sort: en-route first, then delayed, scheduled, landed, cancelled
+    // Sort: newest date first, then by status priority within same date
     const statusOrder = { 'en-route': 0, 'delayed': 1, 'scheduled': 2, 'landed': 3, 'cancelled': 4 };
-    flights.sort((a, b) => (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5));
+    flights.sort((a, b) => {
+      const dateA = a.depScheduled || a.id;
+      const dateB = b.depScheduled || b.id;
+      // Compare dates descending (newest first)
+      if (dateA > dateB) return -1;
+      if (dateA < dateB) return 1;
+      // Same date: sort by status
+      return (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
+    });
 
     res.json({ success: true, data: flights });
   } catch (err) {

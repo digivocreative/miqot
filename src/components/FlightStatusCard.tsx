@@ -48,16 +48,22 @@ const STATUS_CFG: Record<string, { label: string; color: string; bg: string }> =
 
 // ── Helpers ──
 
-function formatTime(dateStr?: string | null): string | null {
-  if (!dateStr) return null;
-  if (/^\d{2}\.\d{2}$/.test(dateStr)) return dateStr.replace('.', ':');
+function formatTime(val?: string | null): string {
+  if (!val) return '—';
+  const s = String(val);
+  // "07.50" → "07:50"
+  if (/^\d{2}\.\d{2}$/.test(s)) return s.replace('.', ':');
+  // ISO datetime → "HH:mm"
   try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr.replace('.', ':');
-    return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
-  } catch {
-    return null;
-  }
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+  } catch { /* ignore */ }
+  // Fallback: replace dots
+  return s.replace(/\./g, ':');
 }
 
 function formatDate(iso?: string | null): string {
@@ -142,10 +148,6 @@ export default function FlightStatusCard() {
       if (data.success) {
         setFlights(data.data || []);
         setNotReady(false);
-        if (!expandedId) {
-          const enRoute = (data.data || []).find((f: FlightData) => f.status === 'en-route');
-          setExpandedId(enRoute?.id || (data.data?.[0]?.id ?? null));
-        }
       }
     } catch {
       if (flights.length === 0) setNotReady(true);
@@ -174,10 +176,10 @@ export default function FlightStatusCard() {
   if (loading) {
     return (
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="px-3.5 py-2.5 flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-gray-200 dark:bg-slate-700 animate-pulse" />
+        <div className="px-3.5 py-3 flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-gray-200 dark:bg-slate-700 animate-pulse" />
           <div>
-            <div className="h-3 w-20 rounded-md bg-gray-200 dark:bg-slate-700 animate-pulse" />
+            <div className="h-3.5 w-28 rounded-md bg-gray-200 dark:bg-slate-700 animate-pulse" />
             <div className="h-2 w-28 rounded-md bg-gray-200 dark:bg-slate-700 animate-pulse mt-1" />
           </div>
         </div>
@@ -194,21 +196,18 @@ export default function FlightStatusCard() {
     <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
 
       {/* ── Header ── */}
-      <div className="px-3.5 py-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/40 flex items-center justify-center">
-            <Plane size={14} className="text-blue-600 dark:text-blue-400" strokeWidth={2} />
+      <div className="px-3.5 py-3 flex items-center justify-between" style={{ paddingBottom: 0 }}>
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/40 flex items-center justify-center flex-shrink-0">
+            <Plane size={16} className="text-blue-600 dark:text-blue-400" strokeWidth={2} />
           </div>
-          <div>
-            <span className="text-xs font-bold text-gray-800 dark:text-white block leading-tight">Flight Status</span>
-            <span className="text-[9px] text-gray-400 dark:text-slate-500 font-medium">
-              {todayCount} penerbangan hari ini
-            </span>
+          <div className="min-w-0 flex flex-col justify-center">
+            <span className="text-sm font-bold text-gray-800 dark:text-white leading-none">Status Penerbangan</span>
           </div>
         </div>
 
         {/* Live badge */}
-        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40">
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 flex-shrink-0">
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
@@ -241,23 +240,23 @@ export default function FlightStatusCard() {
                 key={flight.id}
                 className={`rounded-2xl border overflow-hidden transition-all duration-200 ${
                   isExpanded
-                    ? 'border-gray-200 dark:border-slate-600 shadow-md'
+                    ? 'border-gray-200 dark:border-slate-600'
                     : 'border-gray-100 dark:border-slate-700 shadow-sm'
                 } bg-white dark:bg-slate-800`}
               >
                 {/* ── Collapsed row ── */}
                 <button
                   onClick={() => setExpandedId(isExpanded ? null : flight.id)}
-                  className="w-full px-3 py-2.5 flex items-start gap-2.5 text-left active:bg-gray-50 dark:active:bg-slate-700/50 transition-colors"
+                  className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left active:bg-gray-50 dark:active:bg-slate-700/50 transition-colors"
                 >
                   {/* Time column */}
-                  <div className="flex flex-col items-center flex-shrink-0 w-10 pt-0.5">
+                  <div className="flex flex-col items-center justify-center flex-shrink-0 w-10 pt-0.5">
                     <span className="text-[11px] font-bold text-gray-800 dark:text-white leading-tight">
-                      {depTime || '--:--'}
+                      {depTime}
                     </span>
                     <div className="w-px h-3 my-0.5" style={{ backgroundColor: sc.color }} />
                     <span className="text-[10px] font-medium text-gray-400 dark:text-slate-500 leading-tight">
-                      {arrTime || '--:--'}
+                      {arrTime}
                     </span>
                   </div>
 
@@ -296,6 +295,27 @@ export default function FlightStatusCard() {
                         </>
                       )}
                     </div>
+                  </div>
+
+                  {/* Right info — date + terminal/gate */}
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    <span className="text-[9px] font-semibold text-gray-400 dark:text-slate-500">
+                      {formatDate(flight.depScheduled)}
+                    </span>
+                    {(flight.depTerminal || flight.depGate) && (
+                      <div className="flex items-center gap-1">
+                        {flight.depTerminal && (
+                          <span className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
+                            T{flight.depTerminal}
+                          </span>
+                        )}
+                        {flight.depGate && (
+                          <span className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
+                            {flight.depGate}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Chevron */}
@@ -345,7 +365,7 @@ export default function FlightStatusCard() {
                               </div>
                               <div className="flex items-baseline gap-1.5">
                                 <span className="text-[15px] font-bold text-gray-800 dark:text-white">
-                                  {formatTime(flight.depActual || flight.depScheduled) || '—'}
+                                  {formatTime(flight.depActual || flight.depScheduled)}
                                 </span>
                                 {flight.depActual && flight.depActual !== flight.depScheduled && (
                                   <span className="text-[9px] text-gray-400 line-through">{formatTime(flight.depScheduled)}</span>
@@ -360,7 +380,7 @@ export default function FlightStatusCard() {
                                 <div className="flex gap-1 mt-1">
                                   {flight.depTerminal && (
                                     <span className="text-[7px] font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 px-1 py-0.5 rounded text-gray-500 dark:text-slate-400 inline-flex items-center gap-0.5">
-                                      <MapPin size={7} />T{flight.depTerminal}
+                                      <MapPin size={7} />Terminal {flight.depTerminal}
                                     </span>
                                   )}
                                   {flight.depGate && (
@@ -384,7 +404,7 @@ export default function FlightStatusCard() {
                               </div>
                               <div className="flex items-baseline gap-1.5">
                                 <span className="text-[15px] font-bold text-gray-800 dark:text-white">
-                                  {formatTime(flight.arrEstimated || flight.arrScheduled) || '—'}
+                                  {formatTime(flight.arrEstimated || flight.arrScheduled)}
                                 </span>
                                 {flight.arrEstimated && flight.arrEstimated !== flight.arrScheduled && (
                                   <span className="text-[9px] text-gray-400 line-through">{formatTime(flight.arrScheduled)}</span>
@@ -429,10 +449,10 @@ export default function FlightStatusCard() {
                           )}
 
                           {/* Group info bar */}
-                          <div className="px-2.5 py-2 bg-gray-50 dark:bg-slate-900/40 rounded-xl border border-gray-100 dark:border-slate-700/50 flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
+                          <div className="px-2.5 py-2 bg-gray-50 dark:bg-slate-900/40 rounded-xl border border-gray-100 dark:border-slate-700/50 flex items-center">
+                            <div className="flex items-center gap-2.5 min-w-0">
                               {/* PAX */}
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
                                 <div className="w-5 h-5 rounded-md bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
                                   <Users size={10} className="text-blue-500" />
                                 </div>
@@ -442,19 +462,14 @@ export default function FlightStatusCard() {
                               {/* Separator + TL */}
                               {tlClean && (
                                 <>
-                                  <div className="w-px h-3.5 bg-gray-200 dark:bg-slate-700" />
+                                  <div className="w-px h-3.5 bg-gray-200 dark:bg-slate-700 flex-shrink-0" />
                                   <div className="min-w-0">
                                     <span className="text-[7px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500 block leading-none">Tour Leader</span>
-                                    <span className="text-[9px] font-semibold text-gray-600 dark:text-slate-300 truncate block max-w-[130px]">{tlClean}</span>
+                                    <span className="text-[9px] font-semibold text-gray-600 dark:text-slate-300 truncate block">{tlClean}</span>
                                   </div>
                                 </>
                               )}
                             </div>
-
-                            {/* Date */}
-                            <span className="text-[9px] text-gray-400 dark:text-slate-500 font-medium flex-shrink-0">
-                              {formatDate(flight.depScheduled)}
-                            </span>
                           </div>
 
                         </div>
