@@ -484,60 +484,31 @@ app.options('/api/ai-copy', (req, res) => {
 });
 
 // ──────────────────────────────────────────────
-// API: AI Itinerary (PDF extraction + OpenAI structuring + Supabase cache)
+// Itinerary: shared PDF→OpenAI extraction logic
 // ──────────────────────────────────────────────
 
-app.get('/api/itinerary/:jadwalId', async (req, res) => {
-  const { jadwalId } = req.params;
+async function parseItineraryFromPdf(pdfUrl, meta = {}) {
+  const OPENAI_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_KEY) throw new Error('OPENAI_API_KEY not configured');
 
-  try {
-    // 1. Check Supabase cache
-    const { data: cached } = await supabase
-      .from('itineraries')
-      .select('content, generated_at')
-      .eq('jadwal_id', jadwalId)
-      .single();
+  // Download PDF
+  const pdfRes = await fetch(pdfUrl, {
+    headers: { 'Referer': 'https://jadwal.alhijaz.co/', 'User-Agent': 'Mozilla/5.0' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!pdfRes.ok) throw new Error(`PDF download failed: ${pdfRes.status}`);
 
-    if (cached) {
-      return res.json({ success: true, data: cached.content, cached: true });
-    }
+  const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+  const parser = new pdfParse({ data: pdfBuffer });
+  await parser.load();
+  const textResult = await parser.getText();
+  await parser.destroy();
+  const pdfText = textResult?.text?.trim() || '';
 
-    // 2. Cache miss — get PDF URL from query param
-    const pdfUrl = req.query.pdfUrl;
-    if (!pdfUrl) {
-      return res.status(400).json({ error: 'pdfUrl wajib diisi' });
-    }
+  if (!pdfText || pdfText.length < 50) throw new Error('PDF text too short');
 
-    // 3. Download the actual PDF and extract text
-    console.log(`[Itinerary] Downloading PDF: ${pdfUrl}`);
-    const pdfRes = await fetch(pdfUrl, { signal: AbortSignal.timeout(15000) });
-    if (!pdfRes.ok) {
-      console.error(`[Itinerary] PDF download failed: ${pdfRes.status}`);
-      return res.status(502).json({ error: 'Gagal mengunduh PDF itinerary' });
-    }
-    const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
-    const parser = new pdfParse({ data: pdfBuffer });
-    await parser.load();
-    const textResult = await parser.getText();
-    await parser.destroy();
-    const pdfText = textResult?.text?.trim() || '';
-
-    if (!pdfText || pdfText.length < 50) {
-      return res.status(400).json({ error: 'PDF tidak mengandung teks yang cukup' });
-    }
-    console.log(`[Itinerary] Extracted ${pdfText.length} chars from PDF`);
-
-    // 4. Parse extra metadata
-    let meta = {};
-    try { meta = JSON.parse(req.query.meta || '{}'); } catch { /* ignore */ }
-
-    // 5. Generate via OpenAI — structure the extracted text
-    const OPENAI_KEY = process.env.OPENAI_API_KEY;
-    if (!OPENAI_KEY) {
-      return res.status(500).json({ error: 'OPENAI_API_KEY not configured' });
-    }
-
-    const prompt = `Berikut adalah teks yang diekstrak dari dokumen PDF itinerary perjalanan umroh:
+  // OpenAI structuring
+  const prompt = `Berikut adalah teks yang diekstrak dari dokumen PDF itinerary perjalanan umroh:
 
 --- MULAI TEKS PDF ---
 ${pdfText.substring(0, 6000)}
@@ -570,36 +541,68 @@ Panduan:
 - Jika PDF menggabungkan beberapa hari (misal "Hari 3-5"), ikuti format itu
 - Tiap aktivitas maksimal 15 kata, bahasa Indonesia yang rapi
 - Field "time": ambil jam dari PDF jika tersedia (format "HH:MM"). Jika PDF hanya menyebut waktu umum, gunakan "Pagi", "Siang", "Sore", "Malam", atau "Subuh". Jika tidak ada info waktu sama sekali, gunakan "-"
-- JANGAN mengarang aktivitas atau jam yang tidak ada di PDF`;
+- JANGAN mengarang aktivitas atau jam yang tidak ada di PDF
+- JANGAN potong atau ringkas lokasi titik kumpul. Tulis lengkap termasuk terminal, gate, dan nama bandara`;
 
-    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_KEY}`,
-      },
-      signal: AbortSignal.timeout(30000),
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        temperature: 0.2,
-        messages: [
-          { role: 'system', content: 'Kamu adalah asisten yang mengekstrak dan menstrukturkan data dari dokumen PDF. Kamu HANYA menggunakan informasi yang ada di teks PDF. Kamu TIDAK PERNAH menambahkan informasi baru yang tidak ada di dokumen asli.' },
-          { role: 'user', content: prompt },
-        ],
-        response_format: { type: 'json_object' },
-      }),
-    });
+  const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${OPENAI_KEY}`,
+    },
+    signal: AbortSignal.timeout(60000),
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: 'Kamu adalah asisten yang mengekstrak dan menstrukturkan data dari dokumen PDF. Kamu HANYA menggunakan informasi yang ada di teks PDF. Kamu TIDAK PERNAH menambahkan informasi baru yang tidak ada di dokumen asli.' },
+        { role: 'user', content: prompt },
+      ],
+      response_format: { type: 'json_object' },
+    }),
+  });
 
-    if (!openaiRes.ok) {
-      const errBody = await openaiRes.text();
-      console.error('[Itinerary] OpenAI error:', errBody);
-      return res.status(503).json({ error: 'AI structuring failed' });
+  if (!openaiRes.ok) {
+    const errBody = await openaiRes.text();
+    throw new Error(`OpenAI error: ${errBody.substring(0, 200)}`);
+  }
+
+  const aiResult = await openaiRes.json();
+  return JSON.parse(aiResult.choices[0].message.content);
+}
+
+// ──────────────────────────────────────────────
+// API: AI Itinerary (uses cache, falls back to parseItineraryFromPdf)
+// ──────────────────────────────────────────────
+
+app.get('/api/itinerary/:jadwalId', async (req, res) => {
+  const { jadwalId } = req.params;
+
+  try {
+    // 1. Check Supabase cache
+    const { data: cached } = await supabase
+      .from('itineraries')
+      .select('content, generated_at')
+      .eq('jadwal_id', jadwalId)
+      .single();
+
+    if (cached) {
+      return res.json({ success: true, data: cached.content, cached: true });
     }
 
-    const aiResult = await openaiRes.json();
-    const content = JSON.parse(aiResult.choices[0].message.content);
+    // 2. Cache miss — parse from PDF
+    const pdfUrl = req.query.pdfUrl;
+    if (!pdfUrl) {
+      return res.status(400).json({ error: 'pdfUrl wajib diisi' });
+    }
 
-    // 6. Cache in Supabase
+    let meta = {};
+    try { meta = JSON.parse(req.query.meta || '{}'); } catch { /* ignore */ }
+
+    console.log(`[Itinerary] On-demand parse: ${jadwalId}`);
+    const content = await parseItineraryFromPdf(pdfUrl, meta);
+
+    // 3. Cache in Supabase
     await supabase.from('itineraries').insert({ jadwal_id: jadwalId, content });
 
     return res.json({ success: true, data: content, cached: false });
@@ -611,6 +614,89 @@ Panduan:
     return res.status(500).json({ error: 'Internal error' });
   }
 });
+
+// ──────────────────────────────────────────────
+// Itinerary Background Sync — pre-cache all package itineraries
+// ──────────────────────────────────────────────
+
+async function syncAllItineraries() {
+  console.log('[ItinerarySync] Starting background sync...');
+
+  // 1. Fetch all packages from both Hijri years
+  let packages = [];
+  for (const year of ['1447', '1448']) {
+    try {
+      const res = await fetch(`https://jadwal.alhijaz.co/jadwal/api-get/${year}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        packages.push(...(json.aaData || []));
+      }
+    } catch (err) {
+      console.error(`[ItinerarySync] API ${year} failed:`, err.message);
+    }
+  }
+
+  // Filter to packages that have an itinerary URL
+  const withItinerary = packages.filter(p => p.itinerary && p.jadwal_id);
+  if (!withItinerary.length) {
+    console.log('[ItinerarySync] No packages with itinerary URLs');
+    return;
+  }
+
+  // 2. Check which ones are already cached
+  const jadwalIds = withItinerary.map(p => p.jadwal_id);
+  const { data: cached } = await supabase
+    .from('itineraries')
+    .select('jadwal_id')
+    .in('jadwal_id', jadwalIds);
+
+  const cachedSet = new Set((cached || []).map(c => c.jadwal_id));
+  const uncached = withItinerary.filter(p => !cachedSet.has(p.jadwal_id));
+
+  console.log(`[ItinerarySync] ${withItinerary.length} packages, ${cachedSet.size} cached, ${uncached.length} to sync`);
+
+  if (!uncached.length) {
+    console.log('[ItinerarySync] All itineraries already cached');
+    return;
+  }
+
+  // 3. Parse each uncached itinerary
+  let synced = 0;
+  let failed = 0;
+
+  for (const pkg of uncached) {
+    try {
+      const pdfUrl = pkg.itinerary.replace(/^http:\/\//, 'https://');
+      const meta = {
+        nama_paket: pkg.jadwal_nama || '',
+        maskapai: pkg.maskapai || '',
+        tgl_berangkat: pkg.berangkat_tgl || '',
+      };
+
+      console.log(`[ItinerarySync] Parsing: ${pkg.jadwal_nama} (${pkg.jadwal_id})`);
+      const content = await parseItineraryFromPdf(pdfUrl, meta);
+
+      await supabase.from('itineraries').upsert({
+        jadwal_id: pkg.jadwal_id,
+        content,
+      }, { onConflict: 'jadwal_id' });
+
+      synced++;
+      console.log(`[ItinerarySync] Cached: ${pkg.jadwal_nama} (${synced}/${uncached.length})`);
+    } catch (err) {
+      failed++;
+      console.error(`[ItinerarySync] Failed: ${pkg.jadwal_nama} — ${err.message}`);
+    }
+
+    // Rate limit: 3s between requests (OpenAI rate limits)
+    await new Promise(r => setTimeout(r, 3000));
+  }
+
+  console.log(`[ItinerarySync] Complete: ${synced} synced, ${failed} failed out of ${uncached.length}`);
+}
 
 // ──────────────────────────────────────────────
 // Auth: Login & session
@@ -3896,6 +3982,14 @@ async function runCalendarSync() {
 // Initial calendar sync 60s after startup, then every 12 hours
 setTimeout(runCalendarSync, 60 * 1000);
 setInterval(runCalendarSync, 12 * 60 * 60 * 1000);
+
+// ── Itinerary background sync: 2 min after startup, then every 12 hours ──
+setTimeout(() => {
+  syncAllItineraries().catch(err => console.error('[ItinerarySync] Error:', err.message));
+}, 2 * 60 * 1000);
+setInterval(() => {
+  syncAllItineraries().catch(err => console.error('[ItinerarySync] Error:', err.message));
+}, 12 * 60 * 60 * 1000);
 
 // ── AI Insight: generate daily at 01:00 WIB + on startup if stale ──
 function scheduleInsightCron() {

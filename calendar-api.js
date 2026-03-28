@@ -322,43 +322,63 @@ async function extractKumpulFromPdf(itineraryUrl) {
       return null;
     }
 
-    console.log(`[KumpulParser] PDF text (${text.length} chars), first 500:\n${text.substring(0, 500)}`);
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
 
     let jamKumpul = null;
-    let titikKumpul = null;
 
-    // Pattern 1: "HH.mm : ... berkumpul/kumpul di LOKASI"
-    for (const line of lines) {
-      const kumpulMatch = line.match(
-        /(\d{1,2}[.:]\d{2})\s*:\s*(.*(?:berkumpul|kumpul)\s+di\s+(.+?)(?:,|\.|$))/i
-      );
-      if (kumpulMatch) {
-        jamKumpul = kumpulMatch[1].replace(':', '.');
-        const lokasiMatch = kumpulMatch[2].match(/(?:berkumpul|kumpul)\s+di\s+(.+?)(?:,\s*makan|\.\s|$)/i);
-        if (lokasiMatch) {
-          titikKumpul = lokasiMatch[1].trim();
-          titikKumpul = titikKumpul.charAt(0).toUpperCase() + titikKumpul.slice(1);
-        }
+    // Collect the full text block around "berkumpul" for location extraction
+    let kumpulBlock = '';
+
+    // Search for "berkumpul" or "kumpul di" in text (first occurrence only, Hari 1)
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!/berkumpul|kumpul\s+di/i.test(line)) continue;
+
+      // Gather surrounding lines for context (kumpul line + next 2 lines)
+      kumpulBlock = lines.slice(i, i + 3).join(' ');
+
+      // Format A: "19.40 Rombongan tiba dan berkumpul di ..." (time + text same line)
+      const sameLineMatch = line.match(/^(\d{1,2}[.:]\d{2})\s+/);
+      if (sameLineMatch) {
+        jamKumpul = sameLineMatch[1].replace(':', '.');
         break;
       }
-    }
 
-    // Pattern 2 fallback: "HH.mm : ... rombongan tiba ... di LOKASI"
-    if (!jamKumpul) {
-      for (const line of lines) {
-        const tibaMatch = line.match(
-          /(\d{1,2}[.:]\d{2})\s*:\s*(.*(?:rombongan\s+tiba|tiba\s+dan)\s+.*?(?:di\s+(.+?)(?:,|\.|$)))/i
-        );
-        if (tibaMatch) {
-          jamKumpul = tibaMatch[1].replace(':', '.');
-          if (tibaMatch[3]) {
-            titikKumpul = tibaMatch[3].trim();
-            titikKumpul = titikKumpul.charAt(0).toUpperCase() + titikKumpul.slice(1);
-          }
+      // Format B: time on previous line
+      if (i > 0) {
+        const prevLine = lines[i - 1];
+        const timeMatch = prevLine.match(/^(\d{1,2}[.:]\d{2})$/);
+        if (timeMatch) {
+          jamKumpul = timeMatch[1].replace(':', '.');
           break;
         }
       }
+    }
+
+    // Extract titik kumpul from the text block: "nama tempat" + "Terminal X"
+    let titikKumpul = null;
+    if (kumpulBlock) {
+      const parts = [];
+
+      // Extract named place: hotel/café/cafe/resto + 1-2 words
+      const placeMatch = kumpulBlock.match(/(?:hotel|caf[eé]|resto|restaurant|lounge)\s+[\w']+(?:\s+[\w']+)?/i);
+      if (placeMatch) {
+        let place = placeMatch[0].replace(/\s+Terminal\b.*$/i, '').trim();
+        place = place.replace(/\b\w/g, c => c.toUpperCase());
+        parts.push(place);
+      }
+
+      // Extract terminal number
+      const terminalMatch = kumpulBlock.match(/Terminal\s+(\d)/i);
+      if (terminalMatch) {
+        parts.push('Terminal ' + terminalMatch[1]);
+      }
+
+      if (parts.length) titikKumpul = parts.join(', ');
+    }
+
+    if (jamKumpul) {
+      console.log(`[KumpulParser] Extracted: jam=${jamKumpul}, titik=${titikKumpul}`);
     }
 
     return jamKumpul ? { jamKumpul, titikKumpul } : null;
@@ -391,38 +411,62 @@ export async function enrichKeberangkatanWithKumpul(supabase) {
 
   console.log(`[KumpulParser] ${events.length} keberangkatan events need kumpul data`);
 
-  // 2. Fetch package data from API
-  let packages;
-  try {
-    const res = await fetch('https://jadwal.alhijaz.co/jadwal/api-get/1448', {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) {
-      console.error('[KumpulParser] Package API returned', res.status);
-      return;
+  // 2. Fetch package data from both Hijri years (1447 + 1448)
+  let packages = [];
+  for (const year of ['1447', '1448']) {
+    try {
+      const res = await fetch(`https://jadwal.alhijaz.co/jadwal/api-get/${year}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const items = json.aaData || [];
+        packages.push(...items);
+        console.log(`[KumpulParser] ${items.length} packages from API year ${year}`);
+      }
+    } catch (err) {
+      console.error(`[KumpulParser] Package API ${year} failed:`, err.message);
     }
-    const json = await res.json();
-    packages = json.aaData || [];
-  } catch (err) {
-    console.error('[KumpulParser] Package API fetch failed:', err.message);
-    return;
   }
 
-  console.log(`[KumpulParser] ${packages.length} packages from API`);
-  if (!packages.length) return;
+  if (!packages.length) {
+    console.log('[KumpulParser] No packages from API');
+    return;
+  }
 
   let enriched = 0;
 
   for (const event of events) {
-    // 3. Match event → package by normalized name + date
-    const calPaket = (event.paket || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const matchedPkg = packages.find(pkg => {
-      const apiPaket = (pkg.jadwal_nama || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const nameMatch = calPaket === apiPaket || calPaket.includes(apiPaket) || apiPaket.includes(calPaket);
-      const dateMatch = pkg.berangkat_tgl === event.event_date;
-      return nameMatch && dateMatch;
-    });
+    // 3. Match event → package by date first, then keyword overlap
+    const dateCandidates = packages.filter(pkg => pkg.berangkat_tgl === event.event_date);
+    if (!dateCandidates.length) {
+      console.log(`[KumpulParser] No package match for: ${event.paket} (${event.event_date})`);
+      continue;
+    }
+
+    // Tokenize calendar paket name into keywords (3+ chars)
+    const calWords = (event.paket || '').toUpperCase().replace(/[^A-Z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3);
+
+    // Find best match by keyword overlap
+    let matchedPkg = null;
+    let bestScore = 0;
+    for (const pkg of dateCandidates) {
+      const apiWords = (pkg.jadwal_nama || '').toUpperCase().replace(/[^A-Z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3);
+      const overlap = calWords.filter(w => apiWords.includes(w)).length;
+      const score = calWords.length > 0 ? overlap / calWords.length : 0;
+      if (score > bestScore) {
+        bestScore = score;
+        matchedPkg = pkg;
+      }
+    }
+
+    // Require at least 50% keyword overlap
+    if (!matchedPkg || bestScore < 0.5) {
+      console.log(`[KumpulParser] No package match for: ${event.paket} (${event.event_date}) [best score: ${bestScore.toFixed(2)}]`);
+      continue;
+    }
+    console.log(`[KumpulParser] Matched: "${event.paket}" → "${matchedPkg.jadwal_nama}" (score: ${bestScore.toFixed(2)})`);
 
     if (!matchedPkg) {
       console.log(`[KumpulParser] No package match for: ${event.paket} (${event.event_date})`);

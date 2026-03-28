@@ -1,4 +1,4 @@
-import { AlertCircle, MapPin, Sparkles, Plane, Calendar, Users, Clock } from 'lucide-react';
+import { AlertCircle, Sparkles, Plane, Users, CalendarRange } from 'lucide-react';
 import { UmrohPackage } from '@/types';
 
 // ============================================
@@ -36,10 +36,10 @@ interface WebItineraryViewProps {
 // Helpers
 // ============================================
 
-const formatDate = (dateStr: string): string => {
+const formatDateFull = (dateStr: string): string => {
   if (!dateStr) return '-';
   const date = new Date(dateStr);
-  return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+  return date.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 };
 
 const getDurationDays = (paket: UmrohPackage): number => {
@@ -50,17 +50,96 @@ const getDurationDays = (paket: UmrohPackage): number => {
   return diff > 0 ? diff : 9;
 };
 
-/** Pick a subtle accent based on day index */
-const DAY_ACCENTS = [
-  { dot: 'bg-emerald-500', badge: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-100 dark:border-emerald-800/40' },
-  { dot: 'bg-blue-500', badge: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border-blue-100 dark:border-blue-800/40' },
-  { dot: 'bg-violet-500', badge: 'bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-100 dark:border-violet-800/40' },
-  { dot: 'bg-amber-500', badge: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border-amber-100 dark:border-amber-800/40' },
-  { dot: 'bg-rose-500', badge: 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300 border-rose-100 dark:border-rose-800/40' },
-  { dot: 'bg-cyan-500', badge: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300 border-cyan-100 dark:border-cyan-800/40' },
-  { dot: 'bg-teal-500', badge: 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 border-teal-100 dark:border-teal-800/40' },
-  { dot: 'bg-indigo-500', badge: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 border-indigo-100 dark:border-indigo-800/40' },
+function formatPackageName(raw: string): { main: string; sub: string | null } {
+  const titleCase = raw
+    .toLowerCase()
+    .replace(/\b\w/g, c => c.toUpperCase())
+    .replace(/\bHr\b/g, 'HR')
+    .replace(/\bSv\b/g, 'SV')
+    .replace(/\bVip\b/g, 'VIP');
+
+  // Split at "Mix Paket", "Paket Rahmah/Uhud", or parenthesized suffix
+  const splitMatch = titleCase.match(/^(.+?)\s*(?:Mix\s+Paket\s+(.+)|Paket\s+(Rahmah|Uhud|.+?)\s*(?:\((.+)\))?|\((.+)\))$/i);
+  if (splitMatch) {
+    const main = splitMatch[1].trim();
+    const sub = (splitMatch[2] || splitMatch[3] || splitMatch[5] || '').trim();
+    const extra = splitMatch[4] ? ` (${splitMatch[4]})` : '';
+    return { main, sub: (sub + extra).trim() || null };
+  }
+
+  // Try split at last parenthesized group
+  const parenMatch = titleCase.match(/^(.+?)\s*\((.+)\)$/);
+  if (parenMatch) {
+    return { main: parenMatch[1].trim(), sub: parenMatch[2].trim() };
+  }
+
+  return { main: titleCase, sub: null };
+}
+
+type ItemType = 'kumpul' | 'takeoff' | 'landing' | 'regular';
+
+function classifyItem(text: string): ItemType {
+  const lower = text.toLowerCase();
+  if (lower.includes('berkumpul') || /kumpul\b/.test(lower)) return 'kumpul';
+  if (lower.includes('tiba di bandara') || lower.includes('mendarat')) return 'landing';
+  if (
+    /berangkat\s+menuju/.test(lower) ||
+    lower.includes('take off') ||
+    /pesawat.*menuju/.test(lower) ||
+    /dengan\s+(pesawat|saudi|garuda|emirates|saudia)/.test(lower)
+  ) return 'takeoff';
+  return 'regular';
+}
+
+/** Day header colors — cycling 4 */
+const DAY_COLORS = [
+  { bg: 'bg-emerald-50 dark:bg-emerald-900/20', numColor: 'text-emerald-600 dark:text-emerald-400', labelColor: 'text-emerald-800 dark:text-emerald-300', line: 'border-emerald-100 dark:border-emerald-800/40' },
+  { bg: 'bg-blue-50 dark:bg-blue-900/20', numColor: 'text-blue-600 dark:text-blue-400', labelColor: 'text-blue-800 dark:text-blue-300', line: 'border-blue-100 dark:border-blue-800/40' },
+  { bg: 'bg-violet-50 dark:bg-violet-900/20', numColor: 'text-violet-600 dark:text-violet-400', labelColor: 'text-violet-800 dark:text-violet-300', line: 'border-violet-100 dark:border-violet-800/40' },
+  { bg: 'bg-amber-50 dark:bg-amber-900/20', numColor: 'text-amber-600 dark:text-amber-400', labelColor: 'text-amber-800 dark:text-amber-300', line: 'border-amber-100 dark:border-amber-800/40' },
 ];
+
+/** Highlight style configs */
+const HIGHLIGHT_STYLES: Record<Exclude<ItemType, 'regular'>, { cardBg: string; cardBgDark: string; accent: string; textColor: string; textColorDark: string; badge: string }> = {
+  kumpul: {
+    cardBg: '#E1F5EE',
+    cardBgDark: 'rgba(16,185,129,0.1)',
+    accent: '#0F6E56',
+    textColor: '#085041',
+    textColorDark: '#6EE7B7',
+    badge: 'KUMPUL',
+  },
+  takeoff: {
+    cardBg: '#E6F1FB',
+    cardBgDark: 'rgba(37,99,235,0.1)',
+    accent: '#185FA5',
+    textColor: '#0C447C',
+    textColorDark: '#93C5FD',
+    badge: 'TAKE OFF',
+  },
+  landing: {
+    cardBg: '#E6F1FB',
+    cardBgDark: 'rgba(37,99,235,0.1)',
+    accent: '#185FA5',
+    textColor: '#0C447C',
+    textColorDark: '#93C5FD',
+    badge: 'LANDING',
+  },
+};
+
+/** Extract day number from "Hari 1", "Hari 3-5", etc. */
+function extractDayNum(dayNumber: string): string {
+  const m = dayNumber.match(/\d[\d\-]*/);
+  return m ? m[0] : dayNumber.replace(/\D/g, '') || '?';
+}
+
+/** Compute the actual date for a given day index based on departure date */
+function getDayDate(paket: UmrohPackage, dayIndex: number): string {
+  if (!paket.keberangkatan?.tgl) return '';
+  const dep = new Date(paket.keberangkatan.tgl);
+  dep.setDate(dep.getDate() + dayIndex);
+  return dep.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+}
 
 // ============================================
 // Component
@@ -76,6 +155,7 @@ export default function WebItineraryView({
   agentPhone,
   agentPhoto,
 }: WebItineraryViewProps) {
+  const isDark = typeof window !== 'undefined' && document.documentElement.classList.contains('dark');
 
   // ── Loading State ──
   if (loading) {
@@ -125,98 +205,127 @@ export default function WebItineraryView({
   if (!content) return null;
 
   const durationDays = getDurationDays(paket);
+  const pkgName = formatPackageName(paket.nama);
 
   return (
     <div className="bg-white dark:bg-slate-900">
 
-      {/* ── Header — clean, minimal ── */}
-      <div className="border-b border-gray-100 dark:border-slate-800 px-5 py-4 bg-gray-50/50 dark:bg-slate-800/30">
-        <div className="flex items-start justify-between">
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-1">Itinerary Perjalanan</p>
-            <h3 className="text-[15px] font-bold text-gray-900 dark:text-white leading-snug">{paket.nama}</h3>
-            <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-1">{formatDate(paket.keberangkatan?.tgl)}</p>
-          </div>
-        </div>
+      {/* ── Hero Card ── */}
+      <div className="mx-4 mt-4 bg-gradient-to-br from-emerald-900 via-emerald-700 to-emerald-800 rounded-2xl p-4 text-white relative overflow-hidden mb-4">
+        <div className="absolute -top-10 -right-8 w-[120px] h-[120px] rounded-full bg-white/5" />
+        <div className="absolute -bottom-6 -left-6 w-[80px] h-[80px] rounded-full bg-white/[0.03]" />
 
-        {/* Compact info row */}
-        <div className="flex gap-3 mt-3">
-          <span className="text-[10px] text-gray-500 dark:text-slate-400 inline-flex items-center gap-1">
-            <Calendar size={10} className="text-gray-400" /> {durationDays} Hari
-          </span>
-          <span className="text-[10px] text-gray-500 dark:text-slate-400 inline-flex items-center gap-1">
-            <Plane size={10} className="text-gray-400" /> {paket.maskapai}
-          </span>
-          <span className="text-[10px] text-gray-500 dark:text-slate-400 inline-flex items-center gap-1">
-            <Users size={10} className="text-gray-400" /> {paket.seatSisa} seat
-          </span>
+        <div className="relative z-10">
+          <div className="text-[15px] font-bold leading-tight">{pkgName.main}</div>
+          {pkgName.sub && (
+            <div className="text-[11px] text-white/50 mt-0.5">{pkgName.sub}</div>
+          )}
+
+          <div className="text-[11px] text-white/60 mt-2">
+            {formatDateFull(paket.keberangkatan?.tgl)}
+          </div>
+
+          <div className="flex gap-1.5 mt-2.5 flex-wrap">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.12] text-[10px] text-white/80">
+              <CalendarRange size={10} className="opacity-60" />
+              {durationDays} hari
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.12] text-[10px] text-white/80">
+              <Plane size={10} className="opacity-60" />
+              {paket.maskapai}
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.12] text-[10px] text-white/80">
+              <Users size={10} className="opacity-60" />
+              {paket.seatSisa} seat
+            </span>
+          </div>
         </div>
       </div>
 
       {/* ── AI source badge ── */}
-      <div className="px-5 pt-3 pb-1">
-        <div className="inline-flex items-center gap-1.5 text-[10px] text-gray-400 dark:text-slate-500">
-          <Sparkles size={10} />
-          <span>Diekstrak dari PDF asli</span>
-        </div>
+      <div className="flex items-center gap-1.5 mb-3.5 px-5">
+        <Sparkles size={12} className="text-gray-300 dark:text-slate-600" />
+        <span className="text-[10px] text-gray-400 dark:text-slate-500">Diekstrak dari PDF asli</span>
       </div>
 
       {/* ── Timeline ── */}
-      <div className="px-5 pt-2 pb-4">
+      <div className="px-5 pb-4 space-y-5">
         {content.days.map((day, idx) => {
-          const isLast = idx === content.days.length - 1;
-          const accent = DAY_ACCENTS[idx % DAY_ACCENTS.length];
+          const color = DAY_COLORS[idx % DAY_COLORS.length];
+          const dayNum = extractDayNum(day.dayNumber);
+          const dayDate = getDayDate(paket, idx);
 
           return (
-            <div key={idx} className="flex gap-0">
-
-              {/* Left rail: dot + connector */}
-              <div className="w-8 flex flex-col items-center flex-shrink-0 pt-1">
-                <div className={`w-3 h-3 rounded-full ${accent.dot} ring-4 ring-white dark:ring-slate-900 flex-shrink-0`} />
-                {!isLast && <div className="w-px flex-1 bg-gray-200 dark:bg-slate-700" />}
+            <div key={idx}>
+              {/* Day header */}
+              <div className="flex items-center gap-2.5 mb-3">
+                <div className={`w-[42px] h-[42px] rounded-xl ${color.bg} flex flex-col items-center justify-center flex-shrink-0`}>
+                  <div className={`text-[8px] font-bold ${color.labelColor} uppercase tracking-wide`}>Hari</div>
+                  <div className={`text-base font-bold ${color.numColor} leading-none`}>{dayNum}</div>
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-gray-800 dark:text-white">{day.title}</div>
+                  {dayDate && <div className="text-[11px] text-gray-400 dark:text-slate-500">{dayDate}</div>}
+                </div>
               </div>
 
-              {/* Right: day content */}
-              <div className={`flex-1 ${!isLast ? 'pb-5' : 'pb-1'} -mt-0.5`}>
+              {/* Timeline items */}
+              <div className={`ml-5 pl-5 border-l-[1.5px] ${color.line}`}>
+                {day.activities.map((act, i) => {
+                  const activity = typeof act === 'string' ? { time: '-', text: act } : act;
+                  const itemType = classifyItem(activity.text);
+                  const showTime = activity.time && activity.time !== '-';
 
-                {/* Day badge */}
-                <div className={`inline-flex items-center gap-1.5 border rounded-md px-2 py-0.5 mb-1.5 ${accent.badge}`}>
-                  <span className="text-[10px] font-bold uppercase tracking-wide">{day.dayNumber}</span>
-                </div>
-
-                {/* Title + location */}
-                <p className="text-[13px] font-bold text-gray-900 dark:text-white leading-snug">{day.title}</p>
-                <div className="flex items-center gap-1 mt-0.5 mb-2.5">
-                  <MapPin size={9} className="text-gray-400 dark:text-slate-500" />
-                  <span className="text-[10px] text-gray-500 dark:text-slate-400 font-medium">{day.location}</span>
-                </div>
-
-                {/* Activities with time */}
-                <div className="space-y-0">
-                  {day.activities.map((act, i) => {
-                    const activity = typeof act === 'string' ? { time: '-', text: act } : act;
-                    const showTime = activity.time && activity.time !== '-';
-
+                  if (itemType !== 'regular') {
+                    const style = HIGHLIGHT_STYLES[itemType];
                     return (
-                      <div key={i} className="flex items-start gap-0 group">
-                        {/* Time column */}
-                        <div className="w-[46px] flex-shrink-0 pt-[7px]">
-                          {showTime ? (
-                            <span className="text-[10px] font-mono font-semibold text-gray-500 dark:text-slate-400">{activity.time}</span>
-                          ) : (
-                            <span className="text-[10px] text-gray-300 dark:text-slate-600">—</span>
-                          )}
-                        </div>
+                      <div key={i} className="relative mb-3.5">
+                        {/* Dot besar */}
+                        <div className="absolute -left-[27px] top-2.5 w-3 h-3 rounded-full"
+                          style={{ background: style.accent, border: `2px solid ${isDark ? '#1e293b' : style.cardBg}` }} />
 
-                        {/* Activity text */}
-                        <div className="flex-1 flex items-start gap-2 py-[6px] border-b border-gray-50 dark:border-slate-800/50 group-last:border-0">
-                          <div className="w-1 h-1 rounded-full bg-gray-300 dark:bg-slate-600 flex-shrink-0 mt-[7px]" />
-                          <p className="text-[12px] text-gray-700 dark:text-slate-300 leading-relaxed">{activity.text}</p>
+                        {/* Card */}
+                        <div className="rounded-xl p-2.5"
+                          style={{
+                            background: isDark ? style.cardBgDark : style.cardBg,
+                            borderLeft: `3px solid ${style.accent}`,
+                          }}>
+                          <div className="flex items-center gap-1.5">
+                            {showTime && (
+                              <span className="text-xs font-bold" style={{ color: style.accent, fontVariantNumeric: 'tabular-nums' }}>
+                                {activity.time}
+                              </span>
+                            )}
+                            <span className="text-[9px] font-bold px-1.5 py-px rounded uppercase tracking-wide text-white"
+                              style={{ background: style.accent }}>
+                              {style.badge}
+                            </span>
+                          </div>
+                          <div className="text-xs mt-1 leading-relaxed"
+                            style={{ color: isDark ? style.textColorDark : style.textColor }}>
+                            {activity.text}
+                          </div>
                         </div>
                       </div>
                     );
-                  })}
-                </div>
+                  }
+
+                  // Regular item
+                  return (
+                    <div key={i} className="relative mb-3.5">
+                      <div className="absolute -left-[25px] top-1.5 w-2 h-2 rounded-full bg-gray-200 dark:bg-slate-700" />
+                      <div className="flex gap-2.5 items-start">
+                        <span className="text-xs font-bold text-gray-400 dark:text-slate-500 min-w-[36px]"
+                          style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {showTime ? activity.time : '-'}
+                        </span>
+                        <span className="text-xs text-gray-500 dark:text-slate-400 leading-relaxed">
+                          {activity.text}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );

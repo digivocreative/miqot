@@ -409,36 +409,38 @@ export default function UpcomingSchedule() {
                           <p className="text-[10px] text-gray-600 dark:text-slate-300 mt-1 leading-relaxed">
                             {detail.paket || '-'}
                           </p>
-                          {/* Jam + TL */}
-                          <div className="flex flex-col gap-0.5 mt-1.5">
-                            <span className="flex items-center gap-1 text-[9px] text-gray-600 dark:text-slate-300 font-semibold whitespace-nowrap">
-                              <Clock size={10} className={`${tabConfig.iconColor} shrink-0`} />
-                              {activeTab === 'keberangkatan' && detail.jam ? (
-                                <span className="text-[9px] text-gray-500 dark:text-slate-400 whitespace-nowrap">
-                                  {detail.jam_kumpul && (
+                          {/* Jam kumpul + titik kumpul + takeoff (1 baris merged) */}
+                          {activeTab === 'keberangkatan' && detail.jam ? (
+                            <div className="flex items-center gap-1 flex-wrap text-[11px] text-gray-500 dark:text-slate-400 mt-1.5">
+                              {detail.jam_kumpul ? (
+                                <>
+                                  <span>Kumpul</span>
+                                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">{detail.jam_kumpul}</span>
+                                  {detail.titik_kumpul && (
                                     <>
-                                      Kumpul <span className="font-semibold text-gray-700 dark:text-slate-200">{detail.jam_kumpul}</span>
-                                      <span className="mx-1 text-gray-300 dark:text-slate-600">·</span>
+                                      <span>di</span>
+                                      <span className="text-gray-600 dark:text-slate-300">{detail.titik_kumpul}</span>
                                     </>
                                   )}
-                                  Take off <span className="font-semibold text-gray-700 dark:text-slate-200">{detail.jam}</span>
-                                </span>
-                              ) : (
-                                detail.jam || '-'
-                              )}
-                            </span>
-                            {activeTab === 'keberangkatan' && detail.titik_kumpul && (
-                              <span className="text-[9px] text-gray-400 dark:text-slate-500 truncate">
-                                📍 {detail.titik_kumpul}
-                              </span>
-                            )}
-                            {detail.tour_leader && detail.tour_leader !== '-' && (
-                              <span className="flex items-center gap-1 text-[9px] text-gray-500 dark:text-slate-400 truncate">
-                                <User size={10} className="text-gray-400 dark:text-slate-400 shrink-0" />
-                                {detail.tour_leader}
-                              </span>
-                            )}
-                          </div>
+                                  <span className="text-gray-300 dark:text-slate-600 mx-0.5">·</span>
+                                </>
+                              ) : null}
+                              <span>Take off</span>
+                              <span className="font-semibold text-gray-700 dark:text-slate-200">{detail.jam}</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1 text-[11px] text-gray-500 dark:text-slate-400 mt-1.5">
+                              <Clock size={10} className={`${tabConfig.iconColor} shrink-0`} />
+                              <span>{detail.jam || '-'}</span>
+                            </div>
+                          )}
+                          {/* Tour Leader */}
+                          {detail.tour_leader && detail.tour_leader !== '-' && (
+                            <div className="flex items-center gap-1 text-[10px] text-gray-400 dark:text-slate-500 mt-1">
+                              <User size={10} className="shrink-0" />
+                              <span>{detail.tour_leader}</span>
+                            </div>
+                          )}
                         </div>
 
                         {/* Right — PAX */}
