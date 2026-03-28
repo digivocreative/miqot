@@ -393,24 +393,24 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
 
       const fmtP = (q: number, t: number, d: number) => {
         const parts: string[] = [];
-        if (q > 0) parts.push(`Quad: ${formatRupiah(q)}`);
-        if (t > 0) parts.push(`Triple: ${formatRupiah(t)}`);
-        if (d > 0) parts.push(`Double: ${formatRupiah(d)}`);
-        return parts.join('<br/>');
+        if (q > 0) parts.push(`<div>Quad: ${formatRupiah(q)}</div>`);
+        if (t > 0) parts.push(`<div>Triple: ${formatRupiah(t)}</div>`);
+        if (d > 0) parts.push(`<div>Double: ${formatRupiah(d)}</div>`);
+        return parts.join('');
       };
       rows.push({ label: 'HARGA', a: fmtP(pQ_A, pT_A, pD_A), b: fmtP(pQ_B, pT_B, pD_B) });
 
       // Lama Perjalanan (+1 hari)
-      rows.push({ label: 'LAMA<br/>PERJALANAN', a: `${depDays(pkgA) + 1} HARI`, b: `${depDays(pkgB) + 1} HARI` });
+      rows.push({ label: 'LAMA<br/>PERJALANAN', a: `<div>${depDays(pkgA) + 1} HARI</div>`, b: `<div>${depDays(pkgB) + 1} HARI</div>` });
 
       // Keberangkatan
-      rows.push({ label: 'KEBERANGKATAN', a: fmtFull(pkgA.keberangkatan.tgl), b: fmtFull(pkgB.keberangkatan.tgl) });
+      rows.push({ label: 'KEBERANGKATAN', a: `<div>${fmtFull(pkgA.keberangkatan.tgl)}</div>`, b: `<div>${fmtFull(pkgB.keberangkatan.tgl)}</div>` });
 
       // Kepulangan
-      rows.push({ label: 'KEPULANGAN', a: fmtFull(pkgA.kepulangan.tgl), b: fmtFull(pkgB.kepulangan.tgl) });
+      rows.push({ label: 'KEPULANGAN', a: `<div>${fmtFull(pkgA.kepulangan.tgl)}</div>`, b: `<div>${fmtFull(pkgB.kepulangan.tgl)}</div>` });
 
       // Maskapai
-      rows.push({ label: 'MASKAPAI', a: pkgA.maskapai, b: pkgB.maskapai });
+      rows.push({ label: 'MASKAPAI', a: `<div>${pkgA.maskapai}</div>`, b: `<div>${pkgB.maskapai}</div>` });
 
       // Hotel Mekkah (with stars + distance)
       const mekA = hA?.mekkah_hotel || '—';
@@ -462,21 +462,22 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
 
       const fmtTempPkg = (hi: Record<string, string> | null, month: number) => {
         const cities = getTempCities(hi, month);
-        return cities.map(c => {
+        const lines = cities.map(c => {
           const t = getTemperature(c.key, month);
-          return t ? `${c.label}: ${t.low}–${t.high}°C` : '';
-        }).filter(Boolean).join('<br/>') || '—';
+          return t ? `<div>${c.label}: ${t.low}–${t.high}°C</div>` : '';
+        }).filter(Boolean).join('');
+        return lines || '<div>—</div>';
       };
       rows.push({ label: 'SUHU SAAT<br/>KEBERANGKATAN', a: fmtTempPkg(hA, depMonthA), b: fmtTempPkg(hB, depMonthB) });
 
       // Seat
-      rows.push({ label: 'SISA SEAT', a: `${pkgA.seatSisa} / ${pkgA.seatTotal}`, b: `${pkgB.seatSisa} / ${pkgB.seatTotal}` });
+      rows.push({ label: 'SISA SEAT', a: `<div>${pkgA.seatSisa} / ${pkgA.seatTotal}</div>`, b: `<div>${pkgB.seatSisa} / ${pkgB.seatTotal}</div>` });
 
       // Manasik
       rows.push({
         label: 'MANASIK',
-        a: pkgA.manasikTanggal ? `${fmtFull(pkgA.manasikTanggal)}${pkgA.manasikJam ? '<br/>' + pkgA.manasikJam.slice(0, 5) + ' WIB' : ''}` : '—',
-        b: pkgB.manasikTanggal ? `${fmtFull(pkgB.manasikTanggal)}${pkgB.manasikJam ? '<br/>' + pkgB.manasikJam.slice(0, 5) + ' WIB' : ''}` : '—',
+        a: pkgA.manasikTanggal ? `<div>${fmtFull(pkgA.manasikTanggal)}</div>${pkgA.manasikJam ? '<div>' + pkgA.manasikJam.slice(0, 5) + ' WIB</div>' : ''}` : '<div>—</div>',
+        b: pkgB.manasikTanggal ? `<div>${fmtFull(pkgB.manasikTanggal)}</div>${pkgB.manasikJam ? '<div>' + pkgB.manasikJam.slice(0, 5) + ' WIB</div>' : ''}` : '<div>—</div>',
       });
 
       // ── Embed Inter font for cross-device consistency ──
@@ -607,7 +608,7 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
           borderBottom: '1px solid #E5E7EB',
         });
 
-        const cellStyle = `padding:16px 20px;font-size:15px;font-weight:600;color:#1F2937;text-align:center;display:flex;align-items:center;justify-content:center;line-height:1.6;`;
+        const cellStyle = `padding:16px 20px;font-size:15px;font-weight:600;color:#1F2937;text-align:center;line-height:1.6;display:flex;flex-direction:column;align-items:center;justify-content:center;`;
         const icon = rowIcons[idx] || '📋';
         const labelHtml = `
           <div style="padding:12px 14px;min-width:130px;background:linear-gradient(135deg,#065F46,#059669);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
@@ -624,20 +625,20 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
         card.appendChild(rowEl);
       });
 
-      // Footer with agent info (single line)
+      // Footer with agent info
       const footer = document.createElement('div');
       Object.assign(footer.style, {
         background: 'linear-gradient(135deg, #065F46, #059669)',
-        padding: '14px 24px', textAlign: 'center',
+        padding: '16px 24px', textAlign: 'center',
       });
       if (agent) {
         const rawPh2 = agent.phone.replace(/\D/g, '');
         const localPh2 = rawPh2.startsWith('62') ? '0' + rawPh2.slice(2) : rawPh2;
         const fmtPh2 = localPh2.replace(/(\d{4})(\d{4})(\d+)/, '$1-$2-$3');
-        footer.innerHTML = `<div style="font-size:12px;color:#ffffff;font-weight:600;display:flex;align-items:center;justify-content:center;gap:16px">
-          <span>👤 ${agent.name}</span>
-          <span>🌐 ${agent.website}</span>
-          <span>📞 ${fmtPh2}</span>
+        footer.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;color:#ffffff;font-weight:600;text-align:center">
+          <div style="white-space:nowrap">👤 ${agent.name}</div>
+          <div style="white-space:nowrap">🌐 ${agent.website}</div>
+          <div style="white-space:nowrap">📞 ${fmtPh2}</div>
         </div>`;
       } else {
         footer.innerHTML = `<div style="font-size:12px;color:#ffffff;font-weight:500">🌐 alhijazindonesia.com</div>`;
@@ -650,11 +651,14 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
       await document.fonts.ready;
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      const { snapdom } = await import('@zumer/snapdom');
-      const result = await snapdom(wrapper, { scale: 2, backgroundColor: '#ffffff' });
-      const blob = await result.toBlob({ type: 'png' });
+      const { domToBlob } = await import('modern-screenshot');
+      const blob = await domToBlob(wrapper, {
+        scale: 2,
+      });
 
       document.body.removeChild(wrapper);
+
+      if (!blob) throw new Error('Screenshot blob is null');
 
       // Share or download
       const file = new File([blob], 'Perbandingan_Paket.png', { type: 'image/png' });
@@ -662,7 +666,12 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
       if (navigator.canShare && navigator.canShare(shareData)) {
         try { await navigator.share(shareData); } catch { /* cancelled */ }
       } else {
-        await result.download({ type: 'png', filename: 'Perbandingan_Paket' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'Perbandingan_Paket.png';
+        a.click();
+        URL.revokeObjectURL(url);
       }
     } catch (err) {
       console.error('Screenshot export failed:', err);

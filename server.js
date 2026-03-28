@@ -2309,11 +2309,39 @@ async function fetchFlightFromAirLabs(flightIata) {
     }
 
     console.log(`[FlightAPI] Fetched ${flightIata} (quota: ${airLabsRequestCount}/${AIRLABS_MONTHLY_LIMIT})`);
+    if (data.response) {
+      console.log(`[FlightAPI] ${flightIata} aircraft:`, data.response.aircraft_icao, '| reg:', data.response.reg_number, '| duration:', data.response.duration);
+    }
     return data.response || null;
   } catch (err) {
     console.error(`[FlightAPI] Fetch error for ${flightIata}:`, err.message);
     return null;
   }
+}
+
+// Aircraft ICAO → readable name
+const AIRCRAFT_NAMES = {
+  'B77W': 'Boeing 777-300ER',
+  'B773': 'Boeing 777-300',
+  'B772': 'Boeing 777-200',
+  'B789': 'Boeing 787-9 Dreamliner',
+  'B788': 'Boeing 787-8 Dreamliner',
+  'A333': 'Airbus A330-300',
+  'A332': 'Airbus A330-200',
+  'A339': 'Airbus A330-900neo',
+  'A359': 'Airbus A350-900',
+  'A35K': 'Airbus A350-1000',
+  'A388': 'Airbus A380-800',
+  'A321': 'Airbus A321',
+  'A320': 'Airbus A320',
+  'B738': 'Boeing 737-800',
+  'B739': 'Boeing 737-900ER',
+  'B38M': 'Boeing 737 MAX 8',
+};
+
+function getAircraftName(icao) {
+  if (!icao) return null;
+  return AIRCRAFT_NAMES[icao.toUpperCase()] || icao;
 }
 
 /**
@@ -2386,6 +2414,12 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent) {
     direction: apiData.dir || null,
     progress,
     delayed,
+    aircraft_icao: apiData.aircraft_icao || apiData.aircraft_icao_code || null,
+    aircraft_reg: apiData.reg_number || apiData.registration || null,
+    duration: apiData.duration || null,
+    dep_delayed: apiData.dep_delayed || 0,
+    arr_delayed: apiData.arr_delayed || 0,
+    arr_baggage: apiData.arr_baggage || null,
     raw_api: apiData,
     synced_at: new Date().toISOString(),
   };
@@ -2443,6 +2477,12 @@ function formatFlightForFrontend(row) {
     speed: row.speed || null,
     progress: row.progress || 0,
     delayed: row.delayed || 0,
+    aircraftType: getAircraftName(row.aircraft_icao),
+    aircraftReg: row.aircraft_reg || null,
+    duration: row.duration || null,
+    depDelayed: row.dep_delayed || 0,
+    arrDelayed: row.arr_delayed || 0,
+    arrBaggage: row.arr_baggage || null,
   };
 }
 
@@ -2605,6 +2645,9 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
           lat: null, lng: null, alt: null, speed: null,
           progress: fallbackProgress,
           delayed: 0,
+          aircraftType: null, aircraftReg: null,
+          duration: route?.durationMin || null,
+          depDelayed: 0, arrDelayed: 0, arrBaggage: null,
         });
       }
     }
@@ -4783,14 +4826,14 @@ function scheduleHajiPlusCron() {
 }
 scheduleHajiPlusCron();
 
-// ── Flight Status cron: poll every 5 minutes ──
+// ── Flight Status cron: poll every 1 hour ──
 setInterval(async () => {
   try {
     await pollActiveFlights();
   } catch (err) {
     console.error('[FlightCron] Error:', err.message);
   }
-}, 5 * 60 * 1000);
+}, 60 * 60 * 1000);
 
 // Initial flight poll 2 min after startup
 setTimeout(async () => {

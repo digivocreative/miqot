@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, RefreshCw } from 'lucide-react';
+import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 
 const FlightMap = lazy(() => import('./FlightMap'));
@@ -34,6 +34,12 @@ interface FlightData {
   speed?: number;
   progress: number;
   delayed: number;
+  aircraftType?: string | null;
+  aircraftReg?: string | null;
+  duration?: number | null;
+  depDelayed?: number;
+  arrDelayed?: number;
+  arrBaggage?: string | null;
 }
 
 // ── Status Config ──
@@ -69,7 +75,7 @@ function formatTime(val?: string | null): string {
 function formatDate(iso?: string | null): string {
   if (!iso) return '';
   try {
-    return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'long' });
   } catch {
     return '';
   }
@@ -78,6 +84,15 @@ function formatDate(iso?: string | null): string {
 function cleanTourLeader(tl?: string): string {
   if (!tl) return '';
   return tl.replace(/^[•·\-–—]\s*/, '').trim();
+}
+
+function formatDuration(minutes: number | null | undefined): string | null {
+  if (!minutes || minutes <= 0) return null;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m} menit`;
+  if (m === 0) return `${h} jam`;
+  return `${h} jam ${m} menit`;
 }
 
 // ── RouteLine SVG ──
@@ -126,15 +141,12 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
   const [flights, setFlights] = useState<FlightData[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState(0);
   const [notReady, setNotReady] = useState(false);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchFlights = useCallback(async (isManual = false) => {
+  const fetchFlights = useCallback(async () => {
     try {
-      if (isManual) setRefreshing(true);
-      else if (flights.length === 0) setLoading(true);
+      if (flights.length === 0) setLoading(true);
       const res = await fetch('/api/flights/status', {
         headers: getAuthHeaders(),
       });
@@ -158,8 +170,6 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
       }
     } finally {
       setLoading(false);
-      setRefreshing(false);
-      setLastRefresh(Date.now());
     }
   }, [expandedId, flights.length]);
 
@@ -169,11 +179,6 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
     return () => { if (refreshTimer.current) clearInterval(refreshTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const handleManualRefresh = useCallback(() => {
-    if (Date.now() - lastRefresh < 10000) return;
-    fetchFlights(true);
-  }, [fetchFlights, lastRefresh]);
 
   const todayCount = flights.length;
 
@@ -395,6 +400,14 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                                   )}
                                 </div>
                               )}
+                              {(flight.depDelayed ?? 0) > 0 && (
+                                <div className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-50 dark:bg-red-900/15 border border-red-100 dark:border-red-800/30 rounded-md">
+                                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-500 dark:text-red-400">
+                                    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                                  </svg>
+                                  <span className="text-[8px] font-bold text-red-600 dark:text-red-400">+{flight.depDelayed} menit</span>
+                                </div>
+                              )}
                             </div>
 
                             {/* Arrival */}
@@ -434,6 +447,14 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                                   )}
                                 </div>
                               )}
+                              {(flight.arrDelayed ?? 0) > 0 && (
+                                <div className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-50 dark:bg-red-900/15 border border-red-100 dark:border-red-800/30 rounded-md">
+                                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-500 dark:text-red-400">
+                                    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                                  </svg>
+                                  <span className="text-[8px] font-bold text-red-600 dark:text-red-400">+{flight.arrDelayed} menit</span>
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -450,6 +471,54 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                                   style={{ width: `${flight.progress}%` }}
                                 />
                               </div>
+                            </div>
+                          )}
+
+                          {/* Info strip — pesawat, durasi, bagasi */}
+                          {(flight.aircraftType || flight.duration || (flight.status === 'landed' && flight.arrBaggage)) && (
+                            <div className="px-2.5 py-2 bg-gray-50 dark:bg-slate-900/40 rounded-xl border border-gray-100 dark:border-slate-700/50 flex items-center gap-3 text-[9px]">
+                              {flight.aircraftType && (
+                                <div className="flex items-center gap-1">
+                                  <Plane size={10} className="text-gray-400 dark:text-slate-500" />
+                                  <span className="font-semibold text-gray-600 dark:text-slate-300">{flight.aircraftType}</span>
+                                </div>
+                              )}
+                              {flight.aircraftType && flight.duration && (
+                                <div className="w-px h-3.5 bg-gray-200 dark:bg-slate-700" />
+                              )}
+                              {flight.duration && (
+                                <div className="flex items-center gap-1">
+                                  <Clock size={10} className="text-gray-400 dark:text-slate-500" />
+                                  <span className="font-semibold text-gray-600 dark:text-slate-300">{formatDuration(flight.duration)}</span>
+                                </div>
+                              )}
+                              {flight.status === 'landed' && flight.arrBaggage && (
+                                <>
+                                  <div className="w-px h-3.5 bg-gray-200 dark:bg-slate-700" />
+                                  <div className="flex items-center gap-1">
+                                    <BaggageClaim size={10} className="text-gray-400 dark:text-slate-500" />
+                                    <span className="font-semibold text-gray-600 dark:text-slate-300">Carousel {flight.arrBaggage}</span>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Alt + Speed badges — en-route only, biru */}
+                          {flight.status === 'en-route' && (flight.alt || flight.speed) && (
+                            <div className="flex items-center gap-1.5">
+                              {flight.alt && (
+                                <div className="flex items-center gap-1 px-2 py-1.5 bg-blue-50 dark:bg-blue-900/15 rounded-lg border border-blue-100 dark:border-blue-800/30">
+                                  <ArrowUp size={10} className="text-blue-500 dark:text-blue-400" />
+                                  <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400">{(flight.alt / 1000).toFixed(1)} km</span>
+                                </div>
+                              )}
+                              {flight.speed && (
+                                <div className="flex items-center gap-1 px-2 py-1.5 bg-blue-50 dark:bg-blue-900/15 rounded-lg border border-blue-100 dark:border-blue-800/30">
+                                  <Zap size={10} className="text-blue-500 dark:text-blue-400" />
+                                  <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400">{flight.speed} km/j</span>
+                                </div>
+                              )}
                             </div>
                           )}
 
@@ -489,17 +558,6 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
       )}
 
       {/* ── Footer ── */}
-      <div className="px-3.5 py-2 border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
-        <span className="text-[9px] text-gray-400 dark:text-slate-500">AirLabs • update 30-60s</span>
-        <button
-          onClick={handleManualRefresh}
-          disabled={refreshing || (Date.now() - lastRefresh < 10000)}
-          className="flex items-center gap-1 text-[10px] font-semibold text-blue-600 dark:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all"
-        >
-          <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
-          Refresh
-        </button>
-      </div>
     </div>
   );
 }
