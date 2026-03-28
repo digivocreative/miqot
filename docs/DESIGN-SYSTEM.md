@@ -1043,6 +1043,31 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 
 ---
 
+## Image Export & Native Share
+
+### Export Strategy
+- Use `modern-screenshot` for DOM-to-PNG (specifically `domToPng` with `{ scale: 3, quality: 1 }`).
+- Wait at least `1000ms` for image loading/fonts before snapshotting.
+- Result should be rasterized via `fetch(dataUrl)` to `blob()` to ensure compatibility.
+
+### Native Share Format
+- WhatsApp requires the sharing payload to **only contain the `files` array**.
+- **Crucial**: Adding `text`, `title`, or `url` will cause a widespread "double-image" bug or failure on mobile share sheets.
+```ts
+// CORRECT:
+navigator.share({ files: [file] });
+
+// INCORRECT (Causes double image/fail):
+navigator.share({ files: [file], text: 'Caption', title: 'Infografis' });
+```
+
+### SVG Compatibility for Export
+- Always use **fill-based paths** instead of stroke-based primitives.
+- `modern-screenshot` may fail to accurately rasterize SVG stroke properties.
+- Example: Convert `<circle>` or `<path stroke="..." />` to `<path d="..." />` filled with exact color/opacity.
+
+---
+
 ## Conventions
 
 - **Framework**: TailwindCSS utility-first, no component library

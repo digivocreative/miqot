@@ -1804,6 +1804,8 @@ app.get('/api/calendar/events', authMiddleware, async (req, res) => {
         pax: ev.pax,
         staff: ev.staff,
         tour_leader: ev.tour_leader,
+        jam_kumpul: ev.jam_kumpul || null,
+        titik_kumpul: ev.titik_kumpul || null,
       });
     }
 

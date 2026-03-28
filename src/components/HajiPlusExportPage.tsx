@@ -67,7 +67,7 @@ function PosterChart({ items, theme, chartType }: { items: HajiPlusItem[]; theme
         <BarChart data={items} layout="vertical" margin={{ top: 0, right: 4, bottom: 0, left: 0 }}>
           <XAxis type="number" hide />
           <YAxis type="category" dataKey="year" tick={{ fontSize: 8, fill: '#6b7280' }} width={36} axisLine={false} tickLine={false} interval={0} />
-          <Bar dataKey="pax" radius={[0, 4, 4, 0]}>
+          <Bar dataKey="pax" radius={[0, 4, 4, 0]} isAnimationActive={false}>
             {items.map((_, i) => <Cell key={i} fill={t.bars[i % t.bars.length]} />)}
             <LabelList dataKey="pax" position="insideRight" style={{ fontSize: 7, fontWeight: 600, fill: 'white' }} />
           </Bar>
@@ -125,7 +125,7 @@ function PosterChart({ items, theme, chartType }: { items: HajiPlusItem[]; theme
         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
         <XAxis dataKey="year" tick={{ fontSize: 8, fill: '#6b7280' }} axisLine={false} tickLine={false} interval={0} />
         <YAxis tickFormatter={yFmt} tick={{ fontSize: 7, fill: '#6b7280' }} axisLine={false} tickLine={false} width={28} />
-        <Bar dataKey="pax" radius={[4, 4, 0, 0]}>
+        <Bar dataKey="pax" radius={[4, 4, 0, 0]} isAnimationActive={false}>
           {items.map((_, i) => <Cell key={i} fill={t.bars[i % t.bars.length]} />)}
           <LabelList dataKey="pax" position="inside" style={{ fontSize: 7, fontWeight: 600, fill: 'white' }} />
         </Bar>

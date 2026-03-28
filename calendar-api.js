@@ -13,6 +13,7 @@
  */
 
 import * as cheerio from 'cheerio';
+import { PDFParse } from 'pdf-parse';
 
 const BASE = 'http://115.124.86.220/aiw/staff';
 const CALENDAR_SYNC_SLUG = 'nikita';
@@ -287,5 +288,147 @@ export async function syncCalendar(supabase, decryptFn) {
     console.log('[Calendar] Sync complete: no rows generated');
   }
 
+  // Fire-and-forget: enrich keberangkatan events with kumpul info from PDFs
+  enrichKeberangkatanWithKumpul(supabase).catch(err => {
+    console.error('[KumpulParser] Enrichment failed:', err.message);
+  });
+
   return { success: true, count: allRows.length };
+}
+
+// ── Extract jam kumpul & titik kumpul from itinerary PDF ──
+async function extractKumpulFromPdf(itineraryUrl) {
+  try {
+    const pdfUrl = itineraryUrl.replace('http://', 'https://');
+    const res = await fetch(pdfUrl, {
+      headers: {
+        'Referer': 'https://jadwal.alhijaz.co/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!res.ok) return null;
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const parser = new PDFParse({ data: buffer });
+    await parser.load();
+    const textResult = await parser.getText();
+    await parser.destroy();
+    const text = textResult?.text?.trim() || '';
+
+    if (!text || text.length < 50) return null;
+
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+    let jamKumpul = null;
+    let titikKumpul = null;
+
+    // Pattern 1: "HH.mm : ... berkumpul/kumpul di LOKASI"
+    for (const line of lines) {
+      const kumpulMatch = line.match(
+        /(\d{1,2}[.:]\d{2})\s*:\s*(.*(?:berkumpul|kumpul)\s+di\s+(.+?)(?:,|\.|$))/i
+      );
+      if (kumpulMatch) {
+        jamKumpul = kumpulMatch[1].replace(':', '.');
+        const lokasiMatch = kumpulMatch[2].match(/(?:berkumpul|kumpul)\s+di\s+(.+?)(?:,\s*makan|\.\s|$)/i);
+        if (lokasiMatch) {
+          titikKumpul = lokasiMatch[1].trim();
+          titikKumpul = titikKumpul.charAt(0).toUpperCase() + titikKumpul.slice(1);
+        }
+        break;
+      }
+    }
+
+    // Pattern 2 fallback: "HH.mm : ... rombongan tiba ... di LOKASI"
+    if (!jamKumpul) {
+      for (const line of lines) {
+        const tibaMatch = line.match(
+          /(\d{1,2}[.:]\d{2})\s*:\s*(.*(?:rombongan\s+tiba|tiba\s+dan)\s+.*?(?:di\s+(.+?)(?:,|\.|$)))/i
+        );
+        if (tibaMatch) {
+          jamKumpul = tibaMatch[1].replace(':', '.');
+          if (tibaMatch[3]) {
+            titikKumpul = tibaMatch[3].trim();
+            titikKumpul = titikKumpul.charAt(0).toUpperCase() + titikKumpul.slice(1);
+          }
+          break;
+        }
+      }
+    }
+
+    return jamKumpul ? { jamKumpul, titikKumpul } : null;
+  } catch (err) {
+    console.error('[KumpulParser] PDF extract error:', err.message);
+    return null;
+  }
+}
+
+// ── Enrich keberangkatan events with kumpul data from itinerary PDFs ──
+async function enrichKeberangkatanWithKumpul(supabase) {
+  // 1. Get keberangkatan events missing jam_kumpul
+  const { data: events, error } = await supabase
+    .from('calendar_events')
+    .select('id, event_date, paket, jam')
+    .eq('event_type', 'keberangkatan')
+    .is('jam_kumpul', null)
+    .gt('pax', 0);
+
+  if (error || !events?.length) return;
+
+  console.log(`[KumpulParser] ${events.length} keberangkatan events need kumpul data`);
+
+  // 2. Fetch package data from API
+  let packages;
+  try {
+    const res = await fetch('https://jadwal.alhijaz.co/jadwal/api-get/1448', {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return;
+    const json = await res.json();
+    packages = json.aaData || [];
+  } catch (err) {
+    console.error('[KumpulParser] Package API fetch failed:', err.message);
+    return;
+  }
+
+  if (!packages.length) return;
+
+  let enriched = 0;
+
+  for (const event of events) {
+    // 3. Match event → package by normalized name + date
+    const calPaket = (event.paket || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const matchedPkg = packages.find(pkg => {
+      const apiPaket = (pkg.jadwal_nama || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const nameMatch = calPaket === apiPaket || calPaket.includes(apiPaket) || apiPaket.includes(calPaket);
+      const dateMatch = pkg.berangkat_tgl === event.event_date;
+      return nameMatch && dateMatch;
+    });
+
+    if (!matchedPkg?.itinerary) continue;
+
+    // 4. Extract kumpul info from PDF
+    console.log(`[KumpulParser] Processing: ${event.paket} (${event.event_date})`);
+    const kumpulInfo = await extractKumpulFromPdf(matchedPkg.itinerary);
+
+    if (kumpulInfo?.jamKumpul) {
+      await supabase
+        .from('calendar_events')
+        .update({
+          jam_kumpul: kumpulInfo.jamKumpul,
+          titik_kumpul: kumpulInfo.titikKumpul || null,
+        })
+        .eq('id', event.id);
+
+      enriched++;
+      console.log(`[KumpulParser] Found: Kumpul ${kumpulInfo.jamKumpul} di ${kumpulInfo.titikKumpul || '?'}`);
+    }
+
+    // Rate limit between PDF fetches
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  console.log(`[KumpulParser] Enrichment complete: ${enriched}/${events.length} events updated`);
 }

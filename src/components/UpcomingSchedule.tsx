@@ -11,6 +11,8 @@ interface EventDetail {
   pax: number;
   staff: string | null;
   tour_leader: string | null;
+  jam_kumpul: string | null;
+  titik_kumpul: string | null;
 }
 
 interface CalendarEvent {
@@ -78,6 +80,7 @@ const DAY_HEADERS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
 function cacheKey(year: number, month: number) {
   return `${year}-${month}`;
 }
+
 
 export default function UpcomingSchedule() {
   const now = useMemo(() => new Date(), []);
@@ -407,11 +410,28 @@ export default function UpcomingSchedule() {
                             {detail.paket || '-'}
                           </p>
                           {/* Jam + TL */}
-                          <div className="flex items-center gap-3 mt-1.5">
-                            <span className="flex items-center gap-1 text-[9px] text-gray-600 dark:text-slate-300 font-semibold">
+                          <div className="flex flex-col gap-0.5 mt-1.5">
+                            <span className="flex items-center gap-1 text-[9px] text-gray-600 dark:text-slate-300 font-semibold whitespace-nowrap">
                               <Clock size={10} className={`${tabConfig.iconColor} shrink-0`} />
-                              {detail.jam || '-'}
+                              {activeTab === 'keberangkatan' && detail.jam ? (
+                                <span className="text-[9px] text-gray-500 dark:text-slate-400 whitespace-nowrap">
+                                  {detail.jam_kumpul && (
+                                    <>
+                                      Kumpul <span className="font-semibold text-gray-700 dark:text-slate-200">{detail.jam_kumpul}</span>
+                                      <span className="mx-1 text-gray-300 dark:text-slate-600">·</span>
+                                    </>
+                                  )}
+                                  Take off <span className="font-semibold text-gray-700 dark:text-slate-200">{detail.jam}</span>
+                                </span>
+                              ) : (
+                                detail.jam || '-'
+                              )}
                             </span>
+                            {activeTab === 'keberangkatan' && detail.titik_kumpul && (
+                              <span className="text-[9px] text-gray-400 dark:text-slate-500 truncate">
+                                📍 {detail.titik_kumpul}
+                              </span>
+                            )}
                             {detail.tour_leader && detail.tour_leader !== '-' && (
                               <span className="flex items-center gap-1 text-[9px] text-gray-500 dark:text-slate-400 truncate">
                                 <User size={10} className="text-gray-400 dark:text-slate-400 shrink-0" />

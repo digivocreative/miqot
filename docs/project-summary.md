@@ -586,6 +586,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Dynamic navbar icon/color override logic untuk AI Tools sub-pages (Haji Plus, Voice Over, Kartu Nama)
 - Kartu Nama Digital revamped to rich high-fidelity templates (gradient, glassmorphism, dynamic user data)
 - AI Web Itinerary View with vertical timeline, time badges, OpenAI extraction + Supabase caching
+- Haji Plus Export Improvments (mobile native share double-image fix, Recharts data labels inside bars, SVG fill compatibility for screenshot engine, and design system-standard CTA buttons)
 
 ### Rencana / Backlog
 - [TODO] Testing suite
