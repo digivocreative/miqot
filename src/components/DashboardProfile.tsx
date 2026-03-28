@@ -42,6 +42,7 @@ const NOTIFICATION_GROUPS = [
       { key: 'pembayaran_masuk',   emoji: '💵', label: 'Pembayaran Masuk',   desc: 'Jamaah melakukan pembayaran' },
       { key: 'ringkasan_mingguan', emoji: '📊', label: 'Ringkasan Mingguan', desc: 'Laporan mingguan setiap Senin' },
       { key: 'quiz_lead',          emoji: '📋', label: 'Lead dari Quiz',     desc: 'Notifikasi saat ada calon jamaah yang mengisi quiz' },
+      { key: 'flight_status',      emoji: '✈️', label: 'Status Penerbangan', desc: 'Delay, pembatalan, gate berubah' },
     ]
   },
 ];

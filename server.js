@@ -1121,6 +1121,7 @@ const DEFAULT_NOTIFICATION_PREFS = {
   departure: true, paspor: true, pelunasan: true, perlengkapan: true,
   manasik: true, seat_alert: true, paket_baru: true, perubahan_harga: true,
   pembayaran_masuk: true, ringkasan_mingguan: true, quiz_lead: true,
+  flight_status: true,
 };
 
 app.get('/api/telegram/prefs', authMiddleware, async (req, res) => {
@@ -2198,6 +2199,627 @@ app.get('/api/calendar/insight', authMiddleware, async (req, res) => {
   } catch { /* table may not exist */ }
   res.json({ success: false, error: 'Insight belum tersedia' });
 });
+
+// ──────────────────────────────────────────────
+// API: Flight Status (AirLabs Integration)
+// ──────────────────────────────────────────────
+
+/**
+ * Parse flight info from calendar_events.pesawat field
+ * Input: "SAUDIA - SV 827" or "GARUDA INDONESIA - GA 987"
+ * Output: { airline, airlineCode, flightNumber, flightIata }
+ */
+function parseFlightFromCalendar(pesawat) {
+  if (!pesawat) return null;
+  const match = pesawat.match(/^(.+?)\s*-\s*([A-Z]{2})\s*(\d+)$/i);
+  if (!match) return null;
+  return {
+    airline: match[1].trim(),
+    airlineCode: match[2].toUpperCase(),
+    flightNumber: match[3],
+    flightIata: `${match[2].toUpperCase()}${match[3]}`,
+  };
+}
+
+// AirLabs quota tracking
+let airLabsRequestCount = 0;
+const AIRLABS_MONTHLY_LIMIT = 1000;
+
+function canMakeAirLabsRequest() {
+  if (airLabsRequestCount >= AIRLABS_MONTHLY_LIMIT * 0.9) {
+    console.warn(`[FlightAPI] Approaching quota limit: ${airLabsRequestCount}/${AIRLABS_MONTHLY_LIMIT}`);
+  }
+  return airLabsRequestCount < AIRLABS_MONTHLY_LIMIT;
+}
+
+// Reset quota counter on 1st of each month (checked by cron or on startup)
+function maybeResetQuotaCounter() {
+  const now = new Date();
+  if (now.getDate() === 1 && now.getHours() === 0) {
+    airLabsRequestCount = 0;
+    console.log('[FlightAPI] Monthly quota counter reset');
+  }
+}
+
+/**
+ * Fetch real-time flight data from AirLabs API
+ * Free tier: 1000 req/month — use sparingly!
+ */
+async function fetchFlightFromAirLabs(flightIata) {
+  const apiKey = process.env.AIRLABS_API_KEY;
+  if (!apiKey) return null;
+
+  if (!canMakeAirLabsRequest()) {
+    console.warn('[FlightAPI] Monthly quota exhausted — skipping API call');
+    return null;
+  }
+
+  try {
+    const url = `https://airlabs.co/api/v9/flight?flight_iata=${flightIata}&api_key=${apiKey}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+
+    if (!res.ok) {
+      console.error(`[FlightAPI] AirLabs error: ${res.status}`);
+      return null;
+    }
+
+    const data = await res.json();
+    airLabsRequestCount++;
+
+    if (data.error) {
+      console.error(`[FlightAPI] AirLabs API error:`, data.error);
+      return null;
+    }
+
+    console.log(`[FlightAPI] Fetched ${flightIata} (quota: ${airLabsRequestCount}/${AIRLABS_MONTHLY_LIMIT})`);
+    return data.response || null;
+  } catch (err) {
+    console.error(`[FlightAPI] Fetch error for ${flightIata}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Map AirLabs response to our flight_status schema
+ */
+function mapAirLabsToFlightStatus(apiData, calendarEvent) {
+  if (!apiData) return null;
+  const parsed = parseFlightFromCalendar(calendarEvent.pesawat);
+  if (!parsed) return null;
+
+  // Determine status
+  let status = 'scheduled';
+  if (apiData.status === 'active' || apiData.status === 'en-route') status = 'en-route';
+  else if (apiData.status === 'landed') status = 'landed';
+  else if (apiData.status === 'cancelled') status = 'cancelled';
+  else if (apiData.dep_delayed || apiData.arr_delayed) status = 'delayed';
+
+  const delayed = Math.max(apiData.dep_delayed || 0, apiData.arr_delayed || 0);
+
+  // Calculate progress
+  let progress = 0;
+  if (status === 'en-route' && apiData.dep_actual_ts && apiData.arr_estimated_ts) {
+    const now = Math.floor(Date.now() / 1000);
+    const totalDuration = apiData.arr_estimated_ts - apiData.dep_actual_ts;
+    const elapsed = now - apiData.dep_actual_ts;
+    progress = Math.min(99, Math.max(1, Math.round((elapsed / totalDuration) * 100)));
+  } else if (status === 'landed') {
+    progress = 100;
+  }
+
+  return {
+    id: `${calendarEvent.event_date}_${parsed.flightIata}`,
+    event_date: calendarEvent.event_date,
+    flight_iata: parsed.flightIata,
+    airline_name: parsed.airline,
+    airline_iata: parsed.airlineCode,
+    airline_logo: apiData.airline_logo || null,
+    group_number: calendarEvent.group_number,
+    status,
+    dep_iata: apiData.dep_iata || null,
+    dep_city: apiData.dep_city || null,
+    dep_terminal: apiData.dep_terminal || null,
+    dep_gate: apiData.dep_gate || null,
+    dep_scheduled: apiData.dep_time_utc || null,
+    dep_actual: apiData.dep_actual_utc || null,
+    arr_iata: apiData.arr_iata || null,
+    arr_city: apiData.arr_city || null,
+    arr_terminal: apiData.arr_terminal || null,
+    arr_gate: apiData.arr_gate || null,
+    arr_scheduled: apiData.arr_time_utc || null,
+    arr_estimated: apiData.arr_estimated_utc || null,
+    pax: calendarEvent.pax || 0,
+    tour_leader: calendarEvent.tour_leader || '',
+    lat: apiData.lat || null,
+    lng: apiData.lng || null,
+    alt: apiData.alt || null,
+    speed: apiData.speed || null,
+    direction: apiData.dir || null,
+    progress,
+    delayed,
+    raw_api: apiData,
+    synced_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Format DB row → frontend FlightData shape
+ */
+function formatFlightForFrontend(row) {
+  return {
+    id: row.id,
+    flightNumber: row.flight_iata
+      ? `${row.airline_iata || ''} ${row.flight_iata.replace(/^[A-Z]{2}/, '')}`.trim()
+      : '',
+    airline: row.airline_name || '',
+    airlineLogo: row.airline_logo || null,
+    group: row.group_number || '',
+    status: row.status || 'scheduled',
+    depCity: row.dep_city || '',
+    depCode: row.dep_iata || '',
+    depTerminal: row.dep_terminal || null,
+    depGate: row.dep_gate || null,
+    depScheduled: row.dep_scheduled,
+    depActual: row.dep_actual || null,
+    arrCity: row.arr_city || '',
+    arrCode: row.arr_iata || '',
+    arrTerminal: row.arr_terminal || null,
+    arrGate: row.arr_gate || null,
+    arrScheduled: row.arr_scheduled,
+    arrEstimated: row.arr_estimated || null,
+    pax: row.pax || 0,
+    tourLeader: row.tour_leader || '',
+    lat: row.lat || null,
+    lng: row.lng || null,
+    alt: row.alt || null,
+    speed: row.speed || null,
+    progress: row.progress || 0,
+    delayed: row.delayed || 0,
+  };
+}
+
+/**
+ * Should we poll this flight? Only poll keberangkatan/kepulangan within ±24h window
+ */
+function shouldPollFlight(eventDate, eventType) {
+  if (eventType !== 'keberangkatan' && eventType !== 'kepulangan') return false;
+  const now = new Date();
+  const flightDate = new Date(eventDate);
+  const diffHours = (flightDate - now) / (1000 * 60 * 60);
+  return diffHours >= -24 && diffHours <= 24;
+}
+
+// In-memory flight cache
+const flightCache = new Map();
+
+function getCachedFlight(flightId, maxAgeMs = 5 * 60 * 1000) {
+  const cached = flightCache.get(flightId);
+  if (!cached) return null;
+  if (Date.now() - cached.timestamp > maxAgeMs) {
+    flightCache.delete(flightId);
+    return null;
+  }
+  return cached.data;
+}
+
+function setCachedFlight(flightId, data) {
+  flightCache.set(flightId, { data, timestamp: Date.now() });
+}
+
+// GET /api/flights/status — all flights within H-1 to H+1 window
+app.get('/api/flights/status', authMiddleware, async (req, res) => {
+  try {
+    maybeResetQuotaCounter();
+
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const startDate = yesterday.toISOString().split('T')[0];
+    const endDate = tomorrow.toISOString().split('T')[0];
+
+    // 1. Get calendar events with flight data in the ±1 day window
+    const { data: events, error: evError } = await supabase
+      .from('calendar_events')
+      .select('*')
+      .in('event_type', ['keberangkatan', 'kepulangan'])
+      .gte('event_date', startDate)
+      .lte('event_date', endDate)
+      .not('pesawat', 'is', null);
+
+    if (evError) throw evError;
+    if (!events || events.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // 2. For each event: cache → Supabase → AirLabs
+    const flights = [];
+
+    for (const event of events) {
+      const parsed = parseFlightFromCalendar(event.pesawat);
+      if (!parsed) continue;
+
+      const flightId = `${event.event_date}_${parsed.flightIata}`;
+
+      // Check in-memory cache
+      const cached = getCachedFlight(flightId);
+      if (cached) {
+        flights.push(cached);
+        continue;
+      }
+
+      // Check Supabase
+      const { data: existing } = await supabase
+        .from('flight_status')
+        .select('*')
+        .eq('id', flightId)
+        .single();
+
+      // If in Supabase and fresh (< 5 min), use it
+      if (existing && existing.synced_at) {
+        const age = Date.now() - new Date(existing.synced_at).getTime();
+        if (age < 5 * 60 * 1000) {
+          const formatted = formatFlightForFrontend(existing);
+          setCachedFlight(flightId, formatted);
+          flights.push(formatted);
+          continue;
+        }
+      }
+
+      // Fetch from AirLabs (only if in polling window)
+      if (shouldPollFlight(event.event_date, event.event_type)) {
+        const apiData = await fetchFlightFromAirLabs(parsed.flightIata);
+
+        if (apiData) {
+          const mapped = mapAirLabsToFlightStatus(apiData, event);
+          if (mapped) {
+            // Upsert to Supabase
+            await supabase.from('flight_status').upsert(mapped, { onConflict: 'id' });
+            const formatted = formatFlightForFrontend(mapped);
+            setCachedFlight(flightId, formatted);
+            flights.push(formatted);
+            continue;
+          }
+        }
+      }
+
+      // Fallback: use existing Supabase data or build from calendar
+      if (existing) {
+        const formatted = formatFlightForFrontend(existing);
+        flights.push(formatted);
+      } else {
+        // Minimal entry from calendar data
+        flights.push({
+          id: flightId,
+          flightNumber: `${parsed.airlineCode} ${parsed.flightNumber}`,
+          airline: parsed.airline,
+          airlineLogo: null,
+          group: event.group_number || '',
+          status: 'scheduled',
+          depCity: '', depCode: '', depTerminal: null, depGate: null,
+          depScheduled: `${event.event_date}T${(event.jam || '00:00').replace('.', ':')}:00`,
+          depActual: null,
+          arrCity: '', arrCode: '', arrTerminal: null, arrGate: null,
+          arrScheduled: null, arrEstimated: null,
+          pax: event.pax || 0,
+          tourLeader: event.tour_leader || '',
+          lat: null, lng: null, alt: null, speed: null,
+          progress: 0,
+          delayed: 0,
+        });
+      }
+    }
+
+    // Sort: en-route first, then delayed, scheduled, landed, cancelled
+    const statusOrder = { 'en-route': 0, 'delayed': 1, 'scheduled': 2, 'landed': 3, 'cancelled': 4 };
+    flights.sort((a, b) => (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5));
+
+    res.json({ success: true, data: flights });
+  } catch (err) {
+    console.error('[Flights] Error:', err);
+    res.status(500).json({ error: 'Gagal memuat data penerbangan' });
+  }
+});
+
+// GET /api/flights/:flightId — single flight detail (force refresh from AirLabs)
+app.get('/api/flights/:flightId', authMiddleware, async (req, res) => {
+  try {
+    const { flightId } = req.params;
+
+    // Parse flightId: "2026-03-28_SV827"
+    const underscoreIdx = flightId.indexOf('_');
+    if (underscoreIdx === -1) {
+      return res.status(400).json({ error: 'Invalid flight ID' });
+    }
+    const eventDate = flightId.substring(0, underscoreIdx);
+    const flightIata = flightId.substring(underscoreIdx + 1);
+    if (!eventDate || !flightIata) {
+      return res.status(400).json({ error: 'Invalid flight ID' });
+    }
+
+    // Force fetch from AirLabs
+    const apiData = await fetchFlightFromAirLabs(flightIata);
+
+    if (apiData) {
+      // Get calendar event for enrichment
+      const { data: event } = await supabase
+        .from('calendar_events')
+        .select('*')
+        .eq('event_date', eventDate)
+        .in('event_type', ['keberangkatan', 'kepulangan'])
+        .like('pesawat', `%${flightIata.substring(0, 2)} ${flightIata.substring(2)}%`)
+        .single();
+
+      if (event) {
+        const mapped = mapAirLabsToFlightStatus(apiData, event);
+        if (mapped) {
+          await supabase.from('flight_status').upsert(mapped, { onConflict: 'id' });
+          const formatted = formatFlightForFrontend(mapped);
+          setCachedFlight(flightId, formatted);
+          return res.json({ success: true, data: formatted });
+        }
+      }
+    }
+
+    // Fallback to Supabase
+    const { data: existing } = await supabase
+      .from('flight_status')
+      .select('*')
+      .eq('id', flightId)
+      .single();
+
+    if (existing) {
+      return res.json({ success: true, data: formatFlightForFrontend(existing) });
+    }
+
+    res.status(404).json({ error: 'Flight not found' });
+  } catch (err) {
+    console.error('[Flights] Detail error:', err);
+    res.status(500).json({ error: 'Gagal memuat detail penerbangan' });
+  }
+});
+
+// ──────────────────────────────────────────────
+// Flight Status: Polling Helpers & Notifications
+// ──────────────────────────────────────────────
+
+function getPollingIntervalMs(status, hoursUntilDeparture) {
+  if (status === 'landed' || status === 'cancelled') return null;
+  if (status === 'en-route') return 5 * 60 * 1000;
+  if (status === 'delayed') return 15 * 60 * 1000;
+  if (hoursUntilDeparture <= 3) return 15 * 60 * 1000;
+  return 30 * 60 * 1000;
+}
+
+function getHoursUntilDeparture(event) {
+  const depTime = new Date(`${event.event_date}T${(event.jam || '00:00').replace('.', ':')}:00`);
+  return (depTime - new Date()) / (1000 * 60 * 60);
+}
+
+function formatTimeWIB(isoString) {
+  if (!isoString) return '—';
+  const d = new Date(isoString);
+  return d.toLocaleTimeString('id-ID', {
+    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jakarta',
+  }) + ' WIB';
+}
+
+// Anti-duplicate notification state
+const flightNotifSent = new Map();
+
+function shouldSendFlightNotif(flightId, changeType) {
+  const key = `${flightId}_${changeType}`;
+  const lastSent = flightNotifSent.get(key);
+  if (lastSent && Date.now() - lastSent < 30 * 60 * 1000) return false;
+  return true;
+}
+
+function markFlightNotifSent(flightId, changeType) {
+  flightNotifSent.set(`${flightId}_${changeType}`, Date.now());
+  // Cleanup entries > 24h
+  for (const [key, ts] of flightNotifSent) {
+    if (Date.now() - ts > 24 * 60 * 60 * 1000) flightNotifSent.delete(key);
+  }
+}
+
+async function sendTelegramMessageDirect(chatId, text) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId, text,
+        parse_mode: 'HTML', disable_web_page_preview: true,
+      }),
+    });
+  } catch (err) {
+    console.error(`[FlightNotif] Telegram send error:`, err.message);
+  }
+}
+
+async function detectAndNotifyChanges(oldData, newData, calendarEvent) {
+  const changes = [];
+
+  if (oldData.status !== newData.status) {
+    changes.push({ type: 'status_change', from: oldData.status, to: newData.status });
+  }
+  if (newData.delayed > 0 && newData.delayed !== oldData.delayed) {
+    changes.push({ type: 'delay', minutes: newData.delayed, previous: oldData.delayed || 0 });
+  }
+  if (newData.dep_gate && newData.dep_gate !== oldData.dep_gate) {
+    changes.push({ type: 'gate_change', field: 'departure', from: oldData.dep_gate, to: newData.dep_gate });
+  }
+  if (newData.arr_gate && newData.arr_gate !== oldData.arr_gate) {
+    changes.push({ type: 'gate_change', field: 'arrival', from: oldData.arr_gate, to: newData.arr_gate });
+  }
+  if (newData.dep_terminal && newData.dep_terminal !== oldData.dep_terminal) {
+    changes.push({ type: 'terminal_change', field: 'departure', from: oldData.dep_terminal, to: newData.dep_terminal });
+  }
+  if (newData.status === 'cancelled' && oldData.status !== 'cancelled') {
+    changes.push({ type: 'cancelled' });
+  }
+
+  if (changes.length === 0) return;
+
+  // Build notification for each change (with anti-duplicate check)
+  for (const change of changes) {
+    const changeKey = change.type === 'delay'
+      ? `delay_${Math.floor(change.minutes / 30) * 30}`
+      : change.type === 'status_change' ? `status_${change.to}` : change.type;
+
+    if (!shouldSendFlightNotif(newData.id, changeKey)) continue;
+
+    const message = buildFlightNotifMessage(newData, calendarEvent, change);
+    if (!message) continue;
+
+    // Send to all agents with Telegram connected
+    const { data: agents } = await supabase
+      .from('agents')
+      .select('slug, telegram_chat_id, notification_prefs')
+      .not('telegram_chat_id', 'is', null);
+
+    if (agents) {
+      for (const agent of agents) {
+        const prefs = agent.notification_prefs || {};
+        if (prefs.flight_status === false) continue;
+        await sendTelegramMessageDirect(agent.telegram_chat_id, message);
+      }
+    }
+
+    markFlightNotifSent(newData.id, changeKey);
+    console.log(`[FlightNotif] Sent ${changeKey} for ${newData.id}`);
+  }
+}
+
+function buildFlightNotifMessage(flight, calendarEvent, change) {
+  const flightLabel = `${flight.airline_name || ''} ${flight.flight_iata || ''}`.trim();
+  const route = `${flight.dep_iata || '?'} → ${flight.arr_iata || '?'}`;
+  const groupLabel = calendarEvent.group_number ? `Grup ${calendarEvent.group_number}` : '';
+  const paxLine = `Jamaah: <b>${calendarEvent.pax || '?'} orang</b>`;
+  const tlLine = calendarEvent.tour_leader ? `\nTL: ${calendarEvent.tour_leader}` : '';
+  const header = `<b>${flightLabel}</b>\n${route}${groupLabel ? ` • ${groupLabel}` : ''}\n─────────────────\n`;
+
+  if (change.type === 'cancelled') {
+    return `🚫 <b>PENERBANGAN DIBATALKAN</b>\n\n${header}Penerbangan ini telah <b>dibatalkan</b>. Segera hubungi jamaah dan koordinasi perubahan jadwal.\n${paxLine}${tlLine}`;
+  }
+
+  if (change.type === 'delay') {
+    const mins = change.minutes;
+    const hours = Math.floor(mins / 60);
+    const rem = mins % 60;
+    const delayStr = hours > 0 ? `${hours} jam${rem > 0 ? ` ${rem} menit` : ''}` : `${mins} menit`;
+    const emoji = mins >= 60 ? '🔴' : '🟡';
+    const label = mins >= 60 ? 'DELAY SIGNIFIKAN' : 'DELAY PENERBANGAN';
+
+    let timeInfo = '';
+    if (flight.dep_scheduled && flight.dep_actual) {
+      timeInfo = `Jadwal: ${formatTimeWIB(flight.dep_scheduled)}\nEstimasi: <b>${formatTimeWIB(flight.dep_actual)}</b>\n`;
+    } else if (flight.arr_scheduled && flight.arr_estimated) {
+      timeInfo = `Jadwal tiba: ${formatTimeWIB(flight.arr_scheduled)}\nEstimasi tiba: <b>${formatTimeWIB(flight.arr_estimated)}</b>\n`;
+    }
+
+    return `${emoji} <b>${label}</b>\n\n${header}Delay: <b>${delayStr}</b>\n${timeInfo}\n${paxLine}${tlLine}`;
+  }
+
+  if (change.type === 'gate_change' || change.type === 'terminal_change') {
+    const label = change.type === 'gate_change' ? 'Gate' : 'Terminal';
+    const fieldLabel = change.field === 'departure' ? 'Keberangkatan' : 'Kedatangan';
+    return `🔄 <b>PERUBAHAN GATE/TERMINAL</b>\n\n${header}${fieldLabel} ${label}: ${change.from || '—'} → <b>${change.to}</b>\n\n${paxLine}`;
+  }
+
+  if (change.type === 'status_change') {
+    if (change.to === 'landed') {
+      return `✅ <b>PESAWAT MENDARAT</b>\n\n${header}Pesawat telah mendarat dengan selamat.\n${paxLine}${tlLine}`;
+    }
+    if (change.to === 'en-route') {
+      const eta = flight.arr_estimated ? `Estimasi tiba: <b>${formatTimeWIB(flight.arr_estimated)}</b>\n` : '';
+      return `✈️ <b>PESAWAT TAKE OFF</b>\n\n${header}Pesawat telah lepas landas.\n${eta}${paxLine}${tlLine}`;
+    }
+    const statusLabels = { 'en-route': 'Dalam Penerbangan ✈️', 'landed': 'Mendarat ✅', 'scheduled': 'Terjadwal', 'delayed': 'Delay ⚠️' };
+    return `ℹ️ <b>UPDATE PENERBANGAN</b>\n\n${header}Status: ${statusLabels[change.from] || change.from} → <b>${statusLabels[change.to] || change.to}</b>`;
+  }
+
+  return null;
+}
+
+// Background flight poller
+async function pollActiveFlights() {
+  maybeResetQuotaCounter();
+
+  const today = new Date();
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+  const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+  const startDate = yesterday.toISOString().split('T')[0];
+  const endDate = tomorrow.toISOString().split('T')[0];
+
+  const { data: events } = await supabase
+    .from('calendar_events')
+    .select('*')
+    .in('event_type', ['keberangkatan', 'kepulangan'])
+    .gte('event_date', startDate)
+    .lte('event_date', endDate)
+    .not('pesawat', 'is', null);
+
+  if (!events || events.length === 0) return;
+  if (!canMakeAirLabsRequest()) {
+    console.warn('[FlightCron] Monthly quota reached, skipping poll');
+    return;
+  }
+
+  let pollCount = 0;
+  const MAX_POLLS_PER_RUN = 5;
+
+  for (const event of events) {
+    if (pollCount >= MAX_POLLS_PER_RUN) break;
+
+    const parsed = parseFlightFromCalendar(event.pesawat);
+    if (!parsed) continue;
+
+    const flightId = `${event.event_date}_${parsed.flightIata}`;
+
+    const { data: existing } = await supabase
+      .from('flight_status').select('*').eq('id', flightId).single();
+
+    if (existing && (existing.status === 'landed' || existing.status === 'cancelled')) continue;
+    if (!shouldPollFlight(event.event_date, event.event_type)) continue;
+
+    if (existing && existing.synced_at) {
+      const interval = getPollingIntervalMs(existing.status, getHoursUntilDeparture(event));
+      if (interval) {
+        const timeSinceSync = Date.now() - new Date(existing.synced_at).getTime();
+        if (timeSinceSync < interval) continue;
+      }
+    }
+
+    const apiData = await fetchFlightFromAirLabs(parsed.flightIata);
+    pollCount++;
+
+    if (!apiData) continue;
+
+    const mapped = mapAirLabsToFlightStatus(apiData, event);
+    if (!mapped) continue;
+
+    if (existing) {
+      try {
+        await detectAndNotifyChanges(existing, mapped, event);
+      } catch (notifErr) {
+        console.error('[FlightNotif] Error:', notifErr.message);
+      }
+    }
+
+    await supabase.from('flight_status').upsert(mapped, { onConflict: 'id' });
+    setCachedFlight(flightId, formatFlightForFrontend(mapped));
+    console.log(`[FlightCron] Updated ${flightId}: ${mapped.status}${mapped.delayed > 0 ? ` (delay ${mapped.delayed}m)` : ''}`);
+  }
+
+  if (pollCount > 0) {
+    console.log(`[FlightCron] Polled ${pollCount} flights. Monthly usage: ${airLabsRequestCount}/${AIRLABS_MONTHLY_LIMIT}`);
+  }
+}
 
 // Jamaah list: read from Supabase with filters, search, pagination, sorting
 app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
@@ -4054,3 +4676,54 @@ function scheduleHajiPlusCron() {
   }, msUntil);
 }
 scheduleHajiPlusCron();
+
+// ── Flight Status cron: poll every 5 minutes ──
+setInterval(async () => {
+  try {
+    await pollActiveFlights();
+  } catch (err) {
+    console.error('[FlightCron] Error:', err.message);
+  }
+}, 5 * 60 * 1000);
+
+// Initial flight poll 2 min after startup
+setTimeout(async () => {
+  try {
+    await pollActiveFlights();
+  } catch (err) {
+    console.error('[FlightCron] Initial poll error:', err.message);
+  }
+}, 2 * 60 * 1000);
+
+// ── Flight cleanup cron: daily at 03:00 WIB (20:00 UTC) ──
+function scheduleFlightCleanup() {
+  const now = new Date();
+  const target = new Date(now);
+  target.setUTCHours(20, 0, 0, 0);
+  if (target <= now) target.setDate(target.getDate() + 1);
+  const msUntil = target - now;
+  setTimeout(async () => {
+    try {
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      const cutoff = threeDaysAgo.toISOString().split('T')[0];
+      const { error } = await supabase.from('flight_status').delete().lt('event_date', cutoff);
+      if (!error) console.log(`[FlightCron] Cleaned up flight_status older than ${cutoff}`);
+      else console.error('[FlightCron] Cleanup error:', error.message);
+    } catch (err) {
+      console.error('[FlightCron] Cleanup error:', err.message);
+    }
+    // Repeat every 24h
+    setInterval(async () => {
+      try {
+        const threeDaysAgo = new Date();
+        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+        const cutoff = threeDaysAgo.toISOString().split('T')[0];
+        await supabase.from('flight_status').delete().lt('event_date', cutoff);
+      } catch (err) {
+        console.error('[FlightCron] Cleanup error:', err.message);
+      }
+    }, 24 * 60 * 60 * 1000);
+  }, msUntil);
+}
+scheduleFlightCleanup();

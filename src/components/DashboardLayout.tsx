@@ -14,6 +14,7 @@ import StatistikPage from './StatistikPage';
 import AgentManagementPage from './AgentManagementPage';
 import UpcomingSchedule from './UpcomingSchedule';
 import CalendarInsight from './CalendarInsight';
+import FlightStatusCard from './FlightStatusCard';
 import AnalyticsPage from './AnalyticsPage';
 import SettingsPage from './SettingsPage';
 import AIToolsPage from './AIToolsPage';
@@ -720,6 +721,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         {/* ── Upcoming Schedule ── */}
         <div className="mt-4">
           <UpcomingSchedule />
+        </div>
+
+        {/* ── Flight Status ── */}
+        <div className="mt-4">
+          <FlightStatusCard />
         </div>
 
         {/* ── Statistik Not Ready Alert ── */}
