@@ -4310,7 +4310,7 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       open_jadwal: 'Jadwal', open_analytics: 'Analytics',
       open_ai_tools: 'AI Tools', open_voice_over: 'Voice Over', open_business_card: 'Kartu Nama',
       open_haji_plus: 'Haji Plus', open_leads: 'Leads', open_jamaah_haji: 'Jamaah Haji',
-      open_settings: 'Settings',
+      open_settings: 'Settings', open_tren_daftar: 'Tren Daftar',
     };
     featureEvents.forEach(e => { featureMap[e.event_name] = (featureMap[e.event_name] || 0) + 1; });
     const featureUsage = Object.entries(featureMap)
