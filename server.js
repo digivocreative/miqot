@@ -50,6 +50,97 @@ async function logAnalyticsEvent(agentSlug, eventType, eventName, metadata = {})
 
 // ── Quiz Lead Submit (public — no auth) ──
 
+// ============ KURS BANK MANDIRI ============
+let kursCache = null; // { rates: { USD: number, ... }, updatedAt: string, fetchedAt: number }
+const KURS_CACHE_TTL = 60 * 60 * 1000; // 1 jam
+
+const CURRENCY_NAMES = {
+  AUD: 'Australian Dollar', CAD: 'Canadian Dollar', CHF: 'Swiss Franc',
+  CNY: 'Chinese Yuan', DKK: 'Danish Krone', EUR: 'Euro',
+  GBP: 'British Pound', HKD: 'Hong Kong Dollar', JPY: 'Japanese Yen',
+  MYR: 'Malaysian Ringgit', NOK: 'Norwegian Krone', NZD: 'New Zealand Dollar',
+  SAR: 'Saudi Riyal', SEK: 'Swedish Krona', SGD: 'Singapore Dollar',
+  THB: 'Thai Baht', USD: 'US Dollar',
+};
+
+async function fetchKursMandiri() {
+  try {
+    const res = await fetch('https://www.bankmandiri.co.id/kurs', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const html = await res.text();
+
+    const cheerio = await import('cheerio');
+    const $ = cheerio.load(html);
+
+    const rates = {};
+    let updatedAt = null;
+
+    $('table thead th, table tr:first-child th').each((_, el) => {
+      const text = $(el).text();
+      if (text.includes('TT Counter')) {
+        const match = text.match(/(\d{2}\/\d{2}\/\d{2})\s*-\s*(\d{2}:\d{2})\s*WIB/);
+        if (match) updatedAt = `${match[1]} ${match[2]} WIB`;
+      }
+    });
+
+    $('table tr').each((_, row) => {
+      const cells = $(row).find('td');
+      if (cells.length < 5) return;
+      const currency = $(cells[0]).text().trim().toUpperCase();
+      if (!CURRENCY_NAMES[currency]) return;
+      const ttJualText = $(cells[4]).text().trim().replace(/[^\d.,]/g, '');
+      const parsed = parseFloat(ttJualText.replace(/\./g, '').replace(',', '.'));
+      if (!isNaN(parsed)) {
+        rates[currency] = Math.round(parsed);
+      }
+    });
+
+    if (Object.keys(rates).length > 0) {
+      kursCache = {
+        rates,
+        updatedAt: updatedAt || new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
+        fetchedAt: Date.now(),
+      };
+      console.log(`[Kurs] Fetched ${Object.keys(rates).length} currencies. USD=${rates.USD}, SAR=${rates.SAR}`);
+    } else {
+      console.warn('[Kurs] Gagal parse rates dari halaman Bank Mandiri');
+    }
+  } catch (err) {
+    console.error('[Kurs] Fetch error:', err.message);
+  }
+}
+
+fetchKursMandiri();
+setInterval(fetchKursMandiri, KURS_CACHE_TTL);
+
+// GET /api/kurs — Kurs semua mata uang (public, no auth)
+app.get('/api/kurs', (req, res) => {
+  if (!kursCache || Object.keys(kursCache.rates).length === 0) {
+    return res.json({
+      success: false,
+      error: 'Kurs belum tersedia, coba lagi nanti',
+    });
+  }
+  res.json({
+    success: true,
+    data: {
+      rates: kursCache.rates,
+      names: CURRENCY_NAMES,
+      updatedAt: kursCache.updatedAt,
+      stale: Date.now() - kursCache.fetchedAt > KURS_CACHE_TTL * 2,
+    },
+  });
+});
+
+
 app.post('/api/quiz/:slug/submit', async (req, res) => {
   try {
     const { slug } = req.params;
@@ -2329,9 +2420,44 @@ function parseFlightFromCalendar(pesawat) {
   };
 }
 
-// AirLabs quota tracking
+// AirLabs quota tracking — persisted to Supabase across restarts
 let airLabsRequestCount = 0;
+let airLabsQuotaMonth = '';
 const AIRLABS_MONTHLY_LIMIT = 1000;
+
+async function loadAirLabsQuota() {
+  try {
+    const { data } = await supabase
+      .from('calendar_insights')
+      .select('data')
+      .eq('id', 'airlabs_quota')
+      .single();
+    const currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+    if (data?.data && data.data.month === currentMonth) {
+      airLabsRequestCount = data.data.count || 0;
+      airLabsQuotaMonth = currentMonth;
+      console.log(`[FlightAPI] Loaded quota from Supabase: ${airLabsRequestCount}/${AIRLABS_MONTHLY_LIMIT} (${currentMonth})`);
+    } else {
+      airLabsRequestCount = 0;
+      airLabsQuotaMonth = currentMonth;
+      console.log(`[FlightAPI] New month (${currentMonth}), quota starts at 0`);
+    }
+  } catch (err) {
+    console.warn('[FlightAPI] Could not load quota:', err.message);
+  }
+}
+
+async function persistAirLabsQuota() {
+  try {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    await supabase.from('calendar_insights').upsert({
+      id: 'airlabs_quota',
+      data: { count: airLabsRequestCount, month: currentMonth },
+    }, { onConflict: 'id' });
+  } catch (err) {
+    console.warn('[FlightAPI] Could not persist quota:', err.message);
+  }
+}
 
 function canMakeAirLabsRequest() {
   if (airLabsRequestCount >= AIRLABS_MONTHLY_LIMIT * 0.9) {
@@ -2340,11 +2466,12 @@ function canMakeAirLabsRequest() {
   return airLabsRequestCount < AIRLABS_MONTHLY_LIMIT;
 }
 
-// Reset quota counter on 1st of each month (checked by cron or on startup)
 function maybeResetQuotaCounter() {
-  const now = new Date();
-  if (now.getDate() === 1 && now.getHours() === 0) {
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  if (airLabsQuotaMonth && airLabsQuotaMonth !== currentMonth) {
     airLabsRequestCount = 0;
+    airLabsQuotaMonth = currentMonth;
+    persistAirLabsQuota();
     console.log('[FlightAPI] Monthly quota counter reset');
   }
 }
@@ -2373,6 +2500,7 @@ async function fetchFlightFromAirLabs(flightIata) {
 
     const data = await res.json();
     airLabsRequestCount++;
+    persistAirLabsQuota();
 
     if (data.error) {
       console.error(`[FlightAPI] AirLabs API error:`, data.error);
@@ -2575,7 +2703,7 @@ function shouldPollFlight(eventDate, eventType) {
 // In-memory flight cache
 const flightCache = new Map();
 
-function getCachedFlight(flightId, maxAgeMs = 5 * 60 * 1000) {
+function getCachedFlight(flightId, maxAgeMs = 60 * 60 * 1000) {
   const cached = flightCache.get(flightId);
   if (!cached) return null;
   if (Date.now() - cached.timestamp > maxAgeMs) {
@@ -2653,12 +2781,20 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
             await supabase.from('flight_status').delete().eq('id', flightId);
           }
         }
-        if (dateValid && age < 5 * 60 * 1000) {
+        if (dateValid && age < 60 * 60 * 1000) {
           const formatted = formatFlightForFrontend(existing);
           setCachedFlight(flightId, formatted);
           flights.push(formatted);
           continue;
         }
+      }
+
+      // Skip AirLabs for already-terminal flights (landed/cancelled don't change)
+      if (existing && (existing.status === 'landed' || existing.status === 'cancelled')) {
+        const formatted = formatFlightForFrontend(existing);
+        setCachedFlight(flightId, formatted);
+        flights.push(formatted);
+        continue;
       }
 
       // Fetch from AirLabs (only if in polling window)
@@ -4915,16 +5051,14 @@ setInterval(async () => {
   }
 }, 60 * 60 * 1000);
 
-// Initial flight poll 2 min after startup — purge stale data first
+// Load persisted AirLabs quota on startup
+setTimeout(async () => {
+  await loadAirLabsQuota();
+}, 5 * 1000);
+
+// Initial flight poll 2 min after startup (uses existing Supabase data, no purge)
 setTimeout(async () => {
   try {
-    // Purge all cached flight data to force re-fetch with correct local times
-    const { error } = await supabase.from('flight_status').delete().neq('id', '');
-    if (!error) console.log('[FlightCron] Purged stale flight_status cache on startup');
-    else console.warn('[FlightCron] Purge error:', error.message);
-    // Clear in-memory cache
-    flightCache.clear();
-    // Now poll fresh data
     await pollActiveFlights();
   } catch (err) {
     console.error('[FlightCron] Initial poll error:', err.message);
@@ -4964,104 +5098,3 @@ function scheduleFlightCleanup() {
 }
 scheduleFlightCleanup();
 
-// ============ KURS BANK MANDIRI ============
-let kursCache = null; // { rates: { USD: number, ... }, updatedAt: string, fetchedAt: number }
-const KURS_CACHE_TTL = 60 * 60 * 1000; // 1 jam
-
-// Mapping nama lengkap mata uang
-const CURRENCY_NAMES = {
-  AUD: 'Australian Dollar', CAD: 'Canadian Dollar', CHF: 'Swiss Franc',
-  CNY: 'Chinese Yuan', DKK: 'Danish Krone', EUR: 'Euro',
-  GBP: 'British Pound', HKD: 'Hong Kong Dollar', JPY: 'Japanese Yen',
-  MYR: 'Malaysian Ringgit', NOK: 'Norwegian Krone', NZD: 'New Zealand Dollar',
-  SAR: 'Saudi Riyal', SEK: 'Swedish Krona', SGD: 'Singapore Dollar',
-  THB: 'Thai Baht', USD: 'US Dollar',
-};
-
-async function fetchKursMandiri() {
-  try {
-    const res = await fetch('https://www.bankmandiri.co.id/kurs', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
-      },
-      signal: AbortSignal.timeout(15000),
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const html = await res.text();
-
-    const cheerio = await import('cheerio');
-    const $ = cheerio.load(html);
-
-    const rates = {};
-    let updatedAt = null;
-
-    // Parse header TT Counter untuk ambil timestamp
-    $('table thead th, table tr:first-child th').each((_, el) => {
-      const text = $(el).text();
-      if (text.includes('TT Counter')) {
-        const match = text.match(/(\d{2}\/\d{2}\/\d{2})\s*-\s*(\d{2}:\d{2})\s*WIB/);
-        if (match) updatedAt = `${match[1]} ${match[2]} WIB`;
-      }
-    });
-
-    // Parse setiap baris mata uang
-    // Kolom: [Mata Uang, SR Beli, SR Jual, TT Beli, TT Jual, BN Beli, BN Jual]
-    // TT Counter Jual = index 4 (0-based)
-    $('table tr').each((_, row) => {
-      const cells = $(row).find('td');
-      if (cells.length < 5) return;
-
-      const currency = $(cells[0]).text().trim().toUpperCase();
-      if (!CURRENCY_NAMES[currency]) return;
-
-      const ttJualText = $(cells[4]).text().trim().replace(/[^\d.,]/g, '');
-      // Format: "16.870,00" → parse ke number
-      const parsed = parseFloat(ttJualText.replace(/\./g, '').replace(',', '.'));
-      if (!isNaN(parsed)) {
-        rates[currency] = Math.round(parsed);
-      }
-    });
-
-    if (Object.keys(rates).length > 0) {
-      kursCache = {
-        rates,
-        updatedAt: updatedAt || new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
-        fetchedAt: Date.now(),
-      };
-      console.log(`[Kurs] Fetched ${Object.keys(rates).length} currencies. USD=${rates.USD}, SAR=${rates.SAR}`);
-    } else {
-      console.warn('[Kurs] Gagal parse rates dari halaman Bank Mandiri');
-    }
-  } catch (err) {
-    console.error('[Kurs] Fetch error:', err.message);
-  }
-}
-
-// Fetch pertama kali saat server start
-fetchKursMandiri();
-
-// Refresh setiap 1 jam
-setInterval(fetchKursMandiri, KURS_CACHE_TTL);
-
-// GET /api/kurs — Kurs semua mata uang (public, no auth)
-app.get('/api/kurs', (req, res) => {
-  if (!kursCache || Object.keys(kursCache.rates).length === 0) {
-    return res.json({
-      success: false,
-      error: 'Kurs belum tersedia, coba lagi nanti',
-    });
-  }
-
-  res.json({
-    success: true,
-    data: {
-      rates: kursCache.rates,
-      names: CURRENCY_NAMES,
-      updatedAt: kursCache.updatedAt,
-      stale: Date.now() - kursCache.fetchedAt > KURS_CACHE_TTL * 2,
-    },
-  });
-});

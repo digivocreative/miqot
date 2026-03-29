@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ChevronDown, TrendingUp } from 'lucide-react';
+import { ChevronDown, TrendingUp, Search } from 'lucide-react';
 
 interface KursData {
   rates: Record<string, number>;
@@ -14,10 +14,13 @@ export default function KursPage() {
   const [kursData, setKursData] = useState<KursData | null>(null);
   const [loading, setLoading] = useState(true);
   const [currency, setCurrency] = useState('USD');
-  const [amount, setAmount] = useState(1000);
+  const [amount, setAmount] = useState(4500);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [dropdownClosing, setDropdownClosing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [expanded, setExpanded] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch('/api/kurs')
@@ -33,7 +36,7 @@ export default function KursPage() {
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
+        closeDropdown();
       }
     };
     document.addEventListener('mousedown', handler);
@@ -48,12 +51,29 @@ export default function KursPage() {
     setAmount(num);
   };
 
-  // Dropdown currencies: USD & SAR first, then alphabetical
+  const openDropdown = () => {
+    setDropdownClosing(false);
+    setDropdownOpen(true);
+    setSearchQuery('');
+    setTimeout(() => searchInputRef.current?.focus(), 50);
+  };
+
+  const closeDropdown = () => {
+    setDropdownClosing(true);
+    setTimeout(() => {
+      setDropdownOpen(false);
+      setDropdownClosing(false);
+      setSearchQuery('');
+    }, 150);
+  };
+
+  // Dropdown currencies: pinned first, then alphabetical
+  const PINNED = ['USD', 'SAR', 'SGD', 'MYR'];
   const dropdownCurrencies = Object.keys(kursData?.rates || {}).sort((a, b) => {
-    if (a === 'USD') return -1;
-    if (b === 'USD') return 1;
-    if (a === 'SAR') return -1;
-    if (b === 'SAR') return 1;
+    const ai = PINNED.indexOf(a), bi = PINNED.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
     return a.localeCompare(b);
   });
 
@@ -62,7 +82,7 @@ export default function KursPage() {
     .filter(c => c !== 'USD' && c !== 'SAR')
     .sort((a, b) => (kursData?.rates[b] || 0) - (kursData?.rates[a] || 0));
 
-  const quickAmounts = [1000, 5000, 10000, 25000];
+
 
   // ── Loading ──
   if (loading) {
@@ -103,7 +123,7 @@ export default function KursPage() {
       {/* ═══ Section 1: Spotlight USD & SAR ═══ */}
       <div>
         <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-2 px-1">
-          Kurs Jual
+          Kurs Hari Ini
         </p>
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
           {/* USD row */}
@@ -159,38 +179,89 @@ export default function KursPage() {
             {/* Dropdown button */}
             <div className="relative" ref={dropdownRef}>
               <button
-                onClick={(e) => { e.stopPropagation(); setDropdownOpen(!dropdownOpen); }}
-                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-gray-800 dark:bg-slate-700 rounded-xl active:scale-95 transition-transform"
+                onClick={(e) => { e.stopPropagation(); dropdownOpen ? closeDropdown() : openDropdown(); }}
+                className="flex items-center gap-1.5 px-3.5 h-[46px] bg-gray-800 dark:bg-slate-700 rounded-xl active:scale-95 transition-transform"
               >
                 <span className="text-sm font-extrabold text-white">{currency}</span>
-                <ChevronDown size={12} className="text-gray-400" />
+                <ChevronDown size={12} className={`text-gray-400 transition-transform duration-200 ${dropdownOpen && !dropdownClosing ? 'rotate-180' : ''}`} />
               </button>
 
               {/* Dropdown menu */}
               {dropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 z-20 w-56 max-h-64 overflow-y-auto bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 py-1">
-                  {dropdownCurrencies.map(c => (
-                    <button
-                      key={c}
-                      onClick={() => { setCurrency(c); setDropdownOpen(false); }}
-                      className={`w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors ${
-                        c === currency ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''
-                      }`}
-                    >
-                      <span className={`text-xs font-bold ${c === currency ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-800 dark:text-white'}`}>
-                        {c}
-                      </span>
-                      <span className="text-[10px] text-gray-400 dark:text-slate-500">
-                        {kursData.names[c] || c}
-                      </span>
-                    </button>
-                  ))}
+                <div
+                  className={`absolute top-full left-0 mt-1 z-20 w-64 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden ${
+                    dropdownClosing ? 'animate-dropdown-close' : 'animate-dropdown-open'
+                  }`}
+                >
+                  {/* Search */}
+                  <div className="p-2 border-b border-gray-100 dark:border-slate-700">
+                    <div className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-50 dark:bg-slate-900 rounded-lg">
+                      <Search size={13} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
+                      <input
+                        ref={searchInputRef}
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full bg-transparent text-xs text-gray-800 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-slate-500"
+                        placeholder="Cari mata uang..."
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Currency list */}
+                  <div className="max-h-52 overflow-y-auto py-1">
+                    {dropdownCurrencies
+                      .filter(c => {
+                        if (!searchQuery) return true;
+                        const q = searchQuery.toLowerCase();
+                        return c.toLowerCase().includes(q) || (kursData.names[c] || '').toLowerCase().includes(q);
+                      })
+                      .map(c => (
+                        <button
+                          key={c}
+                          onClick={() => { setCurrency(c); closeDropdown(); }}
+                          className={`w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors ${
+                            c === currency ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''
+                          }`}
+                        >
+                          <span className={`text-xs font-bold ${c === currency ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-800 dark:text-white'}`}>
+                            {c}
+                          </span>
+                          <span className="text-[10px] text-gray-400 dark:text-slate-500">
+                            {kursData.names[c] || c}
+                          </span>
+                        </button>
+                      ))}
+                    {dropdownCurrencies.filter(c => {
+                      if (!searchQuery) return true;
+                      const q = searchQuery.toLowerCase();
+                      return c.toLowerCase().includes(q) || (kursData.names[c] || '').toLowerCase().includes(q);
+                    }).length === 0 && (
+                      <div className="px-3 py-3 text-center text-[11px] text-gray-400 dark:text-slate-500">
+                        Tidak ditemukan
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
 
+            <style>{`
+              @keyframes dropdownOpen {
+                from { opacity: 0; transform: scale(0.95) translateY(-4px); }
+                to { opacity: 1; transform: scale(1) translateY(0); }
+              }
+              @keyframes dropdownClose {
+                from { opacity: 1; transform: scale(1) translateY(0); }
+                to { opacity: 0; transform: scale(0.95) translateY(-4px); }
+              }
+              .animate-dropdown-open { animation: dropdownOpen 0.15s ease-out forwards; }
+              .animate-dropdown-close { animation: dropdownClose 0.12s ease-in forwards; }
+            `}</style>
+
             {/* Input */}
-            <div className="flex-1 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/10 transition-all">
+            <div className="flex-1 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-3.5 h-[46px] flex items-center focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/10 transition-all">
               <input
                 type="text"
                 inputMode="numeric"
@@ -220,26 +291,11 @@ export default function KursPage() {
               {amount > 0 ? fmtRp(result) : 'Rp0'}
             </div>
             <div className="text-[11px] text-white/50 mt-2 font-medium">
-              Kurs jual TT Counter · Bank Mandiri
+              Kurs Bank Mandiri
             </div>
           </div>
 
-          {/* Quick amount buttons */}
-          <div className="flex gap-1.5 mt-3 justify-center">
-            {quickAmounts.map(n => (
-              <button
-                key={n}
-                className={`px-3 py-1.5 text-[10px] font-bold rounded-lg border transition-all active:scale-95 ${
-                  amount === n
-                    ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20'
-                    : 'border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 bg-white dark:bg-slate-800'
-                }`}
-                onClick={() => setAmount(n)}
-              >
-                {fmtNum(n)}
-              </button>
-            ))}
-          </div>
+
         </div>
       </div>
 
@@ -253,7 +309,7 @@ export default function KursPage() {
             {/* Header */}
             <div className="px-4 py-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-gray-700 dark:text-slate-200">Semua kurs jual</span>
+                <span className="text-xs font-bold text-gray-700 dark:text-slate-200">Semua kurs</span>
                 <span className="text-[9px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded-full">
                   {tableCurrencies.length}
                 </span>

@@ -254,7 +254,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
 
   useEffect(() => {
     fetchFlights();
-    refreshTimer.current = setInterval(() => fetchFlights(), 60000);
+    refreshTimer.current = setInterval(() => fetchFlights(), 10 * 60 * 1000); // 10 minutes
     return () => { if (refreshTimer.current) clearInterval(refreshTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
