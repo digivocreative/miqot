@@ -1647,6 +1647,7 @@ app.post('/api/laporan/login', authMiddleware, async (req, res) => {
 const HIJRIAH_YEARS = {
   '1447': { tglAwal: '2024-12-26', tglAkhir: '2026-06-15' },
   '1448': { tglAwal: '2025-12-16', tglAkhir: '2027-06-05' },
+  '1449': { tglAwal: '2026-12-06', tglAkhir: '2028-05-25' },
 };
 
 // Determine hijriah year from departure date
@@ -1654,6 +1655,8 @@ const HIJRIAH_RANGES = [
   { year: '1446', start: '2024-07-08', end: '2025-06-25' },
   { year: '1447', start: '2025-06-26', end: '2026-06-15' },
   { year: '1448', start: '2026-06-16', end: '2027-06-05' },
+  { year: '1449', start: '2027-06-06', end: '2028-05-25' },
+  { year: '1450', start: '2028-05-26', end: '2029-05-14' },
 ];
 
 function getHijriahYear(tglBerangkat) {
@@ -1663,8 +1666,13 @@ function getHijriahYear(tglBerangkat) {
       return range.year;
     }
   }
-  // Fallback: latest year if outside known ranges
-  return HIJRIAH_RANGES[HIJRIAH_RANGES.length - 1].year;
+  // Dynamic fallback: approximate Hijri year from known reference point
+  // Reference: 1 Muharram 1448 H ≈ 2026-06-16, one Hijri year ≈ 354.37 days
+  const refDate = new Date('2026-06-16');
+  const d = new Date(tglBerangkat);
+  const daysDiff = (d - refDate) / (1000 * 60 * 60 * 24);
+  const hijriYear = 1448 + Math.floor(daysDiff / 354.37);
+  return String(hijriYear);
 }
 
 function getActiveHijriahYears() {

@@ -61,7 +61,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
     const approx = Math.floor((gYear - 622) * (33 / 32));
     return approx;
   })();
-  const hijriahOptions = [currentHijriYear + 1, currentHijriYear];
+  const hijriahOptions = [currentHijriYear + 2, currentHijriYear + 1, currentHijriYear];
   const [view, setView] = useState<ViewState>('loading');
 
   // Login form

@@ -6,7 +6,15 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 async function fix() {
   console.log('Fixing hijriah_year based on tgl_berangkat...\n');
 
-  // 1448 H: berangkat >= 2026-06-16
+  // 1449 H: berangkat >= 2027-06-06 AND <= 2028-05-25
+  const { count: c1449, error: e0 } = await supabase
+    .from('jamaah')
+    .update({ hijriah_year: '1449' })
+    .gte('tgl_berangkat', '2027-06-06')
+    .lte('tgl_berangkat', '2028-05-25');
+  console.log(`1449 H: ${c1449 ?? 'done'}`, e0 ? `ERROR: ${e0.message}` : '✅');
+
+  // 1448 H: berangkat >= 2026-06-16 AND <= 2027-06-05
   const { count: c1448, error: e1 } = await supabase
     .from('jamaah')
     .update({ hijriah_year: '1448' })
