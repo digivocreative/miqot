@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Users, Calendar, Star, TrendingUp, TrendingDown, Clock,
-  CheckCircle, Wallet, Package, ChevronDown, ChevronUp,
+  CheckCircle, Package, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import {
@@ -14,6 +14,7 @@ import { trackEvent } from '../utils/analytics';
 
 interface TrenSummary {
   totalDaftar: number; totalDaftarPrev: number; growthPct: number; avgPerMonth: number;
+  growthMonths: number; growthLabel: string;
   peakMonth: string; peakMonthCount: number; slowestMonth: string; slowestMonthCount: number;
 }
 
@@ -30,13 +31,11 @@ interface TrenData {
   monthly: MonthlyItem[];
   heatmap: Record<string, number[]>;
   revenue: { totalMasuk: number; avgPerMonth: number; monthly: RevenueMonthly[]; };
-  insights: { leadTimeAvg: number; conversionRate: number; pelunasanAvg: number; topPaket: string; };
+  insights: { leadTimeAvg: number; conversionRate: number; conversionRateBerangkat: number; sudahBerangkat: number; totalJamaah: number; lunasCount: number; topPaket: string; };
   gender: { perempuan: number; lakiLaki: number; };
   ageDistribution: AgeItem[];
   ageAvg: number;
   leadTimeDistribution: DistItem[];
-  pelunasanDistribution: DistItem[];
-  pelunasanFastPct: number;
   daftarVsBerangkat: number[][];
   agentRanking: AgentRank[];
   paketRanking: PaketRank[];
@@ -221,7 +220,7 @@ export default function TrenDaftarSection() {
           <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Total Daftar {d.period}H</p>
           <span className={`inline-block mt-1.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-md ${
             growthPositive ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400' : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
-          }`}>{growthPositive ? '+' : ''}{d.summary.growthPct}% vs {d.periodPrev}H</span>
+          }`}>{growthPositive ? '+' : ''}{d.summary.growthPct}%{d.summary.growthLabel && d.summary.growthMonths < 12 ? ` (${d.summary.growthLabel})` : ''} vs {d.periodPrev}H</span>
         </div>
 
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
@@ -332,26 +331,28 @@ export default function TrenDaftarSection() {
           const getColor = (v: number) => v === 0 ? (isDark ? '#1e293b' : '#f3f4f6') : COLORS[Math.min(4, Math.floor(((v - hMin) / (hMax - hMin)) * 4.99))];
           const getTextColor = (v: number) => { const idx = v === 0 ? -1 : Math.min(4, Math.floor(((v - hMin) / (hMax - hMin)) * 4.99)); return idx >= 3 ? '#fff' : '#065f46'; };
           return (
-            <div>
-              <div className="grid gap-[3px] mb-1" style={{ gridTemplateColumns: '36px repeat(12, 1fr)' }}>
-                <div />
-                {MONTH_LABELS.map(m => <div key={m} className="text-[9px] text-gray-400 text-center">{m}</div>)}
-              </div>
-              {years.map(yr => (
-                <div key={yr} className="grid gap-[3px] mb-[3px]" style={{ gridTemplateColumns: '36px repeat(12, 1fr)' }}>
-                  <div className="text-[9px] font-bold text-gray-500 dark:text-slate-400 flex items-center">{yr}H</div>
-                  {d.heatmap[yr].map((v, i) => (
-                    <div key={i} className="aspect-square rounded-[4px] flex items-center justify-center"
-                      style={{ backgroundColor: getColor(v), color: v === 0 ? (isDark ? '#475569' : '#d1d5db') : getTextColor(v) }}>
-                      <span className="text-[8px] font-bold">{v || ''}</span>
-                    </div>
-                  ))}
+            <div className="overflow-x-auto -mx-4 px-4">
+              <div style={{ minWidth: '420px' }}>
+                <div className="grid gap-[2px] mb-[2px]" style={{ gridTemplateColumns: '36px repeat(12, 1fr)' }}>
+                  <div />
+                  {MONTH_LABELS.map(m => <div key={m} className="text-[9px] text-gray-400 text-center">{m}</div>)}
                 </div>
-              ))}
-              <div className="flex items-center justify-end gap-1.5 mt-2">
-                <span className="text-[9px] text-gray-400">Sedikit</span>
-                {COLORS.map((c, i) => <div key={i} className="w-3 h-3 rounded-[3px]" style={{ backgroundColor: c }} />)}
-                <span className="text-[9px] text-gray-400">Banyak</span>
+                {years.map(yr => (
+                  <div key={yr} className="grid gap-[2px] mb-1" style={{ gridTemplateColumns: '36px repeat(12, 1fr)' }}>
+                    <div className="text-[9px] font-bold text-gray-500 dark:text-slate-400 flex items-center">{yr}H</div>
+                    {d.heatmap[yr].map((v, i) => (
+                      <div key={i} className="min-h-[28px] rounded-[4px] flex items-center justify-center"
+                        style={{ backgroundColor: getColor(v), color: v === 0 ? (isDark ? '#475569' : '#d1d5db') : getTextColor(v) }}>
+                        <span className="text-[10px] font-bold">{v || ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                <div className="flex items-center justify-end gap-1.5 mt-2">
+                  <span className="text-[9px] text-gray-400">Sedikit</span>
+                  {COLORS.map((c, i) => <div key={i} className="w-3 h-3 rounded-[3px]" style={{ backgroundColor: c }} />)}
+                  <span className="text-[9px] text-gray-400">Banyak</span>
+                </div>
               </div>
             </div>
           );
@@ -360,27 +361,32 @@ export default function TrenDaftarSection() {
 
       {/* Section 5: Insight Cards */}
       <Card title="Insight">
-        {([
-          { icon: Clock, bg: 'bg-emerald-50 dark:bg-emerald-900/20', iconColor: 'text-emerald-600 dark:text-emerald-400', title: 'Lead time rata-rata', desc: 'Dari daftar sampai berangkat', value: `${d.insights.leadTimeAvg} bln`, vColor: 'text-emerald-600 dark:text-emerald-400' },
-          { icon: CheckCircle, bg: 'bg-blue-50 dark:bg-blue-900/20', iconColor: 'text-blue-600 dark:text-blue-400', title: 'Conversion rate', desc: 'Jamaah yang sudah lunas', value: `${d.insights.conversionRate}%`, vColor: 'text-blue-600 dark:text-blue-400' },
-          { icon: Wallet, bg: 'bg-emerald-50 dark:bg-emerald-900/20', iconColor: 'text-emerald-600 dark:text-emerald-400', title: 'Kecepatan pelunasan', desc: 'Rata-rata waktu lunas', value: `${d.insights.pelunasanAvg} bln`, vColor: 'text-emerald-600 dark:text-emerald-400' },
-          { icon: TrendingDown, bg: 'bg-amber-50 dark:bg-amber-900/20', iconColor: 'text-amber-600 dark:text-amber-400', title: 'Bulan paling sepi', desc: 'Pendaftaran terendah', value: `${d.summary.slowestMonth} (${d.summary.slowestMonthCount})`, vColor: 'text-amber-600 dark:text-amber-400' },
-          { icon: Package, bg: 'bg-violet-50 dark:bg-violet-900/20', iconColor: 'text-violet-600 dark:text-violet-400', title: 'Paket terlaris', desc: 'Paling banyak diminati', value: d.insights.topPaket, vColor: 'text-violet-600 dark:text-violet-400' },
-        ] as const).map((item, i) => {
-          const Icon = item.icon;
-          return (
-            <div key={i} className={`flex items-center gap-2.5 py-2.5 ${i < 4 ? 'border-b border-gray-50 dark:border-slate-700/50' : ''}`}>
-              <div className={`w-9 h-9 rounded-[10px] ${item.bg} flex items-center justify-center flex-shrink-0`}>
-                <Icon size={16} className={item.iconColor} />
+        {(() => {
+          const convDesc = d.insights.sudahBerangkat === 0
+            ? `${d.insights.lunasCount}/${d.insights.totalJamaah} lunas (belum ada keberangkatan)`
+            : `${d.insights.lunasCount}/${d.insights.totalJamaah} lunas (sudah berangkat: ${d.insights.conversionRateBerangkat}%)`;
+          const rows = [
+            { icon: Clock, bg: 'bg-emerald-50 dark:bg-emerald-900/20', iconColor: 'text-emerald-600 dark:text-emerald-400', title: 'Lead time rata-rata', desc: 'Dari daftar sampai berangkat', value: `${d.insights.leadTimeAvg} bln`, vColor: 'text-emerald-600 dark:text-emerald-400' },
+            { icon: CheckCircle, bg: 'bg-blue-50 dark:bg-blue-900/20', iconColor: 'text-blue-600 dark:text-blue-400', title: 'Conversion rate', desc: convDesc, value: `${d.insights.conversionRate}%`, vColor: 'text-blue-600 dark:text-blue-400' },
+            { icon: TrendingDown, bg: 'bg-amber-50 dark:bg-amber-900/20', iconColor: 'text-amber-600 dark:text-amber-400', title: 'Bulan paling sepi', desc: 'Pendaftaran terendah', value: `${d.summary.slowestMonth} (${d.summary.slowestMonthCount})`, vColor: 'text-amber-600 dark:text-amber-400' },
+            { icon: Package, bg: 'bg-violet-50 dark:bg-violet-900/20', iconColor: 'text-violet-600 dark:text-violet-400', title: 'Paket terlaris', desc: 'Paling banyak diminati', value: d.insights.topPaket, vColor: 'text-violet-600 dark:text-violet-400' },
+          ] as const;
+          return rows.map((item, i) => {
+            const Icon = item.icon;
+            return (
+              <div key={i} className={`flex items-center gap-2.5 py-2.5 ${i < rows.length - 1 ? 'border-b border-gray-50 dark:border-slate-700/50' : ''}`}>
+                <div className={`w-9 h-9 rounded-[10px] ${item.bg} flex items-center justify-center flex-shrink-0`}>
+                  <Icon size={16} className={item.iconColor} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-gray-800 dark:text-white">{item.title}</p>
+                  <p className="text-[11px] text-gray-400 dark:text-slate-500">{item.desc}</p>
+                </div>
+                <span className={`text-sm font-bold flex-shrink-0 ${item.vColor}`}>{item.value}</span>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-gray-800 dark:text-white">{item.title}</p>
-                <p className="text-[11px] text-gray-400 dark:text-slate-500">{item.desc}</p>
-              </div>
-              <span className={`text-sm font-bold flex-shrink-0 ${item.vColor}`}>{item.value}</span>
-            </div>
-          );
-        })}
+            );
+          });
+        })()}
       </Card>
 
       {/* Section 6: Distribusi Gender */}
@@ -424,18 +430,18 @@ export default function TrenDaftarSection() {
       {/* Section 7: Distribusi Umur */}
       <Card title="Distribusi Umur Jamaah">
         {(() => {
-          const AGE_COLORS = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+          const AGE_COLORS: Record<string, string> = { '18-30': '#8b5cf6', '31-40': '#3b82f6', '41-50': '#10b981', '51-60': '#f59e0b', '60+': '#ef4444' };
           const maxPct = Math.max(...d.ageDistribution.map(a => a.pct), 1);
           const topAge = d.ageDistribution.reduce((a, b) => b.pct > a.pct ? b : a, d.ageDistribution[0]);
           return (
             <div>
-              {d.ageDistribution.map((item, i) => (
-                <div key={i} className="flex items-center gap-2 mb-2">
+              {d.ageDistribution.map((item) => (
+                <div key={item.range} className="flex items-center gap-2 mb-2">
                   <span className="text-[10px] font-semibold text-gray-500 w-[50px] flex-shrink-0">{item.range}</span>
                   <div className="flex-1 h-4 bg-gray-100 dark:bg-slate-700 rounded-[5px] overflow-hidden">
-                    <div className="h-full rounded-[5px] transition-all duration-500" style={{ width: `${(item.pct / maxPct) * 100}%`, backgroundColor: AGE_COLORS[i] }} />
+                    <div className="h-full rounded-[5px] transition-all duration-500" style={{ width: `${(item.pct / maxPct) * 100}%`, backgroundColor: AGE_COLORS[item.range] }} />
                   </div>
-                  <span className="text-[10px] font-bold w-9 text-right" style={{ color: AGE_COLORS[i] }}>{item.pct}%</span>
+                  <span className="text-[10px] font-bold w-9 text-right" style={{ color: AGE_COLORS[item.range] }}>{item.pct}%</span>
                 </div>
               ))}
               <div className="mt-2.5 p-2.5 bg-gray-50 dark:bg-slate-900 rounded-[10px]">
@@ -465,33 +471,7 @@ export default function TrenDaftarSection() {
         })()}
       </Card>
 
-      {/* Section 9: Kecepatan Pelunasan */}
-      <Card title="Kecepatan Pelunasan">
-        <p className="text-[11px] text-gray-400 mb-3">Rata-rata waktu dari daftar sampai lunas</p>
-        {(() => {
-          const PL_COLORS = ['#10b981', '#34d399', '#3b82f6', '#f59e0b', '#ef4444'];
-          const maxPct = Math.max(...d.pelunasanDistribution.map(p => p.pct), 1);
-          return (
-            <div>
-              {d.pelunasanDistribution.map((item, i) => (
-                <div key={i} className="flex items-center gap-2 mb-2">
-                  <span className="text-[10px] font-semibold text-gray-500 w-[60px] flex-shrink-0">{item.range}</span>
-                  <div className="flex-1 h-4 bg-gray-100 dark:bg-slate-700 rounded-[5px] overflow-hidden">
-                    <div className="h-full rounded-[5px] transition-all duration-500" style={{ width: `${(item.pct / maxPct) * 100}%`, backgroundColor: PL_COLORS[i] }} />
-                  </div>
-                  <span className="text-[10px] font-bold w-9 text-right" style={{ color: PL_COLORS[i] }}>{item.pct}%</span>
-                </div>
-              ))}
-              <div className="mt-2.5 p-2.5 bg-gray-50 dark:bg-slate-900 rounded-[10px]">
-                <p className="text-[11px] font-semibold text-gray-700 dark:text-slate-300">{d.pelunasanFastPct}% lunas dalam 1 bulan pertama</p>
-                <p className="text-[10px] text-gray-400">Rata-rata: {d.insights.pelunasanAvg} bulan dari tanggal daftar</p>
-              </div>
-            </div>
-          );
-        })()}
-      </Card>
-
-      {/* Section 10: Daftar vs Berangkat */}
+      {/* Section 9: Daftar vs Berangkat */}
       <Card title="Daftar vs Berangkat">
         <p className="text-[11px] text-gray-400 mb-2.5">Kapan jamaah daftar untuk berangkat bulan apa</p>
         {(() => {
@@ -499,32 +479,32 @@ export default function TrenDaftarSection() {
           const cMin = Math.min(...allVals, 0);
           const cMax = Math.max(...allVals, 1);
           const CORR_COLORS = ['#dbeafe', '#93c5fd', '#60a5fa', '#3b82f6', '#1e40af'];
-          const getC = (v: number) => v === 0 ? (isDark ? '#1e293b' : '#f3f4f6') : CORR_COLORS[Math.min(4, Math.floor(((v - cMin) / (cMax - cMin)) * 4.99))];
-          const getT = (v: number) => { const idx = v === 0 ? -1 : Math.min(4, Math.floor(((v - cMin) / (cMax - cMin)) * 4.99)); return idx >= 3 ? '#fff' : '#1e40af'; };
+          const getCorrColor = (v: number) => v === 0 ? (isDark ? '#1e293b' : '#f8fafc') : CORR_COLORS[Math.min(4, Math.floor(((v - cMin) / (cMax - cMin)) * 4.99))];
+          const getCorrTextColor = (v: number) => { const idx = v === 0 ? -1 : Math.min(4, Math.floor(((v - cMin) / (cMax - cMin)) * 4.99)); return idx >= 3 ? 'white' : '#1e40af'; };
           return (
-            <div className="overflow-x-auto">
-              <div style={{ minWidth: 340 }}>
-                <div className="grid gap-[2px] mb-[2px]" style={{ gridTemplateColumns: '32px repeat(12, 1fr)' }}>
-                  <div className="text-[7px] text-gray-300 dark:text-slate-600 text-center">Brkt&rarr;</div>
-                  {MONTH_LABELS.map(m => <div key={m} className="text-[9px] text-gray-400 text-center">{m}</div>)}
+            <div className="overflow-x-auto -mx-4 px-4">
+              <div style={{ minWidth: '360px' }}>
+                <div className="grid gap-[2px] mb-[2px]" style={{ gridTemplateColumns: '28px repeat(12, 1fr)' }}>
+                  <div />
+                  {MONTH_LABELS.map(m => <div key={m} className="text-[8px] text-gray-400 dark:text-slate-500 text-center font-medium">{m}</div>)}
                 </div>
-                {d.daftarVsBerangkat.map((row, ri) => (
-                  <div key={ri} className="grid gap-[2px] mb-[2px]" style={{ gridTemplateColumns: '32px repeat(12, 1fr)' }}>
-                    <div className="text-[9px] text-gray-400 text-right pr-1 flex items-center justify-end">{MONTH_LABELS[ri]}</div>
-                    {row.map((v, ci) => (
-                      <div key={ci} className="min-h-[22px] rounded-[3px] flex items-center justify-center"
-                        style={{ backgroundColor: getC(v), color: v === 0 ? (isDark ? '#475569' : '#d1d5db') : getT(v) }}>
-                        <span className="text-[7px] font-bold">{v || ''}</span>
+                {d.daftarVsBerangkat.map((row, i) => (
+                  <div key={i} className="grid gap-[2px] mb-[2px]" style={{ gridTemplateColumns: '28px repeat(12, 1fr)' }}>
+                    <div className="text-[8px] text-gray-400 dark:text-slate-500 font-semibold flex items-center justify-end pr-1">{MONTH_LABELS[i]}</div>
+                    {row.map((val, j) => (
+                      <div key={j} className="flex items-center justify-center rounded-[2px]"
+                        style={{ aspectRatio: '1', background: getCorrColor(val), color: val === 0 ? (isDark ? '#475569' : '#cbd5e1') : getCorrTextColor(val), fontSize: '7px', fontWeight: 700 }}>
+                        {val > 0 ? val : ''}
                       </div>
                     ))}
                   </div>
                 ))}
                 <div className="flex items-center justify-between mt-2">
-                  <span className="text-[9px] text-gray-400">Sumbu Y = bulan daftar</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[9px] text-gray-400">Sedikit</span>
-                    {CORR_COLORS.map((c, i) => <div key={i} className="w-3 h-3 rounded-[3px]" style={{ backgroundColor: c }} />)}
-                    <span className="text-[9px] text-gray-400">Banyak</span>
+                  <span className="text-[9px] text-gray-400 dark:text-slate-500">&darr; Bulan daftar &rarr; Bulan berangkat</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[8px] text-gray-400">Sedikit</span>
+                    {CORR_COLORS.map((c, i) => <div key={i} style={{ width: 10, height: 10, borderRadius: 2, background: c }} />)}
+                    <span className="text-[8px] text-gray-400">Banyak</span>
                   </div>
                 </div>
               </div>

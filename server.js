@@ -2708,10 +2708,19 @@ function shouldPollFlight(eventDate, eventType) {
 // In-memory flight cache
 const flightCache = new Map();
 
-function getCachedFlight(flightId, maxAgeMs = 60 * 60 * 1000) {
+// Cache TTL: 15 min for en-route, 4 hours for everything else
+function getFlightCacheTTL(status) {
+  if (status === 'en-route') return 15 * 60 * 1000;       // 15 min
+  if (status === 'delayed') return 30 * 60 * 1000;        // 30 min
+  if (status === 'landed' || status === 'cancelled') return 24 * 60 * 60 * 1000; // 24h (terminal)
+  return 4 * 60 * 60 * 1000;                              // 4h default (scheduled)
+}
+
+function getCachedFlight(flightId) {
   const cached = flightCache.get(flightId);
   if (!cached) return null;
-  if (Date.now() - cached.timestamp > maxAgeMs) {
+  const ttl = getFlightCacheTTL(cached.data?.status);
+  if (Date.now() - cached.timestamp > ttl) {
     flightCache.delete(flightId);
     return null;
   }
@@ -2773,9 +2782,9 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
         .eq('id', flightId)
         .single();
 
-      // If in Supabase and fresh (< 5 min), use it — but validate date matches
+      // Read-only from Supabase — NO AirLabs calls from this endpoint.
+      // Background cron handles all API polling.
       if (existing && existing.synced_at) {
-        const age = Date.now() - new Date(existing.synced_at).getTime();
         // Validate: dep_scheduled date must match event_date
         let dateValid = true;
         if (existing.dep_scheduled) {
@@ -2786,36 +2795,11 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
             await supabase.from('flight_status').delete().eq('id', flightId);
           }
         }
-        if (dateValid && age < 60 * 60 * 1000) {
+        if (dateValid) {
           const formatted = formatFlightForFrontend(existing);
           setCachedFlight(flightId, formatted);
           flights.push(formatted);
           continue;
-        }
-      }
-
-      // Skip AirLabs for already-terminal flights (landed/cancelled don't change)
-      if (existing && (existing.status === 'landed' || existing.status === 'cancelled')) {
-        const formatted = formatFlightForFrontend(existing);
-        setCachedFlight(flightId, formatted);
-        flights.push(formatted);
-        continue;
-      }
-
-      // Fetch from AirLabs (only if in polling window)
-      if (shouldPollFlight(event.event_date, event.event_type)) {
-        const apiData = await fetchFlightFromAirLabs(parsed.flightIata);
-
-        if (apiData) {
-          const mapped = mapAirLabsToFlightStatus(apiData, event);
-          if (mapped) {
-            // Upsert to Supabase
-            await supabase.from('flight_status').upsert(mapped, { onConflict: 'id' });
-            const formatted = formatFlightForFrontend(mapped);
-            setCachedFlight(flightId, formatted);
-            flights.push(formatted);
-            continue;
-          }
         }
       }
 
@@ -2895,7 +2879,7 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/flights/:flightId — single flight detail (force refresh from AirLabs)
+// GET /api/flights/:flightId — single flight detail (cache-first, no forced API call)
 app.get('/api/flights/:flightId', authMiddleware, async (req, res) => {
   try {
     const { flightId } = req.params;
@@ -2911,31 +2895,13 @@ app.get('/api/flights/:flightId', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Invalid flight ID' });
     }
 
-    // Force fetch from AirLabs
-    const apiData = await fetchFlightFromAirLabs(flightIata);
-
-    if (apiData) {
-      // Get calendar event for enrichment
-      const { data: event } = await supabase
-        .from('calendar_events')
-        .select('*')
-        .eq('event_date', eventDate)
-        .in('event_type', ['keberangkatan', 'kepulangan'])
-        .like('pesawat', `%${flightIata.substring(0, 2)} ${flightIata.substring(2)}%`)
-        .single();
-
-      if (event) {
-        const mapped = mapAirLabsToFlightStatus(apiData, event);
-        if (mapped) {
-          await supabase.from('flight_status').upsert(mapped, { onConflict: 'id' });
-          const formatted = formatFlightForFrontend(mapped);
-          setCachedFlight(flightId, formatted);
-          return res.json({ success: true, data: formatted });
-        }
-      }
+    // 1. Check in-memory cache first
+    const cached = getCachedFlight(flightId);
+    if (cached) {
+      return res.json({ success: true, data: cached });
     }
 
-    // Fallback to Supabase
+    // 2. Check Supabase
     const { data: existing } = await supabase
       .from('flight_status')
       .select('*')
@@ -2943,7 +2909,9 @@ app.get('/api/flights/:flightId', authMiddleware, async (req, res) => {
       .single();
 
     if (existing) {
-      return res.json({ success: true, data: formatFlightForFrontend(existing) });
+      const formatted = formatFlightForFrontend(existing);
+      setCachedFlight(flightId, formatted);
+      return res.json({ success: true, data: formatted });
     }
 
     res.status(404).json({ error: 'Flight not found' });
@@ -3118,7 +3086,7 @@ function buildFlightNotifMessage(flight, calendarEvent, change) {
   return null;
 }
 
-// Background flight poller
+// Background flight poller — only polls en-route or departing-within-3h flights
 async function pollActiveFlights() {
   maybeResetQuotaCounter();
 
@@ -3134,14 +3102,17 @@ async function pollActiveFlights() {
     .lte('event_date', endDate)
     .not('pesawat', 'is', null);
 
-  if (!events || events.length === 0) return;
+  if (!events || events.length === 0) {
+    console.log('[FlightCron] No flights in window, skipping');
+    return;
+  }
   if (!canMakeAirLabsRequest()) {
     console.warn('[FlightCron] Monthly quota reached, skipping poll');
     return;
   }
 
   let pollCount = 0;
-  const MAX_POLLS_PER_RUN = 5;
+  const MAX_POLLS_PER_RUN = 3; // Reduced from 5
 
   for (const event of events) {
     if (pollCount >= MAX_POLLS_PER_RUN) break;
@@ -3150,15 +3121,27 @@ async function pollActiveFlights() {
     if (!parsed) continue;
 
     const flightId = `${event.event_date}_${parsed.flightIata}`;
+    if (!shouldPollFlight(event.event_date, event.event_type)) continue;
 
     const { data: existing } = await supabase
       .from('flight_status').select('*').eq('id', flightId).single();
 
+    // Skip terminal flights
     if (existing && (existing.status === 'landed' || existing.status === 'cancelled')) continue;
-    if (!shouldPollFlight(event.event_date, event.event_type)) continue;
 
+    // Only poll if: (a) en-route, (b) departing within 3 hours, or (c) never synced
+    const hoursUntilDep = getHoursUntilDeparture(event);
+    const isEnRoute = existing?.status === 'en-route';
+    const isDepartingSoon = hoursUntilDep <= 3 && hoursUntilDep >= -12; // within 3h before to 12h after
+    const neverSynced = !existing;
+
+    if (!isEnRoute && !isDepartingSoon && !neverSynced) {
+      continue; // Skip flights that aren't urgent
+    }
+
+    // Respect polling interval based on status
     if (existing && existing.synced_at) {
-      const interval = getPollingIntervalMs(existing.status, getHoursUntilDeparture(event));
+      const interval = getPollingIntervalMs(existing.status, hoursUntilDep);
       if (interval) {
         const timeSinceSync = Date.now() - new Date(existing.synced_at).getTime();
         if (timeSinceSync < interval) continue;
@@ -3188,6 +3171,8 @@ async function pollActiveFlights() {
 
   if (pollCount > 0) {
     console.log(`[FlightCron] Polled ${pollCount} flights. Monthly usage: ${airLabsRequestCount}/${AIRLABS_MONTHLY_LIMIT}`);
+  } else {
+    console.log(`[FlightCron] No urgent flights to poll. Monthly usage: ${airLabsRequestCount}/${AIRLABS_MONTHLY_LIMIT}`);
   }
 }
 
@@ -3358,6 +3343,8 @@ app.get('/api/laporan/tren-daftar/years', authMiddleware, adminOnly, async (req,
 // ── Tren Daftar: Main Data (Admin only) ──
 const TREN_MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const TREN_MONTH_FULL = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+const VALID_PAKET_PREFIX = ['HEMAT','REGULER','PLUS','VIP','UHUD','PREMIUM','SUPER','EKSKLUSIF','EKONOMI','PROMO','GOLD','SILVER','PLATINUM','DIAMOND'];
+const BLACKLIST_PAKET = ['WAITINGLIST','WAITING','RAHMAH','CANCEL','BATAL','REFUND','PENDING','LIST','DRAFT'];
 
 app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) => {
   try {
@@ -3379,8 +3366,6 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
     // Summary
     const totalDaftar = cur.length;
     const totalDaftarPrev = prev.length;
-    const growthPct = totalDaftarPrev > 0 ? Math.round(((totalDaftar - totalDaftarPrev) / totalDaftarPrev) * 1000) / 10 : 0;
-
     const monthlyCur = new Array(12).fill(0);
     cur.forEach(j => { if (j.tgl_daftar) { monthlyCur[new Date(j.tgl_daftar).getMonth()]++; } });
 
@@ -3397,8 +3382,22 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
     });
     if (slowIdx === -1) slowIdx = 0;
 
+    // Apple-to-apple growth: only compare months that have data in current year
+    const monthIdxWithData = [];
+    monthlyCur.forEach((c, i) => { if (c > 0) monthIdxWithData.push(i); });
+    const totalCurSame = monthIdxWithData.reduce((s, i) => s + monthlyCur[i], 0);
+    const totalPrevSame = monthIdxWithData.reduce((s, i) => s + monthlyPrev[i], 0);
+    const growthPct = totalPrevSame > 0 ? Math.round(((totalCurSame - totalPrevSame) / totalPrevSame) * 1000) / 10 : 0;
+    const growthMonths = monthIdxWithData.length;
+    let growthLabel = '';
+    if (growthMonths > 0 && growthMonths < 12) {
+      const first = TREN_MONTH_LABELS[monthIdxWithData[0]];
+      const last = TREN_MONTH_LABELS[monthIdxWithData[monthIdxWithData.length - 1]];
+      growthLabel = first === last ? first : `${first}–${last}`;
+    }
+
     const summary = {
-      totalDaftar, totalDaftarPrev, growthPct, avgPerMonth,
+      totalDaftar, totalDaftarPrev, growthPct, avgPerMonth, growthMonths, growthLabel,
       peakMonth: TREN_MONTH_FULL[peakIdx], peakMonthCount: monthlyCur[peakIdx],
       slowestMonth: TREN_MONTH_FULL[slowIdx], slowestMonthCount: monthlyCur[slowIdx],
     };
@@ -3447,15 +3446,23 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
     const lunasCount = cur.filter(j => j.sisa === 0 || j.sisa === null).length;
     const conversionRate = totalDaftar > 0 ? Math.round((lunasCount / totalDaftar) * 100) : 0;
 
-    const lunasWithDates = cur.filter(j => (j.sisa === 0 || j.sisa === null) && j.tgl_daftar && j.tgl_berangkat);
-    const pelunasanDays = lunasWithDates.map(j => (new Date(j.tgl_berangkat) - new Date(j.tgl_daftar)) / 86400000).filter(d => d > 0);
-    const pelunasanAvg = pelunasanDays.length > 0 ? Math.round((pelunasanDays.reduce((s, d) => s + d, 0) / pelunasanDays.length / 30) * 10) / 10 : 0;
+    // Conversion context: only count jamaah who already departed
+    const today = new Date().toISOString().split('T')[0];
+    const sudahBerangkat = cur.filter(j => j.tgl_berangkat && j.tgl_berangkat <= today).length;
+    const lunasSudahBerangkat = cur.filter(j => (j.sisa === 0 || j.sisa === null) && j.tgl_berangkat && j.tgl_berangkat <= today).length;
+    const conversionRateBerangkat = sudahBerangkat > 0 ? Math.round((lunasSudahBerangkat / sudahBerangkat) * 100) : 0;
 
+    const paketMapRaw = {};
+    cur.forEach(j => { if (j.paket) { const key = j.paket.split(' ')[0].toUpperCase(); paketMapRaw[key] = (paketMapRaw[key] || 0) + 1; } });
+    // Filter: include if in whitelist OR not in blacklist (so new unknown pakets still show)
     const paketMap = {};
-    cur.forEach(j => { if (j.paket) { const key = j.paket.split(' ')[0].toUpperCase(); paketMap[key] = (paketMap[key] || 0) + 1; } });
+    for (const [key, count] of Object.entries(paketMapRaw)) {
+      if (BLACKLIST_PAKET.includes(key)) continue;
+      if (VALID_PAKET_PREFIX.includes(key) || !BLACKLIST_PAKET.includes(key)) paketMap[key] = count;
+    }
     const topPaket = Object.entries(paketMap).sort((a, b) => b[1] - a[1])[0]?.[0] || '-';
 
-    const insights = { leadTimeAvg, conversionRate, pelunasanAvg, topPaket };
+    const insights = { leadTimeAvg, conversionRate, conversionRateBerangkat, sudahBerangkat, totalJamaah: totalDaftar, lunasCount, topPaket };
 
     // Gender
     let perempuan = 0, lakiLaki = 0;
@@ -3493,19 +3500,6 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
     const ltTotal = leadDays.length || 1;
     const leadTimeDistribution = ltBuckets.map(b => ({ range: b.range, pct: Math.round((b.count / ltTotal) * 100) }));
 
-    // Pelunasan Distribution
-    const plBuckets = [
-      { range: '< 2 minggu', min: 0, max: 13, count: 0 },
-      { range: '2-4 minggu', min: 14, max: 29, count: 0 },
-      { range: '1-2 bulan', min: 30, max: 59, count: 0 },
-      { range: '2-4 bulan', min: 60, max: 119, count: 0 },
-      { range: '> 4 bulan', min: 120, max: 99999, count: 0 },
-    ];
-    pelunasanDays.forEach(d => { for (const b of plBuckets) { if (d >= b.min && d <= b.max) { b.count++; break; } } });
-    const plTotal = pelunasanDays.length || 1;
-    const pelunasanDistribution = plBuckets.map(b => ({ range: b.range, pct: Math.round((b.count / plTotal) * 100) }));
-    const pelunasanFastPct = pelunasanDistribution.slice(0, 2).reduce((s, b) => s + b.pct, 0);
-
     // Daftar vs Berangkat Matrix
     const dvb = Array.from({ length: 12 }, () => new Array(12).fill(0));
     withDates.forEach(j => {
@@ -3538,7 +3532,7 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
         period: year, periodPrev: prevYear,
         summary, monthly, heatmap, revenue, insights,
         gender, ageDistribution, ageAvg,
-        leadTimeDistribution, pelunasanDistribution, pelunasanFastPct,
+        leadTimeDistribution,
         daftarVsBerangkat: dvb, agentRanking, paketRanking,
       },
     });
@@ -5274,28 +5268,28 @@ function scheduleHajiPlusCron() {
 }
 scheduleHajiPlusCron();
 
-// ── Flight Status cron: poll every 1 hour ──
+// ── Flight Status cron: poll every 2 hours (reduced from 1h to save quota) ──
 setInterval(async () => {
   try {
     await pollActiveFlights();
   } catch (err) {
     console.error('[FlightCron] Error:', err.message);
   }
-}, 60 * 60 * 1000);
+}, 2 * 60 * 60 * 1000);
 
 // Load persisted AirLabs quota on startup
 setTimeout(async () => {
   await loadAirLabsQuota();
 }, 5 * 1000);
 
-// Initial flight poll 2 min after startup (uses existing Supabase data, no purge)
+// Initial flight poll 5 min after startup (increased from 2 min to reduce restart impact)
 setTimeout(async () => {
   try {
     await pollActiveFlights();
   } catch (err) {
     console.error('[FlightCron] Initial poll error:', err.message);
   }
-}, 2 * 60 * 1000);
+}, 5 * 60 * 1000);
 
 // ── Flight cleanup cron: daily at 03:00 WIB (20:00 UTC) ──
 function scheduleFlightCleanup() {
