@@ -47,7 +47,7 @@ interface FlightData {
 
 const STATUS_CFG: Record<string, { label: string; color: string; bg: string }> = {
   'en-route':  { label: 'Terbang',     color: '#3b82f6', bg: 'bg-blue-500' },
-  'scheduled': { label: 'Terjadwal',   color: '#0ea5e9', bg: 'bg-sky-500' },
+  'scheduled': { label: 'Terjadwal',   color: '#6366f1', bg: 'bg-indigo-500' },
   'landed':    { label: 'Mendarat',    color: '#10b981', bg: 'bg-emerald-500' },
   'delayed':   { label: 'Delay',       color: '#ef4444', bg: 'bg-red-500' },
   'cancelled': { label: 'Dibatalkan',  color: '#dc2626', bg: 'bg-red-600' },
@@ -101,42 +101,117 @@ function formatDuration(minutes: number | null | undefined): string | null {
 // ── RouteLine SVG ──
 
 function RouteLine({ flight }: { flight: FlightData }) {
-  const w = 88, h = 14;
+  const w = 100, h = 16;
   const x1 = 4, x2 = w - 4;
-  const prog = Math.min(100, Math.max(0, flight.progress)) / 100;
+  const prog = flight.progress / 100;
   const px = x1 + (x2 - x1) * prog;
 
-  const trackColor = flight.status === 'landed' ? '#10b981'
-    : flight.status === 'en-route' ? '#3b82f6'
-    : flight.status === 'delayed' ? '#ef4444'
-    : '#d1d5db';
-
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="flex-1 min-w-0 max-w-[100px]">
-      {/* Background dashed track */}
-      <line x1={x1} y1={h / 2} x2={x2} y2={h / 2}
-        stroke="#e5e7eb" strokeWidth="1.5" strokeDasharray="3 2"
-        className="dark:stroke-slate-600" />
-      {/* Traveled portion */}
-      {prog > 0 && (
-        <line x1={x1} y1={h / 2} x2={px} y2={h / 2}
-          stroke={trackColor} strokeWidth="2" strokeLinecap="round" />
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="flex-shrink-0">
+
+      {/* ===== TERJADWAL: Marching Ants ===== */}
+      {flight.status === 'scheduled' && (
+        <line
+          x1={x1} y1={h/2} x2={x2} y2={h/2}
+          stroke="#d1d5db" strokeWidth="2" strokeDasharray="4 4"
+          className="dark:stroke-slate-600"
+        >
+          <animate attributeName="stroke-dashoffset" values="0;-16" dur="1s" repeatCount="indefinite" />
+        </line>
       )}
-      {/* Departure dot */}
-      <circle cx={x1} cy={h / 2} r="3" fill="#10b981" stroke="white" strokeWidth="1.5" />
-      {/* Arrival dot */}
-      <circle cx={x2} cy={h / 2} r="3"
-        fill={prog >= 1 ? '#10b981' : '#cbd5e1'} stroke="white" strokeWidth="1.5"
-        className={prog < 1 ? 'dark:fill-slate-500' : ''} />
-      {/* Plane dot (en-route) */}
+
+      {/* ===== EN-ROUTE: Solid traveled + dashed remaining ===== */}
       {flight.status === 'en-route' && (
-        <circle cx={px} cy={h / 2} r="4" fill="#3b82f6" stroke="white" strokeWidth="1.5">
-          <animate attributeName="r" values="3.5;5;3.5" dur="2s" repeatCount="indefinite" />
-        </circle>
+        <>
+          {/* Remaining path (dashed, no animation) */}
+          <line
+            x1={x1} y1={h/2} x2={x2} y2={h/2}
+            stroke="#e5e7eb" strokeWidth="1.5" strokeDasharray="3 2"
+            className="dark:stroke-slate-600"
+          />
+          {/* Traveled path (solid blue) */}
+          <line
+            x1={x1} y1={h/2} x2={px} y2={h/2}
+            stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round"
+          />
+        </>
       )}
+
+      {/* ===== DELAYED: Same as scheduled but red ===== */}
+      {flight.status === 'delayed' && (
+        <line
+          x1={x1} y1={h/2} x2={x2} y2={h/2}
+          stroke="#fca5a5" strokeWidth="2" strokeDasharray="4 4"
+          className="dark:stroke-red-800"
+        >
+          <animate attributeName="stroke-dashoffset" values="0;-16" dur="1s" repeatCount="indefinite" />
+        </line>
+      )}
+
+      {/* ===== LANDED: Solid green line ===== */}
+      {flight.status === 'landed' && (
+        <line
+          x1={x1} y1={h/2} x2={x2} y2={h/2}
+          stroke="#10b981" strokeWidth="2.5" strokeLinecap="round"
+        />
+      )}
+
+      {/* ===== CANCELLED: Gray dashed static ===== */}
+      {flight.status === 'cancelled' && (
+        <line
+          x1={x1} y1={h/2} x2={x2} y2={h/2}
+          stroke="#d1d5db" strokeWidth="1.5" strokeDasharray="3 3"
+          className="dark:stroke-slate-600"
+        />
+      )}
+
+      {/* ===== Departure dot (selalu hijau) ===== */}
+      <circle cx={x1} cy={h/2} r="3" fill="#10b981" stroke="white" strokeWidth="1.5" />
+
+      {/* ===== Arrival dot ===== */}
+      {flight.status !== 'landed' && (
+        <circle cx={x2} cy={h/2} r="3"
+          fill={flight.status === 'cancelled' ? '#d1d5db' : '#cbd5e1'}
+          stroke="white" strokeWidth="1.5"
+          className="dark:fill-slate-500"
+        />
+      )}
+
+      {/* ===== EN-ROUTE: Plane dot with pulse ===== */}
+      {flight.status === 'en-route' && (
+        <>
+          <circle cx={px} cy={h/2} r="5" fill="#3b82f6" stroke="white" strokeWidth="1.5">
+            <animate attributeName="r" values="4;6;4" dur="1.5s" repeatCount="indefinite" />
+          </circle>
+          <text
+            x={px} y={h/2}
+            textAnchor="middle" dominantBaseline="middle"
+            fontSize="7" fill="white"
+          >✈</text>
+        </>
+      )}
+
+      {/* ===== LANDED: Checkmark pop ===== */}
+      {flight.status === 'landed' && (
+        <g transform={`translate(${x2 - 5}, ${h/2 - 5})`}>
+          <circle cx="5" cy="5" r="5" fill="#10b981" stroke="white" strokeWidth="1.5">
+            <animate attributeName="r" values="3;6;5" dur="0.6s" fill="freeze" />
+          </circle>
+          <path
+            d="M3 5.5 L4.5 7 L7.5 3.5"
+            stroke="white" strokeWidth="1.5" fill="none"
+            strokeLinecap="round" strokeLinejoin="round"
+            opacity="0"
+          >
+            <animate attributeName="opacity" values="0;0;1" dur="0.6s" fill="freeze" />
+          </path>
+        </g>
+      )}
+
     </svg>
   );
 }
+
 
 // ── Component ──
 
