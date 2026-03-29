@@ -2265,41 +2265,42 @@ const AIRPORT_TZ_OFFSETS = {
 };
 
 /**
- * Convert a UTC ISO datetime string to local time at the given airport.
- * Returns "HH:mm" string (e.g. "11:45") or the original value if conversion fails.
- * This ensures consistent display regardless of server/browser timezone.
+ * Extract "HH:mm" from a datetime string like "2026-03-29 11:45" or ISO format.
+ * Works with AirLabs local time strings and ISO datetimes.
  */
-function utcToLocalTime(utcStr, airportIata) {
-  if (!utcStr) return null;
+function extractHHmm(timeStr) {
+  if (!timeStr) return null;
+  const s = String(timeStr).trim();
+  // Already HH:mm
+  if (/^\d{2}:\d{2}$/.test(s)) return s;
+  // "YYYY-MM-DD HH:MM" (AirLabs format)
+  const spaceMatch = s.match(/(\d{2}):(\d{2})/);
+  if (spaceMatch) return `${spaceMatch[1]}:${spaceMatch[2]}`;
+  // ISO datetime
   try {
-    const d = new Date(utcStr);
-    if (isNaN(d.getTime())) return utcStr;
-    const offset = AIRPORT_TZ_OFFSETS[airportIata] ?? 7; // default WIB
-    const local = new Date(d.getTime() + offset * 60 * 60 * 1000);
-    const hh = String(local.getUTCHours()).padStart(2, '0');
-    const mm = String(local.getUTCMinutes()).padStart(2, '0');
-    return `${hh}:${mm}`;
-  } catch {
-    return utcStr;
-  }
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      // For ISO strings with Z or +00:00, this would give UTC hours.
+      // But we only use this for already-local times, so it's fine.
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+  } catch { /* ignore */ }
+  return s;
 }
 
 /**
- * Convert UTC ISO datetime to a full ISO string in local airport time.
- * Used when frontend needs full datetime (e.g. for formatDate).
+ * Extract date part from a datetime string for display.
+ * Returns the original string (frontend Date parse handles it).
  */
-function utcToLocalISO(utcStr, airportIata) {
-  if (!utcStr) return null;
-  try {
-    const d = new Date(utcStr);
-    if (isNaN(d.getTime())) return utcStr;
-    const offset = AIRPORT_TZ_OFFSETS[airportIata] ?? 7;
-    const local = new Date(d.getTime() + offset * 60 * 60 * 1000);
-    // Return as a fake UTC ISO so frontend Date parse shows the correct date
-    return local.toISOString();
-  } catch {
-    return utcStr;
-  }
+function extractDateISO(timeStr) {
+  if (!timeStr) return null;
+  // "YYYY-MM-DD HH:MM" → "YYYY-MM-DDT00:00:00" for frontend date display
+  const s = String(timeStr).trim();
+  const dateMatch = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (dateMatch) return `${dateMatch[1]}T00:00:00`;
+  return s;
 }
 
 /**
@@ -2422,14 +2423,14 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent) {
   const parsed = parseFlightFromCalendar(calendarEvent.pesawat);
   if (!parsed) return null;
 
-  // Validate: AirLabs returns today's flight — dep date (in WIB) must match event_date
-  const apiDepDate = apiData.dep_time_utc || apiData.dep_actual_utc || apiData.dep_time;
-  if (apiDepDate) {
-    // Convert API UTC time to WIB (UTC+7) and extract date
-    const apiDateWIB = new Date(new Date(apiDepDate).getTime() + 7 * 60 * 60 * 1000)
-      .toISOString().split('T')[0];
-    if (apiDateWIB !== calendarEvent.event_date) {
-      console.log(`[FlightAPI] Date mismatch (WIB): API=${apiDateWIB}, event=${calendarEvent.event_date} — skipping`);
+  // Validate: AirLabs returns today's flight — dep date must match event_date
+  // dep_time is in airport-local time, so we just extract the date part
+  const apiDepTime = apiData.dep_time || apiData.dep_actual || apiData.dep_time_utc;
+  if (apiDepTime) {
+    const dateMatch = String(apiDepTime).match(/^(\d{4}-\d{2}-\d{2})/);
+    const apiDate = dateMatch ? dateMatch[1] : null;
+    if (apiDate && apiDate !== calendarEvent.event_date) {
+      console.log(`[FlightAPI] Date mismatch: API=${apiDate}, event=${calendarEvent.event_date} — skipping`);
       return null;
     }
   }
@@ -2467,14 +2468,14 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent) {
     dep_city: apiData.dep_city || null,
     dep_terminal: apiData.dep_terminal || null,
     dep_gate: apiData.dep_gate || null,
-    dep_scheduled: apiData.dep_time_utc || null,
-    dep_actual: apiData.dep_actual_utc || null,
+    dep_scheduled: apiData.dep_time || apiData.dep_time_utc || null,
+    dep_actual: apiData.dep_actual || apiData.dep_actual_utc || null,
     arr_iata: apiData.arr_iata || null,
     arr_city: apiData.arr_city || null,
     arr_terminal: apiData.arr_terminal || null,
     arr_gate: apiData.arr_gate || null,
-    arr_scheduled: apiData.arr_time_utc || null,
-    arr_estimated: apiData.arr_estimated_utc || null,
+    arr_scheduled: apiData.arr_time || apiData.arr_time_utc || null,
+    arr_estimated: apiData.arr_estimated || apiData.arr_estimated_utc || null,
     pax: calendarEvent.pax || 0,
     tour_leader: calendarEvent.tour_leader || '',
     lat: apiData.lat || null,
@@ -2516,13 +2517,10 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent) {
 
 /**
  * Format DB row → frontend FlightData shape.
- * Converts UTC times to airport-local "HH:mm" strings so frontend
- * displays are consistent regardless of browser/server timezone.
+ * Times from AirLabs are stored as airport-local strings (e.g. "2026-03-29 11:45").
+ * We just extract HH:mm — no timezone conversion needed.
  */
 function formatFlightForFrontend(row) {
-  const depAirport = row.dep_iata || 'CGK';
-  const arrAirport = row.arr_iata || 'JED';
-
   return {
     id: row.id,
     flightNumber: row.flight_iata
@@ -2536,18 +2534,15 @@ function formatFlightForFrontend(row) {
     depCode: row.dep_iata || '',
     depTerminal: row.dep_terminal || null,
     depGate: row.dep_gate || null,
-    // Convert dep times to departure airport local time
-    depScheduled: utcToLocalTime(row.dep_scheduled, depAirport) || row.dep_scheduled,
-    depActual: utcToLocalTime(row.dep_actual, depAirport) || null,
-    // Keep a full ISO for date display (converted to dep airport local time)
-    depDate: utcToLocalISO(row.dep_scheduled || row.dep_actual, depAirport),
+    depScheduled: extractHHmm(row.dep_scheduled) || row.dep_scheduled,
+    depActual: extractHHmm(row.dep_actual) || null,
+    depDate: extractDateISO(row.dep_scheduled || row.dep_actual),
     arrCity: row.arr_city || '',
     arrCode: row.arr_iata || '',
     arrTerminal: row.arr_terminal || null,
     arrGate: row.arr_gate || null,
-    // Convert arr times to arrival airport local time
-    arrScheduled: utcToLocalTime(row.arr_scheduled, arrAirport) || row.arr_scheduled,
-    arrEstimated: utcToLocalTime(row.arr_estimated, arrAirport) || null,
+    arrScheduled: extractHHmm(row.arr_scheduled) || row.arr_scheduled,
+    arrEstimated: extractHHmm(row.arr_estimated) || null,
     pax: row.pax || 0,
     tourLeader: row.tour_leader || '',
     lat: row.lat || null,
@@ -2648,12 +2643,12 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
       // If in Supabase and fresh (< 5 min), use it — but validate date matches
       if (existing && existing.synced_at) {
         const age = Date.now() - new Date(existing.synced_at).getTime();
-        // Validate: dep_scheduled WIB date must match event_date
+        // Validate: dep_scheduled date must match event_date
         let dateValid = true;
         if (existing.dep_scheduled) {
-          const depWIB = new Date(new Date(existing.dep_scheduled).getTime() + 7 * 60 * 60 * 1000)
-            .toISOString().split('T')[0];
-          if (depWIB !== event.event_date) {
+          const dateMatch = String(existing.dep_scheduled).match(/^(\d{4}-\d{2}-\d{2})/);
+          const depDate = dateMatch ? dateMatch[1] : null;
+          if (depDate && depDate !== event.event_date) {
             dateValid = false;
             await supabase.from('flight_status').delete().eq('id', flightId);
           }
@@ -2695,8 +2690,8 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
         const depTimeStr = `${event.event_date}T${jamLocal}:00`;
         const arrAirport = route?.arr || 'JED';
         const arrEstimateISO = route ? estimateArrival(depTimeStr, route.durationMin) : null;
-        // Convert arrival UTC estimate to arrival airport local time
-        const arrEstimateLocal = arrEstimateISO ? utcToLocalTime(arrEstimateISO, arrAirport) : null;
+        // Extract HH:mm from estimated arrival
+        const arrEstimateLocal = arrEstimateISO ? extractHHmm(arrEstimateISO) : null;
 
         // Determine status from date: use WIB for consistent comparison
         const todayWIBStr = getWIBDateStr();
@@ -4920,9 +4915,16 @@ setInterval(async () => {
   }
 }, 60 * 60 * 1000);
 
-// Initial flight poll 2 min after startup
+// Initial flight poll 2 min after startup — purge stale data first
 setTimeout(async () => {
   try {
+    // Purge all cached flight data to force re-fetch with correct local times
+    const { error } = await supabase.from('flight_status').delete().neq('id', '');
+    if (!error) console.log('[FlightCron] Purged stale flight_status cache on startup');
+    else console.warn('[FlightCron] Purge error:', error.message);
+    // Clear in-memory cache
+    flightCache.clear();
+    // Now poll fresh data
     await pollActiveFlights();
   } catch (err) {
     console.error('[FlightCron] Initial poll error:', err.message);
@@ -4961,3 +4963,105 @@ function scheduleFlightCleanup() {
   }, msUntil);
 }
 scheduleFlightCleanup();
+
+// ============ KURS BANK MANDIRI ============
+let kursCache = null; // { rates: { USD: number, ... }, updatedAt: string, fetchedAt: number }
+const KURS_CACHE_TTL = 60 * 60 * 1000; // 1 jam
+
+// Mapping nama lengkap mata uang
+const CURRENCY_NAMES = {
+  AUD: 'Australian Dollar', CAD: 'Canadian Dollar', CHF: 'Swiss Franc',
+  CNY: 'Chinese Yuan', DKK: 'Danish Krone', EUR: 'Euro',
+  GBP: 'British Pound', HKD: 'Hong Kong Dollar', JPY: 'Japanese Yen',
+  MYR: 'Malaysian Ringgit', NOK: 'Norwegian Krone', NZD: 'New Zealand Dollar',
+  SAR: 'Saudi Riyal', SEK: 'Swedish Krona', SGD: 'Singapore Dollar',
+  THB: 'Thai Baht', USD: 'US Dollar',
+};
+
+async function fetchKursMandiri() {
+  try {
+    const res = await fetch('https://www.bankmandiri.co.id/kurs', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const html = await res.text();
+
+    const cheerio = await import('cheerio');
+    const $ = cheerio.load(html);
+
+    const rates = {};
+    let updatedAt = null;
+
+    // Parse header TT Counter untuk ambil timestamp
+    $('table thead th, table tr:first-child th').each((_, el) => {
+      const text = $(el).text();
+      if (text.includes('TT Counter')) {
+        const match = text.match(/(\d{2}\/\d{2}\/\d{2})\s*-\s*(\d{2}:\d{2})\s*WIB/);
+        if (match) updatedAt = `${match[1]} ${match[2]} WIB`;
+      }
+    });
+
+    // Parse setiap baris mata uang
+    // Kolom: [Mata Uang, SR Beli, SR Jual, TT Beli, TT Jual, BN Beli, BN Jual]
+    // TT Counter Jual = index 4 (0-based)
+    $('table tr').each((_, row) => {
+      const cells = $(row).find('td');
+      if (cells.length < 5) return;
+
+      const currency = $(cells[0]).text().trim().toUpperCase();
+      if (!CURRENCY_NAMES[currency]) return;
+
+      const ttJualText = $(cells[4]).text().trim().replace(/[^\d.,]/g, '');
+      // Format: "16.870,00" → parse ke number
+      const parsed = parseFloat(ttJualText.replace(/\./g, '').replace(',', '.'));
+      if (!isNaN(parsed)) {
+        rates[currency] = Math.round(parsed);
+      }
+    });
+
+    if (Object.keys(rates).length > 0) {
+      kursCache = {
+        rates,
+        updatedAt: updatedAt || new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
+        fetchedAt: Date.now(),
+      };
+      console.log(`[Kurs] Fetched ${Object.keys(rates).length} currencies. USD=${rates.USD}, SAR=${rates.SAR}`);
+    } else {
+      console.warn('[Kurs] Gagal parse rates dari halaman Bank Mandiri');
+    }
+  } catch (err) {
+    console.error('[Kurs] Fetch error:', err.message);
+  }
+}
+
+// Fetch pertama kali saat server start
+fetchKursMandiri();
+
+// Refresh setiap 1 jam
+setInterval(fetchKursMandiri, KURS_CACHE_TTL);
+
+// GET /api/kurs — Kurs semua mata uang (public, no auth)
+app.get('/api/kurs', (req, res) => {
+  if (!kursCache || Object.keys(kursCache.rates).length === 0) {
+    return res.json({
+      success: false,
+      error: 'Kurs belum tersedia, coba lagi nanti',
+    });
+  }
+
+  res.json({
+    success: true,
+    data: {
+      rates: kursCache.rates,
+      names: CURRENCY_NAMES,
+      updatedAt: kursCache.updatedAt,
+      stale: Date.now() - kursCache.fetchedAt > KURS_CACHE_TTL * 2,
+    },
+  });
+});

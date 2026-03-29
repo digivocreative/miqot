@@ -1,4 +1,4 @@
-import { Mic, Image, CreditCard, BarChart3 } from 'lucide-react';
+import { Mic, Image, CreditCard, BarChart3, TrendingUp } from 'lucide-react';
 
 interface AIToolsPageProps {
   onNavigate: (sub: string) => void;
@@ -21,6 +21,15 @@ const TOOLS = [
     icon: BarChart3,
     color: 'emerald',
     route: 'haji-plus',
+    active: true,
+  },
+  {
+    id: 'kurs',
+    name: 'Kurs Hari Ini',
+    desc: 'Kurs Bank Mandiri & kalkulator konversi',
+    icon: TrendingUp,
+    color: 'emerald',
+    route: 'kurs',
     active: true,
   },
   {
