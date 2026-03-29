@@ -1,0 +1,558 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  Users, Calendar, Star, TrendingUp, TrendingDown, Clock,
+  CheckCircle, Wallet, Package, ChevronDown, ChevronUp,
+} from 'lucide-react';
+import { getAuthHeaders } from './LoginPage';
+import {
+  ResponsiveContainer, BarChart, Bar, AreaChart, Area,
+  CartesianGrid, XAxis, YAxis, Tooltip,
+} from 'recharts';
+import { trackEvent } from '../utils/analytics';
+
+// ── Types ──
+
+interface TrenSummary {
+  totalDaftar: number; totalDaftarPrev: number; growthPct: number; avgPerMonth: number;
+  peakMonth: string; peakMonthCount: number; slowestMonth: string; slowestMonthCount: number;
+}
+
+interface MonthlyItem { month: number; label: string; count: number; countPrev: number; }
+interface RevenueMonthly { month: number; label: string; total: number; }
+interface AgentRank { slug: string; name: string; photo: string; count: number; }
+interface PaketRank { paket: string; count: number; pct: number; }
+interface DistItem { range: string; pct: number; }
+interface AgeItem { range: string; count: number; pct: number; }
+
+interface TrenData {
+  period: string; periodPrev: string;
+  summary: TrenSummary;
+  monthly: MonthlyItem[];
+  heatmap: Record<string, number[]>;
+  revenue: { totalMasuk: number; avgPerMonth: number; monthly: RevenueMonthly[]; };
+  insights: { leadTimeAvg: number; conversionRate: number; pelunasanAvg: number; topPaket: string; };
+  gender: { perempuan: number; lakiLaki: number; };
+  ageDistribution: AgeItem[];
+  ageAvg: number;
+  leadTimeDistribution: DistItem[];
+  pelunasanDistribution: DistItem[];
+  pelunasanFastPct: number;
+  daftarVsBerangkat: number[][];
+  agentRanking: AgentRank[];
+  paketRanking: PaketRank[];
+}
+
+// ── Helpers ──
+
+function fmtRpShort(n: number): string {
+  if (!n) return 'Rp0';
+  if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(1).replace('.0', '')}M`;
+  if (n >= 1_000_000) { const j = n / 1_000_000; return `Rp${j % 1 === 0 ? j : j.toFixed(1)}jt`; }
+  if (n >= 1_000) return `Rp${Math.round(n / 1_000)}rb`;
+  return `Rp${n.toLocaleString('id-ID')}`;
+}
+
+function fmtRp(n: number): string {
+  if (!n) return 'Rp0';
+  return `Rp${n.toLocaleString('id-ID')}`;
+}
+
+function getInitials(name: string): string {
+  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+// ── Card wrapper ──
+
+function Card({ title, extra, children }: { title: string; extra?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
+        <p className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">{title}</p>
+        {extra}
+      </div>
+      <div className="p-4">{children}</div>
+    </div>
+  );
+}
+
+// ── Agent Ranking Sub-component ──
+
+const RANK_BAR_COLORS = ['bg-emerald-500', 'bg-blue-500', 'bg-violet-500', 'bg-amber-500', 'bg-pink-500'];
+const AVATAR_COLORS = ['bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400', 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400', 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400', 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400'];
+
+function AgentRankingSection({ agents, year }: { agents: AgentRank[]; year: string }) {
+  const [showAll, setShowAll] = useState(false);
+  const maxCount = agents[0]?.count || 1;
+  const visible = showAll ? agents : agents.slice(0, 5);
+
+  return (
+    <Card title="Ranking Agent" extra={<span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">{year}H</span>}>
+      {visible.map((agent, i) => (
+        <div key={agent.slug} className={`flex items-center gap-2.5 py-2 ${i < visible.length - 1 ? 'border-b border-gray-50 dark:border-slate-700/50' : ''}`}>
+          <span className={`text-[10px] font-bold w-4 text-center ${i === 0 ? 'text-amber-500' : 'text-gray-500 dark:text-slate-400'}`}>#{i + 1}</span>
+          {agent.photo ? (
+            <img src={agent.photo} alt="" className="w-8 h-8 rounded-[10px] object-cover flex-shrink-0" />
+          ) : (
+            <div className={`w-8 h-8 rounded-[10px] flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${AVATAR_COLORS[i % AVATAR_COLORS.length]}`}>
+              {getInitials(agent.name)}
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-gray-800 dark:text-white truncate">{agent.name}</p>
+            <div className="h-2.5 bg-gray-100 dark:bg-slate-700 rounded-[4px] overflow-hidden mt-1">
+              <div className={`h-full rounded-[4px] ${RANK_BAR_COLORS[i] || 'bg-gray-400'} transition-all duration-500`}
+                style={{ width: `${(agent.count / maxCount) * 100}%` }} />
+            </div>
+          </div>
+          <span className="text-xs font-bold text-gray-800 dark:text-white w-8 text-right">{agent.count}</span>
+        </div>
+      ))}
+      {agents.length > 5 && (
+        <button onClick={() => setShowAll(prev => !prev)}
+          className="w-full py-2.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20 transition-colors border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-center gap-1">
+          {showAll ? <><ChevronUp size={12} /> Tutup</> : <><ChevronDown size={12} /> Lihat semua agent</>}
+        </button>
+      )}
+    </Card>
+  );
+}
+
+// ── Main Component ──
+
+export default function TrenDaftarSection() {
+  const [data, setData] = useState<TrenData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selectedYear, setSelectedYear] = useState('');
+  const [availableYears, setAvailableYears] = useState<string[]>([]);
+  const mounted = useRef(false);
+
+  // Track page view once
+  useEffect(() => { if (!mounted.current) { trackEvent('feature', 'open_tren_daftar'); mounted.current = true; } }, []);
+
+  // Fetch available years
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/laporan/tren-daftar/years', { headers: { ...getAuthHeaders() } });
+        const json = await res.json();
+        if (json.success && json.data.length > 0) {
+          setAvailableYears(json.data);
+          setSelectedYear(json.data[0]);
+        }
+      } catch { /* silent */ }
+    })();
+  }, []);
+
+  // Fetch tren data when year changes
+  const fetchTren = useCallback(async (year: string) => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/laporan/tren-daftar?hijriahYear=${year}`, { headers: { ...getAuthHeaders() } });
+      const json = await res.json();
+      if (json.success) setData(json.data);
+      else setError(json.error || 'Gagal memuat data');
+    } catch {
+      setError('Gagal terhubung ke server');
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { if (selectedYear) fetchTren(selectedYear); }, [selectedYear, fetchTren]);
+
+  const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+  const gridStroke = isDark ? '#1e293b' : '#f1f5f9';
+
+  // Loading skeleton
+  if (loading && !data) {
+    return (
+      <div className="px-4 pt-4 pb-8 space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          {[1,2,3,4].map(i => <div key={i} className="h-24 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />)}
+        </div>
+        <div className="h-52 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
+        <div className="h-40 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
+        <div className="h-40 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
+      </div>
+    );
+  }
+
+  // Error state
+  if (error && !data) {
+    return (
+      <div className="px-4 pt-4">
+        <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-2xl text-center">
+          <p className="text-xs text-red-600 dark:text-red-400 font-medium">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const d = data;
+  const growthPositive = d.summary.growthPct >= 0;
+
+  return (
+    <div className={`px-4 pt-4 pb-8 space-y-3 transition-opacity ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
+
+      {/* Year Selector */}
+      {availableYears.length > 1 && (
+        <div className="flex justify-end">
+          <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)}
+            className="h-8 text-[10px] font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2 pr-6 outline-none appearance-none cursor-pointer"
+            style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
+          >
+            {availableYears.map(y => <option key={y} value={y}>{y} H</option>)}
+          </select>
+        </div>
+      )}
+
+      {/* Section 1: Stat Cards */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
+          <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center border border-emerald-100 dark:border-emerald-800/40 mb-2">
+            <Users size={16} className="text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <p className="text-2xl font-bold text-gray-800 dark:text-white">{d.summary.totalDaftar}</p>
+          <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Total Daftar {d.period}H</p>
+          <span className={`inline-block mt-1.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-md ${
+            growthPositive ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400' : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
+          }`}>{growthPositive ? '+' : ''}{d.summary.growthPct}% vs {d.periodPrev}H</span>
+        </div>
+
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
+          <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center border border-blue-100 dark:border-blue-800/40 mb-2">
+            <Calendar size={16} className="text-blue-600 dark:text-blue-400" />
+          </div>
+          <p className="text-2xl font-bold text-gray-800 dark:text-white">{d.summary.avgPerMonth}</p>
+          <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Rata-rata / Bulan</p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
+          <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center border border-amber-100 dark:border-amber-800/40 mb-2">
+            <Star size={16} className="text-amber-600 dark:text-amber-400" />
+          </div>
+          <p className="text-lg font-bold text-gray-800 dark:text-white">{d.summary.peakMonth}</p>
+          <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Bulan Puncak</p>
+          <span className="inline-block mt-1.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400">{d.summary.peakMonthCount} jamaah</span>
+        </div>
+
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
+          <div className="w-8 h-8 rounded-lg bg-violet-50 dark:bg-violet-900/20 flex items-center justify-center border border-violet-100 dark:border-violet-800/40 mb-2">
+            <TrendingUp size={16} className="text-violet-600 dark:text-violet-400" />
+          </div>
+          <p className={`text-2xl font-bold ${growthPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{growthPositive ? '+' : ''}{d.summary.growthPct}%</p>
+          <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Growth YoY</p>
+          <span className="inline-block mt-1.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-600 dark:bg-violet-900/20 dark:text-violet-400">{d.summary.totalDaftarPrev} &rarr; {d.summary.totalDaftar}</span>
+        </div>
+      </div>
+
+      {/* Section 2: Pendaftaran per Bulan */}
+      <Card title="Pendaftaran per Bulan" extra={
+        <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">{d.period}H vs {d.periodPrev}H</span>
+      }>
+        <div className="flex gap-3 mb-2">
+          <span className="flex items-center gap-1.5 text-[10px] text-gray-400 font-medium"><span className="w-2 h-2 rounded-full bg-emerald-500" />{d.period}H</span>
+          <span className="flex items-center gap-1.5 text-[10px] text-gray-400 font-medium"><span className="w-2 h-2 rounded-full bg-gray-300" />{d.periodPrev}H</span>
+        </div>
+        <ResponsiveContainer width="100%" height={180}>
+          <BarChart data={d.monthly} margin={{ top: 8, right: 12, left: -20, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+            <Tooltip content={({ active, payload, label }: any) => {
+              if (!active || !payload?.length) return null;
+              return (
+                <div className="bg-white dark:bg-slate-800 shadow-lg border border-gray-100 dark:border-slate-700 rounded-xl px-3 py-2">
+                  <p className="text-[10px] text-gray-400 font-medium">{label}</p>
+                  <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{payload[0]?.value} jamaah</p>
+                  {payload[1] && <p className="text-[10px] text-gray-400">{d.periodPrev}H: {payload[1].value}</p>}
+                </div>
+              );
+            }} />
+            <Bar dataKey="count" name={`${d.period}H`} fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={14} />
+            <Bar dataKey="countPrev" name={`${d.periodPrev}H`} fill="#d1d5db" radius={[4, 4, 0, 0]} maxBarSize={14} />
+          </BarChart>
+        </ResponsiveContainer>
+      </Card>
+
+      {/* Section 3: Revenue Masuk per Bulan */}
+      <Card title="Revenue Masuk per Bulan" extra={
+        <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">{d.period}H</span>
+      }>
+        <div className="flex gap-4 mb-3">
+          <div>
+            <p className="text-[10px] text-gray-400">Total Masuk</p>
+            <p className="text-base font-bold text-emerald-600 dark:text-emerald-400">{fmtRpShort(d.revenue.totalMasuk)}</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-400">Rata-rata/bln</p>
+            <p className="text-base font-bold text-gray-800 dark:text-white">{fmtRpShort(d.revenue.avgPerMonth)}</p>
+          </div>
+        </div>
+        <ResponsiveContainer width="100%" height={160}>
+          <AreaChart data={d.revenue.monthly} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
+            <defs>
+              <linearGradient id="trenEmeraldGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
+                <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false}
+              tickFormatter={(v: number) => v >= 1_000_000_000 ? `${(v/1_000_000_000).toFixed(1)}M` : v >= 1_000_000 ? `${(v/1_000_000).toFixed(0)}jt` : String(v)} />
+            <Tooltip content={({ active, payload, label }: any) => {
+              if (!active || !payload?.length) return null;
+              return (
+                <div className="bg-white dark:bg-slate-800 shadow-lg border border-gray-100 dark:border-slate-700 rounded-xl px-3 py-2">
+                  <p className="text-[10px] text-gray-400 font-medium">{label}</p>
+                  <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtRp(payload[0]?.value as number)}</p>
+                </div>
+              );
+            }} />
+            <Area type="monotone" dataKey="total" stroke="#10b981" strokeWidth={2.5} fill="url(#trenEmeraldGrad)"
+              dot={{ r: 3, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </Card>
+
+      {/* Section 4: Heatmap Pendaftaran */}
+      <Card title="Heatmap Pendaftaran">
+        {(() => {
+          const years = Object.keys(d.heatmap).sort((a, b) => b.localeCompare(a));
+          const allVals = years.flatMap(y => d.heatmap[y]);
+          const hMin = Math.min(...allVals.filter(v => v > 0), 0);
+          const hMax = Math.max(...allVals, 1);
+          const COLORS = ['#d1fae5', '#6ee7b7', '#34d399', '#10b981', '#065f46'];
+          const getColor = (v: number) => v === 0 ? (isDark ? '#1e293b' : '#f3f4f6') : COLORS[Math.min(4, Math.floor(((v - hMin) / (hMax - hMin)) * 4.99))];
+          const getTextColor = (v: number) => { const idx = v === 0 ? -1 : Math.min(4, Math.floor(((v - hMin) / (hMax - hMin)) * 4.99)); return idx >= 3 ? '#fff' : '#065f46'; };
+          return (
+            <div>
+              <div className="grid gap-[3px] mb-1" style={{ gridTemplateColumns: '36px repeat(12, 1fr)' }}>
+                <div />
+                {MONTH_LABELS.map(m => <div key={m} className="text-[9px] text-gray-400 text-center">{m}</div>)}
+              </div>
+              {years.map(yr => (
+                <div key={yr} className="grid gap-[3px] mb-[3px]" style={{ gridTemplateColumns: '36px repeat(12, 1fr)' }}>
+                  <div className="text-[9px] font-bold text-gray-500 dark:text-slate-400 flex items-center">{yr}H</div>
+                  {d.heatmap[yr].map((v, i) => (
+                    <div key={i} className="aspect-square rounded-[4px] flex items-center justify-center"
+                      style={{ backgroundColor: getColor(v), color: v === 0 ? (isDark ? '#475569' : '#d1d5db') : getTextColor(v) }}>
+                      <span className="text-[8px] font-bold">{v || ''}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <div className="flex items-center justify-end gap-1.5 mt-2">
+                <span className="text-[9px] text-gray-400">Sedikit</span>
+                {COLORS.map((c, i) => <div key={i} className="w-3 h-3 rounded-[3px]" style={{ backgroundColor: c }} />)}
+                <span className="text-[9px] text-gray-400">Banyak</span>
+              </div>
+            </div>
+          );
+        })()}
+      </Card>
+
+      {/* Section 5: Insight Cards */}
+      <Card title="Insight">
+        {([
+          { icon: Clock, bg: 'bg-emerald-50 dark:bg-emerald-900/20', iconColor: 'text-emerald-600 dark:text-emerald-400', title: 'Lead time rata-rata', desc: 'Dari daftar sampai berangkat', value: `${d.insights.leadTimeAvg} bln`, vColor: 'text-emerald-600 dark:text-emerald-400' },
+          { icon: CheckCircle, bg: 'bg-blue-50 dark:bg-blue-900/20', iconColor: 'text-blue-600 dark:text-blue-400', title: 'Conversion rate', desc: 'Jamaah yang sudah lunas', value: `${d.insights.conversionRate}%`, vColor: 'text-blue-600 dark:text-blue-400' },
+          { icon: Wallet, bg: 'bg-emerald-50 dark:bg-emerald-900/20', iconColor: 'text-emerald-600 dark:text-emerald-400', title: 'Kecepatan pelunasan', desc: 'Rata-rata waktu lunas', value: `${d.insights.pelunasanAvg} bln`, vColor: 'text-emerald-600 dark:text-emerald-400' },
+          { icon: TrendingDown, bg: 'bg-amber-50 dark:bg-amber-900/20', iconColor: 'text-amber-600 dark:text-amber-400', title: 'Bulan paling sepi', desc: 'Pendaftaran terendah', value: `${d.summary.slowestMonth} (${d.summary.slowestMonthCount})`, vColor: 'text-amber-600 dark:text-amber-400' },
+          { icon: Package, bg: 'bg-violet-50 dark:bg-violet-900/20', iconColor: 'text-violet-600 dark:text-violet-400', title: 'Paket terlaris', desc: 'Paling banyak diminati', value: d.insights.topPaket, vColor: 'text-violet-600 dark:text-violet-400' },
+        ] as const).map((item, i) => {
+          const Icon = item.icon;
+          return (
+            <div key={i} className={`flex items-center gap-2.5 py-2.5 ${i < 4 ? 'border-b border-gray-50 dark:border-slate-700/50' : ''}`}>
+              <div className={`w-9 h-9 rounded-[10px] ${item.bg} flex items-center justify-center flex-shrink-0`}>
+                <Icon size={16} className={item.iconColor} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-gray-800 dark:text-white">{item.title}</p>
+                <p className="text-[11px] text-gray-400 dark:text-slate-500">{item.desc}</p>
+              </div>
+              <span className={`text-sm font-bold flex-shrink-0 ${item.vColor}`}>{item.value}</span>
+            </div>
+          );
+        })}
+      </Card>
+
+      {/* Section 6: Distribusi Gender */}
+      <Card title="Distribusi Gender" extra={<span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">{d.period}H</span>}>
+        {(() => {
+          const total = d.gender.perempuan + d.gender.lakiLaki || 1;
+          const pPct = Math.round((d.gender.perempuan / total) * 100);
+          const lPct = 100 - pPct;
+          return (
+            <div>
+              <div className="flex items-center justify-center gap-4">
+                <div className="text-center">
+                  <div className="w-20 h-20 rounded-full border-[3px] border-pink-500 bg-pink-50 dark:bg-pink-900/20 flex flex-col items-center justify-center">
+                    <span className="text-xl font-bold text-pink-500">{pPct}%</span>
+                    <span className="text-[10px] font-semibold text-pink-500">Perempuan</span>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">{d.gender.perempuan} orang</p>
+                </div>
+                <span className="text-[10px] font-bold text-gray-300 dark:text-slate-600">vs</span>
+                <div className="text-center">
+                  <div className="w-20 h-20 rounded-full border-[3px] border-blue-500 bg-blue-50 dark:bg-blue-900/20 flex flex-col items-center justify-center">
+                    <span className="text-xl font-bold text-blue-500">{lPct}%</span>
+                    <span className="text-[10px] font-semibold text-blue-500">Laki-laki</span>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">{d.gender.lakiLaki} orang</p>
+                </div>
+              </div>
+              <div className="flex h-2.5 rounded-full overflow-hidden w-full mt-3">
+                <div className="bg-pink-500" style={{ width: `${pPct}%` }} />
+                <div className="bg-blue-500" style={{ width: `${lPct}%` }} />
+              </div>
+              <div className="flex justify-between mt-1">
+                <span className="text-[9px] font-semibold text-pink-500">{pPct}% Perempuan</span>
+                <span className="text-[9px] font-semibold text-blue-500">{lPct}% Laki-laki</span>
+              </div>
+            </div>
+          );
+        })()}
+      </Card>
+
+      {/* Section 7: Distribusi Umur */}
+      <Card title="Distribusi Umur Jamaah">
+        {(() => {
+          const AGE_COLORS = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+          const maxPct = Math.max(...d.ageDistribution.map(a => a.pct), 1);
+          const topAge = d.ageDistribution.reduce((a, b) => b.pct > a.pct ? b : a, d.ageDistribution[0]);
+          return (
+            <div>
+              {d.ageDistribution.map((item, i) => (
+                <div key={i} className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] font-semibold text-gray-500 w-[50px] flex-shrink-0">{item.range}</span>
+                  <div className="flex-1 h-4 bg-gray-100 dark:bg-slate-700 rounded-[5px] overflow-hidden">
+                    <div className="h-full rounded-[5px] transition-all duration-500" style={{ width: `${(item.pct / maxPct) * 100}%`, backgroundColor: AGE_COLORS[i] }} />
+                  </div>
+                  <span className="text-[10px] font-bold w-9 text-right" style={{ color: AGE_COLORS[i] }}>{item.pct}%</span>
+                </div>
+              ))}
+              <div className="mt-2.5 p-2.5 bg-gray-50 dark:bg-slate-900 rounded-[10px]">
+                <p className="text-[11px] font-semibold text-gray-700 dark:text-slate-300">Mayoritas usia {topAge?.range} tahun ({topAge?.pct}%)</p>
+                <p className="text-[10px] text-gray-400">Rata-rata umur: {d.ageAvg} tahun</p>
+              </div>
+            </div>
+          );
+        })()}
+      </Card>
+
+      {/* Section 8: Lead Time Pendaftaran */}
+      <Card title="Lead Time Pendaftaran">
+        <p className="text-[11px] text-gray-400 mb-3">Berapa bulan sebelum berangkat jamaah mendaftar</p>
+        {(() => {
+          const LT_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6'];
+          const maxPct = Math.max(...d.leadTimeDistribution.map(l => l.pct), 1);
+          return d.leadTimeDistribution.map((item, i) => (
+            <div key={i} className="flex items-center gap-2 mb-2">
+              <span className="text-[10px] font-semibold text-gray-500 w-[60px] flex-shrink-0">{item.range}</span>
+              <div className="flex-1 h-4 bg-gray-100 dark:bg-slate-700 rounded-[5px] overflow-hidden">
+                <div className="h-full rounded-[5px] transition-all duration-500" style={{ width: `${(item.pct / maxPct) * 100}%`, backgroundColor: LT_COLORS[i] }} />
+              </div>
+              <span className="text-[10px] font-bold w-9 text-right" style={{ color: LT_COLORS[i] }}>{item.pct}%</span>
+            </div>
+          ));
+        })()}
+      </Card>
+
+      {/* Section 9: Kecepatan Pelunasan */}
+      <Card title="Kecepatan Pelunasan">
+        <p className="text-[11px] text-gray-400 mb-3">Rata-rata waktu dari daftar sampai lunas</p>
+        {(() => {
+          const PL_COLORS = ['#10b981', '#34d399', '#3b82f6', '#f59e0b', '#ef4444'];
+          const maxPct = Math.max(...d.pelunasanDistribution.map(p => p.pct), 1);
+          return (
+            <div>
+              {d.pelunasanDistribution.map((item, i) => (
+                <div key={i} className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] font-semibold text-gray-500 w-[60px] flex-shrink-0">{item.range}</span>
+                  <div className="flex-1 h-4 bg-gray-100 dark:bg-slate-700 rounded-[5px] overflow-hidden">
+                    <div className="h-full rounded-[5px] transition-all duration-500" style={{ width: `${(item.pct / maxPct) * 100}%`, backgroundColor: PL_COLORS[i] }} />
+                  </div>
+                  <span className="text-[10px] font-bold w-9 text-right" style={{ color: PL_COLORS[i] }}>{item.pct}%</span>
+                </div>
+              ))}
+              <div className="mt-2.5 p-2.5 bg-gray-50 dark:bg-slate-900 rounded-[10px]">
+                <p className="text-[11px] font-semibold text-gray-700 dark:text-slate-300">{d.pelunasanFastPct}% lunas dalam 1 bulan pertama</p>
+                <p className="text-[10px] text-gray-400">Rata-rata: {d.insights.pelunasanAvg} bulan dari tanggal daftar</p>
+              </div>
+            </div>
+          );
+        })()}
+      </Card>
+
+      {/* Section 10: Daftar vs Berangkat */}
+      <Card title="Daftar vs Berangkat">
+        <p className="text-[11px] text-gray-400 mb-2.5">Kapan jamaah daftar untuk berangkat bulan apa</p>
+        {(() => {
+          const allVals = d.daftarVsBerangkat.flat().filter(v => v > 0);
+          const cMin = Math.min(...allVals, 0);
+          const cMax = Math.max(...allVals, 1);
+          const CORR_COLORS = ['#dbeafe', '#93c5fd', '#60a5fa', '#3b82f6', '#1e40af'];
+          const getC = (v: number) => v === 0 ? (isDark ? '#1e293b' : '#f3f4f6') : CORR_COLORS[Math.min(4, Math.floor(((v - cMin) / (cMax - cMin)) * 4.99))];
+          const getT = (v: number) => { const idx = v === 0 ? -1 : Math.min(4, Math.floor(((v - cMin) / (cMax - cMin)) * 4.99)); return idx >= 3 ? '#fff' : '#1e40af'; };
+          return (
+            <div className="overflow-x-auto">
+              <div style={{ minWidth: 340 }}>
+                <div className="grid gap-[2px] mb-[2px]" style={{ gridTemplateColumns: '32px repeat(12, 1fr)' }}>
+                  <div className="text-[7px] text-gray-300 dark:text-slate-600 text-center">Brkt&rarr;</div>
+                  {MONTH_LABELS.map(m => <div key={m} className="text-[9px] text-gray-400 text-center">{m}</div>)}
+                </div>
+                {d.daftarVsBerangkat.map((row, ri) => (
+                  <div key={ri} className="grid gap-[2px] mb-[2px]" style={{ gridTemplateColumns: '32px repeat(12, 1fr)' }}>
+                    <div className="text-[9px] text-gray-400 text-right pr-1 flex items-center justify-end">{MONTH_LABELS[ri]}</div>
+                    {row.map((v, ci) => (
+                      <div key={ci} className="min-h-[22px] rounded-[3px] flex items-center justify-center"
+                        style={{ backgroundColor: getC(v), color: v === 0 ? (isDark ? '#475569' : '#d1d5db') : getT(v) }}>
+                        <span className="text-[7px] font-bold">{v || ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                <div className="flex items-center justify-between mt-2">
+                  <span className="text-[9px] text-gray-400">Sumbu Y = bulan daftar</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] text-gray-400">Sedikit</span>
+                    {CORR_COLORS.map((c, i) => <div key={i} className="w-3 h-3 rounded-[3px]" style={{ backgroundColor: c }} />)}
+                    <span className="text-[9px] text-gray-400">Banyak</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </Card>
+
+      {/* Section 11: Ranking Agent */}
+      <AgentRankingSection agents={d.agentRanking} year={d.period} />
+
+      {/* Section 12: Paket Terpopuler */}
+      <Card title="Paket Terpopuler" extra={<span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">{d.period}H</span>}>
+        {d.paketRanking.map((item, i) => {
+          const BADGE_COLORS = ['bg-emerald-500', 'bg-blue-500', 'bg-violet-500', 'bg-amber-500'];
+          const bc = BADGE_COLORS[i] || 'bg-gray-400';
+          return (
+            <div key={i} className={`flex items-center gap-2.5 py-2 ${i < d.paketRanking.length - 1 ? 'border-b border-gray-50 dark:border-slate-700/50' : ''}`}>
+              <div className={`w-5 h-5 rounded-[6px] ${bc} flex items-center justify-center flex-shrink-0`}>
+                <span className="text-[10px] font-bold text-white">{i + 1}</span>
+              </div>
+              <span className="text-xs font-semibold text-gray-800 dark:text-white flex-1">{item.paket}</span>
+              <span className="text-[13px] font-bold text-gray-800 dark:text-white">{item.count}</span>
+              <span className="text-[10px] text-gray-400 ml-1">{item.pct}%</span>
+            </div>
+          );
+        })}
+      </Card>
+    </div>
+  );
+}
