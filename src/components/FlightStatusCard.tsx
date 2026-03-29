@@ -47,7 +47,7 @@ interface FlightData {
 
 const STATUS_CFG: Record<string, { label: string; color: string; bg: string }> = {
   'en-route':  { label: 'Terbang',     color: '#3b82f6', bg: 'bg-blue-500' },
-  'scheduled': { label: 'Terjadwal',   color: '#6b7280', bg: 'bg-gray-400 dark:bg-slate-500' },
+  'scheduled': { label: 'Terjadwal',   color: '#0ea5e9', bg: 'bg-sky-500' },
   'landed':    { label: 'Mendarat',    color: '#10b981', bg: 'bg-emerald-500' },
   'delayed':   { label: 'Delay',       color: '#ef4444', bg: 'bg-red-500' },
   'cancelled': { label: 'Dibatalkan',  color: '#dc2626', bg: 'bg-red-600' },
