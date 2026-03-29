@@ -32,6 +32,22 @@ const supabase = createClient(
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
 
+// ── Helper: fetch all rows from a Supabase query (bypasses 1000-row PostgREST limit) ──
+async function fetchAllRows(queryBuilder) {
+  const PAGE_SIZE = 1000;
+  let allRows = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await queryBuilder.range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allRows = allRows.concat(data);
+    if (data.length < PAGE_SIZE) break; // last page
+    from += PAGE_SIZE;
+  }
+  return allRows;
+}
+
 app.use(express.json());
 
 // ── Analytics: fire-and-forget event logger ──
@@ -1741,6 +1757,7 @@ app.post('/api/laporan/login', authMiddleware, async (req, res) => {
 // Hijriah year boundary but departing within the year. The actual hijriah_year
 // assignment uses HIJRIAH_RANGES below (based on tgl_berangkat).
 const HIJRIAH_YEARS = {
+  '1446': { tglAwal: '2024-03-08', tglAkhir: '2025-06-25' },
   '1447': { tglAwal: '2024-12-26', tglAkhir: '2026-06-15' },
   '1448': { tglAwal: '2025-12-16', tglAkhir: '2027-06-05' },
   '1449': { tglAwal: '2026-12-06', tglAkhir: '2028-05-25' },
@@ -1842,16 +1859,28 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     if (!range) continue;
 
     const kantor = agent.jamaah_kantor || '2';
-    const fetchResult = await fetchLaporan(agent.jamaah_username, {
+    let fetchResult = await fetchLaporan(agent.jamaah_username, {
       kantor,
       agentId: agent.jamaah_username,
       tglAwal: range.tglAwal,
       tglAkhir: range.tglAkhir,
     });
 
+    // Session expired? Re-login and retry once
     if (!fetchResult.success) {
-      console.error(`[Sync] ${slug} year ${year} kantor ${kantor}: fetch failed`);
-      continue;
+      console.log(`[Sync] ${slug} year ${year}: fetch failed, re-logging in...`);
+      laporanDisconnect(agent.jamaah_username);
+      const reLogin = await laporanLogin(agent.jamaah_username, decrypted, kantor);
+      if (reLogin.success) {
+        fetchResult = await fetchLaporan(agent.jamaah_username, {
+          kantor, agentId: agent.jamaah_username,
+          tglAwal: range.tglAwal, tglAkhir: range.tglAkhir,
+        });
+      }
+      if (!fetchResult.success) {
+        console.error(`[Sync] ${slug} year ${year} kantor ${kantor}: fetch failed after retry`);
+        continue;
+      }
     }
 
     const { items: allItems } = parseLaporanHtml(fetchResult.html);
@@ -3327,12 +3356,10 @@ app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
 // ── Tren Daftar: Available Hijriah Years (Admin only) ──
 app.get('/api/laporan/tren-daftar/years', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('jamaah')
-      .select('hijriah_year')
-      .not('hijriah_year', 'is', null);
-    if (error) throw error;
-    const years = [...new Set((data || []).map(d => d.hijriah_year))].sort((a, b) => b.localeCompare(a));
+    const data = await fetchAllRows(
+      supabase.from('jamaah').select('hijriah_year').not('hijriah_year', 'is', null)
+    );
+    const years = [...new Set(data.map(d => d.hijriah_year))].sort((a, b) => b.localeCompare(a));
     res.json({ success: true, data: years });
   } catch (err) {
     console.error('[TrenDaftar] Years error:', err.message);
@@ -3355,13 +3382,13 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
     const prevYear = String(Number(year) - 1);
 
     // Fetch all jamaah for this year + prev year
-    const [{ data: rowsCur }, { data: rowsPrev }] = await Promise.all([
-      supabase.from('jamaah').select('tgl_daftar, tgl_berangkat, tgl_lahir, jk, bayar, sisa, paket, agent_slug').eq('hijriah_year', year),
-      supabase.from('jamaah').select('tgl_daftar').eq('hijriah_year', prevYear),
+    const [rowsCur, rowsPrev] = await Promise.all([
+      fetchAllRows(supabase.from('jamaah').select('tgl_daftar, tgl_berangkat, tgl_lahir, jk, bayar, sisa, paket, agent_slug').eq('hijriah_year', year)),
+      fetchAllRows(supabase.from('jamaah').select('tgl_daftar').eq('hijriah_year', prevYear)),
     ]);
 
-    const cur = rowsCur || [];
-    const prev = rowsPrev || [];
+    const cur = rowsCur;
+    const prev = rowsPrev;
 
     // Summary
     const totalDaftar = cur.length;
@@ -3407,8 +3434,8 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
     }));
 
     // Heatmap (3 years)
-    const { data: heatYearsRaw } = await supabase.from('jamaah').select('hijriah_year').not('hijriah_year', 'is', null);
-    const allYears = [...new Set((heatYearsRaw || []).map(d => d.hijriah_year))].sort((a, b) => b.localeCompare(a)).slice(0, 3);
+    const heatYearsRaw = await fetchAllRows(supabase.from('jamaah').select('hijriah_year').not('hijriah_year', 'is', null));
+    const allYears = [...new Set(heatYearsRaw.map(d => d.hijriah_year))].sort((a, b) => b.localeCompare(a)).slice(0, 3);
 
     const heatmap = {};
     heatmap[year] = [...monthlyCur];
@@ -3416,9 +3443,9 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
 
     for (const hy of allYears) {
       if (heatmap[hy]) continue;
-      const { data: hyRows } = await supabase.from('jamaah').select('tgl_daftar').eq('hijriah_year', hy);
+      const hyRows = await fetchAllRows(supabase.from('jamaah').select('tgl_daftar').eq('hijriah_year', hy));
       const arr = new Array(12).fill(0);
-      (hyRows || []).forEach(j => { if (j.tgl_daftar) { arr[new Date(j.tgl_daftar).getMonth()]++; } });
+      hyRows.forEach(j => { if (j.tgl_daftar) { arr[new Date(j.tgl_daftar).getMonth()]++; } });
       heatmap[hy] = arr;
     }
     for (const hy of allYears) { if (!heatmap[hy]) heatmap[hy] = new Array(12).fill(0); }
@@ -3550,12 +3577,10 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
 
   try {
     // ── availableYears ──
-    const { data: ayData } = await supabase
-      .from('jamaah')
-      .select('hijriah_year')
-      .eq('agent_slug', slug)
-      .not('hijriah_year', 'is', null);
-    const availableYears = [...new Set((ayData || []).map(r => r.hijriah_year))].sort((a, b) => b.localeCompare(a));
+    const ayData = await fetchAllRows(
+      supabase.from('jamaah').select('hijriah_year').eq('agent_slug', slug).not('hijriah_year', 'is', null)
+    );
+    const availableYears = [...new Set(ayData.map(r => r.hijriah_year))].sort((a, b) => b.localeCompare(a));
 
     // Determine hijriah year — default to current Islamic year, fallback to latest available
     let year = req.query.year || null;
@@ -3592,8 +3617,8 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     // ── totalOutstanding: SUM(sisa) where sisa > 0 ──
     let outQ = supabase.from('jamaah').select('sisa').eq('agent_slug', slug).gt('sisa', 0);
     if (year) outQ = outQ.eq('hijriah_year', year);
-    const { data: outData } = await outQ;
-    const totalOutstanding = outData ? outData.reduce((s, r) => s + (r.sisa || 0), 0) : 0;
+    const outData = await fetchAllRows(outQ);
+    const totalOutstanding = outData.reduce((s, r) => s + (r.sisa || 0), 0);
 
     const todayStr = new Date().toISOString().split('T')[0];
     const now = new Date();
@@ -3606,7 +3631,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       .order('tgl_berangkat', { ascending: true })
       .order('nama', { ascending: true });
     if (year) bebQ = bebQ.eq('hijriah_year', year);
-    const { data: bebRows } = await bebQ;
+    const bebRows = await fetchAllRows(bebQ);
 
     let berangkatBulanIni = [];
     let berangkatSegera = 0;
@@ -3681,15 +3706,13 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     let trendQ = supabase.from('jamaah').select('tgl_daftar').eq('agent_slug', slug)
       .gte('tgl_daftar', tmStr).order('tgl_daftar', { ascending: true });
     if (year) trendQ = trendQ.eq('hijriah_year', year);
-    const { data: trendRows } = await trendQ;
+    const trendRows = await fetchAllRows(trendQ);
 
     const trendMap = new Map();
-    if (trendRows) {
-      for (const row of trendRows) {
-        if (!row.tgl_daftar) continue;
-        const bulan = row.tgl_daftar.substring(0, 7);
-        trendMap.set(bulan, (trendMap.get(bulan) || 0) + 1);
-      }
+    for (const row of trendRows) {
+      if (!row.tgl_daftar) continue;
+      const bulan = row.tgl_daftar.substring(0, 7);
+      trendMap.set(bulan, (trendMap.get(bulan) || 0) + 1);
     }
     const trend = Array.from(trendMap.entries())
       .map(([bulan, count]) => ({ bulan, count }))
@@ -3703,9 +3726,9 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       .order('sisa', { ascending: false })
       .order('tgl_berangkat', { ascending: true });
     if (year) olQ = olQ.eq('hijriah_year', year);
-    const { data: olRows } = await olQ;
+    const olRows = await fetchAllRows(olQ);
 
-    const outstandingList = (olRows || []).map(r => {
+    const outstandingList = olRows.map(r => {
       let hari_lagi = null;
       if (r.tgl_berangkat) {
         const dep = new Date(r.tgl_berangkat);
@@ -3729,13 +3752,13 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
 
     let komisiQ = supabase.from('jamaah').select('paket, sisa, tgl_berangkat').eq('agent_slug', slug);
     if (year) komisiQ = komisiQ.eq('hijriah_year', year);
-    const { data: komisiRows } = await komisiQ;
+    const komisiRows = await fetchAllRows(komisiQ);
 
     let sudahCair = 0, sudahCairCount = 0;
     let belumCair = 0, belumCairCount = 0;
     let potensi = 0, potensiCount = 0;
     let hematCount = 0, hematTotal = 0, regulerCount = 0, regulerTotal = 0;
-    for (const r of (komisiRows || [])) {
+    for (const r of komisiRows) {
       const rate = getRate(r.paket);
       const isLunas = !r.sisa || r.sisa === 0;
       const departed = r.tgl_berangkat && r.tgl_berangkat < todayStr;
@@ -3754,7 +3777,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       chartMap.set(ym, { bulan: ym, total: 0, count: 0 });
     }
-    for (const r of (komisiRows || [])) {
+    for (const r of komisiRows) {
       if (!r.tgl_berangkat || r.tgl_berangkat >= todayStr) continue;
       const isLunas = !r.sisa || r.sisa === 0;
       if (!isLunas) continue;
@@ -5001,16 +5024,28 @@ async function syncOneAgent(agent) {
       if (!range) continue;
 
       const kantor = agent.jamaah_kantor || '2';
-      const fetchResult = await fetchLaporan(agent.jamaah_username, {
+      let fetchResult = await fetchLaporan(agent.jamaah_username, {
         kantor,
         agentId: agent.jamaah_username,
         tglAwal: range.tglAwal,
         tglAkhir: range.tglAkhir,
       });
 
+      // Session expired? Re-login and retry once
       if (!fetchResult.success) {
-        console.error(`[SYNC] ${slug} year ${year} kantor ${kantor}: fetch failed`);
-        continue;
+        console.log(`[SYNC] ${slug} year ${year}: fetch failed, re-logging in...`);
+        laporanDisconnect(agent.jamaah_username);
+        const reLogin = await laporanLogin(agent.jamaah_username, decrypted, kantor);
+        if (reLogin.success) {
+          fetchResult = await fetchLaporan(agent.jamaah_username, {
+            kantor, agentId: agent.jamaah_username,
+            tglAwal: range.tglAwal, tglAkhir: range.tglAkhir,
+          });
+        }
+        if (!fetchResult.success) {
+          console.error(`[SYNC] ${slug} year ${year} kantor ${kantor}: fetch failed after retry`);
+          continue;
+        }
       }
 
       const { items: allItems } = parseLaporanHtml(fetchResult.html);

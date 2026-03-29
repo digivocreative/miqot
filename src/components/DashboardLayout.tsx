@@ -79,6 +79,13 @@ function getSettingsTabFromPath(): 'profil' | 'telegram' | 'capi' {
   return 'profil';
 }
 
+function getStatistikTabFromPath(): 'ringkasan' | 'tren' {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  // /dashboard/statistik/tren-daftar
+  if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'statistik' && segments[2] === 'tren-daftar') return 'tren';
+  return 'ringkasan';
+}
+
 function getAIToolsSubFromPath(): string | null {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
   // /dashboard/ai-tools/voice-over OR /dashboard/ai-tools/haji-plus/export
@@ -499,7 +506,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             </div>
           )}
           {activeTab === 'statistik' && (
-            <StatistikPage agentSlug={agentData.slug} role={agentData.role} onHeaderRight={setStatistikHeaderRight} />
+            <StatistikPage agentSlug={agentData.slug} role={agentData.role} onHeaderRight={setStatistikHeaderRight} initialStatTab={getStatistikTabFromPath()} />
           )}
           {activeTab === 'jamaah' && (
             <JamaahPage

@@ -120,30 +120,14 @@ function AgentRankingSection({ agents, year }: { agents: AgentRank[]; year: stri
 
 // ── Main Component ──
 
-export default function TrenDaftarSection() {
+export default function TrenDaftarSection({ selectedYear }: { selectedYear: string }) {
   const [data, setData] = useState<TrenData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selectedYear, setSelectedYear] = useState('');
-  const [availableYears, setAvailableYears] = useState<string[]>([]);
   const mounted = useRef(false);
 
   // Track page view once
   useEffect(() => { if (!mounted.current) { trackEvent('feature', 'open_tren_daftar'); mounted.current = true; } }, []);
-
-  // Fetch available years
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch('/api/laporan/tren-daftar/years', { headers: { ...getAuthHeaders() } });
-        const json = await res.json();
-        if (json.success && json.data.length > 0) {
-          setAvailableYears(json.data);
-          setSelectedYear(json.data[0]);
-        }
-      } catch { /* silent */ }
-    })();
-  }, []);
 
   // Fetch tren data when year changes
   const fetchTren = useCallback(async (year: string) => {
@@ -197,18 +181,6 @@ export default function TrenDaftarSection() {
 
   return (
     <div className={`px-4 pt-4 pb-8 space-y-3 transition-opacity ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
-
-      {/* Year Selector */}
-      {availableYears.length > 1 && (
-        <div className="flex justify-end">
-          <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)}
-            className="h-8 text-[10px] font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2 pr-6 outline-none appearance-none cursor-pointer"
-            style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
-          >
-            {availableYears.map(y => <option key={y} value={y}>{y} H</option>)}
-          </select>
-        </div>
-      )}
 
       {/* Section 1: Stat Cards */}
       <div className="grid grid-cols-2 gap-2">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   Loader2, Users, Plane, UserPlus, Wallet,
   Check, ChevronDown, X, RefreshCw, BarChart3, TrendingUp,
@@ -370,13 +370,14 @@ function StatistikSkeleton() {
 }
 
 // ── Component ──
-export default function StatistikPage({ agentSlug, role, onHeaderRight }: {
+export default function StatistikPage({ agentSlug, role, onHeaderRight, initialStatTab }: {
   agentSlug: string;
   role?: string;
   onHeaderRight?: (node: React.ReactNode) => void;
+  initialStatTab?: 'ringkasan' | 'tren';
 }) {
   const isAdmin = role === 'admin';
-  const [statTab, setStatTab] = useState<'ringkasan' | 'tren'>('ringkasan');
+  const [statTab, setStatTab] = useState<'ringkasan' | 'tren'>(initialStatTab || 'ringkasan');
   const [data, setData] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -385,6 +386,8 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight }: {
   const [showOutstandingModal, setShowOutstandingModal] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Admin: all years across all agents (for Tren Daftar dropdown)
+  const [allYears, setAllYears] = useState<string[]>([]);
 
   const fetchStats = useCallback(async (year?: string) => {
     setLoading(true);
@@ -407,7 +410,16 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight }: {
     setLoading(false);
   }, [selectedYear]);
 
-  useEffect(() => { fetchStats(); }, []);
+  useEffect(() => {
+    fetchStats();
+    // Admin: fetch all company-wide years for Tren Daftar
+    if (isAdmin) {
+      fetch('/api/laporan/tren-daftar/years', { headers: { ...getAuthHeaders() } })
+        .then(r => r.json())
+        .then(json => { if (json.success) setAllYears(json.data); })
+        .catch(() => {});
+    }
+  }, []);
 
   const initialMount = useRef(true);
   useEffect(() => {
@@ -431,8 +443,15 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight }: {
   }, [syncing, loading, fetchStats, selectedYear]);
 
   // Push year dropdown into header
+  // For admin: merge per-agent years with company-wide years
+  const dropdownYears = useMemo(() => {
+    if (!data) return [];
+    const merged = [...new Set([...data.availableYears, ...allYears])];
+    return merged.sort((a, b) => b.localeCompare(a));
+  }, [data, allYears]);
+
   useEffect(() => {
-    if (!data || !onHeaderRight || data.availableYears.length === 0) return;
+    if (!data || !onHeaderRight || dropdownYears.length === 0) return;
     onHeaderRight(
       <select
         value={selectedYear}
@@ -440,10 +459,10 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight }: {
         className="h-8 text-[10px] font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2 pr-6 outline-none appearance-none cursor-pointer shrink-0"
         style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
       >
-        {data.availableYears.map(y => <option key={y} value={y}>{y} H</option>)}
+        {dropdownYears.map(y => <option key={y} value={y}>{y} H</option>)}
       </select>
     );
-  }, [data, selectedYear, onHeaderRight]);
+  }, [data, selectedYear, onHeaderRight, dropdownYears]);
 
   // Sync handler
   const handleSync = async () => {
@@ -534,7 +553,13 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight }: {
               ]).map(tab => {
                 const active = statTab === tab.id;
                 return (
-                  <button key={tab.id} onClick={() => { setStatTab(tab.id); window.scrollTo({ top: 0 }); }}
+                  <button key={tab.id} onClick={() => {
+                    setStatTab(tab.id);
+                    window.scrollTo({ top: 0 });
+                    // Update URL slug
+                    const slug = tab.id === 'tren' ? '/dashboard/statistik/tren-daftar' : '/dashboard/statistik';
+                    window.history.replaceState({ tab: 'statistik' }, '', slug);
+                  }}
                     className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 active:opacity-70 ${
                       active ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-500 dark:text-emerald-400 font-semibold' : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium'
                     }`}
@@ -826,7 +851,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight }: {
             <div className="h-40 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
           </div>
         }>
-          <TrenDaftarSection />
+          <TrenDaftarSection selectedYear={selectedYear} />
         </Suspense>
       )}
     </div>
