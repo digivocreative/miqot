@@ -1,6 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronDown, TrendingUp, Search } from 'lucide-react';
 
+// Currency → Country flag emoji
+const FLAG: Record<string, string> = {
+  AUD: '🇦🇺', CAD: '🇨🇦', CHF: '🇨🇭', CNY: '🇨🇳', DKK: '🇩🇰',
+  EUR: '🇪🇺', GBP: '🇬🇧', HKD: '🇭🇰', JPY: '🇯🇵', MYR: '🇲🇾',
+  NOK: '🇳🇴', NZD: '🇳🇿', SAR: '🇸🇦', SEK: '🇸🇪', SGD: '🇸🇬',
+  THB: '🇹🇭', USD: '🇺🇸',
+};
+
 interface KursData {
   rates: Record<string, number>;
   names: Record<string, string>;
@@ -129,8 +137,8 @@ export default function KursPage() {
           {/* USD row */}
           {usdRate && (
             <div className="flex items-center gap-3 px-4 py-3.5">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center flex-shrink-0">
-                <span className="text-white text-lg font-extrabold">$</span>
+              <div className="w-10 h-10 rounded-xl bg-gray-50 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                <span className="text-2xl leading-none">🇺🇸</span>
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-gray-800 dark:text-white">USD</p>
@@ -151,8 +159,8 @@ export default function KursPage() {
           {/* SAR row */}
           {sarRate && (
             <div className="flex items-center gap-3 px-4 py-3.5">
-              <div className="w-10 h-10 rounded-xl bg-blue-500 flex items-center justify-center flex-shrink-0">
-                <span className="text-white text-xs font-extrabold">SR</span>
+              <div className="w-10 h-10 rounded-xl bg-gray-50 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                <span className="text-2xl leading-none">🇸🇦</span>
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-gray-800 dark:text-white">SAR</p>
@@ -221,10 +229,11 @@ export default function KursPage() {
                         <button
                           key={c}
                           onClick={() => { setCurrency(c); closeDropdown(); }}
-                          className={`w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors ${
+                          className={`w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors ${
                             c === currency ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''
                           }`}
                         >
+                          <span className="text-base leading-none">{FLAG[c] || '💱'}</span>
                           <span className={`text-xs font-bold ${c === currency ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-800 dark:text-white'}`}>
                             {c}
                           </span>
@@ -328,8 +337,8 @@ export default function KursPage() {
                     i > 0 ? 'border-t border-gray-50 dark:border-slate-700/50' : ''
                   }`}
                 >
-                  <div className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
-                    <span className="text-[10px] font-extrabold text-gray-500 dark:text-slate-400">{c}</span>
+                  <div className="w-7 h-7 rounded-lg bg-gray-50 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                    <span className="text-base leading-none">{FLAG[c] || '💱'}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-bold text-gray-800 dark:text-white">{c}</p>
