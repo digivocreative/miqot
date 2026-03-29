@@ -174,7 +174,8 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
     } finally {
       setLoading(false);
     }
-  }, [expandedId, flights.length]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flights.length]);
 
   useEffect(() => {
     fetchFlights();
@@ -332,10 +333,13 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                   </div>
 
                   {/* Chevron */}
-                  <ChevronDown
-                    size={13}
-                    className={`text-gray-300 dark:text-slate-600 flex-shrink-0 mt-1 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                  />
+                  <motion.div
+                    animate={{ rotate: isExpanded ? 180 : 0 }}
+                    transition={{ duration: 0.2, ease: 'easeInOut' }}
+                    className="text-gray-300 dark:text-slate-600 flex-shrink-0 mt-1"
+                  >
+                    <ChevronDown size={13} />
+                  </motion.div>
                 </button>
 
                 {/* ── Expanded detail ── */}
@@ -347,10 +351,10 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                       animate={{ height: 'auto', opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
                       transition={{
-                        height: { duration: 0.25, ease: [0.4, 0, 0.2, 1] },
-                        opacity: { duration: 0.2, ease: 'easeInOut' },
+                        height: { duration: 0.3, ease: [0.4, 0, 0.2, 1] },
+                        opacity: { duration: 0.2, delay: 0.05, ease: 'easeInOut' },
                       }}
-                      style={{ overflow: 'hidden' }}
+                      style={{ overflow: 'hidden', willChange: 'height' }}
                     >
                       <div className="border-t border-gray-50 dark:border-slate-700/50">
                         <div className="px-3 pb-3 pt-2 space-y-2.5">
