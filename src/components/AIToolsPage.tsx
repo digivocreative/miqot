@@ -1,4 +1,6 @@
+import { useEffect, useRef } from 'react';
 import { Mic, Image, CreditCard, BarChart3, Banknote } from 'lucide-react';
+import { trackEvent } from '../utils/analytics';
 
 interface AIToolsPageProps {
   onNavigate: (sub: string) => void;
@@ -76,6 +78,9 @@ const iconStyles: Record<string, { bg: string; text: string }> = {
 };
 
 export default function AIToolsPage({ onNavigate }: AIToolsPageProps) {
+  const tracked = useRef(false);
+  useEffect(() => { if (!tracked.current) { trackEvent('feature', 'open_ai_tools'); tracked.current = true; } }, []);
+
   return (
     <div className="px-4 pt-4 pb-8">
       <div className="flex flex-col gap-3">

@@ -8,6 +8,7 @@ import {
   KeyRound, Trash2,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 
 // ── WhatsApp SVG icon ──
 function WaIcon({ size = 14 }: { size?: number }) {
@@ -201,6 +202,9 @@ interface HajiPageProps {
 }
 
 export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChange }: HajiPageProps) {
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_jamaah_haji'); mountTracked.current = true; } }, []);
+
   const [view, setView] = useState<ViewState>('loading');
 
   // Login
@@ -363,6 +367,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
 
   // ── Sync handler (progressive — same as Umroh) ──
   const handleSync = async () => {
+    trackEvent('action', 'sync_jamaah_haji');
     setSyncing(true);
     setError('');
     setSyncedCount(0);
@@ -764,14 +769,14 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                           <div className="px-3 py-2.5 flex items-center gap-2 border-t border-gray-50 dark:border-slate-700/50">
                             {item.bpih_url && (
                               <button
-                                onClick={() => setDocViewer({ url: resolveInternalUrl(item.bpih_url), title: `BPIH - ${item.nama}` })}
+                                onClick={() => { setDocViewer({ url: resolveInternalUrl(item.bpih_url), title: `BPIH - ${item.nama}` }); trackEvent('action', 'view_bpih_doc', { jamaah: item.nama || '' }); }}
                                 className="flex-[3] flex items-center justify-center gap-1.5 text-[11px] font-semibold text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-900/20 px-2 py-2 rounded-xl border border-blue-100 dark:border-blue-800/40 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors active:scale-95">
                                 <FileText size={13} /> BPIH
                               </button>
                             )}
                             {item.surat_pernyataan_url && (
                               <button
-                                onClick={() => setDocViewer({ url: resolveInternalUrl(item.surat_pernyataan_url), title: `Pernyataan - ${item.nama}` })}
+                                onClick={() => { setDocViewer({ url: resolveInternalUrl(item.surat_pernyataan_url), title: `Pernyataan - ${item.nama}` }); trackEvent('action', 'view_pernyataan_doc', { jamaah: item.nama || '' }); }}
                                 className="flex-[5] flex items-center justify-center gap-1.5 text-[11px] font-semibold text-violet-600 bg-violet-50 dark:text-violet-400 dark:bg-violet-900/20 px-2 py-2 rounded-xl border border-violet-100 dark:border-violet-800/40 hover:bg-violet-100 dark:hover:bg-violet-900/30 transition-colors active:scale-95">
                                 <FileText size={13} /> Pernyataan
                               </button>
@@ -780,6 +785,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                               <a
                                 href={`https://wa.me/${item.telp.replace(/^0/, '62').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Assalamualaikum ${item.nama || ''}, saya dari Alhijaz Indowisata ingin menginformasikan terkait pendaftaran haji Anda (${item.id_haji}).`)}`}
                                 target="_blank" rel="noopener noreferrer"
+                                onClick={() => trackEvent('action', 'wa_click_haji', { jamaah: item.nama || '' })}
                                 className="flex-[2] flex items-center justify-center text-white bg-emerald-500 py-2 rounded-xl shadow-sm shadow-emerald-500/20 hover:bg-emerald-600 transition-colors active:scale-95">
                                 <WaIcon size={16} />
                               </a>

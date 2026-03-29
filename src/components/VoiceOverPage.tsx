@@ -57,6 +57,10 @@ function formatTanggal(dateStr: string): string {
 }
 
 export default function VoiceOverPage() {
+  // Mount tracking
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_voice_over'); mountTracked.current = true; } }, []);
+
   // Credits
   const [credits, setCredits] = useState<CreditData | null>(null);
 
@@ -191,7 +195,8 @@ export default function VoiceOverPage() {
       const url = URL.createObjectURL(blob);
       setAudioUrl(url);
       fetchCredits();
-      trackEvent('action', 'generate_voice', { voice: selectedVoice, chars: script.length });
+      const voiceObj = VOICES.find(v => v.id === selectedVoice);
+      trackEvent('action', 'generate_voice', { voice: voiceObj?.name || selectedVoice, gender: voiceObj?.gender || '' });
       setTimeout(() => {
         resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 100);
@@ -205,7 +210,7 @@ export default function VoiceOverPage() {
     a.href = audioUrl;
     a.download = 'voiceover.mp3';
     a.click();
-    trackEvent('action', 'download_voiceover', { format: 'mp3' });
+    trackEvent('action', 'download_mp3');
   };
 
   const handleDownloadWav = async () => {
@@ -225,7 +230,7 @@ export default function VoiceOverPage() {
       a.click();
       URL.revokeObjectURL(url);
       fetchCredits();
-      trackEvent('action', 'download_voiceover', { format: 'wav' });
+      trackEvent('action', 'download_wav');
     } catch { /* silent */ }
     setDownloadingWav(false);
   };

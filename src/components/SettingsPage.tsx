@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { User, Send, Code } from 'lucide-react';
 import DashboardProfile from './DashboardProfile';
 import { TelegramSection } from './DashboardProfile';
 import CapiPage from './CapiPage';
+import { trackEvent } from '../utils/analytics';
 
 interface AgentData {
   slug: string;
@@ -24,6 +25,9 @@ const TAB_CONFIG: { id: SettingsTab; label: string; icon: typeof User }[] = [
 ];
 
 export default function SettingsPage({ agent, onUpdated, initialTab }: { agent: AgentData; onUpdated: () => void; initialTab?: SettingsTab }) {
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_settings'); mountTracked.current = true; } }, []);
+
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab || 'profil');
 
   // Update tab on URL change (browser back/forward)

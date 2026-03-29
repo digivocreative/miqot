@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Download, Loader2, Share2, Check, Maximize2, Minimize2 } from 'lucide-react';
 import QRCode from 'qrcode';
+import { trackEvent } from '../utils/analytics';
 
 type DesignId = 'd1' | 'd2' | 'd3' | 'd4' | 'd5';
 type CardFormat = 'landscape' | 'portrait';
@@ -401,6 +402,9 @@ interface BusinessCardPageProps {
 }
 
 export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_business_card'); mountTracked.current = true; } }, []);
+
   const name = agent.name || 'Agent';
   const initials = getInitials(name);
   const role = 'Agen Umroh';
@@ -413,6 +417,7 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
 
   const [selectedDesign, setSelectedDesign] = useState<DesignId>('d1');
   const [format, setFormat] = useState<CardFormat>('landscape');
+  const hasTrackedGenerate = useRef(false);
   const [isExporting, setIsExporting] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState('');
   const currentDesign = DESIGNS.find(d => d.id === selectedDesign)!;
@@ -421,7 +426,13 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
     QRCode.toDataURL(`https://alhijaz.co/${agent.slug || 'agent'}`, {
       width: 200, margin: 1,
       color: { dark: currentDesign.qrColor.dark, light: currentDesign.qrColor.light },
-    }).then(setQrDataUrl);
+    }).then(url => {
+      setQrDataUrl(url);
+      if (!hasTrackedGenerate.current) {
+        trackEvent('action', 'generate_business_card', { theme: currentDesign.name, orientation: format });
+        hasTrackedGenerate.current = true;
+      }
+    });
   }, [agent.slug, selectedDesign]);
 
   const cardExportRef = useRef<HTMLDivElement>(null);
@@ -451,6 +462,7 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
       const { snapdom } = await import('@zumer/snapdom');
       const result = await snapdom(cardExportRef.current, { scale: 2 });
       await result.download({ type: 'png', filename: `kartu-nama-${agent.slug || 'agent'}-${format}` });
+      trackEvent('action', 'download_business_card', { theme: currentDesign.name });
     } catch (e) { console.error('Export gagal:', e); }
     finally { setIsExporting(false); }
   };

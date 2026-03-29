@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import { BarChart, Bar, AreaChart, Area, LineChart, Line, XAxis, YAxis, ResponsiveContainer, Cell, CartesianGrid, LabelList } from 'recharts';
 import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 
 // ── Types ──
 interface HajiPlusItem { year: number; pax: number; }
@@ -368,6 +369,7 @@ export default function HajiPlusExportPage({ agent }: {
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
+      trackEvent('action', 'export_haji_infographic', { year: data?.current?.year?.toString() || '' });
     } catch (err: any) {
       if (err?.name !== 'AbortError') console.error('Export failed:', err);
     } finally {

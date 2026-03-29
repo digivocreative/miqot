@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 
 const FlightMap = lazy(() => import('./FlightMap'));
 
@@ -254,7 +255,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
 
   useEffect(() => {
     fetchFlights();
-    refreshTimer.current = setInterval(() => fetchFlights(), 10 * 60 * 1000); // 10 minutes
+    refreshTimer.current = setInterval(() => fetchFlights(), 30 * 60 * 1000); // 30 minutes (reduced to save API quota)
     return () => { if (refreshTimer.current) clearInterval(refreshTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -335,7 +336,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
               >
                 {/* ── Collapsed row ── */}
                 <button
-                  onClick={() => setExpandedId(isExpanded ? null : flight.id)}
+                  onClick={() => { if (!isExpanded) trackEvent('action', 'view_flight_status', { flight: flight.flightNumber }); setExpandedId(isExpanded ? null : flight.id); }}
                   className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left active:bg-gray-50 dark:active:bg-slate-700/50 transition-colors"
                 >
                   {/* Time column */}

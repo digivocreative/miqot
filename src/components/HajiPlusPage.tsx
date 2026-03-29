@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Download, RefreshCw, BarChart3 as BarChart3Icon, Users, TrendingUp, CalendarRange } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, LabelList } from 'recharts';
 import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 
 // ── Types ──
 interface HajiPlusItem { year: number; pax: number; }
@@ -36,6 +37,9 @@ function CustomTooltip({ active, payload, label }: any) {
 // Main Page
 // ═══════════════════════════════════════
 export default function HajiPlusPage({ agent, onExport }: HajiPlusPageProps) {
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_haji_plus'); mountTracked.current = true; } }, []);
+
   const [data, setData] = useState<HajiPlusData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

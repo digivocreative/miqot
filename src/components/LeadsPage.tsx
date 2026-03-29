@@ -5,6 +5,7 @@ import {
   Search, ChevronDown, Trash2, X, ChevronUp, Send, UserPlus,
 } from 'lucide-react';
 import { getAuthHeaders, getStoredSession } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 
 // ── Types ──
 
@@ -168,6 +169,9 @@ function timeAgo(dateStr: string): string {
 // ── Component ──
 
 export default function LeadsPage() {
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_leads'); mountTracked.current = true; } }, []);
+
   const [leads, setLeads] = useState<QuizLead[]>([]);
   const [stats, setStats] = useState<LeadStats>({ total: 0, baru: 0, dihubungi: 0, closing: 0, tidak_berminat: 0 });
   const [loading, setLoading] = useState(true);
@@ -206,6 +210,7 @@ export default function LeadsPage() {
   const openWaTemplate = useCallback((lead: QuizLead, message: string) => {
     const encoded = encodeURIComponent(message);
     window.open(`https://wa.me/${lead.wa}?text=${encoded}`, '_blank');
+    trackEvent('action', 'wa_click_lead', { lead: lead.nama });
     setWaSheetClosing(true);
     setTimeout(() => {
       setWaSheetLead(null);
@@ -252,6 +257,7 @@ export default function LeadsPage() {
   // Status update
   const updateStatus = useCallback(async (id: string, status: string) => {
     try {
+      const oldLead = leads.find(l => l.id === id);
       await fetch(`/api/leads/${id}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -260,10 +266,11 @@ export default function LeadsPage() {
       setLeads(prev => prev.map(l => l.id === id ? { ...l, status: status as QuizLead['status'] } : l));
       setStatusDropdownId(null);
       fetchStats();
+      trackEvent('action', 'update_lead_status', { lead_id: id, from: oldLead?.status || '', to: status });
     } catch {
       // silent
     }
-  }, [fetchStats]);
+  }, [fetchStats, leads]);
 
   // Delete
   const handleDelete = useCallback(async () => {
@@ -280,6 +287,7 @@ export default function LeadsPage() {
         setDeleteClosing(false);
       }, 200);
       fetchStats();
+      trackEvent('action', 'delete_lead', { lead_id: deleteTarget.id });
     } catch {
       // silent
     }
@@ -573,6 +581,7 @@ export default function LeadsPage() {
                           href={`https://wa.me/${lead.wa}?text=${encodeURIComponent(`Assalamualaikum ${lead.nama}, saya ${agentName} dari Alhijaz \u{1F60A}\n\nSaya lihat Anda tertarik dengan paket umroh sekitar bulan ${formatDeparture(lead.answers?.departure || '')}. Kebetulan ada beberapa pilihan bagus yang pas dengan keinginan Anda.\n\nBoleh saya bantu jelaskan lebih lanjut?`)}`}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={() => trackEvent('action', 'wa_click_lead', { lead: lead.nama })}
                           className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold transition-all active:scale-95"
                         >
                           <svg className="w-3.5 h-3.5 fill-white" viewBox="0 0 24 24">

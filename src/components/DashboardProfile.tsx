@@ -3,6 +3,7 @@ import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil,
 import { getAuthHeaders } from './LoginPage';
 import PhotoCropModal from './PhotoCropModal';
 import { validateName, validatePhone, validateEmail, validateWebsite, cleanPhone, cleanWebsite } from '../utils/validation';
+import { trackEvent } from '../utils/analytics';
 
 interface AgentProfile {
   slug: string;
@@ -107,6 +108,7 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
   const handleToggle = async (key: string) => {
     const newValue = !prefs[key];
     setPrefs(prev => ({ ...prev, [key]: newValue }));
+    trackEvent('action', 'update_notif_prefs', { pref: key, value: newValue });
     try {
       const res = await fetch('/api/telegram/prefs', {
         method: 'PUT',

@@ -7,6 +7,7 @@ import type { UmrohPackage } from '../types/umroh-package';
 import { getPackages } from '../services/data-service';
 import { getDistance } from '../data/hotelService';
 import { sendCapiEvent } from '../lib/capi';
+import { trackPublicEvent } from '../utils/analytics';
 
 // ── Types ──
 
@@ -636,14 +637,19 @@ export default function QuizPage({ agent, agentSlug, onClose, packages }: QuizPa
   const progress = ((step + 1) / totalSteps) * 100;
 
   // Handle single select auto-advance
+  const quizStartTracked = useRef(false);
   const handleSingleSelect = useCallback((field: keyof QuizAnswers, value: string) => {
     setAnswers(prev => ({ ...prev, [field]: value }));
+    if (!quizStartTracked.current) {
+      trackPublicEvent(agentSlug, 'quiz_started', { slug: agentSlug });
+      quizStartTracked.current = true;
+    }
     setTimeout(() => {
       setSlideDir('forward');
       setAnimKey(k => k + 1);
       setStep(s => s + 1);
     }, 300);
-  }, []);
+  }, [agentSlug]);
 
   // Handle multi select toggle
   const handlePriorityToggle = useCallback((value: string) => {
@@ -684,6 +690,7 @@ export default function QuizPage({ agent, agentSlug, onClose, packages }: QuizPa
 
     // Fire CAPI event
     sendCapiEvent(agentSlug, 'contact', window.location.href);
+    trackPublicEvent(agentSlug, 'quiz_completed', { slug: agentSlug, answers });
 
     // Submit to server (formatted for human-readable display)
     const recommended = matchResults.map(r => ({

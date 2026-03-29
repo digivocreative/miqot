@@ -9,6 +9,7 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import WebItineraryView, { type ItineraryContent } from './WebItineraryView';
 import type { UmrohPackage } from '@/types';
+import { trackEvent } from '../utils/analytics';
 
 // Setup PDF.js Worker — primary CDN with fallback
 try {
@@ -302,7 +303,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title, paket, agentSl
       {paket && (
         <div className="flex gap-1.5 px-4 py-2 border-b border-gray-100 dark:border-slate-700/50 bg-white dark:bg-slate-800">
           <button
-            onClick={() => setActiveTab('web')}
+            onClick={() => { setActiveTab('web'); trackEvent('action', 'view_web_itinerary', { paket: paket?.nama || title }); }}
             className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-all ${
               activeTab === 'web'
                 ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
