@@ -28,6 +28,7 @@ interface FlightData {
   arrEstimated?: string;
   pax: number;
   tourLeader: string;
+  depDate?: string;  // full ISO for date display (airport local time)
   lat?: number;
   lng?: number;
   alt?: number;
@@ -57,9 +58,11 @@ const STATUS_CFG: Record<string, { label: string; color: string; bg: string }> =
 function formatTime(val?: string | null): string {
   if (!val) return '—';
   const s = String(val);
+  // Already "HH:mm" format from server (timezone-converted)
+  if (/^\d{2}:\d{2}$/.test(s)) return s;
   // "07.50" → "07:50"
   if (/^\d{2}\.\d{2}$/.test(s)) return s.replace('.', ':');
-  // ISO datetime → "HH:mm"
+  // ISO datetime → "HH:mm" (uses browser timezone as last resort)
   try {
     const d = new Date(s);
     if (!isNaN(d.getTime())) {
@@ -310,7 +313,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                   {/* Right info — date + terminal/gate */}
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <span className="text-[9px] font-semibold text-gray-400 dark:text-slate-500">
-                      {formatDate(flight.depScheduled)}
+                      {formatDate(flight.depDate || flight.depScheduled)}
                     </span>
                     {(flight.depTerminal || flight.depGate) && (
                       <div className="flex items-center gap-1">

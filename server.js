@@ -2241,6 +2241,68 @@ function estimateArrival(depTimeStr, durationMin) {
   } catch { return null; }
 }
 
+// ── Timezone helpers ──
+// Airport IATA → timezone offset in hours from UTC
+const AIRPORT_TZ_OFFSETS = {
+  'CGK': 7,   // Jakarta (WIB, UTC+7)
+  'SUB': 7,   // Surabaya (WIB, UTC+7)
+  'JOG': 7,   // Yogyakarta (WIB, UTC+7)
+  'SRG': 7,   // Semarang (WIB, UTC+7)
+  'BDO': 7,   // Bandung (WIB, UTC+7)
+  'SOC': 7,   // Solo (WIB, UTC+7)
+  'JED': 3,   // Jeddah (AST, UTC+3)
+  'MED': 3,   // Madinah (AST, UTC+3)
+  'DXB': 4,   // Dubai (GST, UTC+4)
+  'IST': 3,   // Istanbul (TRT, UTC+3)
+};
+
+/**
+ * Convert a UTC ISO datetime string to local time at the given airport.
+ * Returns "HH:mm" string (e.g. "11:45") or the original value if conversion fails.
+ * This ensures consistent display regardless of server/browser timezone.
+ */
+function utcToLocalTime(utcStr, airportIata) {
+  if (!utcStr) return null;
+  try {
+    const d = new Date(utcStr);
+    if (isNaN(d.getTime())) return utcStr;
+    const offset = AIRPORT_TZ_OFFSETS[airportIata] ?? 7; // default WIB
+    const local = new Date(d.getTime() + offset * 60 * 60 * 1000);
+    const hh = String(local.getUTCHours()).padStart(2, '0');
+    const mm = String(local.getUTCMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  } catch {
+    return utcStr;
+  }
+}
+
+/**
+ * Convert UTC ISO datetime to a full ISO string in local airport time.
+ * Used when frontend needs full datetime (e.g. for formatDate).
+ */
+function utcToLocalISO(utcStr, airportIata) {
+  if (!utcStr) return null;
+  try {
+    const d = new Date(utcStr);
+    if (isNaN(d.getTime())) return utcStr;
+    const offset = AIRPORT_TZ_OFFSETS[airportIata] ?? 7;
+    const local = new Date(d.getTime() + offset * 60 * 60 * 1000);
+    // Return as a fake UTC ISO so frontend Date parse shows the correct date
+    return local.toISOString();
+  } catch {
+    return utcStr;
+  }
+}
+
+/**
+ * Get current date string in WIB (UTC+7) — "YYYY-MM-DD"
+ * Ensures consistent date calculation regardless of server timezone.
+ */
+function getWIBDateStr(date = new Date()) {
+  const wib = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+  return wib.toISOString().split('T')[0];
+}
+
 /**
  * Parse flight info from calendar_events.pesawat field
  * Input: "SAUDIA - SV 827" or "GARUDA INDONESIA - GA 987"
@@ -2445,9 +2507,14 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent) {
 }
 
 /**
- * Format DB row → frontend FlightData shape
+ * Format DB row → frontend FlightData shape.
+ * Converts UTC times to airport-local "HH:mm" strings so frontend
+ * displays are consistent regardless of browser/server timezone.
  */
 function formatFlightForFrontend(row) {
+  const depAirport = row.dep_iata || 'CGK';
+  const arrAirport = row.arr_iata || 'JED';
+
   return {
     id: row.id,
     flightNumber: row.flight_iata
@@ -2461,14 +2528,18 @@ function formatFlightForFrontend(row) {
     depCode: row.dep_iata || '',
     depTerminal: row.dep_terminal || null,
     depGate: row.dep_gate || null,
-    depScheduled: row.dep_scheduled,
-    depActual: row.dep_actual || null,
+    // Convert dep times to departure airport local time
+    depScheduled: utcToLocalTime(row.dep_scheduled, depAirport) || row.dep_scheduled,
+    depActual: utcToLocalTime(row.dep_actual, depAirport) || null,
+    // Keep a full ISO for date display (converted to dep airport local time)
+    depDate: utcToLocalISO(row.dep_scheduled || row.dep_actual, depAirport),
     arrCity: row.arr_city || '',
     arrCode: row.arr_iata || '',
     arrTerminal: row.arr_terminal || null,
     arrGate: row.arr_gate || null,
-    arrScheduled: row.arr_scheduled,
-    arrEstimated: row.arr_estimated || null,
+    // Convert arr times to arrival airport local time
+    arrScheduled: utcToLocalTime(row.arr_scheduled, arrAirport) || row.arr_scheduled,
+    arrEstimated: utcToLocalTime(row.arr_estimated, arrAirport) || null,
     pax: row.pax || 0,
     tourLeader: row.tour_leader || '',
     lat: row.lat || null,
@@ -2488,13 +2559,14 @@ function formatFlightForFrontend(row) {
 
 /**
  * Should we poll this flight? Only poll keberangkatan/kepulangan within ±24h window
+ * Uses WIB (UTC+7) for date calculations to match calendar event dates.
  */
 function shouldPollFlight(eventDate, eventType) {
   if (eventType !== 'keberangkatan' && eventType !== 'kepulangan') return false;
-  const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
+  const todayStr = getWIBDateStr();
+  const yesterdayStr = getWIBDateStr(new Date(Date.now() - 24*60*60*1000));
   // Only poll today and yesterday — AirLabs can't return future flight data
-  return eventDate <= todayStr && eventDate >= new Date(now.getTime() - 24*60*60*1000).toISOString().split('T')[0];
+  return eventDate <= todayStr && eventDate >= yesterdayStr;
 }
 
 // In-memory flight cache
@@ -2519,14 +2591,14 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
   try {
     maybeResetQuotaCounter();
 
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    // Use WIB dates for consistent window regardless of server timezone
+    const nowMs = Date.now();
+    const todayWIB = getWIBDateStr();
+    const yesterdayWIB = getWIBDateStr(new Date(nowMs - 24*60*60*1000));
+    const tomorrowWIB = getWIBDateStr(new Date(nowMs + 24*60*60*1000));
 
-    const startDate = yesterday.toISOString().split('T')[0];
-    const endDate = tomorrow.toISOString().split('T')[0];
+    const startDate = yesterdayWIB;
+    const endDate = tomorrowWIB;
 
     // 1. Get calendar events with flight data in the ±1 day window
     const { data: events, error: evError } = await supabase
@@ -2610,15 +2682,19 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
       } else {
         // Fallback: enrich from calendar + route lookup
         const route = lookupRoute(parsed.flightIata, event.event_type);
-        const depTimeStr = `${event.event_date}T${(event.jam || '00:00').replace('.', ':')}:00`;
-        const arrEstimate = route ? estimateArrival(depTimeStr, route.durationMin) : null;
+        // Calendar jam is already in local time (WIB), format as HH:mm
+        const jamLocal = (event.jam || '00:00').replace('.', ':');
+        const depTimeStr = `${event.event_date}T${jamLocal}:00`;
+        const arrAirport = route?.arr || 'JED';
+        const arrEstimateISO = route ? estimateArrival(depTimeStr, route.durationMin) : null;
+        // Convert arrival UTC estimate to arrival airport local time
+        const arrEstimateLocal = arrEstimateISO ? utcToLocalTime(arrEstimateISO, arrAirport) : null;
 
-        // Determine status from date: past flights = landed, future = scheduled
-        const eventDay = new Date(event.event_date + 'T00:00:00');
-        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+        // Determine status from date: use WIB for consistent comparison
+        const todayWIBStr = getWIBDateStr();
         let fallbackStatus = 'scheduled';
         let fallbackProgress = 0;
-        if (eventDay < todayStart) {
+        if (event.event_date < todayWIBStr) {
           fallbackStatus = 'landed';
           fallbackProgress = 100;
         }
@@ -2633,13 +2709,16 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
           depCity: route?.depCity || '',
           depCode: route?.dep || '',
           depTerminal: route?.depTerminal || null, depGate: null,
-          depScheduled: depTimeStr,
+          // Send pre-formatted HH:mm (already local from calendar)
+          depScheduled: jamLocal,
           depActual: null,
+          depDate: depTimeStr,
           arrCity: route?.arrCity || '',
           arrCode: route?.arr || '',
           arrTerminal: null, arrGate: null,
-          arrScheduled: arrEstimate,
-          arrEstimated: arrEstimate,
+          // Send pre-formatted HH:mm (converted to arrival airport local)
+          arrScheduled: arrEstimateLocal,
+          arrEstimated: arrEstimateLocal,
           pax: event.pax || 0,
           tourLeader: event.tour_leader || '',
           lat: null, lng: null, alt: null, speed: null,
@@ -2899,11 +2978,9 @@ function buildFlightNotifMessage(flight, calendarEvent, change) {
 async function pollActiveFlights() {
   maybeResetQuotaCounter();
 
-  const today = new Date();
-  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-  const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
-  const startDate = yesterday.toISOString().split('T')[0];
-  const endDate = tomorrow.toISOString().split('T')[0];
+  const nowMs = Date.now();
+  const startDate = getWIBDateStr(new Date(nowMs - 24*60*60*1000));
+  const endDate = getWIBDateStr(new Date(nowMs + 24*60*60*1000));
 
   const { data: events } = await supabase
     .from('calendar_events')
