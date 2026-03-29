@@ -175,6 +175,7 @@ app.post('/api/quiz/:slug/submit', async (req, res) => {
 
     // Log analytics
     logAnalyticsEvent(slug, 'quiz', 'quiz_lead_submit', { nama, wa });
+    logAnalyticsEvent(slug, 'public', 'quiz_completed', { slug, answers: answers || {} });
 
     // Send Telegram notification (fire-and-forget)
     try {
@@ -935,6 +936,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 </html>`,
     });
 
+    logAnalyticsEvent(agent.slug, 'action', 'forgot_password');
     console.log(`[Auth] Password reset email sent to ${agent.email} for slug: ${agent.slug}`);
     res.json({ success: true, message: 'Link reset password telah dikirim ke email Anda.' });
   } catch (err) {
@@ -976,6 +978,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
     // Invalidate agent cache
     agentCache = null;
+    logAnalyticsEvent(decoded.slug, 'action', 'reset_password');
     console.log(`[Auth] Password reset successful for slug: ${decoded.slug}`);
     res.json({ success: true, message: 'Password berhasil diperbarui' });
   } catch (err) {
@@ -1199,6 +1202,7 @@ app.post('/api/telegram/disconnect', authMiddleware, async (req, res) => {
 
     if (error) throw error;
     agentCache = null;
+    logAnalyticsEvent(slug, 'action', 'disconnect_telegram');
     res.json({ success: true });
   } catch (err) {
     console.error('[telegram-disconnect] Error:', err);
@@ -1335,6 +1339,7 @@ app.post('/api/telegram/webhook', async (req, res) => {
         'HTML'
       );
 
+      logAnalyticsEvent(agent.slug, 'action', 'connect_telegram');
       console.log(`[telegram-webhook] Agent ${agent.slug} connected with chat_id ${chatId}`);
     }
 
@@ -3334,6 +3339,215 @@ app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
   res.json({ success: true });
 });
 
+// ── Tren Daftar: Available Hijriah Years (Admin only) ──
+app.get('/api/laporan/tren-daftar/years', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('jamaah')
+      .select('hijriah_year')
+      .not('hijriah_year', 'is', null);
+    if (error) throw error;
+    const years = [...new Set((data || []).map(d => d.hijriah_year))].sort((a, b) => b.localeCompare(a));
+    res.json({ success: true, data: years });
+  } catch (err) {
+    console.error('[TrenDaftar] Years error:', err.message);
+    res.status(500).json({ error: 'Gagal mengambil data tahun' });
+  }
+});
+
+// ── Tren Daftar: Main Data (Admin only) ──
+const TREN_MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+const TREN_MONTH_FULL = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { hijriahYear } = req.query;
+    if (!hijriahYear) return res.status(400).json({ error: 'hijriahYear wajib diisi' });
+
+    const year = String(hijriahYear);
+    const prevYear = String(Number(year) - 1);
+
+    // Fetch all jamaah for this year + prev year
+    const [{ data: rowsCur }, { data: rowsPrev }] = await Promise.all([
+      supabase.from('jamaah').select('tgl_daftar, tgl_berangkat, tgl_lahir, jk, bayar, sisa, paket, agent_slug').eq('hijriah_year', year),
+      supabase.from('jamaah').select('tgl_daftar').eq('hijriah_year', prevYear),
+    ]);
+
+    const cur = rowsCur || [];
+    const prev = rowsPrev || [];
+
+    // Summary
+    const totalDaftar = cur.length;
+    const totalDaftarPrev = prev.length;
+    const growthPct = totalDaftarPrev > 0 ? Math.round(((totalDaftar - totalDaftarPrev) / totalDaftarPrev) * 1000) / 10 : 0;
+
+    const monthlyCur = new Array(12).fill(0);
+    cur.forEach(j => { if (j.tgl_daftar) { monthlyCur[new Date(j.tgl_daftar).getMonth()]++; } });
+
+    const monthlyPrev = new Array(12).fill(0);
+    prev.forEach(j => { if (j.tgl_daftar) { monthlyPrev[new Date(j.tgl_daftar).getMonth()]++; } });
+
+    const monthsWithData = monthlyCur.filter(c => c > 0).length || 1;
+    const avgPerMonth = Math.round(totalDaftar / monthsWithData);
+
+    let peakIdx = 0, slowIdx = -1, slowVal = Infinity;
+    monthlyCur.forEach((c, i) => {
+      if (c > monthlyCur[peakIdx]) peakIdx = i;
+      if (c > 0 && c < slowVal) { slowVal = c; slowIdx = i; }
+    });
+    if (slowIdx === -1) slowIdx = 0;
+
+    const summary = {
+      totalDaftar, totalDaftarPrev, growthPct, avgPerMonth,
+      peakMonth: TREN_MONTH_FULL[peakIdx], peakMonthCount: monthlyCur[peakIdx],
+      slowestMonth: TREN_MONTH_FULL[slowIdx], slowestMonthCount: monthlyCur[slowIdx],
+    };
+
+    const monthly = Array.from({ length: 12 }, (_, i) => ({
+      month: i + 1, label: TREN_MONTH_LABELS[i], count: monthlyCur[i], countPrev: monthlyPrev[i],
+    }));
+
+    // Heatmap (3 years)
+    const { data: heatYearsRaw } = await supabase.from('jamaah').select('hijriah_year').not('hijriah_year', 'is', null);
+    const allYears = [...new Set((heatYearsRaw || []).map(d => d.hijriah_year))].sort((a, b) => b.localeCompare(a)).slice(0, 3);
+
+    const heatmap = {};
+    heatmap[year] = [...monthlyCur];
+    if (allYears.includes(prevYear)) heatmap[prevYear] = [...monthlyPrev];
+
+    for (const hy of allYears) {
+      if (heatmap[hy]) continue;
+      const { data: hyRows } = await supabase.from('jamaah').select('tgl_daftar').eq('hijriah_year', hy);
+      const arr = new Array(12).fill(0);
+      (hyRows || []).forEach(j => { if (j.tgl_daftar) { arr[new Date(j.tgl_daftar).getMonth()]++; } });
+      heatmap[hy] = arr;
+    }
+    for (const hy of allYears) { if (!heatmap[hy]) heatmap[hy] = new Array(12).fill(0); }
+
+    // Revenue
+    const revenueMonthly = new Array(12).fill(0);
+    let totalMasuk = 0;
+    cur.forEach(j => {
+      const b = Number(j.bayar) || 0;
+      totalMasuk += b;
+      if (j.tgl_daftar) { revenueMonthly[new Date(j.tgl_daftar).getMonth()] += b; }
+    });
+    const revMonthsWithData = revenueMonthly.filter(v => v > 0).length || 1;
+    const revenue = {
+      totalMasuk,
+      avgPerMonth: Math.round(totalMasuk / revMonthsWithData),
+      monthly: revenueMonthly.map((total, i) => ({ month: i + 1, label: TREN_MONTH_LABELS[i], total })),
+    };
+
+    // Insights
+    const withDates = cur.filter(j => j.tgl_daftar && j.tgl_berangkat);
+    const leadDays = withDates.map(j => (new Date(j.tgl_berangkat) - new Date(j.tgl_daftar)) / 86400000).filter(d => d > 0);
+    const leadTimeAvg = leadDays.length > 0 ? Math.round((leadDays.reduce((s, d) => s + d, 0) / leadDays.length / 30) * 10) / 10 : 0;
+
+    const lunasCount = cur.filter(j => j.sisa === 0 || j.sisa === null).length;
+    const conversionRate = totalDaftar > 0 ? Math.round((lunasCount / totalDaftar) * 100) : 0;
+
+    const lunasWithDates = cur.filter(j => (j.sisa === 0 || j.sisa === null) && j.tgl_daftar && j.tgl_berangkat);
+    const pelunasanDays = lunasWithDates.map(j => (new Date(j.tgl_berangkat) - new Date(j.tgl_daftar)) / 86400000).filter(d => d > 0);
+    const pelunasanAvg = pelunasanDays.length > 0 ? Math.round((pelunasanDays.reduce((s, d) => s + d, 0) / pelunasanDays.length / 30) * 10) / 10 : 0;
+
+    const paketMap = {};
+    cur.forEach(j => { if (j.paket) { const key = j.paket.split(' ')[0].toUpperCase(); paketMap[key] = (paketMap[key] || 0) + 1; } });
+    const topPaket = Object.entries(paketMap).sort((a, b) => b[1] - a[1])[0]?.[0] || '-';
+
+    const insights = { leadTimeAvg, conversionRate, pelunasanAvg, topPaket };
+
+    // Gender
+    let perempuan = 0, lakiLaki = 0;
+    cur.forEach(j => { if (j.jk === 'P') perempuan++; else if (j.jk === 'L') lakiLaki++; });
+    const gender = { perempuan, lakiLaki };
+
+    // Age Distribution
+    const now = new Date();
+    const ages = cur.filter(j => j.tgl_lahir).map(j => {
+      const birth = new Date(j.tgl_lahir);
+      return Math.floor((now - birth) / (365.25 * 86400000));
+    }).filter(a => a >= 0 && a < 150);
+
+    const ageBuckets = [
+      { range: '18-30', min: 18, max: 30, count: 0 },
+      { range: '31-40', min: 31, max: 40, count: 0 },
+      { range: '41-50', min: 41, max: 50, count: 0 },
+      { range: '51-60', min: 51, max: 60, count: 0 },
+      { range: '60+', min: 61, max: 999, count: 0 },
+    ];
+    ages.forEach(a => { for (const b of ageBuckets) { if (a >= b.min && a <= b.max) { b.count++; break; } } });
+    const ageTotal = ages.length || 1;
+    const ageDistribution = ageBuckets.map(b => ({ range: b.range, count: b.count, pct: Math.round((b.count / ageTotal) * 100) }));
+    const ageAvg = ages.length > 0 ? Math.round((ages.reduce((s, a) => s + a, 0) / ages.length) * 10) / 10 : 0;
+
+    // Lead Time Distribution
+    const ltBuckets = [
+      { range: '< 1 bulan', min: 0, max: 29, count: 0 },
+      { range: '1-2 bulan', min: 30, max: 59, count: 0 },
+      { range: '2-4 bulan', min: 60, max: 119, count: 0 },
+      { range: '4-6 bulan', min: 120, max: 179, count: 0 },
+      { range: '> 6 bulan', min: 180, max: 99999, count: 0 },
+    ];
+    leadDays.forEach(d => { for (const b of ltBuckets) { if (d >= b.min && d <= b.max) { b.count++; break; } } });
+    const ltTotal = leadDays.length || 1;
+    const leadTimeDistribution = ltBuckets.map(b => ({ range: b.range, pct: Math.round((b.count / ltTotal) * 100) }));
+
+    // Pelunasan Distribution
+    const plBuckets = [
+      { range: '< 2 minggu', min: 0, max: 13, count: 0 },
+      { range: '2-4 minggu', min: 14, max: 29, count: 0 },
+      { range: '1-2 bulan', min: 30, max: 59, count: 0 },
+      { range: '2-4 bulan', min: 60, max: 119, count: 0 },
+      { range: '> 4 bulan', min: 120, max: 99999, count: 0 },
+    ];
+    pelunasanDays.forEach(d => { for (const b of plBuckets) { if (d >= b.min && d <= b.max) { b.count++; break; } } });
+    const plTotal = pelunasanDays.length || 1;
+    const pelunasanDistribution = plBuckets.map(b => ({ range: b.range, pct: Math.round((b.count / plTotal) * 100) }));
+    const pelunasanFastPct = pelunasanDistribution.slice(0, 2).reduce((s, b) => s + b.pct, 0);
+
+    // Daftar vs Berangkat Matrix
+    const dvb = Array.from({ length: 12 }, () => new Array(12).fill(0));
+    withDates.forEach(j => {
+      const dm = new Date(j.tgl_daftar).getMonth();
+      const bm = new Date(j.tgl_berangkat).getMonth();
+      dvb[dm][bm]++;
+    });
+
+    // Agent Ranking
+    const agentMap = {};
+    cur.forEach(j => { if (j.agent_slug) agentMap[j.agent_slug] = (agentMap[j.agent_slug] || 0) + 1; });
+    const agentSlugs = Object.keys(agentMap);
+    const { data: agentRows } = agentSlugs.length > 0
+      ? await supabase.from('agents').select('slug, name, photo').in('slug', agentSlugs)
+      : { data: [] };
+    const agentInfo = Object.fromEntries((agentRows || []).map(a => [a.slug, a]));
+    const agentRanking = Object.entries(agentMap)
+      .map(([slug, count]) => ({ slug, name: agentInfo[slug]?.name || slug, photo: agentInfo[slug]?.photo || '', count }))
+      .sort((a, b) => b.count - a.count);
+
+    // Paket Ranking (grouped by first word)
+    const paketTotal = Object.values(paketMap).reduce((s, c) => s + c, 0) || 1;
+    const paketRanking = Object.entries(paketMap)
+      .map(([paket, count]) => ({ paket, count, pct: Math.round((count / paketTotal) * 100) }))
+      .sort((a, b) => b.count - a.count);
+
+    res.json({
+      success: true,
+      data: {
+        period: year, periodPrev: prevYear,
+        summary, monthly, heatmap, revenue, insights,
+        gender, ageDistribution, ageAvg,
+        leadTimeDistribution, pelunasanDistribution, pelunasanFastPct,
+        daftarVsBerangkat: dvb, agentRanking, paketRanking,
+      },
+    });
+  } catch (err) {
+    console.error('[TrenDaftar] Error:', err.message);
+    res.status(500).json({ error: 'Gagal mengambil data tren' });
+  }
+});
+
 // ──────────────────────────────────────────────
 // API: Stats — aggregated jamaah statistics
 // ──────────────────────────────────────────────
@@ -3957,7 +4171,7 @@ app.get('/api/haji/doc-proxy', authMiddleware, async (req, res) => {
 // Analytics API
 // ──────────────────────────────────────────────
 const VALID_EVENT_TYPES = ['login', 'feature', 'action', 'public'];
-const VALID_PUBLIC_EVENTS = ['page_view', 'wa_click_public'];
+const VALID_PUBLIC_EVENTS = ['page_view', 'wa_click_public', 'quiz_started', 'quiz_completed', 'inquiry_submitted'];
 const publicEventRateLimits = new Map(); // ip → { count, resetAt }
 
 app.options('/api/analytics/:path', (req, res) => {
@@ -4094,6 +4308,9 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       open_jamaah: 'Jamaah', open_statistik: 'Statistik', open_kalkulasi: 'Kalkulasi',
       open_compare: 'Compare', open_capi: 'Meta CAPI', open_profil: 'Profil',
       open_jadwal: 'Jadwal', open_analytics: 'Analytics',
+      open_ai_tools: 'AI Tools', open_voice_over: 'Voice Over', open_business_card: 'Kartu Nama',
+      open_haji_plus: 'Haji Plus', open_leads: 'Leads', open_jamaah_haji: 'Jamaah Haji',
+      open_settings: 'Settings',
     };
     featureEvents.forEach(e => { featureMap[e.event_name] = (featureMap[e.event_name] || 0) + 1; });
     const featureUsage = Object.entries(featureMap)
@@ -4109,6 +4326,17 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       download_itinerary: 'Download Itinerary', wa_click_jamaah: 'WA Click Jamaah',
       save_capi_config: 'Simpan Config CAPI', update_profil: 'Update Profil',
       change_password: 'Ganti Password',
+      generate_script: 'Generate Script VO', generate_voice: 'Generate Voice VO',
+      download_mp3: 'Download MP3', download_wav: 'Download WAV',
+      generate_business_card: 'Generate Kartu Nama', download_business_card: 'Download Kartu Nama',
+      export_haji_infographic: 'Export Infografis Haji',
+      update_lead_status: 'Update Status Lead', delete_lead: 'Hapus Lead', wa_click_lead: 'WA Lead',
+      sync_jamaah_haji: 'Sync Jamaah Haji', view_bpih_doc: 'Lihat BPIH',
+      view_pernyataan_doc: 'Lihat Srt Pernyataan', wa_click_haji: 'WA Jamaah Haji',
+      connect_telegram: 'Hubungkan Telegram', disconnect_telegram: 'Putuskan Telegram',
+      update_notif_prefs: 'Update Notif Prefs',
+      forgot_password: 'Lupa Password', reset_password: 'Reset Password',
+      view_web_itinerary: 'Web Itinerary', view_flight_status: 'Flight Status',
     };
     actionEvents.forEach(e => { actionMap[e.event_name] = (actionMap[e.event_name] || 0) + 1; });
     const actionTracking = Object.entries(actionMap)
@@ -4118,7 +4346,11 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
     // Recent Activity (today, exclude page_view, max 10)
     const todayStr = now.toISOString().slice(0, 10);
     const agentNameMap = Object.fromEntries(agentList.map(a => [a.slug, a.name]));
-    const allLabels = { ...featureLabels, ...actionLabels, login: 'Login', login_failed: 'Login Gagal' };
+    const allLabels = {
+      ...featureLabels, ...actionLabels, login: 'Login', login_failed: 'Login Gagal',
+      quiz_started: 'Quiz Dimulai', quiz_completed: 'Quiz Selesai', inquiry_submitted: 'Inquiry Masuk',
+      page_view: 'Page View', wa_click_public: 'WA Click Public',
+    };
     const recentActivity = events
       .filter(e => e.created_at.slice(0, 10) === todayStr && e.event_name !== 'page_view')
       .slice(0, 10)
