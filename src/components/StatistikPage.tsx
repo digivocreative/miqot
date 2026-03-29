@@ -1,13 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import {
   Loader2, Users, Plane, UserPlus, Wallet,
-  Check, ChevronDown, X, RefreshCw,
+  Check, ChevronDown, X, RefreshCw, BarChart3, TrendingUp,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, CartesianGrid,
   XAxis, YAxis, Tooltip,
 } from 'recharts';
+
+const TrenDaftarSection = lazy(() => import('./TrenDaftarSection'));
 
 // ── Types ──
 interface BerangkatItem {
@@ -368,10 +370,13 @@ function StatistikSkeleton() {
 }
 
 // ── Component ──
-export default function StatistikPage({ agentSlug, onHeaderRight }: {
+export default function StatistikPage({ agentSlug, role, onHeaderRight }: {
   agentSlug: string;
+  role?: string;
   onHeaderRight?: (node: React.ReactNode) => void;
 }) {
+  const isAdmin = role === 'admin';
+  const [statTab, setStatTab] = useState<'ringkasan' | 'tren'>('ringkasan');
   const [data, setData] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -517,7 +522,37 @@ export default function StatistikPage({ agentSlug, onHeaderRight }: {
   const outstandingPreview = data.outstandingList.slice(0, 3);
 
   return (
-    <div className={`px-4 pt-4 pb-8 space-y-3 max-w-lg mx-auto transition-opacity ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
+    <div className="max-w-lg mx-auto">
+      {/* ── Admin Tab Bar ── */}
+      {isAdmin && (
+        <div className="sticky top-[53px] z-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-700">
+          <div className="px-4 py-2">
+            <div className="flex gap-1 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl w-full">
+              {([
+                { id: 'ringkasan' as const, label: 'Ringkasan', Icon: BarChart3 },
+                { id: 'tren' as const, label: 'Tren Daftar', Icon: TrendingUp },
+              ]).map(tab => {
+                const active = statTab === tab.id;
+                return (
+                  <button key={tab.id} onClick={() => { setStatTab(tab.id); window.scrollTo({ top: 0 }); }}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 active:opacity-70 ${
+                      active ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-500 dark:text-emerald-400 font-semibold' : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium'
+                    }`}
+                    style={active ? { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } : undefined}
+                  >
+                    <tab.Icon size={13} strokeWidth={2.2} />
+                    <span className="text-[11px]">{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Ringkasan Tab (existing content) ── */}
+      {(!isAdmin || statTab === 'ringkasan') && (
+      <div className={`px-4 pt-4 pb-8 space-y-3 transition-opacity ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
 
       {/* ── 1. Headline Stats ── */}
       <div className="grid grid-cols-2 gap-2.5">
@@ -777,6 +812,23 @@ export default function StatistikPage({ agentSlug, onHeaderRight }: {
           {data.outstandingList.map((item, i) => <OutstandingRow key={i} item={item} />)}
         </div>
       </StatListModal>
+      </div>
+      )}
+
+      {/* ── Tren Daftar Tab ── */}
+      {isAdmin && statTab === 'tren' && (
+        <Suspense fallback={
+          <div className="px-4 pt-4 pb-8 space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              {[1,2,3,4].map(i => <div key={i} className="h-24 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />)}
+            </div>
+            <div className="h-52 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
+            <div className="h-40 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
+          </div>
+        }>
+          <TrenDaftarSection />
+        </Suspense>
+      )}
     </div>
   );
 }

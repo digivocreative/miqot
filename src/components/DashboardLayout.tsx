@@ -499,7 +499,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             </div>
           )}
           {activeTab === 'statistik' && (
-            <StatistikPage agentSlug={agentData.slug} onHeaderRight={setStatistikHeaderRight} />
+            <StatistikPage agentSlug={agentData.slug} role={agentData.role} onHeaderRight={setStatistikHeaderRight} />
           )}
           {activeTab === 'jamaah' && (
             <JamaahPage
