@@ -24,6 +24,7 @@ import HajiPlusPage from './HajiPlusPage';
 import HajiPlusExportPage from './HajiPlusExportPage';
 import KursPage from './KursPage';
 import LeadsPage from './LeadsPage';
+import CuacaWidget from './CuacaWidget';
 import { trackEvent } from '../utils/analytics';
 
 type TabId = 'home' | 'settings' | 'kalkulasi' | 'compare' | 'caption' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'leads';
@@ -740,6 +741,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           <div style={{ order: 1 }}>
             <UpcomingSchedule />
           </div>
+        </div>
+        <div>
+          <CuacaWidget />
         </div>
 
         {/* ── Statistik Not Ready Alert ── */}

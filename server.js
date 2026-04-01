@@ -4829,6 +4829,100 @@ app.get('/api/haji-plus/data', authMiddleware, async (req, res) => {
   }
 });
 
+// ─── WEATHER ENDPOINT ────────────────────────────────────────────
+const WEATHER_CITIES = [
+  { key: 'makkah',     name: 'Mekkah',     country: 'Arab Saudi', flag: '🇸🇦', lat: 21.3891, lon: 39.8579, tz: 'Asia/Riyadh' },
+  { key: 'madinah',    name: 'Madinah',    country: 'Arab Saudi', flag: '🇸🇦', lat: 24.5247, lon: 39.5692, tz: 'Asia/Riyadh' },
+  { key: 'istanbul',   name: 'Istanbul',   country: 'Türkiye',    flag: '🇹🇷', lat: 41.0082, lon: 28.9784, tz: 'Europe/Istanbul' },
+  { key: 'cappadocia', name: 'Cappadocia', country: 'Türkiye',    flag: '🇹🇷', lat: 38.6431, lon: 34.8287, tz: 'Europe/Istanbul' },
+  { key: 'dubai',      name: 'Dubai',      country: 'UAE',        flag: '🇦🇪', lat: 25.2048, lon: 55.2708, tz: 'Asia/Dubai' },
+  { key: 'hainan',     name: 'Hainan',     country: 'China',      flag: '🇨🇳', lat: 18.2528, lon: 109.5120, tz: 'Asia/Shanghai' },
+];
+
+let weatherCache = null;
+let weatherCacheTime = 0;
+const WEATHER_CACHE_TTL = 60 * 60 * 1000; // 1 jam
+
+app.get('/api/weather/cities', authMiddleware, async (req, res) => {
+  try {
+    const now = Date.now();
+    if (weatherCache && (now - weatherCacheTime) < WEATHER_CACHE_TTL) {
+      return res.json({ success: true, data: weatherCache, cached: true });
+    }
+
+    const results = await Promise.all(
+      WEATHER_CITIES.map(async (city) => {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}` +
+          `&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,uv_index` +
+          `&daily=weather_code,temperature_2m_max,temperature_2m_min` +
+          `&timezone=${encodeURIComponent(city.tz)}&forecast_days=4`;
+
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`Open-Meteo error for ${city.key}: ${resp.status}`);
+        const raw = await resp.json();
+
+        const cur = raw.current;
+        const daily = raw.daily;
+
+        // Map WMO weather code ke label + emoji
+        const wmoMap = (code) => {
+          if (code === 0)              return { label: 'Cerah',            icon: '☀️' };
+          if (code <= 2)              return { label: 'Cerah berawan',    icon: '🌤️' };
+          if (code === 3)             return { label: 'Mendung',          icon: '☁️' };
+          if (code <= 49)             return { label: 'Berkabut',         icon: '🌫️' };
+          if (code <= 57)             return { label: 'Gerimis',          icon: '🌦️' };
+          if (code <= 67)             return { label: 'Hujan',            icon: '🌧️' };
+          if (code <= 77)             return { label: 'Salju',            icon: '❄️' };
+          if (code <= 82)             return { label: 'Hujan lebat',      icon: '🌧️' };
+          if (code <= 86)             return { label: 'Salju lebat',      icon: '❄️' };
+          if (code <= 99)             return { label: 'Badai petir',      icon: '⛈️' };
+          return { label: 'N/A', icon: '🌡️' };
+        };
+
+        const days = ['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+
+        const forecast = daily.time.slice(1, 4).map((dateStr, i) => {
+          const d = new Date(dateStr);
+          return {
+            day: days[d.getDay()],
+            icon: wmoMap(daily.weather_code[i + 1]).icon,
+            tempMin: Math.round(daily.temperature_2m_min[i + 1]),
+            tempMax: Math.round(daily.temperature_2m_max[i + 1]),
+          };
+        });
+
+        const uvIndex = Math.round(cur.uv_index ?? 0);
+        const uvLabel = uvIndex <= 2 ? 'Rendah' : uvIndex <= 5 ? 'Sedang' : uvIndex <= 7 ? 'Tinggi' : 'Sgt Tinggi';
+
+        return {
+          key: city.key,
+          name: city.name,
+          country: city.country,
+          flag: city.flag,
+          temp: Math.round(cur.temperature_2m),
+          feelsLike: Math.round(cur.apparent_temperature),
+          humidity: Math.round(cur.relative_humidity_2m),
+          windSpeed: Math.round(cur.wind_speed_10m),
+          uvIndex,
+          uvLabel,
+          weatherCode: cur.weather_code,
+          ...wmoMap(cur.weather_code),
+          tempMin: Math.round(daily.temperature_2m_min[0]),
+          tempMax: Math.round(daily.temperature_2m_max[0]),
+          forecast,
+        };
+      })
+    );
+
+    weatherCache = results;
+    weatherCacheTime = now;
+    res.json({ success: true, data: results, cached: false });
+  } catch (err) {
+    console.error('[Weather] fetch error:', err.message);
+    res.status(500).json({ error: 'Gagal mengambil data cuaca' });
+  }
+});
+
 // ──────────────────────────────────────────────
 // API: Proxy to jadwal.alhijaz.co
 // ──────────────────────────────────────────────

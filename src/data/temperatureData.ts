@@ -115,3 +115,16 @@ export function getTempColor(highTemp: number): { text: string; icon: string } {
   }
   return { text: 'text-emerald-600 dark:text-emerald-400', icon: 'text-emerald-500' };
 }
+
+/**
+ * Monthly average temperature (single value) for CuacaWidget bar chart.
+ * Format: [Jan, Feb, Mar, Apr, Mei, Jun, Jul, Agt, Sep, Okt, Nov, Des]
+ */
+export const cityTemperatureData: Record<string, number[]> = {
+  makkah:     [22, 25, 28, 32, 37, 41, 43, 43, 40, 36, 29, 23],
+  madinah:    [20, 23, 27, 30, 35, 38, 40, 40, 37, 32, 26, 21],
+  istanbul:   [5,  6,  8,  13, 18, 23, 26, 26, 22, 16, 10, 6 ],
+  cappadocia: [2,  3,  6,  10, 15, 19, 22, 22, 18, 12, 7,  3 ],
+  dubai:      [19, 21, 24, 28, 33, 36, 38, 39, 36, 32, 26, 21],
+  hainan:     [19, 20, 23, 26, 29, 30, 30, 30, 29, 27, 23, 20],
+};
