@@ -267,8 +267,40 @@ export async function syncCalendar(supabase, decryptFn) {
     await new Promise(r => setTimeout(r, 500));
   }
 
-  // Upsert to Supabase
+  // Delete stale records in the sync range that no longer exist in source.
+  // This prevents ghost entries when groups get moved between dates.
   if (allRows.length > 0) {
+    const freshIds = new Set(allRows.map(r => r.id));
+
+    // Fetch existing IDs in the sync range
+    const { data: existingRows, error: fetchErr } = await supabase
+      .from('calendar_events')
+      .select('id')
+      .gte('event_date', rangeStartStr)
+      .lte('event_date', rangeEndStr);
+
+    if (!fetchErr && existingRows) {
+      const staleIds = existingRows
+        .map(r => r.id)
+        .filter(id => !freshIds.has(id));
+
+      if (staleIds.length > 0) {
+        const DEL_BATCH = 50;
+        for (let i = 0; i < staleIds.length; i += DEL_BATCH) {
+          const batch = staleIds.slice(i, i + DEL_BATCH);
+          const { error: delErr } = await supabase
+            .from('calendar_events')
+            .delete()
+            .in('id', batch);
+          if (delErr) {
+            console.error('[Calendar] Delete stale batch error:', delErr.message);
+          }
+        }
+        console.log(`[Calendar] Removed ${staleIds.length} stale records from sync range`);
+      }
+    }
+
+    // Upsert fresh data
     const BATCH = 50;
     let upserted = 0;
     for (let i = 0; i < allRows.length; i += BATCH) {

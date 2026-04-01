@@ -2790,64 +2790,73 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
 
     // 2. For each event: cache → Supabase → AirLabs
     const flights = [];
+    // Track which flightIds we've already fetched from cache/DB to avoid repeated queries
+    const flightDataCache = new Map();
 
     for (const event of events) {
       const parsed = parseFlightFromCalendar(event.pesawat);
       if (!parsed) continue;
 
       const flightId = `${event.event_date}_${parsed.flightIata}`;
+      // Unique ID per group (so multiple groups on same flight get distinct entries)
+      const entryId = event.group_number ? `${flightId}_g${event.group_number}` : flightId;
 
-      // Check in-memory cache
-      const cached = getCachedFlight(flightId);
-      if (cached) {
-        flights.push(cached);
-        continue;
-      }
+      // Try to get shared flight data (from cache or DB), but only query once per flightId
+      let flightBase = flightDataCache.get(flightId);
+      if (flightBase === undefined) {
+        flightBase = null;
 
-      // Check Supabase
-      const { data: existing } = await supabase
-        .from('flight_status')
-        .select('*')
-        .eq('id', flightId)
-        .single();
+        // Check in-memory cache
+        const cached = getCachedFlight(flightId);
+        if (cached) {
+          flightBase = cached;
+        } else {
+          // Check Supabase
+          const { data: existing } = await supabase
+            .from('flight_status')
+            .select('*')
+            .eq('id', flightId)
+            .single();
 
-      // Read-only from Supabase — NO AirLabs calls from this endpoint.
-      // Background cron handles all API polling.
-      if (existing && existing.synced_at) {
-        // Validate: dep_scheduled date must match event_date
-        let dateValid = true;
-        if (existing.dep_scheduled) {
-          const dateMatch = String(existing.dep_scheduled).match(/^(\d{4}-\d{2}-\d{2})/);
-          const depDate = dateMatch ? dateMatch[1] : null;
-          if (depDate && depDate !== event.event_date) {
-            dateValid = false;
-            await supabase.from('flight_status').delete().eq('id', flightId);
+          if (existing && existing.synced_at) {
+            let dateValid = true;
+            if (existing.dep_scheduled) {
+              const dateMatch = String(existing.dep_scheduled).match(/^(\d{4}-\d{2}-\d{2})/);
+              const depDate = dateMatch ? dateMatch[1] : null;
+              if (depDate && depDate !== event.event_date) {
+                dateValid = false;
+                await supabase.from('flight_status').delete().eq('id', flightId);
+              }
+            }
+            if (dateValid) {
+              const formatted = formatFlightForFrontend(existing);
+              setCachedFlight(flightId, formatted);
+              flightBase = formatted;
+            }
+          } else if (existing) {
+            flightBase = formatFlightForFrontend(existing);
           }
         }
-        if (dateValid) {
-          const formatted = formatFlightForFrontend(existing);
-          setCachedFlight(flightId, formatted);
-          flights.push(formatted);
-          continue;
-        }
+        flightDataCache.set(flightId, flightBase);
       }
 
-      // Fallback: use existing Supabase data or build from calendar
-      if (existing) {
-        const formatted = formatFlightForFrontend(existing);
-        flights.push(formatted);
+      // Build the per-group entry by overlaying this event's group/pax/TL
+      if (flightBase) {
+        flights.push({
+          ...flightBase,
+          id: entryId,
+          group: event.group_number || '',
+          pax: event.pax || 0,
+          tourLeader: event.tour_leader || '',
+        });
       } else {
         // Fallback: enrich from calendar + route lookup
         const route = lookupRoute(parsed.flightIata, event.event_type);
-        // Calendar jam is already in local time (WIB), format as HH:mm
         const jamLocal = (event.jam || '00:00').replace('.', ':');
         const depTimeStr = `${event.event_date}T${jamLocal}:00`;
-        const arrAirport = route?.arr || 'JED';
         const arrEstimateISO = route ? estimateArrival(depTimeStr, route.durationMin) : null;
-        // Extract HH:mm from estimated arrival
         const arrEstimateLocal = arrEstimateISO ? extractHHmm(arrEstimateISO) : null;
 
-        // Determine status from date: use WIB for consistent comparison
         const todayWIBStr = getWIBDateStr();
         let fallbackStatus = 'scheduled';
         let fallbackProgress = 0;
@@ -2857,7 +2866,7 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
         }
 
         flights.push({
-          id: flightId,
+          id: entryId,
           flightNumber: `${parsed.airlineCode} ${parsed.flightNumber}`,
           airline: parsed.airline,
           airlineLogo: null,
@@ -2866,14 +2875,12 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
           depCity: route?.depCity || '',
           depCode: route?.dep || '',
           depTerminal: route?.depTerminal || null, depGate: null,
-          // Send pre-formatted HH:mm (already local from calendar)
           depScheduled: jamLocal,
           depActual: null,
           depDate: depTimeStr,
           arrCity: route?.arrCity || '',
           arrCode: route?.arr || '',
           arrTerminal: null, arrGate: null,
-          // Send pre-formatted HH:mm (converted to arrival airport local)
           arrScheduled: arrEstimateLocal,
           arrEstimated: arrEstimateLocal,
           pax: event.pax || 0,
@@ -3016,7 +3023,8 @@ async function detectAndNotifyChanges(oldData, newData, calendarEvent) {
   if (oldData.status !== newData.status) {
     changes.push({ type: 'status_change', from: oldData.status, to: newData.status });
   }
-  if (newData.delayed > 0 && newData.delayed !== oldData.delayed) {
+  if (newData.delayed > 0 && newData.delayed !== oldData.delayed
+      && newData.status !== 'landed' && newData.status !== 'en-route') {
     changes.push({ type: 'delay', minutes: newData.delayed, previous: oldData.delayed || 0 });
   }
   if (newData.dep_gate && newData.dep_gate !== oldData.dep_gate) {
@@ -3085,8 +3093,10 @@ function buildFlightNotifMessage(flight, calendarEvent, change) {
     const label = mins >= 60 ? 'DELAY SIGNIFIKAN' : 'DELAY PENERBANGAN';
 
     let timeInfo = '';
-    if (flight.dep_scheduled && flight.dep_actual) {
-      timeInfo = `Jadwal: ${formatTimeWIB(flight.dep_scheduled)}\nEstimasi: <b>${formatTimeWIB(flight.dep_actual)}</b>\n`;
+    if (flight.dep_scheduled) {
+      const depScheduledDate = new Date(flight.dep_scheduled);
+      const estimatedDepDate = new Date(depScheduledDate.getTime() + mins * 60 * 1000);
+      timeInfo = `Jadwal: ${formatTimeWIB(flight.dep_scheduled)}\nEstimasi: <b>${formatTimeWIB(estimatedDepDate.toISOString())}</b>\n`;
     } else if (flight.arr_scheduled && flight.arr_estimated) {
       timeInfo = `Jadwal tiba: ${formatTimeWIB(flight.arr_scheduled)}\nEstimasi tiba: <b>${formatTimeWIB(flight.arr_estimated)}</b>\n`;
     }

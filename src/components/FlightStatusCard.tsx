@@ -47,11 +47,11 @@ interface FlightData {
 // ── Status Config ──
 
 const STATUS_CFG: Record<string, { label: string; color: string; bg: string }> = {
-  'en-route':  { label: 'Terbang',     color: '#3b82f6', bg: 'bg-blue-500' },
-  'scheduled': { label: 'Terjadwal',   color: '#6366f1', bg: 'bg-indigo-500' },
-  'landed':    { label: 'Mendarat',    color: '#10b981', bg: 'bg-emerald-500' },
-  'delayed':   { label: 'Delay',       color: '#ef4444', bg: 'bg-red-500' },
-  'cancelled': { label: 'Dibatalkan',  color: '#dc2626', bg: 'bg-red-600' },
+  'en-route':  { label: 'Terbang',      color: '#3b82f6', bg: 'bg-blue-500' },
+  'scheduled': { label: 'Dijadwalkan',  color: '#d97706', bg: 'bg-amber-500' },
+  'landed':    { label: 'Mendarat',     color: '#10b981', bg: 'bg-emerald-500' },
+  'delayed':   { label: 'Delay',        color: '#ef4444', bg: 'bg-red-500' },
+  'cancelled': { label: 'Dibatalkan',   color: '#dc2626', bg: 'bg-red-600' },
 };
 
 // ── Helpers ──
@@ -87,7 +87,13 @@ function formatDate(iso?: string | null): string {
 
 function cleanTourLeader(tl?: string): string {
   if (!tl) return '';
-  return tl.replace(/^[•·\-–—]\s*/, '').trim();
+  // Strip all bullet/dot prefixes and normalize whitespace
+  const stripped = tl.replace(/[•·]/g, '').replace(/\s+/g, ' ').trim();
+  if (!stripped || stripped === '-') return '';
+  // Convert to Title Case
+  return stripped
+    .toLowerCase()
+    .replace(/\b\w/g, c => c.toUpperCase());
 }
 
 function formatDuration(minutes: number | null | undefined): string | null {
@@ -216,10 +222,235 @@ function RouteLine({ flight }: { flight: FlightData }) {
 
 // ── Component ──
 
+// ── Grouping helper ──
+
+function groupFlights(flights: FlightData[]): FlightData[][] {
+  const map = new Map<string, FlightData[]>();
+  for (const f of flights) {
+    // Use depDate (airport-local ISO) or fall back to depScheduled for grouping key
+    const dateKey = (f.depDate || f.depScheduled || '').slice(0, 10); // YYYY-MM-DD
+    const key = `${f.flightNumber}__${dateKey}`;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(f);
+  }
+  const grouped = Array.from(map.values());
+  // Sort groups by departure date then time ascending
+  grouped.sort((a, b) => {
+    const dateA = `${(a[0].depDate || a[0].depScheduled || '').slice(0, 10)} ${formatTime(a[0].depActual || a[0].depScheduled)}`;
+    const dateB = `${(b[0].depDate || b[0].depScheduled || '').slice(0, 10)} ${formatTime(b[0].depActual || b[0].depScheduled)}`;
+    return dateA.localeCompare(dateB);
+  });
+  return grouped;
+}
+
+// ── Expanded detail panel for a single kloter ──
+
+function KloterDetail({ flight }: { flight: FlightData }) {
+  const tlClean = cleanTourLeader(flight.tourLeader);
+
+  return (
+    <div className="px-3 pb-3 pt-2 space-y-2.5">
+
+      {/* Map */}
+      {(flight.status === 'en-route' || flight.status === 'landed') && (
+        <Suspense fallback={
+          <div className="w-full h-36 rounded-xl bg-slate-100 dark:bg-slate-700/50 border border-gray-100 dark:border-slate-600 animate-pulse" />
+        }>
+          <FlightMap flight={flight} />
+        </Suspense>
+      )}
+
+      {/* Time grid */}
+      <div className="grid grid-cols-2 gap-2">
+        {/* Departure */}
+        <div className={`px-2.5 py-2 rounded-xl border ${
+          flight.depActual || flight.status === 'en-route' || flight.status === 'landed'
+            ? 'bg-emerald-50/60 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-800/30'
+            : 'bg-gray-50 dark:bg-slate-900/40 border-gray-100 dark:border-slate-700/50'
+        }`}>
+          <div className="flex items-center gap-1 mb-0.5">
+            <PlaneTakeoff size={9} className="text-gray-400 dark:text-slate-500" />
+            <span className="text-[7px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500">Keberangkatan</span>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[15px] font-bold text-gray-800 dark:text-white">
+              {formatTime(flight.depActual || flight.depScheduled)}
+            </span>
+            {flight.depActual && flight.depActual !== flight.depScheduled && (
+              <span className="text-[9px] text-gray-400 line-through">{formatTime(flight.depScheduled)}</span>
+            )}
+          </div>
+          {flight.depCity && (
+            <div className="text-[9px] text-gray-500 dark:text-slate-400 font-medium mt-0.5">
+              {flight.depCity}{flight.depCode ? ` (${flight.depCode})` : ''}
+            </div>
+          )}
+          {(flight.depTerminal || flight.depGate) && (
+            <div className="flex gap-1 mt-1">
+              {flight.depTerminal && (
+                <span className="text-[7px] font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 px-1 py-0.5 rounded text-gray-500 dark:text-slate-400 inline-flex items-center gap-0.5">
+                  <MapPin size={7} />Terminal {flight.depTerminal}
+                </span>
+              )}
+              {flight.depGate && (
+                <span className="text-[7px] font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 px-1 py-0.5 rounded text-gray-500 dark:text-slate-400">
+                  G{flight.depGate}
+                </span>
+              )}
+            </div>
+          )}
+          {(flight.depDelayed ?? 0) > 0 && (
+            <div className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-50 dark:bg-red-900/15 border border-red-100 dark:border-red-800/30 rounded-md">
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-500 dark:text-red-400">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <span className="text-[8px] font-bold text-red-600 dark:text-red-400">+{flight.depDelayed} menit</span>
+            </div>
+          )}
+        </div>
+
+        {/* Arrival */}
+        <div className={`px-2.5 py-2 rounded-xl border ${
+          flight.status === 'landed'
+            ? 'bg-emerald-50/60 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-800/30'
+            : 'bg-gray-50 dark:bg-slate-900/40 border-gray-100 dark:border-slate-700/50'
+        }`}>
+          <div className="flex items-center gap-1 mb-0.5">
+            <PlaneLanding size={9} className="text-gray-400 dark:text-slate-500" />
+            <span className="text-[7px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500">Kedatangan</span>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[15px] font-bold text-gray-800 dark:text-white">
+              {formatTime(flight.arrEstimated || flight.arrScheduled)}
+            </span>
+            {flight.arrEstimated && flight.arrEstimated !== flight.arrScheduled && (
+              <span className="text-[9px] text-gray-400 line-through">{formatTime(flight.arrScheduled)}</span>
+            )}
+          </div>
+          {flight.arrCity && (
+            <div className="text-[9px] text-gray-500 dark:text-slate-400 font-medium mt-0.5">
+              {flight.arrCity}{flight.arrCode ? ` (${flight.arrCode})` : ''}
+            </div>
+          )}
+          {(flight.arrTerminal || flight.arrGate) && (
+            <div className="flex gap-1 mt-1">
+              {flight.arrTerminal && (
+                <span className="text-[7px] font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 px-1 py-0.5 rounded text-gray-500 dark:text-slate-400 inline-flex items-center gap-0.5">
+                  <MapPin size={7} />T{flight.arrTerminal}
+                </span>
+              )}
+              {flight.arrGate && (
+                <span className="text-[7px] font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 px-1 py-0.5 rounded text-gray-500 dark:text-slate-400">
+                  G{flight.arrGate}
+                </span>
+              )}
+            </div>
+          )}
+          {(flight.arrDelayed ?? 0) > 0 && (
+            <div className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-50 dark:bg-red-900/15 border border-red-100 dark:border-red-800/30 rounded-md">
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-500 dark:text-red-400">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <span className="text-[8px] font-bold text-red-600 dark:text-red-400">+{flight.arrDelayed} menit</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Progress bar (en-route only) */}
+      {flight.status === 'en-route' && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[8px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500">Progress</span>
+            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400">{flight.progress}%</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-gray-100 dark:bg-slate-700 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-blue-400 to-blue-500 transition-all duration-500"
+              style={{ width: `${flight.progress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Info strip — pesawat, durasi, bagasi */}
+      {(flight.aircraftType || flight.duration || (flight.status === 'landed' && flight.arrBaggage)) && (
+        <div className="px-2.5 py-2 bg-gray-50 dark:bg-slate-900/40 rounded-xl border border-gray-100 dark:border-slate-700/50 flex items-center gap-3 text-[9px]">
+          {flight.aircraftType && (
+            <div className="flex items-center gap-1">
+              <Plane size={10} className="text-gray-400 dark:text-slate-500" />
+              <span className="font-semibold text-gray-600 dark:text-slate-300">{flight.aircraftType}</span>
+            </div>
+          )}
+          {flight.aircraftType && flight.duration && (
+            <div className="w-px h-3.5 bg-gray-200 dark:bg-slate-700" />
+          )}
+          {flight.duration && (
+            <div className="flex items-center gap-1">
+              <Clock size={10} className="text-gray-400 dark:text-slate-500" />
+              <span className="font-semibold text-gray-600 dark:text-slate-300">{formatDuration(flight.duration)}</span>
+            </div>
+          )}
+          {flight.status === 'landed' && flight.arrBaggage && (
+            <>
+              <div className="w-px h-3.5 bg-gray-200 dark:bg-slate-700" />
+              <div className="flex items-center gap-1">
+                <BaggageClaim size={10} className="text-gray-400 dark:text-slate-500" />
+                <span className="font-semibold text-gray-600 dark:text-slate-300">Carousel {flight.arrBaggage}</span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Alt + Speed badges — en-route only */}
+      {flight.status === 'en-route' && (flight.alt || flight.speed) && (
+        <div className="flex items-center gap-1.5">
+          {flight.alt && (
+            <div className="flex items-center gap-1 px-2 py-1.5 bg-blue-50 dark:bg-blue-900/15 rounded-lg border border-blue-100 dark:border-blue-800/30">
+              <ArrowUp size={10} className="text-blue-500 dark:text-blue-400" />
+              <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400">{(flight.alt / 1000).toFixed(1)} km</span>
+            </div>
+          )}
+          {flight.speed && (
+            <div className="flex items-center gap-1 px-2 py-1.5 bg-blue-50 dark:bg-blue-900/15 rounded-lg border border-blue-100 dark:border-blue-800/30">
+              <Zap size={10} className="text-blue-500 dark:text-blue-400" />
+              <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400">{flight.speed} km/j</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Group info bar */}
+      <div className="px-2.5 py-2 bg-gray-50 dark:bg-slate-900/40 rounded-xl border border-gray-100 dark:border-slate-700/50 flex items-center">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <div className="w-5 h-5 rounded-md bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
+              <Users size={10} className="text-blue-500" />
+            </div>
+            <span className="text-[10px] font-bold text-gray-700 dark:text-slate-200">{flight.pax} pax</span>
+          </div>
+          {tlClean && (
+            <>
+              <div className="w-px h-3.5 bg-gray-200 dark:bg-slate-700 flex-shrink-0" />
+              <div className="min-w-0">
+                <span className="text-[7px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500 block leading-none">Tour Leader</span>
+                <span className="text-[9px] font-semibold text-gray-600 dark:text-slate-300 truncate block">{tlClean}</span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
+
 export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (count: number) => void }) {
   const [flights, setFlights] = useState<FlightData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedFlight, setExpandedFlight] = useState<string | null>(null);
   const [notReady, setNotReady] = useState(false);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -260,8 +491,6 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const todayCount = flights.length;
-
   // ── Skeleton ──
   if (loading) {
     return (
@@ -281,6 +510,9 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
       </div>
     );
   }
+
+  // ── Group flights by flightNumber + departureDate ──
+  const grouped = groupFlights(flights);
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
@@ -306,7 +538,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
         </div>
       </div>
 
-      {/* ── Flight Cards ── */}
+      {/* ── Flight Cards (grouped) ── */}
       {notReady || flights.length === 0 ? (
         <div className="py-8 text-center">
           <div className="w-11 h-11 mx-auto rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center mb-3">
@@ -317,26 +549,30 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
         </div>
       ) : (
         <div className="p-2.5 space-y-2">
-          {flights.map(flight => {
-            const sc = STATUS_CFG[flight.status] || STATUS_CFG.scheduled;
-            const isExpanded = expandedId === flight.id;
-            const depTime = formatTime(flight.depActual || flight.depScheduled);
-            const arrTime = formatTime(flight.arrEstimated || flight.arrScheduled);
-            const tlClean = cleanTourLeader(flight.tourLeader);
-            const tlFirst = tlClean.split(' ')[0];
+          {grouped.map((group) => {
+            const first = group[0];
+            const sc = STATUS_CFG[first.status] || STATUS_CFG.scheduled;
+            const totalPax = group.reduce((sum, f) => sum + (f.pax ?? 0), 0);
+            const depTime = formatTime(first.depActual || first.depScheduled);
+            const arrTime = formatTime(first.arrEstimated || first.arrScheduled);
+            const groupKey = `${first.flightNumber}-${(first.depDate || first.depScheduled || '').slice(0, 10)}`;
+            const isExpanded = expandedFlight === groupKey;
 
             return (
               <div
-                key={flight.id}
+                key={groupKey}
                 className={`rounded-2xl border overflow-hidden transition-all duration-200 ${
                   isExpanded
                     ? 'border-gray-200 dark:border-slate-600'
                     : 'border-gray-100 dark:border-slate-700 shadow-sm'
                 } bg-white dark:bg-slate-800`}
               >
-                {/* ── Collapsed row ── */}
+                {/* ── Flight Header (clickable, with chevron) ── */}
                 <button
-                  onClick={() => { if (!isExpanded) trackEvent('action', 'view_flight_status', { flight: flight.flightNumber }); setExpandedId(isExpanded ? null : flight.id); }}
+                  onClick={() => {
+                    if (!isExpanded) trackEvent('action', 'view_flight_status', { flight: first.flightNumber });
+                    setExpandedFlight(isExpanded ? null : groupKey);
+                  }}
                   className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left active:bg-gray-50 dark:active:bg-slate-700/50 transition-colors"
                 >
                   {/* Time column */}
@@ -352,56 +588,40 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
 
                   {/* Flight info */}
                   <div className="flex-1 min-w-0">
-                    {/* Row 1: flight number + status badge + delay */}
+                    {/* Row 1: flight number + status badge + total pax */}
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[13px] font-bold text-gray-800 dark:text-white">{flight.flightNumber}</span>
+                      <span className="text-[13px] font-bold text-gray-800 dark:text-white">{first.flightNumber}</span>
                       <span className={`text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide ${sc.bg}`}>
                         {sc.label}
                       </span>
-                      {flight.delayed > 0 && (
-                        <span className="text-[9px] font-bold text-red-500 dark:text-red-400">+{flight.delayed}m</span>
+                      {first.delayed > 0 && (
+                        <span className="text-[9px] font-bold text-red-500 dark:text-red-400">+{first.delayed}m</span>
                       )}
                     </div>
 
                     {/* Row 2: route visualization */}
                     <div className="flex items-center gap-1.5 mt-1">
-                      <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{flight.depCode || '—'}</span>
-                      <RouteLine flight={flight} />
-                      <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{flight.arrCode || '—'}</span>
-                    </div>
-
-                    {/* Row 3: meta */}
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <span className="text-[9px] text-gray-400 dark:text-slate-500 flex items-center gap-0.5">
-                        <Users size={8} />{flight.pax} pax
-                      </span>
-                      {flight.group && (
-                        <span className="text-[9px] text-gray-400 dark:text-slate-500">Grup {flight.group}</span>
-                      )}
-                      {tlFirst && (
-                        <>
-                          <span className="text-[9px] text-gray-300 dark:text-slate-600">•</span>
-                          <span className="text-[9px] text-gray-400 dark:text-slate-500 truncate max-w-[100px]">TL: {tlFirst}</span>
-                        </>
-                      )}
+                      <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{first.depCode || '—'}</span>
+                      <RouteLine flight={first} />
+                      <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{first.arrCode || '—'}</span>
                     </div>
                   </div>
 
-                  {/* Right info — date + terminal/gate */}
+                  {/* Right info — date + chevron */}
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <span className="text-[9px] font-semibold text-gray-400 dark:text-slate-500">
-                      {formatDate(flight.depDate || flight.depScheduled)}
+                      {formatDate(first.depDate || first.depScheduled)}
                     </span>
-                    {(flight.depTerminal || flight.depGate) && (
+                    {(first.depTerminal || first.depGate) && (
                       <div className="flex items-center gap-1">
-                        {flight.depTerminal && (
+                        {first.depTerminal && (
                           <span className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
-                            T{flight.depTerminal}
+                            T{first.depTerminal}
                           </span>
                         )}
-                        {flight.depGate && (
+                        {first.depGate && (
                           <span className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
-                            {flight.depGate}
+                            {first.depGate}
                           </span>
                         )}
                       </div>
@@ -418,11 +638,38 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                   </motion.div>
                 </button>
 
-                {/* ── Expanded detail ── */}
+                {/* ── Kloter sub-list (always visible, static) ── */}
+                <div className="border-t border-gray-50 dark:border-slate-700/50 px-2.5 pb-2 pt-1.5 flex flex-col gap-1">
+                  {group.map((kloter) => {
+                    const tlClean = cleanTourLeader(kloter.tourLeader);
+
+                    return (
+                      <div
+                        key={kloter.id}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-slate-900 rounded-lg"
+                      >
+                        {/* Grup badge */}
+                        {kloter.group && (
+                          <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-md px-2 py-0.5 flex-shrink-0">
+                            Grup {kloter.group}
+                          </span>
+                        )}
+
+                        {/* Pax + Name */}
+                        <span className="flex-1 text-[11px] text-gray-500 dark:text-slate-400 truncate">
+                          <span className="font-semibold text-gray-600 dark:text-slate-300">{kloter.pax}</span> pax
+                          {tlClean && <> · {tlClean}</>}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* ── Expanded flight detail ── */}
                 <AnimatePresence initial={false}>
                   {isExpanded && (
                     <motion.div
-                      key="expanded"
+                      key="flight-detail"
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: 'auto', opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
@@ -432,204 +679,8 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                       }}
                       style={{ overflow: 'hidden', willChange: 'height' }}
                     >
-                      <div className="border-t border-gray-50 dark:border-slate-700/50">
-                        <div className="px-3 pb-3 pt-2 space-y-2.5">
-
-                          {/* Map */}
-                          {(flight.status === 'en-route' || flight.status === 'landed') && (
-                            <Suspense fallback={
-                              <div className="w-full h-36 rounded-xl bg-slate-100 dark:bg-slate-700/50 border border-gray-100 dark:border-slate-600 animate-pulse" />
-                            }>
-                              <FlightMap flight={flight} />
-                            </Suspense>
-                          )}
-
-                          {/* Time grid */}
-                          <div className="grid grid-cols-2 gap-2">
-                            {/* Departure */}
-                            <div className={`px-2.5 py-2 rounded-xl border ${
-                              flight.depActual || flight.status === 'en-route' || flight.status === 'landed'
-                                ? 'bg-emerald-50/60 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-800/30'
-                                : 'bg-gray-50 dark:bg-slate-900/40 border-gray-100 dark:border-slate-700/50'
-                            }`}>
-                              <div className="flex items-center gap-1 mb-0.5">
-                                <PlaneTakeoff size={9} className="text-gray-400 dark:text-slate-500" />
-                                <span className="text-[7px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500">Keberangkatan</span>
-                              </div>
-                              <div className="flex items-baseline gap-1.5">
-                                <span className="text-[15px] font-bold text-gray-800 dark:text-white">
-                                  {formatTime(flight.depActual || flight.depScheduled)}
-                                </span>
-                                {flight.depActual && flight.depActual !== flight.depScheduled && (
-                                  <span className="text-[9px] text-gray-400 line-through">{formatTime(flight.depScheduled)}</span>
-                                )}
-                              </div>
-                              {flight.depCity && (
-                                <div className="text-[9px] text-gray-500 dark:text-slate-400 font-medium mt-0.5">
-                                  {flight.depCity}{flight.depCode ? ` (${flight.depCode})` : ''}
-                                </div>
-                              )}
-                              {(flight.depTerminal || flight.depGate) && (
-                                <div className="flex gap-1 mt-1">
-                                  {flight.depTerminal && (
-                                    <span className="text-[7px] font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 px-1 py-0.5 rounded text-gray-500 dark:text-slate-400 inline-flex items-center gap-0.5">
-                                      <MapPin size={7} />Terminal {flight.depTerminal}
-                                    </span>
-                                  )}
-                                  {flight.depGate && (
-                                    <span className="text-[7px] font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 px-1 py-0.5 rounded text-gray-500 dark:text-slate-400">
-                                      G{flight.depGate}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                              {(flight.depDelayed ?? 0) > 0 && (
-                                <div className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-50 dark:bg-red-900/15 border border-red-100 dark:border-red-800/30 rounded-md">
-                                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-500 dark:text-red-400">
-                                    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-                                  </svg>
-                                  <span className="text-[8px] font-bold text-red-600 dark:text-red-400">+{flight.depDelayed} menit</span>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Arrival */}
-                            <div className={`px-2.5 py-2 rounded-xl border ${
-                              flight.status === 'landed'
-                                ? 'bg-emerald-50/60 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-800/30'
-                                : 'bg-gray-50 dark:bg-slate-900/40 border-gray-100 dark:border-slate-700/50'
-                            }`}>
-                              <div className="flex items-center gap-1 mb-0.5">
-                                <PlaneLanding size={9} className="text-gray-400 dark:text-slate-500" />
-                                <span className="text-[7px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500">Kedatangan</span>
-                              </div>
-                              <div className="flex items-baseline gap-1.5">
-                                <span className="text-[15px] font-bold text-gray-800 dark:text-white">
-                                  {formatTime(flight.arrEstimated || flight.arrScheduled)}
-                                </span>
-                                {flight.arrEstimated && flight.arrEstimated !== flight.arrScheduled && (
-                                  <span className="text-[9px] text-gray-400 line-through">{formatTime(flight.arrScheduled)}</span>
-                                )}
-                              </div>
-                              {flight.arrCity && (
-                                <div className="text-[9px] text-gray-500 dark:text-slate-400 font-medium mt-0.5">
-                                  {flight.arrCity}{flight.arrCode ? ` (${flight.arrCode})` : ''}
-                                </div>
-                              )}
-                              {(flight.arrTerminal || flight.arrGate) && (
-                                <div className="flex gap-1 mt-1">
-                                  {flight.arrTerminal && (
-                                    <span className="text-[7px] font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 px-1 py-0.5 rounded text-gray-500 dark:text-slate-400 inline-flex items-center gap-0.5">
-                                      <MapPin size={7} />T{flight.arrTerminal}
-                                    </span>
-                                  )}
-                                  {flight.arrGate && (
-                                    <span className="text-[7px] font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 px-1 py-0.5 rounded text-gray-500 dark:text-slate-400">
-                                      G{flight.arrGate}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                              {(flight.arrDelayed ?? 0) > 0 && (
-                                <div className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-50 dark:bg-red-900/15 border border-red-100 dark:border-red-800/30 rounded-md">
-                                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-500 dark:text-red-400">
-                                    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-                                  </svg>
-                                  <span className="text-[8px] font-bold text-red-600 dark:text-red-400">+{flight.arrDelayed} menit</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Progress bar (en-route only) */}
-                          {flight.status === 'en-route' && (
-                            <div>
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-[8px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500">Progress</span>
-                                <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400">{flight.progress}%</span>
-                              </div>
-                              <div className="h-1.5 rounded-full bg-gray-100 dark:bg-slate-700 overflow-hidden">
-                                <div
-                                  className="h-full rounded-full bg-gradient-to-r from-blue-400 to-blue-500 transition-all duration-500"
-                                  style={{ width: `${flight.progress}%` }}
-                                />
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Info strip — pesawat, durasi, bagasi */}
-                          {(flight.aircraftType || flight.duration || (flight.status === 'landed' && flight.arrBaggage)) && (
-                            <div className="px-2.5 py-2 bg-gray-50 dark:bg-slate-900/40 rounded-xl border border-gray-100 dark:border-slate-700/50 flex items-center gap-3 text-[9px]">
-                              {flight.aircraftType && (
-                                <div className="flex items-center gap-1">
-                                  <Plane size={10} className="text-gray-400 dark:text-slate-500" />
-                                  <span className="font-semibold text-gray-600 dark:text-slate-300">{flight.aircraftType}</span>
-                                </div>
-                              )}
-                              {flight.aircraftType && flight.duration && (
-                                <div className="w-px h-3.5 bg-gray-200 dark:bg-slate-700" />
-                              )}
-                              {flight.duration && (
-                                <div className="flex items-center gap-1">
-                                  <Clock size={10} className="text-gray-400 dark:text-slate-500" />
-                                  <span className="font-semibold text-gray-600 dark:text-slate-300">{formatDuration(flight.duration)}</span>
-                                </div>
-                              )}
-                              {flight.status === 'landed' && flight.arrBaggage && (
-                                <>
-                                  <div className="w-px h-3.5 bg-gray-200 dark:bg-slate-700" />
-                                  <div className="flex items-center gap-1">
-                                    <BaggageClaim size={10} className="text-gray-400 dark:text-slate-500" />
-                                    <span className="font-semibold text-gray-600 dark:text-slate-300">Carousel {flight.arrBaggage}</span>
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Alt + Speed badges — en-route only, biru */}
-                          {flight.status === 'en-route' && (flight.alt || flight.speed) && (
-                            <div className="flex items-center gap-1.5">
-                              {flight.alt && (
-                                <div className="flex items-center gap-1 px-2 py-1.5 bg-blue-50 dark:bg-blue-900/15 rounded-lg border border-blue-100 dark:border-blue-800/30">
-                                  <ArrowUp size={10} className="text-blue-500 dark:text-blue-400" />
-                                  <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400">{(flight.alt / 1000).toFixed(1)} km</span>
-                                </div>
-                              )}
-                              {flight.speed && (
-                                <div className="flex items-center gap-1 px-2 py-1.5 bg-blue-50 dark:bg-blue-900/15 rounded-lg border border-blue-100 dark:border-blue-800/30">
-                                  <Zap size={10} className="text-blue-500 dark:text-blue-400" />
-                                  <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400">{flight.speed} km/j</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Group info bar */}
-                          <div className="px-2.5 py-2 bg-gray-50 dark:bg-slate-900/40 rounded-xl border border-gray-100 dark:border-slate-700/50 flex items-center">
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              {/* PAX */}
-                              <div className="flex items-center gap-1.5 flex-shrink-0">
-                                <div className="w-5 h-5 rounded-md bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
-                                  <Users size={10} className="text-blue-500" />
-                                </div>
-                                <span className="text-[10px] font-bold text-gray-700 dark:text-slate-200">{flight.pax} pax</span>
-                              </div>
-
-                              {/* Separator + TL */}
-                              {tlClean && (
-                                <>
-                                  <div className="w-px h-3.5 bg-gray-200 dark:bg-slate-700 flex-shrink-0" />
-                                  <div className="min-w-0">
-                                    <span className="text-[7px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500 block leading-none">Tour Leader</span>
-                                    <span className="text-[9px] font-semibold text-gray-600 dark:text-slate-300 truncate block">{tlClean}</span>
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                          </div>
-
-                        </div>
+                      <div className="border-t border-gray-100 dark:border-slate-700/50">
+                        <KloterDetail flight={first} />
                       </div>
                     </motion.div>
                   )}

@@ -622,8 +622,9 @@ _________________________
 
         /* === FIX 1: TEXT OVERLAPPING === */
         /* Flight info: times, codes, routes — harus satu baris */
+        /* Exclude star (text-amber-400) and distance (text-emerald-600) spans */
         [data-cloned="true"] .grid-cols-2 p,
-        [data-cloned="true"] .grid-cols-2 span {
+        [data-cloned="true"] .grid-cols-2 span:not(.text-amber-400):not(.text-emerald-600) {
           white-space: nowrap !important;
           overflow: hidden !important;
           text-overflow: ellipsis !important;
@@ -631,10 +632,24 @@ _________________________
           line-height: 1.4 !important;
         }
 
+        /* Star + distance row: keep inline flex layout */
+        [data-cloned="true"] .grid-cols-2 .text-amber-400,
+        [data-cloned="true"] .grid-cols-2 .text-emerald-600 {
+          display: inline !important;
+          overflow: visible !important;
+          white-space: nowrap !important;
+        }
+
         /* Flight info container — jangan sampai flex items overlap */
+        /* Exclude the star+distance flex container from overflow hidden */
         [data-cloned="true"] .grid-cols-2 > div {
           min-width: 0 !important;
           overflow: hidden !important;
+        }
+        [data-cloned="true"] .grid-cols-2 [data-stars-row] {
+          overflow: visible !important;
+          display: flex !important;
+          flex-wrap: nowrap !important;
         }
 
         /* Flight info icons — tetap fix size */
@@ -887,17 +902,48 @@ _________________________
           el.style.setProperty('font-weight', '700', 'important');
         }
       });
-      // Star icons (★) — bright gold
-      clone.querySelectorAll('span').forEach(span => {
-        const el = span as HTMLElement;
-        if (el.textContent?.trim() === '★') {
-          el.style.setProperty('color', '#E8A200', 'important');
+      // Star icons (★) — bright gold (handled below in nuclear rebuild)
+
+      // D1f. NUCLEAR FIX: Replace star+distance flex rows with single <p> text
+      // snapdom clips flex items at computed width, so flex layout doesn't work.
+      // Solution: rebuild as a single <p> with all text inline.
+      clone.querySelectorAll('[data-stars-row]').forEach(row => {
+        const el = row as HTMLElement;
+        // Collect stars
+        const starSpans = el.querySelectorAll('.text-amber-400');
+        const starCount = starSpans.length;
+        const stars = '★'.repeat(starCount);
+        
+        // Collect distance text
+        let distText = '';
+        el.querySelectorAll('span').forEach(span => {
+          const s = span as HTMLElement;
+          const txt = s.textContent?.trim() || '';
+          if (txt.startsWith('±') || s.classList.contains('text-emerald-600')) {
+            distText = txt;
+          }
+        });
+        
+        // Replace the div with a single <p>
+        const p = document.createElement('p');
+        p.style.cssText = 'margin:0; line-height:1.4; white-space:nowrap; overflow:visible;';
+        
+        // Stars part
+        const starsSpan = document.createElement('span');
+        starsSpan.textContent = stars;
+        starsSpan.style.cssText = 'color:#E8A200; font-size:10px; letter-spacing:1px;';
+        p.appendChild(starsSpan);
+        
+        // Distance part
+        if (distText) {
+          const distSpan = document.createElement('span');
+          distSpan.textContent = `  ${distText}`;
+          distSpan.style.cssText = 'color:#059669; font-size:11px; font-weight:400; margin-left:4px;';
+          p.appendChild(distSpan);
         }
-        // Hotel distance (±XXXm) — strip bold for screenshot consistency
-        if (el.classList.contains('text-emerald-600') && el.textContent?.trim().startsWith('±')) {
-          el.classList.remove('font-semibold');
-          el.style.setProperty('font-weight', '400', 'important');
-        }
+        
+        // Replace the original div
+        el.replaceWith(p);
       });
 
       // D2. FLIGHT INFO: Remove "/" separators and bold dates
@@ -1095,6 +1141,8 @@ _________________________
           el.style.fontWeight = '400';
         }
       });
+
+
 
       // H. NEW HEADER: Logo (left) + Agent Profile (right)
       const header = document.createElement('div');
@@ -1503,7 +1551,7 @@ _________________________
                 {hotelInfo?.mekkah_hotel || '-'}
               </p>
               {hotelInfo?.mekkah_bintang && (
-                  <div className="flex items-center gap-0.5">
+                  <div className="flex items-center gap-0.5" data-stars-row>
                     {Array.from({ length: parseInt(hotelInfo.mekkah_bintang) }).map((_, i) => (
                       <span key={i} className="text-[10px] text-amber-400">★</span>
                     ))}
@@ -1537,7 +1585,7 @@ _________________________
                 {hotelInfo?.madinah_hotel || '-'}
               </p>
               {hotelInfo?.madinah_bintang && (
-                  <div className="flex items-center gap-0.5">
+                  <div className="flex items-center gap-0.5" data-stars-row>
                     {Array.from({ length: parseInt(hotelInfo.madinah_bintang) }).map((_, i) => (
                       <span key={i} className="text-[10px] text-amber-400">★</span>
                     ))}
@@ -1643,7 +1691,7 @@ _________________________
                         {hotel.name}
                       </p>
                       {parseInt(hotel.star) > 0 && (
-                        <div className="flex items-center gap-0.5 mt-0.5">
+                        <div className="flex items-center gap-0.5 mt-0.5" data-stars-row>
                           {Array.from({ length: parseInt(hotel.star) }).map((_, i) => (
                             <span key={i} className="text-[10px] text-amber-400">★</span>
                           ))}
