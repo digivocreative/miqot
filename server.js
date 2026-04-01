@@ -4850,14 +4850,14 @@ app.get('/api/weather/cities', authMiddleware, async (req, res) => {
       return res.json({ success: true, data: weatherCache, cached: true });
     }
 
-    const results = await Promise.all(
+    const settled = await Promise.allSettled(
       WEATHER_CITIES.map(async (city) => {
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}` +
           `&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,uv_index` +
           `&daily=weather_code,temperature_2m_max,temperature_2m_min` +
           `&timezone=${encodeURIComponent(city.tz)}&forecast_days=4`;
 
-        const resp = await fetch(url);
+        const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
         if (!resp.ok) throw new Error(`Open-Meteo error for ${city.key}: ${resp.status}`);
         const raw = await resp.json();
 
@@ -4914,11 +4914,32 @@ app.get('/api/weather/cities', authMiddleware, async (req, res) => {
       })
     );
 
+    const results = settled
+      .filter(r => r.status === 'fulfilled')
+      .map(r => r.value);
+
+    const failed = settled.filter(r => r.status === 'rejected');
+    if (failed.length > 0) {
+      console.warn(`[Weather] ${failed.length}/${settled.length} cities failed:`,
+        failed.map(r => r.reason?.message).join(', '));
+    }
+
+    if (results.length === 0) {
+      // All failed — return stale cache if available
+      if (weatherCache) {
+        return res.json({ success: true, data: weatherCache, cached: true, stale: true });
+      }
+      return res.status(502).json({ error: 'Gagal mengambil data cuaca dari semua kota' });
+    }
+
     weatherCache = results;
     weatherCacheTime = now;
     res.json({ success: true, data: results, cached: false });
   } catch (err) {
     console.error('[Weather] fetch error:', err.message);
+    if (weatherCache) {
+      return res.json({ success: true, data: weatherCache, cached: true, stale: true });
+    }
     res.status(500).json({ error: 'Gagal mengambil data cuaca' });
   }
 });
