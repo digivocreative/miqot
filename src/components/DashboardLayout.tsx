@@ -610,7 +610,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       <main className="max-w-lg mx-auto px-4 pt-5 pb-8">
 
         {/* ── AI Insight Alert Bar ── */}
-        <CalendarInsight />
+        <CalendarInsight onNavigate={(tab) => navigateTab(tab as TabId)} />
 
         {/* ── Leads Widget ── */}
         {leadsNewCount > 0 && (

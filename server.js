@@ -2135,7 +2135,16 @@ async function generateCalendarInsight() {
   for (const ev of validEvents) {
     const key = `${ev.event_date}_${ev.event_type}`;
     if (!weekSummary[key]) weekSummary[key] = { date: ev.event_date, type: ev.event_type, groups: [], totalPax: 0 };
-    weekSummary[key].groups.push({ group: ev.group_number, pax: ev.pax || 0, paket: ev.paket });
+    weekSummary[key].groups.push({
+      group: ev.group_number,
+      pax: ev.pax || 0,
+      paket: ev.paket,
+      tour_leader: ev.tour_leader || null,
+      jam_kumpul: ev.jam_kumpul || null,
+      titik_kumpul: ev.titik_kumpul || null,
+      pesawat: ev.pesawat || null,
+      jam: ev.jam || null,
+    });
     weekSummary[key].totalPax += ev.pax || 0;
   }
 
@@ -2153,7 +2162,13 @@ async function generateCalendarInsight() {
     for (const item of todayEvents) {
       calendarDataString += `${item.type}: ${item.groups.length} group, ${item.totalPax} jamaah\n`;
       for (const g of item.groups) {
-        calendarDataString += `  Group ${g.group}: ${g.pax} jamaah, paket ${g.paket || '-'}\n`;
+        let groupLine = `  Group ${g.group}: ${g.pax} jamaah, paket ${g.paket || '-'}`;
+        if (g.tour_leader) groupLine += `, TL: ${g.tour_leader}`;
+        if (g.pesawat) groupLine += `, pesawat: ${g.pesawat}`;
+        if (g.jam) groupLine += `, jam: ${g.jam}`;
+        if (g.jam_kumpul) groupLine += `, kumpul: ${g.jam_kumpul}`;
+        if (g.titik_kumpul) groupLine += ` di ${g.titik_kumpul}`;
+        calendarDataString += groupLine + '\n';
       }
     }
   }
@@ -2166,7 +2181,13 @@ async function generateCalendarInsight() {
     for (const item of futureEvents) {
       calendarDataString += `${formatDate(item.date)} — ${item.type}: ${item.groups.length} group, ${item.totalPax} jamaah\n`;
       for (const g of item.groups) {
-        calendarDataString += `  Group ${g.group}: ${g.pax} jamaah, paket ${g.paket || '-'}\n`;
+        let groupLine = `  Group ${g.group}: ${g.pax} jamaah, paket ${g.paket || '-'}`;
+        if (g.tour_leader) groupLine += `, TL: ${g.tour_leader}`;
+        if (g.pesawat) groupLine += `, pesawat: ${g.pesawat}`;
+        if (g.jam) groupLine += `, jam: ${g.jam}`;
+        if (g.jam_kumpul) groupLine += `, kumpul: ${g.jam_kumpul}`;
+        if (g.titik_kumpul) groupLine += ` di ${g.titik_kumpul}`;
+        calendarDataString += groupLine + '\n';
       }
     }
   }
@@ -2208,7 +2229,7 @@ async function generateCalendarInsight() {
 
   const systemPrompt = `Kamu adalah asisten untuk agen travel umroh Alhijaz. Agen-agen ini campuran pria dan wanita. 
 
-Tugas kamu: buat 3 insight singkat berdasarkan data jadwal dan cuaca berikut. Gunakan bahasa Indonesia yang HANGAT dan KASUAL — seperti ngobrol sesama teman kerja. Jangan pakai bahasa baku/kaku/formal. Boleh pakai kata seperti "rame", "lumayan", "nih", "yuk", "dong", "banget", "Alhamdulillah". Jangan pakai kata "signifikan", "terkait", "berdasarkan data", atau bahasa laporan.
+Tugas kamu: buat 2 insight singkat berdasarkan data jadwal berikut. Gunakan bahasa Indonesia yang HANGAT dan KASUAL — seperti ngobrol sesama teman kerja. Jangan pakai bahasa baku/kaku/formal. Boleh pakai kata seperti "rame", "lumayan", "nih", "yuk", "dong", "banget", "Alhamdulillah". Jangan pakai kata "signifikan", "terkait", "berdasarkan data", atau bahasa laporan.
 
 VARIASI BAHASA (WAJIB):
 - JANGAN pernah buka kalimat dengan pola yang sama setiap hari. Variasikan pembuka — kadang dari fakta menarik, kadang dari pertanyaan, kadang dari reminder langsung.
@@ -2224,13 +2245,13 @@ VARIASI BAHASA (WAJIB):
   • "Siap-siap ya, minggu depan bakal rame..."
   • "Untuk 7 hari ke depan, yang paling perlu diperhatiin itu..."
   • "Weekly update: ada beberapa group besar yang berangkat..."
-- Contoh variasi pembuka field "cuaca":
-  • "Soal cuaca, Mekah lagi panas-panasnya nih..."
-  • "Buat jamaah yang mau berangkat, cuaca di Tanah Suci..."
-  • "Update cuaca: Madinah lagi adem, tapi Mekah..."
-  • "Jangan lupa ingetin jamaah soal cuaca ya..."
 - Gunakan hari dalam minggu (Senin, Selasa, dst) secara natural, jangan selalu sebut tanggal angka di awal kalimat.
 - Variasikan juga gaya penutup — jangan selalu "jangan lupa" atau "pastikan".
+
+INFO TAMBAHAN:
+- Jika ada data tour leader (TL), sebutkan nama TL-nya di insight hari ini.
+- Jika ada data jam kumpul dan titik kumpul, sebutkan juga di insight hari ini.
+- Jika ada data pesawat dan jam terbang, sebutkan di insight.
 
 LARANGAN:
 - JANGAN gunakan sapaan berdasarkan waktu (Pagi, Siang, Sore, Malam, Selamat pagi, dll) karena insight ini berlaku seharian, bukan hanya pagi.
@@ -2240,18 +2261,14 @@ LARANGAN:
 
 Bungkus angka/tanggal penting dengan **bold** (contoh: **25 Maret**, **336 jamaah**).
 
-Buat 3 bagian (HARUS dalam format JSON, tanpa backtick/markdown di luar value):
+Buat 2 bagian (HARUS dalam format JSON, tanpa backtick/markdown di luar value):
 {
-  "today": "Ringkasan hari ini BERDASARKAN DATA SECTION 'HARI INI'. Jika section 'HARI INI' menunjukkan TIDAK ADA jadwal, WAJIB bilang hari ini kosong/santai, lalu sebut kapan jadwal terdekat berikutnya dari section '7 HARI KE DEPAN'. Jangan mengarang ada keberangkatan hari ini kalau datanya kosong. Maksimal 2 kalimat.",
-  "weekly": "Ringkasan 7 hari ke depan + PENGINGAT/TO-DO untuk agent. Sebutkan hari paling rame, group terbesar, total jamaah. Lalu kasih action items spesifik, misal: 'Manasik tanggal X, kabari jamaah Group Y.' atau 'Group Z berangkat N hari lagi, cek kelengkapan dokumen.' Maksimal 4-5 kalimat.",
-  "cuaca": "Info cuaca Mekah dan Madinah minggu ini yang relevan untuk jamaah yang mau berangkat. Kasih tips praktis buat agent ingetin jamaahnya, misal bawa payung, minum yang banyak, pakai sunblock, dll. Harus hangat dan perhatian, kayak ibu-ibu ngingetin anaknya. Maksimal 3 kalimat."
+  "today": "Ringkasan hari ini BERDASARKAN DATA SECTION 'HARI INI'. Jika section 'HARI INI' menunjukkan TIDAK ADA jadwal, WAJIB bilang hari ini kosong/santai, lalu sebut kapan jadwal terdekat berikutnya dari section '7 HARI KE DEPAN'. Jangan mengarang ada keberangkatan hari ini kalau datanya kosong. Jika ada info TL, jam kumpul, titik kumpul — sebutkan. Maksimal 3 kalimat.",
+  "weekly": "Ringkasan 7 hari ke depan + PENGINGAT/TO-DO untuk agent. Sebutkan hari paling rame, group terbesar, total jamaah. Lalu kasih action items spesifik, misal: 'Manasik tanggal X, kabari jamaah Group Y.' atau 'Group Z berangkat N hari lagi, cek kelengkapan dokumen.' Maksimal 4-5 kalimat."
 }`;
 
   const userPrompt = `Data jadwal 7 hari ke depan:
 ${calendarDataString}
-
-Data cuaca Mekah bulan ini: suhu ${mekahT.low}-${mekahT.high}°C, kondisi ${mekahCondition}
-Data cuaca Madinah bulan ini: suhu ${madinahT.low}-${madinahT.high}°C, kondisi ${madinahCondition}
 
 Gaya penulisan hari ini: ${randomStyle}`;
 
@@ -2266,7 +2283,7 @@ Gaya penulisan hari ini: ${randomStyle}`;
           { role: 'user', content: userPrompt },
         ],
         temperature: 0.7,
-        max_tokens: 600,
+        max_tokens: 500,
       }),
     });
 
@@ -2283,10 +2300,13 @@ Gaya penulisan hari ini: ${randomStyle}`;
     const jsonStr = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const parsed = JSON.parse(jsonStr);
 
+    // Compute static weather data (no AI needed)
+    const cuacaText = `Mekah ${mekahT.low}–${mekahT.high}°C (${mekahCondition}) · Madinah ${madinahT.low}–${madinahT.high}°C (${madinahCondition})`;
+
     const data = {
       today: parsed.today || '',
       weekly: parsed.weekly || '',
-      cuaca: parsed.cuaca || '',
+      cuaca: cuacaText,
       dateFor: todayStr,
       generatedAt: new Date().toISOString(),
     };
@@ -2331,6 +2351,92 @@ app.get('/api/calendar/insight', authMiddleware, async (req, res) => {
     }
   } catch { /* table may not exist */ }
   res.json({ success: false, error: 'Insight belum tersedia' });
+});
+
+// POST — force regenerate insight (admin/manual trigger)
+app.post('/api/calendar/insight/refresh', authMiddleware, async (req, res) => {
+  try {
+    insightCache = null; // clear in-memory cache
+    const data = await generateCalendarInsight();
+    if (data) {
+      res.json({ success: true, data });
+    } else {
+      res.json({ success: false, error: 'Gagal generate insight' });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET — per-agent jamaah status for personalized insight card
+app.get('/api/calendar/insight-jamaah', authMiddleware, async (req, res) => {
+  try {
+    const slug = req.user.slug;
+    const todayWIB = new Date(Date.now() + 7 * 60 * 60 * 1000);
+    const todayStr = todayWIB.toISOString().split('T')[0];
+
+    // End of current month
+    const monthEnd = todayWIB.getUTCMonth() === 11
+      ? `${todayWIB.getUTCFullYear() + 1}-01-01`
+      : `${todayWIB.getUTCFullYear()}-${String(todayWIB.getUTCMonth() + 2).padStart(2, '0')}-01`;
+
+    // 30 days from today for passport checks
+    const plus30 = new Date(todayWIB);
+    plus30.setDate(plus30.getDate() + 30);
+    const plus30Str = plus30.toISOString().split('T')[0];
+
+    // Query jamaah for this agent departing from today onwards this month
+    const { data: jamaahData, error } = await supabase
+      .from('jamaah')
+      .select('nama, sisa, tgl_berangkat, dokumen, no_paspor, paspor_expired')
+      .eq('agent_slug', slug)
+      .gte('tgl_berangkat', todayStr)
+      .lt('tgl_berangkat', monthEnd);
+
+    if (error) {
+      return res.json({ success: true, data: null });
+    }
+
+    const allJamaah = jamaahData || [];
+    const totalBulanIni = allJamaah.length;
+
+    // Belum lunas (sisa > 0)
+    const belumLunas = allJamaah.filter(j => j.sisa && parseFloat(j.sisa) > 0);
+    const totalBelumLunas = belumLunas.length;
+    const totalSisa = belumLunas.reduce((s, j) => s + (parseFloat(j.sisa) || 0), 0);
+
+    // Paspor belum dikumpulkan (no_paspor kosong AND dokumen.paspor !== true)
+    const belumPaspor = allJamaah.filter(j => {
+      const pasporCollected = j.dokumen?.paspor === true || (j.no_paspor && j.no_paspor.trim() !== '');
+      return !pasporCollected;
+    });
+
+    // Paspor expired before departure
+    const pasporExpired = allJamaah.filter(j => {
+      return j.paspor_expired && j.tgl_berangkat && j.paspor_expired < j.tgl_berangkat;
+    });
+
+    // Berangkat dalam 7 hari
+    const plus7 = new Date(todayWIB);
+    plus7.setDate(plus7.getDate() + 7);
+    const plus7Str = plus7.toISOString().split('T')[0];
+    const berangkat7Hari = allJamaah.filter(j => j.tgl_berangkat >= todayStr && j.tgl_berangkat <= plus7Str);
+
+    res.json({
+      success: true,
+      data: {
+        totalBulanIni,
+        totalBelumLunas,
+        totalSisa,
+        belumPaspor: belumPaspor.length,
+        pasporExpired: pasporExpired.length,
+        berangkat7Hari: berangkat7Hari.length,
+      },
+    });
+  } catch (err) {
+    console.error('[InsightJamaah] Error:', err.message);
+    res.json({ success: true, data: null });
+  }
 });
 
 // ──────────────────────────────────────────────
