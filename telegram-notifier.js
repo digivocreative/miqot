@@ -2188,6 +2188,51 @@ ${critical.slice(0, 5).map(p => `- ${p.jadwal_nama} (${p.maskapai}): sisa ${seat
   }
 }
 
+// ─── AI Calendar Insight ─────────────────────────────
+
+export async function sendCalendarInsight() {
+  try {
+    if (!supabaseAdmin) return;
+
+    const { data: row, error } = await supabaseAdmin
+      .from('calendar_insights')
+      .select('data')
+      .eq('id', 'latest')
+      .single();
+
+    if (error || !row?.data) {
+      warn('[CalendarInsight] No insight data found, skipping');
+      return;
+    }
+
+    const insight = row.data;
+
+    // Skip if insight is stale (not today's WIB date)
+    const nowWIB = new Date(Date.now() + 7 * 60 * 60 * 1000);
+    const todayStr = nowWIB.toISOString().slice(0, 10);
+    if (insight.dateFor && insight.dateFor !== todayStr) {
+      warn(`[CalendarInsight] Insight stale (${insight.dateFor} vs ${todayStr}), skipping`);
+      return;
+    }
+
+    const cuacaLine = insight.cuaca ? `\n🌡️ ${insight.cuaca}` : '';
+    const msg =
+      `✈️ <b>AI INSIGHT HARIAN</b>${cuacaLine}\n\n` +
+      `📅 <b>Hari Ini</b>\n${insight.today || '-'}\n\n` +
+      `🗓 <b>7 Hari ke Depan</b>\n${insight.weekly || '-'}`;
+
+    // Kirim ke grup
+    await sendLongMessage(msg);
+    log('[CalendarInsight] Sent to group');
+
+    // Kirim personal ke semua agent (dengan preference check insight_harian)
+    await broadcastToAgents('insight_harian', () => msg + FOOTER);
+    log('[CalendarInsight] Broadcast to agents done');
+  } catch (err) {
+    warn('[CalendarInsight] Error:', err.message);
+  }
+}
+
 // ─── Init ────────────────────────────────────────────
 
 export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyPembayaranMasuk };
@@ -2221,6 +2266,11 @@ export function initNotifier() {
   // Departure reminders at 08:15 WIB every day
   cron.schedule('15 8 * * *', () => {
     sendDepartureReminders();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // CRON: AI Calendar Insight (08:30 WIB)
+  cron.schedule('30 8 * * *', () => {
+    sendCalendarInsight();
   }, { timezone: 'Asia/Jakarta' });
 
   // Hot deals at 09:00 WIB every day
