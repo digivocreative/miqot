@@ -1,6 +1,9 @@
 // ⚠️ HARUS baris pertama — sebelum import apapun
 import './instrument.mjs';
 
+import { Agent, setGlobalDispatcher } from 'undici';
+setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
+
 import express from 'express';
 import * as Sentry from '@sentry/node';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
