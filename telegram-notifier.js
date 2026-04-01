@@ -2283,15 +2283,9 @@ export function initNotifier() {
     sendWeeklyReport();
   }, { timezone: 'Asia/Jakarta' });
 
-  // Daily tips at 10:45 WIB (morning slot)
-  cron.schedule('45 10 * * *', () => {
-    sendDailyTips(0);
-  }, { timezone: 'Asia/Jakarta' });
-
-  // Daily tips at 19:15 WIB (evening slot)
-  cron.schedule('15 19 * * *', () => {
-    sendDailyTips(1);
-  }, { timezone: 'Asia/Jakarta' });
+  // Daily tips (closing, meta ads, google ads) — dimatikan
+  // cron.schedule('45 10 * * *', () => { sendDailyTips(0); }, { timezone: 'Asia/Jakarta' });
+  // cron.schedule('15 19 * * *', () => { sendDailyTips(1); }, { timezone: 'Asia/Jakarta' });
 
   // Periodic updates every 4 hours: 12:00, 16:00, 20:00 WIB
   cron.schedule('0 12 * * *', () => {
