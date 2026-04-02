@@ -2196,7 +2196,7 @@ const KNOWN_ROUTES = {
   'SV822':  { dep: 'MED', depCity: 'Madinah',  arr: 'CGK', arrCity: 'Jakarta',  durationMin: 570 },
   'SV827':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'JED', arrCity: 'Jeddah',   durationMin: 540, depTerminal: '3' },
   'SV828':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
-  'SV816':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'JED', arrCity: 'Jeddah',   durationMin: 540, depTerminal: '3' },
+  'SV816':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 600, depTerminal: '1' },
   'SV817':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
   'SV818':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
   'SV820':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
@@ -2734,21 +2734,36 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
       } else {
         // Fallback: enrich from calendar + route lookup
         const route = lookupRoute(parsed.flightIata, event.event_type);
-        const jamLocal = (event.jam || '00:00').replace('.', ':');
-        const depTimeStr = `${event.event_date}T${jamLocal}:00`;
-        const arrEstimateISO = route ? estimateArrival(depTimeStr, route.durationMin) : null;
-        const arrEstimateLocal = arrEstimateISO ? extractHHmm(arrEstimateISO) : null;
+        // event.jam is the ARRIVAL time at **arr airport** local timezone
+        const arrLocal = (event.jam || '00:00').replace('.', ':');
+        const arrAirport = route?.arr || (event.event_type === 'kepulangan' ? 'CGK' : 'JED');
+        const depAirport = route?.dep || (event.event_type === 'kepulangan' ? 'JED' : 'CGK');
+        const arrTZ = AIRPORT_TZ_OFFSETS[arrAirport] || 7;
+        const depTZ = AIRPORT_TZ_OFFSETS[depAirport] || 7;
+        const durationMin = route?.durationMin || 540;
+
+        // Calculate departure time from arrival time:
+        // arrLocal is HH:mm in arrival airport's timezone
+        const [arrH, arrM] = arrLocal.split(':').map(Number);
+        // Arrival in UTC
+        const arrDateObj = new Date(`${event.event_date}T00:00:00Z`);
+        const arrUTC = arrDateObj.getTime() + (arrH * 60 + arrM) * 60 * 1000 - arrTZ * 60 * 60 * 1000;
+        // Departure in UTC = arrival UTC - duration
+        const depUTC = arrUTC - durationMin * 60 * 1000;
+        // Convert departure UTC to departure airport local HH:mm
+        const depLocalMs = depUTC + depTZ * 60 * 60 * 1000;
+        const depD = new Date(depLocalMs);
+        const depHH = String(depD.getUTCHours()).padStart(2, '0');
+        const depMM = String(depD.getUTCMinutes()).padStart(2, '0');
+        const depLocal = `${depHH}:${depMM}`;
 
         const todayWIBStr = getWIBDateStr();
         let fallbackStatus = 'scheduled';
         let fallbackProgress = 0;
         if (event.event_date < todayWIBStr) {
-          // Yesterday's flight → assume landed
           fallbackStatus = 'landed';
           fallbackProgress = 100;
         }
-        // Note: event.jam is ARRIVAL time (e.g. 16:00 = arrival at CGK), not departure.
-        // Without AirLabs data we can't know actual departure time, so keep as 'scheduled'.
 
         flights.push({
           id: entryId,
@@ -2760,21 +2775,21 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
           depCity: route?.depCity || '',
           depCode: route?.dep || '',
           depTerminal: route?.depTerminal || null, depGate: null,
-          depScheduled: jamLocal,
+          depScheduled: depLocal,
           depActual: null,
-          depDate: depTimeStr,
+          depDate: new Date(depUTC).toISOString(),
           arrCity: route?.arrCity || '',
           arrCode: route?.arr || '',
           arrTerminal: null, arrGate: null,
-          arrScheduled: arrEstimateLocal,
-          arrEstimated: arrEstimateLocal,
+          arrScheduled: arrLocal,
+          arrEstimated: arrLocal,
           pax: event.pax || 0,
           tourLeader: event.tour_leader || '',
           lat: null, lng: null, alt: null, speed: null,
           progress: fallbackProgress,
           delayed: 0,
           aircraftType: null, aircraftReg: null,
-          duration: route?.durationMin || null,
+          duration: durationMin,
           depDelayed: 0, arrDelayed: 0, arrBaggage: null,
         });
       }
@@ -2793,7 +2808,15 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
       return (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
     });
 
-    res.json({ success: true, data: flights });
+    // Filter out flights that already landed on a previous day — they're no longer relevant
+    const filtered = flights.filter(f => {
+      if (f.status !== 'landed') return true;
+      // Extract date from flight ID (format: "2026-04-01_SV821_g169")
+      const flightDate = f.id?.substring(0, 10);
+      return flightDate >= todayWIB; // keep today's landed flights, hide yesterday's
+    });
+
+    res.json({ success: true, data: filtered });
   } catch (err) {
     console.error('[Flights] Error:', err);
     res.status(500).json({ error: 'Gagal memuat data penerbangan' });

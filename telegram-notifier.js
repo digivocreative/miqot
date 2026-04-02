@@ -2215,11 +2215,14 @@ export async function sendCalendarInsight() {
       return;
     }
 
+    // Convert markdown **bold** to HTML <b>bold</b> for Telegram
+    const md2html = (text) => (text || '-').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+
     const cuacaLine = insight.cuaca ? `\n🌡️ ${insight.cuaca}` : '';
     const msg =
       `✈️ <b>AI INSIGHT HARIAN</b>${cuacaLine}\n\n` +
-      `📅 <b>Hari Ini</b>\n${insight.today || '-'}\n\n` +
-      `🗓 <b>7 Hari ke Depan</b>\n${insight.weekly || '-'}`;
+      `📅 <b>Hari Ini</b>\n${md2html(insight.today)}\n\n` +
+      `🗓 <b>7 Hari ke Depan</b>\n${md2html(insight.weekly)}`;
 
     // Kirim ke grup
     await sendLongMessage(msg);

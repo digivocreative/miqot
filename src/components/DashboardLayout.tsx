@@ -524,11 +524,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{agentData.name}</p>
-                {isAdmin && (
-                  <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-[9px] font-bold rounded-full uppercase shrink-0">
-                    <Shield size={8} /> Admin
-                  </span>
-                )}
               </div>
             </div>
           </div>
