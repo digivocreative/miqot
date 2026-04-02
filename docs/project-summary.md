@@ -15,7 +15,7 @@
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
-| **Database** | Supabase (PostgreSQL) — 7 tabel: `agents`, `capi_configs`, `jamaah`, `calendar_events`, `calendar_insights`, `ai_credits`, `quiz_leads` |
+| **Database** | Supabase (PostgreSQL) — 6 tabel: `agents`, `capi_configs`, `jamaah`, `calendar_events`, `calendar_insights`, `ai_credits` |
 | **Telegram** | Telegram Bot API — group alerts (node-cron) + per-agent DM (deep link connect, departure reminders, pembayaran masuk) |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
@@ -61,7 +61,7 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~3600 lines) — API, proxy, auth, sync, stats, AI insight, AI tools, quiz/leads, SPA serve
+├── server.js              # Express backend (~3600 lines) — API, proxy, auth, sync, stats, AI insight, AI tools, SPA serve
 ├── instrument.mjs         # Sentry initialization (must be imported before everything else)
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
 ├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
@@ -249,15 +249,6 @@ alhijaz/
   - Fallback tiers: relax budget ±20% → relax package type → sold-out fillers
   - Result: top 3 cards with match %, price, hotel, maskapai, departure, seat indicator
   - PDF export via `@react-pdf/renderer` (downloadable recommendation summary)
-  - Submit → save to `quiz_leads` table + Telegram notification to agent
-- **Leads Management** (`LeadsPage.tsx`) — Dashboard lead tracking
-  - Stat cards: Semua, Baru, Proses, Closing (animated with `active:scale-95`)
-  - Search by name, filter by status
-  - Lead cards: avatar with status-colored ring, expand/collapse with framer-motion `AnimatePresence`
-  - Expanded: preferensi detail, recommendation list, status update dropdown, WhatsApp + delete actions
-  - Skeleton loading for stat cards + search bar + lead cards on initial fetch
-  - Empty states: "Belum ada lead" (UserPlus icon) / "Tidak ditemukan" (Search icon)
-  - Sync indicator: total leads + last updated timestamp
 
 ### Fitur Infrastruktur
 - AI Copywriting (OpenAI proxy — generate caption WhatsApp)
@@ -274,7 +265,7 @@ alhijaz/
     - Separator lines `─────────────────` between sections
     - `parse_mode: 'HTML'` with `<b>`, `<u>`, `<i>` tags
   - **Pembayaran masuk** detection: saat sync jamaah, bandingkan `bayar` before vs after → kirim notif ke agent jika ada kenaikan pembayaran
-  - **Notification preferences**: per-agent toggle (11 kategori: departure, paspor, pelunasan, perlengkapan, manasik, seat_alert, paket_baru, perubahan_harga, pembayaran_masuk, ringkasan_mingguan, quiz_lead). Disimpan di `agents.notification_prefs` (JSONB)
+  - **Notification preferences**: per-agent toggle (10 kategori: departure, paspor, pelunasan, perlengkapan, manasik, seat_alert, paket_baru, perubahan_harga, pembayaran_masuk, ringkasan_mingguan). Disimpan di `agents.notification_prefs` (JSONB)
   - Deep link connect: agent klik tombol di dashboard → Telegram bot auto-link chat_id
 - Background sync jamaah (semua agent, setiap 1 jam, per kantor agent masing-masing)
 - Calendar sync (scrape FullCalendar dari internal system, setiap 12 jam via `setInterval`)
@@ -373,19 +364,6 @@ first_used_at TIMESTAMPTZ          -- timestamp pertama kali pakai (reset setela
 created_at    TIMESTAMPTZ          -- record creation time
 ```
 
-### Tabel `quiz_leads`
-```
-id            UUID PRIMARY KEY DEFAULT gen_random_uuid()
-agent_slug    TEXT NOT NULL        -- FK to agents.slug
-nama          TEXT NOT NULL        -- nama calon jamaah
-wa            TEXT NOT NULL        -- nomor WA (format 628xxx)
-answers       JSONB DEFAULT '{}'   -- quiz answers (departure, packageClass, destination, budget, priority[], room, pax)
-recommended   JSONB DEFAULT '[]'   -- top 3 recommended packages [{jadwal_id, name, price, match}]
-status        TEXT DEFAULT 'baru'  -- 'baru' | 'dihubungi' | 'closing' | 'tidak_berminat'
-created_at    TIMESTAMPTZ DEFAULT now()
--- Indexes: agent_slug, status, created_at DESC
-```
-
 ### Data Paket Umroh (External API)
 Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhijaz.co/jadwal/api-get/{yearCode}` dan di-cache di browser (localStorage). Lihat `UmrohPackage` type di `src/types/umroh-package.ts`.
 
@@ -442,15 +420,6 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | GET | `/api/telegram/prefs` | Bearer | Get notification preferences (merged with defaults) |
 | PUT | `/api/telegram/prefs` | Bearer | Update notification preferences (partial update, JSONB merge) |
 | POST | `/api/telegram/webhook` | — | Webhook handler dari Telegram bot (process /start {token}) |
-
-### Quiz & Leads
-| Method | Path | Auth | Deskripsi |
-|--------|------|------|-----------|
-| POST | `/api/quiz/:slug/submit` | — | Submit quiz answers + recommendations (public, no auth). Saves to `quiz_leads`, sends Telegram notification |
-| GET | `/api/leads/stats` | Bearer | Get lead stats by status (total, baru, dihubungi, closing, tidak_berminat, new_since) |
-| GET | `/api/leads` | Bearer | List leads (filter: status, search, after; pagination: page, limit) |
-| PUT | `/api/leads/:id/status` | Bearer | Update lead status |
-| DELETE | `/api/leads/:id` | Bearer | Delete lead |
 
 ### AI Tools
 | Method | Path | Auth | Deskripsi |

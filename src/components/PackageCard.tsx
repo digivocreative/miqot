@@ -1665,7 +1665,7 @@ _________________________
           {/* Agent Profile (only visible when URL slug matches an agent) */}
           {currentAgent && (
             <div className="px-0">
-              <AgentProfile agent={currentAgent} packageName={pkg.nama} isCapturing={isCapturing} />
+              <AgentProfile agent={currentAgent} packageName={pkg.nama} departureDate={pkg.keberangkatan.tgl} isCapturing={isCapturing} />
             </div>
           )}
 

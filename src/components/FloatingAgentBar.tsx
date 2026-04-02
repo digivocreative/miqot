@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Sparkles } from 'lucide-react';
 import type { AgentData } from '../data/agents';
 import { AGENTS_DATA } from '../data/agents';
 import { sendCapiEvent } from '../lib/capi';
@@ -7,32 +6,14 @@ import { trackPublicEvent } from '../utils/analytics';
 
 interface FloatingAgentBarProps {
   agent: AgentData;
-  onQuizOpen?: () => void;
 }
 
-export default function FloatingAgentBar({ agent, onQuizOpen }: FloatingAgentBarProps) {
+export default function FloatingAgentBar({ agent }: FloatingAgentBarProps) {
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
   // CAPI: get agent slug for event firing
   const agentSlug = Object.entries(AGENTS_DATA).find(([, v]) => v === agent)?.[0] || '';
-
-  // Quiz states from localStorage
-  const [quizDismissed, setQuizDismissed] = useState(() =>
-    localStorage.getItem(`quiz_bar_dismissed_${agentSlug}`) === 'true'
-  );
-  const [quizCompleted] = useState(() =>
-    localStorage.getItem(`quiz_completed_${agentSlug}`) === 'true'
-  );
-
-  // Pulse animation: active for 5 seconds on load (state 2 only)
-  const [pulseActive, setPulseActive] = useState(!quizCompleted);
-  useEffect(() => {
-    if (quizCompleted || !quizDismissed) return;
-    setPulseActive(true);
-    const timer = setTimeout(() => setPulseActive(false), 5000);
-    return () => clearTimeout(timer);
-  }, [quizCompleted, quizDismissed]);
 
   // Smart Scroll Visibility
   const handleScroll = useCallback(() => {
@@ -63,69 +44,6 @@ export default function FloatingAgentBar({ agent, onQuizOpen }: FloatingAgentBar
     }
   };
 
-  const handleQuizCta = () => {
-    // Dismiss state 1, transition to state 2 for next visit
-    if (!quizDismissed) {
-      localStorage.setItem(`quiz_bar_dismissed_${agentSlug}`, 'true');
-      setQuizDismissed(true);
-    }
-    onQuizOpen?.();
-  };
-
-  // ── State 1: Quiz Dominant (first visit) ──
-  if (!quizDismissed) {
-    return (
-      <div
-        className={`
-          fixed bottom-6 left-4 right-4 z-50
-          max-w-lg mx-auto
-          bg-gradient-to-r from-emerald-50 via-white to-white
-          dark:from-emerald-950/40 dark:via-slate-800 dark:to-slate-800
-          backdrop-blur-md
-          border border-emerald-100 dark:border-emerald-800/50
-          shadow-2xl
-          rounded-full
-          flex items-center justify-between
-          p-2 pl-3
-          transition-all duration-300 ease-in-out
-          ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-[200%] opacity-0'}
-        `}
-      >
-        {/* LEFT: Agent Photo */}
-        <div className="w-10 h-10 flex-shrink-0">
-          <img
-            src={agent.photo}
-            alt={agent.name}
-            className="w-full h-full object-cover rounded-full border-2 border-white dark:border-slate-700 shadow-sm"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(agent.name)}&background=random`;
-            }}
-          />
-        </div>
-
-        {/* CENTER: Persuasive Copy */}
-        <div className="flex flex-col min-w-0 mx-2 flex-1">
-          <span className="text-[12px] font-extrabold text-gray-900 dark:text-white leading-tight truncate">
-            Tinggal jawab, kami carikan ✨
-          </span>
-          <span className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
-            Rekomendasi personal dalam 2 menit
-          </span>
-        </div>
-
-        {/* RIGHT: CTA */}
-        <button
-          onClick={handleQuizCta}
-          className="flex-shrink-0 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-4 py-2.5 rounded-full flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.96]"
-        >
-          <Sparkles size={14} className="text-white" />
-          <span className="text-xs font-bold tracking-wide">Mulai</span>
-        </button>
-      </div>
-    );
-  }
-
-  // ── State 2: Normal + Quiz Icon ──
   return (
     <div
       className={`
@@ -169,42 +87,8 @@ export default function FloatingAgentBar({ agent, onQuizOpen }: FloatingAgentBar
         </div>
       </div>
 
-      {/* RIGHT: Quiz Icon + Chat Button */}
+      {/* RIGHT: Chat Button */}
       <div className="flex items-center gap-1.5 flex-shrink-0">
-        {/* Quiz icon */}
-        <button
-          onClick={handleQuizCta}
-          className={`relative w-[34px] h-[34px] rounded-full flex items-center justify-center transition-all active:scale-95 ${
-            pulseActive
-              ? 'bg-gradient-to-r from-emerald-500 to-emerald-600'
-              : 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40'
-          }`}
-        >
-          <Sparkles size={14} className={pulseActive ? 'text-white' : 'text-emerald-600 dark:text-emerald-400'} />
-
-          {/* Pulse rings */}
-          {pulseActive && (
-            <>
-              <span className="absolute inset-0 rounded-full animate-ping bg-emerald-400/30" style={{ animationDuration: '2s' }} />
-              <span className="absolute inset-[-3px] rounded-full animate-ping bg-emerald-400/15" style={{ animationDuration: '2s', animationDelay: '0.5s' }} />
-            </>
-          )}
-
-          {/* Glow */}
-          {pulseActive && (
-            <style>{`
-              @keyframes quizGlow {
-                0%, 100% { box-shadow: 0 0 8px rgba(16,185,129,0.3); }
-                50% { box-shadow: 0 0 16px rgba(16,185,129,0.5); }
-              }
-            `}</style>
-          )}
-          {pulseActive && (
-            <span className="absolute inset-0 rounded-full" style={{ animation: 'quizGlow 2s ease-in-out infinite' }} />
-          )}
-        </button>
-
-        {/* Chat Button */}
         <a
           href={waLink}
           target="_blank"

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Mic, Image, CreditCard, BarChart3, Banknote } from 'lucide-react';
+import { Mic, Image, CreditCard, BarChart3, Banknote, ArrowLeftRight } from 'lucide-react';
 import { trackEvent } from '../utils/analytics';
 
 interface AIToolsPageProps {
@@ -7,6 +7,15 @@ interface AIToolsPageProps {
 }
 
 const TOOLS = [
+  {
+    id: 'compare',
+    name: 'Bandingkan Paket',
+    desc: 'Temukan perbedaan dari 2 paket umroh',
+    icon: ArrowLeftRight,
+    color: 'violet',
+    route: 'compare',
+    active: true,
+  },
   {
     id: 'voice-over',
     name: 'Voice Over Generator',
@@ -17,21 +26,21 @@ const TOOLS = [
     active: true,
   },
   {
+    id: 'kurs',
+    name: 'Kurs Hari Ini',
+    desc: 'Cek & Hitung Kurs Valas hari ini',
+    icon: Banknote,
+    color: 'amber',
+    route: 'kurs',
+    active: true,
+  },
+  {
     id: 'haji-plus',
     name: 'Infografis Haji Plus',
     desc: 'Grafik data jamaah haji plus per tahun',
     icon: BarChart3,
     color: 'emerald',
     route: 'haji-plus',
-    active: true,
-  },
-  {
-    id: 'kurs',
-    name: 'Kurs Hari Ini',
-    desc: 'Cek & Hitung Kurs Valas hari ini',
-    icon: Banknote,
-    color: 'emerald',
-    route: 'kurs',
     active: true,
   },
   {
@@ -74,6 +83,10 @@ const iconStyles: Record<string, { bg: string; text: string }> = {
   emerald: {
     bg: 'bg-emerald-50 dark:bg-emerald-900/20',
     text: 'text-emerald-600 dark:text-emerald-400',
+  },
+  violet: {
+    bg: 'bg-violet-50 dark:bg-violet-900/20',
+    text: 'text-violet-600 dark:text-violet-400',
   },
 };
 

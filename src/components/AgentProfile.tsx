@@ -5,14 +5,18 @@ import { sendCapiEvent } from '../lib/capi';
 interface AgentProfileProps {
   agent: AgentData;
   packageName?: string;
+  departureDate?: string;
   isCapturing?: boolean;
 }
 
-export default function AgentProfile({ agent, packageName = "Umrah Alhijaz", isCapturing = false }: AgentProfileProps) {
+export default function AgentProfile({ agent, packageName = "Umrah Alhijaz", departureDate, isCapturing = false }: AgentProfileProps) {
   if (!agent) return null;
 
   // Format link WA Dinamis
-  const message = `Assalamualaikum, Saya mau tanya terkait paket ${packageName}`;
+  const dateStr = departureDate
+    ? new Date(departureDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
+    : '';
+  const message = `Assalamualaikum, Saya mau tanya terkait paket ${packageName}${dateStr ? ` keberangkatan ${dateStr}` : ''}`;
   const encodedMessage = encodeURIComponent(message);
   const waLink = `https://wa.me/${agent.phone}?text=${encodedMessage}`;
 
