@@ -476,6 +476,14 @@ export function formatPrice(price: number | string): string {
  * Calculate trip duration in days
  */
 export function calculateDuration(pkg: UmrohPackage): number {
+  // Primary: extract from package name (e.g. "PLUS TURKEY 15HR (KERETA CEPAT)")
+  // This is the most reliable source — date-based calculation can be wrong
+  // for multi-leg packages (Turkey, Cairo) where keberangkatan/kepulangan
+  // only cover the Saudi Arabia flight leg.
+  const match = pkg.nama.match(/(\d+)\s*HR\b/i);
+  if (match) return parseInt(match[1], 10);
+
+  // Fallback: calculate from departure/return dates
   const departure = new Date(pkg.keberangkatan.tgl);
   const returnDate = new Date(pkg.kepulangan.tgl);
   const diffTime = Math.abs(returnDate.getTime() - departure.getTime());

@@ -623,17 +623,17 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           })}
         </div>
 
-        {/* ── Flight Status + Upcoming Schedule (flight card goes above calendar when has flights) ── */}
+        {/* ── Flight Status + Upcoming Schedule + Cuaca (flight card goes above calendar when has flights) ── */}
         <div className="flex flex-col mt-4 gap-4">
-          <div style={{ order: flightCount > 0 ? 0 : 2 }}>
+          <div style={{ order: flightCount > 0 ? 0 : 3 }}>
             <FlightStatusCard onFlightCount={setFlightCount} />
           </div>
           <div style={{ order: 1 }}>
             <UpcomingSchedule />
           </div>
-        </div>
-        <div>
-          <CuacaWidget />
+          <div style={{ order: 2 }}>
+            <CuacaWidget />
+          </div>
         </div>
 
         {/* ── Statistik Not Ready Alert ── */}

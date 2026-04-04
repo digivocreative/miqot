@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap } from 'lucide-react';
+import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap, Calendar, Radio } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 
@@ -452,6 +452,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
   const [loading, setLoading] = useState(true);
   const [expandedFlight, setExpandedFlight] = useState<string | null>(null);
   const [notReady, setNotReady] = useState(false);
+  const [nextFlight, setNextFlight] = useState<{ pesawat: string; label: string } | null>(null);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchFlights = useCallback(async () => {
@@ -491,6 +492,64 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Fetch next upcoming flight (for empty state tag) ──
+  useEffect(() => {
+    if (flights.length > 0) {
+      setNextFlight(null);
+      return;
+    }
+
+    const fetchNextFlight = async () => {
+      try {
+        const headers = getAuthHeaders();
+        const now = new Date();
+        const month = now.getMonth() + 1;
+        const year = now.getFullYear();
+
+        const [res1, res2] = await Promise.all([
+          fetch(`/api/calendar/events?month=${month}&year=${year}`, { headers }),
+          fetch(`/api/calendar/events?month=${month === 12 ? 1 : month + 1}&year=${month === 12 ? year + 1 : year}`, { headers }),
+        ]);
+
+        const [data1, data2] = await Promise.all([
+          res1.ok ? res1.json() : { data: [] },
+          res2.ok ? res2.json() : { data: [] },
+        ]);
+
+        const allEvents = [...(data1.data || []), ...(data2.data || [])];
+        const today = new Date().toISOString().split('T')[0];
+
+        const upcoming = allEvents
+          .filter(
+            (e: { event_type: string; event_date: string }) =>
+              e.event_type === 'keberangkatan' && e.event_date >= today
+          )
+          .sort((a: { event_date: string }, b: { event_date: string }) =>
+            a.event_date.localeCompare(b.event_date)
+          );
+
+        if (upcoming.length > 0) {
+          const next = upcoming[0] as { pesawat?: string; group_number?: string; event_date: string };
+          const pesawat = next.pesawat
+            ? next.pesawat.split(' - ').pop()?.trim() || next.pesawat
+            : `Grup ${next.group_number}`;
+
+          const d = new Date(next.event_date + 'T00:00:00');
+          const label = d.toLocaleDateString('id-ID', {
+            day: 'numeric',
+            month: 'short',
+          });
+
+          setNextFlight({ pesawat, label });
+        }
+      } catch {
+        // Silent fail — tag tidak tampil
+      }
+    };
+
+    fetchNextFlight();
+  }, [flights.length]);
+
   // ── Skeleton ──
   if (loading) {
     return (
@@ -518,7 +577,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
     <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
 
       {/* ── Header ── */}
-      <div className="px-3.5 py-3 flex items-center justify-between" style={{ paddingBottom: 0 }}>
+      <div className="px-3.5 py-3 flex items-center justify-between" style={flights.length > 0 && !notReady ? { paddingBottom: 0 } : undefined}>
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/40 flex items-center justify-center flex-shrink-0">
             <Plane size={16} className="text-blue-600 dark:text-blue-400" strokeWidth={2} />
@@ -540,12 +599,28 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
 
       {/* ── Flight Cards (grouped) ── */}
       {notReady || flights.length === 0 ? (
-        <div className="py-8 text-center">
-          <div className="w-11 h-11 mx-auto rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center mb-3">
-            <Plane size={20} strokeWidth={1.5} className="text-gray-300 dark:text-slate-500" />
+        <div className="p-5 flex items-center gap-4">
+          {/* Icon box */}
+          <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gray-50 dark:bg-slate-800/80 border border-gray-100 dark:border-slate-700 flex items-center justify-center">
+            <Radio size={20} strokeWidth={1.5} className="text-gray-300 dark:text-slate-600" />
           </div>
-          <p className="text-sm font-medium text-gray-500 dark:text-slate-400">Tidak ada penerbangan</p>
-          <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-1">di sekitar hari ini</p>
+
+          {/* Text */}
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">
+              Belum ada penerbangan aktif
+            </p>
+            <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5 leading-relaxed">
+              Flight tracking dimulai otomatis H-1 sebelum keberangkatan group.
+            </p>
+
+            {nextFlight && (
+              <div className="inline-flex items-center gap-1 mt-2 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-md px-2 py-0.5">
+                <Calendar size={10} strokeWidth={2.5} />
+                <span>Berikutnya: {nextFlight.pesawat} · {nextFlight.label}</span>
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <div className="p-2.5 space-y-2">

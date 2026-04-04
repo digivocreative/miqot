@@ -1049,6 +1049,7 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 - Use `modern-screenshot` for DOM-to-PNG (specifically `domToPng` with `{ scale: 3, quality: 1 }`).
 - Wait at least `1000ms` for image loading/fonts before snapshotting.
 - Result should be rasterized via `fetch(dataUrl)` to `blob()` to ensure compatibility.
+- **CSS Grid + Flexbox Warning**: `modern-screenshot` struggles to compute heights for flex-nested elements within grid rows, causing vertical overlapping of text/divs. When building layouts specifically for image exports, prefer using standard block-level stacking inside grid cells rather than `display: flex` and explicit alignment. Use exact sizes (`px` widths) or simpler table models to avoid clipping or wrapping issues.
 
 ### Native Share Format
 - WhatsApp requires the sharing payload to **only contain the `files` array**.

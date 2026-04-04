@@ -10,6 +10,36 @@ import {
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 
+// ── Animated Counter: smooth count-up between values ──
+function AnimatedCounter({ value, duration = 600 }: { value: number; duration?: number }) {
+  const [display, setDisplay] = useState(value);
+  const prevRef = useRef(value);
+
+  useEffect(() => {
+    const from = prevRef.current;
+    const to = value;
+    if (from === to) return;
+    prevRef.current = to;
+
+    const start = performance.now();
+    const diff = to - from;
+    let raf: number;
+
+    const tick = (now: number) => {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(from + diff * eased));
+      if (progress < 1) raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration]);
+
+  return <>{display.toLocaleString('id-ID')}</>;
+}
+
 // ── WhatsApp SVG icon ──
 function WaIcon({ size = 14 }: { size?: number }) {
   return (
@@ -240,6 +270,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [docViewer, setDocViewer] = useState<{ url: string; title: string } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollStartRef = useRef<number>(0);
   const hasAutoSynced = useRef(false);
 
   const tahunOptions = stats ? Object.keys(stats.byTahun).sort((a, b) => b.localeCompare(a)) : [];
@@ -327,6 +358,31 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
     }
   }, [view, searchQuery, thnMasehi, jenisFilter, page]);
 
+  // ── Resume polling if server-side sync is still in progress (e.g. after page refresh) ──
+  useEffect(() => {
+    if (view !== 'data' || syncing) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/haji/sync-status', {
+          headers: { ...getAuthHeaders() },
+          signal: AbortSignal.timeout(5000),
+        });
+        const result = await res.json();
+        if (cancelled) return;
+        if (result.success && result.data.isSyncing) {
+          setSyncing(true);
+          setBackgroundSyncing(true);
+          if (result.data.totalSynced) setSyncedCount(result.data.totalSynced);
+          startPolling();
+        }
+      } catch {
+        // Silent — not critical
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [view]);
+
   // ── Auto-sync on first load if connected but no data ──
   useEffect(() => {
     if (view === 'data' && !loading && !syncing && !hasAutoSynced.current && total === 0 && jamaahList.length === 0) {
@@ -376,6 +432,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
       const res = await fetch('/api/haji/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        signal: AbortSignal.timeout(90_000), // 90s max — legacy system may be slow
       });
       const result = await res.json();
       if (!res.ok || !result.success) {
@@ -405,14 +462,31 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
   // ── Polling for background sync status (same as Umroh) ──
   const startPolling = () => {
     if (pollRef.current) clearInterval(pollRef.current);
+    let errorCount = 0;
+    pollStartRef.current = Date.now();
+
     pollRef.current = setInterval(async () => {
+      // Max polling duration: 5 minutes
+      if (Date.now() - pollStartRef.current > 5 * 60 * 1000) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = null;
+        setBackgroundSyncing(false);
+        setSyncing(false);
+        await fetchStats();
+        fetchJamaah(page);
+        return;
+      }
+
       try {
-        const res = await fetch('/api/laporan/sync-status', { headers: { ...getAuthHeaders() } });
+        const res = await fetch('/api/haji/sync-status', {
+          headers: { ...getAuthHeaders() },
+          signal: AbortSignal.timeout(10000),
+        });
         const result = await res.json();
+        errorCount = 0;
         if (result.success) {
           if (result.data.totalSynced) setSyncedCount(result.data.totalSynced);
           if (!result.data.isSyncing) {
-            // Sync complete — stop polling & refresh
             if (pollRef.current) clearInterval(pollRef.current);
             pollRef.current = null;
             setBackgroundSyncing(false);
@@ -421,7 +495,16 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
             fetchJamaah(page);
           }
         }
-      } catch { /* ignore polling errors */ }
+      } catch {
+        errorCount++;
+        if (errorCount >= 5) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setBackgroundSyncing(false);
+          setSyncing(false);
+          fetchJamaah(page);
+        }
+      }
     }, 3000);
   };
 
@@ -567,7 +650,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
           {syncing ? (
             <span className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Menyinkronkan data haji...
+              Menyinkronkan jamaah haji...{syncedCount > 0 && <>{' '}(<AnimatedCounter value={syncedCount} />)</>}
             </span>
           ) : (
             <span className="text-[10px] text-gray-400 dark:text-slate-500">
@@ -608,7 +691,10 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                   <div className="w-2 h-2 rounded-full bg-emerald-500" style={{animation: 'syncBounce 0.6s ease-in-out infinite alternate', animationDelay: '150ms'}} />
                   <div className="w-2 h-2 rounded-full bg-emerald-500" style={{animation: 'syncBounce 0.6s ease-in-out infinite alternate', animationDelay: '300ms'}} />
                 </div>
-                <p className="text-sm font-medium text-gray-500 dark:text-slate-400">Menyinkronkan data haji...</p>
+                <p className="text-sm font-medium text-gray-500 dark:text-slate-400">Menyinkronkan jamaah haji...</p>
+                {syncedCount > 0 && (
+                  <p className="text-xs text-gray-400 dark:text-slate-500 mt-1"><AnimatedCounter value={syncedCount} /> jamaah tersinkron</p>
+                )}
                 <style>{`
                   @keyframes syncFly { 0%, 100% { transform: translateX(-20px) rotate(-2deg); } 50% { transform: translateX(20px) rotate(2deg); } }
                   @keyframes syncFloat { 0%, 100% { transform: translateY(0); opacity: 0.4; } 50% { transform: translateY(-6px); opacity: 0.7; } }

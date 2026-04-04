@@ -15,7 +15,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
-import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie } from './laporan-api.js';
+import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
 import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
@@ -1504,7 +1504,6 @@ app.post('/api/laporan/login', authMiddleware, async (req, res) => {
 // Hijriah year boundary but departing within the year. The actual hijriah_year
 // assignment uses HIJRIAH_RANGES below (based on tgl_berangkat).
 const HIJRIAH_YEARS = {
-  '1446': { tglAwal: '2024-03-08', tglAkhir: '2025-06-25' },
   '1447': { tglAwal: '2024-12-26', tglAkhir: '2026-06-15' },
   '1448': { tglAwal: '2025-12-16', tglAkhir: '2027-06-05' },
   '1449': { tglAwal: '2026-12-06', tglAkhir: '2028-05-25' },
@@ -1541,33 +1540,36 @@ function getActiveHijriahYears() {
 
 // Helper: build rows from parsed items — hijriah_year determined per item by tgl_berangkat
 function buildRows(items, agentSlug, now) {
-  return items.map(item => ({
-    agent_slug: agentSlug,
-    id_umroh: item.id_umroh,
-    nama: item.nama,
-    jk: item.jk || null,
-    wa: item.wa || null,
-    tgl_lahir: item.tgl_lahir || null,
-    paket: item.paket || null,
-    bayar: item.bayar || 0,
-    sisa: item.sisa || 0,
-    tgl_berangkat: item.tgl_berangkat || null,
-    tgl_daftar: item.tgl_daftar || null,
-    hijriah_year: getHijriahYear(item.tgl_berangkat),
-    perlengkapan: item.perlengkapan || {},
-    dokumen: item.dokumen || {},
-    no_paspor: item.no_paspor || null,
-    paspor_expired: item.paspor_expired || null,
-    raw_data: item.raw_data || null,
-    synced_at: now,
-  }));
+  const map = new Map();
+  for (const item of items) {
+    const key = `${agentSlug}_${item.id_umroh || ''}_${item.nama || ''}`.trim().toLowerCase();
+    map.set(key, {
+      agent_slug: agentSlug,
+      id_umroh: item.id_umroh,
+      nama: item.nama,
+      jk: item.jk || null,
+      wa: item.wa || null,
+      tgl_lahir: item.tgl_lahir || null,
+      paket: item.paket || null,
+      bayar: item.bayar || 0,
+      sisa: item.sisa || 0,
+      tgl_berangkat: item.tgl_berangkat || null,
+      tgl_daftar: item.tgl_daftar || null,
+      hijriah_year: getHijriahYear(item.tgl_berangkat),
+      perlengkapan: item.perlengkapan || {},
+      dokumen: item.dokumen || {},
+      no_paspor: item.no_paspor || null,
+      paspor_expired: item.paspor_expired || null,
+      raw_data: item.raw_data || null,
+      synced_at: now,
+    });
+  }
+  return Array.from(map.values());
 }
 
 // Sync: fetch from legacy → parse → progressive upsert to Supabase
 // If hijriahYear is provided, sync only that year. Otherwise sync all years.
 app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
-  const { hijriahYear } = req.body;
-
   const slug = req.user.slug;
   const agent = await getAgent(slug);
   if (!agent?.jamaah_username || !agent?.jamaah_password) {
@@ -1580,7 +1582,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     return res.json({ success: true, data: { initialCount: 0, syncing: true, message: 'Sync sudah berjalan' } });
   }
 
-  syncingAgents.set(slug, { isSyncing: true, totalSynced: 0, lastSync: null });
+  syncingAgents.set(slug, { isSyncing: true, totalSynced: 0, completedYears: [], lastSync: null });
   if (req.user?.role !== 'admin') logAnalyticsEvent(slug, 'action', 'sync_jamaah');
 
   // Force fresh session to ensure clean state with legacy system
@@ -1588,115 +1590,306 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   const decrypted = capiDecrypt(agent.jamaah_password);
   const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
   if (!loginResult.success) {
-    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null });
     return res.status(401).json({ error: 'Gagal login ulang ke sistem internal' });
   }
 
-  // Determine which years to sync
-  const yearsToSync = hijriahYear && HIJRIAH_YEARS[hijriahYear]
-    ? [hijriahYear]
-    : getActiveHijriahYears();
+  // Always sync all active years — weekly chunks make this fast
+  const yearsToSync = getActiveHijriahYears();
 
   let totalItems = 0;
   let firstBatchSent = false;
   const now = new Date().toISOString();
 
-  for (const year of yearsToSync) {
-    const range = HIJRIAH_YEARS[year];
-    if (!range) continue;
+  try {
+    // ═══════════════════════════════════════════════════════════════════
+    // PHASE 1: Fast Scan via route=umrah (list + detail pages)
+    // Gets core jamaah data (nama, jk, bayar, sisa, berangkat) in ~2 min
+    // ═══════════════════════════════════════════════════════════════════
+    console.log(`[Sync] ${slug}: Phase 1 — fast umrah scan starting`);
 
-    const kantor = agent.jamaah_kantor || '2';
-    let fetchResult = await fetchLaporan(agent.jamaah_username, {
-      kantor,
-      agentId: agent.jamaah_username,
-      tglAwal: range.tglAwal,
-      tglAkhir: range.tglAkhir,
-    });
+    const ringkasanRes = await fetchUmrahBookings(agent.jamaah_username);
+    const bookings = ringkasanRes.success ? (ringkasanRes.bookings || []) : [];
+    console.log(`[Sync] ${slug}: Phase 1 — ${bookings.length} bookings from list page`);
 
-    // Session expired? Re-login and retry once
-    if (!fetchResult.success) {
-      console.log(`[Sync] ${slug} year ${year}: fetch failed, re-logging in...`);
-      laporanDisconnect(agent.jamaah_username);
-      const reLogin = await laporanLogin(agent.jamaah_username, decrypted, kantor);
-      if (reLogin.success) {
-        fetchResult = await fetchLaporan(agent.jamaah_username, {
-          kantor, agentId: agent.jamaah_username,
-          tglAwal: range.tglAwal, tglAkhir: range.tglAkhir,
-        });
-      }
-      if (!fetchResult.success) {
-        console.error(`[Sync] ${slug} year ${year} kantor ${kantor}: fetch failed after retry`);
-        continue;
-      }
-    }
+    // Maps from list page — hoisted so Phase 2 can also use them
+    let bookingStafMap = new Map();
+    let bookingTglDaftarMap = new Map();
 
-    const { items: allItems } = parseLaporanHtml(fetchResult.html);
-    console.log(`[Sync] ${slug} year ${year} kantor ${kantor}: ${allItems.length} items`);
-
-    const items = allItems;
-    console.log(`[Sync] ${slug} year ${year}: parsed ${items.length} items`);
-
-    if (items.length === 0) continue;
-    totalItems += items.length;
-
-    // First year: send first 10 immediately as progressive response
-    if (!firstBatchSent) {
-      const first10 = items.slice(0, 10);
-      const rest = items.slice(10);
-      const firstRows = buildRows(first10, slug, now);
-
-      const { error: firstErr } = await supabase
-        .from('jamaah')
-        .upsert(firstRows, { onConflict: 'agent_slug,id_umroh,nama' });
-
-      if (firstErr) {
-        console.error('[Sync] First batch error:', firstErr.message);
-        syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
-        return res.status(500).json({ error: 'Gagal menyimpan data: ' + firstErr.message });
+    if (bookings.length > 0) {
+      // Get existing DB data to map paket, staf, and tgl_daftar from list page
+      const bookingPaketMap = new Map();
+      for (const b of bookings) {
+        bookingPaketMap.set(b.id_umroh, b.paket);
+        if (b.staf) bookingStafMap.set(b.id_umroh, b.staf);
+        if (b.tgl_daftar) bookingTglDaftarMap.set(b.id_umroh, b.tgl_daftar);
       }
 
-      firstBatchSent = true;
-      const moreYears = yearsToSync.length > 1 || rest.length > 0;
-      syncingAgents.set(slug, { isSyncing: moreYears, totalSynced: first10.length, lastSync: now });
+      // Fetch detail pages in parallel batches of 5 (each request is ~1-2s, very light)
+      const DETAIL_PARALLEL = 5;
+      let detailSynced = 0;
+      let detailErrors = 0;
+      const allDetailIds = bookings.map(b => b.id_umroh);
+      // Deduplicate (same id_umroh can appear in list if multiple jadwal)
+      const uniqueIds = [...new Set(allDetailIds)];
 
-      // Respond immediately
-      res.json({
-        success: true,
-        data: { initialCount: first10.length, total: items.length, syncing: moreYears },
-      });
+      for (let i = 0; i < uniqueIds.length; i += DETAIL_PARALLEL) {
+        // Check if sync was cancelled (user disconnected/deleted credentials)
+        if (syncingAgents.get(slug)?.cancelled) {
+          console.log(`[Sync] ${slug}: Phase 1 aborted — user disconnected`);
+          break;
+        }
+        const batch = uniqueIds.slice(i, i + DETAIL_PARALLEL);
+        const results = await Promise.allSettled(
+          batch.map(id => fetchUmrahDetail(agent.jamaah_username, id))
+        );
 
-      // Upsert rest of first year async
-      if (rest.length > 0) {
-        const restRows = buildRows(rest, slug, now);
-        const BATCH = 50;
-        for (let i = 0; i < restRows.length; i += BATCH) {
-          const batch = restRows.slice(i, i + BATCH);
-          const { error } = await supabase.from('jamaah').upsert(batch, { onConflict: 'agent_slug,id_umroh,nama' });
-          if (error) console.error(`[Sync] ${slug} batch error:`, error.message);
-          syncingAgents.set(slug, { isSyncing: true, totalSynced: (syncingAgents.get(slug)?.totalSynced || 0) + batch.length, lastSync: now });
+        const rowsToUpsert = [];
+        for (let j = 0; j < results.length; j++) {
+          const idUmroh = batch[j];
+          const result = results[j].status === 'fulfilled'
+            ? results[j].value
+            : { success: false, reason: 'unknown', error: results[j].reason?.message };
+
+          if (!result.success) {
+            detailErrors++;
+            if (result.reason === 'session_expired') {
+              laporanDisconnect(agent.jamaah_username);
+              await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
+            }
+            continue;
+          }
+
+          // Build rows from detail items — paket comes from list page
+          for (const item of result.items) {
+            item.paket = item.paket || bookingPaketMap.get(idUmroh) || null;
+            rowsToUpsert.push({
+              agent_slug: slug,
+              id_umroh: item.id_umroh,
+              nama: item.nama,
+              jk: item.jk || null,
+              wa: null,                // Phase 2 fills this
+              tgl_lahir: null,         // Phase 2 fills this
+              paket: item.paket || null,
+              bayar: item.bayar || 0,
+              sisa: item.sisa || 0,
+              tgl_berangkat: item.tgl_berangkat || null,
+              tgl_daftar: bookingTglDaftarMap.get(idUmroh) || null,
+              hijriah_year: getHijriahYear(item.tgl_berangkat),
+              perlengkapan: {},        // Phase 2 fills this
+              dokumen: {},             // Phase 2 fills this
+              no_paspor: null,         // Phase 2 fills this
+              paspor_expired: null,    // Phase 2 fills this
+              raw_data: { ...item.raw_data, staf: bookingStafMap.get(idUmroh) || null },
+              synced_at: now,
+            });
+          }
+        }
+
+        // Upsert this batch — deduplicate by composite key first
+        if (rowsToUpsert.length > 0) {
+          const deduped = new Map();
+          for (const row of rowsToUpsert) {
+            const key = `${row.agent_slug}_${row.id_umroh}_${row.nama}`.toLowerCase();
+            deduped.set(key, row);
+          }
+          const dedupedRows = Array.from(deduped.values());
+
+          const BATCH = 50;
+          for (let b = 0; b < dedupedRows.length; b += BATCH) {
+            const upsertBatch = dedupedRows.slice(b, b + BATCH);
+            const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_slug,id_umroh,nama' });
+            if (error) console.error(`[Sync] ${slug} Phase 1 upsert error:`, error.message);
+          }
+          detailSynced += dedupedRows.length;
+          syncingAgents.set(slug, { isSyncing: true, totalSynced: detailSynced, phase: 1, completedYears: [], lastSync: now });
+        }
+
+        // Send response after first successful batch (progressive hydration)
+        if (!firstBatchSent && detailSynced > 0) {
+          firstBatchSent = true;
+          totalItems = detailSynced;
+          res.json({
+            success: true,
+            data: { initialCount: detailSynced, total: uniqueIds.length, syncing: true },
+          });
         }
       }
-    } else {
-      // Subsequent years: upsert all in batches (response already sent)
-      const rows = buildRows(items, slug, now);
-      const BATCH = 50;
-      for (let i = 0; i < rows.length; i += BATCH) {
-        const batch = rows.slice(i, i + BATCH);
-        const { error } = await supabase.from('jamaah').upsert(batch, { onConflict: 'agent_slug,id_umroh,nama' });
-        if (error) console.error(`[Sync] ${slug} year ${year} batch error:`, error.message);
-        syncingAgents.set(slug, { isSyncing: true, totalSynced: (syncingAgents.get(slug)?.totalSynced || 0) + batch.length, lastSync: now });
+
+      console.log(`[Sync] ${slug}: Phase 1 complete — ${detailSynced} jamaah from ${uniqueIds.length} bookings (${detailErrors} errors)`);
+      totalItems = detailSynced;
+
+      // Collect completed years from Phase 1 data — counts are already accurate
+      const { data: phase1Rows } = await supabase
+        .from('jamaah')
+        .select('hijriah_year')
+        .eq('agent_slug', slug)
+        .not('hijriah_year', 'is', null);
+      const phase1Years = [...new Set((phase1Rows || []).map(r => r.hijriah_year))]
+        .filter(y => Number(y) >= 1447)
+        .sort((a, b) => Number(b) - Number(a));
+      console.log(`[Sync] ${slug}: Phase 1 completed years: ${phase1Years.join(', ')}`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PHASE 2: Enrichment via laporan (slower, but fills all fields)
+    // Adds: wa, tgl_lahir, perlengkapan, dokumen, no_paspor, paspor_expired, tgl_daftar
+    // ═══════════════════════════════════════════════════════════════════
+    console.log(`[Sync] ${slug}: Phase 2 — laporan enrichment starting`);
+
+    // Split large date ranges into 7-day chunks — smaller = faster PHP response, fewer timeouts
+    function splitRange(tglAwal, tglAkhir, chunkDays = 7) {
+      const chunks = [];
+      let start = new Date(tglAwal);
+      const end = new Date(tglAkhir);
+      while (start <= end) {
+        const chunkEnd = new Date(start);
+        chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1);
+        const actualEnd = chunkEnd > end ? end : chunkEnd;
+        chunks.push({
+          tglAwal: start.toISOString().split('T')[0],
+          tglAkhir: actualEnd.toISOString().split('T')[0],
+        });
+        start = new Date(actualEnd);
+        start.setDate(start.getDate() + 1);
+      }
+      return chunks;
+    }
+
+    // Merge overlapping year ranges into continuous spans, then split into chunks
+    const allRanges = yearsToSync.map(y => HIJRIAH_YEARS[y]).filter(Boolean)
+      .sort((a, b) => a.tglAwal.localeCompare(b.tglAwal));
+    const merged = [];
+    for (const r of allRanges) {
+      const last = merged[merged.length - 1];
+      if (last && r.tglAwal <= last.tglAkhir) {
+        if (r.tglAkhir > last.tglAkhir) last.tglAkhir = r.tglAkhir;
+      } else {
+        merged.push({ tglAwal: r.tglAwal, tglAkhir: r.tglAkhir });
       }
     }
+
+    // Cap merged ranges at 2 months into the future
+    const today = new Date();
+    const futureCapDate = new Date(today);
+    futureCapDate.setMonth(futureCapDate.getMonth() + 2);
+    const futureCap = futureCapDate.toISOString().split('T')[0];
+    for (const span of merged) {
+      if (span.tglAkhir > futureCap) span.tglAkhir = futureCap;
+    }
+
+    // Split into chunks, sort newest-first
+    const allChunks = [];
+    for (const span of merged) {
+      if (span.tglAwal > futureCap) continue;
+      allChunks.push(...splitRange(span.tglAwal, span.tglAkhir));
+    }
+    const todayStr = today.toISOString().split('T')[0];
+    // Sort newest-first so most recent hijriah year data gets enriched first
+    allChunks.sort((a, b) => b.tglAwal.localeCompare(a.tglAwal));
+
+    const fetchJobs = [...allChunks];
+    console.log(`[Sync] ${slug}: Phase 2 — ${fetchJobs.length} laporan chunks (enrichment)`);
+
+    // Process laporan jobs in parallel batches of 2
+    const kantor = agent.jamaah_kantor || '2';
+    let networkFailures = 0;
+    let timeoutCount = 0;
+    const PARALLEL = 2;
+
+    // Mark Phase 2 — frontend hides counter, shows "enriching" text
+    // Use phase1Years if available (from Phase 1 completion above)
+    const completedYears = typeof phase1Years !== 'undefined' ? phase1Years : [];
+    syncingAgents.set(slug, { isSyncing: true, totalSynced: totalItems, phase: 2, completedYears, lastSync: now });
+
+    for (let i = 0; i < fetchJobs.length; i += PARALLEL) {
+      // Check if sync was cancelled (user disconnected/deleted credentials)
+      if (syncingAgents.get(slug)?.cancelled) {
+        console.log(`[Sync] ${slug}: Phase 2 aborted — user disconnected`);
+        break;
+      }
+      if (networkFailures >= 3) {
+        console.log(`[Sync] ${slug}: aborting enrichment — legacy system unreachable`);
+        break;
+      }
+
+      const batchJobs = fetchJobs.slice(i, i + PARALLEL);
+      const fetchResults = await Promise.allSettled(
+        batchJobs.map(job => fetchLaporan(agent.jamaah_username, {
+          kantor, agentId: agent.jamaah_username,
+          tglAwal: job.tglAwal, tglAkhir: job.tglAkhir,
+        }))
+      );
+
+      for (let j = 0; j < fetchResults.length; j++) {
+        const job = batchJobs[j];
+        const fetchResult = fetchResults[j].status === 'fulfilled'
+          ? fetchResults[j].value
+          : { success: false, reason: 'unknown', error: fetchResults[j].reason?.message };
+
+        if (!fetchResult.success) {
+          if (fetchResult.reason === 'session_expired') {
+            laporanDisconnect(agent.jamaah_username);
+            await laporanLogin(agent.jamaah_username, decrypted, kantor);
+          } else if (fetchResult.reason === 'network') {
+            networkFailures++;
+          } else if (fetchResult.reason === 'timeout') {
+            timeoutCount++;
+          }
+          continue;
+        }
+
+        // Success — parse and upsert (overwrites Phase 1 rows with full data)
+        networkFailures = 0;
+        const { items } = parseLaporanHtml(fetchResult.html);
+        if (items.length === 0) continue;
+
+        const rows = buildRows(items, slug, now);
+        // Preserve Phase 1 data that Phase 2 might not have
+        for (const row of rows) {
+          // Staf: only from list page, not in laporan
+          const staf = bookingStafMap.get(row.id_umroh);
+          if (staf) row.raw_data = { ...(row.raw_data || {}), staf };
+          // tgl_daftar: if Phase 2 parsing failed, keep Phase 1's value
+          if (!row.tgl_daftar) {
+            row.tgl_daftar = bookingTglDaftarMap.get(row.id_umroh) || null;
+          }
+        }
+        const BATCH = 50;
+        for (let b = 0; b < rows.length; b += BATCH) {
+          const upsertBatch = rows.slice(b, b + BATCH);
+          const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_slug,id_umroh,nama' });
+          if (error) console.error(`[Sync] ${slug} Phase 2 range ${job.tglAwal} error:`, error.message);
+        }
+        // Phase 2: no counter update — just keep syncing state alive
+
+        // If Phase 1 produced nothing, send response on first Phase 2 batch
+        if (!firstBatchSent) {
+          firstBatchSent = true;
+          res.json({
+            success: true,
+            data: { initialCount: items.length, total: items.length, syncing: true },
+          });
+        }
+      }
+    }
+
+    if (timeoutCount > 0) {
+      console.log(`[Sync] ${slug}: Phase 2 — ${timeoutCount}/${fetchJobs.length} ranges timed out`);
+    }
+  } catch (err) {
+    if (!firstBatchSent) throw err;
+    console.error(`[Sync] ${slug} sync error:`, err);
+  } finally {
+    console.log(`[Sync] ${slug}: sync complete — ${totalItems} total items`);
+    syncingAgents.set(slug, { isSyncing: false, totalSynced: totalItems, lastSync: now });
   }
 
-  // If we never sent response (all years empty)
+  // If we never sent response (all phases empty)
   if (!firstBatchSent) {
     syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: now });
     return res.json({ success: true, data: { initialCount: 0, syncing: false } });
   }
-
-  console.log(`[Sync] ${slug}: completed ${totalItems} items across ${yearsToSync.length} years`);
-  syncingAgents.set(slug, { isSyncing: false, totalSynced: totalItems, lastSync: now });
 });
 
 // Sync status: check if an agent's sync is in progress
@@ -3154,7 +3347,8 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   } else if (effectiveSort === 'berangkat') {
     query = query.order('tgl_berangkat', { ascending: true, nullsFirst: false });
   } else if (effectiveSort === 'terbaru') {
-    query = query.order('tgl_daftar', { ascending: false, nullsFirst: false });
+    query = query.order('tgl_daftar', { ascending: false, nullsFirst: false })
+                 .order('synced_at', { ascending: false });
   } else {
     query = query.order('nama', { ascending: true });
   }
@@ -3243,19 +3437,33 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
 
 // Disconnect: clear in-memory session only
 app.post('/api/laporan/disconnect', authMiddleware, async (req, res) => {
-  const agent = await getAgent(req.user.slug);
+  const slug = req.user.slug;
+  const agent = await getAgent(slug);
   if (agent?.jamaah_username) {
     laporanDisconnect(agent.jamaah_username);
+  }
+  // Cancel any running sync
+  const state = syncingAgents.get(slug);
+  if (state?.isSyncing) {
+    syncingAgents.set(slug, { ...state, isSyncing: false, cancelled: true });
+    console.log(`[Sync] ${slug}: cancelled by disconnect`);
   }
   res.json({ success: true });
 });
 
 // Delete saved credentials
 app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
+  const slug = req.user.slug;
   // Also disconnect if active
-  const agent = await getAgent(req.user.slug);
+  const agent = await getAgent(slug);
   if (agent?.jamaah_username) {
     laporanDisconnect(agent.jamaah_username);
+  }
+  // Cancel any running sync
+  const state = syncingAgents.get(slug);
+  if (state?.isSyncing) {
+    syncingAgents.set(slug, { ...state, isSyncing: false, cancelled: true });
+    console.log(`[Sync] ${slug}: cancelled by credential deletion`);
   }
 
   const { error } = await supabase
@@ -3265,7 +3473,7 @@ app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
       jamaah_password: null,
       jamaah_kantor: null,
     })
-    .eq('slug', req.user.slug);
+    .eq('slug', slug);
   if (error) return res.status(500).json({ error: error.message });
   agentCache = null;
   res.json({ success: true });
@@ -3498,14 +3706,25 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     const ayData = await fetchAllRows(
       supabase.from('jamaah').select('hijriah_year').eq('agent_slug', slug).not('hijriah_year', 'is', null)
     );
-    const availableYears = [...new Set(ayData.map(r => r.hijriah_year))].sort((a, b) => b.localeCompare(a));
+    let availableYears = [...new Set(ayData.map(r => r.hijriah_year))]
+      .filter(y => Number(y) >= 1447)  // Only show 1447+
+      .sort((a, b) => b.localeCompare(a));
 
-    // Determine hijriah year — default to current Islamic year, fallback to latest available
+    // During active sync: only show years that have completed Phase 1
+    const syncState = syncingAgents.get(slug);
+    if (syncState?.isSyncing) {
+      if (syncState.completedYears && syncState.completedYears.length > 0) {
+        availableYears = availableYears.filter(y => syncState.completedYears.includes(y));
+      } else {
+        // Phase 1 still in progress — no years ready yet
+        availableYears = [];
+      }
+    }
+
+    // Determine hijriah year — default to 1448
     let year = req.query.year || null;
     if (!year) {
-      const parts = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', { year: 'numeric' }).formatToParts(new Date());
-      const hijriYear = (parts.find(p => p.type === 'year')?.value || '').replace(/\s*AH$/, '');
-      year = availableYears.includes(hijriYear) ? hijriYear : (availableYears[0] || null);
+      year = availableYears.includes('1448') ? '1448' : (availableYears[0] || null);
     }
 
     // Base filter
@@ -3763,6 +3982,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
 // POST /api/haji/sync — progressive sync (same pattern as umroh)
 app.post('/api/haji/sync', authMiddleware, async (req, res) => {
   const { slug } = req.user;
+  const hajiKey = `haji:${slug}`;
 
   try {
     const agent = await getAgent(slug);
@@ -3772,26 +3992,26 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
       });
     }
 
-    // Prevent concurrent sync (same as umroh)
-    const state = syncingAgents.get(slug);
+    // Prevent concurrent haji sync (separate from umroh)
+    const state = syncingAgents.get(hajiKey);
     if (state?.isSyncing) {
       return res.json({ success: true, data: { initialCount: 0, syncing: true, message: 'Sync sudah berjalan' } });
     }
 
-    syncingAgents.set(slug, { isSyncing: true, totalSynced: 0, lastSync: null });
+    syncingAgents.set(hajiKey, { isSyncing: true, totalSynced: 0, lastSync: null });
 
     // Login fresh to legacy system
     laporanDisconnect(agent.jamaah_username);
     const decrypted = capiDecrypt(agent.jamaah_password);
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
-      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+      syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: 0, lastSync: null });
       return res.status(401).json({ error: 'Gagal login ke sistem internal. Silakan login ulang.' });
     }
 
     const sessionCookies = getSessionCookie(agent.jamaah_username);
     if (!sessionCookies) {
-      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+      syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: 0, lastSync: null });
       return res.status(400).json({ error: 'Session cookies tidak tersedia setelah login.' });
     }
 
@@ -3801,11 +4021,11 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     console.log(`[haji-sync] ${slug}: found ${hajiList.length} entries, ${uniqueIds.length} unique`);
 
     if (uniqueIds.length === 0) {
-      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: new Date().toISOString() });
+      syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: 0, lastSync: new Date().toISOString() });
       return res.json({ success: true, data: { initialCount: 0, syncing: false } });
     }
 
-    // Step 2: Fetch first 2 batches (up to 10 detail pages) for immediate response
+    // Step 2: Fetch first batch (up to 5 detail pages) for immediate response
     const BATCH_SIZE = 5;
     const firstBatchIds = uniqueIds.slice(0, 10);
     const restIds = uniqueIds.slice(10);
@@ -3856,7 +4076,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     }
 
     const moreToSync = restIds.length > 0;
-    syncingAgents.set(slug, { isSyncing: moreToSync, totalSynced: firstRows.length, lastSync: now });
+    syncingAgents.set(hajiKey, { isSyncing: moreToSync, totalSynced: firstRows.length, lastSync: now });
 
     // Respond immediately with first batch
     res.json({
@@ -3909,7 +4129,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
                   .from('jamaah_haji')
                   .upsert(bgRows, { onConflict: 'agent_slug,id_haji,id_jamaah' });
                 if (error) console.error('[haji-sync] BG batch error:', error.message);
-                syncingAgents.set(slug, {
+                syncingAgents.set(hajiKey, {
                   isSyncing: true,
                   totalSynced: firstRows.length + bgRows.length,
                   lastSync: now,
@@ -3920,16 +4140,16 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
             if (i + BATCH_SIZE < restIds.length) await new Promise(r => setTimeout(r, 100));
           }
           console.log(`[haji-sync] ${slug}: background sync complete`);
-          syncingAgents.set(slug, { isSyncing: false, totalSynced: firstRows.length, lastSync: now });
+          syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: firstRows.length, lastSync: now });
         } catch (err) {
           console.error('[haji-sync] BG sync error:', err.message);
-          syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+          syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: 0, lastSync: null });
         }
       })();
     }
   } catch (err) {
     console.error('[haji] Sync error:', err);
-    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+    syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: 0, lastSync: null });
     if (!res.headersSent) {
       if (err.message === 'SESSION_EXPIRED') {
         return res.status(401).json({ error: 'Session expired. Silakan login ulang.' });
@@ -3937,6 +4157,25 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
       res.status(500).json({ error: 'Gagal sync data haji: ' + err.message });
     }
   }
+});
+
+// Haji sync status (separate from umroh)
+app.get('/api/haji/sync-status', authMiddleware, async (req, res) => {
+  const hajiKey = `haji:${req.user.slug}`;
+  const state = syncingAgents.get(hajiKey);
+  if (!state) {
+    const { data } = await supabase
+      .from('jamaah_haji')
+      .select('synced_at')
+      .eq('agent_slug', req.user.slug)
+      .order('synced_at', { ascending: false })
+      .limit(1);
+    return res.json({
+      success: true,
+      data: { isSyncing: false, totalSynced: 0, lastSync: data?.[0]?.synced_at || null },
+    });
+  }
+  res.json({ success: true, data: state });
 });
 
 // GET /api/haji/jamaah — list jamaah haji with filters
@@ -5027,8 +5266,10 @@ setTimeout(pingSupabase, 30 * 1000);
 setInterval(pingSupabase, KEEP_ALIVE_INTERVAL);
 
 // ── Background Sync Job: sync all agents every 1 hour ──
+// Uses the same monthly-chunk strategy as manual sync to avoid timeouts
 async function syncOneAgent(agent) {
   const slug = agent.slug;
+  // Skip if ANY sync (manual or background) is already running for this agent
   const state = syncingAgents.get(slug);
   if (state?.isSyncing) {
     console.log(`[SYNC] Skipping ${slug} — already syncing`);
@@ -5051,71 +5292,263 @@ async function syncOneAgent(agent) {
     const syncTime = new Date().toISOString();
     let totalSynced = 0;
 
-    // Sync all Hijriah years
-    for (const year of getActiveHijriahYears()) {
-      const range = HIJRIAH_YEARS[year];
-      if (!range) continue;
+    // ── PHASE 1: Fast scan via umrah list + detail pages ──
+    // Captures ALL jamaah including calon (belum DP), plus staf names
+    let bookingStafMap = new Map();
+    let bookingTglDaftarMap = new Map();
+    try {
+      const ringkasanRes = await fetchUmrahBookings(agent.jamaah_username);
+      const bookings = ringkasanRes.success ? (ringkasanRes.bookings || []) : [];
 
-      const kantor = agent.jamaah_kantor || '2';
-      let fetchResult = await fetchLaporan(agent.jamaah_username, {
-        kantor,
-        agentId: agent.jamaah_username,
-        tglAwal: range.tglAwal,
-        tglAkhir: range.tglAkhir,
-      });
+      if (bookings.length > 0) {
+        const bookingPaketMap = new Map();
+        for (const b of bookings) {
+          bookingPaketMap.set(b.id_umroh, b.paket);
+          if (b.staf) bookingStafMap.set(b.id_umroh, b.staf);
+          if (b.tgl_daftar) bookingTglDaftarMap.set(b.id_umroh, b.tgl_daftar);
+        }
 
-      // Session expired? Re-login and retry once
-      if (!fetchResult.success) {
-        console.log(`[SYNC] ${slug} year ${year}: fetch failed, re-logging in...`);
-        laporanDisconnect(agent.jamaah_username);
-        const reLogin = await laporanLogin(agent.jamaah_username, decrypted, kantor);
-        if (reLogin.success) {
-          fetchResult = await fetchLaporan(agent.jamaah_username, {
-            kantor, agentId: agent.jamaah_username,
-            tglAwal: range.tglAwal, tglAkhir: range.tglAkhir,
-          });
+        const uniqueIds = [...new Set(bookings.map(b => b.id_umroh))];
+        const DETAIL_PARALLEL = 5;
+        let detailSynced = 0;
+
+        for (let i = 0; i < uniqueIds.length; i += DETAIL_PARALLEL) {
+          const batch = uniqueIds.slice(i, i + DETAIL_PARALLEL);
+          const results = await Promise.allSettled(
+            batch.map(id => fetchUmrahDetail(agent.jamaah_username, id))
+          );
+
+          const rowsToUpsert = [];
+          for (let j = 0; j < results.length; j++) {
+            if (results[j].status !== 'fulfilled') continue;
+            const result = results[j].value;
+            if (!result.success || !result.items?.length) continue;
+            const idUmroh = batch[j];
+
+            for (const item of result.items) {
+              item.paket = item.paket || bookingPaketMap.get(idUmroh) || null;
+              rowsToUpsert.push({
+                agent_slug: slug,
+                id_umroh: item.id_umroh,
+                nama: item.nama,
+                jk: item.jk || null,
+                paket: item.paket || null,
+                bayar: item.bayar || 0,
+                sisa: item.sisa || 0,
+                tgl_berangkat: item.tgl_berangkat || null,
+                tgl_daftar: bookingTglDaftarMap.get(idUmroh) || null,
+                hijriah_year: getHijriahYear(item.tgl_berangkat),
+                raw_data: { ...item.raw_data, staf: bookingStafMap.get(idUmroh) || null },
+                synced_at: syncTime,
+              });
+            }
+          }
+
+          if (rowsToUpsert.length > 0) {
+            const deduped = new Map();
+            for (const row of rowsToUpsert) {
+              const key = `${row.agent_slug}_${row.id_umroh}_${row.nama}`.toLowerCase();
+              deduped.set(key, row);
+            }
+            const dedupedRows = Array.from(deduped.values());
+
+            // Fetch existing records to preserve Phase 2 enrichment data
+            const existingNames = dedupedRows.map(r => r.nama);
+            const { data: existingRows } = await supabase
+              .from('jamaah')
+              .select('id_umroh, nama, wa, tgl_lahir, perlengkapan, dokumen, no_paspor, paspor_expired, hijriah_year')
+              .eq('agent_slug', slug)
+              .in('nama', existingNames);
+            const existingLookup = {};
+            (existingRows || []).forEach(r => {
+              existingLookup[`${r.id_umroh}_${r.nama}`.toLowerCase()] = r;
+            });
+
+            // Merge: preserve enrichment fields from existing records
+            for (const row of dedupedRows) {
+              const existing = existingLookup[`${row.id_umroh}_${row.nama}`.toLowerCase()];
+              if (existing) {
+                // Preserve Phase 2 enrichment — don't overwrite with null/empty
+                row.wa = existing.wa || null;
+                row.tgl_lahir = existing.tgl_lahir || null;
+                row.perlengkapan = (existing.perlengkapan && Object.keys(existing.perlengkapan).length > 0) ? existing.perlengkapan : {};
+                row.dokumen = (existing.dokumen && Object.keys(existing.dokumen).length > 0) ? existing.dokumen : {};
+                row.no_paspor = existing.no_paspor || null;
+                row.paspor_expired = existing.paspor_expired || null;
+                // Preserve hijriah_year if Phase 1 can't determine it but Phase 2 had it
+                if (!row.hijriah_year && existing.hijriah_year) {
+                  row.hijriah_year = existing.hijriah_year;
+                }
+              } else {
+                // New record — set enrichment fields to defaults
+                row.wa = null;
+                row.tgl_lahir = null;
+                row.perlengkapan = {};
+                row.dokumen = {};
+                row.no_paspor = null;
+                row.paspor_expired = null;
+              }
+            }
+
+            const BATCH = 50;
+            for (let b = 0; b < dedupedRows.length; b += BATCH) {
+              const upsertBatch = dedupedRows.slice(b, b + BATCH);
+              const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_slug,id_umroh,nama' });
+              if (error) console.error(`[SYNC] ${slug} Phase 1 upsert error:`, error.message);
+            }
+            detailSynced += dedupedRows.length;
+          }
         }
-        if (!fetchResult.success) {
-          console.error(`[SYNC] ${slug} year ${year} kantor ${kantor}: fetch failed after retry`);
-          continue;
-        }
+        totalSynced = detailSynced;
+      }
+    } catch (p1err) {
+      console.error(`[SYNC] ${slug} Phase 1 error:`, p1err.message);
+    }
+
+    // ── PHASE 2: Enrichment via laporan (adds wa, tgl_lahir, perlengkapan, etc.) ──
+    // Merge year ranges + split into monthly chunks (same as manual sync)
+    const yearsToSync = getActiveHijriahYears();
+    const allRanges = yearsToSync.map(y => HIJRIAH_YEARS[y]).filter(Boolean)
+      .sort((a, b) => a.tglAwal.localeCompare(b.tglAwal));
+    const merged = [];
+    for (const r of allRanges) {
+      const last = merged[merged.length - 1];
+      if (last && r.tglAwal <= last.tglAkhir) {
+        if (r.tglAkhir > last.tglAkhir) last.tglAkhir = r.tglAkhir;
+      } else {
+        merged.push({ tglAwal: r.tglAwal, tglAkhir: r.tglAkhir });
+      }
+    }
+    function bgSplitRange(tglAwal, tglAkhir) {
+      const chunks = [];
+      let start = new Date(tglAwal);
+      const end = new Date(tglAkhir);
+      while (start <= end) {
+        const chunkEnd = new Date(start);
+        chunkEnd.setDate(chunkEnd.getDate() + 6); // 7-day chunks — less data per request = faster PHP response
+        const actualEnd = chunkEnd > end ? end : chunkEnd;
+        chunks.push({ tglAwal: start.toISOString().split('T')[0], tglAkhir: actualEnd.toISOString().split('T')[0] });
+        start = new Date(actualEnd);
+        start.setDate(start.getDate() + 1);
+      }
+      return chunks;
+    }
+
+    // Cap at 2 months into the future, sort newest-first
+    const bgToday = new Date();
+    const bgFutureCap = new Date(bgToday);
+    bgFutureCap.setMonth(bgFutureCap.getMonth() + 2);
+    const bgFutureCapStr = bgFutureCap.toISOString().split('T')[0];
+    const bgTodayStr = bgToday.toISOString().split('T')[0];
+    for (const span of merged) {
+      if (span.tglAkhir > bgFutureCapStr) span.tglAkhir = bgFutureCapStr;
+    }
+    const bgAllChunks = [];
+    for (const span of merged) {
+      if (span.tglAwal > bgFutureCapStr) continue;
+      bgAllChunks.push(...bgSplitRange(span.tglAwal, span.tglAkhir));
+    }
+    bgAllChunks.sort((a, b) => {
+      const aIsNow = a.tglAwal <= bgTodayStr && a.tglAkhir >= bgTodayStr;
+      const bIsNow = b.tglAwal <= bgTodayStr && b.tglAkhir >= bgTodayStr;
+      if (aIsNow && !bIsNow) return -1;
+      if (!aIsNow && bIsNow) return 1;
+      return Math.abs(new Date(a.tglAwal) - bgToday) - Math.abs(new Date(b.tglAwal) - bgToday);
+    });
+    const fetchJobs = bgAllChunks;
+    console.log(`[SYNC] ${slug}: ${fetchJobs.length} chunks (7-day, capped at ${bgFutureCapStr})`);
+
+    // Fetch existing bayar data ONCE before sync for payment detection
+    // Only future departures — we don't care about payment changes for past jamaah
+    const { data: existingData } = await supabase
+      .from('jamaah')
+      .select('id_umroh, nama, bayar')
+      .eq('agent_slug', slug)
+      .gte('tgl_berangkat', bgTodayStr);
+    const existingMap = {};
+    (existingData || []).forEach(j => { existingMap[`${j.id_umroh}_${j.nama}`] = j.bayar || 0; });
+
+    const kantor = agent.jamaah_kantor || '2';
+    let networkFailures = 0;
+    let timeoutCount = 0;
+    const PARALLEL = 2; // 2 concurrent fetches — safe with built-in retry in fetchLaporan
+
+    for (let i = 0; i < fetchJobs.length; i += PARALLEL) {
+      if (networkFailures >= 3) {
+        console.log(`[SYNC] ${slug}: aborting — server unreachable (${networkFailures} network failures)`);
+        break;
       }
 
-      const { items: allItems } = parseLaporanHtml(fetchResult.html);
-      console.log(`[SYNC] ${slug} year ${year} kantor ${kantor}: ${allItems.length} items`);
+      const batch = fetchJobs.slice(i, i + PARALLEL);
+      const results = await Promise.allSettled(
+        batch.map(job => fetchLaporan(agent.jamaah_username, {
+          kantor, agentId: agent.jamaah_username,
+          tglAwal: job.tglAwal, tglAkhir: job.tglAkhir,
+        }))
+      );
 
-      console.log(`[SYNC] ${slug} year ${year}: ${allItems.length} items`);
-      const items = allItems;
+      for (let j = 0; j < results.length; j++) {
+        const job = batch[j];
+        const result = results[j].status === 'fulfilled'
+          ? results[j].value
+          : { success: false, reason: 'unknown', error: results[j].reason?.message };
 
-      if (items.length > 0) {
-        // Fetch existing bayar data BEFORE upsert for payment detection
-        const { data: existingData } = await supabase
-          .from('jamaah')
-          .select('id_umroh, nama, bayar')
-          .eq('agent_slug', slug);
+        if (!result.success) {
+          console.log(`[SYNC] ${slug} range ${job.tglAwal}: ${result.error} (${result.reason || 'unknown'})`);
+          if (result.reason === 'session_expired') {
+            laporanDisconnect(agent.jamaah_username);
+            await laporanLogin(agent.jamaah_username, decrypted, kantor);
+          } else if (result.reason === 'network') {
+            networkFailures++;
+          } else if (result.reason === 'timeout') {
+            timeoutCount++;
+          }
+          continue;
+        }
 
-        const existingMap = {};
-        (existingData || []).forEach(j => { existingMap[`${j.id_umroh}_${j.nama}`] = j.bayar || 0; });
+        // Success
+        networkFailures = 0;
+        const { items } = parseLaporanHtml(result.html);
+        console.log(`[SYNC] ${slug} range ${job.tglAwal}: ${items.length} items`);
+        if (items.length === 0) continue;
 
         const allNewRows = [];
         const BATCH = 50;
-        for (let i = 0; i < items.length; i += BATCH) {
-          const batch = items.slice(i, i + BATCH);
-          const rows = buildRows(batch, slug, syncTime);
+        for (let b = 0; b < items.length; b += BATCH) {
+          const batchItems = items.slice(b, b + BATCH);
+          const rows = buildRows(batchItems, slug, syncTime);
+          // Preserve Phase 1 data that Phase 2 might not have
+          for (const row of rows) {
+            const staf = bookingStafMap?.get(row.id_umroh);
+            if (staf) row.raw_data = { ...(row.raw_data || {}), staf };
+            if (!row.tgl_daftar) {
+              row.tgl_daftar = bookingTglDaftarMap?.get(row.id_umroh) || null;
+            }
+          }
           allNewRows.push(...rows);
           const { error } = await supabase
             .from('jamaah')
             .upsert(rows, { onConflict: 'agent_slug,id_umroh,nama' });
-          if (error) console.error(`[SYNC] ${slug} year ${year} batch error:`, error.message);
-          totalSynced += batch.length;
+          if (error) console.error(`[SYNC] ${slug} range ${job.tglAwal} batch error:`, error.message);
+          totalSynced += batchItems.length;
           syncingAgents.set(slug, { isSyncing: true, totalSynced, lastSync: syncTime });
         }
 
-        // Detect pembayaran masuk
+        // Detect pembayaran masuk (only for jamaah departing in the future)
+        // Use 7-day buffer to avoid false positives from Phase 1/Phase 2 bayar discrepancies
+        // near departure date
+        const bgCutoffDate = new Date(bgToday);
+        bgCutoffDate.setDate(bgCutoffDate.getDate() + 7);
+        const bgCutoffStr = bgCutoffDate.toISOString().split('T')[0];
         const pembayaranBaru = [];
         for (const row of allNewRows) {
           const key = `${row.id_umroh}_${row.nama}`;
-          if (!(key in existingMap)) continue; // Jamaah baru, skip
+          if (!(key in existingMap)) continue;
+          // Skip if no departure date — can't verify if still relevant
+          if (!row.tgl_berangkat) continue;
+          // Skip past departures and those departing within 7 days
+          // (old data may have bayar discrepancies between Phase 1 and Phase 2)
+          if (row.tgl_berangkat < bgCutoffStr) continue;
           const bayarBefore = existingMap[key];
           const bayarAfter = row.bayar || 0;
           if (bayarAfter > bayarBefore) {
@@ -5133,9 +5566,11 @@ async function syncOneAgent(agent) {
             console.error(`[SYNC] ${slug}: pembayaran notif error:`, e.message)
           );
         }
-
-        console.log(`[SYNC] ${slug} year ${year}: ${items.length} jamaah synced`);
       }
+    }
+
+    if (timeoutCount > 0) {
+      console.log(`[SYNC] ${slug}: ${timeoutCount}/${fetchJobs.length} ranges timed out (after retries)`);
     }
 
     console.log(`[SYNC] ${slug}: total ${totalSynced} umroh synced`);
@@ -5233,14 +5668,21 @@ async function syncAllAgents() {
     return;
   }
 
-  let synced = 0;
+  // Run agents sequentially — legacy server can't handle parallel sessions well
+  let ok = 0, fail = 0;
   for (const agent of agents) {
-    await syncOneAgent(agent);
-    synced++;
+    try {
+      await syncOneAgent(agent);
+      ok++;
+    } catch {
+      fail++;
+    }
+    // Small gap between agents
+    if (ok + fail < agents.length) await new Promise(r => setTimeout(r, 2000));
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[SYNC] Cycle complete: ${synced} agents synced in ${elapsed}s`);
+  console.log(`[SYNC] Cycle complete: ${ok} OK, ${fail} failed in ${elapsed}s`);
 }
 
 // Run initial sync 30s after startup, then every 1 hour
@@ -5277,10 +5719,10 @@ function scheduleInsightCron() {
   const now = new Date();
   // Next 01:00 WIB (UTC+7 → 18:00 UTC day before)
   const target = new Date(now);
-  target.setUTCHours(23, 0, 0, 0); // 06:00 WIB = 23:00 UTC
+  target.setUTCHours(18, 0, 0, 0); // 01:00 WIB = 18:00 UTC
   if (target <= now) target.setDate(target.getDate() + 1);
   const msUntil = target - now;
-  console.log(`[AI Insight] Next cron in ${Math.round(msUntil / 60000)} minutes (06:00 WIB)`);
+  console.log(`[AI Insight] Next cron in ${Math.round(msUntil / 60000)} minutes (01:00 WIB)`);
   setTimeout(async () => {
     try { await generateCalendarInsight(); } catch (e) { console.error('[AI Insight] Cron error:', e.message); }
     // Then repeat every 24 hours

@@ -358,10 +358,14 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
       const starStr = (n: number) => n > 0 ? '★'.repeat(n) : '';
       const depMonthA = new Date(pkgA.keberangkatan.tgl).getMonth() + 1;
       const depMonthB = new Date(pkgB.keberangkatan.tgl).getMonth() + 1;
-      const depDays = (pkg: UmrohPackage) => {
+      const getDuration = (pkg: UmrohPackage): number => {
+        // Extract from package name (e.g. "15HR") — most reliable source
+        const match = pkg.nama.match(/(\d+)\s*HR\b/i);
+        if (match) return parseInt(match[1], 10);
+        // Fallback: date-based calculation
         const dep = new Date(pkg.keberangkatan.tgl);
         const ret = new Date(pkg.kepulangan.tgl);
-        return Math.round((ret.getTime() - dep.getTime()) / 86400000);
+        return Math.round((ret.getTime() - dep.getTime()) / 86400000) + 1;
       };
       const fmt = (d: string) => new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
       const fmtFull = (d: string) => new Date(d).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -393,15 +397,15 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
 
       const fmtP = (q: number, t: number, d: number) => {
         const parts: string[] = [];
-        if (q > 0) parts.push(`<div>Quad: ${formatRupiah(q)}</div>`);
-        if (t > 0) parts.push(`<div>Triple: ${formatRupiah(t)}</div>`);
-        if (d > 0) parts.push(`<div>Double: ${formatRupiah(d)}</div>`);
+        if (q > 0) parts.push(`<div style="margin-bottom:4px;white-space:nowrap">Quad: ${formatRupiah(q)}</div>`);
+        if (t > 0) parts.push(`<div style="margin-bottom:4px;white-space:nowrap">Triple: ${formatRupiah(t)}</div>`);
+        if (d > 0) parts.push(`<div style="white-space:nowrap">Double: ${formatRupiah(d)}</div>`);
         return parts.join('');
       };
       rows.push({ label: 'HARGA', a: fmtP(pQ_A, pT_A, pD_A), b: fmtP(pQ_B, pT_B, pD_B) });
 
-      // Lama Perjalanan (+1 hari)
-      rows.push({ label: 'LAMA<br/>PERJALANAN', a: `<div>${depDays(pkgA) + 1} HARI</div>`, b: `<div>${depDays(pkgB) + 1} HARI</div>` });
+      // Lama Perjalanan
+      rows.push({ label: 'LAMA<br/>PERJALANAN', a: `<div>${getDuration(pkgA)} HARI</div>`, b: `<div>${getDuration(pkgB)} HARI</div>` });
 
       // Keberangkatan
       rows.push({ label: 'KEBERANGKATAN', a: `<div>${fmtFull(pkgA.keberangkatan.tgl)}</div>`, b: `<div>${fmtFull(pkgB.keberangkatan.tgl)}</div>` });
@@ -423,7 +427,7 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
         const starStr = stars > 0 ? `<span style="color:#F59E0B">${'★'.repeat(stars)}</span>` : '';
         const distStr = dist ? `<span style="color:#6B7280">${dist}</span>` : '';
         const right = [starStr, distStr].filter(Boolean).join(' ');
-        return `<div style="text-align:left;font-size:14px;font-weight:700;color:#1F2937">${name}</div>${right ? `<div style="text-align:right;font-size:12px;margin-top:4px">${right}</div>` : ''}`;
+        return `<div style="text-align:center;font-size:14px;font-weight:700;color:#1F2937">${name}</div>${right ? `<div style="text-align:center;font-size:12px;margin-top:4px">${right}</div>` : ''}`;
       };
       rows.push({
         label: 'HOTEL<br/>MEKKAH',
@@ -464,20 +468,20 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
         const cities = getTempCities(hi, month);
         const lines = cities.map(c => {
           const t = getTemperature(c.key, month);
-          return t ? `<div>${c.label}: ${t.low}–${t.high}°C</div>` : '';
+          return t ? `<div style="margin-bottom:3px;white-space:nowrap">${c.label}: ${t.low}–${t.high}°C</div>` : '';
         }).filter(Boolean).join('');
         return lines || '<div>—</div>';
       };
       rows.push({ label: 'SUHU SAAT<br/>KEBERANGKATAN', a: fmtTempPkg(hA, depMonthA), b: fmtTempPkg(hB, depMonthB) });
 
       // Seat
-      rows.push({ label: 'SISA SEAT', a: `<div>${pkgA.seatSisa} / ${pkgA.seatTotal}</div>`, b: `<div>${pkgB.seatSisa} / ${pkgB.seatTotal}</div>` });
+      rows.push({ label: 'SISA SEAT', a: `<div style="white-space:nowrap">${pkgA.seatSisa} / ${pkgA.seatTotal}</div>`, b: `<div style="white-space:nowrap">${pkgB.seatSisa} / ${pkgB.seatTotal}</div>` });
 
       // Manasik
       rows.push({
         label: 'MANASIK',
-        a: pkgA.manasikTanggal ? `<div>${fmtFull(pkgA.manasikTanggal)}</div>${pkgA.manasikJam ? '<div>' + pkgA.manasikJam.slice(0, 5) + ' WIB</div>' : ''}` : '<div>—</div>',
-        b: pkgB.manasikTanggal ? `<div>${fmtFull(pkgB.manasikTanggal)}</div>${pkgB.manasikJam ? '<div>' + pkgB.manasikJam.slice(0, 5) + ' WIB</div>' : ''}` : '<div>—</div>',
+        a: pkgA.manasikTanggal ? `<div style="margin-bottom:3px">${fmtFull(pkgA.manasikTanggal)}</div>${pkgA.manasikJam ? '<div style="white-space:nowrap">' + pkgA.manasikJam.slice(0, 5) + ' WIB</div>' : ''}` : '<div>—</div>',
+        b: pkgB.manasikTanggal ? `<div style="margin-bottom:3px">${fmtFull(pkgB.manasikTanggal)}</div>${pkgB.manasikJam ? '<div style="white-space:nowrap">' + pkgB.manasikJam.slice(0, 5) + ' WIB</div>' : ''}` : '<div>—</div>',
       });
 
       // ── Embed Inter font for cross-device consistency ──
@@ -580,7 +584,7 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
       // Package names header row (no title banner, no tier, no stars)
       const tierRow = document.createElement('div');
       Object.assign(tierRow.style, {
-        display: 'grid', gridTemplateColumns: '1fr 150px 1fr',
+        display: 'grid', gridTemplateColumns: '1fr 120px 1fr',
         background: 'linear-gradient(135deg, #065F46 0%, #047857 50%, #059669 100%)',
         color: '#ffffff',
       });
@@ -603,15 +607,15 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
         const rowEl = document.createElement('div');
         const isEven = idx % 2 === 0;
         Object.assign(rowEl.style, {
-          display: 'grid', gridTemplateColumns: '1fr 150px 1fr',
+          display: 'grid', gridTemplateColumns: '1fr 120px 1fr',
           background: isEven ? '#ffffff' : '#F8FAF9',
           borderBottom: '1px solid #E5E7EB',
         });
 
-        const cellStyle = `padding:16px 20px;font-size:15px;font-weight:600;color:#1F2937;text-align:center;line-height:1.6;display:flex;flex-direction:column;align-items:center;justify-content:center;`;
+        const cellStyle = `padding:14px 16px;font-size:13px;font-weight:600;color:#1F2937;text-align:center;line-height:1.8;word-break:break-word;overflow-wrap:break-word;`;
         const icon = rowIcons[idx] || '📋';
         const labelHtml = `
-          <div style="padding:12px 14px;min-width:130px;background:linear-gradient(135deg,#065F46,#059669);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
+          <div style="padding:12px 10px;min-width:100px;background:linear-gradient(135deg,#065F46,#059669);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
             <div style="font-size:16px">${icon}</div>
             <div style="font-size:10px;font-weight:800;color:#ffffff;text-transform:uppercase;letter-spacing:1.5px;line-height:1.4;text-align:center">${row.label}</div>
           </div>
@@ -814,7 +818,9 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
                       {[pkgA, pkgB].map((pkg, idx) => {
                         const dep = new Date(pkg.keberangkatan.tgl);
                         const ret = new Date(pkg.kepulangan.tgl);
-                        const days = Math.round((ret.getTime() - dep.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                        // Extract duration from package name (e.g. "15HR") — most reliable
+                        const nameMatch = pkg.nama.match(/(\d+)\s*HR\b/i);
+                        const days = nameMatch ? parseInt(nameMatch[1], 10) : Math.round((ret.getTime() - dep.getTime()) / (1000 * 60 * 60 * 24)) + 1;
                         const depParts = pkg.keberangkatan.rute.split(' - ');
                         const retParts = pkg.kepulangan.rute.split(' - ');
                         return (

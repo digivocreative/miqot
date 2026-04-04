@@ -200,7 +200,7 @@ export default function UpcomingSchedule() {
   // Loading skeleton
   if (loading && monthEvents.length === 0) {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden mb-5">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="h-4 w-28 bg-gray-200 dark:bg-slate-700 rounded animate-pulse" />
           <div className="flex gap-1">
@@ -228,7 +228,7 @@ export default function UpcomingSchedule() {
   return (
     <>
       {/* ── Calendar Card (fixed size) ── */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden mb-5">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
         {/* Header */}
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">

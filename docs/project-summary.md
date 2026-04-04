@@ -220,11 +220,11 @@ alhijaz/
     - Action buttons (30/50/20): BPIH (blue), Pernyataan (violet), WhatsApp icon (emerald filled)
     - BPIH & Pernyataan → full-screen document viewer popup (iframe, framer-motion slide-up animation, native share)
     - URL routing: slug-based tab switching di Jamaah page
-- **Kalender** — mini calendar widget di Dashboard home:
+- **Kalender & Status Penerbangan** — mini calendar widget dan dashboard status penerbangan:
   - Calendar grid bulanan dengan colored dots (Manasik, Keberangkatan, Kepulangan)
-  - Navigasi bulan (prev/next) dengan caching data per bulan
-  - Bottom sheet popup saat klik tanggal — detail group cards (pesawat, jam, paket, PAX, TL)
-  - Data di-scrape dari internal system (FullCalendar events + _jmodal.php detail)
+  - Bottom sheet popup saat klik tanggal — detail group cards
+  - Real-time flight tracking menggunakan AirLabs API (menggabungkan group/kloter dengan nomor penerbangan sama dalam 1 card `FlightStatusCard`)
+  - **Penting:** Pengambilan data scraper (_jmodal.php_) untuk `event_type = perjalanan` field `.jam` adalah waktu *kedatangan (arrival)* di tanah air, bukan keberangkatan dari Saudi. Dashboard memodifikasi logic override dan cron hanya mengecek schedule aktif, serta mem-filter "landed" flight setelah beberapa jam untuk mencegah clutter.
 - **AI Insight** — alert bar + bottom sheet popup (OpenAI-generated):
   - 3 insight cards: Hari Ini, 7 Hari ke Depan, Cuaca Tanah Suci
   - Data cuaca Mekah/Madinah (suhu rata-rata per bulan dari temperatureData.ts)
@@ -366,7 +366,7 @@ created_at    TIMESTAMPTZ          -- record creation time
 
 ### Data Paket Umroh (External API)
 Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhijaz.co/jadwal/api-get/{yearCode}` dan di-cache di browser (localStorage). Lihat `UmrohPackage` type di `src/types/umroh-package.ts`.
-
+**Lama Perjalanan / Duration Calculation:** Khusus untuk paket Extended/Plus (mis. Turki, Kairo), kalkulasi durasi tidak bisa mengandalkan selisih `keberangkatan.tgl` dan `kepulangan.tgl` (karena tanggal tersebut hanya mencakup leg penerbangan ke/dari Saudi). Referensi durasi paling akurat adalah nama paket itu sendiri (e.g., "PLUS TURKEY 15HR"), dan `calculateDuration()` di `data-service.ts` memprioritaskan regex extract dari `pkg.nama`.
 ## 7. API & Endpoints
 
 **Base URL**: `http://localhost:3000` (production langsung ke server)
@@ -586,6 +586,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - **CapiPage.tsx terlalu besar** (~1774 baris) — bisa di-modularisasi
 - **Tidak ada test suite** — risiko regresi saat refactor
 - **No error boundary** — React errors bisa crash seluruh app
+- **modern-screenshot alignment** — Export image (ComparePage, Haji Plus Export) rawan mengalami vertical overlap jika grid dicampur dengan flexbox; gunakan block layout standar untuk export elements.
 
 - **CAPI endpoints tidak pakai auth** — hanya dilindungi oleh agent slug (not secret)
 - **server.js monolith** (~2000 baris) — perlu di-split ke route modules

@@ -141,8 +141,8 @@ function bulanFull(ym: string): string {
 // ── Comparison indicator ──
 function DiffBadge({ diff }: { diff: number | null }) {
   if (diff === null || diff === undefined) return null;
-  if (diff > 0) return <p className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5">↑ {diff} dari bln lalu</p>;
-  if (diff < 0) return <p className="text-[9px] font-semibold text-red-500 dark:text-red-400 mt-0.5">↓ {Math.abs(diff)} dari bln lalu</p>;
+  if (diff > 0) return <p className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5">↑ {diff} dari bulan lalu</p>;
+  if (diff < 0) return <p className="text-[9px] font-semibold text-red-500 dark:text-red-400 mt-0.5">↓ {Math.abs(diff)} dari bulan lalu</p>;
   return <p className="text-[9px] font-semibold text-gray-400 mt-0.5">= sama dengan bln lalu</p>;
 }
 
@@ -385,7 +385,10 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   const [showBerangkatModal, setShowBerangkatModal] = useState(false);
   const [showOutstandingModal, setShowOutstandingModal] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bgPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasAutoSynced = useRef(false);
   // Admin: all years across all agents (for Tren Daftar dropdown)
   const [allYears, setAllYears] = useState<string[]>([]);
 
@@ -412,6 +415,42 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
 
   useEffect(() => {
     fetchStats();
+    // Check if a background sync (CRON or manual from JamaahPage) is running
+    (async () => {
+      try {
+        const sr = await fetch('/api/laporan/sync-status', { headers: { ...getAuthHeaders() } });
+        const st = await sr.json();
+        if (st.success && st.data.isSyncing) {
+          // If Phase 1 already done (completedYears populated), show stats immediately
+          if (st.data.completedYears && st.data.completedYears.length > 0) {
+            setBackgroundSyncing(false); // Don't block — Phase 1 data is ready
+          } else {
+            setBackgroundSyncing(true); // Block — Phase 1 still running
+          }
+          // Poll until sync finishes or Phase 1 completes
+          bgPollRef.current = setInterval(async () => {
+            try {
+              const r = await fetch('/api/laporan/sync-status', { headers: { ...getAuthHeaders() }, signal: AbortSignal.timeout(10000) });
+              const s = await r.json();
+              if (s.success) {
+                if (!s.data.isSyncing) {
+                  // Sync fully done
+                  setBackgroundSyncing(false);
+                  if (bgPollRef.current) clearInterval(bgPollRef.current);
+                  bgPollRef.current = null;
+                  fetchStats(selectedYear);
+                } else if (s.data.completedYears && s.data.completedYears.length > 0) {
+                  // Phase 1 done — unblock and refresh stats
+                  setBackgroundSyncing(false);
+                  fetchStats(selectedYear);
+                  // Keep polling until full sync done (for final refresh)
+                }
+              }
+            } catch { /* ignore */ }
+          }, 5000);
+        }
+      } catch { /* ignore */ }
+    })();
     // Admin: fetch all company-wide years for Tren Daftar
     if (isAdmin) {
       fetch('/api/laporan/tren-daftar/years', { headers: { ...getAuthHeaders() } })
@@ -430,6 +469,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      if (bgPollRef.current) clearInterval(bgPollRef.current);
       onHeaderRight?.(null);
     };
   }, []);
@@ -442,16 +482,30 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
     return () => clearInterval(autoRef);
   }, [syncing, loading, fetchStats, selectedYear]);
 
+  // ── Auto-sync on first load if no data ──
+  useEffect(() => {
+    if (!loading && !syncing && !hasAutoSynced.current && data && data.totalJamaah === 0) {
+      hasAutoSynced.current = true;
+      handleSync();
+    }
+  }, [loading, data]);
+
   // Push year dropdown into header
   // For admin: merge per-agent years with company-wide years
   const dropdownYears = useMemo(() => {
     if (!data) return [];
     const merged = [...new Set([...data.availableYears, ...allYears])];
-    return merged.sort((a, b) => b.localeCompare(a));
+    return merged.filter(y => Number(y) >= 1447).sort((a, b) => b.localeCompare(a));
   }, [data, allYears]);
 
   useEffect(() => {
-    if (!data || !onHeaderRight || dropdownYears.length === 0) return;
+    if (!onHeaderRight) return;
+    // Hide dropdown during sync
+    if (syncing || backgroundSyncing) {
+      onHeaderRight(null);
+      return;
+    }
+    if (!data || dropdownYears.length === 0) return;
     onHeaderRight(
       <select
         value={selectedYear}
@@ -462,7 +516,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         {dropdownYears.map(y => <option key={y} value={y}>{y} H</option>)}
       </select>
     );
-  }, [data, selectedYear, onHeaderRight, dropdownYears]);
+  }, [data, selectedYear, onHeaderRight, dropdownYears, syncing, backgroundSyncing]);
 
   // Sync handler
   const handleSync = async () => {
@@ -476,17 +530,42 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
       const result = await res.json();
       if (!result.success) { setSyncing(false); return; }
       if (result.data?.syncing) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        let errorCount = 0;
+        const pollStart = Date.now();
+
         pollRef.current = setInterval(async () => {
+          // Max polling duration: 5 minutes
+          if (Date.now() - pollStart > 5 * 60 * 1000) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+            setSyncing(false);
+            fetchStats(selectedYear);
+            return;
+          }
+
           try {
-            const sr = await fetch('/api/laporan/sync-status', { headers: { ...getAuthHeaders() } });
+            const sr = await fetch('/api/laporan/sync-status', {
+              headers: { ...getAuthHeaders() },
+              signal: AbortSignal.timeout(10000),
+            });
             const st = await sr.json();
+            errorCount = 0;
             if (st.success && !st.data.isSyncing) {
               if (pollRef.current) clearInterval(pollRef.current);
               pollRef.current = null;
               setSyncing(false);
               fetchStats(selectedYear);
             }
-          } catch {}
+          } catch {
+            errorCount++;
+            if (errorCount >= 5) {
+              if (pollRef.current) clearInterval(pollRef.current);
+              pollRef.current = null;
+              setSyncing(false);
+              fetchStats(selectedYear);
+            }
+          }
         }, 3000);
       } else {
         setSyncing(false);
@@ -495,53 +574,79 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
     } catch { setSyncing(false); }
   };
 
-  // Loading
-  if (loading && !data) {
-    return <StatistikSkeleton />;
-  }
-
-  // Error
-  if (error && !data) {
-    return (
-      <div className="px-4 pt-6 max-w-lg mx-auto">
-        <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-2xl text-center">
-          <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-3">{error}</p>
-          <button onClick={() => fetchStats(selectedYear)}
-            className="px-4 py-2 rounded-xl text-xs font-bold bg-red-500 text-white shadow-md shadow-red-500/20 hover:bg-red-600 transition-all active:scale-95">
-            Coba Lagi
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Empty
-  if (data && data.totalJamaah === 0 && !data.lastSync) {
-    return (
-      <div className="px-4 pt-10 max-w-lg mx-auto text-center">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center">
-          <Users size={28} className="text-gray-300 dark:text-slate-600" />
-        </div>
-        <p className="text-sm font-semibold text-gray-600 dark:text-slate-300">Belum ada data jamaah</p>
-        <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Sync di halaman Jamaah dulu.</p>
-      </div>
-    );
-  }
-
-  if (!data) return null;
+  // Determine which view mode to show (no early returns to avoid React DOM conflicts)
+  const isSyncWaiting = syncing || backgroundSyncing;
+  const isEmpty = !!(data && data.totalJamaah === 0 && !data.lastSync && !isSyncWaiting);
+  const showSkeleton = loading && !data && !isSyncWaiting;
+  const showError = !!(error && !data && !isSyncWaiting);
+  const showData = !!(data && !showSkeleton && !showError && !isSyncWaiting && !isEmpty);
 
   const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
   const gridStroke = isDark ? '#1e293b' : '#f1f5f9';
-  const chartData = data.trend.map(t => ({ bulan: t.bulan, label: bulanLabel(t.bulan), count: t.count }));
-  const komisiChartData = data.komisi.chartBulanan.map(t => ({ ...t, label: bulanLabel(t.bulan) }));
-  const depMonth = data.berangkatBulanIni.length > 0
+  const chartData = data ? data.trend.map(t => ({ bulan: t.bulan, label: bulanLabel(t.bulan), count: t.count })) : [];
+  const komisiChartData = data ? data.komisi.chartBulanan.map(t => ({ ...t, label: bulanLabel(t.bulan) })) : [];
+  const depMonth = data && data.berangkatBulanIni.length > 0
     ? new Date(data.berangkatBulanIni[0].tgl_berangkat).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
     : '';
-  const berangkatPreview = data.berangkatBulanIni.slice(0, 3);
-  const outstandingPreview = data.outstandingList.slice(0, 3);
+  const berangkatPreview = data ? data.berangkatBulanIni.slice(0, 3) : [];
+  const outstandingPreview = data ? data.outstandingList.slice(0, 3) : [];
 
   return (
     <div className="max-w-lg mx-auto">
+
+      {/* ── Loading ── */}
+      {showSkeleton && (
+        <div className="px-4 pt-16 text-center">
+          <Loader2 size={28} className="text-emerald-500 animate-spin mx-auto" />
+          <p className="text-xs text-gray-400 dark:text-slate-500 mt-3">Memuat statistik...</p>
+        </div>
+      )}
+
+      {/* ── Error ── */}
+      {showError && (
+        <div className="px-4 pt-6">
+          <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-2xl text-center">
+            <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-3">{error}</p>
+            <button onClick={() => fetchStats(selectedYear)}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-red-500 text-white shadow-md shadow-red-500/20 hover:bg-red-600 transition-all active:scale-95">
+              Coba Lagi
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Sync waiting ── */}
+      {isSyncWaiting && (
+        <div className="px-4 pt-16 text-center">
+          <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 flex items-center justify-center">
+            <Loader2 size={28} className="text-emerald-500 animate-spin" />
+          </div>
+          <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">Sedang menyinkronkan data jamaah...</p>
+          <p className="text-xs text-gray-500 dark:text-slate-500 mt-1.5 max-w-[260px] mx-auto leading-relaxed">
+            Anda bisa tinggalkan halaman ini. Nanti bisa balik lagi ke sini ya.
+          </p>
+          <div className="flex items-center justify-center gap-1.5 mt-4">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[12px] text-emerald-600 dark:text-emerald-400 font-medium">Memproses data...</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Empty (no sync ever) ── */}
+      {isEmpty && (
+        <div className="px-4 pt-10 text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center">
+            <Users size={28} className="text-gray-300 dark:text-slate-600" />
+          </div>
+          <p className="text-sm font-semibold text-gray-600 dark:text-slate-300">Belum ada data jamaah</p>
+          <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Sync di halaman Jamaah dulu.</p>
+        </div>
+      )}
+
+      {/* ── Data view ── */}
+      {showData && data && (
+      <>
+
       {/* ── Admin Tab Bar ── */}
       {isAdmin && (
         <div className="sticky top-[53px] z-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-700">
@@ -853,6 +958,8 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         }>
           <TrenDaftarSection selectedYear={selectedYear} />
         </Suspense>
+      )}
+      </>
       )}
     </div>
   );

@@ -26,8 +26,8 @@ export default {
       },
       keyframes: {
         shimmer: {
-          '0%': { backgroundPosition: '0 0' },
-          '100%': { backgroundPosition: '2rem 2rem' },
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(100%)' },
         },
         slideUp: {
           '0%': { transform: 'translateY(100%)' },
@@ -35,7 +35,7 @@ export default {
         },
       },
       animation: {
-        shimmer: 'shimmer 1.5s linear infinite',
+        shimmer: 'shimmer 1.8s ease-in-out infinite',
         slideUp: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
       },
     },
