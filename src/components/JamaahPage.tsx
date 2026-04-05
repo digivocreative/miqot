@@ -218,7 +218,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
         });
         const result = await res.json();
         if (cancelled) return;
-        if (result.success && result.data.isSyncing) {
+        if (result.success && result.data.isSyncing && !result.data.background) {
           setSyncing(true);
           setBackgroundSyncing(true);
           if (result.data.totalSynced) setSyncedCount(result.data.totalSynced);

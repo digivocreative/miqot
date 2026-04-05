@@ -1372,20 +1372,23 @@ _________________________
       if (pct >= 100) {
         return {
           bar: 'bg-red-600 dark:bg-red-500',
-          text: 'text-red-600 dark:text-red-400'
+          text: 'text-red-600 dark:text-red-400',
+          stripe: ['#dc2626', '#b91c1c'],  // red-600, red-700
         };
       }
       // Hampir penuh (>= 80%)
       if (pct >= 80) {
         return {
           bar: 'bg-orange-500',
-          text: 'text-orange-500 dark:text-orange-400'
+          text: 'text-orange-500 dark:text-orange-400',
+          stripe: ['#f97316', '#ea580c'],  // orange-500, orange-600
         };
       }
       // Masih longgar (< 80%)
       return {
         bar: 'bg-emerald-500',
-        text: 'text-emerald-600 dark:text-emerald-400'
+        text: 'text-emerald-600 dark:text-emerald-400',
+        stripe: ['#10b981', '#0d9f6e'],  // emerald-500, emerald-600
       };
     };
 
@@ -1419,7 +1422,7 @@ _________________________
               className="h-full rounded-full"
               style={{
                 width: `${percentage}%`,
-                background: 'repeating-linear-gradient(45deg, #10b981, #10b981 6px, #0d9f6e 6px, #0d9f6e 12px)',
+                background: `repeating-linear-gradient(45deg, ${statusStyle.stripe[0]}, ${statusStyle.stripe[0]} 6px, ${statusStyle.stripe[1]} 6px, ${statusStyle.stripe[1]} 12px)`,
                 backgroundSize: '20px 20px',
                 animation: 'stripe-move 1s linear infinite',
                 transition: 'width 0.5s ease',
@@ -1500,7 +1503,7 @@ _________________________
             </div>
             <div>
               <p className="text-xs text-gray-500 dark:text-slate-400 flex items-center gap-1">
-                <span className="font-medium text-gray-700 dark:text-slate-200">{pkg.keberangkatan.kodePenerbangan}</span>
+                <span className="font-medium text-gray-700 dark:text-slate-200">{(pkg.keberangkatan.kodePenerbangan || '').split('/')[0].trim()}</span>
                 <span>/</span>
                 <span>{formatDate(pkg.keberangkatan.tgl)}</span>
               </p>
@@ -1520,7 +1523,7 @@ _________________________
             </div>
             <div>
               <p className="text-xs text-gray-500 dark:text-slate-400 flex items-center gap-1">
-                <span className="font-medium text-gray-700 dark:text-slate-200">{pkg.kepulangan.kodePenerbangan}</span>
+                <span className="font-medium text-gray-700 dark:text-slate-200">{(pkg.kepulangan.kodePenerbangan || '').split('/')[0].trim()}</span>
                 <span>/</span>
                 <span>{formatDate(pkg.kepulangan.tgl)}</span>
               </p>

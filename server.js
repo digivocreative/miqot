@@ -1634,6 +1634,18 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         if (b.tgl_daftar) bookingTglDaftarMap.set(b.id_umroh, b.tgl_daftar);
       }
 
+      // Pre-fetch existing hijriah_year from DB — so Phase 1 doesn't overwrite
+      // accurate Phase 2 data with a '1447' default when tgl_berangkat is null
+      const { data: existingYearRows } = await supabase
+        .from('jamaah')
+        .select('id_umroh, nama, hijriah_year')
+        .eq('agent_slug', slug)
+        .not('hijriah_year', 'is', null);
+      const existingYearLookup = new Map();
+      (existingYearRows || []).forEach(r => {
+        existingYearLookup.set(`${r.id_umroh}_${r.nama}`.toLowerCase(), r.hijriah_year);
+      });
+
       // Fetch detail pages in parallel batches of 5 (each request is ~1-2s, very light)
       const DETAIL_PARALLEL = 5;
       let detailErrors = 0;
@@ -1673,8 +1685,10 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 
           // Build rows from detail items — paket comes from list page
           for (const item of result.items) {
-            // Skip jamaah with hijriah year before 1447 (old data); default null to 1447
-            const itemYear = getHijriahYear(item.tgl_berangkat) || '1447';
+            // Determine hijriah year: use actual date, or preserve existing DB value, or default
+            const computedYear = getHijriahYear(item.tgl_berangkat);
+            const existingYear = existingYearLookup.get(`${item.id_umroh}_${item.nama}`.toLowerCase());
+            const itemYear = computedYear || existingYear || '1447';
             if (Number(itemYear) < 1447) continue;
             item.paket = item.paket || bookingPaketMap.get(idUmroh) || null;
             rowsToUpsert.push({
@@ -5290,7 +5304,7 @@ async function syncOneAgent(agent) {
     return;
   }
 
-  syncingAgents.set(slug, { isSyncing: true, totalSynced: 0, lastSync: null });
+  syncingAgents.set(slug, { isSyncing: true, background: true, totalSynced: 0, lastSync: null });
 
   try {
     // Force fresh session for each background sync
@@ -5324,7 +5338,7 @@ async function syncOneAgent(agent) {
 
         const uniqueIds = [...new Set(bookings.map(b => b.id_umroh))];
         const DETAIL_PARALLEL = 5;
-        let detailSynced = 0;
+        const bgGlobalKeys = new Set();
 
         for (let i = 0; i < uniqueIds.length; i += DETAIL_PARALLEL) {
           const batch = uniqueIds.slice(i, i + DETAIL_PARALLEL);
@@ -5340,9 +5354,11 @@ async function syncOneAgent(agent) {
             const idUmroh = batch[j];
 
             for (const item of result.items) {
-              // Skip jamaah with hijriah year before 1447 (old data); default null to 1447
-              const itemYear = getHijriahYear(item.tgl_berangkat) || '1447';
-              if (Number(itemYear) < 1447) continue;
+              // Determine hijriah year: use actual date first, null if unknown
+              // (existing DB value is preserved in the merge step below)
+              const computedYear = getHijriahYear(item.tgl_berangkat);
+              const itemYear = computedYear || null;
+              if (itemYear && Number(itemYear) < 1447) continue;
               item.paket = item.paket || bookingPaketMap.get(idUmroh) || null;
               rowsToUpsert.push({
                 agent_slug: slug,
@@ -5365,6 +5381,7 @@ async function syncOneAgent(agent) {
             const deduped = new Map();
             for (const row of rowsToUpsert) {
               const key = `${row.agent_slug}_${row.id_umroh}_${row.nama}`.toLowerCase();
+              bgGlobalKeys.add(key);
               deduped.set(key, row);
             }
             const dedupedRows = Array.from(deduped.values());
@@ -5392,10 +5409,12 @@ async function syncOneAgent(agent) {
                 row.dokumen = (existing.dokumen && Object.keys(existing.dokumen).length > 0) ? existing.dokumen : {};
                 row.no_paspor = existing.no_paspor || null;
                 row.paspor_expired = existing.paspor_expired || null;
-                // Preserve hijriah_year if Phase 1 can't determine it but Phase 2 had it
+                // Preserve hijriah_year if Phase 1 can't determine it but DB has it
                 if (!row.hijriah_year && existing.hijriah_year) {
                   row.hijriah_year = existing.hijriah_year;
                 }
+                // Default to 1447 only if neither Phase 1 nor DB has a year
+                if (!row.hijriah_year) row.hijriah_year = '1447';
               } else {
                 // New record — set enrichment fields to defaults
                 row.wa = null;
@@ -5404,6 +5423,8 @@ async function syncOneAgent(agent) {
                 row.dokumen = {};
                 row.no_paspor = null;
                 row.paspor_expired = null;
+                // Default to 1447 for truly new jamaah without date
+                if (!row.hijriah_year) row.hijriah_year = '1447';
               }
             }
 
@@ -5413,10 +5434,15 @@ async function syncOneAgent(agent) {
               const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_slug,id_umroh,nama' });
               if (error) console.error(`[SYNC] ${slug} Phase 1 upsert error:`, error.message);
             }
-            detailSynced += dedupedRows.length;
           }
         }
-        totalSynced = detailSynced;
+        // Query actual DB count for accurate number
+        const { count: bgActualCount } = await supabase
+          .from('jamaah')
+          .select('*', { count: 'exact', head: true })
+          .eq('agent_slug', slug);
+        totalSynced = bgActualCount || bgGlobalKeys.size;
+        console.log(`[SYNC] ${slug}: Phase 1 — ${bgGlobalKeys.size} processed, ${bgActualCount} in DB`);
       }
     } catch (p1err) {
       console.error(`[SYNC] ${slug} Phase 1 error:`, p1err.message);
@@ -5548,7 +5574,7 @@ async function syncOneAgent(agent) {
             .upsert(rows, { onConflict: 'agent_slug,id_umroh,nama' });
           if (error) console.error(`[SYNC] ${slug} range ${job.tglAwal} batch error:`, error.message);
           totalSynced += batchItems.length;
-          syncingAgents.set(slug, { isSyncing: true, totalSynced, lastSync: syncTime });
+          syncingAgents.set(slug, { isSyncing: true, background: true, totalSynced, lastSync: syncTime });
         }
 
         // Detect pembayaran masuk (only for jamaah departing in the future)
@@ -5661,7 +5687,12 @@ async function syncOneAgent(agent) {
       // Don't fail the whole sync if haji fails
     }
 
-    syncingAgents.set(slug, { isSyncing: false, totalSynced, lastSync: syncTime });
+    // Query final actual DB count
+    const { count: finalCount } = await supabase
+      .from('jamaah')
+      .select('*', { count: 'exact', head: true })
+      .eq('agent_slug', slug);
+    syncingAgents.set(slug, { isSyncing: false, totalSynced: finalCount || totalSynced, lastSync: syncTime });
     laporanDisconnect(agent.jamaah_username);
   } catch (err) {
     console.error(`[SYNC] ${slug} error:`, err.message);

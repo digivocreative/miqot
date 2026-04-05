@@ -753,7 +753,7 @@ function InternalSystemSection() {
               <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{status.username || 'Terhubung'}</p>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
             </div>
-            <p className="text-[11px] text-emerald-700/70 dark:text-emerald-400/60">Alhijaz Indowisata · Terhubung</p>
+            <p className="text-[11px] text-emerald-700/70 dark:text-emerald-400/60">Terhubung</p>
           </div>
 
           {/* Disconnect */}

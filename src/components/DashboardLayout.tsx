@@ -4,6 +4,7 @@ import {
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
   BarChart3, Loader2, Sparkles,
   CalendarRange, ExternalLink, TrendingUp, Mic, CreditCard,
+  DollarSign, ChevronRight,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
@@ -196,6 +197,49 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [analyticsHeaderRight, setAnalyticsHeaderRight] = useState<React.ReactNode>(null);
   // Flight status position
   const [flightCount, setFlightCount] = useState(-1); // -1 = not loaded yet
+
+  // Kurs widget state
+  const [kursData, setKursData] = useState<{
+    usd: number | null;
+    sar: number | null;
+    updatedAt: string;
+  } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/kurs')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.data) {
+          const rates = d.data.rates || {};
+          const usdRate = rates.USD ?? null;
+          const sarRate = rates.SAR ?? null;
+          if (usdRate !== null) {
+            // Parse "DD/MM/YY HH:MM WIB" → "Minggu, 5 April 2026 • 09:51 WIB"
+            let formattedDate = d.data.updatedAt || '';
+            const m = formattedDate.match(/(\d{2})\/(\d{2})\/(\d{2})\s+(\d{2}:\d{2})\s*WIB/);
+            if (m) {
+              const dt = new Date(2000 + parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+              const dayName = dt.toLocaleDateString('id-ID', { weekday: 'long' });
+              const monthName = dt.toLocaleDateString('id-ID', { month: 'long' });
+              formattedDate = `${dayName}, ${dt.getDate()} ${monthName} ${dt.getFullYear()}`;
+            }
+            setKursData({
+              usd: usdRate,
+              sar: sarRate,
+              updatedAt: formattedDate,
+            });
+          }
+        }
+      })
+      .catch(() => {}); // silent fail — widget tidak muncul kalau gagal
+  }, []);
+
+  const formatKurs = (rate: number): string => {
+    return new Intl.NumberFormat('id-ID', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(rate);
+  };
   const closeStatAlert = useCallback(() => {
     setStatAlertClosing(true);
     setTimeout(() => {
@@ -613,17 +657,76 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           })}
         </div>
 
-        {/* ── Flight Status + Upcoming Schedule + Cuaca (flight card goes above calendar when has flights) ── */}
+        {/* ── Flight Status + Upcoming Schedule + Cuaca + Kurs (flight card goes above calendar when has flights) ── */}
         <div className="flex flex-col mt-4 gap-4">
-          <div style={{ order: flightCount > 0 ? 0 : 3 }}>
+          <div style={{ order: flightCount > 0 ? 0 : 4 }}>
             <FlightStatusCard onFlightCount={setFlightCount} />
           </div>
-          <div style={{ order: 1 }}>
+          <div style={{ order: 2 }}>
             <UpcomingSchedule />
           </div>
-          <div style={{ order: 2 }}>
+          <div style={{ order: 3 }}>
             <CuacaWidget />
           </div>
+
+          {/* ── Kurs Hari Ini Widget ── */}
+          {kursData && (
+            <div style={{ order: 1 }} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center">
+                    <DollarSign size={14} strokeWidth={2.2} className="text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-gray-800 dark:text-white">Kurs Hari Ini</div>
+                    <div className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">
+                      Bank Mandiri{kursData.updatedAt ? ` • ${kursData.updatedAt}` : ''}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    window.history.pushState({}, '', '/dashboard/ai-tools/kurs');
+                    document.title = 'Kurs Hari Ini';
+                    setActiveTab('home');
+                    setTimeout(() => setActiveTab('ai-tools'), 0);
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
+                >
+                  Hitung Kurs
+                  <ChevronRight size={10} strokeWidth={2.5} />
+                </button>
+              </div>
+
+              {/* Rate Pills */}
+              <div className="flex gap-2">
+                {/* USD */}
+                <div className="flex-1 bg-gray-50 dark:bg-slate-900 rounded-xl px-3 py-2.5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🇺🇸</span>
+                    <span className="text-sm font-bold text-gray-500 dark:text-slate-400">USD</span>
+                  </div>
+                  <span className="text-[15px] font-bold text-gray-800 dark:text-white">
+                    {formatKurs(kursData.usd!)}
+                  </span>
+                </div>
+
+                {/* SAR — hanya tampil kalau ada data SAR */}
+                {kursData.sar && (
+                  <div className="flex-1 bg-gray-50 dark:bg-slate-900 rounded-xl px-3 py-2.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🇸🇦</span>
+                      <span className="text-sm font-bold text-gray-500 dark:text-slate-400">SAR</span>
+                    </div>
+                    <span className="text-[15px] font-bold text-gray-800 dark:text-white">
+                      {formatKurs(kursData.sar)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Statistik Not Ready Alert ── */}
