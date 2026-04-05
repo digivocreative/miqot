@@ -1503,13 +1503,17 @@ app.post('/api/laporan/login', authMiddleware, async (req, res) => {
 // tglAwal is shifted 4 months earlier to capture jamaah registered before the
 // Hijriah year boundary but departing within the year. The actual hijriah_year
 // assignment uses HIJRIAH_RANGES below (based on tgl_berangkat).
+// Note: tglAwal for 1447 extends back to 2024-03-08 because the laporan API
+// filters by registration date — jamaah who registered in 1446 but depart in 1447
+// would be missed if we only start from Dec 2024.
 const HIJRIAH_YEARS = {
-  '1447': { tglAwal: '2024-12-26', tglAkhir: '2026-06-15' },
+  '1447': { tglAwal: '2024-03-08', tglAkhir: '2026-06-15' },
   '1448': { tglAwal: '2025-12-16', tglAkhir: '2027-06-05' },
   '1449': { tglAwal: '2026-12-06', tglAkhir: '2028-05-25' },
 };
 
 // Determine hijriah year from departure date
+// Based on actual Islamic calendar: 1 Muharram of each year
 const HIJRIAH_RANGES = [
   { year: '1446', start: '2024-07-08', end: '2025-06-25' },
   { year: '1447', start: '2025-06-26', end: '2026-06-15' },
@@ -1540,8 +1544,13 @@ function getActiveHijriahYears() {
 
 // Helper: build rows from parsed items — hijriah_year determined per item by tgl_berangkat
 function buildRows(items, agentSlug, now) {
+  const MIN_HIJRIAH_YEAR = 1447;
+  const DEFAULT_YEAR = String(MIN_HIJRIAH_YEAR);
   const map = new Map();
   for (const item of items) {
+    // Skip old year data (< 1447 H); default null to current year
+    const year = getHijriahYear(item.tgl_berangkat) || DEFAULT_YEAR;
+    if (Number(year) < MIN_HIJRIAH_YEAR) continue;
     const key = `${agentSlug}_${item.id_umroh || ''}_${item.nama || ''}`.trim().toLowerCase();
     map.set(key, {
       agent_slug: agentSlug,
@@ -1555,7 +1564,7 @@ function buildRows(items, agentSlug, now) {
       sisa: item.sisa || 0,
       tgl_berangkat: item.tgl_berangkat || null,
       tgl_daftar: item.tgl_daftar || null,
-      hijriah_year: getHijriahYear(item.tgl_berangkat),
+      hijriah_year: year,
       perlengkapan: item.perlengkapan || {},
       dokumen: item.dokumen || {},
       no_paspor: item.no_paspor || null,
@@ -1662,6 +1671,9 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 
           // Build rows from detail items — paket comes from list page
           for (const item of result.items) {
+            // Skip jamaah with hijriah year before 1447 (old data); default null to 1447
+            const itemYear = getHijriahYear(item.tgl_berangkat) || '1447';
+            if (Number(itemYear) < 1447) continue;
             item.paket = item.paket || bookingPaketMap.get(idUmroh) || null;
             rowsToUpsert.push({
               agent_slug: slug,
@@ -1675,7 +1687,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
               sisa: item.sisa || 0,
               tgl_berangkat: item.tgl_berangkat || null,
               tgl_daftar: bookingTglDaftarMap.get(idUmroh) || null,
-              hijriah_year: getHijriahYear(item.tgl_berangkat),
+              hijriah_year: itemYear,
               perlengkapan: {},        // Phase 2 fills this
               dokumen: {},             // Phase 2 fills this
               no_paspor: null,         // Phase 2 fills this
@@ -3710,16 +3722,8 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       .filter(y => Number(y) >= 1447)  // Only show 1447+
       .sort((a, b) => b.localeCompare(a));
 
-    // During active sync: only show years that have completed Phase 1
-    const syncState = syncingAgents.get(slug);
-    if (syncState?.isSyncing) {
-      if (syncState.completedYears && syncState.completedYears.length > 0) {
-        availableYears = availableYears.filter(y => syncState.completedYears.includes(y));
-      } else {
-        // Phase 1 still in progress — no years ready yet
-        availableYears = [];
-      }
-    }
+
+
 
     // Determine hijriah year — default to 1448
     let year = req.query.year || null;
@@ -5326,6 +5330,9 @@ async function syncOneAgent(agent) {
             const idUmroh = batch[j];
 
             for (const item of result.items) {
+              // Skip jamaah with hijriah year before 1447 (old data); default null to 1447
+              const itemYear = getHijriahYear(item.tgl_berangkat) || '1447';
+              if (Number(itemYear) < 1447) continue;
               item.paket = item.paket || bookingPaketMap.get(idUmroh) || null;
               rowsToUpsert.push({
                 agent_slug: slug,
@@ -5337,7 +5344,7 @@ async function syncOneAgent(agent) {
                 sisa: item.sisa || 0,
                 tgl_berangkat: item.tgl_berangkat || null,
                 tgl_daftar: bookingTglDaftarMap.get(idUmroh) || null,
-                hijriah_year: getHijriahYear(item.tgl_berangkat),
+                hijriah_year: itemYear,
                 raw_data: { ...item.raw_data, staf: bookingStafMap.get(idUmroh) || null },
                 synced_at: syncTime,
               });
@@ -5684,6 +5691,22 @@ async function syncAllAgents() {
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`[SYNC] Cycle complete: ${ok} OK, ${fail} failed in ${elapsed}s`);
 }
+
+// Clean up old 1446 H data (one-time, 15s after startup)
+setTimeout(async () => {
+  try {
+    const oldYears = ['1439','1440','1441','1442','1443','1444','1445','1446'];
+    const { error, count } = await supabase
+      .from('jamaah')
+      .delete({ count: 'exact' })
+      .in('hijriah_year', oldYears);
+    if (!error && count > 0) {
+      console.log(`[Cleanup] Deleted ${count} old (<1447 H) jamaah records`);
+    }
+  } catch (err) {
+    console.error('[Cleanup] Error:', err.message);
+  }
+}, 15 * 1000);
 
 // Run initial sync 30s after startup, then every 1 hour
 setTimeout(syncAllAgents, 30 * 1000);

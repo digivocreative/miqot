@@ -121,7 +121,7 @@ function fmtSync(d: string | null): string {
 function fmtHariLagi(n: number | null): string {
   if (n === null || n === undefined) return '-';
   if (n <= 30) return `${n} hari lagi`;
-  return `${Math.floor(n / 30)} bln lagi`;
+  return `${Math.floor(n / 30)} bulan lagi`;
 }
 
 function getInitials(name: string): string {
@@ -143,7 +143,7 @@ function DiffBadge({ diff }: { diff: number | null }) {
   if (diff === null || diff === undefined) return null;
   if (diff > 0) return <p className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5">↑ {diff} dari bulan lalu</p>;
   if (diff < 0) return <p className="text-[9px] font-semibold text-red-500 dark:text-red-400 mt-0.5">↓ {Math.abs(diff)} dari bulan lalu</p>;
-  return <p className="text-[9px] font-semibold text-gray-400 mt-0.5">= sama dengan bln lalu</p>;
+  return <p className="text-[9px] font-semibold text-gray-400 mt-0.5">= sama dengan bulan lalu</p>;
 }
 
 // ── WhatsApp SVG icon ──
@@ -500,11 +500,6 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
 
   useEffect(() => {
     if (!onHeaderRight) return;
-    // Hide dropdown during sync
-    if (syncing || backgroundSyncing) {
-      onHeaderRight(null);
-      return;
-    }
     if (!data || dropdownYears.length === 0) return;
     onHeaderRight(
       <select
@@ -575,11 +570,10 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   };
 
   // Determine which view mode to show (no early returns to avoid React DOM conflicts)
-  const isSyncWaiting = syncing || backgroundSyncing;
-  const isEmpty = !!(data && data.totalJamaah === 0 && !data.lastSync && !isSyncWaiting);
-  const showSkeleton = loading && !data && !isSyncWaiting;
-  const showError = !!(error && !data && !isSyncWaiting);
-  const showData = !!(data && !showSkeleton && !showError && !isSyncWaiting && !isEmpty);
+  const isEmpty = !!(data && data.totalJamaah === 0 && !data.lastSync && !syncing && !backgroundSyncing);
+  const showSkeleton = loading && !data;
+  const showError = !!(error && !data);
+  const showData = !!(data && !showSkeleton && !showError && !isEmpty);
 
   const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
   const gridStroke = isDark ? '#1e293b' : '#f1f5f9';
@@ -595,12 +589,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
     <div className="max-w-lg mx-auto">
 
       {/* ── Loading ── */}
-      {showSkeleton && (
-        <div className="px-4 pt-16 text-center">
-          <Loader2 size={28} className="text-emerald-500 animate-spin mx-auto" />
-          <p className="text-xs text-gray-400 dark:text-slate-500 mt-3">Memuat statistik...</p>
-        </div>
-      )}
+      {showSkeleton && <StatistikSkeleton />}
 
       {/* ── Error ── */}
       {showError && (
@@ -615,22 +604,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         </div>
       )}
 
-      {/* ── Sync waiting ── */}
-      {isSyncWaiting && (
-        <div className="px-4 pt-16 text-center">
-          <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 flex items-center justify-center">
-            <Loader2 size={28} className="text-emerald-500 animate-spin" />
-          </div>
-          <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">Sedang menyinkronkan data jamaah...</p>
-          <p className="text-xs text-gray-500 dark:text-slate-500 mt-1.5 max-w-[260px] mx-auto leading-relaxed">
-            Anda bisa tinggalkan halaman ini. Nanti bisa balik lagi ke sini ya.
-          </p>
-          <div className="flex items-center justify-center gap-1.5 mt-4">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[12px] text-emerald-600 dark:text-emerald-400 font-medium">Memproses data...</span>
-          </div>
-        </div>
-      )}
+
 
       {/* ── Empty (no sync ever) ── */}
       {isEmpty && (

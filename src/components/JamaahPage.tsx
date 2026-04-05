@@ -711,15 +711,14 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
               Sync: {formatSyncTime(data?.lastSync || null)}
             </span>
           )}
-          {!syncing && (
-            <button
-              onClick={() => handleSync(false, hijriahYear || String(currentHijriYear))}
-              className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:opacity-70 transition-opacity"
-            >
-              <RefreshCw size={10} />
-              Sync Ulang
-            </button>
-          )}
+          <button
+            onClick={() => handleSync(false, hijriahYear || String(currentHijriYear))}
+            disabled={syncing}
+            className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:opacity-70 transition-opacity disabled:opacity-50"
+          >
+            <RefreshCw size={10} className={syncing ? 'animate-spin' : ''} />
+            {syncing ? 'Syncing...' : 'Sync Ulang'}
+          </button>
         </div>
 
         {/* Error */}
@@ -885,7 +884,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                               <span>{(() => {
                                 if (daysUntil < 3) return `${daysUntil * 24} jam lagi`;
                                 if (daysUntil <= 30) return `${daysUntil} hari lagi`;
-                                return `${Math.floor(daysUntil / 30)} bln lagi`;
+                                return `${Math.floor(daysUntil / 30)} bulan lagi`;
                               })()}</span>
                             </div>
                           )}
