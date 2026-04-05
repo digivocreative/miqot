@@ -234,3 +234,10 @@ body.page-entering > #root {
 .dc-card-enter     { animation: dc-slide-up 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .dc-card-exit      { animation: dc-slide-down 0.2s cubic-bezier(0.4, 0, 1, 1) both; }
 
+/* ============================================ */
+/* Progress Bar — Striped animation             */
+/* ============================================ */
+@keyframes stripe-move {
+  0%   { background-position: 0 0; }
+  100% { background-position: 20px 0; }
+}

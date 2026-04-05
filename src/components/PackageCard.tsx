@@ -1416,11 +1416,13 @@ _________________________
           {/* Progress Bar */}
           <div className="w-full bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden" style={{ height: '0.49rem' }}>
             <div
-              className={`h-full rounded-full transition-all duration-500 ${statusStyle.bar} animate-shimmer`}
+              className="h-full rounded-full"
               style={{
                 width: `${percentage}%`,
-                backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0.15) 75%, transparent 75%, transparent)',
-                backgroundSize: '2rem 2rem',
+                background: 'repeating-linear-gradient(45deg, #10b981, #10b981 6px, #0d9f6e 6px, #0d9f6e 12px)',
+                backgroundSize: '20px 20px',
+                animation: 'stripe-move 1s linear infinite',
+                transition: 'width 0.5s ease',
               }}
             />
           </div>

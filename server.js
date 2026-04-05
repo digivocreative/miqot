@@ -1636,11 +1636,13 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 
       // Fetch detail pages in parallel batches of 5 (each request is ~1-2s, very light)
       const DETAIL_PARALLEL = 5;
-      let detailSynced = 0;
       let detailErrors = 0;
       const allDetailIds = bookings.map(b => b.id_umroh);
       // Deduplicate (same id_umroh can appear in list if multiple jadwal)
       const uniqueIds = [...new Set(allDetailIds)];
+      // Global dedup: track unique (agent_slug, id_umroh, nama) across ALL batches
+      // to avoid inflated counter when same jamaah appears under multiple bookings
+      const globalKeys = new Set();
 
       for (let i = 0; i < uniqueIds.length; i += DETAIL_PARALLEL) {
         // Check if sync was cancelled (user disconnected/deleted credentials)
@@ -1704,6 +1706,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           for (const row of rowsToUpsert) {
             const key = `${row.agent_slug}_${row.id_umroh}_${row.nama}`.toLowerCase();
             deduped.set(key, row);
+            globalKeys.add(key); // Track globally for accurate counter
           }
           const dedupedRows = Array.from(deduped.values());
 
@@ -1713,23 +1716,30 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
             const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_slug,id_umroh,nama' });
             if (error) console.error(`[Sync] ${slug} Phase 1 upsert error:`, error.message);
           }
-          detailSynced += dedupedRows.length;
-          syncingAgents.set(slug, { isSyncing: true, totalSynced: detailSynced, phase: 1, completedYears: [], lastSync: now });
+          syncingAgents.set(slug, { isSyncing: true, totalSynced: globalKeys.size, phase: 1, completedYears: [], lastSync: now });
         }
 
         // Send response after first successful batch (progressive hydration)
-        if (!firstBatchSent && detailSynced > 0) {
+        if (!firstBatchSent && globalKeys.size > 0) {
           firstBatchSent = true;
-          totalItems = detailSynced;
+          totalItems = globalKeys.size;
           res.json({
             success: true,
-            data: { initialCount: detailSynced, total: uniqueIds.length, syncing: true },
+            data: { initialCount: globalKeys.size, total: uniqueIds.length, syncing: true },
           });
         }
       }
 
-      console.log(`[Sync] ${slug}: Phase 1 complete — ${detailSynced} jamaah from ${uniqueIds.length} bookings (${detailErrors} errors)`);
-      totalItems = detailSynced;
+      // Query actual DB count for final accurate number (globalKeys may still
+      // over-count if rows existed from a prior sync that share the same key)
+      const { count: actualCount } = await supabase
+        .from('jamaah')
+        .select('*', { count: 'exact', head: true })
+        .eq('agent_slug', slug);
+      totalItems = actualCount || globalKeys.size;
+
+      console.log(`[Sync] ${slug}: Phase 1 complete — ${globalKeys.size} processed, ${actualCount} in DB, from ${uniqueIds.length} bookings (${detailErrors} errors)`);
+      syncingAgents.set(slug, { isSyncing: true, totalSynced: totalItems, phase: 1, completedYears: [], lastSync: now });
 
       // Collect completed years from Phase 1 data — counts are already accurate
       const { data: phase1Rows } = await supabase

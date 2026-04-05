@@ -369,17 +369,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             >
               {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
             </button>
-            {/* Jamaah disconnect button in header */}
-            {activeTab === 'jamaah' && jamaahConnected && jamaahUser && (
-              <div className="flex items-center shrink-0">
-                <button
-                  onClick={() => setShowDisconnectConfirm(true)}
-                  className="w-8 h-8 flex items-center justify-center rounded-xl bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors active:scale-95"
-                >
-                  <LogOut size={14} />
-                </button>
-              </div>
-            )}
+
             {/* Statistik year selector in header */}
             {activeTab === 'statistik' && statistikHeaderRight}
             {/* Analytics month selector in header */}

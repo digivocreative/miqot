@@ -25,9 +25,9 @@ export default {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
       keyframes: {
-        shimmer: {
-          '0%': { transform: 'translateX(-100%)' },
-          '100%': { transform: 'translateX(100%)' },
+        barPulse: {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.7' },
         },
         slideUp: {
           '0%': { transform: 'translateY(100%)' },
@@ -35,7 +35,7 @@ export default {
         },
       },
       animation: {
-        shimmer: 'shimmer 1.8s ease-in-out infinite',
+        barPulse: 'barPulse 2s ease-in-out infinite',
         slideUp: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
       },
     },
