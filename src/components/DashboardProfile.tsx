@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle, Unlink, LogIn } from 'lucide-react';
+import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle, Unlink, LogIn, LogOut } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PhotoCropModal from './PhotoCropModal';
 import { validateName, validatePhone, validateEmail, validateWebsite, cleanPhone, cleanWebsite } from '../utils/validation';
@@ -671,6 +671,143 @@ function PasswordModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; onClos
   );
 }
 
+// ── Internal System (AIW) Credentials Section ──
+function InternalSystemSection() {
+  const [status, setStatus] = useState<{ hasCredentials: boolean; username: string | null } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [closingConfirm, setClosingConfirm] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/laporan/status', { headers: { ...getAuthHeaders() } });
+        const json = await res.json();
+        if (json.success) {
+          setStatus({ hasCredentials: json.data.hasCredentials, username: json.data.username || null });
+        }
+      } catch { /* ignore */ }
+      setLoading(false);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (showConfirm) document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, [showConfirm]);
+
+  const handleCloseConfirm = () => {
+    setClosingConfirm(true);
+    setTimeout(() => {
+      setClosingConfirm(false);
+      setShowConfirm(false);
+    }, 150);
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await fetch('/api/laporan/credentials', { method: 'DELETE', headers: { ...getAuthHeaders() } });
+      setStatus({ hasCredentials: false, username: null });
+    } catch { /* ignore */ }
+    setDeleting(false);
+    setShowConfirm(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="border-t border-gray-100 dark:border-slate-700/50 pt-4 mt-4">
+        <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md animate-pulse mb-3" />
+        <div className="h-14 w-full bg-gray-100 dark:bg-slate-800 rounded-2xl animate-pulse" />
+      </div>
+    );
+  }
+
+  if (!status?.hasCredentials) return null;
+
+  return (
+    <div className="border-t border-gray-100 dark:border-slate-700/50 pt-4 mt-4">
+      <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">SISTEM INTERNAL</p>
+
+      {/* Branded card */}
+      <div
+        className="relative overflow-hidden rounded-2xl border border-emerald-100 dark:border-emerald-800/40"
+        style={{ background: 'linear-gradient(135deg, #ecfdf5, #d1fae5)' }}
+      >
+        {/* Dark mode override */}
+        <div className="hidden dark:block absolute inset-0" style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.08), rgba(16,185,129,0.15))' }} />
+
+        {/* Decorative pattern */}
+        <div className="absolute -right-3 -top-3 w-20 h-20 rounded-full opacity-10" style={{ background: 'radial-gradient(circle, #10b981 0%, transparent 70%)' }} />
+
+        <div className="relative px-4 py-3.5 flex items-center gap-3">
+          {/* Icon */}
+          <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-800 shadow-sm border border-emerald-200 dark:border-emerald-700/50 flex items-center justify-center flex-shrink-0">
+            <img src="/logo-alhijaz.webp" alt="AIW" className="w-6 h-6 rounded object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>'; }} />
+          </div>
+
+          {/* Info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{status.username || 'Terhubung'}</p>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+            </div>
+            <p className="text-[11px] text-emerald-700/70 dark:text-emerald-400/60">Alhijaz Indowisata · Terhubung</p>
+          </div>
+
+          {/* Disconnect */}
+          <button
+            onClick={() => setShowConfirm(true)}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-red-500 dark:text-red-400 bg-white/70 dark:bg-slate-800/70 border border-red-200/60 dark:border-red-800/40 hover:bg-red-50 dark:hover:bg-red-900/30 transition-all flex-shrink-0 active:scale-95"
+          >
+            <Unlink size={11} />
+            Putuskan
+          </button>
+        </div>
+      </div>
+
+      {/* Confirmation dialog — matches DashboardLayout disconnect style */}
+      {showConfirm && (
+        <div
+          className={`fixed inset-0 z-50 flex items-center justify-center px-6 ${closingConfirm ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
+          onClick={handleCloseConfirm}
+          style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
+        >
+          <div
+            className={`bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 w-full max-w-xs overflow-hidden ${closingConfirm ? 'dc-card-exit' : 'dc-card-enter'}`}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-5 pt-5 pb-3 text-center">
+              <div className="w-10 h-10 mx-auto mb-3 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center">
+                <LogOut size={18} className="text-red-500" />
+              </div>
+              <p className="text-sm font-bold text-gray-800 dark:text-white">Disconnect Account?</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Anda akan kehilangan akses ke data jamaah dan fitur pendukung lainnya.</p>
+            </div>
+            <div className="flex border-t border-gray-100 dark:border-slate-700">
+              <button
+                onClick={handleCloseConfirm}
+                className="flex-1 py-3 text-sm font-semibold text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
+              >
+                Batal
+              </button>
+              <div className="w-px bg-gray-100 dark:bg-slate-700" />
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 py-3 text-sm font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-70"
+              >
+                {deleting ? 'Disconnecting...' : 'Disconnect'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Profile Component ──
 export default function DashboardProfile({ agent, onUpdated, mode = 'standalone' }: { agent: AgentProfile; onUpdated: () => void; mode?: 'standalone' | 'embedded' }) {
   const [name, setName] = useState(agent.name);
@@ -1094,6 +1231,9 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
             <ChevronRight size={16} className="text-gray-400 dark:text-slate-500" />
           </button>
         </div>
+
+        {/* Internal System (AIW) Credentials */}
+        <InternalSystemSection />
 
         {/* Password Change Modal */}
         <PasswordModal

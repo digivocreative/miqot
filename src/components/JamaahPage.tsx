@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Eye, EyeOff, LogIn, Loader2, User, Users, Lock, Search,
-  Calendar, Building2, Trash2, KeyRound, ChevronDown, ChevronUp,
+  Calendar, Building2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, RefreshCw,
   ArrowUpDown, SlidersHorizontal, X, Check, Plane, Landmark,
 } from 'lucide-react';
@@ -126,7 +126,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
   const [syncDone, setSyncDone] = useState(false);
   const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [deletingCreds, setDeletingCreds] = useState(false);
+
   const [filterOpen, setFilterOpen] = useState(false);
   const [subTab, setSubTab] = useState<'umroh' | 'haji'>(initialSubTab);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -388,18 +388,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
     return () => clearInterval(autoRef);
   }, [view, syncing, backgroundSyncing, fetchJamaah, page]);
 
-  // ── Delete credentials ──
-  const handleDeleteCreds = async () => {
-    setDeletingCreds(true);
-    try {
-      await fetch('/api/laporan/credentials', { method: 'DELETE', headers: { ...getAuthHeaders() } });
-      setView('login');
-      setConnectedUser('');
-      setData(null);
-      onConnectionChange?.(false, '');
-    } catch { /* ignore */ }
-    setDeletingCreds(false);
-  };
+
 
   // ── Search debounce ──
   useEffect(() => {
@@ -1291,27 +1280,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
           </button>
         </form>
 
-        {/* Delete saved credentials */}
-        {connectedUser && view === 'login' && (
-          <div className="px-5 pb-5 -mt-1">
-            <div className="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/15 border border-blue-100 dark:border-blue-800/30 rounded-xl">
-              <div className="flex items-center gap-1.5">
-                <KeyRound size={12} className="text-blue-500 dark:text-blue-400" />
-                <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
-                  Credentials tersimpan
-                </span>
-              </div>
-              <button
-                onClick={handleDeleteCreds}
-                disabled={deletingCreds}
-                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
-              >
-                {deletingCreds ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
-                Hapus
-              </button>
-            </div>
-          </div>
-        )}
+
       </div>
     </div>
   );
