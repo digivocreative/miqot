@@ -62,10 +62,20 @@ Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 
 ### Jamaah Page Colors
 
+3-status pembayaran: **Belum Bayar** (bayar=0), **Sudah DP** (bayar>0 & sisa>0), **Lunas** (sisa≤0).
+
 | Context | Light | Dark |
 |---------|-------|------|
-| Lunas badge | `emerald-600` text | `emerald-400` text |
-| Belum lunas (sisa) | `amber-600` text | `amber-400` text |
+| **Lunas** badge/amount | `emerald-600` text | `emerald-400` text |
+| **Sudah DP** amount | `blue-600` text | `blue-400` text |
+| **Belum Bayar** amount | `amber-600` text | `amber-400` text |
+| Avatar overlay (Lunas) | `bg-emerald-500` checkmark ✓ | same |
+| Avatar overlay (DP) | `bg-blue-500` clock icon | same |
+| Avatar overlay (Belum) | `bg-amber-500` "?" text | same |
+| Card tint (Belum Bayar) | `bg-amber-50/60 border-amber-200/60` | `bg-amber-900/10 border-amber-800/30` |
+| Expanded payment block (Lunas) | `bg-emerald-50/60`, bar `bg-emerald-500` | `bg-emerald-900/20` |
+| Expanded payment block (DP) | `bg-blue-50/60`, bar `bg-blue-500` | `bg-blue-900/20` |
+| Expanded payment block (Belum) | `bg-amber-50/60`, bar `bg-amber-500` | `bg-amber-900/20` |
 | Departure ≤10 days | `red-50` bg, `red-600` text | `red-900/20`, `red-400` |
 | Departure ≤30 days | `amber-50` bg, `amber-600` text | `amber-900/20`, `amber-400` |
 | Gender ring (P) | `ring-2 ring-pink-300` | same |
@@ -373,21 +383,32 @@ rounded-2xl border border-gray-100 dark:border-slate-700
 shadow-sm overflow-hidden
 ```
 
-Layout: Avatar (w-10 h-10, gender ring, lunas checkmark overlay) → Info (nama + paket) → Status (lunas/sisa + departure badge) → Chevron
+Layout: Avatar (w-10 h-10, gender ring, payment status overlay) → Info (nama + paket) → Status (lunas/sisa + departure badge) → Chevron
 
-#### Avatar with Gender Ring + Lunas Overlay
+#### Avatar with Gender Ring + Payment Status Overlay
 
 ```html
 <div className="relative">
   <div className="w-10 h-10 rounded-full ... ring-2 ring-pink-300"> <!-- or ring-blue-300 -->
     {initials}
   </div>
-  <!-- Lunas overlay -->
-  <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white">
+  <!-- Payment overlay — one of 3 statuses -->
+  <!-- Lunas: emerald checkmark -->
+  <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-800">
     <Check size={9} strokeWidth={3} />
+  </div>
+  <!-- DP: blue clock -->
+  <div className="... bg-blue-500 ...">
+    <Clock size={9} strokeWidth={3} />
+  </div>
+  <!-- Belum Bayar: amber "?" -->
+  <div className="... bg-amber-500 ...">
+    <span className="text-white text-[8px] font-bold">?</span>
   </div>
 </div>
 ```
+
+Card wrapper has conditional tint for "Belum Bayar": `bg-amber-50/60 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/30`
 
 #### Expanded Detail (Jamaah)
 
@@ -1069,6 +1090,174 @@ navigator.share({ files: [file], text: 'Caption', title: 'Infografis' });
 
 ---
 
+## Flight Status Card (`FlightStatusCard.tsx`)
+
+Real-time flight tracking card on dashboard home.
+
+### Card Container
+
+```
+bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden
+```
+
+### Flight Header (Clickable)
+
+```
+w-full px-3 py-2.5 flex items-center gap-2.5
+active:bg-gray-50 dark:active:bg-slate-700/50 transition-colors
+```
+
+Layout: Time column (dep → arr) → Flight info (number + status badge + route SVG) → Date + terminal → Chevron
+
+### Status Badge Colors
+
+| Status | Background | Label |
+|--------|-----------|-------|
+| Scheduled | `bg-gray-400` | Terjadwal |
+| En-Route | `bg-blue-500` | Terbang |
+| Landed | `bg-emerald-500` | Mendarat |
+| Delayed | `bg-red-500` | Tertunda |
+| Cancelled | `bg-gray-400` | Dibatalkan |
+
+Badge style: `text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide`
+
+### Route SVG (RouteLine)
+
+Custom inline SVG (`height: 12px, width: 48px`) with animated status-specific line:
+- Scheduled: dashed blue animating
+- En-Route: solid blue (traveled) + dashed gray (remaining) + pulsing plane dot
+- Landed: solid green + checkmark pop animation
+- Delayed: dashed red animating
+
+### Kloter Row
+
+```
+flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-slate-900 rounded-lg
+```
+
+Group badge: `text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 rounded-md px-2 py-0.5`
+
+### Share Button
+
+```
+w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-bold
+// Default: bg-gray-50 dark:bg-slate-800 text-gray-600 border border-gray-200
+// Success: bg-emerald-50 text-emerald-600 border border-emerald-200
+```
+
+### Live Badge
+
+```
+flex items-center gap-1.5 px-2 py-1 rounded-full
+bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40
+```
+
+Pulsing green dot: `animate-ping` overlay + solid `bg-emerald-500`
+
+---
+
+## Flight Share Page (`FlightSharePage.tsx`)
+
+Public page at `/f/:code` — branded flight status for jamaah.
+
+### Header
+
+Two-layer header with red gradient:
+
+```
+background: linear-gradient(135deg, #dc2626, #991b1b)
+```
+
+Layer 1: White Alhijaz logo (left) + Share icon (right)
+Layer 2: Flight number + airline name + status badge
+
+### Hero Card
+
+```
+mx-4 -mt-3 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-lg
+bg-white dark:bg-slate-800 overflow-hidden
+```
+
+Route visualization: departure city → dashed line with plane icon → arrival city
+Flight date: `text-[11px] font-medium text-gray-400`
+
+### Map Section
+
+Full-width Leaflet map with arc polyline:
+- Custom markers: red (departure) + red (arrival)
+- Arc path: `dashArray: '6, 4'` with red stroke
+- Map bounds: auto-fit to both airports
+
+### Boarding Pass Section
+
+```
+bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm
+```
+
+Styled like a real boarding pass — dotted perforated line, departure/arrival blocks with times, gate/terminal badges
+
+### Weather Section
+
+Dark mode gradient card for destination weather:
+
+```
+background: linear-gradient(135deg, #0f172a, #1e293b)
+rounded-2xl p-4
+```
+
+Weather icon (from code), temperature, humidity, high/low badges
+
+### Agent Contact Section
+
+Red gradient matching header:
+
+```
+background: linear-gradient(135deg, #dc2626, #991b1b)
+rounded-2xl overflow-hidden
+```
+
+Agent photo + name + WhatsApp CTA button with WhatsApp SVG icon
+
+---
+
+## Cuaca Widget (`CuacaWidget.tsx`)
+
+Compact weather pill cards on dashboard home.
+
+### Widget Container
+
+```
+bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm
+```
+
+### City Pill
+
+```
+flex items-center gap-2 px-3 py-2.5 rounded-xl
+bg-gray-50 dark:bg-slate-900/40 border border-gray-100 dark:border-slate-700/50
+```
+
+Layout: Flag emoji → City code (bold) → Temperature → Weather icon
+
+---
+
+## Kurs Widget
+
+Compact currency pill on dashboard home showing USD/SAR sell rates.
+
+### Rate Pill
+
+```
+flex items-center gap-2 px-3 py-2 rounded-xl
+bg-gray-50 dark:bg-slate-900/40 border border-gray-100 dark:border-slate-700/50
+```
+
+Layout: Flag → Currency code (bold, larger) → Rate value
+
+Date display: full Indonesian format (e.g., "Kamis, 2 April 2026")
+
+---
+
 ## Conventions
 
 - **Framework**: TailwindCSS utility-first, no component library
@@ -1083,3 +1272,4 @@ navigator.share({ files: [file], text: 'Caption', title: 'Infografis' });
 - **Currency format**: `fmtRp()` for full format, `fmtRpShort()` for compact (e.g., "Rp2.5jt", "Rp500rb")
 - **Session isolation**: `clearSession()` wipes all agent-specific data (auth, CAPI sessions, UI state) on login/logout. Full page reload on navigation to prevent React state leaks between agents.
 - **Auth utility**: `isSessionValid()` from `src/utils/authUtils.ts` checks token existence only (no expiry check, no cleanup)
+- **Hooks rule**: All `useEffect`/`useMemo`/`useCallback` must be placed **before** conditional early returns to avoid React hooks order violations

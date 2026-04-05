@@ -43,6 +43,18 @@ const ACTION_ICONS: Record<string, string> = {
   sync_jamaah: '🔄', generate_pdf: '📄', share_screenshot: '📸',
   download_brosur: '📥', download_itinerary: '📋', wa_click_jamaah: '💬',
   save_capi_config: '⚙️', update_profil: '👤', change_password: '🔑',
+  generate_script: '✍️', generate_voice: '🎙️',
+  download_mp3: '🎵', download_wav: '🎵',
+  generate_business_card: '💳', download_business_card: '💳',
+  export_haji_infographic: '📊',
+  sync_jamaah_haji: '🔄', view_bpih_doc: '📄', view_pernyataan_doc: '📄',
+  wa_click_haji: '💬', wa_click_lead: '💬',
+  update_lead_status: '📝', delete_lead: '🗑️',
+  connect_telegram: '🔗', disconnect_telegram: '🔌',
+  update_notif_prefs: '🔔',
+  forgot_password: '🔐', reset_password: '🔐',
+  view_web_itinerary: '🌐', view_flight_status: '✈️',
+  share_flight: '🔗',
 };
 
 const WA_ICON = (

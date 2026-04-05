@@ -2871,7 +2871,57 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
       return res.json({ success: true, data: [] });
     }
 
-    // 2. For each event: cache → Supabase → AirLabs
+    // 2a. Build departure date lookup for kepulangan events
+    // For kepulangan: find the keberangkatan event with the same group_number to get departure date
+    const kepulanganGroups = events
+      .filter(e => e.event_type === 'kepulangan' && e.group_number)
+      .map(e => e.group_number);
+
+    let depDateByGroup = new Map(); // group_number → keberangkatan event_date
+    if (kepulanganGroups.length > 0) {
+      const { data: depEvents } = await supabase
+        .from('calendar_events')
+        .select('group_number, event_date')
+        .eq('event_type', 'keberangkatan')
+        .in('group_number', kepulanganGroups);
+      for (const e of (depEvents || [])) {
+        depDateByGroup.set(e.group_number, e.event_date);
+      }
+    }
+
+    // Collect all departure dates we need jamaah for (keberangkatan dates from window + mapped from kepulangan)
+    const depDatesNeeded = new Set();
+    for (const event of events) {
+      if (event.event_type === 'keberangkatan') {
+        depDatesNeeded.add(event.event_date);
+      } else if (event.event_type === 'kepulangan' && event.group_number) {
+        const depDate = depDateByGroup.get(event.group_number);
+        if (depDate) depDatesNeeded.add(depDate);
+      }
+    }
+
+    // Fetch agent's jamaah for all relevant departure dates
+    const jamaahByDate = new Map();
+    if (depDatesNeeded.size > 0) {
+      const { data: agentJamaah } = await supabase
+        .from('jamaah')
+        .select('nama, jk, wa, tgl_berangkat')
+        .eq('agent_slug', req.user.slug)
+        .in('tgl_berangkat', Array.from(depDatesNeeded));
+
+      for (const j of (agentJamaah || [])) {
+        const dk = j.tgl_berangkat?.slice(0, 10);
+        if (!dk) continue;
+        if (!jamaahByDate.has(dk)) jamaahByDate.set(dk, []);
+        jamaahByDate.get(dk).push({ nama: j.nama, jk: j.jk || null, wa: j.wa || null });
+      }
+      // Sort each date's jamaah alphabetically by name
+      for (const list of jamaahByDate.values()) {
+        list.sort((a, b) => (a.nama || '').localeCompare(b.nama || ''));
+      }
+    }
+
+    // 2b. For each event: cache → Supabase → AirLabs
     const flights = [];
     // Track which flightIds we've already fetched from cache/DB to avoid repeated queries
     const flightDataCache = new Map();
@@ -2931,6 +2981,11 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
           group: event.group_number || '',
           pax: event.pax || 0,
           tourLeader: event.tour_leader || '',
+          jamaah: jamaahByDate.get(
+            event.event_type === 'keberangkatan'
+              ? event.event_date
+              : depDateByGroup.get(event.group_number) || ''
+          ) || [],
         };
 
         // Override stale 'scheduled' status if departure time has clearly passed
@@ -3014,6 +3069,11 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
           arrEstimated: arrLocal,
           pax: event.pax || 0,
           tourLeader: event.tour_leader || '',
+          jamaah: jamaahByDate.get(
+            event.event_type === 'keberangkatan'
+              ? event.event_date
+              : depDateByGroup.get(event.group_number) || ''
+          ) || [],
           lat: null, lng: null, alt: null, speed: null,
           progress: fallbackProgress,
           delayed: 0,
@@ -4517,6 +4577,7 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       open_ai_tools: 'AI Tools', open_voice_over: 'Voice Over', open_business_card: 'Kartu Nama',
       open_haji_plus: 'Haji Plus', open_jamaah_haji: 'Jamaah Haji',
       open_settings: 'Settings', open_tren_daftar: 'Tren Daftar',
+      open_kurs: 'Kurs',
     };
     featureEvents.forEach(e => { featureMap[e.event_name] = (featureMap[e.event_name] || 0) + 1; });
     const featureUsage = Object.entries(featureMap)
@@ -4543,6 +4604,7 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       update_notif_prefs: 'Update Notif Prefs',
       forgot_password: 'Lupa Password', reset_password: 'Reset Password',
       view_web_itinerary: 'Web Itinerary', view_flight_status: 'Flight Status',
+      share_flight: 'Share Flight Status',
     };
     actionEvents.forEach(e => { actionMap[e.event_name] = (actionMap[e.event_name] || 0) + 1; });
     const actionTracking = Object.entries(actionMap)

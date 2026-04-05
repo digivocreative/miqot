@@ -42,6 +42,7 @@ interface FlightData {
   depDelayed?: number;
   arrDelayed?: number;
   arrBaggage?: string | null;
+  jamaah?: { nama: string; jk: string | null; wa: string | null }[];
 }
 
 // ── Status Config ──
@@ -428,27 +429,6 @@ function KloterDetail({ flight, shareUrl, shareCopied, onShare, hasInternalAuth,
         </div>
       )}
 
-      {/* Group info bar */}
-      <div className="px-2.5 py-2 bg-gray-50 dark:bg-slate-900/40 rounded-xl border border-gray-100 dark:border-slate-700/50 flex items-center">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <div className="w-5 h-5 rounded-md bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
-              <Users size={10} className="text-blue-500" />
-            </div>
-            <span className="text-[10px] font-bold text-gray-700 dark:text-slate-200">{flight.pax} pax</span>
-          </div>
-          {tlClean && (
-            <>
-              <div className="w-px h-3.5 bg-gray-200 dark:bg-slate-700 flex-shrink-0" />
-              <div className="min-w-0">
-                <span className="text-[7px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500 block leading-none">Tour Leader</span>
-                <span className="text-[9px] font-semibold text-gray-600 dark:text-slate-300 truncate block">{tlClean}</span>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
       {/* Share button — prominent, at bottom of detail */}
       <button
         onClick={hasInternalAuth ? onShare : onAuthRequired}
@@ -480,6 +460,8 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
   const [hasInternalAuth, setHasInternalAuth] = useState(false);
   const [showAuthAlert, setShowAuthAlert] = useState(false);
   const [authAlertClosing, setAuthAlertClosing] = useState(false);
+  const [jamaahPopup, setJamaahPopup] = useState<string | null>(null);
+  const [jamaahPopupClosing, setJamaahPopupClosing] = useState(false);
 
   // Pre-generated share URL cache: flightKey → url
   const shareCache = useRef<Record<string, string>>({});
@@ -852,6 +834,85 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                   })}
                 </div>
 
+                {/* ── Jamaah Saya (agent's pilgrims on this flight) ── */}
+                {(() => {
+                  const jamaahList = first.jamaah;
+                  if (!jamaahList || jamaahList.length === 0) return null;
+
+                  const JAMAAH_PREVIEW = 2;
+                  const previewList = jamaahList.slice(0, JAMAAH_PREVIEW);
+                  const hasMore = jamaahList.length > JAMAAH_PREVIEW;
+
+                  return (
+                    <div className="border-t border-gray-50 dark:border-slate-700/50 px-2.5 pb-2 pt-1.5">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Users size={10} className="text-amber-500 dark:text-amber-400" />
+                        <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide">
+                          Jamaah Saya
+                        </span>
+                        <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">
+                          ({jamaahList.length})
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <div className="flex flex-col">
+                          {previewList.map((j, idx) => {
+                            const initials = (j.nama || '')
+                              .split(' ').filter(Boolean).slice(0, 2)
+                              .map(w => w[0]).join('').toUpperCase();
+                            const isFemale = j.jk === 'P';
+                            const waNumber = j.wa ? j.wa.replace(/^0/, '62').replace(/[^0-9]/g, '') : null;
+
+                            return (
+                              <div
+                                key={idx}
+                                className="flex items-center gap-2 px-1 py-[5px]"
+                              >
+                                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[7px] font-bold ring-[1.5px] ${
+                                  isFemale
+                                    ? 'bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 ring-pink-300'
+                                    : 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 ring-blue-300'
+                                }`}>
+                                  {initials}
+                                </div>
+                                <span className="flex-1 text-[11px] font-medium text-gray-600 dark:text-slate-300 truncate">
+                                  {j.nama}
+                                </span>
+                                {waNumber && (
+                                  <a
+                                    href={`https://wa.me/${waNumber}?text=${encodeURIComponent('Assalamualaikum,\n')}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors active:scale-95 flex-shrink-0"
+                                  >
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.118.553 4.107 1.519 5.834L.037 23.786l6.121-1.46A11.95 11.95 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818c-1.9 0-3.715-.5-5.32-1.442l-.382-.227-3.96.945.993-3.856-.248-.395A9.77 9.77 0 012.182 12C2.182 6.583 6.583 2.182 12 2.182S21.818 6.583 21.818 12 17.417 21.818 12 21.818z"/></svg>
+                                    <span className="text-[9px] font-bold">Chat</span>
+                                  </a>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {/* Gradient fade overlay */}
+                        {hasMore && (
+                          <div
+                            className="absolute bottom-0 left-0 right-0 h-10 pointer-events-none"
+                            style={{ background: 'linear-gradient(rgba(255,255,255,0) 0%, var(--jamaah-fade, white) 90%)' }}
+                          />
+                        )}
+                      </div>
+                      {hasMore && (
+                        <button
+                          onClick={() => setJamaahPopup(groupKey)}
+                          className="w-full text-[10px] font-semibold text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 pt-0.5 pb-0.5 text-center transition-colors active:scale-95"
+                        >
+                          +{jamaahList.length - JAMAAH_PREVIEW} lainnya
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* ── Expanded flight detail ── */}
                 <AnimatePresence initial={false}>
                   {isExpanded && (
@@ -959,6 +1020,108 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
         </div>
       )}
 
+      {/* ── Jamaah Popup ── */}
+      {jamaahPopup && (() => {
+        const popupGroup = grouped.find(g => {
+          const f = g[0];
+          return `${f.flightNumber}-${(f.depDate || f.depScheduled || '').slice(0, 10)}` === jamaahPopup;
+        });
+        const popupFlight = popupGroup?.[0];
+        const jamaahList = popupFlight?.jamaah || [];
+        if (jamaahList.length === 0) return null;
+
+        const closePopup = () => {
+          setJamaahPopupClosing(true);
+          setTimeout(() => { setJamaahPopup(null); setJamaahPopupClosing(false); }, 200);
+        };
+
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-end justify-center"
+            onClick={closePopup}
+            style={{
+              background: 'rgba(0,0,0,0.4)',
+              backdropFilter: 'blur(4px)',
+              WebkitBackdropFilter: 'blur(4px)',
+              animation: jamaahPopupClosing ? 'authFadeOut 0.2s ease forwards' : 'authFadeIn 0.2s ease',
+            }}
+          >
+            <div
+              className="w-full max-w-lg bg-white dark:bg-slate-800 rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 shadow-2xl overflow-hidden"
+              onClick={e => e.stopPropagation()}
+              style={{ animation: jamaahPopupClosing ? 'jamaahSheetOut 0.2s ease forwards' : 'jamaahSheetIn 0.3s cubic-bezier(0.16,1,0.3,1)', maxHeight: '70vh' }}
+            >
+              {/* Handle bar */}
+              <div className="flex justify-center pt-2.5 pb-1">
+                <div className="w-8 h-1 rounded-full bg-gray-200 dark:bg-slate-600" />
+              </div>
+
+              {/* Header */}
+              <div className="px-4 pb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 flex items-center justify-center">
+                    <Users size={15} className="text-amber-500 dark:text-amber-400" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-bold text-gray-800 dark:text-white">Jamaah Saya</span>
+                    <span className="text-[10px] text-gray-400 dark:text-slate-500 ml-1.5 font-semibold">{jamaahList.length} orang</span>
+                  </div>
+                </div>
+                <button
+                  onClick={closePopup}
+                  className="w-8 h-8 rounded-xl bg-gray-100/80 dark:bg-slate-700 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+
+              {/* List */}
+              <div className="px-4 pb-5 overflow-y-auto" style={{ maxHeight: 'calc(70vh - 100px)' }}>
+                <div className="flex flex-col">
+                  {jamaahList.map((j, idx) => {
+                    const initials = (j.nama || '')
+                      .split(' ').filter(Boolean).slice(0, 2)
+                      .map(w => w[0]).join('').toUpperCase();
+                    const isFemale = j.jk === 'P';
+                    const waNumber = j.wa ? j.wa.replace(/^0/, '62').replace(/[^0-9]/g, '') : null;
+                    const waText = encodeURIComponent(`Assalamualaikum,\n`);
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`flex items-center gap-2.5 px-1 py-2.5 ${idx !== jamaahList.length - 1 ? 'border-b border-gray-50 dark:border-slate-700/50' : ''}`}
+                      >
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[8px] font-bold ring-[1.5px] ${
+                          isFemale
+                            ? 'bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 ring-pink-300'
+                            : 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 ring-blue-300'
+                        }`}>
+                          {initials}
+                        </div>
+                        <span className="flex-1 text-[12px] font-medium text-gray-700 dark:text-slate-300 truncate">
+                          {j.nama}
+                        </span>
+                        {waNumber && (
+                          <a
+                            href={`https://wa.me/${waNumber}?text=${waText}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors active:scale-95 flex-shrink-0"
+                          >
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.118.553 4.107 1.519 5.834L.037 23.786l6.121-1.46A11.95 11.95 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818c-1.9 0-3.715-.5-5.32-1.442l-.382-.227-3.96.945.993-3.856-.248-.395A9.77 9.77 0 012.182 12C2.182 6.583 6.583 2.182 12 2.182S21.818 6.583 21.818 12 17.417 21.818 12 21.818z"/></svg>
+                            <span className="text-[9px] font-bold">Chat</span>
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <style>{`
         @keyframes shareToastIn {
           from { opacity: 0; transform: translate(-50%, 10px); }
@@ -968,6 +1131,10 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
         @keyframes authFadeOut { from { opacity: 1; } to { opacity: 0; } }
         @keyframes authCardIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
         @keyframes authCardOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.9); } }
+        @keyframes jamaahSheetIn { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        @keyframes jamaahSheetOut { from { transform: translateY(0); } to { transform: translateY(100%); } }
+        :root { --jamaah-fade: #ffffff; }
+        .dark { --jamaah-fade: #1e293b; }
       `}</style>
     </div>
   );

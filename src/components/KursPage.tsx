@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { trackEvent } from '../utils/analytics';
 import { ChevronDown, TrendingUp, Search } from 'lucide-react';
 
 // Currency → Country flag emoji
@@ -29,6 +30,8 @@ export default function KursPage() {
   const [expanded, setExpanded] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_kurs'); mountTracked.current = true; } }, []);
 
   useEffect(() => {
     fetch('/api/kurs')

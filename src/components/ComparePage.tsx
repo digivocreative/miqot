@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { trackEvent } from '../utils/analytics';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import logoAlhijaz from '@/logo-alhijaz.webp';
@@ -224,6 +225,8 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
   const [comparing, setComparing] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const tableRef = useRef<HTMLDivElement>(null);
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_compare'); mountTracked.current = true; } }, []);
 
   // ── Dark Mode ──
   const [isDarkMode, setIsDarkMode] = useState(() => {
