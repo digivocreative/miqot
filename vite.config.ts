@@ -569,7 +569,7 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         // Don't cache API responses in SW
-        navigateFallbackDenylist: [/^\/api/, /\/umroh$/, /\/brosur/, /\/itinerary/, /^\/agents\//, /^\/login/, /^\/dashboard/],
+        navigateFallbackDenylist: [/^\/api/, /\/umroh$/, /\/brosur/, /\/itinerary/, /^\/agents\//, /^\/login/, /^\/dashboard/, /^\/f\//],
         runtimeCaching: [
           {
             urlPattern: /^\/api\/.*/i,
@@ -682,6 +682,10 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/api/weather': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+      '/api/flight-share': {
         target: 'http://localhost:3000',
         changeOrigin: true,
       },

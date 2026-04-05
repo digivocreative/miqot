@@ -3389,8 +3389,12 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
     query = query.order('nama', { ascending: true });
   }
 
+  // Year filter: specific year or floor at 1447 (UI dropdown only shows ≥ 1447)
+  const MIN_HIJRIAH_YEAR = '1447';
   if (hijriahYear) {
     query = query.eq('hijriah_year', hijriahYear);
+  } else {
+    query = query.gte('hijriah_year', MIN_HIJRIAH_YEAR);
   }
 
   // Berangkat ≤ 10 days from today
@@ -3423,20 +3427,21 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
     .order('synced_at', { ascending: false })
     .limit(1);
 
-  const baseFilter = hijriahYear ? { hijriah_year: hijriahYear } : {};
+  // Helper: apply year filter to count queries
+  const applyYearFilter = (q) => hijriahYear ? q.eq('hijriah_year', hijriahYear) : q.gte('hijriah_year', MIN_HIJRIAH_YEAR);
 
-  const { count: totalCount } = await supabase
+  let totalQ = supabase
+    .from('jamaah')
+    .select('*', { count: 'exact', head: true })
+    .eq('agent_slug', req.user.slug);
+  const { count: totalCount } = await applyYearFilter(totalQ);
+
+  let belumQ = supabase
     .from('jamaah')
     .select('*', { count: 'exact', head: true })
     .eq('agent_slug', req.user.slug)
-    .match(baseFilter);
-
-  const { count: belumCount } = await supabase
-    .from('jamaah')
-    .select('*', { count: 'exact', head: true })
-    .eq('agent_slug', req.user.slug)
-    .gt('sisa', 0)
-    .match(baseFilter);
+    .gt('sisa', 0);
+  const { count: belumCount } = await applyYearFilter(belumQ);
 
   let berangkatQ = supabase
     .from('jamaah')
@@ -3444,12 +3449,11 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
     .eq('agent_slug', req.user.slug)
     .gte('tgl_berangkat', todayStr)
     .lte('tgl_berangkat', cutoffStr);
-  if (hijriahYear) berangkatQ = berangkatQ.eq('hijriah_year', hijriahYear);
-  const { count: berangkatCount } = await berangkatQ;
+  const { count: berangkatCount } = await applyYearFilter(berangkatQ);
 
   let piutang = 0;
   let pQ = supabase.from('jamaah').select('sisa').eq('agent_slug', req.user.slug).gt('sisa', 0);
-  if (hijriahYear) pQ = pQ.eq('hijriah_year', hijriahYear);
+  pQ = applyYearFilter(pQ);
   const { data: pData } = await pQ;
   if (pData) piutang = pData.reduce((s, r) => s + (r.sisa || 0), 0);
 
@@ -4861,6 +4865,224 @@ app.post('/api/ai-tools/generate-voice', authMiddleware, async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
+// Flight Share API (MUST be before /api/{*path} catch-all proxy)
+// ──────────────────────────────────────────────
+
+function generateShareCode(length = 8) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  const bytes = crypto.randomBytes(length);
+  for (let i = 0; i < length; i++) {
+    result += chars[bytes[i] % chars.length];
+  }
+  return result;
+}
+
+// POST /api/flight-share — Create or retrieve share link (auth required)
+app.post('/api/flight-share', authMiddleware, async (req, res) => {
+  try {
+    const agentSlug = req.user.slug;
+    const {
+      flight_number, flight_date, dep_iata, arr_iata,
+      dep_city, arr_city, dep_time, arr_time, duration,
+      group_number, pax, tour_leader, airline_code, flight_status,
+    } = req.body;
+
+    if (!flight_number || !flight_date || !dep_iata || !arr_iata) {
+      return res.status(400).json({ error: 'flight_number, flight_date, dep_iata, arr_iata wajib diisi' });
+    }
+
+    // Cek apakah sudah pernah di-share (UNIQUE constraint: agent + flight + date)
+    const { data: existing } = await supabase
+      .from('flight_shares')
+      .select('code')
+      .eq('agent_slug', agentSlug)
+      .eq('flight_number', flight_number)
+      .eq('flight_date', flight_date)
+      .single();
+
+    if (existing) {
+      // Update data terbaru (jadwal bisa berubah)
+      await supabase
+        .from('flight_shares')
+        .update({
+          dep_city, arr_city, dep_time, arr_time, duration,
+          group_number, pax, tour_leader, airline_code,
+          flight_status: flight_status || 'scheduled',
+        })
+        .eq('code', existing.code);
+
+      return res.json({
+        success: true,
+        data: {
+          code: existing.code,
+          url: `https://alhijaz.co/f/${existing.code}`,
+        },
+      });
+    }
+
+    // Generate kode baru
+    let code = generateShareCode(8);
+
+    // Pastikan unik (sangat jarang collision, tapi safety check)
+    let attempts = 0;
+    while (attempts < 5) {
+      const { data: check } = await supabase
+        .from('flight_shares')
+        .select('code')
+        .eq('code', code)
+        .single();
+      if (!check) break;
+      code = generateShareCode(8);
+      attempts++;
+    }
+
+    const { error } = await supabase
+      .from('flight_shares')
+      .insert({
+        code,
+        agent_slug: agentSlug,
+        flight_number,
+        flight_date,
+        dep_iata,
+        arr_iata,
+        dep_city: dep_city || null,
+        arr_city: arr_city || null,
+        dep_time: dep_time || null,
+        arr_time: arr_time || null,
+        duration: duration || null,
+        group_number: group_number || null,
+        pax: pax || null,
+        tour_leader: tour_leader || null,
+        airline_code: airline_code || null,
+        flight_status: flight_status || 'scheduled',
+      });
+
+    if (error) throw error;
+
+    console.log(`[FlightShare] Created: ${code} for ${agentSlug} — ${flight_number} ${flight_date}`);
+
+    res.json({
+      success: true,
+      data: {
+        code,
+        url: `https://alhijaz.co/f/${code}`,
+      },
+    });
+  } catch (err) {
+    console.error('[FlightShare] Create error:', err.message);
+    res.status(500).json({ error: 'Gagal membuat share link' });
+  }
+});
+
+// GET /api/flight-share/:code — Get flight share data (public, no auth)
+// Enriches stored snapshot with live data from flight_status table
+app.get('/api/flight-share/:code', async (req, res) => {
+  try {
+    const { code } = req.params;
+
+    const { data: share, error } = await supabase
+      .from('flight_shares')
+      .select('*')
+      .eq('code', code)
+      .single();
+
+    if (error || !share) {
+      return res.status(404).json({ error: 'Link tidak ditemukan' });
+    }
+
+    // Ambil data agent
+    const { data: agent } = await supabase
+      .from('agents')
+      .select('name, phone, email, photo, website, slug')
+      .eq('slug', share.agent_slug)
+      .single();
+
+    // --- Live data enrichment ---
+    // Try to find matching live flight data from flight_status table
+    // flight_status.id format: "YYYY-MM-DD_SV821"
+    const flightIata = share.flight_number.replace(/\s+/g, '');
+    const liveId = `${share.flight_date}_${flightIata}`;
+
+    let liveDepTime = share.dep_time;
+    let liveArrTime = share.arr_time;
+    let liveDuration = share.duration;
+    let liveStatus = share.flight_status || 'scheduled';
+
+    const { data: liveData } = await supabase
+      .from('flight_status')
+      .select('dep_scheduled, dep_actual, arr_scheduled, arr_estimated, status, duration')
+      .eq('id', liveId)
+      .single();
+
+    if (liveData) {
+      // Use actual/estimated times if available, fall back to scheduled
+      const depTime = extractHHmm(liveData.dep_actual) || extractHHmm(liveData.dep_scheduled);
+      const arrTime = extractHHmm(liveData.arr_estimated) || extractHHmm(liveData.arr_scheduled);
+      if (depTime) liveDepTime = depTime;
+      if (arrTime) liveArrTime = arrTime;
+      if (liveData.status) liveStatus = liveData.status;
+
+      // Format duration from minutes to human-readable
+      if (liveData.duration && liveData.duration > 0) {
+        const h = Math.floor(liveData.duration / 60);
+        const m = liveData.duration % 60;
+        liveDuration = h > 0 && m > 0 ? `${h} jam ${m} menit`
+          : h > 0 ? `${h} jam`
+          : `${m} menit`;
+      }
+    }
+
+    // Also update the stored share data if live differs (keep it fresh)
+    const needsUpdate = liveData && (
+      liveDepTime !== share.dep_time ||
+      liveArrTime !== share.arr_time ||
+      liveStatus !== (share.flight_status || 'scheduled')
+    );
+    if (needsUpdate) {
+      supabase
+        .from('flight_shares')
+        .update({
+          dep_time: liveDepTime,
+          arr_time: liveArrTime,
+          duration: liveDuration,
+          flight_status: liveStatus,
+        })
+        .eq('code', code)
+        .then(() => {})
+        .catch(() => {});
+    }
+
+    res.json({
+      success: true,
+      data: {
+        flight: {
+          flight_number: share.flight_number,
+          flight_date: share.flight_date,
+          dep_iata: share.dep_iata,
+          arr_iata: share.arr_iata,
+          dep_city: share.dep_city,
+          arr_city: share.arr_city,
+          dep_time: liveDepTime,
+          arr_time: liveArrTime,
+          duration: liveDuration,
+          group_number: share.group_number,
+          pax: share.pax,
+          tour_leader: share.tour_leader,
+          airline_code: share.airline_code,
+          flight_status: liveStatus,
+          created_at: share.created_at,
+        },
+        agent: agent || null,
+      },
+    });
+  } catch (err) {
+    console.error('[FlightShare] Fetch error:', err.message);
+    res.status(500).json({ error: 'Gagal mengambil data' });
+  }
+});
+
+// ──────────────────────────────────────────────
 // Haji Plus API (MUST be before /api/{*path} catch-all proxy)
 // ──────────────────────────────────────────────
 app.get('/api/haji-plus/data', authMiddleware, async (req, res) => {
@@ -5220,6 +5442,83 @@ const publicPath = resolve(__dirname, 'public');
 // are always accessible, even if they were added after the last build.
 app.use(express.static(distPath));
 app.use(express.static(publicPath));
+
+// Airline code → name mapping untuk OG meta
+const AIRLINE_NAMES_SERVER = {
+  GA: 'Garuda Indonesia', SV: 'Saudia', EK: 'Emirates', QR: 'Qatar Airways',
+  TK: 'Turkish Airlines', SQ: 'Singapore Airlines', MH: 'Malaysia Airlines',
+  OD: 'Batik Air', JT: 'Lion Air', QG: 'Citilink', ID: 'Super Air Jet',
+  IW: 'Wings Air', IN: 'NAM Air', KD: 'Kal Star Aviation',
+};
+
+// OG meta injection untuk flight share pages (harus SEBELUM SPA catch-all)
+app.get('/f/:code', async (req, res, next) => {
+  try {
+    const { code } = req.params;
+
+    const { data: share } = await supabase
+      .from('flight_shares')
+      .select('flight_number, flight_date, dep_iata, arr_iata, dep_city, arr_city, agent_slug, airline_code')
+      .eq('code', code)
+      .single();
+
+    if (!share) return next(); // fallback ke SPA
+
+    // Ambil nama agent
+    const { data: agent } = await supabase
+      .from('agents')
+      .select('name')
+      .eq('slug', share.agent_slug)
+      .single();
+
+    const agentName = agent?.name || 'Agent';
+    const airlineName = AIRLINE_NAMES_SERVER[share.airline_code] || '';
+    const flightNum = share.flight_number.replace(/^([A-Z]{2})(\d+)$/, '$1 $2');
+
+    const title = `Lacak Penerbangan ${airlineName ? airlineName + ' ' : ''}${flightNum} - ${agentName}`;
+    const description = `Status penerbangan ${share.flight_number} dari ${share.dep_city || share.dep_iata} ke ${share.arr_city || share.arr_iata}. Dikelola oleh ${agentName} — Alhijaz Indowisata.`;
+    const ogImageUrl = `${req.protocol}://${req.get('host')}/og/${share.agent_slug}.png`;
+
+    const indexPath = resolve(distPath, 'index.html');
+    let html = readFileSync(indexPath, 'utf-8');
+
+    // Replace existing <title>
+    html = html.replace(/<title>[^<]*<\/title>/i, `<title>${title}</title>`);
+
+    // Replace existing <meta name="description">
+    html = html.replace(
+      /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i,
+      `<meta name="description" content="${description}" />`
+    );
+
+    // Remove existing OG tags
+    html = html.replace(/<meta\s+property="og:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+
+    const metaTags = `
+      <meta property="og:title" content="${title}" />
+      <meta property="og:description" content="${description}" />
+      <meta property="og:type" content="website" />
+      <meta property="og:url" content="https://alhijaz.co/f/${code}" />
+      <meta property="og:site_name" content="Alhijaz Indowisata" />
+      <meta property="og:image" content="${ogImageUrl}" />
+      <meta property="og:image:width" content="1200" />
+      <meta property="og:image:height" content="630" />
+      <meta name="twitter:card" content="summary_large_image" />
+      <meta name="twitter:title" content="${title}" />
+      <meta name="twitter:description" content="${description}" />
+      <meta name="twitter:image" content="${ogImageUrl}" />
+    `;
+
+    // Inject sebelum </head>
+    html = html.replace('</head>', `${metaTags}\n</head>`);
+
+    res.set('Content-Type', 'text/html');
+    res.send(html);
+  } catch (err) {
+    console.error('[FlightShare] OG injection error:', err.message);
+    next(); // fallback ke SPA
+  }
+});
 
 // SPA fallback — inject OG tags for agent slugs
 app.get('{*path}', async (req, res) => {

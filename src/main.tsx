@@ -16,6 +16,7 @@ console.log(
 )
 import KalkulasiPage from './components/KalkulasiPage.tsx'
 import ComparePage from './components/ComparePage.tsx'
+import FlightSharePage from './components/FlightSharePage.tsx'
 import { AGENTS_DATA } from '@/data/agents'
 
 // Register Service Worker for PWA
@@ -35,13 +36,15 @@ const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(
 const isLogin = segments.length === 1 && segments[0] === 'login'
 const isDashboard = segments.length >= 1 && segments[0] === 'dashboard'
 const isResetPassword = segments.length === 1 && segments[0] === 'reset-password'
+const isFlightShare = segments.length >= 2 && segments[0] === 'f'
+const flightShareCode = isFlightShare ? segments[1] : null
 const isKalkulasi = segments.length >= 2 && segments[1] === 'kalkulasi'
 const isCompare = (segments.length >= 2 && segments[1] === 'compare') || (segments.length === 1 && segments[0] === 'compare')
 const isCapi = segments.length >= 2 && segments[1] === 'capi'
 
 // Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
 import { getFilterModeFromSlug } from '@/utils'
-const knownFirstSegments = ['login', 'dashboard', 'compare', 'reset-password']
+const knownFirstSegments = ['login', 'dashboard', 'compare', 'reset-password', 'f']
 const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi']
 
 const agentSlugForKalkulasi = isKalkulasi
@@ -155,6 +158,9 @@ function DashboardRouter() {
 const renderPage = () => {
   if (isLogin) return <LoginRouter />
   if (isResetPassword) return <ResetPasswordPage />
+  if (isFlightShare && flightShareCode) {
+    return <FlightSharePage code={flightShareCode} />
+  }
   if (isDashboard) return <DashboardRouter />
   if (isCapi) {
     // Redirect /:slug/capi to /dashboard/settings/capi

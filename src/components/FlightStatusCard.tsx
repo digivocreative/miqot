@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap, Calendar, Radio } from 'lucide-react';
+import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap, Calendar, Radio, Share2, Check, Lock } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 
@@ -245,7 +245,14 @@ function groupFlights(flights: FlightData[]): FlightData[][] {
 
 // ── Expanded detail panel for a single kloter ──
 
-function KloterDetail({ flight }: { flight: FlightData }) {
+function KloterDetail({ flight, shareUrl, shareCopied, onShare, hasInternalAuth, onAuthRequired }: {
+  flight: FlightData;
+  shareUrl: string | null;
+  shareCopied: boolean;
+  onShare: () => void;
+  hasInternalAuth: boolean;
+  onAuthRequired: () => void;
+}) {
   const tlClean = cleanTourLeader(flight.tourLeader);
 
   return (
@@ -442,6 +449,24 @@ function KloterDetail({ flight }: { flight: FlightData }) {
         </div>
       </div>
 
+      {/* Share button — prominent, at bottom of detail */}
+      <button
+        onClick={hasInternalAuth ? onShare : onAuthRequired}
+        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-[0.97] ${
+          shareCopied
+            ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40'
+            : 'bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-200 dark:hover:border-emerald-800/40'
+        }`}
+      >
+        {shareCopied ? (
+          <><Check size={13} strokeWidth={2.5} />Berhasil copy link!</>
+        ) : shareUrl ? (
+          <><Share2 size={13} strokeWidth={2} />Share ke Jamaah</>
+        ) : (
+          <><Share2 size={13} strokeWidth={2} />Share ke Jamaah</>
+        )}
+      </button>
+
     </div>
   );
 }
@@ -451,6 +476,76 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
   const [flights, setFlights] = useState<FlightData[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedFlight, setExpandedFlight] = useState<string | null>(null);
+  const [copiedFlight, setCopiedFlight] = useState<string | null>(null);
+  const [hasInternalAuth, setHasInternalAuth] = useState(false);
+  const [showAuthAlert, setShowAuthAlert] = useState(false);
+  const [authAlertClosing, setAuthAlertClosing] = useState(false);
+
+  // Pre-generated share URL cache: flightKey → url
+  const shareCache = useRef<Record<string, string>>({});
+  const [shareReady, setShareReady] = useState<Record<string, boolean>>({});
+
+  // Pre-generate share link when a flight card is expanded
+  const preGenerateShare = useCallback(async (flight: FlightData, group: FlightData[]) => {
+    const flightKey = `${flight.flightNumber}_${(flight.depDate || flight.depScheduled || '').slice(0, 10)}`;
+    if (shareCache.current[flightKey]) {
+      setShareReady(prev => ({ ...prev, [flightKey]: true }));
+      return; // Already cached
+    }
+    try {
+      const firstKloter = group[0] || flight;
+      // depDate is a UTC ISO string — parse to local Date to get correct YYYY-MM-DD
+      const depDateRaw = flight.depDate || flight.depScheduled || '';
+      const depParsed = new Date(depDateRaw);
+      const depDateStr = !isNaN(depParsed.getTime())
+        ? `${depParsed.getFullYear()}-${String(depParsed.getMonth() + 1).padStart(2, '0')}-${String(depParsed.getDate()).padStart(2, '0')}`
+        : depDateRaw.slice(0, 10);
+      const airlineCode = flight.airline ? flight.airline.split(' ')[0]?.slice(0, 2) : (flight.flightNumber?.split(' ')[0]?.slice(0, 2) || null);
+      const durationStr = flight.duration ? formatDuration(flight.duration) : null;
+      const res = await fetch('/api/flight-share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          flight_number: flight.flightNumber,
+          flight_date: depDateStr,
+          dep_iata: flight.depCode,
+          arr_iata: flight.arrCode,
+          dep_city: flight.depCity || null,
+          arr_city: flight.arrCity || null,
+          dep_time: formatTime(flight.depActual || flight.depScheduled),
+          arr_time: formatTime(flight.arrEstimated || flight.arrScheduled),
+          duration: durationStr,
+          group_number: firstKloter.group || null,
+          pax: firstKloter.pax || null,
+          tour_leader: firstKloter.tourLeader || null,
+          airline_code: airlineCode,
+          flight_status: flight.status || 'scheduled',
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        shareCache.current[flightKey] = data.data.url;
+        setShareReady(prev => ({ ...prev, [flightKey]: true }));
+      }
+    } catch (err) {
+      console.error('[FlightShare] Pre-generate error:', err);
+    }
+  }, []);
+
+  // Instant copy from cache
+  const handleShareCopy = useCallback(async (flight: FlightData) => {
+    const flightKey = `${flight.flightNumber}_${(flight.depDate || flight.depScheduled || '').slice(0, 10)}`;
+    const url = shareCache.current[flightKey];
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedFlight(flightKey);
+      setTimeout(() => setCopiedFlight(null), 2500);
+      trackEvent('action', 'share_flight', { flight: flight.flightNumber });
+    } catch (err) {
+      console.error('Copy error:', err);
+    }
+  }, []);
   const [notReady, setNotReady] = useState(false);
   const [nextFlight, setNextFlight] = useState<{ pesawat: string; label: string } | null>(null);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -490,6 +585,18 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
     refreshTimer.current = setInterval(() => fetchFlights(), 30 * 60 * 1000); // 30 minutes (reduced to save API quota)
     return () => { if (refreshTimer.current) clearInterval(refreshTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Check internal system auth status (for share button gating)
+  useEffect(() => {
+    fetch('/api/laporan/status', { headers: getAuthHeaders() })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.data) {
+          setHasInternalAuth(!!(d.data.hasCredentials || d.data.lastSync));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // ── Fetch next upcoming flight (for empty state tag) ──
@@ -631,6 +738,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
             const depTime = formatTime(first.depActual || first.depScheduled);
             const arrTime = formatTime(first.arrEstimated || first.arrScheduled);
             const groupKey = `${first.flightNumber}-${(first.depDate || first.depScheduled || '').slice(0, 10)}`;
+            const flightKey = `${first.flightNumber}_${(first.depDate || first.depScheduled || '').slice(0, 10)}`;
             const isExpanded = expandedFlight === groupKey;
 
             return (
@@ -645,8 +753,12 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                 {/* ── Flight Header (clickable, with chevron) ── */}
                 <button
                   onClick={() => {
-                    if (!isExpanded) trackEvent('action', 'view_flight_status', { flight: first.flightNumber });
-                    setExpandedFlight(isExpanded ? null : groupKey);
+                    const willExpand = !isExpanded;
+                    if (willExpand) {
+                      trackEvent('action', 'view_flight_status', { flight: first.flightNumber });
+                      preGenerateShare(first, group);
+                    }
+                    setExpandedFlight(willExpand ? groupKey : null);
                   }}
                   className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left active:bg-gray-50 dark:active:bg-slate-700/50 transition-colors"
                 >
@@ -755,7 +867,14 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                       style={{ overflow: 'hidden', willChange: 'height' }}
                     >
                       <div className="border-t border-gray-100 dark:border-slate-700/50">
-                        <KloterDetail flight={first} />
+                        <KloterDetail
+                          flight={first}
+                          shareUrl={shareCache.current[flightKey] || null}
+                          shareCopied={copiedFlight === flightKey}
+                          onShare={() => handleShareCopy(first)}
+                          hasInternalAuth={hasInternalAuth}
+                          onAuthRequired={() => setShowAuthAlert(true)}
+                        />
                       </div>
                     </motion.div>
                   )}
@@ -767,6 +886,89 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
       )}
 
       {/* ── Footer ── */}
+
+      {/* ── Share copied toast ── */}
+      {copiedFlight && (
+        <div
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50
+            bg-slate-800 dark:bg-slate-700 text-white text-xs font-semibold
+            px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2"
+          style={{ animation: 'shareToastIn 0.3s ease-out' }}
+        >
+          <Check size={14} strokeWidth={2.5} />
+          Berhasil copy link
+        </div>
+      )}
+
+      {/* ── Auth Required Alert ── */}
+      {showAuthAlert && (
+        <div
+          className={`fixed inset-0 z-50 flex items-center justify-center px-6`}
+          onClick={() => {
+            setAuthAlertClosing(true);
+            setTimeout(() => { setShowAuthAlert(false); setAuthAlertClosing(false); }, 200);
+          }}
+          style={{
+            background: 'rgba(0,0,0,0.4)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            animation: authAlertClosing ? 'authFadeOut 0.2s ease forwards' : 'authFadeIn 0.2s ease',
+          }}
+        >
+          <div
+            className="w-full max-w-xs bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+            style={{ animation: authAlertClosing ? 'authCardOut 0.2s ease forwards' : 'authCardIn 0.25s cubic-bezier(0.16,1,0.3,1)' }}
+          >
+            <div className="px-5 pt-5 pb-3 text-center">
+              <div className="w-11 h-11 mx-auto mb-3 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 flex items-center justify-center">
+                <Lock size={18} className="text-amber-500" />
+              </div>
+              <p className="text-sm font-bold text-gray-800 dark:text-white">Login Sistem Internal</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5 leading-relaxed">
+                Login sistem internal untuk menggunakan fitur Flight Share.
+              </p>
+            </div>
+            <div className="flex border-t border-gray-100 dark:border-slate-700">
+              <button
+                onClick={() => {
+                  setAuthAlertClosing(true);
+                  setTimeout(() => { setShowAuthAlert(false); setAuthAlertClosing(false); }, 200);
+                }}
+                className="flex-1 py-3 text-sm font-semibold text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
+              >
+                Batal
+              </button>
+              <div className="w-px bg-gray-100 dark:bg-slate-700" />
+              <button
+                onClick={() => {
+                  setAuthAlertClosing(true);
+                  setTimeout(() => {
+                    setShowAuthAlert(false);
+                    setAuthAlertClosing(false);
+                    window.history.pushState({ tab: 'jamaah' }, '', '/dashboard/jamaah');
+                    window.dispatchEvent(new PopStateEvent('popstate'));
+                  }, 200);
+                }}
+                className="flex-1 py-3 text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
+              >
+                Login Sekarang
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes shareToastIn {
+          from { opacity: 0; transform: translate(-50%, 10px); }
+          to { opacity: 1; transform: translate(-50%, 0); }
+        }
+        @keyframes authFadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes authFadeOut { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes authCardIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+        @keyframes authCardOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.9); } }
+      `}</style>
     </div>
   );
 }
