@@ -3042,11 +3042,23 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
         const depLocal = `${depHH}:${depMM}`;
 
         const todayWIBStr = getWIBDateStr();
+        const nowUTCFb = Date.now();
         let fallbackStatus = 'scheduled';
         let fallbackProgress = 0;
         if (event.event_date < todayWIBStr) {
           fallbackStatus = 'landed';
           fallbackProgress = 100;
+        } else if (event.event_date <= todayWIBStr) {
+          // Today's flight: check if departure time has passed
+          if (nowUTCFb >= arrUTC) {
+            fallbackStatus = 'landed';
+            fallbackProgress = 100;
+          } else if (nowUTCFb >= depUTC) {
+            fallbackStatus = 'en-route';
+            const totalDuration = arrUTC - depUTC;
+            const elapsed = nowUTCFb - depUTC;
+            fallbackProgress = Math.min(99, Math.max(1, Math.round((elapsed / totalDuration) * 100)));
+          }
         }
 
         flights.push({
