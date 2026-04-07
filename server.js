@@ -9,7 +9,8 @@ import * as Sentry from '@sentry/node';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
+import 'dotenv/config'; // ⚠️ Harus sebelum import file lokal agar env var terbaca
+
 import { createClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
@@ -20,8 +21,6 @@ import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
 import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
-
-dotenv.config();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -6237,7 +6236,7 @@ setInterval(syncAllAgents, 60 * 60 * 1000);
 // ── Calendar sync: every 12 hours (shared data, doesn't change often) ──
 async function runCalendarSync() {
   try {
-    await syncCalendar(supabase, capiDecrypt);
+    await syncCalendar(supabase);
     // Generate AI insight after first sync (if cache is empty or stale format)
     if (isInsightStale(insightCache)) {
       try { await generateCalendarInsight(); } catch (e) { console.error('[AI Insight] Post-sync error:', e.message); }

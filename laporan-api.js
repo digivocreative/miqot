@@ -104,7 +104,7 @@ export async function login(username, password, kantor = '2') {
     if (err.cause?.code === 'ECONNREFUSED' || err.cause?.code === 'ETIMEDOUT') {
       return { success: false, error: 'Sistem internal tidak dapat dihubungi' };
     }
-    console.error('Laporan login error:', err.message);
+    console.error('Laporan login error:', err.message, err.cause);
     return { success: false, error: 'Gagal menghubungi sistem internal' };
   }
 }

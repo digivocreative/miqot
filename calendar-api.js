@@ -16,27 +16,18 @@ import * as cheerio from 'cheerio';
 import { PDFParse } from 'pdf-parse';
 
 const BASE = (process.env.INTERNAL_API_BASE || 'http://115.124.86.220') + '/aiw/staff';
-const CALENDAR_SYNC_SLUG = 'nikita';
+// Dedicated calendar credential — terpisah dari agent agar tidak bentrok session
+const CALENDAR_USERNAME = process.env.CALENDAR_USERNAME || 'SM148';
+const CALENDAR_PASSWORD = process.env.CALENDAR_PASSWORD || 'ALHIJAZ';
+const CALENDAR_KANTOR = process.env.CALENDAR_KANTOR || '2';
 
 // ── Login to internal system ──
-async function loginInternal(supabase, decryptFn) {
-  const { data: agent, error } = await supabase
-    .from('agents')
-    .select('jamaah_username, jamaah_password, jamaah_kantor')
-    .eq('slug', CALENDAR_SYNC_SLUG)
-    .single();
-
-  if (error || !agent?.jamaah_username || !agent?.jamaah_password) {
-    throw new Error(`Calendar sync: credential for '${CALENDAR_SYNC_SLUG}' not found`);
-  }
-
-  const password = decryptFn(agent.jamaah_password);
-  const kantor = agent.jamaah_kantor || '2';
+async function loginInternal() {
 
   const body = new URLSearchParams({
-    kantor,
-    username: agent.jamaah_username,
-    password,
+    kantor: CALENDAR_KANTOR,
+    username: CALENDAR_USERNAME,
+    password: CALENDAR_PASSWORD,
     z: '',
   });
 
@@ -186,12 +177,12 @@ function parseEventDetailHTML(html) {
 }
 
 // ── Main sync function ──
-export async function syncCalendar(supabase, decryptFn) {
+export async function syncCalendar(supabase) {
   console.log('[Calendar] Starting sync...');
 
   let cookie;
   try {
-    cookie = await loginInternal(supabase, decryptFn);
+    cookie = await loginInternal();
     console.log('[Calendar] Login successful');
   } catch (err) {
     console.error('[Calendar] Login failed:', err.message);
