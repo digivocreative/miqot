@@ -978,7 +978,7 @@ const DEFAULT_NOTIFICATION_PREFS = {
   departure: true, paspor: true, pelunasan: true, perlengkapan: true,
   manasik: true, seat_alert: true, paket_baru: true, perubahan_harga: true,
   pembayaran_masuk: true, ringkasan_mingguan: true,
-  flight_status: true, insight_harian: true,
+  flight_status: true, insight_harian: true, kurs_dollar: true,
 };
 
 app.get('/api/telegram/prefs', authMiddleware, async (req, res) => {

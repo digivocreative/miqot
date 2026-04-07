@@ -2236,6 +2236,68 @@ export async function sendCalendarInsight() {
   }
 }
 
+// ─── Kurs Dollar Daily Update ────────────────────────
+
+export async function sendKursUpdate() {
+  try {
+    const res = await fetch(`${BASE_URL}/api/kurs`);
+    const json = await res.json();
+    if (!json.success || !json.data?.rates) {
+      warn('[Kurs] No kurs data available, skipping');
+      return;
+    }
+
+    const { rates, updatedAt } = json.data;
+    const usd = rates.USD;
+    const sar = rates.SAR;
+    if (!usd) {
+      warn('[Kurs] USD rate not available, skipping');
+      return;
+    }
+
+    // Load previous rates for comparison
+    const state = await loadState();
+    const prev = state.lastKurs || {};
+
+    const delta = (curr, old) => {
+      if (!old) return '';
+      const diff = curr - old;
+      if (diff === 0) return ' (=)';
+      const arrow = diff > 0 ? '🔺' : '🔻';
+      const sign = diff > 0 ? '+' : '';
+      return ` ${arrow} ${sign}${new Intl.NumberFormat('id-ID').format(diff)}`;
+    };
+
+    const dateStr = new Date().toLocaleDateString('id-ID', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+      timeZone: 'Asia/Jakarta',
+    });
+
+    let msg = `💱 <b>KURS HARI INI</b>\n`;
+    msg += `📅 ${dateStr}\n\n`;
+    msg += `🇺🇸 <b>USD:</b> ${formatRupiah(usd)}${delta(usd, prev.USD)}\n`;
+    if (sar) {
+      msg += `🇸🇦 <b>SAR:</b> ${formatRupiah(sar)}${delta(sar, prev.SAR)}\n`;
+    }
+    msg += `\n<i>Sumber: Bank Mandiri TT Counter</i>`;
+    msg += `\n<i>Update: ${updatedAt}</i>`;
+
+    // Send to group chat
+    await sendLongMessage(msg);
+    log('[Kurs] Sent to group');
+
+    // Broadcast to agents with kurs_dollar pref enabled
+    await broadcastToAgents('kurs_dollar', () => msg + FOOTER);
+    log('[Kurs] Broadcast to agents done');
+
+    // Save current rates for tomorrow's comparison
+    state.lastKurs = { USD: usd, SAR: sar };
+    await saveState(state);
+  } catch (err) {
+    warn('[Kurs] sendKursUpdate error:', err.message);
+  }
+}
+
 // ─── Init ────────────────────────────────────────────
 
 export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyPembayaranMasuk };
@@ -2331,6 +2393,11 @@ export function initNotifier() {
   // CRON: Ringkasan Mingguan (Senin 10:00 WIB)
   cron.schedule('0 10 * * 1', () => {
     weeklySummary();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // CRON: Kurs Dollar Update (07:45 WIB, Senin-Sabtu)
+  cron.schedule('45 7 * * 1-6', () => {
+    sendKursUpdate();
   }, { timezone: 'Asia/Jakarta' });
 
   // Initial check after 15s delay (let Express settle)

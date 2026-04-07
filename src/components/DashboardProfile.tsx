@@ -43,6 +43,7 @@ const NOTIFICATION_GROUPS = [
       { key: 'pembayaran_masuk',   emoji: '💵', label: 'Pembayaran Masuk',   desc: 'Jamaah melakukan pembayaran' },
       { key: 'ringkasan_mingguan', emoji: '📊', label: 'Ringkasan Mingguan', desc: 'Laporan mingguan setiap Senin' },
       { key: 'flight_status',      emoji: '✈️', label: 'Status Penerbangan', desc: 'Delay, pembatalan, gate berubah' },
+      { key: 'kurs_dollar',        emoji: '💱', label: 'Kurs Dollar',         desc: 'Update kurs USD & SAR setiap pagi' },
     ]
   },
 ];
