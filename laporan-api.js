@@ -9,7 +9,7 @@
 
 import * as cheerio from 'cheerio';
 
-const BASE = 'http://115.124.86.220/aiw/staff';
+const BASE = (process.env.INTERNAL_API_BASE || 'http://115.124.86.220') + '/aiw/staff';
 
 // ── In-memory session store with TTL (1 hour) ──
 const sessions = new Map();

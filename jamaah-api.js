@@ -10,7 +10,7 @@ import { chromium } from 'playwright';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 
-const BASE_URL = 'http://115.124.86.220/aiw/staff';
+const BASE_URL = (process.env.INTERNAL_API_BASE || 'http://115.124.86.220') + '/aiw/staff';
 
 // ── In-memory session store with TTL (1 hour) ──
 const sessions = new Map();

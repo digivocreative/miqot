@@ -2433,6 +2433,8 @@ const KNOWN_ROUTES = {
   'GA981':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
   'GA982':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'MED', arrCity: 'Madinah',  durationMin: 570, depTerminal: '2' },
   'GA983':  { dep: 'MED', depCity: 'Madinah',  arr: 'CGK', arrCity: 'Jakarta',  durationMin: 570 },
+  'GA960':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'MED', arrCity: 'Madinah',  durationMin: 570, depTerminal: '2' },
+  'GA961':  { dep: 'MED', depCity: 'Madinah',  arr: 'CGK', arrCity: 'Jakarta',  durationMin: 570 },
   'EK357':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'JED', arrCity: 'Jeddah',   durationMin: 780, depTerminal: '3' },
   'EK358':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 780 },
   'EK356':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'DXB', arrCity: 'Dubai',    durationMin: 480, depTerminal: '3' },
@@ -2509,6 +2511,15 @@ function extractDateISO(timeStr) {
   const dateMatch = s.match(/^(\d{4}-\d{2}-\d{2})/);
   if (dateMatch) return `${dateMatch[1]}T00:00:00`;
   return s;
+}
+
+/**
+ * Parse "HH:mm" string to total minutes since midnight.
+ */
+function parseHHmmToMinutes(hhmm) {
+  if (!hhmm) return 0;
+  const [h, m] = hhmm.split(':').map(Number);
+  return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m);
 }
 
 /**
@@ -2680,6 +2691,18 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent) {
     }
   }
 
+  // Validate: AirLabs route must match expected Umrah route
+  // Prevents flight number collision (e.g. GA961 domestic vs GA961 umrah)
+  const expectedRoute = lookupRoute(parsed.flightIata, calendarEvent.event_type);
+  if (expectedRoute && apiData.dep_iata && apiData.arr_iata) {
+    const apiDep = apiData.dep_iata.toUpperCase();
+    const apiArr = apiData.arr_iata.toUpperCase();
+    if (apiDep !== expectedRoute.dep || apiArr !== expectedRoute.arr) {
+      console.log(`[FlightAPI] Route mismatch for ${parsed.flightIata}: API=${apiDep}→${apiArr}, expected=${expectedRoute.dep}→${expectedRoute.arr} — skipping`);
+      return null;
+    }
+  }
+
   // Determine status
   let status = 'scheduled';
   if (apiData.status === 'active' || apiData.status === 'en-route') status = 'en-route';
@@ -2824,7 +2847,8 @@ const flightCache = new Map();
 function getFlightCacheTTL(status) {
   if (status === 'en-route') return 15 * 60 * 1000;       // 15 min
   if (status === 'delayed') return 30 * 60 * 1000;        // 30 min
-  if (status === 'landed' || status === 'cancelled') return 24 * 60 * 60 * 1000; // 24h (terminal)
+  if (status === 'landed') return 24 * 60 * 60 * 1000;    // 24h (truly terminal)
+  if (status === 'cancelled') return 2 * 60 * 60 * 1000;  // 2h (allow re-check — might be wrong route)
   return 4 * 60 * 60 * 1000;                              // 4h default (scheduled)
 }
 
@@ -2988,9 +3012,9 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
           ) || [],
         };
 
-        // Override stale 'scheduled' status if departure time has clearly passed
-        // Use depScheduled from AirLabs/Supabase data (not event.jam which is arrival time)
-        if (entry.status === 'scheduled' && event.event_date <= todayWIB && entry.depScheduled) {
+        // Override stale status if departure time has clearly passed
+        // Covers 'scheduled' (never updated) and 'cancelled' (might be wrong route data)
+        if (['scheduled', 'cancelled'].includes(entry.status) && event.event_date <= todayWIB && entry.depScheduled) {
           const route = lookupRoute(parsed.flightIata, event.event_type);
           const depAirport = entry.depCode || route?.dep || (event.event_type === 'kepulangan' ? 'JED' : 'CGK');
           const tzOffset = AIRPORT_TZ_OFFSETS[depAirport] || 7;
@@ -3010,6 +3034,35 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
               const totalDuration = arrUTC - depUTC;
               const elapsed = nowUTC - depUTC;
               entry.progress = Math.min(99, Math.max(1, Math.round((elapsed / totalDuration) * 100)));
+            }
+          }
+        }
+
+        // Attach calendar reference times if they differ significantly from AirLabs
+        if (event.jam && entry.depScheduled) {
+          const calArrLocal = (event.jam || '00:00').replace('.', ':');
+          const calRoute = lookupRoute(parsed.flightIata, event.event_type);
+          const calArrAirport = calRoute?.arr || (event.event_type === 'kepulangan' ? 'CGK' : 'JED');
+          const calDepAirport = calRoute?.dep || (event.event_type === 'kepulangan' ? 'JED' : 'CGK');
+          const calArrTZ = AIRPORT_TZ_OFFSETS[calArrAirport] || 7;
+          const calDepTZ = AIRPORT_TZ_OFFSETS[calDepAirport] || 7;
+          const calDurationMin = calRoute?.durationMin || 540;
+
+          const [calArrH, calArrM] = calArrLocal.split(':').map(Number);
+          if (!isNaN(calArrH) && !isNaN(calArrM)) {
+            const calArrDateObj = new Date(`${event.event_date}T00:00:00Z`);
+            const calArrUTC = calArrDateObj.getTime() + (calArrH * 60 + calArrM) * 60 * 1000 - calArrTZ * 60 * 60 * 1000;
+            const calDepUTC = calArrUTC - calDurationMin * 60 * 1000;
+            const calDepLocalMs = calDepUTC + calDepTZ * 60 * 60 * 1000;
+            const calDepD = new Date(calDepLocalMs);
+            const calDepLocal = `${String(calDepD.getUTCHours()).padStart(2, '0')}:${String(calDepD.getUTCMinutes()).padStart(2, '0')}`;
+
+            const depDiff = Math.abs(parseHHmmToMinutes(entry.depScheduled) - parseHHmmToMinutes(calDepLocal));
+            const arrDiff = Math.abs(parseHHmmToMinutes(entry.arrScheduled) - parseHHmmToMinutes(calArrLocal));
+
+            if (depDiff >= 15 || arrDiff >= 15) {
+              entry.calendarDepTime = calDepLocal;
+              entry.calendarArrTime = calArrLocal;
             }
           }
         }
@@ -3109,12 +3162,24 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
       return (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
     });
 
-    // Filter out flights that already landed on a previous day — they're no longer relevant
+    // Filter out landed/cancelled flights older than 6 hours
+    const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
     const filtered = flights.filter(f => {
-      if (f.status !== 'landed') return true;
-      // Extract date from flight ID (format: "2026-04-01_SV821_g169")
+      if (f.status !== 'landed' && f.status !== 'cancelled') return true;
+      // Calculate arrival time in UTC to determine how long ago the flight ended
       const flightDate = f.id?.substring(0, 10);
-      return flightDate >= todayWIB; // keep today's landed flights, hide yesterday's
+      if (!flightDate) return false;
+      const arrHHmm = f.arrEstimated || f.arrScheduled;
+      if (arrHHmm && /^\d{2}:\d{2}$/.test(arrHHmm)) {
+        const [h, m] = arrHHmm.split(':').map(Number);
+        const arrAirport = f.arrCode || 'CGK';
+        const arrTZ = AIRPORT_TZ_OFFSETS[arrAirport] || 7;
+        const arrDateObj = new Date(`${flightDate}T00:00:00Z`);
+        const arrUTC = arrDateObj.getTime() + (h * 60 + m) * 60 * 1000 - arrTZ * 60 * 60 * 1000;
+        return (nowMs - arrUTC) < SIX_HOURS_MS;
+      }
+      // No arrival time — fall back to date check
+      return flightDate >= todayWIB;
     });
 
     res.json({ success: true, data: filtered });
@@ -3374,8 +3439,17 @@ async function pollActiveFlights() {
     const { data: existing } = await supabase
       .from('flight_status').select('*').eq('id', flightId).single();
 
-    // Skip terminal flights
-    if (existing && (existing.status === 'landed' || existing.status === 'cancelled')) continue;
+    // Skip landed flights (truly terminal)
+    if (existing && existing.status === 'landed') continue;
+    // Re-poll cancelled flights if event is today — cancellation might be from wrong route
+    if (existing && existing.status === 'cancelled') {
+      if (event.event_date !== getWIBDateStr()) continue;
+      if (existing.synced_at) {
+        const hoursSinceSync = (Date.now() - new Date(existing.synced_at).getTime()) / (1000 * 60 * 60);
+        if (hoursSinceSync < 2) continue;
+      }
+      console.log(`[FlightCron] Re-polling cancelled flight ${flightId} (event is today)`);
+    }
 
     // Only poll if: (a) en-route, (b) departing within 3 hours, or (c) never synced
     const hoursUntilDep = getHoursUntilDeparture(event);
@@ -4399,7 +4473,7 @@ app.get('/api/haji/doc-proxy', authMiddleware, async (req, res) => {
     if (!url) return res.status(400).json({ error: 'URL parameter required' });
 
     // Security: only allow proxying to the known internal server
-    const BASE_INTERNAL = 'http://115.124.86.220';
+    const BASE_INTERNAL = process.env.INTERNAL_API_BASE || 'http://115.124.86.220';
     let targetUrl = url;
 
     // Resolve relative paths
@@ -5206,99 +5280,133 @@ const WEATHER_CITIES = [
 
 let weatherCache = null;
 let weatherCacheTime = 0;
-const WEATHER_CACHE_TTL = 60 * 60 * 1000; // 1 jam
+let weatherCacheTTL = 60 * 60 * 1000;
+const WEATHER_CACHE_TTL_FULL = 60 * 60 * 1000;     // 1 jam untuk data lengkap
+const WEATHER_CACHE_TTL_PARTIAL = 10 * 60 * 1000;   // 10 menit untuk data tidak lengkap
+
+const wmoMap = (code) => {
+  if (code === 0)              return { label: 'Cerah',            icon: '☀️' };
+  if (code <= 2)              return { label: 'Cerah berawan',    icon: '🌤️' };
+  if (code === 3)             return { label: 'Mendung',          icon: '☁️' };
+  if (code <= 49)             return { label: 'Berkabut',         icon: '🌫️' };
+  if (code <= 57)             return { label: 'Gerimis',          icon: '🌦️' };
+  if (code <= 67)             return { label: 'Hujan',            icon: '🌧️' };
+  if (code <= 77)             return { label: 'Salju',            icon: '❄️' };
+  if (code <= 82)             return { label: 'Hujan lebat',      icon: '🌧️' };
+  if (code <= 86)             return { label: 'Salju lebat',      icon: '❄️' };
+  if (code <= 99)             return { label: 'Badai petir',      icon: '⛈️' };
+  return { label: 'N/A', icon: '🌡️' };
+};
+
+const DAYS_ID = ['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+
+async function fetchCityWeather(city) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}` +
+    `&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,uv_index` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min` +
+    `&timezone=${encodeURIComponent(city.tz)}&forecast_days=4`;
+
+  const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!resp.ok) throw new Error(`Open-Meteo error for ${city.key}: ${resp.status}`);
+  const raw = await resp.json();
+
+  const cur = raw.current;
+  const daily = raw.daily;
+
+  const forecast = daily.time.slice(1, 4).map((dateStr, i) => {
+    const d = new Date(dateStr);
+    return {
+      day: DAYS_ID[d.getDay()],
+      icon: wmoMap(daily.weather_code[i + 1]).icon,
+      tempMin: Math.round(daily.temperature_2m_min[i + 1]),
+      tempMax: Math.round(daily.temperature_2m_max[i + 1]),
+    };
+  });
+
+  const uvIndex = Math.round(cur.uv_index ?? 0);
+  const uvLabel = uvIndex <= 2 ? 'Rendah' : uvIndex <= 5 ? 'Sedang' : uvIndex <= 7 ? 'Tinggi' : 'Sgt Tinggi';
+
+  return {
+    key: city.key,
+    name: city.name,
+    country: city.country,
+    flag: city.flag,
+    temp: Math.round(cur.temperature_2m),
+    feelsLike: Math.round(cur.apparent_temperature),
+    humidity: Math.round(cur.relative_humidity_2m),
+    windSpeed: Math.round(cur.wind_speed_10m),
+    uvIndex,
+    uvLabel,
+    weatherCode: cur.weather_code,
+    ...wmoMap(cur.weather_code),
+    tempMin: Math.round(daily.temperature_2m_min[0]),
+    tempMax: Math.round(daily.temperature_2m_max[0]),
+    forecast,
+  };
+}
 
 app.get('/api/weather/cities', authMiddleware, async (req, res) => {
   try {
     const now = Date.now();
-    if (weatherCache && (now - weatherCacheTime) < WEATHER_CACHE_TTL) {
+    if (weatherCache && (now - weatherCacheTime) < weatherCacheTTL) {
       return res.json({ success: true, data: weatherCache, cached: true });
     }
 
-    const settled = await Promise.allSettled(
-      WEATHER_CITIES.map(async (city) => {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}` +
-          `&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,uv_index` +
-          `&daily=weather_code,temperature_2m_max,temperature_2m_min` +
-          `&timezone=${encodeURIComponent(city.tz)}&forecast_days=4`;
+    // Fetch cities sequentially with small delay to avoid Open-Meteo rate limit (429)
+    const results = [];
+    const failed = [];
+    for (const city of WEATHER_CITIES) {
+      try {
+        const data = await fetchCityWeather(city);
+        results.push(data);
+      } catch (err) {
+        console.warn(`[Weather] ${city.key} failed: ${err.message}`);
+        failed.push(city);
+      }
+      // Small delay between requests to stay under rate limit
+      if (city !== WEATHER_CITIES[WEATHER_CITIES.length - 1]) {
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
 
-        const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-        if (!resp.ok) throw new Error(`Open-Meteo error for ${city.key}: ${resp.status}`);
-        const raw = await resp.json();
+    // Retry failed cities once (after a longer pause)
+    if (failed.length > 0 && failed.length < WEATHER_CITIES.length) {
+      console.warn(`[Weather] Retrying ${failed.length} failed cities...`);
+      await new Promise(r => setTimeout(r, 2000));
+      for (const city of failed) {
+        try {
+          const data = await fetchCityWeather(city);
+          results.push(data);
+          console.log(`[Weather] Retry recovered: ${city.key}`);
+        } catch (err) {
+          console.warn(`[Weather] Retry still failed: ${city.key} — ${err.message}`);
+        }
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
 
-        const cur = raw.current;
-        const daily = raw.daily;
-
-        // Map WMO weather code ke label + emoji
-        const wmoMap = (code) => {
-          if (code === 0)              return { label: 'Cerah',            icon: '☀️' };
-          if (code <= 2)              return { label: 'Cerah berawan',    icon: '🌤️' };
-          if (code === 3)             return { label: 'Mendung',          icon: '☁️' };
-          if (code <= 49)             return { label: 'Berkabut',         icon: '🌫️' };
-          if (code <= 57)             return { label: 'Gerimis',          icon: '🌦️' };
-          if (code <= 67)             return { label: 'Hujan',            icon: '🌧️' };
-          if (code <= 77)             return { label: 'Salju',            icon: '❄️' };
-          if (code <= 82)             return { label: 'Hujan lebat',      icon: '🌧️' };
-          if (code <= 86)             return { label: 'Salju lebat',      icon: '❄️' };
-          if (code <= 99)             return { label: 'Badai petir',      icon: '⛈️' };
-          return { label: 'N/A', icon: '🌡️' };
-        };
-
-        const days = ['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
-
-        const forecast = daily.time.slice(1, 4).map((dateStr, i) => {
-          const d = new Date(dateStr);
-          return {
-            day: days[d.getDay()],
-            icon: wmoMap(daily.weather_code[i + 1]).icon,
-            tempMin: Math.round(daily.temperature_2m_min[i + 1]),
-            tempMax: Math.round(daily.temperature_2m_max[i + 1]),
-          };
-        });
-
-        const uvIndex = Math.round(cur.uv_index ?? 0);
-        const uvLabel = uvIndex <= 2 ? 'Rendah' : uvIndex <= 5 ? 'Sedang' : uvIndex <= 7 ? 'Tinggi' : 'Sgt Tinggi';
-
-        return {
-          key: city.key,
-          name: city.name,
-          country: city.country,
-          flag: city.flag,
-          temp: Math.round(cur.temperature_2m),
-          feelsLike: Math.round(cur.apparent_temperature),
-          humidity: Math.round(cur.relative_humidity_2m),
-          windSpeed: Math.round(cur.wind_speed_10m),
-          uvIndex,
-          uvLabel,
-          weatherCode: cur.weather_code,
-          ...wmoMap(cur.weather_code),
-          tempMin: Math.round(daily.temperature_2m_min[0]),
-          tempMax: Math.round(daily.temperature_2m_max[0]),
-          forecast,
-        };
-      })
-    );
-
-    const results = settled
-      .filter(r => r.status === 'fulfilled')
-      .map(r => r.value);
-
-    const failed = settled.filter(r => r.status === 'rejected');
-    if (failed.length > 0) {
-      console.warn(`[Weather] ${failed.length}/${settled.length} cities failed:`,
-        failed.map(r => r.reason?.message).join(', '));
+    // Merge with existing cache: keep stale data for cities still missing
+    if (weatherCache && results.length < WEATHER_CITIES.length) {
+      const resultKeys = new Set(results.map(r => r.key));
+      for (const cached of weatherCache) {
+        if (!resultKeys.has(cached.key)) {
+          results.push(cached);
+        }
+      }
     }
 
     if (results.length === 0) {
-      // All failed — return stale cache if available
       if (weatherCache) {
         return res.json({ success: true, data: weatherCache, cached: true, stale: true });
       }
       return res.status(502).json({ error: 'Gagal mengambil data cuaca dari semua kota' });
     }
 
+    // Use shorter TTL when results are incomplete
+    const isComplete = results.length === WEATHER_CITIES.length;
     weatherCache = results;
     weatherCacheTime = now;
+    weatherCacheTTL = isComplete ? WEATHER_CACHE_TTL_FULL : WEATHER_CACHE_TTL_PARTIAL;
     res.json({ success: true, data: results, cached: false });
   } catch (err) {
     console.error('[Weather] fetch error:', err.message);

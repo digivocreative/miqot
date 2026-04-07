@@ -15,7 +15,7 @@
 import * as cheerio from 'cheerio';
 import { PDFParse } from 'pdf-parse';
 
-const BASE = 'http://115.124.86.220/aiw/staff';
+const BASE = (process.env.INTERNAL_API_BASE || 'http://115.124.86.220') + '/aiw/staff';
 const CALENDAR_SYNC_SLUG = 'nikita';
 
 // ── Login to internal system ──

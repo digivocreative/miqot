@@ -43,6 +43,8 @@ interface FlightData {
   arrDelayed?: number;
   arrBaggage?: string | null;
   jamaah?: { nama: string; jk: string | null; wa: string | null }[];
+  calendarDepTime?: string;  // calendar-derived dep time (if differs from airline schedule)
+  calendarArrTime?: string;  // calendar-derived arr time (if differs from airline schedule)
 }
 
 // ── Status Config ──
@@ -288,6 +290,14 @@ function KloterDetail({ flight, shareUrl, shareCopied, onShare, hasInternalAuth,
               <span className="text-[9px] text-gray-400 line-through">{formatTime(flight.depScheduled)}</span>
             )}
           </div>
+          {flight.calendarDepTime && (
+            <div className="flex items-center gap-0.5 mt-0.5">
+              <Calendar size={7} className="text-amber-500" />
+              <span className="text-[8px] text-amber-600 dark:text-amber-400">
+                Jadwal internal: {formatTime(flight.calendarDepTime)}
+              </span>
+            </div>
+          )}
           {flight.depCity && (
             <div className="text-[9px] text-gray-500 dark:text-slate-400 font-medium mt-0.5">
               {flight.depCity}{flight.depCode ? ` (${flight.depCode})` : ''}
@@ -335,6 +345,14 @@ function KloterDetail({ flight, shareUrl, shareCopied, onShare, hasInternalAuth,
               <span className="text-[9px] text-gray-400 line-through">{formatTime(flight.arrScheduled)}</span>
             )}
           </div>
+          {flight.calendarArrTime && (
+            <div className="flex items-center gap-0.5 mt-0.5">
+              <Calendar size={7} className="text-amber-500" />
+              <span className="text-[8px] text-amber-600 dark:text-amber-400">
+                Jadwal internal: {formatTime(flight.calendarArrTime)}
+              </span>
+            </div>
+          )}
           {flight.arrCity && (
             <div className="text-[9px] text-gray-500 dark:text-slate-400 font-medium mt-0.5">
               {flight.arrCity}{flight.arrCode ? ` (${flight.arrCode})` : ''}

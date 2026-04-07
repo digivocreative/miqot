@@ -12,7 +12,7 @@
 
 import * as cheerio from 'cheerio';
 
-const BASE_URL = 'http://115.124.86.220';
+const BASE_URL = process.env.INTERNAL_API_BASE || 'http://115.124.86.220';
 
 /**
  * Fetch and parse the haji list page.
