@@ -5792,8 +5792,8 @@ async function syncOneAgent(agent) {
     const decrypted = capiDecrypt(agent.jamaah_password);
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
-      console.error(`[SYNC] ${slug}: login failed`);
-      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+      console.error(`[SYNC] ${slug}: login failed — ${loginResult.error || 'unknown reason'}`);
+      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true });
       return;
     }
 
@@ -6215,23 +6215,29 @@ async function syncAllAgents() {
   }
 
   // Run agents sequentially — legacy server can't handle parallel sessions well
-  let ok = 0, fail = 0, skipped = 0;
+  let ok = 0, fail = 0, skipped = 0, loginFail = 0;
   for (const agent of agents) {
     try {
       const prevState = syncingAgents.get(agent.slug);
-      if (prevState?.isSyncing) skipped++;
+      if (prevState?.isSyncing) { skipped++; continue; }
       await syncOneAgent(agent);
-      ok++;
+      // Check if login failed (syncOneAgent returns normally but sets loginFailed flag)
+      const afterState = syncingAgents.get(agent.slug);
+      if (afterState?.loginFailed) {
+        loginFail++;
+      } else {
+        ok++;
+      }
     } catch (err) {
       console.error(`[SYNC] ${agent.slug} uncaught:`, err.message);
       fail++;
     }
     // Small gap between agents
-    if (ok + fail + skipped < agents.length) await new Promise(r => setTimeout(r, 2000));
+    if (ok + fail + skipped + loginFail < agents.length) await new Promise(r => setTimeout(r, 2000));
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[SYNC] Cycle complete: ${ok} OK, ${fail} failed, ${skipped} skipped in ${elapsed}s`);
+  console.log(`[SYNC] Cycle complete: ${ok} OK, ${loginFail} login failed, ${fail} error, ${skipped} skipped in ${elapsed}s`);
 }
 
 // Clean up old 1446 H data (one-time, 15s after startup)
