@@ -577,6 +577,7 @@ export async function disconnect(username) {
           'Cookie': session.cookie,
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         },
+        redirect: 'manual', // Don't follow redirect — it creates a new orphan PHP session
         signal: AbortSignal.timeout(5_000),
       });
     } catch {} // Don't fail if logout request fails
