@@ -193,6 +193,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [showStatAlert, setShowStatAlert] = useState(false);
   const [statAlertClosing, setStatAlertClosing] = useState(false);
   const [showComingSoon, setShowComingSoon] = useState(false);
+  const [isGoingBack, setIsGoingBack] = useState(false);
   // Analytics header slot for month dropdown
   const [analyticsHeaderRight, setAnalyticsHeaderRight] = useState<React.ReactNode>(null);
   // Flight status position
@@ -347,7 +348,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         <header className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50">
           <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
             <button
+              disabled={isGoingBack}
               onClick={() => {
+                setIsGoingBack(true);
                 // If on AI Tools sub-page, go back appropriately
                 if (activeTab === 'ai-tools' && getAIToolsSubFromPath()) {
                   const aiSub = getAIToolsSubFromPath();
@@ -356,19 +359,19 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     window.history.pushState({}, '', '/dashboard/ai-tools/haji-plus');
                     document.title = 'Haji Plus';
                     setActiveTab('home');
-                    setTimeout(() => setActiveTab('ai-tools'), 0);
+                    setTimeout(() => { setActiveTab('ai-tools'); setIsGoingBack(false); }, 0);
                     return;
                   }
                   window.history.pushState({}, '', '/dashboard/ai-tools');
                   setActiveTab('home');
-                  setTimeout(() => setActiveTab('ai-tools'), 0);
+                  setTimeout(() => { setActiveTab('ai-tools'); setIsGoingBack(false); }, 0);
                   return;
                 }
                 navigateTab('home');
               }}
               className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-all active:scale-95"
             >
-              <ChevronLeft size={18} strokeWidth={2.5} />
+              {isGoingBack ? <Loader2 size={18} className="animate-spin" /> : <ChevronLeft size={18} strokeWidth={2.5} />}
             </button>
             <div className="flex items-center gap-2 flex-1 min-w-0">
               {(() => {

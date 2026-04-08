@@ -219,6 +219,7 @@ function CompareRow({
 export default function ComparePage({ agent, hideHeader = false }: { agent?: AgentData | null; hideHeader?: boolean }) {
   const [packages, setPackages] = useState<UmrohPackage[]>([]);
   const [loadingPackages, setLoadingPackages] = useState(true);
+  const [isGoingBack, setIsGoingBack] = useState(false);
   const [paketA, setPaketA] = useState('');
   const [paketB, setPaketB] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -698,7 +699,9 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
         <div className="max-w-3xl mx-auto px-5 py-3 flex items-center gap-3">
           <button
             type="button"
+            disabled={isGoingBack}
             onClick={() => {
+              setIsGoingBack(true);
               document.body.classList.add('navigating');
               const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
               setTimeout(() => {
@@ -708,7 +711,7 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
             className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-slate-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
             title="Kembali"
           >
-            <ArrowLeft size={18} />
+            {isGoingBack ? <Loader2 size={18} className="animate-spin" /> : <ArrowLeft size={18} />}
           </button>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight">

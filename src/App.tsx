@@ -7,6 +7,7 @@ import type { UmrohPackage } from '@/types';
 import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agents';
 import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
+import { Loader2 } from 'lucide-react';
 import { sendCapiEvent } from '@/lib/capi';
 import { trackPublicEvent } from '@/utils/analytics';
 
@@ -34,6 +35,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [sortOrder, setSortOrder] = useState<SortOrder | null>('TANGGAL_TERDEKAT');
   const [compactDetailId, setCompactDetailId] = useState<string | null>(null);
+  const [isGoingBack, setIsGoingBack] = useState(false);
   const [isCompactView, setIsCompactView] = useState(() => {
     return localStorage.getItem('compactView') === 'true';
   });
@@ -480,13 +482,15 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
             <button
               type="button"
+              disabled={isGoingBack}
               onClick={() => {
+                setIsGoingBack(true);
                 window.location.href = agentSlug ? `/${agentSlug}` : '/';
               }}
               className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-gray-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
               title="Kembali"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+              {isGoingBack ? <Loader2 size={18} className="animate-spin" /> : <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>}
             </button>
             <h1 className="text-base font-bold text-gray-800 dark:text-white truncate">Detail Paket</h1>
           </div>

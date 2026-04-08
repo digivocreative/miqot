@@ -13,6 +13,7 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [shaking, setShaking] = useState(false);
+  const [isGoingBack, setIsGoingBack] = useState(false);
 
   const triggerError = (msg: string) => {
     setError(msg);
@@ -181,7 +182,8 @@ export default function ResetPasswordPage() {
                 Password Anda telah diperbarui. Silakan login dengan password baru.
               </p>
               <button
-                onClick={() => { window.location.href = '/login'; }}
+                disabled={isGoingBack}
+                onClick={() => { setIsGoingBack(true); window.location.href = '/login'; }}
                 style={{
                   width: '100%',
                   padding: 16,
@@ -197,6 +199,7 @@ export default function ResetPasswordPage() {
                   justifyContent: 'center',
                   gap: 8,
                   transition: 'all 0.25s ease',
+                  opacity: isGoingBack ? 0.7 : 1,
                 }}
                 onMouseEnter={e => {
                   e.currentTarget.style.background = '#064e3b';
@@ -209,7 +212,7 @@ export default function ResetPasswordPage() {
                   e.currentTarget.style.boxShadow = 'none';
                 }}
               >
-                Login <ArrowRight size={18} />
+                {isGoingBack ? <><Loader2 size={18} className="animate-spin" /> Memuat...</> : <>Login <ArrowRight size={18} /></>}
               </button>
             </div>
           ) : !token ? (
@@ -236,7 +239,8 @@ export default function ResetPasswordPage() {
                 Link reset password tidak valid atau sudah kedaluwarsa. Silakan minta link baru.
               </p>
               <button
-                onClick={() => { window.location.href = '/login'; }}
+                disabled={isGoingBack}
+                onClick={() => { setIsGoingBack(true); window.location.href = '/login'; }}
                 style={{
                   width: '100%',
                   padding: 16,
@@ -252,6 +256,7 @@ export default function ResetPasswordPage() {
                   justifyContent: 'center',
                   gap: 8,
                   transition: 'all 0.25s ease',
+                  opacity: isGoingBack ? 0.7 : 1,
                 }}
                 onMouseEnter={e => {
                   e.currentTarget.style.background = '#064e3b';
@@ -262,7 +267,7 @@ export default function ResetPasswordPage() {
                   e.currentTarget.style.transform = 'translateY(0)';
                 }}
               >
-                <ArrowLeft size={18} /> Kembali ke Login
+                {isGoingBack ? <><Loader2 size={18} className="animate-spin" /> Memuat...</> : <><ArrowLeft size={18} /> Kembali ke Login</>}
               </button>
             </div>
           ) : (
@@ -426,7 +431,8 @@ export default function ResetPasswordPage() {
               {/* Back to login */}
               <button
                 type="button"
-                onClick={() => { window.location.href = '/login'; }}
+                disabled={isGoingBack}
+                onClick={() => { setIsGoingBack(true); window.location.href = '/login'; }}
                 style={{
                   width: '100%',
                   padding: 12,
@@ -445,7 +451,7 @@ export default function ResetPasswordPage() {
                 onMouseEnter={e => (e.currentTarget.style.opacity = '0.7')}
                 onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
               >
-                <ArrowLeft size={14} /> Kembali ke Login
+                {isGoingBack ? <><Loader2 size={14} className="animate-spin" /> Memuat...</> : <><ArrowLeft size={14} /> Kembali ke Login</>}
               </button>
             </form>
           )}
