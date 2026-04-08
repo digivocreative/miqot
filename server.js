@@ -5808,6 +5808,9 @@ async function syncOneAgent(agent) {
     try {
       const ringkasanRes = await fetchUmrahBookings(agent.jamaah_username);
       const bookings = ringkasanRes.success ? (ringkasanRes.bookings || []) : [];
+      if (!ringkasanRes.success) {
+        console.warn(`[SYNC] ${slug}: Phase 1 fetchUmrahBookings failed — ${ringkasanRes.error || 'unknown'}`);
+      }
 
       if (bookings.length > 0) {
         const bookingPaketMap = new Map();
