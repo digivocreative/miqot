@@ -5784,7 +5784,7 @@ async function syncOneAgent(agent) {
     return;
   }
 
-  syncingAgents.set(slug, { isSyncing: true, background: true, totalSynced: 0, lastSync: null });
+  syncingAgents.set(slug, { isSyncing: true, background: true, totalSynced: 0, lastSync: null, startedAt: Date.now(), username: agent.jamaah_username });
 
   try {
     // Force fresh session for each background sync
@@ -6173,10 +6173,18 @@ async function syncOneAgent(agent) {
       .select('*', { count: 'exact', head: true })
       .eq('agent_slug', slug);
     syncingAgents.set(slug, { isSyncing: false, totalSynced: finalCount || totalSynced, lastSync: syncTime });
-    laporanDisconnect(agent.jamaah_username);
   } catch (err) {
     console.error(`[SYNC] ${slug} error:`, err.message);
-    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+  } finally {
+    // ALWAYS reset isSyncing — prevents stuck lock
+    const currentState = syncingAgents.get(slug);
+    if (currentState?.isSyncing) {
+      syncingAgents.set(slug, {
+        isSyncing: false,
+        totalSynced: currentState.totalSynced || 0,
+        lastSync: currentState.lastSync || null
+      });
+    }
     try { laporanDisconnect(agent.jamaah_username); } catch {}
   }
 }
@@ -6184,6 +6192,16 @@ async function syncOneAgent(agent) {
 async function syncAllAgents() {
   console.log('[SYNC] Starting sync cycle...');
   const startTime = Date.now();
+
+  // Force-reset stuck syncs (>15 min)
+  const STUCK_TIMEOUT = 15 * 60 * 1000;
+  for (const [slug, state] of syncingAgents) {
+    if (state.isSyncing && state.startedAt && (Date.now() - state.startedAt > STUCK_TIMEOUT)) {
+      console.warn(`[SYNC] Force-resetting stuck sync: ${slug} (${Math.round((Date.now() - state.startedAt) / 60000)}m)`);
+      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+      try { if (state.username) laporanDisconnect(state.username); } catch {}
+    }
+  }
 
   const { data: agents, error } = await supabase
     .from('agents')
@@ -6197,20 +6215,23 @@ async function syncAllAgents() {
   }
 
   // Run agents sequentially — legacy server can't handle parallel sessions well
-  let ok = 0, fail = 0;
+  let ok = 0, fail = 0, skipped = 0;
   for (const agent of agents) {
     try {
+      const prevState = syncingAgents.get(agent.slug);
+      if (prevState?.isSyncing) skipped++;
       await syncOneAgent(agent);
       ok++;
-    } catch {
+    } catch (err) {
+      console.error(`[SYNC] ${agent.slug} uncaught:`, err.message);
       fail++;
     }
     // Small gap between agents
-    if (ok + fail < agents.length) await new Promise(r => setTimeout(r, 2000));
+    if (ok + fail + skipped < agents.length) await new Promise(r => setTimeout(r, 2000));
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[SYNC] Cycle complete: ${ok} OK, ${fail} failed in ${elapsed}s`);
+  console.log(`[SYNC] Cycle complete: ${ok} OK, ${fail} failed, ${skipped} skipped in ${elapsed}s`);
 }
 
 // Clean up old 1446 H data (one-time, 15s after startup)
