@@ -5787,13 +5787,14 @@ async function syncOneAgent(agent) {
   syncingAgents.set(slug, { isSyncing: true, background: true, totalSynced: 0, lastSync: null, startedAt: Date.now(), username: agent.jamaah_username });
 
   try {
-    // Force fresh session for each background sync
-    await laporanDisconnect(agent.jamaah_username);
+    // Force fresh session for each background sync (skip remote logout to avoid rate-limiting)
+    await laporanDisconnect(agent.jamaah_username, { skipRemoteLogout: true });
     const decrypted = capiDecrypt(agent.jamaah_password);
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
       console.error(`[SYNC] ${slug}: login failed — ${loginResult.error || 'unknown reason'}`);
-      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true });
+      const rateLimited = loginResult.reason === 'rate_limited';
+      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true, rateLimited });
       return;
     }
 
@@ -6019,7 +6020,7 @@ async function syncOneAgent(agent) {
         if (!result.success) {
           console.log(`[SYNC] ${slug} range ${job.tglAwal}: ${result.error} (${result.reason || 'unknown'})`);
           if (result.reason === 'session_expired') {
-            await laporanDisconnect(agent.jamaah_username);
+            await laporanDisconnect(agent.jamaah_username, { skipRemoteLogout: true });
             await laporanLogin(agent.jamaah_username, decrypted, kantor);
           } else if (result.reason === 'network') {
             networkFailures++;
@@ -6185,7 +6186,7 @@ async function syncOneAgent(agent) {
         lastSync: currentState.lastSync || null
       });
     }
-    try { await laporanDisconnect(agent.jamaah_username); } catch {} // Remote logout (best-effort)
+    try { await laporanDisconnect(agent.jamaah_username, { skipRemoteLogout: true }); } catch {} // Local cleanup only
   }
 }
 
@@ -6199,7 +6200,7 @@ async function syncAllAgents() {
     if (state.isSyncing && state.startedAt && (Date.now() - state.startedAt > STUCK_TIMEOUT)) {
       console.warn(`[SYNC] Force-resetting stuck sync: ${slug} (${Math.round((Date.now() - state.startedAt) / 60000)}m)`);
       syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
-      try { if (state.username) await laporanDisconnect(state.username); } catch {}
+      try { if (state.username) await laporanDisconnect(state.username, { skipRemoteLogout: true }); } catch {}
     }
   }
 
@@ -6225,6 +6226,12 @@ async function syncAllAgents() {
       const afterState = syncingAgents.get(agent.slug);
       if (afterState?.loginFailed) {
         loginFail++;
+        // If rate-limited, abort remaining agents — no point hammering the server
+        if (afterState.rateLimited) {
+          console.warn(`[SYNC] Aborting cycle — server rate-limiting detected at ${agent.slug}`);
+          skipped += agents.length - (ok + fail + skipped + loginFail);
+          break;
+        }
       } else {
         ok++;
       }
@@ -6232,8 +6239,8 @@ async function syncAllAgents() {
       console.error(`[SYNC] ${agent.slug} uncaught:`, err.message);
       fail++;
     }
-    // Small gap between agents
-    if (ok + fail + skipped + loginFail < agents.length) await new Promise(r => setTimeout(r, 2000));
+    // Gap between agents — 5s to avoid Apache rate-limiting on Alhijaz server
+    if (ok + fail + skipped + loginFail < agents.length) await new Promise(r => setTimeout(r, 5000));
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

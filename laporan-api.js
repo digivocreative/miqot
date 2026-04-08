@@ -39,74 +39,92 @@ export function isSessionActive(username) {
 }
 
 // ── Login: POST to cek_login.php, capture PHPSESSID ──
+// Retries on 403 (Apache rate-limit) with exponential backoff
 export async function login(username, password, kantor = '2') {
-  try {
-    const body = new URLSearchParams({
-      kantor,
-      username,
-      password,
-      z: '',
-    });
+  const MAX_ATTEMPTS = 3;
+  const BACKOFF_BASE = 10_000; // 10s, 20s, 40s
 
-    const res = await fetch(`${BASE}/cek_login.php`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-      body: body.toString(),
-      redirect: 'manual', // Don't follow redirect — capture Set-Cookie first
-      signal: AbortSignal.timeout(30_000), // 30s timeout for login
-    });
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      const body = new URLSearchParams({
+        kantor,
+        username,
+        password,
+        z: '',
+      });
 
-    // Extract cookies from Set-Cookie header
-    let cookies;
-    if (typeof res.headers.getSetCookie === 'function') {
-      // Node 18.14+
-      cookies = res.headers.getSetCookie();
-    } else if (typeof res.headers.raw === 'function') {
-      // Older Node / node-fetch fallback
-      cookies = res.headers.raw()['set-cookie'] || [];
-    } else {
-      // Last resort: try get
-      const raw = res.headers.get('set-cookie');
-      cookies = raw ? [raw] : [];
+      const res = await fetch(`${BASE}/cek_login.php`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+        body: body.toString(),
+        redirect: 'manual', // Don't follow redirect — capture Set-Cookie first
+        signal: AbortSignal.timeout(30_000), // 30s timeout for login
+      });
+
+      // Handle Apache rate-limiting (403) — wait and retry
+      if (res.status === 403) {
+        const wait = BACKOFF_BASE * Math.pow(2, attempt);
+        console.warn(`[Login] ${username}: 403 rate-limited, retry ${attempt + 1}/${MAX_ATTEMPTS} in ${wait / 1000}s`);
+        if (attempt < MAX_ATTEMPTS - 1) {
+          await new Promise(r => setTimeout(r, wait));
+          continue;
+        }
+        return { success: false, error: 'Server rate-limit (403) — coba lagi nanti', reason: 'rate_limited' };
+      }
+
+      // Extract cookies from Set-Cookie header
+      let cookies;
+      if (typeof res.headers.getSetCookie === 'function') {
+        // Node 18.14+
+        cookies = res.headers.getSetCookie();
+      } else if (typeof res.headers.raw === 'function') {
+        // Older Node / node-fetch fallback
+        cookies = res.headers.raw()['set-cookie'] || [];
+      } else {
+        // Last resort: try get
+        const raw = res.headers.get('set-cookie');
+        cookies = raw ? [raw] : [];
+      }
+
+      if (!cookies || cookies.length === 0) {
+        return { success: false, error: 'Login gagal — username atau password salah' };
+      }
+
+      // Extract PHPSESSID value
+      const phpSessionCookie = cookies.find(c => c.includes('PHPSESSID'));
+      if (!phpSessionCookie) {
+        return { success: false, error: 'Login gagal — username atau password salah' };
+      }
+
+      // Build cookie string for subsequent requests
+      const cookieString = cookies
+        .map(c => c.split(';')[0]) // take only name=value part
+        .join('; ');
+
+      // Store session keyed by username
+      sessions.set(username, {
+        cookie: cookieString,
+        kantor,
+        createdAt: Date.now(),
+      });
+
+      return {
+        success: true,
+        message: 'Berhasil login ke sistem internal',
+      };
+
+    } catch (err) {
+      if (err.cause?.code === 'ECONNREFUSED' || err.cause?.code === 'ETIMEDOUT') {
+        return { success: false, error: 'Sistem internal tidak dapat dihubungi' };
+      }
+      console.error('Laporan login error:', err.message, err.cause);
+      return { success: false, error: 'Gagal menghubungi sistem internal' };
     }
-
-    if (!cookies || cookies.length === 0) {
-      return { success: false, error: 'Login gagal — username atau password salah' };
-    }
-
-    // Extract PHPSESSID value
-    const phpSessionCookie = cookies.find(c => c.includes('PHPSESSID'));
-    if (!phpSessionCookie) {
-      return { success: false, error: 'Login gagal — username atau password salah' };
-    }
-
-    // Build cookie string for subsequent requests
-    const cookieString = cookies
-      .map(c => c.split(';')[0]) // take only name=value part
-      .join('; ');
-
-    // Store session keyed by username
-    sessions.set(username, {
-      cookie: cookieString,
-      kantor,
-      createdAt: Date.now(),
-    });
-
-    return {
-      success: true,
-      message: 'Berhasil login ke sistem internal',
-    };
-
-  } catch (err) {
-    if (err.cause?.code === 'ECONNREFUSED' || err.cause?.code === 'ETIMEDOUT') {
-      return { success: false, error: 'Sistem internal tidak dapat dihubungi' };
-    }
-    console.error('Laporan login error:', err.message, err.cause);
-    return { success: false, error: 'Gagal menghubungi sistem internal' };
   }
+  return { success: false, error: 'Login gagal setelah retry' };
 }
 
 // ── Fetch Laporan: Build URL server-side (prevent SSRF), GET with cookie ──
@@ -566,9 +584,10 @@ export function getSessionCookie(username) {
 }
 
 // ── Disconnect: Logout from PHP server + remove local session ──
-export async function disconnect(username) {
+// Set skipRemoteLogout=true for background sync to avoid rate-limiting on Alhijaz server
+export async function disconnect(username, { skipRemoteLogout = false } = {}) {
   const session = sessions.get(username);
-  if (session?.cookie) {
+  if (session?.cookie && !skipRemoteLogout) {
     // Destroy PHP session on remote server (best-effort)
     try {
       await fetch(`${BASE}/logout.php`, {
