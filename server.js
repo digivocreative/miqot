@@ -1594,7 +1594,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   if (req.user?.role !== 'admin') logAnalyticsEvent(slug, 'action', 'sync_jamaah');
 
   // Force fresh session to ensure clean state with legacy system
-  laporanDisconnect(agent.jamaah_username);
+  await laporanDisconnect(agent.jamaah_username);
   const decrypted = capiDecrypt(agent.jamaah_password);
   const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
   if (!loginResult.success) {
@@ -1676,7 +1676,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           if (!result.success) {
             detailErrors++;
             if (result.reason === 'session_expired') {
-              laporanDisconnect(agent.jamaah_username);
+              await laporanDisconnect(agent.jamaah_username);
               await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
             }
             continue;
@@ -1864,7 +1864,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 
         if (!fetchResult.success) {
           if (fetchResult.reason === 'session_expired') {
-            laporanDisconnect(agent.jamaah_username);
+            await laporanDisconnect(agent.jamaah_username);
             await laporanLogin(agent.jamaah_username, decrypted, kantor);
           } else if (fetchResult.reason === 'network') {
             networkFailures++;
@@ -3625,7 +3625,7 @@ app.post('/api/laporan/disconnect', authMiddleware, async (req, res) => {
   const slug = req.user.slug;
   const agent = await getAgent(slug);
   if (agent?.jamaah_username) {
-    laporanDisconnect(agent.jamaah_username);
+    await laporanDisconnect(agent.jamaah_username);
   }
   // Cancel any running sync
   const state = syncingAgents.get(slug);
@@ -3642,7 +3642,7 @@ app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
   // Also disconnect if active
   const agent = await getAgent(slug);
   if (agent?.jamaah_username) {
-    laporanDisconnect(agent.jamaah_username);
+    await laporanDisconnect(agent.jamaah_username);
   }
   // Cancel any running sync
   const state = syncingAgents.get(slug);
@@ -4178,7 +4178,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     syncingAgents.set(hajiKey, { isSyncing: true, totalSynced: 0, lastSync: null });
 
     // Login fresh to legacy system
-    laporanDisconnect(agent.jamaah_username);
+    await laporanDisconnect(agent.jamaah_username);
     const decrypted = capiDecrypt(agent.jamaah_password);
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
@@ -5788,7 +5788,7 @@ async function syncOneAgent(agent) {
 
   try {
     // Force fresh session for each background sync
-    laporanDisconnect(agent.jamaah_username);
+    await laporanDisconnect(agent.jamaah_username);
     const decrypted = capiDecrypt(agent.jamaah_password);
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
@@ -6019,7 +6019,7 @@ async function syncOneAgent(agent) {
         if (!result.success) {
           console.log(`[SYNC] ${slug} range ${job.tglAwal}: ${result.error} (${result.reason || 'unknown'})`);
           if (result.reason === 'session_expired') {
-            laporanDisconnect(agent.jamaah_username);
+            await laporanDisconnect(agent.jamaah_username);
             await laporanLogin(agent.jamaah_username, decrypted, kantor);
           } else if (result.reason === 'network') {
             networkFailures++;
@@ -6185,7 +6185,7 @@ async function syncOneAgent(agent) {
         lastSync: currentState.lastSync || null
       });
     }
-    try { laporanDisconnect(agent.jamaah_username); } catch {}
+    try { await laporanDisconnect(agent.jamaah_username); } catch {} // Remote logout (best-effort)
   }
 }
 
@@ -6199,7 +6199,7 @@ async function syncAllAgents() {
     if (state.isSyncing && state.startedAt && (Date.now() - state.startedAt > STUCK_TIMEOUT)) {
       console.warn(`[SYNC] Force-resetting stuck sync: ${slug} (${Math.round((Date.now() - state.startedAt) / 60000)}m)`);
       syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
-      try { if (state.username) laporanDisconnect(state.username); } catch {}
+      try { if (state.username) await laporanDisconnect(state.username); } catch {}
     }
   }
 

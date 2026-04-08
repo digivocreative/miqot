@@ -565,8 +565,22 @@ export function getSessionCookie(username) {
   return session.cookie;
 }
 
-// ── Disconnect: Remove session ──
-export function disconnect(username) {
-  const existed = sessions.delete(username);
-  return { success: true, message: existed ? 'Berhasil disconnect' : 'Session tidak ditemukan' };
+// ── Disconnect: Logout from PHP server + remove local session ──
+export async function disconnect(username) {
+  const session = sessions.get(username);
+  if (session?.cookie) {
+    // Destroy PHP session on remote server (best-effort)
+    try {
+      await fetch(`${BASE}/logout.php`, {
+        method: 'GET',
+        headers: {
+          'Cookie': session.cookie,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch {} // Don't fail if logout request fails
+  }
+  sessions.delete(username);
+  return { success: true, message: session ? 'Berhasil disconnect' : 'Session tidak ditemukan' };
 }
