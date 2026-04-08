@@ -270,6 +270,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     }
   }, []);
 
+  useEffect(() => { setIsGoingBack(false); }, [activeTab]);
+
   // Listen for browser back/forward
   useEffect(() => {
     const onPopState = () => {
