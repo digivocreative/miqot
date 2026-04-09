@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle, Unlink, LogIn, LogOut } from 'lucide-react';
+import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle, Unlink, LogIn, LogOut, Check, ShieldOff } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PhotoCropModal from './PhotoCropModal';
+import PinInput from './PinInput';
 import { validateName, validatePhone, validateEmail, validateWebsite, cleanPhone, cleanWebsite } from '../utils/validation';
 import { trackEvent } from '../utils/analytics';
 
@@ -733,11 +734,8 @@ function InternalSystemSection() {
 
       {/* Branded card */}
       <div
-        className="relative overflow-hidden rounded-2xl border border-emerald-100 dark:border-emerald-800/40"
-        style={{ background: 'linear-gradient(135deg, #ecfdf5, #d1fae5)' }}
+        className="relative overflow-hidden rounded-2xl border border-emerald-100 dark:border-emerald-800/40 bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900/20 dark:to-emerald-800/20"
       >
-        {/* Dark mode override */}
-        <div className="hidden dark:block absolute inset-0" style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.08), rgba(16,185,129,0.15))' }} />
 
         {/* Decorative pattern */}
         <div className="absolute -right-3 -top-3 w-20 h-20 rounded-full opacity-10" style={{ background: 'radial-gradient(circle, #10b981 0%, transparent 70%)' }} />
@@ -832,6 +830,65 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
   const [slugInput, setSlugInput] = useState(agent.slug);
   const [savingSlug, setSavingSlug] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── PIN Security state ──
+  const [hasPIN, setHasPIN] = useState(false);
+  const [pinLoading, setPinLoading] = useState(true);
+  const [showPINSetup, setShowPINSetup] = useState(false);
+  const [pinStep, setPinStep] = useState<0 | 1 | 2>(1);
+  const [pin1, setPin1] = useState('');
+  const [pin2, setPin2] = useState('');
+  const [currentPinInput, setCurrentPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinSaving, setPinSaving] = useState(false);
+  const [closingPINSetup, setClosingPINSetup] = useState(false);
+  const [showDisableDialog, setShowDisableDialog] = useState(false);
+  const [closingDisable, setClosingDisable] = useState(false);
+  const [disableStep, setDisableStep] = useState<'confirm' | 'otp'>('confirm');
+  const [disableOTP, setDisableOTP] = useState('');
+  const [disableError, setDisableError] = useState('');
+  const [disableLoading, setDisableLoading] = useState(false);
+  const [otpCooldown, setOtpCooldown] = useState(0);
+  const [otpTelegramName, setOtpTelegramName] = useState('');
+
+  // ── Fetch PIN status on mount ──
+  useEffect(() => {
+    const fetchPinStatus = async () => {
+      try {
+        const res = await fetch('/api/auth/pin-status', { headers: { ...getAuthHeaders() } });
+        const data = await res.json();
+        setHasPIN(data.hasPIN);
+      } catch { /* silent */ }
+      finally { setPinLoading(false); }
+    };
+    fetchPinStatus();
+  }, []);
+
+  // ── Scroll lock for PIN dialogs ──
+  useEffect(() => {
+    if (showPINSetup || showDisableDialog) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [showPINSetup, showDisableDialog]);
+
+  // ── Scroll to PIN section if hash is #pin-keamanan ──
+  useEffect(() => {
+    if (pinLoading) return;
+    if (window.location.hash === '#pin-keamanan') {
+      const el = document.getElementById('pin-keamanan');
+      if (el) {
+        setTimeout(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('ring-2', 'ring-emerald-500/30', 'rounded-xl', '-mx-2', 'px-2', 'transition-all');
+          setTimeout(() => el.classList.remove('ring-2', 'ring-emerald-500/30', 'rounded-xl', '-mx-2', 'px-2'), 2500);
+          window.history.replaceState(null, '', window.location.pathname);
+        }, 300);
+      }
+    }
+  }, [pinLoading]);
 
   // ── Check Telegram status on mount + when returning from Telegram ──
   useEffect(() => {
@@ -1235,6 +1292,424 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
 
         {/* Internal System (AIW) Credentials */}
         <InternalSystemSection />
+
+        {/* ── PIN Keamanan Statistik ── */}
+        {!pinLoading && (
+        <div id="pin-keamanan" className="border-t border-gray-100 dark:border-slate-700/50 pt-4 mt-4">
+          <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">PIN KEAMANAN</p>
+
+          {/* Idle: belum ada PIN */}
+          {!hasPIN && !showPINSetup && (
+            <>
+              <div className="bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 flex items-center gap-2.5 mb-3">
+                <Lock size={16} className="text-gray-400 dark:text-slate-500 shrink-0" />
+                <span className="text-xs font-medium text-gray-500 dark:text-slate-400">PIN keamanan belum aktif</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowPINSetup(true); setPinStep(1); setPin1(''); setPin2(''); setPinError(''); }}
+                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold text-gray-700 dark:text-slate-200 active:scale-95 transition-all"
+              >
+                <Lock size={16} />
+                Atur PIN Statistik
+              </button>
+              <p className="text-xs text-gray-400 dark:text-slate-500 text-center mt-2.5">Lindungi data Statistik & komisi dengan PIN 6 digit</p>
+            </>
+          )}
+
+          {/* PIN Aktif */}
+          {hasPIN && !showPINSetup && (
+            <>
+              <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 mb-3">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">PIN aktif</p>
+                  <p className="text-[11px] text-emerald-600/70 dark:text-emerald-400/70">Statistik dilindungi · unlock 1 jam</p>
+                </div>
+                <Check size={16} className="text-emerald-500 shrink-0" />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowPINSetup(true); setPinStep(0); setCurrentPinInput(''); setPin1(''); setPin2(''); setPinError(''); }}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-xs font-semibold text-gray-600 dark:text-slate-300 active:scale-95 transition-all"
+                >
+                  <Pencil size={14} />
+                  Ubah PIN
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowDisableDialog(true); setDisableStep('confirm'); setDisableOTP(''); setDisableError(''); }}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-red-200/60 dark:border-red-800/30 text-xs font-semibold text-red-500 dark:text-red-400 active:scale-95 transition-all"
+                >
+                  <X size={14} />
+                  Nonaktifkan
+                </button>
+              </div>
+            </>
+          )}
+
+        </div>
+        )}
+
+        {/* ── PIN Setup Popup ── */}
+        {showPINSetup && (
+          <>
+            <style>{`
+              @keyframes pinOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+              @keyframes pinOverlayOut { from { opacity: 1; } to { opacity: 0; } }
+              @keyframes pinModalIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+              @keyframes pinModalOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.92); } }
+            `}</style>
+            <div
+              className="fixed -top-12 left-0 right-0 -bottom-12 z-50 bg-black/50 backdrop-blur-sm"
+              style={{ animation: closingPINSetup ? 'pinOverlayOut 0.15s ease forwards' : 'pinOverlayIn 0.2s ease' }}
+              onClick={() => {
+                setClosingPINSetup(true);
+                setTimeout(() => { setClosingPINSetup(false); setShowPINSetup(false); }, 150);
+              }}
+            />
+            <div className="fixed inset-0 z-50 flex items-center justify-center px-6 pointer-events-none">
+              <div
+                className="w-full max-w-xs bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl p-4 pointer-events-auto"
+                style={{ animation: closingPINSetup ? 'pinModalOut 0.15s ease forwards' : 'pinModalIn 0.25s cubic-bezier(0.16,1,0.3,1)' }}
+                onClick={e => e.stopPropagation()}
+              >
+
+                {/* Step 0: Current PIN (ubah PIN flow) */}
+                {pinStep === 0 && (
+                  <div className="space-y-3">
+                    <button type="button" onClick={() => {
+                      setClosingPINSetup(true);
+                      setTimeout(() => { setClosingPINSetup(false); setShowPINSetup(false); }, 150);
+                    }} className="flex items-center gap-1 text-xs text-gray-400 dark:text-slate-500 cursor-pointer">
+                      ← Batal
+                    </button>
+                    <div className="text-center">
+                      <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-900/20 mx-auto flex items-center justify-center mb-2">
+                        <Lock size={18} className="text-emerald-500" />
+                      </div>
+                      <p className="text-sm font-bold text-gray-800 dark:text-white">Masukkan PIN lama</p>
+                      <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5 mb-3">Verifikasi PIN saat ini</p>
+                    </div>
+                    <PinInput value={currentPinInput} onChange={async (v) => {
+                      setCurrentPinInput(v);
+                      setPinError('');
+                      if (v.length === 6) {
+                        setPinSaving(true);
+                        try {
+                          const res = await fetch('/api/auth/verify-pin', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                            body: JSON.stringify({ pin: v }),
+                          });
+                          const data = await res.json();
+                          if (res.ok && data.success) {
+                            setPinStep(1); setPin1(''); setPinError('');
+                          } else {
+                            setPinError(data.error || 'PIN salah');
+                            setTimeout(() => setCurrentPinInput(''), 600);
+                          }
+                        } catch {
+                          setPinError('Gagal memverifikasi PIN');
+                          setTimeout(() => setCurrentPinInput(''), 600);
+                        }
+                        setPinSaving(false);
+                      }
+                    }} autoFocus error={!!pinError} />
+                    {pinError && <p className="text-xs text-red-500 dark:text-red-400 text-center mt-1">{pinError}</p>}
+                    <button
+                      type="button"
+                      disabled={currentPinInput.length < 6 || pinSaving}
+                      className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${currentPinInput.length === 6 && !pinSaving ? 'bg-emerald-500 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500 opacity-40'}`}
+                    >
+                      {pinSaving ? <><Loader2 size={16} className="animate-spin" /> Memverifikasi...</> : 'Lanjut'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Step 1: Buat PIN baru */}
+                {pinStep === 1 && (
+                  <div className="space-y-3">
+                    <button type="button" onClick={() => {
+                      if (hasPIN) { setPinStep(0); setCurrentPinInput(''); setPin1(''); setPinError(''); }
+                      else { setClosingPINSetup(true); setTimeout(() => { setClosingPINSetup(false); setShowPINSetup(false); }, 150); }
+                    }} className="flex items-center gap-1 text-xs text-gray-400 dark:text-slate-500 cursor-pointer">
+                      ← {hasPIN ? 'Kembali' : 'Batal'}
+                    </button>
+                    <div className="flex justify-center gap-1.5">
+                      <div className="w-5 h-1.5 rounded-full bg-emerald-500" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-gray-200 dark:bg-slate-700 mt-px" />
+                    </div>
+                    <div className="text-center">
+                      <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-900/20 mx-auto flex items-center justify-center mb-2">
+                        <Lock size={18} className="text-emerald-500" />
+                      </div>
+                      <p className="text-sm font-bold text-gray-800 dark:text-white">Buat PIN baru</p>
+                      <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5 mb-3">Masukkan 6 digit angka</p>
+                    </div>
+                    <PinInput value={pin1} onChange={v => {
+                      setPin1(v); setPinError('');
+                      if (v.length === 6) { setPinStep(2); setPin2(''); setPinError(''); }
+                    }} autoFocus />
+                    {pinError && <p className="text-xs text-red-500 dark:text-red-400 text-center mt-1">{pinError}</p>}
+                    <button
+                      type="button"
+                      disabled={pin1.length < 6}
+                      onClick={() => { setPinStep(2); setPin2(''); setPinError(''); }}
+                      className={`w-full py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${pin1.length === 6 ? 'bg-emerald-500 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500 opacity-40'}`}
+                    >
+                      Lanjut
+                    </button>
+                    <p className="text-[11px] text-gray-400 dark:text-slate-500 text-center">PIN akan diminta saat membuka Statistik</p>
+                  </div>
+                )}
+
+                {/* Step 2: Konfirmasi PIN */}
+                {pinStep === 2 && (
+                  <div className="space-y-3">
+                    <button type="button" onClick={() => { setPinStep(1); setPin2(''); setPinError(''); }} className="flex items-center gap-1 text-xs text-gray-400 dark:text-slate-500 cursor-pointer">
+                      ← Kembali
+                    </button>
+                    <div className="flex justify-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-px" />
+                      <div className="w-5 h-1.5 rounded-full bg-emerald-500" />
+                    </div>
+                    <div className="text-center">
+                      <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-900/20 mx-auto flex items-center justify-center mb-2">
+                        <Lock size={18} className="text-emerald-500" />
+                      </div>
+                      <p className="text-sm font-bold text-gray-800 dark:text-white">Konfirmasi PIN</p>
+                      <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5 mb-3">Masukkan ulang PIN yang sama</p>
+                    </div>
+                    <PinInput value={pin2} onChange={async (v) => {
+                      setPin2(v); setPinError('');
+                      if (v.length === 6) {
+                        if (pin1 !== v) {
+                          setPinError('PIN tidak cocok');
+                          setTimeout(() => setPin2(''), 600);
+                          return;
+                        }
+                        setPinSaving(true);
+                        try {
+                          const body: Record<string, string> = { pin: pin1 };
+                          if (hasPIN) body.currentPin = currentPinInput;
+                          const res = await fetch('/api/auth/set-pin', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                            body: JSON.stringify(body),
+                          });
+                          const data = await res.json();
+                          if (res.ok && data.success) {
+                            setHasPIN(true);
+                            setClosingPINSetup(true);
+                            setTimeout(() => { setClosingPINSetup(false); setShowPINSetup(false); }, 150);
+                            setSaved(true);
+                            setSavedMessage(hasPIN ? 'PIN berhasil diubah.' : 'PIN berhasil diaktifkan.');
+                            setTimeout(() => { setSaved(false); setSavedMessage(''); }, 2500);
+                          } else {
+                            setPinError(data.error || 'Gagal menyimpan PIN');
+                            setTimeout(() => setPin2(''), 600);
+                          }
+                        } catch {
+                          setPinError('Gagal menyimpan PIN');
+                          setTimeout(() => setPin2(''), 600);
+                        }
+                        setPinSaving(false);
+                      }
+                    }} autoFocus error={!!pinError} />
+                    {pinError && <p className="text-xs text-red-500 dark:text-red-400 text-center mt-1">{pinError}</p>}
+                    <button
+                      type="button"
+                      disabled={pin2.length < 6 || pinSaving}
+                      className={`w-full py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2 ${pin2.length === 6 && !pinSaving ? 'bg-emerald-500 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500 opacity-40'}`}
+                    >
+                      {pinSaving ? <><Loader2 size={14} className="animate-spin" /> Menyimpan...</> : <><Check size={14} /> Aktifkan PIN</>}
+                    </button>
+                  </div>
+                )}
+
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── Disable PIN Dialog ── */}
+        {showDisableDialog && (
+          <>
+            <style>{`
+              @keyframes pinOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+              @keyframes pinOverlayOut { from { opacity: 1; } to { opacity: 0; } }
+              @keyframes pinModalIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+              @keyframes pinModalOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.92); } }
+            `}</style>
+            <div
+              className="fixed -top-12 left-0 right-0 -bottom-12 z-50 bg-black/50 backdrop-blur-sm"
+              style={{ animation: closingDisable ? 'pinOverlayOut 0.15s ease forwards' : 'pinOverlayIn 0.2s ease' }}
+              onClick={() => {
+                setClosingDisable(true);
+                setTimeout(() => { setClosingDisable(false); setShowDisableDialog(false); setDisableStep('confirm'); setDisableOTP(''); setDisableError(''); }, 150);
+              }}
+            />
+            <div className="fixed inset-0 z-50 flex items-center justify-center px-6 pointer-events-none">
+              <div
+                className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl p-5 text-center pointer-events-auto"
+                style={{ animation: closingDisable ? 'pinModalOut 0.15s ease forwards' : 'pinModalIn 0.25s cubic-bezier(0.16,1,0.3,1)' }}
+                onClick={e => e.stopPropagation()}
+              >
+
+                {/* Step 1: Confirm */}
+                {disableStep === 'confirm' && (
+                  <>
+                    <div className="w-12 h-12 rounded-full bg-red-50 dark:bg-red-900/20 mx-auto flex items-center justify-center">
+                      <ShieldOff size={22} className="text-red-500" />
+                    </div>
+                    <p className="text-sm font-bold text-gray-800 dark:text-white mt-3">Nonaktifkan PIN?</p>
+                    {telegramStatus.connected ? (
+                      <>
+                        <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Kode verifikasi akan dikirim ke Telegram kamu</p>
+                        <div className="flex items-center justify-center gap-1.5 mt-3">
+                          <Send size={14} className="text-emerald-500" />
+                          <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">Telegram terhubung</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Perlu verifikasi via Telegram untuk nonaktifkan PIN</p>
+                        <div className="flex items-center justify-center gap-1.5 mt-3">
+                          <Unlink size={14} className="text-amber-500" />
+                          <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Telegram belum terhubung</span>
+                        </div>
+                        <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1.5">Hubungkan Telegram di tab Telegram terlebih dahulu</p>
+                      </>
+                    )}
+                    {disableError && <p className="text-xs text-red-500 dark:text-red-400 mt-2">{disableError}</p>}
+                    <div className="flex gap-2 mt-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setClosingDisable(true);
+                          setTimeout(() => { setClosingDisable(false); setShowDisableDialog(false); setDisableStep('confirm'); setDisableOTP(''); setDisableError(''); }, 150);
+                        }}
+                        className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-xs font-semibold text-gray-500 dark:text-slate-400 active:scale-95 transition-all"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        type="button"
+                        disabled={disableLoading || !telegramStatus.connected}
+                        onClick={async () => {
+                          setDisableLoading(true);
+                          setDisableError('');
+                          try {
+                            const res = await fetch('/api/auth/pin-reset-request', {
+                              method: 'POST',
+                              headers: { ...getAuthHeaders() },
+                            });
+                            const data = await res.json();
+                            if (res.ok) {
+                              setDisableStep('otp');
+                              if (data.telegramName) setOtpTelegramName(data.telegramName);
+                              setOtpCooldown(60);
+                              const interval = setInterval(() => {
+                                setOtpCooldown(prev => { if (prev <= 1) { clearInterval(interval); return 0; } return prev - 1; });
+                              }, 1000);
+                            } else {
+                              setDisableError(data.error || 'Gagal mengirim kode');
+                            }
+                          } catch {
+                            setDisableError('Gagal mengirim kode');
+                          }
+                          setDisableLoading(false);
+                        }}
+                        className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${disableLoading || !telegramStatus.connected ? 'bg-red-200 dark:bg-red-900/30 text-red-300 dark:text-red-500/50' : 'bg-red-500 text-white'}`}
+                      >
+                        {disableLoading ? <Loader2 size={14} className="animate-spin mx-auto" /> : 'Kirim Kode'}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* Step 2: OTP Input */}
+                {disableStep === 'otp' && (
+                  <>
+                    <div className="w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-900/20 mx-auto flex items-center justify-center">
+                      <Send size={22} className="text-blue-500" />
+                    </div>
+                    <p className="text-sm font-bold text-gray-800 dark:text-white mt-3">Cek OTP di Telegram</p>
+                    <p className="text-xs text-gray-400 dark:text-slate-500 mt-1 mb-4">6 digit kode dikirim ke {otpTelegramName || 'Telegram kamu'}</p>
+                    <PinInput
+                      value={disableOTP}
+                      onChange={async (val) => {
+                        setDisableOTP(val);
+                        setDisableError('');
+                        if (val.length === 6) {
+                          setDisableLoading(true);
+                          try {
+                            const res = await fetch('/api/auth/pin-reset-verify', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                              body: JSON.stringify({ code: val }),
+                            });
+                            const data = await res.json();
+                            if (res.ok && data.success) {
+                              setHasPIN(false);
+                              setClosingDisable(true);
+                              setTimeout(() => { setClosingDisable(false); setShowDisableDialog(false); setDisableStep('confirm'); setDisableOTP(''); }, 150);
+                              sessionStorage.removeItem('pin_unlocked');
+                              setSaved(true);
+                              setSavedMessage('PIN dinonaktifkan.');
+                              setTimeout(() => { setSaved(false); setSavedMessage(''); }, 2500);
+                            } else {
+                              setDisableError(data.error || 'Kode salah');
+                              setTimeout(() => setDisableOTP(''), 600);
+                            }
+                          } catch {
+                            setDisableError('Gagal memverifikasi kode');
+                            setTimeout(() => setDisableOTP(''), 600);
+                          }
+                          setDisableLoading(false);
+                        }
+                      }}
+                      autoFocus
+                      error={!!disableError}
+                    />
+                    {disableError && <p className="text-xs text-red-500 dark:text-red-400 mt-2">{disableError}</p>}
+                    <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-3">
+                      {otpCooldown > 0 ? (
+                        <>Kirim ulang ({otpCooldown}s)</>
+                      ) : (
+                        <>Belum dapat kode?{' '}
+                          <button
+                            onClick={async () => {
+                              setDisableError('');
+                              try {
+                                const res = await fetch('/api/auth/pin-reset-request', {
+                                  method: 'POST',
+                                  headers: { ...getAuthHeaders() },
+                                });
+                                if (res.ok) {
+                                  setOtpCooldown(60);
+                                  const interval = setInterval(() => {
+                                    setOtpCooldown(prev => { if (prev <= 1) { clearInterval(interval); return 0; } return prev - 1; });
+                                  }, 1000);
+                                }
+                              } catch { /* silent */ }
+                            }}
+                            className="text-emerald-600 dark:text-emerald-400 underline underline-offset-2"
+                          >
+                            Kirim ulang
+                          </button>
+                        </>
+                      )}
+                    </p>
+                  </>
+                )}
+
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Password Change Modal */}
         <PasswordModal

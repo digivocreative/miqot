@@ -34,6 +34,7 @@ export function clearSession() {
   // Clear session-scoped UI state
   sessionStorage.removeItem('insightDismissed'); // legacy cleanup
   localStorage.removeItem('insightDismissedDate');
+  sessionStorage.removeItem('pin_unlocked');
 }
 
 export function getAuthHeaders(): Record<string, string> {

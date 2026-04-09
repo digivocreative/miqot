@@ -89,6 +89,14 @@ body {
   to { --ai-angle: 360deg; }
 }
 
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.animate-cursor-blink {
+  animation: cursor-blink 1s step-end infinite;
+}
+
 .ai-border-glow {
   background: conic-gradient(
     from var(--ai-angle),

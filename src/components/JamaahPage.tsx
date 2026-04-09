@@ -4,9 +4,10 @@ import {
   Eye, EyeOff, LogIn, Loader2, User, Users, Lock, Search,
   Calendar, Building2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, RefreshCw,
-  ArrowUpDown, SlidersHorizontal, X, Check, Plane, Landmark,
+  ArrowUpDown, SlidersHorizontal, X, Check, Plane, Landmark, PenLine,
 } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders, getStoredSession } from './LoginPage';
+import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import { trackEvent } from '../utils/analytics';
 import HajiPage from './HajiPage';
 
@@ -63,6 +64,8 @@ interface JamaahItem {
   paspor_expired: string | null;
   raw_data: { staf?: string; status_bayar?: string; [key: string]: unknown } | null;
   synced_at: string;
+  notes: string | null;
+  notes_updated_at: string | null;
 }
 
 interface JamaahData {
@@ -127,6 +130,12 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
   const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
+  // Notes
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+  const typingPlaceholder = useTypingPlaceholder(editingNoteId !== null);
+
   const [filterOpen, setFilterOpen] = useState(false);
   const [subTab, setSubTab] = useState<'umroh' | 'haji'>(initialSubTab);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -139,6 +148,43 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
     window.history.replaceState(null, '', `/dashboard/jamaah/${tab}`);
     document.title = tab === 'haji' ? 'Jamaah - Haji' : 'Jamaah';
   }, []);
+
+  const formatNoteDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const handleSaveNote = async (item: JamaahItem) => {
+    setSavingNote(true);
+    try {
+      const session = getStoredSession();
+      const res = await fetch('/api/laporan/jamaah/note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          id_umroh: item.id_umroh,
+          nama: item.nama,
+          notes: noteText.trim() || null,
+        }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setData(prev => prev ? {
+          ...prev,
+          items: prev.items.map(j =>
+            (j.id_umroh === item.id_umroh && j.nama === item.nama)
+              ? { ...j, notes: noteText.trim() || null, notes_updated_at: noteText.trim() ? new Date().toISOString() : null }
+              : j
+          ),
+        } : prev);
+        setEditingNoteId(null);
+      }
+    } catch (err) {
+      console.error('Failed to save note:', err);
+    } finally {
+      setSavingNote(false);
+    }
+  };
 
   // ── Check status on mount / handle parent disconnect ──
   useEffect(() => {
@@ -847,9 +893,14 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                     {/* Info center */}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{item.nama}</p>
-                      {item.paket && (
-                        <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5 truncate">{item.paket}</p>
-                      )}
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {item.paket && (
+                          <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{item.paket}</p>
+                        )}
+                        {item.notes && (
+                          <span className="shrink-0 text-[8px] font-bold uppercase tracking-wide text-amber-500 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-[1px] rounded">Note</span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Stacked right: payment + departure */}
@@ -1013,16 +1064,113 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                               )}
                             </div>
                           ) : (
-                            <p className="text-[13px] font-bold text-gray-700 dark:text-slate-200">-</p>
+                            <p className="text-[13px] font-bold text-amber-600 dark:text-amber-400">Belum Setor</p>
                           )}
                         </div>
                         {item.raw_data?.staf && (
                           <div>
                             <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Staff</p>
-                            <p className="text-[13px] font-bold text-gray-700 dark:text-slate-200">{item.raw_data.staf}</p>
+                            <p className="text-[13px] font-bold text-gray-700 dark:text-slate-200 truncate">{item.raw_data.staf}</p>
+                          </div>
+                        )}
+                        {!item.notes && editingNoteId !== `${item.id_umroh}_${item.nama}` && (
+                          <div className="flex items-end">
+                            <button
+                              onClick={() => {
+                                setEditingNoteId(`${item.id_umroh}_${item.nama}`);
+                                setNoteText('');
+                              }}
+                              className="flex items-center gap-1 text-[10px] font-bold text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-slate-700 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors active:scale-95"
+                            >
+                              <PenLine size={11} strokeWidth={2.2} />
+                              Catatan
+                            </button>
                           </div>
                         )}
                       </div>
+
+                      {/* ─── Section: Catatan ─── */}
+                      <AnimatePresence mode="wait">
+                      {editingNoteId === `${item.id_umroh}_${item.nama}` ? (
+                        <motion.div
+                          key="note-edit"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2, ease: 'easeInOut' }}
+                          style={{ overflow: 'hidden' }}
+                        >
+                          <div className="bg-gray-50/80 dark:bg-slate-900/40 px-3 py-2.5">
+                            <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">Catatan</p>
+                            <div className="relative">
+                              <textarea
+                                value={noteText}
+                                onChange={(e) => setNoteText(e.target.value)}
+                                placeholder=""
+                                rows={3}
+                                maxLength={240}
+                                autoFocus
+                                className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2 text-[12px] text-gray-800 dark:text-slate-200 focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/40 outline-none resize-none transition-all"
+                              />
+                              {!noteText && (
+                                <div className="absolute top-0 left-0 right-0 px-3 py-2 pointer-events-none">
+                                  <span className="text-[12px] text-gray-400 dark:text-slate-500">{typingPlaceholder}</span><span className="text-[12px] text-gray-400 dark:text-slate-500 animate-cursor-blink">|</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center justify-between mt-2">
+                              <span className="text-[9px] text-gray-400 dark:text-slate-500">{noteText.length}/240</span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => setEditingNoteId(null)}
+                                  className="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-gray-400 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
+                                >
+                                  Batal
+                                </button>
+                                <button
+                                  onClick={() => handleSaveNote(item)}
+                                  disabled={savingNote}
+                                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm shadow-emerald-500/20 transition-colors disabled:opacity-50 flex items-center gap-1"
+                                >
+                                  {savingNote ? <Loader2 size={12} className="animate-spin" /> : null}
+                                  Simpan
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      ) : item.notes ? (
+                        <motion.div
+                          key="note-display"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2, ease: 'easeInOut' }}
+                          style={{ overflow: 'hidden' }}
+                        >
+                          <div className="bg-gray-50/80 dark:bg-slate-900/40 px-3 py-2.5">
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Catatan</p>
+                              <button
+                                onClick={() => {
+                                  setEditingNoteId(`${item.id_umroh}_${item.nama}`);
+                                  setNoteText(item.notes || '');
+                                }}
+                                className="p-1 -mr-1 rounded-md hover:bg-gray-200/60 dark:hover:bg-slate-800 transition-colors"
+                              >
+                                <PenLine size={11} strokeWidth={2} className="text-gray-400 dark:text-slate-500" />
+                              </button>
+                            </div>
+                            <p className="text-[12px] leading-relaxed text-gray-600 dark:text-slate-300">{item.notes}</p>
+                            {item.notes_updated_at && (
+                              <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-1.5">
+                                Terakhir diedit {formatNoteDate(item.notes_updated_at)}
+                              </p>
+                            )}
+                          </div>
+                        </motion.div>
+                      ) : null}
+                      </AnimatePresence>
 
                       {/* ─── Section 3: Perlengkapan & Paspor (tinted block) ─── */}
                       {(() => {

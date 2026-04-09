@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   Loader2, Users, Plane, UserPlus, Wallet,
-  Check, ChevronDown, X, RefreshCw, BarChart3, TrendingUp,
+  Check, ChevronDown, X, RefreshCw, BarChart3, TrendingUp, Lock, ArrowLeft,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import PinInput from './PinInput';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, CartesianGrid,
   XAxis, YAxis, Tooltip,
@@ -392,6 +393,96 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   // Admin: all years across all agents (for Tren Daftar dropdown)
   const [allYears, setAllYears] = useState<string[]>([]);
 
+  // ── PIN Gate state ──
+  const [pinRequired, setPinRequired] = useState(false);
+  const [pinUnlocked, setPinUnlocked] = useState(false);
+  const [pinChecking, setPinChecking] = useState(true);
+  const [gatePin, setGatePin] = useState('');
+  const [gateError, setGateError] = useState('');
+  const [gateAttempts, setGateAttempts] = useState(0);
+  const [gateCooldown, setGateCooldown] = useState(0);
+
+  useEffect(() => {
+    const checkPinGate = async () => {
+      // 1. Check sessionStorage unlock (1 hour TTL)
+      const unlockData = sessionStorage.getItem('pin_unlocked');
+      if (unlockData) {
+        try {
+          const { timestamp } = JSON.parse(unlockData);
+          if (Date.now() - timestamp < 60 * 60 * 1000) {
+            setPinUnlocked(true);
+            setPinChecking(false);
+            return;
+          }
+        } catch { /* invalid data */ }
+        sessionStorage.removeItem('pin_unlocked');
+      }
+
+      // 2. Fetch pin-status from server
+      try {
+        const res = await fetch('/api/auth/pin-status', { headers: { ...getAuthHeaders() } });
+        const data = await res.json();
+        if (data.hasPIN) {
+          setPinRequired(true);
+        } else {
+          setPinUnlocked(true);
+        }
+      } catch {
+        setPinUnlocked(true); // fail-open
+      }
+      setPinChecking(false);
+    };
+    checkPinGate();
+  }, []);
+
+  const startCooldown = useCallback((seconds: number) => {
+    setGateCooldown(seconds);
+    const interval = setInterval(() => {
+      setGateCooldown(prev => {
+        if (prev <= 1) { clearInterval(interval); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  const handleGatePinChange = useCallback(async (val: string) => {
+    setGatePin(val);
+    setGateError('');
+
+    if (val.length === 6) {
+      try {
+        const res = await fetch('/api/auth/verify-pin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({ pin: val }),
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          sessionStorage.setItem('pin_unlocked', JSON.stringify({ timestamp: Date.now() }));
+          setPinUnlocked(true);
+        } else {
+          const newAttempts = gateAttempts + 1;
+          setGateAttempts(newAttempts);
+
+          if (res.status === 429) {
+            setGateError(data.error);
+            startCooldown(30);
+          } else if (newAttempts >= 3) {
+            setGateError('Terlalu banyak percobaan');
+            startCooldown(30);
+          } else {
+            setGateError(`PIN salah. ${3 - newAttempts} percobaan tersisa.`);
+          }
+          setTimeout(() => setGatePin(''), 600);
+        }
+      } catch {
+        setGateError('Gagal memverifikasi PIN');
+        setTimeout(() => setGatePin(''), 600);
+      }
+    }
+  }, [gateAttempts, startCooldown]);
+
   const fetchStats = useCallback(async (year?: string) => {
     setLoading(true);
     setError('');
@@ -585,8 +676,45 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   const berangkatPreview = data ? data.berangkatBulanIni.slice(0, 3) : [];
   const outstandingPreview = data ? data.outstandingList.slice(0, 3) : [];
 
+  const pinGateActive = pinRequired && !pinUnlocked && !pinChecking;
+
   return (
     <div className="max-w-lg mx-auto">
+
+      {pinGateActive ? (
+      /* ── PIN Gate View ── */
+      <main className="max-w-lg mx-auto px-4 flex flex-col items-center" style={{ minHeight: 'calc(100vh - 53px)' }}>
+        <div className="flex-1 flex flex-col items-center justify-center w-full pb-8">
+          <div className="w-12 h-12 rounded-full bg-emerald-50/80 dark:bg-emerald-500/[0.06] border border-emerald-200 dark:border-emerald-500/[0.12] flex items-center justify-center mb-4">
+            <Lock size={20} className="text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <h2 className="text-[15px] font-bold text-gray-800 dark:text-white mb-1">Masukkan PIN</h2>
+          <p className="text-xs text-gray-400 dark:text-slate-500 mb-7">Untuk mengakses data Statistik</p>
+          <PinInput value={gatePin} onChange={gateCooldown > 0 ? () => {} : handleGatePinChange} autoFocus error={!!gateError} />
+          {gateError && <p className="text-xs text-red-500 dark:text-red-400 mt-3 text-center">{gateError}</p>}
+          {gateCooldown > 0 && <p className="text-xs text-red-500 dark:text-red-400 mt-3">Coba lagi dalam {gateCooldown} detik</p>}
+          <p className="text-[11px] text-gray-400 dark:text-slate-600 mt-7">
+            Lupa PIN?{' '}
+            <button onClick={() => {
+              window.history.pushState({ tab: 'settings' }, '', '/dashboard/settings#pin-keamanan');
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }} className="text-gray-500 dark:text-slate-500 underline underline-offset-2">
+              Nonaktifkan di Profil
+            </button>
+          </p>
+        </div>
+        <div className="w-full pb-6">
+          <button
+            onClick={() => window.history.back()}
+            className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-500 dark:text-slate-300 text-xs font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 active:scale-[0.97] transition-all"
+          >
+            <ArrowLeft size={15} />
+            Kembali
+          </button>
+        </div>
+      </main>
+      ) : (
+      <div>
 
       {/* ── Loading ── */}
       {showSkeleton && <StatistikSkeleton />}
@@ -934,6 +1062,8 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         </Suspense>
       )}
       </>
+      )}
+      </div>
       )}
     </div>
   );

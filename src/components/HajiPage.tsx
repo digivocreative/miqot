@@ -5,9 +5,10 @@ import {
   ChevronLeft, ChevronRight, RefreshCw,
   SlidersHorizontal, Landmark, Phone, MapPin, Check,
   FileText, MessageCircle, User, Lock, Eye, EyeOff, LogIn,
-  KeyRound, Trash2,
+  KeyRound, Trash2, PenLine,
 } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders, getStoredSession } from './LoginPage';
+import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import { trackEvent } from '../utils/analytics';
 
 // ── Animated Counter: smooth count-up between values ──
@@ -70,6 +71,8 @@ interface HajiJamaah {
   bpih_url: string | null;
   surat_pernyataan_url: string | null;
   synced_at: string | null;
+  notes: string | null;
+  notes_updated_at: string | null;
 }
 
 interface HajiStats {
@@ -266,6 +269,13 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
   const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [syncedCount, setSyncedCount] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Notes
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+  const typingPlaceholder = useTypingPlaceholder(editingNoteId !== null);
+
   const [showFilters, setShowFilters] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [docViewer, setDocViewer] = useState<{ url: string; title: string } | null>(null);
@@ -274,6 +284,39 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
   const hasAutoSynced = useRef(false);
 
   const tahunOptions = stats ? Object.keys(stats.byTahun).sort((a, b) => b.localeCompare(a)) : [];
+
+  const formatNoteDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const handleSaveNote = async (item: HajiJamaah) => {
+    setSavingNote(true);
+    try {
+      const res = await fetch('/api/haji/jamaah/note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          id_haji: item.id_haji,
+          id_jamaah: item.id_jamaah,
+          notes: noteText.trim() || null,
+        }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setJamaahList(prev => prev.map(j =>
+          (j.id_haji === item.id_haji && j.id_jamaah === item.id_jamaah)
+            ? { ...j, notes: noteText.trim() || null, notes_updated_at: noteText.trim() ? new Date().toISOString() : null }
+            : j
+        ));
+        setEditingNoteId(null);
+      }
+    } catch (err) {
+      console.error('Failed to save note:', err);
+    } finally {
+      setSavingNote(false);
+    }
+  };
 
   // ── Check status on mount ──
   useEffect(() => {
@@ -774,9 +817,14 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                     {/* Info center */}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{item.nama || '-'}</p>
-                      <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5 truncate">
-                        {item.id_haji} • {item.paket || '-'}
-                      </p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
+                          {item.id_haji} • {item.paket || '-'}
+                        </p>
+                        {item.notes && (
+                          <span className="shrink-0 text-[8px] font-bold uppercase tracking-wide text-amber-500 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-[1px] rounded">Note</span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Year right */}
@@ -833,6 +881,20 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                               <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Status</p>
                               <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{item.status_bayar || '-'}</p>
                             </div>
+                            {!item.notes && editingNoteId !== `${item.id_haji}_${item.id_jamaah}` && (
+                              <div className="flex items-end">
+                                <button
+                                  onClick={() => {
+                                    setEditingNoteId(`${item.id_haji}_${item.id_jamaah}`);
+                                    setNoteText('');
+                                  }}
+                                  className="flex items-center gap-1 text-[10px] font-bold text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-slate-700 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors active:scale-95"
+                                >
+                                  <PenLine size={11} strokeWidth={2.2} />
+                                  Catatan
+                                </button>
+                              </div>
+                            )}
                           </div>
 
                           {(item.telp || item.alamat) && (
@@ -851,6 +913,89 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                               )}
                             </div>
                           )}
+
+                          {/* ─── Section: Catatan ─── */}
+                          <AnimatePresence mode="wait">
+                          {editingNoteId === `${item.id_haji}_${item.id_jamaah}` ? (
+                            <motion.div
+                              key="note-edit"
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2, ease: 'easeInOut' }}
+                              style={{ overflow: 'hidden' }}
+                            >
+                              <div className="bg-gray-50/80 dark:bg-slate-900/40 px-3 py-2.5">
+                                <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">Catatan</p>
+                                <div className="relative">
+                                  <textarea
+                                    value={noteText}
+                                    onChange={(e) => setNoteText(e.target.value)}
+                                    placeholder=""
+                                    rows={3}
+                                    maxLength={240}
+                                    autoFocus
+                                    className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2 text-[12px] text-gray-800 dark:text-slate-200 focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/40 outline-none resize-none transition-all"
+                                  />
+                                  {!noteText && (
+                                    <div className="absolute top-0 left-0 right-0 px-3 py-2 pointer-events-none">
+                                      <span className="text-[12px] text-gray-400 dark:text-slate-500">{typingPlaceholder}</span><span className="text-[12px] text-gray-400 dark:text-slate-500 animate-cursor-blink">|</span>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex items-center justify-between mt-2">
+                                  <span className="text-[9px] text-gray-400 dark:text-slate-500">{noteText.length}/240</span>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => setEditingNoteId(null)}
+                                      className="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-gray-400 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
+                                    >
+                                      Batal
+                                    </button>
+                                    <button
+                                      onClick={() => handleSaveNote(item)}
+                                      disabled={savingNote}
+                                      className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm shadow-emerald-500/20 transition-colors disabled:opacity-50 flex items-center gap-1"
+                                    >
+                                      {savingNote ? <Loader2 size={12} className="animate-spin" /> : null}
+                                      Simpan
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </motion.div>
+                          ) : item.notes ? (
+                            <motion.div
+                              key="note-display"
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2, ease: 'easeInOut' }}
+                              style={{ overflow: 'hidden' }}
+                            >
+                              <div className="bg-gray-50/80 dark:bg-slate-900/40 px-3 py-2.5">
+                                <div className="flex items-center justify-between mb-1">
+                                  <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Catatan</p>
+                                  <button
+                                    onClick={() => {
+                                      setEditingNoteId(`${item.id_haji}_${item.id_jamaah}`);
+                                      setNoteText(item.notes || '');
+                                    }}
+                                    className="p-1 -mr-1 rounded-md hover:bg-gray-200/60 dark:hover:bg-slate-800 transition-colors"
+                                  >
+                                    <PenLine size={11} strokeWidth={2} className="text-gray-400 dark:text-slate-500" />
+                                  </button>
+                                </div>
+                                <p className="text-[12px] leading-relaxed text-gray-600 dark:text-slate-300">{item.notes}</p>
+                                {item.notes_updated_at && (
+                                  <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-1.5">
+                                    Terakhir diedit {formatNoteDate(item.notes_updated_at)}
+                                  </p>
+                                )}
+                              </div>
+                            </motion.div>
+                          ) : null}
+                          </AnimatePresence>
 
                           <div className="px-3 py-2.5 flex items-center gap-2 border-t border-gray-50 dark:border-slate-700/50">
                             {item.bpih_url && (

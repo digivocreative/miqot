@@ -70,7 +70,7 @@ async function logAnalyticsEvent(agentSlug, eventType, eventName, metadata = {})
 
 // ============ KURS BANK MANDIRI ============
 let kursCache = null; // { rates: { USD: number, ... }, updatedAt: string, fetchedAt: number }
-const KURS_CACHE_TTL = 60 * 60 * 1000; // 1 jam
+const KURS_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 
 const CURRENCY_NAMES = {
   AUD: 'Australian Dollar', CAD: 'Canadian Dollar', CHF: 'Swiss Franc',
@@ -85,9 +85,18 @@ async function fetchKursMandiri() {
   try {
     const res = await fetch('https://www.bankmandiri.co.id/kurs', {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.bankmandiri.co.id/',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Ch-Ua': '"Chromium";v="135", "Google Chrome";v="135", "Not-A.Brand";v="8"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Cache-Control': 'no-cache',
       },
       signal: AbortSignal.timeout(15000),
     });
@@ -136,8 +145,35 @@ async function fetchKursMandiri() {
   }
 }
 
+// Fetch on startup, then schedule at 08:30 WIB and 16:00 WIB
 fetchKursMandiri();
-setInterval(fetchKursMandiri, KURS_CACHE_TTL);
+function scheduleKursCron() {
+  const now = new Date();
+  const targets = [
+    { h: 1, m: 30 },  // 08:30 WIB = 01:30 UTC
+    { h: 9, m: 0 },   // 16:00 WIB = 09:00 UTC
+  ];
+  let next = null;
+  for (const t of targets) {
+    const d = new Date(now);
+    d.setUTCHours(t.h, t.m, 0, 0);
+    if (d > now && (!next || d < next)) next = d;
+  }
+  if (!next) {
+    next = new Date(now);
+    next.setDate(next.getDate() + 1);
+    next.setUTCHours(targets[0].h, targets[0].m, 0, 0);
+  }
+  const msUntil = next - now;
+  const wibHour = (next.getUTCHours() + 7) % 24;
+  const wibMin = String(next.getUTCMinutes()).padStart(2, '0');
+  console.log(`[Kurs] Next fetch in ${Math.round(msUntil / 60000)} minutes (${wibHour}:${wibMin} WIB)`);
+  setTimeout(async () => {
+    await fetchKursMandiri();
+    scheduleKursCron();
+  }, msUntil);
+}
+scheduleKursCron();
 
 // GET /api/kurs — Kurs semua mata uang (public, no auth)
 app.get('/api/kurs', (req, res) => {
@@ -756,6 +792,196 @@ app.post('/api/auth/reset-password', async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
+// PIN Security for Statistik
+// ──────────────────────────────────────────────
+const pinAttempts = {};
+const pinResetOTPs = {};
+
+app.get('/api/auth/pin-status', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgent(req.user.slug);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    res.json({ hasPIN: !!agent.pin_hash });
+  } catch (err) {
+    console.error('[PIN] Status check error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/auth/set-pin', authMiddleware, async (req, res) => {
+  const { pin, currentPin } = req.body;
+  if (!pin || !/^\d{6}$/.test(pin)) {
+    return res.status(400).json({ error: 'PIN harus 6 digit angka' });
+  }
+  try {
+    const agent = await getAgent(req.user.slug);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    // If agent already has PIN, verify current PIN first
+    if (agent.pin_hash) {
+      if (!currentPin) {
+        return res.status(400).json({ error: 'PIN lama wajib diisi' });
+      }
+      const match = await bcrypt.compare(currentPin, agent.pin_hash);
+      if (!match) {
+        return res.status(401).json({ error: 'PIN lama tidak cocok' });
+      }
+    }
+
+    const pinHash = await bcrypt.hash(pin, 12);
+    const { error } = await supabase
+      .from('agents')
+      .update({ pin_hash: pinHash })
+      .eq('slug', req.user.slug);
+
+    if (error) {
+      console.error('[PIN] Set PIN DB error:', error.message);
+      return res.status(500).json({ error: 'Gagal menyimpan PIN' });
+    }
+
+    agentCache = null;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[PIN] Set PIN error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/auth/verify-pin', authMiddleware, async (req, res) => {
+  const { pin } = req.body;
+  const slug = req.user.slug;
+
+  // Rate limit check
+  const now = Date.now();
+  if (pinAttempts[slug]) {
+    const att = pinAttempts[slug];
+    if (now - att.firstAttempt > 5 * 60 * 1000) {
+      delete pinAttempts[slug];
+    } else if (att.count >= 5) {
+      const remainMs = 5 * 60 * 1000 - (now - att.firstAttempt);
+      const remainMin = Math.ceil(remainMs / 60000);
+      return res.status(429).json({ error: `Terlalu banyak percobaan. Coba lagi dalam ${remainMin} menit.` });
+    }
+  }
+
+  try {
+    const agent = await getAgent(slug);
+    if (!agent || !agent.pin_hash) {
+      return res.status(400).json({ error: 'PIN belum diatur' });
+    }
+
+    const match = await bcrypt.compare(pin, agent.pin_hash);
+    if (!match) {
+      // Track failed attempt
+      if (!pinAttempts[slug]) {
+        pinAttempts[slug] = { count: 1, firstAttempt: now };
+      } else {
+        pinAttempts[slug].count++;
+      }
+      return res.status(401).json({ error: 'PIN salah' });
+    }
+
+    // Success — clear attempts
+    delete pinAttempts[slug];
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[PIN] Verify error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/auth/pin-reset-request', authMiddleware, async (req, res) => {
+  const slug = req.user.slug;
+  try {
+    const agent = await getAgent(slug);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    if (!agent.telegram_chat_id) {
+      return res.status(400).json({ error: 'Hubungkan Telegram terlebih dahulu di Pengaturan Profil' });
+    }
+
+    const code = Math.random().toString().slice(2, 8);
+    pinResetOTPs[slug] = { code, expiresAt: Date.now() + 5 * 60 * 1000, attempts: 0 };
+
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    let telegramName = '';
+    if (botToken) {
+      // Get Telegram display name
+      try {
+        const chatRes = await fetch(`https://api.telegram.org/bot${botToken}/getChat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: agent.telegram_chat_id }),
+        });
+        const chatData = await chatRes.json();
+        if (chatData.ok) {
+          telegramName = chatData.result.username
+            ? `@${chatData.result.username}`
+            : chatData.result.first_name || '';
+        }
+      } catch { /* silent */ }
+
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: agent.telegram_chat_id,
+          text: `🔐 <b>Kode Reset PIN</b>\n\n<code>${code}</code>\n\nKode ini berlaku 5 menit.\nJangan berikan kode ini ke siapa pun.`,
+          parse_mode: 'HTML',
+        }),
+      });
+    }
+
+    res.json({ success: true, telegramName });
+  } catch (err) {
+    console.error('[PIN] Reset request error:', err);
+    res.status(500).json({ error: 'Gagal mengirim kode' });
+  }
+});
+
+app.post('/api/auth/pin-reset-verify', authMiddleware, async (req, res) => {
+  const slug = req.user.slug;
+  const { code } = req.body;
+
+  const entry = pinResetOTPs[slug];
+  if (!entry) {
+    return res.status(400).json({ error: 'Minta kode OTP terlebih dahulu' });
+  }
+  if (Date.now() > entry.expiresAt) {
+    delete pinResetOTPs[slug];
+    return res.status(400).json({ error: 'Kode sudah kedaluwarsa. Minta kode baru.' });
+  }
+  if (code !== entry.code) {
+    entry.attempts++;
+    if (entry.attempts >= 3) {
+      delete pinResetOTPs[slug];
+      return res.status(429).json({ error: 'Terlalu banyak percobaan. Minta kode baru.' });
+    }
+    return res.status(401).json({ error: 'Kode salah' });
+  }
+
+  try {
+    const { error } = await supabase
+      .from('agents')
+      .update({ pin_hash: null })
+      .eq('slug', slug);
+
+    if (error) {
+      console.error('[PIN] Reset verify DB error:', error.message);
+      return res.status(500).json({ error: 'Gagal menghapus PIN' });
+    }
+
+    delete pinResetOTPs[slug];
+    delete pinAttempts[slug];
+    agentCache = null;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[PIN] Reset verify error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ──────────────────────────────────────────────
 // Admin: Profile & agent management
 // ──────────────────────────────────────────────
 app.options('/api/admin/:path', (req, res) => {
@@ -1292,6 +1518,50 @@ async function writeCapiConfig(slug, config) {
       updated_at: new Date().toISOString(),
     }, { onConflict: 'slug' });
   if (error) console.error('[Supabase] CAPI write error:', error.message);
+}
+
+/**
+ * Fire a CAPI Purchase event server-side for a jamaah.
+ * Silent fail — jangan ganggu sync flow.
+ */
+async function fireCapiPurchase(slug, jamaah) {
+  try {
+    const config = await readCapiConfig(slug);
+    if (!config?.pixelId || !config?.accessToken) return;
+    const accessToken = capiDecrypt(config.accessToken);
+    if (!accessToken) return;
+
+    const payload = {
+      data: [{
+        event_name: 'Purchase',
+        event_time: Math.floor(Date.now() / 1000),
+        event_source_url: `https://alhijaz.co/${slug}`,
+        action_source: 'system_generated',
+        user_data: { client_user_agent: 'Miqot Server Sync' },
+        custom_data: {
+          currency: 'IDR',
+          value: jamaah.bayar,
+          content_name: jamaah.paket || 'Paket Umroh',
+          content_ids: [jamaah.id_umroh],
+          content_type: 'product',
+        },
+      }],
+      ...(config.testMode && config.testEventCode ? { test_event_code: config.testEventCode } : {}),
+    };
+
+    const resp = await fetch(
+      `https://graph.facebook.com/v21.0/${config.pixelId}/events?access_token=${encodeURIComponent(accessToken)}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
+    );
+
+    if (!resp.ok) {
+      console.error(`[CAPI] Purchase failed ${slug}/${jamaah.id_umroh}:`, await resp.text());
+    } else {
+      console.log(`[CAPI] Purchase sent: ${slug}/${jamaah.id_umroh} = Rp${jamaah.bayar.toLocaleString('id-ID')}`);
+    }
+  } catch (err) {
+    console.error(`[CAPI] Purchase error ${slug}:`, err.message);
+  }
 }
 
 // Rate limiting
@@ -1897,6 +2167,37 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           if (error) console.error(`[Sync] ${slug} Phase 2 range ${job.tglAwal} error:`, error.message);
         }
         // Phase 2: no counter update — just keep syncing state alive
+
+        // Fire CAPI Purchase for jamaah with increased payments
+        try {
+          const upsertedIds = rows.map(r => r.id_umroh);
+          const { data: currentJamaah } = await supabase
+            .from('jamaah')
+            .select('id_umroh, nama, paket, bayar, capi_last_bayar')
+            .eq('agent_slug', slug)
+            .in('id_umroh', upsertedIds);
+
+          if (currentJamaah?.length > 0) {
+            const capiUpdates = [];
+            for (const j of currentJamaah) {
+              const lastBayar = j.capi_last_bayar || 0;
+              if (j.bayar > 0 && j.bayar > lastBayar) {
+                fireCapiPurchase(slug, j);
+                capiUpdates.push(j);
+              }
+            }
+            if (capiUpdates.length > 0) {
+              for (const u of capiUpdates) {
+                await supabase.from('jamaah')
+                  .update({ capi_last_bayar: u.bayar })
+                  .eq('agent_slug', slug).eq('id_umroh', u.id_umroh).eq('nama', u.nama);
+              }
+              console.log(`[CAPI] Updated capi_last_bayar for ${capiUpdates.length} jamaah (${slug})`);
+            }
+          }
+        } catch (capiErr) {
+          console.error(`[CAPI] Manual sync Purchase error:`, capiErr.message);
+        }
 
         // If Phase 1 produced nothing, send response on first Phase 2 batch
         if (!firstBatchSent) {
@@ -3620,6 +3921,39 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   });
 });
 
+// Jamaah note: create/update/clear note for a specific jamaah
+app.post('/api/laporan/jamaah/note', authMiddleware, async (req, res) => {
+  try {
+    const slug = req.user.slug;
+    const { id_umroh, nama, notes } = req.body;
+
+    if (!id_umroh || !nama) {
+      return res.status(400).json({ error: 'id_umroh and nama are required' });
+    }
+
+    const updateData = (!notes || notes.trim() === '')
+      ? { notes: null, notes_updated_at: null }
+      : { notes: notes.trim(), notes_updated_at: new Date().toISOString() };
+
+    const { error } = await supabase
+      .from('jamaah')
+      .update(updateData)
+      .eq('agent_slug', slug)
+      .eq('id_umroh', id_umroh)
+      .eq('nama', nama);
+
+    if (error) {
+      console.error('[jamaah-note] Update error:', error.message);
+      return res.status(500).json({ error: 'Failed to save note' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[jamaah-note] Error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Disconnect: clear in-memory session only
 app.post('/api/laporan/disconnect', authMiddleware, async (req, res) => {
   const slug = req.user.slug;
@@ -4410,6 +4744,39 @@ app.get('/api/haji/jamaah', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('[haji] List error:', err);
     res.status(500).json({ error: 'Gagal mengambil data haji' });
+  }
+});
+
+// Haji jamaah note: create/update/clear note for a specific haji jamaah
+app.post('/api/haji/jamaah/note', authMiddleware, async (req, res) => {
+  try {
+    const slug = req.user.slug;
+    const { id_haji, id_jamaah, notes } = req.body;
+
+    if (!id_haji || !id_jamaah) {
+      return res.status(400).json({ error: 'id_haji and id_jamaah are required' });
+    }
+
+    const updateData = (!notes || notes.trim() === '')
+      ? { notes: null, notes_updated_at: null }
+      : { notes: notes.trim(), notes_updated_at: new Date().toISOString() };
+
+    const { error } = await supabase
+      .from('jamaah_haji')
+      .update(updateData)
+      .eq('agent_slug', slug)
+      .eq('id_haji', id_haji)
+      .eq('id_jamaah', id_jamaah);
+
+    if (error) {
+      console.error('[haji-note] Update error:', error.message);
+      return res.status(500).json({ error: 'Failed to save note' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[haji-note] Error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -6092,6 +6459,27 @@ async function syncOneAgent(agent) {
           notifyPembayaranMasuk(slug, pembayaranBaru).catch(e =>
             console.error(`[SYNC] ${slug}: pembayaran notif error:`, e.message)
           );
+        }
+
+        // Fire CAPI Purchase for jamaah with increased payments
+        try {
+          const capiRows = allNewRows.filter(row => {
+            const key = `${row.id_umroh}_${row.nama}`;
+            return (key in existingMap) && (row.bayar || 0) > 0 && (row.bayar || 0) > existingMap[key];
+          });
+          if (capiRows.length > 0) {
+            for (const row of capiRows) {
+              fireCapiPurchase(slug, row);
+            }
+            for (const row of capiRows) {
+              await supabase.from('jamaah')
+                .update({ capi_last_bayar: row.bayar })
+                .eq('agent_slug', slug).eq('id_umroh', row.id_umroh).eq('nama', row.nama);
+            }
+            console.log(`[CAPI] Updated capi_last_bayar for ${capiRows.length} jamaah (${slug})`);
+          }
+        } catch (capiErr) {
+          console.error(`[CAPI] Background sync Purchase error:`, capiErr.message);
         }
       }
     }
