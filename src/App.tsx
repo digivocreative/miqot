@@ -75,14 +75,27 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // Detect agent + filter slug from URL (shared state for SEO + FloatingAgentBar)
   const [currentAgent, setCurrentAgent] = useState<AgentData | null>(null);
 
-  // Load agents from Supabase on mount
+  // Load agents from Supabase on mount, then fetch card_variant from server API
   useEffect(() => {
     loadAgentsFromSupabase().then(() => {
-      // Re-detect agent after Supabase data is loaded
       const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
       if (segments.length >= 1) {
-        const possibleAgent = AGENTS_DATA[segments[0]?.toLowerCase()];
-        if (possibleAgent) setCurrentAgent(possibleAgent);
+        const slug = segments[0]?.toLowerCase();
+        const possibleAgent = AGENTS_DATA[slug];
+        if (possibleAgent) {
+          setCurrentAgent(possibleAgent);
+          // Fetch card_variant from server API (server uses SELECT *, always reliable)
+          fetch(`/api/agent/${slug}/card-variant`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+              if (data?.card_variant && data.card_variant !== 'default') {
+                const updated = { ...AGENTS_DATA[slug], card_variant: data.card_variant };
+                AGENTS_DATA[slug] = updated;
+                setCurrentAgent(updated);
+              }
+            })
+            .catch(() => {});
+        }
       }
     });
   }, []);

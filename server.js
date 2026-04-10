@@ -311,7 +311,9 @@ app.post('/api/ai-copy', async (req, res) => {
 Tugas kamu menulis caption promosi WhatsApp yang santai, hangat, dan persuasif tapi tetap islami.
 Gunakan emoji secukupnya. Gunakan format WhatsApp (*bold*, _italic_) secukupnya.
 Tulis dengan gaya ngobrol ke teman — friendly, tidak kaku, tidak terlalu formal.
-Caption harus ringkas dan to the point, mudah dibaca di layar HP (maks 500 karakter).
+Caption harus SANGAT SINGKAT dan to the point, mudah dibaca di layar HP (maks 280 karakter).
+Langsung to the point, tidak perlu basa-basi panjang.
+Cukup 1 paragraf pembuka singkat, info inti (tanggal, hotel, harga), dan CTA.
 Jangan gunakan hashtag. Jangan gunakan markdown selain format WhatsApp.
 Jangan terlalu banyak baris kosong.`;
 
@@ -344,7 +346,7 @@ Buat caption yang membuat orang tertarik untuk segera mendaftar.`;
           { role: 'user', content: userPrompt },
         ],
         temperature: 0.85,
-        max_tokens: 380,
+        max_tokens: 200,
       }),
     });
 
@@ -640,8 +642,16 @@ app.post('/api/auth/login', async (req, res) => {
       website: agent.website,
       phone: agent.phone,
       email: agent.email || '',
+      card_variant: agent.card_variant || 'default',
     },
   });
+});
+
+// Public: get agent card_variant (no auth required)
+app.get('/api/agent/:slug/card-variant', async (req, res) => {
+  const agent = await getAgent(req.params.slug?.toLowerCase());
+  if (!agent) return res.status(404).json({ card_variant: 'default' });
+  res.json({ card_variant: agent.card_variant || 'default' });
 });
 
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
@@ -656,6 +666,7 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     phone: agent.phone,
     email: agent.email || '',
     telegram_chat_id: agent.telegram_chat_id || '',
+    card_variant: agent.card_variant || 'default',
   });
 });
 
@@ -1001,13 +1012,18 @@ app.options('/api/admin/agents/:slug', (req, res) => {
 
 // Update own profile
 app.put('/api/admin/profile', authMiddleware, async (req, res) => {
-  const { name, website, phone, email, telegram_chat_id, slug: newSlug, password } = req.body;
+  const { name, website, phone, email, telegram_chat_id, slug: newSlug, password, card_variant } = req.body;
+  const VALID_CARD_VARIANTS = ['default', 'split', 'spotlight', 'ticket', 'tiled', 'magazine'];
+  if (card_variant && !VALID_CARD_VARIANTS.includes(card_variant)) {
+    return res.status(400).json({ error: 'Varian card tidak valid' });
+  }
   const updates = {};
   if (name !== undefined) updates.name = name;
   if (website !== undefined) updates.website = website;
   if (phone !== undefined) updates.phone = phone;
   if (email !== undefined) updates.email = email;
   if (telegram_chat_id !== undefined) updates.telegram_chat_id = telegram_chat_id;
+  if (card_variant !== undefined) updates.card_variant = card_variant;
   // Handle optional password change
   if (password) {
     if (password.length < 6) {
@@ -1389,7 +1405,7 @@ app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), asy
 app.get('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
   const { data, error } = await supabase
     .from('agents')
-    .select('slug, name, website, phone, email, photo, role, jamaah_username, jamaah_password, jamaah_kantor')
+    .select('slug, name, website, phone, email, photo, role, jamaah_username, jamaah_password, jamaah_kantor, card_variant')
     .order('name');
   if (error) return res.status(500).json({ error: error.message });
   // Don't expose raw encrypted password — just indicate if it's set
@@ -6111,6 +6127,11 @@ app.get('{*path}', async (req, res) => {
     <meta name="twitter:image" content="${ogImageUrl}" />
     `;
     html = html.replace('</head>', `${metaTags}</head>`);
+
+    // Inject agent card_variant so the SPA can read it without waiting for Supabase
+    if (agent.card_variant && agent.card_variant !== 'default') {
+      html = html.replace('<body', `<body data-agent-card-variant="${agent.card_variant}"`);
+    }
   }
 
   res.set('Content-Type', 'text/html');

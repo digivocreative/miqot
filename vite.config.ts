@@ -119,7 +119,9 @@ function aiCopyDevPlugin() {
 Tugas kamu menulis caption promosi WhatsApp yang santai, hangat, dan persuasif tapi tetap islami.
 Gunakan emoji secukupnya. Gunakan format WhatsApp (*bold*, _italic_) secukupnya.
 Tulis dengan gaya ngobrol ke teman — friendly, tidak kaku, tidak terlalu formal.
-Caption harus ringkas dan to the point, mudah dibaca di layar HP (maks 500 karakter).
+Caption harus SANGAT SINGKAT dan to the point, mudah dibaca di layar HP (maks 280 karakter).
+Langsung to the point, tidak perlu basa-basi panjang.
+Cukup 1 paragraf pembuka singkat, info inti (tanggal, hotel, harga), dan CTA.
 Jangan gunakan hashtag. Jangan gunakan markdown selain format WhatsApp.
 Jangan terlalu banyak baris kosong.`;
 
@@ -153,7 +155,7 @@ Buat caption yang membuat orang tertarik untuk segera mendaftar.`;
                 { role: 'user', content: userPrompt },
               ],
               temperature: 0.85,
-              max_tokens: 380,
+              max_tokens: 200,
             }),
           });
 
@@ -633,6 +635,10 @@ export default defineConfig({
   server: {
     proxy: {
       // Auth & admin routes → local Express server
+      '/api/agent': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
       '/api/auth': {
         target: 'http://localhost:3000',
         changeOrigin: true,

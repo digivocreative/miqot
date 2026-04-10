@@ -12,6 +12,7 @@ const ItineraryModal = lazy(() => import('./ItineraryModal').then(m => ({ defaul
 import type { AgentData } from '@/data/agents';
 import { AGENTS_DATA } from '@/data/agents';
 import AgentProfile from './AgentProfile';
+import { SplitLayout, SpotlightLayout, TicketLayout, TiledLayout, MagazineLayout } from './CardVariants';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { getDistance } from '@/data/hotelService';
 import { getTemperature } from '@/data/temperatureData';
@@ -1399,7 +1400,7 @@ _________________________
         seat-info-section flex items-end gap-4 transition-all duration-300
         ${isFooter
           ? "mb-[10px] p-3 bg-gray-50 dark:bg-slate-900/50 rounded-xl border border-gray-100 dark:border-slate-700 shadow-sm"
-          : "mt-3 pt-3 border-t border-gray-100 dark:border-slate-700/50"
+          : cardVariant === 'split' ? "mt-0 pt-2 pb-1" : "mt-3 pt-3 border-t border-gray-100 dark:border-slate-700/50"
         }
       `}>
         {/* Left: Seat Info & Progress Bar */}
@@ -1446,6 +1447,10 @@ _________________________
   );
 };
 
+  // ── Card variant ──
+  const cardVariant = currentAgent?.card_variant || 'default';
+  const variantProps = { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, isNextDay, formatDate };
+
   return (
     <>
     <div
@@ -1456,8 +1461,8 @@ _________________________
       className={`
         bg-white dark:bg-slate-800 rounded-xl relative overflow-hidden cursor-pointer
         transition-all duration-300 ease-out
-        ${isExpanded 
-          ? 'shadow-lg ring-1 ring-emerald-100 dark:ring-emerald-900 pb-2' 
+        ${isExpanded
+          ? 'shadow-lg ring-1 ring-emerald-100 dark:ring-emerald-900 pb-2'
           : 'shadow-sm border border-gray-100 dark:border-slate-700 hover:shadow-md pb-1'
         }
       `}
@@ -1469,7 +1474,12 @@ _________________________
       {/* ============================================ */}
       {/* COLLAPSED VIEW (Always Visible) */}
       {/* ============================================ */}
-      <div className={isExpanded ? "pt-4 px-4 pb-0" : "p-4"}>
+      {cardVariant === 'split' ? <SplitLayout {...variantProps} />
+        : cardVariant === 'spotlight' ? <SpotlightLayout {...variantProps} />
+        : cardVariant === 'ticket' ? <TicketLayout {...variantProps} />
+        : cardVariant === 'tiled' ? <TiledLayout {...variantProps} />
+        : cardVariant === 'magazine' ? <MagazineLayout {...variantProps} />
+        : <div className={isExpanded ? "pt-4 px-4 pb-0" : "p-4"}>
         {/* Header: Title & Price */}
         <div className="flex justify-between items-start gap-3 mb-4">
           <div className="flex-1 min-w-0">
@@ -1610,10 +1620,10 @@ _________________________
 
         {/* Availability Bar + Departure Date (Only when Collapsed) */}
         {!isExpanded && <SeatAndDateSection isFooter={false} />}
-      </div>
+      </div>}
 
       {/* ============================================ */}
-      {/* EXPANDED VIEW (Animated) */}
+      {/* EXPANDED VIEW (Animated) — shared across all variants */}
       {/* ============================================ */}
       <div
         className="overflow-hidden transition-all duration-300 ease-out"

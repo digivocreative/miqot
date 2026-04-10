@@ -15,6 +15,7 @@ interface AgentProfile {
   telegram_chat_id?: string;
   photo: string;
   role: string;
+  card_variant?: string;
 }
 
 // ── Notification preference groups ──
@@ -807,6 +808,383 @@ function InternalSystemSection() {
   );
 }
 
+// ── Card Variant Constants & Components ──
+const VARIANT_IDS = ['default', 'split', 'spotlight', 'ticket', 'tiled', 'magazine'] as const;
+const VARIANT_LABELS: Record<string, string> = {
+  default: 'Default',
+  split: 'Split',
+  spotlight: 'Spotlight',
+  ticket: 'Ticket',
+  tiled: 'Tiled',
+  magazine: 'Magazine',
+};
+
+function MiniVariantPreview({ id, selected }: { id: string; selected: boolean }) {
+  const accent = selected ? 'bg-emerald-400' : 'bg-emerald-300 dark:bg-emerald-600';
+  const bar = 'bg-gray-300 dark:bg-slate-600';
+  const barLight = 'bg-gray-200 dark:bg-slate-700';
+
+  switch (id) {
+    case 'split':
+      return (
+        <div className="w-full h-full flex rounded-md overflow-hidden bg-white dark:bg-slate-800">
+          <div className="w-5 bg-gradient-to-b from-emerald-400 to-emerald-500 shrink-0" />
+          <div className="flex-1 p-1.5 flex flex-col gap-1">
+            <div className={`h-1.5 w-3/4 rounded-full ${bar}`} />
+            <div className={`h-1 w-1/2 rounded-full ${barLight}`} />
+            <div className="flex gap-1 mt-auto">
+              <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+              <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+            </div>
+            <div className={`h-1.5 w-full rounded-full ${accent}`} />
+          </div>
+        </div>
+      );
+    case 'spotlight':
+      return (
+        <div className="w-full h-full flex flex-col rounded-md overflow-hidden bg-white dark:bg-slate-800">
+          <div className="h-5 bg-gradient-to-r from-emerald-400 to-emerald-500 shrink-0 p-1.5">
+            <div className="h-1 w-2/3 rounded-full bg-white/50" />
+          </div>
+          <div className="flex-1 p-1.5 flex flex-col gap-1">
+            <div className="flex gap-1">
+              <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+              <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+            </div>
+            <div className="flex gap-1">
+              <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+              <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+            </div>
+            <div className={`h-1.5 w-full rounded-full ${accent} mt-auto`} />
+          </div>
+        </div>
+      );
+    case 'ticket':
+      return (
+        <div className="w-full h-full flex flex-col rounded-md overflow-hidden bg-white dark:bg-slate-800">
+          <div className="h-6 bg-slate-50 dark:bg-slate-900/50 shrink-0 flex items-center justify-center gap-1 px-2">
+            <div className="w-1 h-1 rounded-full bg-emerald-400" />
+            <div className="flex-1 border-t border-dashed border-emerald-300 dark:border-emerald-600" />
+            <div className="w-1 h-1 rounded-full bg-emerald-400" />
+          </div>
+          <div className="flex-1 p-1.5 flex flex-col gap-1">
+            <div className={`h-1.5 w-3/4 rounded-full ${bar}`} />
+            <div className="flex gap-1">
+              <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+              <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+            </div>
+            <div className={`h-1.5 w-full rounded-full ${accent} mt-auto`} />
+          </div>
+        </div>
+      );
+    case 'tiled':
+      return (
+        <div className="w-full h-full flex flex-col rounded-md overflow-hidden bg-white dark:bg-slate-800 p-1.5">
+          <div className={`h-1.5 w-3/4 rounded-full ${bar} mb-1`} />
+          <div className={`h-1.5 w-1/3 rounded-full ${accent} mb-1`} />
+          <div className="flex gap-1 mb-1">
+            <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+            <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+          </div>
+          <div className="flex gap-1 mt-auto">
+            <div className="flex-1 h-4 rounded bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800/40" />
+            <div className="flex-1 h-4 rounded bg-blue-50 dark:bg-blue-900/30 border border-blue-100 dark:border-blue-800/40" />
+          </div>
+        </div>
+      );
+    case 'magazine':
+      return (
+        <div className="w-full h-full flex flex-col rounded-md overflow-hidden">
+          <div className="h-8 bg-gradient-to-br from-slate-700 to-emerald-800 shrink-0 relative p-1.5">
+            <div className="h-1 w-2/3 rounded-full bg-white/30" />
+            <div className="absolute top-1 right-1 w-3 h-3 rounded-full border border-white/10" />
+          </div>
+          <div className="flex-1 bg-white dark:bg-slate-800 -mt-1.5 rounded-t-lg relative z-10 p-1.5 flex flex-col gap-1">
+            <div className="flex gap-1">
+              <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+              <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+            </div>
+            <div className={`h-1.5 w-full rounded-full ${accent} mt-auto`} />
+          </div>
+        </div>
+      );
+    default: // 'default'
+      return (
+        <div className="w-full h-full flex flex-col rounded-md overflow-hidden bg-white dark:bg-slate-800 p-1.5">
+          <div className={`h-1.5 w-3/4 rounded-full ${bar} mb-1`} />
+          <div className={`h-1.5 w-1/3 rounded-full ${accent} mb-1`} />
+          <div className="flex gap-1 mb-1">
+            <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+            <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+          </div>
+          <div className="flex gap-1">
+            <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+            <div className={`h-1 flex-1 rounded-full ${barLight}`} />
+          </div>
+          <div className={`h-1.5 w-full rounded-full ${accent} mt-auto`} />
+        </div>
+      );
+  }
+}
+
+function PreviewCard({ variant }: { variant: string }) {
+  // Dummy data for preview
+  const formatPreviewPrice = (price: number) => parseFloat((price / 1000000).toFixed(1)).toString();
+
+  const depTime = '17:30';
+  const arrTime = '16:00';
+  const retDepTime = '16:00';
+  const retArrTime = '17:30';
+  const depDate = '16 Jun 26';
+  const retDate = '27 Jun 26';
+  const depCode = 'SV 819';
+  const retCode = 'SV 818';
+  const hotelMekkah = 'PRESTIGE EX ELAF AL MASHAER';
+  const hotelMadinah = 'AL RITZ AL MADINAH';
+  const price = 41700000;
+  const takenSeats = 14;
+  const totalSeats = 45;
+  const percentage = Math.round((takenSeats / totalSeats) * 100);
+
+  const SeatBar = ({ compact }: { compact?: boolean } = {}) => (
+    <div className={`${compact ? 'mt-0 pt-2 pb-1' : 'mt-3 pt-3 border-t border-gray-100 dark:border-slate-700/50'} flex items-end gap-4`}>
+      <div className="flex-1">
+        <div className="flex justify-between items-center mb-1.5">
+          <p className="text-xs font-medium">
+            <span className="text-emerald-600 dark:text-emerald-400">TERISI {takenSeats}</span>
+            <span className="text-gray-400 dark:text-slate-400 font-semibold"> DARI {totalSeats}</span>
+          </p>
+          <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">{percentage}%</p>
+        </div>
+        <div className="w-full bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden" style={{ height: '0.49rem' }}>
+          <div className="h-full rounded-full" style={{
+            width: `${percentage}%`,
+            background: `repeating-linear-gradient(45deg, #10b981, #10b981 6px, #0d9f6e 6px, #0d9f6e 12px)`,
+            backgroundSize: '20px 20px',
+          }} />
+        </div>
+      </div>
+      <div className="text-right pb-0.5 shrink-0 -mb-2">
+        <span className="block text-[10px] text-gray-600 dark:text-slate-400 uppercase tracking-wide">Berangkat</span>
+        <span className="text-sm font-bold text-gray-800 dark:text-white leading-tight">16 Jun 2026</span>
+      </div>
+    </div>
+  );
+
+  const FlightInfo = ({ icon, code, date, t1, t2 }: { icon: React.ReactNode; code: string; date: string; t1: string; t2: string }) => (
+    <div className="flex items-start gap-2">
+      <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5">{icon}</div>
+      <div>
+        <p className="text-xs text-gray-500 dark:text-slate-400 flex items-center gap-1">
+          <span className="font-medium text-gray-700 dark:text-slate-200">{code}</span>
+          <span>/</span><span>{date}</span>
+        </p>
+        <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">{t1} - {t2} <span className="font-bold text-orange-600 text-[10px]">(+1)</span></p>
+      </div>
+    </div>
+  );
+
+  const HotelIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+      <path d="M19.006 3.705a.75.75 0 1 0-.512-1.41L6 6.838V3a.75.75 0 0 0-.75-.75h-1.5A.75.75 0 0 0 3 3v4.93l-1.006.365a.75.75 0 0 0 .512 1.41l16.5-6Z" />
+      <path fillRule="evenodd" d="M3.019 11.115 18 5.667V9.09l4.006 1.456a.75.75 0 1 1-.512 1.41l-.494-.18v8.475h.75a.75.75 0 0 1 0 1.5H2.25a.75.75 0 0 1 0-1.5H3v-9.129l.019-.006ZM18 20.25v-9.565l1.5.545v9.02H18Zm-9-6a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h3a.75.75 0 0 0 .75-.75V15a.75.75 0 0 0-.75-.75H9Z" clipRule="evenodd" />
+    </svg>
+  );
+
+  const HotelPreview = ({ label, name, colorClass }: { label: string; name: string; colorClass?: string }) => (
+    <div className={`flex items-start gap-2 ${colorClass || ''}`}>
+      <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5"><HotelIcon /></div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] text-gray-400 uppercase tracking-wide">{label}</p>
+        <p className="text-xs text-gray-700 dark:text-slate-300 font-medium line-clamp-1">{name}</p>
+        <div className="flex items-center gap-0.5">
+          {[1,2,3,4].map(i => <span key={i} className="text-[10px] text-amber-400">&#9733;</span>)}
+          <span className="text-[11px] font-semibold ml-2 text-emerald-600">{label === 'Mekkah' ? '300m' : '150m'}</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  const DepIcon = <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 22h20"/><path d="M6.36 17.4 4 17l-2-4 1.1-.55a2 2 0 0 1 1.8 0l.17.1a2 2 0 0 0 1.8 0L8 12 5 6l3-1 4 4.5 5.5-1.5a2.086 2.086 0 0 1 1.886.399A2.1 2.1 0 0 1 20 9.78l-12.5 5.4-.14.1a2 2 0 0 1-1 .26Z"/></svg>;
+  const ArrIcon = <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 22h20"/><path d="M3.77 10.77 2 9l2-4.5 1.1.55c.55.28.9.84.9 1.45s.35 1.17.9 1.45L8 8.5l3-6 1.05.53a2 2 0 0 1 1.09 1.52l.72 5.4a2 2 0 0 1-.93 1.95l-2.83 1.67a2 2 0 0 1-2.28-.2l-.68-.57a2 2 0 0 0-2.28-.2Z"/></svg>;
+
+  if (variant === 'split') {
+    return (
+      <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700">
+        <div className="flex">
+          <div className="w-[72px] shrink-0 bg-gradient-to-b from-emerald-500 to-emerald-600 text-white flex flex-col items-center justify-center py-3 px-1.5 gap-1.5">
+            <div className="text-center"><p className="text-2xl font-black leading-none">16</p><p className="text-[10px] uppercase font-bold mt-0.5">Jun</p><p className="text-[10px] font-medium opacity-80">2026</p></div>
+            <div className="w-7 border-t border-white/30" />
+            <div className="text-center"><p className="text-sm font-black leading-tight">{formatPreviewPrice(price)}<span className="text-[9px]"> Jt</span></p></div>
+            <div className="w-7 border-t border-white/30" />
+            <div className="text-center"><p className="text-[9px] font-bold">Saudia</p></div>
+          </div>
+          <div className="flex-1 py-3 px-3 min-w-0">
+            <div className="mb-2.5"><h3 className="font-bold text-sm leading-tight text-gray-900 dark:text-slate-100">PLUS CAIRO + ALEXANDRIA 12HR</h3></div>
+            <div className="space-y-1 mb-2.5">
+              <div className="flex items-center gap-1.5 text-xs">
+                <span className="text-emerald-600 shrink-0">{DepIcon}</span>
+                <span className="font-medium text-gray-700 dark:text-slate-200 shrink-0">{depCode}</span>
+                <span className="text-gray-300 shrink-0">&middot;</span>
+                <span className="text-gray-500 dark:text-slate-400 whitespace-nowrap">{depTime} - {arrTime}</span>
+                <span className="font-bold text-orange-600 text-[10px] shrink-0">(+1)</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs">
+                <span className="text-emerald-600 shrink-0">{ArrIcon}</span>
+                <span className="font-medium text-gray-700 dark:text-slate-200 shrink-0">{retCode}</span>
+                <span className="text-gray-300 shrink-0">&middot;</span>
+                <span className="text-gray-500 dark:text-slate-400 whitespace-nowrap">{retDepTime} - {retArrTime}</span>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 text-xs min-w-0">
+                <span className="text-emerald-600 shrink-0"><HotelIcon /></span>
+                <span className="text-gray-700 dark:text-slate-300 font-medium truncate">{hotelMekkah}</span>
+                <span className="text-amber-400 shrink-0 text-[10px] ml-auto">★★★★</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs min-w-0">
+                <span className="text-emerald-600 shrink-0"><HotelIcon /></span>
+                <span className="text-gray-700 dark:text-slate-300 font-medium truncate">{hotelMadinah}</span>
+                <span className="text-amber-400 shrink-0 text-[10px] ml-auto">★★★★</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="px-4 pb-2"><SeatBar compact /></div>
+      </div>
+    );
+  }
+
+  if (variant === 'spotlight') {
+    return (
+      <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700">
+        <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-3 text-white">
+          <div className="flex justify-between items-start gap-3">
+            <h3 className="font-bold text-sm leading-tight flex-1">PLUS CAIRO + ALEXANDRIA 12HR</h3>
+            <div className="text-right shrink-0"><p className="text-[10px] font-medium opacity-80">MULAI</p><p className="text-lg font-bold">Rp {formatPreviewPrice(price)} <span className="text-sm">Jt</span></p></div>
+          </div>
+        </div>
+        <div className="p-4">
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <FlightInfo icon={DepIcon} code={depCode} date={depDate} t1={depTime} t2={arrTime} />
+            <FlightInfo icon={ArrIcon} code={retCode} date={retDate} t1={retDepTime} t2={retArrTime} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <HotelPreview label="Mekkah" name={hotelMekkah} />
+            <HotelPreview label="Madinah" name={hotelMadinah} />
+          </div>
+          <SeatBar />
+        </div>
+      </div>
+    );
+  }
+
+  if (variant === 'ticket') {
+    return (
+      <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700">
+        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-slate-900/60 px-4 py-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-center"><p className="text-[10px] text-gray-400 font-medium">CGK</p><p className="text-xl font-black text-gray-800 dark:text-white leading-none">{depTime}</p></div>
+            <div className="flex-1 flex items-center gap-1 px-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+              <div className="flex-1 border-t-2 border-dashed border-emerald-300 dark:border-emerald-700 relative"><div className="absolute -top-[7px] left-1/2 -translate-x-1/2 text-emerald-500">{DepIcon}</div></div>
+              <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+            </div>
+            <div className="text-center"><p className="text-[10px] text-gray-400 font-medium">JED</p><p className="text-xl font-black text-gray-800 dark:text-white leading-none">{arrTime}<span className="text-[10px] text-orange-600 font-bold ml-0.5">(+1)</span></p></div>
+          </div>
+          <p className="text-center text-[10px] text-gray-400 mt-1.5">{depCode} / {depDate}</p>
+        </div>
+        <div className="p-4">
+          <div className="flex justify-between items-start gap-3 mb-3">
+            <h3 className="font-bold text-sm leading-tight text-gray-900 dark:text-slate-100 flex-1">PLUS CAIRO + ALEXANDRIA 12HR</h3>
+            <p className="text-lg font-bold text-orange-600 dark:text-orange-400 shrink-0">Rp {formatPreviewPrice(price)} <span className="text-sm">Jt</span></p>
+          </div>
+          <div className="flex items-center gap-2 mb-3 text-xs text-gray-500 dark:text-slate-400">
+            <span className="text-emerald-600">{ArrIcon}</span>
+            <span className="font-medium text-gray-600 dark:text-slate-300">Pulang</span>
+            <span>{retCode} / {retDate} &middot; {retDepTime}&ndash;{retArrTime}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <HotelPreview label="Mekkah" name={hotelMekkah} />
+            <HotelPreview label="Madinah" name={hotelMadinah} />
+          </div>
+          <SeatBar />
+        </div>
+      </div>
+    );
+  }
+
+  if (variant === 'tiled') {
+    return (
+      <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700 p-4">
+        <div className="flex justify-between items-start gap-3 mb-4">
+          <div className="flex-1 min-w-0"><h3 className="font-bold text-sm leading-tight text-gray-900 dark:text-slate-100">PLUS CAIRO + ALEXANDRIA 12HR</h3></div>
+          <div className="text-right shrink-0"><p className="text-xs text-gray-500 dark:text-slate-400">MULAI</p><p className="text-lg font-bold text-orange-600 dark:text-orange-400">Rp {formatPreviewPrice(price)} <span className="text-sm">Jt</span></p></div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <FlightInfo icon={DepIcon} code={depCode} date={depDate} t1={depTime} t2={arrTime} />
+          <FlightInfo icon={ArrIcon} code={retCode} date={retDate} t1={retDepTime} t2={retArrTime} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-lg bg-emerald-50/60 dark:bg-emerald-900/20 border border-emerald-100/60 dark:border-emerald-800/40 p-2.5">
+            <HotelPreview label="Mekkah" name={hotelMekkah} />
+          </div>
+          <div className="rounded-lg bg-blue-50/60 dark:bg-blue-900/20 border border-blue-100/60 dark:border-blue-800/40 p-2.5">
+            <HotelPreview label="Madinah" name={hotelMadinah} />
+          </div>
+        </div>
+        <SeatBar />
+      </div>
+    );
+  }
+
+  if (variant === 'magazine') {
+    return (
+      <div className="rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700">
+        <div className="bg-gradient-to-br from-slate-800 via-slate-700 to-emerald-900 px-4 pt-5 pb-10 relative overflow-hidden">
+          <div className="absolute top-2 right-3 w-16 h-16 rounded-full border border-white/10" />
+          <div className="absolute -bottom-4 -left-4 w-20 h-20 rounded-full border border-white/5" />
+          <div className="absolute top-8 right-12 w-8 h-8 rounded-full bg-white/5" />
+          <div className="relative z-10 flex justify-between items-start gap-3">
+            <h3 className="font-bold text-sm leading-tight text-white flex-1">PLUS CAIRO + ALEXANDRIA 12HR</h3>
+            <div className="text-right shrink-0"><p className="text-[10px] text-white/60 font-medium">MULAI</p><p className="text-lg font-bold text-white">Rp {formatPreviewPrice(price)} <span className="text-sm">Jt</span></p></div>
+          </div>
+        </div>
+        <div className="bg-white dark:bg-slate-800 -mt-6 rounded-t-2xl relative z-10 p-4 pt-5">
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <FlightInfo icon={DepIcon} code={depCode} date={depDate} t1={depTime} t2={arrTime} />
+            <FlightInfo icon={ArrIcon} code={retCode} date={retDate} t1={retDepTime} t2={retArrTime} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <HotelPreview label="Mekkah" name={hotelMekkah} />
+            <HotelPreview label="Madinah" name={hotelMadinah} />
+          </div>
+          <SeatBar />
+        </div>
+      </div>
+    );
+  }
+
+  // Default variant
+  return (
+    <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700 p-4">
+      <div className="flex justify-between items-start gap-3 mb-4">
+        <div className="flex-1 min-w-0"><h3 className="font-bold text-sm leading-tight text-gray-900 dark:text-slate-100">PLUS CAIRO + ALEXANDRIA 12HR</h3></div>
+        <div className="text-right shrink-0"><p className="text-xs text-gray-500 dark:text-slate-400">MULAI</p><p className="text-lg font-bold text-orange-600 dark:text-orange-400">Rp {formatPreviewPrice(price)} <span className="text-sm">Jt</span></p></div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <FlightInfo icon={DepIcon} code={depCode} date={depDate} t1={depTime} t2={arrTime} />
+        <FlightInfo icon={ArrIcon} code={retCode} date={retDate} t1={retDepTime} t2={retArrTime} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <HotelPreview label="Mekkah" name={hotelMekkah} />
+        <HotelPreview label="Madinah" name={hotelMadinah} />
+      </div>
+      <SeatBar />
+    </div>
+  );
+}
+
 // ── Main Profile Component ──
 export default function DashboardProfile({ agent, onUpdated, mode = 'standalone' }: { agent: AgentProfile; onUpdated: () => void; mode?: 'standalone' | 'embedded' }) {
   const [name, setName] = useState(agent.name);
@@ -830,6 +1208,20 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
   const [slugInput, setSlugInput] = useState(agent.slug);
   const [savingSlug, setSavingSlug] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Card variant state ──
+  const [showVariantPicker, setShowVariantPicker] = useState(false);
+  const [closingVariantPicker, setClosingVariantPicker] = useState(false);
+  const [selectedVariant, setSelectedVariant] = useState(agent.card_variant || 'default');
+  const [tempVariant, setTempVariant] = useState(agent.card_variant || 'default');
+  const [variantSaving, setVariantSaving] = useState(false);
+  const [variantSaved, setVariantSaved] = useState(false);
+
+  // Sync selectedVariant when agent prop updates (e.g. after refreshAgent)
+  useEffect(() => {
+    const v = agent.card_variant || 'default';
+    setSelectedVariant(v);
+  }, [agent.card_variant]);
 
   // ── PIN Security state ──
   const [hasPIN, setHasPIN] = useState(false);
@@ -866,13 +1258,13 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
 
   // ── Scroll lock for PIN dialogs ──
   useEffect(() => {
-    if (showPINSetup || showDisableDialog) {
+    if (showPINSetup || showDisableDialog || showVariantPicker) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
     }
     return () => { document.body.style.overflow = ''; };
-  }, [showPINSetup, showDisableDialog]);
+  }, [showPINSetup, showDisableDialog, showVariantPicker]);
 
   // ── Scroll to PIN section if hash is #pin-keamanan ──
   useEffect(() => {
@@ -1205,6 +1597,122 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
             </div>
           </>
         )}
+
+        {/* ── Card Variant Picker ── */}
+        <div className="mb-4">
+          <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide">
+            Tampilan Card
+          </label>
+          <button
+            onClick={() => { setTempVariant(selectedVariant); setShowVariantPicker(true); }}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 hover:border-emerald-300 dark:hover:border-emerald-700 hover:bg-emerald-50/30 dark:hover:bg-emerald-900/10 transition-all active:scale-[0.98]"
+          >
+            <div className="w-10 h-14 shrink-0 rounded-md overflow-hidden border border-gray-200 dark:border-slate-600">
+              <MiniVariantPreview id={selectedVariant} selected={false} />
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <p className="text-sm font-semibold text-gray-800 dark:text-white">{VARIANT_LABELS[selectedVariant] || 'Default'}</p>
+              <p className="text-[11px] text-gray-400 dark:text-slate-500">Ketuk untuk mengubah</p>
+            </div>
+            <ChevronRight size={16} className="text-gray-400 shrink-0" />
+          </button>
+          {variantSaved && (
+            <div className="mt-2 p-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50 rounded-lg text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1.5">
+              <CheckCircle2 size={12} /> Tampilan disimpan
+            </div>
+          )}
+        </div>
+
+        {/* ── Fullscreen Variant Picker Modal ── */}
+        {showVariantPicker && (<>
+          <style>{`
+            @keyframes vpOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes vpOverlayOut { from { opacity: 1; } to { opacity: 0; } }
+            @keyframes vpSlideIn { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+            @keyframes vpSlideOut { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(40px); } }
+          `}</style>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-50 bg-black/20 dark:bg-black/40"
+            style={{ animation: `${closingVariantPicker ? 'vpOverlayOut' : 'vpOverlayIn'} 0.25s ease-out forwards` }}
+            onClick={() => {
+              setClosingVariantPicker(true);
+              setTimeout(() => { setShowVariantPicker(false); setClosingVariantPicker(false); }, 220);
+            }}
+          />
+          {/* Panel */}
+          <div
+            className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-slate-900 pointer-events-none"
+            style={{ animation: `${closingVariantPicker ? 'vpSlideOut' : 'vpSlideIn'} 0.3s cubic-bezier(0.22,1,0.36,1) forwards` }}
+          >
+            <div className="pointer-events-auto flex flex-col h-full">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-slate-800">
+                <button onClick={() => {
+                  setClosingVariantPicker(true);
+                  setTimeout(() => { setShowVariantPicker(false); setClosingVariantPicker(false); }, 220);
+                }} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors">
+                  <X size={20} className="text-gray-600 dark:text-slate-400" />
+                </button>
+                <h2 className="text-sm font-bold text-gray-800 dark:text-white">Pilih Tampilan Card</h2>
+                <div className="w-8" />
+              </div>
+              <div className="flex-1 overflow-y-auto px-4 py-4">
+                <div className="grid grid-cols-3 gap-3 items-start mb-5">
+                  {VARIANT_IDS.map(id => (
+                    <button key={id} onClick={() => setTempVariant(id)} className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform">
+                      <div className={`w-full h-20 flex-shrink-0 overflow-hidden rounded-lg ${
+                        tempVariant === id
+                          ? 'border-2 border-emerald-500 shadow-sm shadow-emerald-500/20'
+                          : 'border-2 border-gray-200 dark:border-slate-700'
+                      }`}>
+                        <MiniVariantPreview id={id} selected={tempVariant === id} />
+                      </div>
+                      <span className={`text-[10px] font-bold ${tempVariant === id ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400 dark:text-slate-500'}`}>
+                        {VARIANT_LABELS[id]}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex-1 border-t border-gray-200 dark:border-slate-700" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-slate-500">Preview</span>
+                  <div className="flex-1 border-t border-gray-200 dark:border-slate-700" />
+                </div>
+                <div className="pointer-events-none">
+                  <PreviewCard variant={tempVariant} />
+                </div>
+              </div>
+              <div className="px-4 py-3 border-t border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+                <button
+                  onClick={async () => {
+                    setVariantSaving(true);
+                    try {
+                      const res = await fetch('/api/admin/profile', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                        body: JSON.stringify({ card_variant: tempVariant }),
+                      });
+                      const data = await res.json();
+                      if (res.ok && data.success) {
+                        setSelectedVariant(tempVariant);
+                        setClosingVariantPicker(true);
+                        setTimeout(() => { setShowVariantPicker(false); setClosingVariantPicker(false); }, 220);
+                        setVariantSaved(true);
+                        onUpdated();
+                        setTimeout(() => setVariantSaved(false), 2000);
+                      }
+                    } catch { /* silent */ }
+                    finally { setVariantSaving(false); }
+                  }}
+                  disabled={variantSaving}
+                  className="w-full py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  {variantSaving ? <><Loader2 size={16} className="animate-spin" /> Menyimpan...</> : 'Simpan Tampilan'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>)}
 
         {/* Form Fields */}
         <div className="space-y-4">
