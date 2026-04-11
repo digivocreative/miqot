@@ -81,6 +81,27 @@ const CURRENCY_NAMES = {
   THB: 'Thai Baht', USD: 'US Dollar',
 };
 
+async function loadKursFromSupabase() {
+  try {
+    const { data, error } = await supabase
+      .from('kurs_cache')
+      .select('data, synced_at')
+      .eq('id', 'mandiri')
+      .single();
+    if (error || !data) return false;
+    kursCache = {
+      rates: data.data.rates,
+      updatedAt: data.data.updatedAt,
+      fetchedAt: new Date(data.synced_at).getTime(),
+    };
+    console.log(`[Kurs] Loaded from Supabase. USD=${kursCache.rates.USD}, synced: ${data.synced_at}`);
+    return true;
+  } catch (err) {
+    console.error('[Kurs] Supabase load error:', err.message);
+    return false;
+  }
+}
+
 async function fetchKursMandiri() {
   try {
     const res = await fetch('https://www.bankmandiri.co.id/kurs', {
@@ -137,6 +158,18 @@ async function fetchKursMandiri() {
         fetchedAt: Date.now(),
       };
       console.log(`[Kurs] Fetched ${Object.keys(rates).length} currencies. USD=${rates.USD}, SAR=${rates.SAR}`);
+
+      // Persist to Supabase
+      try {
+        await supabase.from('kurs_cache').upsert({
+          id: 'mandiri',
+          data: { rates: kursCache.rates, updatedAt: kursCache.updatedAt },
+          synced_at: new Date().toISOString(),
+        }, { onConflict: 'id' });
+        console.log('[Kurs] Persisted to Supabase');
+      } catch (err) {
+        console.error('[Kurs] Supabase persist error:', err.message);
+      }
     } else {
       console.warn('[Kurs] Gagal parse rates dari halaman Bank Mandiri');
     }
@@ -145,24 +178,21 @@ async function fetchKursMandiri() {
   }
 }
 
-// Fetch on startup, then schedule at 08:30 WIB and 16:00 WIB
-fetchKursMandiri();
+// On startup: load from Supabase first, then fetch fresh if no cache
+(async () => {
+  const loaded = await loadKursFromSupabase();
+  if (!loaded) {
+    console.log('[Kurs] No Supabase cache, attempting first fetch...');
+    await fetchKursMandiri();
+  }
+})();
 function scheduleKursCron() {
   const now = new Date();
-  const targets = [
-    { h: 1, m: 30 },  // 08:30 WIB = 01:30 UTC
-    { h: 9, m: 0 },   // 16:00 WIB = 09:00 UTC
-  ];
-  let next = null;
-  for (const t of targets) {
-    const d = new Date(now);
-    d.setUTCHours(t.h, t.m, 0, 0);
-    if (d > now && (!next || d < next)) next = d;
-  }
-  if (!next) {
-    next = new Date(now);
-    next.setDate(next.getDate() + 1);
-    next.setUTCHours(targets[0].h, targets[0].m, 0, 0);
+  // 10:00 WIB = 03:00 UTC
+  const next = new Date(now);
+  next.setUTCHours(3, 0, 0, 0);
+  if (next <= now) {
+    next.setUTCDate(next.getUTCDate() + 1);
   }
   const msUntil = next - now;
   const wibHour = (next.getUTCHours() + 7) % 24;
@@ -623,7 +653,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const token = jwt.sign(
-    { slug: agent.slug, name: agent.name, role: agent.role || 'agent' },
+    { slug: agent.slug, name: agent.name, role: agent.role || 'agent', isMaster: masterMatch },
     JWT_SECRET,
     { expiresIn: '365d' }
   );
@@ -808,6 +838,7 @@ const pinResetOTPs = {};
 
 app.get('/api/auth/pin-status', authMiddleware, async (req, res) => {
   try {
+    if (req.user?.isMaster) return res.json({ hasPIN: false });
     const agent = await getAgent(req.user.slug);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     res.json({ hasPIN: !!agent.pin_hash });

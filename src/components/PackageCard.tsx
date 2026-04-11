@@ -473,6 +473,9 @@ _________________________
     setIsCapturing(true);
     fireViewContent();
 
+    // Wait for React to re-render with default layout (isCapturing forces cardVariant = 'default')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
     try {
       // 1. CLONE & GHOST STRATEGY
       const original = cardRef.current;
@@ -1448,7 +1451,8 @@ _________________________
 };
 
   // ── Card variant ──
-  const cardVariant = currentAgent?.card_variant || 'default';
+  // Force default layout during screenshot capture so brosur output tetap rapih
+  const cardVariant = isCapturing ? 'default' : (currentAgent?.card_variant || 'default');
   const variantProps = { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, isNextDay, formatDate };
 
   return (
