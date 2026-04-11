@@ -2048,6 +2048,22 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         .filter(y => Number(y) >= 1447)
         .sort((a, b) => Number(b) - Number(a));
       console.log(`[Sync] ${slug}: Phase 1 completed years: ${phase1Years.join(', ')}`);
+
+      // Cleanup: delete jamaah that no longer exist in internal system
+      // Phase 1 fetches the complete jamaah list — anything not upserted is stale
+      if (!syncingAgents.get(slug)?.cancelled) {
+        const { data: deleted, error: delErr } = await supabase
+          .from('jamaah')
+          .delete()
+          .eq('agent_slug', slug)
+          .lt('synced_at', now)
+          .select('nama');
+        if (delErr) console.error(`[Sync] ${slug} cleanup error:`, delErr.message);
+        else if (deleted?.length > 0) {
+          console.log(`[Sync] ${slug}: removed ${deleted.length} stale jamaah: ${deleted.map(d => d.nama).join(', ')}`);
+          totalItems -= deleted.length;
+        }
+      }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -4546,6 +4562,15 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     console.log(`[haji-sync] ${slug}: found ${hajiList.length} entries, ${uniqueIds.length} unique`);
 
     if (uniqueIds.length === 0) {
+      // All haji removed from internal system — clean up DB
+      const { data: deleted } = await supabase
+        .from('jamaah_haji')
+        .delete()
+        .eq('agent_slug', slug)
+        .select('nama');
+      if (deleted?.length > 0) {
+        console.log(`[haji-sync] ${slug}: removed ${deleted.length} haji (internal system empty)`);
+      }
       syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: 0, lastSync: new Date().toISOString() });
       return res.json({ success: true, data: { initialCount: 0, syncing: false } });
     }
@@ -4664,6 +4689,18 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
             }
             if (i + BATCH_SIZE < restIds.length) await new Promise(r => setTimeout(r, 100));
           }
+          // Cleanup: delete haji jamaah that no longer exist in internal system
+          const { data: hajiDeleted, error: hajiDelErr } = await supabase
+            .from('jamaah_haji')
+            .delete()
+            .eq('agent_slug', slug)
+            .lt('synced_at', now)
+            .select('nama');
+          if (hajiDelErr) console.error(`[haji-sync] ${slug} cleanup error:`, hajiDelErr.message);
+          else if (hajiDeleted?.length > 0) {
+            console.log(`[haji-sync] ${slug}: removed ${hajiDeleted.length} stale haji jamaah: ${hajiDeleted.map(d => d.nama).join(', ')}`);
+          }
+
           console.log(`[haji-sync] ${slug}: background sync complete`);
           syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: firstRows.length, lastSync: now });
         } catch (err) {
@@ -4671,6 +4708,18 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
           syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: 0, lastSync: null });
         }
       })();
+    } else {
+      // No background sync needed — cleanup stale records now
+      const { data: hajiDeleted, error: hajiDelErr } = await supabase
+        .from('jamaah_haji')
+        .delete()
+        .eq('agent_slug', slug)
+        .lt('synced_at', now)
+        .select('nama');
+      if (hajiDelErr) console.error(`[haji-sync] ${slug} cleanup error:`, hajiDelErr.message);
+      else if (hajiDeleted?.length > 0) {
+        console.log(`[haji-sync] ${slug}: removed ${hajiDeleted.length} stale haji jamaah: ${hajiDeleted.map(d => d.nama).join(', ')}`);
+      }
     }
   } catch (err) {
     console.error('[haji] Sync error:', err);
@@ -6313,6 +6362,20 @@ async function syncOneAgent(agent) {
           .eq('agent_slug', slug);
         totalSynced = bgActualCount || bgGlobalKeys.size;
         console.log(`[SYNC] ${slug}: Phase 1 — ${bgGlobalKeys.size} processed, ${bgActualCount} in DB`);
+
+        // Cleanup: delete jamaah that no longer exist in internal system
+        // Phase 1 fetches the complete jamaah list — anything not upserted is stale
+        const { data: bgDeleted, error: bgDelErr } = await supabase
+          .from('jamaah')
+          .delete()
+          .eq('agent_slug', slug)
+          .lt('synced_at', syncTime)
+          .select('nama');
+        if (bgDelErr) console.error(`[SYNC] ${slug} cleanup error:`, bgDelErr.message);
+        else if (bgDeleted?.length > 0) {
+          console.log(`[SYNC] ${slug}: removed ${bgDeleted.length} stale jamaah: ${bgDeleted.map(d => d.nama).join(', ')}`);
+          totalSynced -= bgDeleted.length;
+        }
       }
     } catch (p1err) {
       console.error(`[SYNC] ${slug} Phase 1 error:`, p1err.message);
@@ -6571,6 +6634,18 @@ async function syncOneAgent(agent) {
             if (i + HAJI_BATCH < uniqueIds.length) await new Promise(r => setTimeout(r, 100));
           }
           console.log(`[SYNC] ${slug}: ${hajiSynced} haji jamaah synced`);
+
+          // Cleanup: delete haji jamaah that no longer exist in internal system
+          const { data: hajiDeleted, error: hajiDelErr } = await supabase
+            .from('jamaah_haji')
+            .delete()
+            .eq('agent_slug', slug)
+            .lt('synced_at', syncTime)
+            .select('nama');
+          if (hajiDelErr) console.error(`[SYNC] ${slug} haji cleanup error:`, hajiDelErr.message);
+          else if (hajiDeleted?.length > 0) {
+            console.log(`[SYNC] ${slug}: removed ${hajiDeleted.length} stale haji jamaah: ${hajiDeleted.map(d => d.nama).join(', ')}`);
+          }
         }
       }
     } catch (hajiErr) {

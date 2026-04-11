@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Download, RefreshCw, BarChart3 as BarChart3Icon, Users, TrendingUp, CalendarRange } from 'lucide-react';
+import { Download, RefreshCw, BarChart3 as BarChart3Icon, Users, TrendingUp, CalendarRange, Calculator } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, LabelList } from 'recharts';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
+import SimulasiHajiPlus from './SimulasiHajiPlus';
 
 // ── Types ──
 interface HajiPlusItem { year: number; pax: number; }
@@ -14,9 +15,12 @@ interface HajiPlusData {
   yearCount: number; synced_at: string;
 }
 
+type HajiPlusTab = 'statistik' | 'simulasi';
+
 interface HajiPlusPageProps {
   agent: { slug: string; name: string; phone: string; email?: string; photo: string; website: string; };
   onExport?: () => void;
+  initialTab?: HajiPlusTab;
 }
 
 const fmt = (n: number) => n.toLocaleString('id-ID');
@@ -36,10 +40,11 @@ function CustomTooltip({ active, payload, label }: any) {
 // ═══════════════════════════════════════
 // Main Page
 // ═══════════════════════════════════════
-export default function HajiPlusPage({ agent, onExport }: HajiPlusPageProps) {
+export default function HajiPlusPage({ agent, onExport, initialTab }: HajiPlusPageProps) {
   const mountTracked = useRef(false);
   useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_haji_plus'); mountTracked.current = true; } }, []);
 
+  const [activeTab, setActiveTab] = useState<HajiPlusTab>(initialTab || 'statistik');
   const [data, setData] = useState<HajiPlusData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -61,34 +66,79 @@ export default function HajiPlusPage({ agent, onExport }: HajiPlusPageProps) {
 
   const currentYear = new Date().getFullYear();
 
-  // ── Loading skeleton ──
-  if (loading) {
+  const TAB_CONFIG = [
+    { id: 'statistik' as const, label: 'Statistik', icon: BarChart3Icon },
+    { id: 'simulasi' as const, label: 'Simulasi', icon: Calculator },
+  ];
+
+  const switchTab = (tab: HajiPlusTab) => {
+    setActiveTab(tab);
+    const url = tab === 'simulasi' ? '/dashboard/ai-tools/haji-plus/simulasi' : '/dashboard/ai-tools/haji-plus';
+    window.history.pushState(null, '', url);
+  };
+
+  // ── Loading skeleton (statistik tab only) ──
+  if (activeTab === 'statistik' && loading) {
     return (
-      <div className="px-4 pt-4 pb-8 space-y-3">
-        <div className="h-[100px] rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
-        <div className="grid grid-cols-3 gap-2">
-          {[1,2,3].map(i => <div key={i} className="h-[60px] rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />)}
+      <div>
+        {/* Segmented Control */}
+        <div className="px-4 pt-3 pb-1">
+          <div className="flex gap-1 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl w-full">
+            {TAB_CONFIG.map(tab => {
+              const isActive = activeTab === tab.id;
+              const Icon = tab.icon;
+              return (
+                <button key={tab.id} onClick={() => switchTab(tab.id)} className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 active:opacity-70 ${isActive ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-500 dark:text-emerald-400 font-semibold' : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium'}`} style={isActive ? { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } : undefined}>
+                  <Icon size={13} strokeWidth={2.2} />
+                  <span className="text-[11px]">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-        <div className="h-[260px] rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
-        <div className="h-12 rounded-xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
-        <div className="h-[200px] rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
+        <div className="px-4 pt-3 pb-8 space-y-3">
+          <div className="h-[100px] rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
+          <div className="grid grid-cols-3 gap-2">
+            {[1,2,3].map(i => <div key={i} className="h-[60px] rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />)}
+          </div>
+          <div className="h-[260px] rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
+          <div className="h-12 rounded-xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
+          <div className="h-[200px] rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
+        </div>
       </div>
     );
   }
 
-  // ── Error state ──
-  if (error || !data) {
+  // ── Error state (statistik tab only) ──
+  if (activeTab === 'statistik' && (error || !data)) {
     return (
-      <div className="px-4 pt-6 pb-8">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 p-6 text-center">
-          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center">
-            <BarChart3Icon size={20} className="text-red-500" />
+      <div>
+        {/* Segmented Control */}
+        <div className="px-4 pt-3 pb-1">
+          <div className="flex gap-1 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl w-full">
+            {TAB_CONFIG.map(tab => {
+              const isActive = activeTab === tab.id;
+              const Icon = tab.icon;
+              return (
+                <button key={tab.id} onClick={() => switchTab(tab.id)} className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 active:opacity-70 ${isActive ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-500 dark:text-emerald-400 font-semibold' : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium'}`} style={isActive ? { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } : undefined}>
+                  <Icon size={13} strokeWidth={2.2} />
+                  <span className="text-[11px]">{tab.label}</span>
+                </button>
+              );
+            })}
           </div>
-          <p className="text-sm font-bold text-gray-800 dark:text-white mb-1">{error || 'Data tidak tersedia'}</p>
-          <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Data akan tersedia setelah sync pertama.</p>
-          <button onClick={fetchData} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold transition-colors active:scale-95">
-            <RefreshCw size={14} /> Coba Lagi
-          </button>
+        </div>
+        <div className="px-4 pt-6 pb-8">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 p-6 text-center">
+            <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center">
+              <BarChart3Icon size={20} className="text-red-500" />
+            </div>
+            <p className="text-sm font-bold text-gray-800 dark:text-white mb-1">{error || 'Data tidak tersedia'}</p>
+            <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Data akan tersedia setelah sync pertama.</p>
+            <button onClick={fetchData} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold transition-colors active:scale-95">
+              <RefreshCw size={14} /> Coba Lagi
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -97,7 +147,27 @@ export default function HajiPlusPage({ agent, onExport }: HajiPlusPageProps) {
   const yFmt = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}K` : String(v);
 
   return (
-    <div className="px-4 pt-4 pb-8 space-y-4">
+    <div>
+      {/* Segmented Control */}
+      <div className="px-4 pt-3 pb-1">
+        <div className="flex gap-1 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl w-full">
+          {TAB_CONFIG.map(tab => {
+            const isActive = activeTab === tab.id;
+            const Icon = tab.icon;
+            return (
+              <button key={tab.id} onClick={() => switchTab(tab.id)} className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 active:opacity-70 ${isActive ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-500 dark:text-emerald-400 font-semibold' : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium'}`} style={isActive ? { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } : undefined}>
+                <Icon size={13} strokeWidth={2.2} />
+                <span className="text-[11px]">{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {activeTab === 'simulasi' && <SimulasiHajiPlus />}
+
+      {activeTab === 'statistik' && data && (
+      <div className="px-4 pt-4 pb-8 space-y-4">
 
       {/* A. Hero Card */}
       <div className="rounded-2xl p-4 text-white relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #064e3b, #0F6E56, #065f46)' }}>
@@ -223,7 +293,8 @@ export default function HajiPlusPage({ agent, onExport }: HajiPlusPageProps) {
         })()}
       </p>
 
-
+    </div>
+      )}
     </div>
   );
 }

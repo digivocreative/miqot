@@ -1794,54 +1794,71 @@ async function checkAndNotify() {
         }
         log(`✅ Sent ${sent} notification(s)`);
 
-        // Agent broadcast for seat_alert, paket_baru, perubahan_harga
+        // Agent broadcast — batch per type, send 1 message per agent
+        const seatAlerts = [];
+        const paketBarus = [];
+        const hargaChanges = [];
+
         for (const notif of notifications) {
           if (!notif.agentBroadcast) continue;
           const { type: bType, pkg: bPkg, changes: bChanges } = notif.agentBroadcast;
-
           if (bType === 'seat_alert') {
-            const paketNama = escHtml(bPkg.jadwal_nama || '');
-            const tglBerangkat = formatDateShort(bPkg.berangkat_tgl);
-            const sisaSeat = seatInt(bPkg);
-            await broadcastToAgents('seat_alert', (agentName) =>
-              `🪑 Halo ${agentName}!\n\n` +
-              `<b>Seat tinggal sedikit!</b>\n\n` +
-              `${paketNama}\n` +
-              `Berangkat: ${tglBerangkat}\n` +
-              `Sisa seat: <b>${sisaSeat}</b>\n\n` +
-              `Segera infokan ke calon jamaah yang berminat! 🏃‍♂️`
-            );
+            seatAlerts.push({
+              nama: escHtml(bPkg.jadwal_nama || ''),
+              tgl: formatDateShort(bPkg.berangkat_tgl),
+              sisa: seatInt(bPkg),
+            });
           } else if (bType === 'paket_baru') {
-            const paketNama = escHtml(bPkg.jadwal_nama || '');
-            const tglBerangkat = formatDateShort(bPkg.berangkat_tgl);
             const { lowest } = getLowestPrice(bPkg.paket_harga);
-            const hargaMulai = lowest ? formatRupiah(lowest) : '-';
-            const totalSeat = seatTotal(bPkg);
-            await broadcastToAgents('paket_baru', (agentName) =>
-              `🆕 Halo ${agentName}!\n\n` +
-              `<b>Paket baru tersedia!</b>\n\n` +
-              `${paketNama}\n` +
-              `Berangkat: ${tglBerangkat}\n` +
-              `Harga mulai: <b>${hargaMulai}</b>\n` +
-              `Seat: ${totalSeat}\n\n` +
-              `Cek detail dan mulai promosikan ke calon jamaah! 🎉`
-            );
+            paketBarus.push({
+              nama: escHtml(bPkg.jadwal_nama || ''),
+              tgl: formatDateShort(bPkg.berangkat_tgl),
+              harga: lowest ? formatRupiah(lowest) : '-',
+              seat: seatTotal(bPkg),
+            });
           } else if (bType === 'perubahan_harga' && bChanges) {
-            const paketNama = escHtml(bPkg.jadwal_nama || bPkg.jadwal_id || '');
-            const tglBerangkat = formatDateShort(bPkg.berangkat_tgl);
-            const changeLines = bChanges.map(c => {
-              const direction = c.newPrice > c.oldPrice ? '📈 naik' : '📉 turun';
-              return `${escHtml(c.paketType)} ${escHtml(c.roomType)}: ${formatRupiah(c.oldPrice)} → ${formatRupiah(c.newPrice)} (${direction})`;
-            }).join('\n');
-            await broadcastToAgents('perubahan_harga', (agentName) =>
-              `💲 Halo ${agentName}!\n\n` +
-              `<b>Perubahan harga paket!</b>\n\n` +
-              `${paketNama}\n` +
-              `Berangkat: ${tglBerangkat}\n\n` +
-              `${changeLines}\n\n` +
-              `Update info ke jamaah yang sudah tanya ya!`
-            );
+            hargaChanges.push({
+              nama: escHtml(bPkg.jadwal_nama || bPkg.jadwal_id || ''),
+              tgl: formatDateShort(bPkg.berangkat_tgl),
+              changes: bChanges,
+            });
           }
+        }
+
+        if (seatAlerts.length > 0) {
+          const lines = seatAlerts.map(s => `→ ${s.nama}\n   Berangkat: ${s.tgl} • Sisa: <b>${s.sisa} seat</b>`).join('\n\n');
+          await broadcastToAgents('seat_alert', (agentName) =>
+            `🪑 Halo ${agentName}!\n\n` +
+            `<b>Seat tinggal sedikit!</b>\n\n` +
+            lines + '\n\n' +
+            `Segera infokan ke calon jamaah yang berminat! 🏃‍♂️`
+          );
+        }
+
+        if (paketBarus.length > 0) {
+          const lines = paketBarus.map(p => `→ ${p.nama}\n   Berangkat: ${p.tgl} • Harga mulai: <b>${p.harga}</b> • Seat: ${p.seat}`).join('\n\n');
+          await broadcastToAgents('paket_baru', (agentName) =>
+            `🆕 Halo ${agentName}!\n\n` +
+            `<b>${paketBarus.length > 1 ? paketBarus.length + ' paket baru' : 'Paket baru'} tersedia!</b>\n\n` +
+            lines + '\n\n' +
+            `Cek detail dan mulai promosikan ke calon jamaah! 🎉`
+          );
+        }
+
+        if (hargaChanges.length > 0) {
+          const lines = hargaChanges.map(h => {
+            const cl = h.changes.map(c => {
+              const dir = c.newPrice > c.oldPrice ? '📈 naik' : '📉 turun';
+              return `   ${escHtml(c.paketType)} ${escHtml(c.roomType)}: ${formatRupiah(c.oldPrice)} → ${formatRupiah(c.newPrice)} (${dir})`;
+            }).join('\n');
+            return `→ ${h.nama}\n   Berangkat: ${h.tgl}\n${cl}`;
+          }).join('\n\n');
+          await broadcastToAgents('perubahan_harga', (agentName) =>
+            `💲 Halo ${agentName}!\n\n` +
+            `<b>Perubahan harga paket!</b>\n\n` +
+            lines + '\n\n' +
+            `Update info ke jamaah yang sudah tanya ya!`
+          );
         }
       } else {
         // Queue for later
@@ -2305,9 +2322,13 @@ export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders
 export function initNotifier() {
   loadConfig();
 
-  if (!BOT_TOKEN || !CHAT_ID) {
-    warn('TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set — notifier disabled');
+  if (!BOT_TOKEN) {
+    warn('TELEGRAM_BOT_TOKEN not set — notifier disabled');
     return;
+  }
+
+  if (!CHAT_ID) {
+    warn('TELEGRAM_CHAT_ID not set — group notifications disabled, per-agent notifications still active');
   }
 
   const mode = IS_PROD ? 'PRODUCTION' : 'DEVELOPMENT';

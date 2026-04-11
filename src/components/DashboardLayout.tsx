@@ -87,9 +87,12 @@ function getAIToolsSubFromPath(): string | null {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
   // /dashboard/ai-tools/voice-over OR /dashboard/ai-tools/haji-plus/export
   if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'ai-tools') {
-    // Handle nested sub-paths like haji-plus/export
+    // Handle nested sub-paths like haji-plus/export, haji-plus/simulasi
     if (segments.length >= 4 && segments[2] === 'haji-plus' && segments[3] === 'export') {
       return 'haji-plus/export';
+    }
+    if (segments.length >= 4 && segments[2] === 'haji-plus' && segments[3] === 'simulasi') {
+      return 'haji-plus/simulasi';
     }
     return segments[2];
   }
@@ -288,7 +291,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       ? 'Voice Over'
       : (activeTab === 'ai-tools' && aiSub === 'business-card')
       ? 'Kartu Nama'
-      : (activeTab === 'ai-tools' && (aiSub === 'haji-plus' || aiSub === 'haji-plus/export'))
+      : (activeTab === 'ai-tools' && (aiSub === 'haji-plus' || aiSub === 'haji-plus/export' || aiSub === 'haji-plus/simulasi'))
       ? (aiSub === 'haji-plus/export' ? 'Export Infografis' : 'Haji Plus')
       : (activeTab === 'ai-tools' && aiSub === 'kurs')
       ? 'Kurs Hari Ini'
@@ -351,8 +354,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 // If on AI Tools sub-page, go back appropriately
                 if (activeTab === 'ai-tools' && getAIToolsSubFromPath()) {
                   const aiSub = getAIToolsSubFromPath();
-                  // Export page → go back to haji-plus
-                  if (aiSub === 'haji-plus/export') {
+                  // Export/Simulasi page → go back to haji-plus
+                  if (aiSub === 'haji-plus/export' || aiSub === 'haji-plus/simulasi') {
                     window.history.pushState({}, '', '/dashboard/ai-tools/haji-plus');
                     document.title = 'Haji Plus';
                     setActiveTab('home');
@@ -379,6 +382,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   'business-card': { icon: CreditCard, bg: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20', border: 'border-teal-100', borderDark: 'dark:border-teal-800/40', color: 'text-teal-600 dark:text-teal-400', label: 'Kartu Nama' },
                   'haji-plus': { icon: BarChart3, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Haji Plus' },
                   'haji-plus/export': { icon: BarChart3, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Export Infografis' },
+                  'haji-plus/simulasi': { icon: BarChart3, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Haji Plus' },
                   'kurs': { icon: TrendingUp, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Kurs Hari Ini' },
                   'compare': { icon: ArrowLeftRight, bg: 'bg-violet-50', bgDark: 'dark:bg-violet-900/20', border: 'border-violet-100', borderDark: 'dark:border-violet-800/40', color: 'text-violet-600 dark:text-violet-400', label: 'Compare' },
                 };
@@ -511,6 +515,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             if (sub === 'voice-over') return <VoiceOverPage />;
             if (sub === 'business-card') return <BusinessCardPage agent={agentData} />;
             if (sub === 'haji-plus/export') return <HajiPlusExportPage agent={agentData} />;
+            if (sub === 'haji-plus/simulasi') return <HajiPlusPage agent={agentData} initialTab="simulasi" onExport={() => {
+              window.history.pushState({}, '', '/dashboard/ai-tools/haji-plus/export');
+              document.title = 'Export Infografis';
+              setActiveTab('home');
+              setTimeout(() => setActiveTab('ai-tools'), 0);
+            }} />;
             if (sub === 'haji-plus') return <HajiPlusPage agent={agentData} onExport={() => {
               window.history.pushState({}, '', '/dashboard/ai-tools/haji-plus/export');
               document.title = 'Export Infografis';

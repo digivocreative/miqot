@@ -15,7 +15,7 @@
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
-| **Database** | Supabase (PostgreSQL) — 11 tabel: `agents`, `capi_configs`, `jamaah`, `calendar_events`, `calendar_insights`, `ai_credits`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events` |
+| **Database** | Supabase (PostgreSQL) — 12 tabel: `agents`, `capi_configs`, `jamaah`, `jamaah_haji`, `calendar_events`, `calendar_insights`, `ai_credits`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events` |
 | **Telegram** | Telegram Bot API — group alerts (node-cron) + per-agent DM (deep link connect, departure reminders, pembayaran masuk) |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
@@ -68,12 +68,13 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~6200 lines) — API, proxy, auth, sync, stats, AI insight, AI tools, flight tracking, analytics, SPA serve
+├── server.js              # Express backend (~6824 lines) — API, proxy, auth, sync, stats, AI insight, AI tools, flight tracking, analytics, PIN auth, SPA serve
 ├── instrument.mjs         # Sentry initialization (must be imported before everything else)
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
 ├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
+├── haji-api.js             # Haji data scraper (HTTP session + Cheerio, parallel batch sync to `jamaah_haji` table)
 ├── jamaah-api.js           # Legacy: Playwright-based jamaah scraping (deprecated, replaced by laporan-api.js)
-├── telegram-notifier.js    # Telegram alerts (seat, price, weekly, AI insights, per-agent departure reminders, pembayaran masuk)
+├── telegram-notifier.js    # Telegram alerts (~2410 lines) — seat, price, weekly, AI insights, per-agent departure reminders, pembayaran masuk
 ├── deploy-webhook.js       # GitHub webhook listener (port 9000) → auto deploy
 ├── deploy.sh               # Deploy script: pull, install, build, restart systemd
 ├── Dockerfile              # Docker multi-stage build
@@ -85,45 +86,47 @@ alhijaz/
 │   ├── main.tsx            # Entry point — routing, PWA registration, page resolution
 │   ├── App.tsx             # Main SPA component — package list, filters, layout
 │   ├── index.css           # Global CSS (TailwindCSS + custom animations)
-│   ├── components/         # 38 React components
-│   │   ├── PackageCard.tsx        # Card paket umroh (komponen terbesar, ~2298 lines)
+│   ├── components/         # 41 React components
+│   │   ├── PackageCard.tsx        # Card paket umroh (komponen terbesar, ~2308 lines)
+│   │   ├── DashboardProfile.tsx   # Edit profile + photo crop + Telegram + AIW internal system + PIN management (~2271 lines)
 │   │   ├── CapiPage.tsx           # Meta Conversion API config UI (~1780 lines)
-│   │   ├── KalkulasiPage.tsx      # Hitung harga + generate quotation PDF (~1495 lines)
-│   │   ├── DashboardProfile.tsx   # Edit profile + photo crop + Telegram + AIW internal system section (~1287 lines)
-│   │   ├── JamaahPage.tsx         # View jamaah umroh data, sync & filter (~1287 lines)
-│   │   ├── ComparePage.tsx        # Bandingkan 2 paket side-by-side (~1095 lines)
-│   │   ├── HajiPage.tsx           # View jamaah haji data, login to legacy, sync, document viewer popup (~1026 lines)
-│   │   ├── FlightStatusCard.tsx   # Real-time flight tracking with AirLabs API, grouped kloter cards, share link (~974 lines)
-│   │   ├── StatistikPage.tsx      # Dashboard statistik: ringkasan jamaah, komisi, chart tren (~940 lines)
+│   │   ├── KalkulasiPage.tsx      # Hitung harga + generate quotation PDF (~1498 lines)
+│   │   ├── JamaahPage.tsx         # View jamaah umroh data, sync & filter (~1435 lines)
+│   │   ├── HajiPage.tsx           # View jamaah haji data, login to legacy, sync, document viewer popup (~1171 lines)
+│   │   ├── FlightStatusCard.tsx   # Real-time flight tracking with AirLabs API, grouped kloter cards, share link (~1159 lines)
+│   │   ├── ComparePage.tsx        # Bandingkan 2 paket side-by-side (~1101 lines)
+│   │   ├── StatistikPage.tsx      # Dashboard statistik: ringkasan jamaah, komisi, chart tren, PIN-gated (~1070 lines)
 │   │   ├── FlightSharePage.tsx    # Public flight share page /f/:code — hero card, map, boarding pass, weather, agent CTA (~830 lines)
 │   │   ├── DashboardLayout.tsx    # Dashboard home + navigation + tab routing (~786 lines)
 │   │   ├── AgentManagementPage.tsx # Admin: manage all agents CRUD (~760 lines)
-│   │   ├── LoginPage.tsx          # Login + JWT session management (~653 lines)
+│   │   ├── LoginPage.tsx          # Login + JWT session management (~654 lines)
+│   │   ├── AnalyticsPage.tsx      # Analytics dashboard with event tracking charts (~584 lines)
 │   │   ├── BusinessCardPage.tsx   # Digital business card generator (~574 lines)
-│   │   ├── AnalyticsPage.tsx      # Analytics dashboard with event tracking charts (~572 lines)
 │   │   ├── HajiPlusExportPage.tsx # Haji Plus infographic export PNG (~555 lines)
 │   │   ├── TrenDaftarSection.tsx   # Registration trend section for Statistik (~510 lines)
 │   │   ├── VoiceOverPage.tsx      # Voice Over Generator (3-step: script → voice → audio player) (~505 lines)
-│   │   ├── HajiPlusPage.tsx       # Haji Plus stats visualization + chart
-│   │   ├── WebItineraryView.tsx   # AI-parsed itinerary timeline view
-│   │   ├── UpcomingSchedule.tsx   # Calendar widget — mini grid with colored dots + bottom sheet detail
-│   │   ├── CalendarInsight.tsx    # AI Insight alert bar + bottom sheet popup (OpenAI-generated)
-│   │   ├── CuacaWidget.tsx        # Weather widget — Mekah/Madinah/Jakarta temps on dashboard
-│   │   ├── KursPage.tsx           # Currency exchange rates page (USD, SAR)
-│   │   ├── FlightMap.tsx          # Leaflet map component for flight routes (lazy-loaded)
-│   │   ├── SettingsPage.tsx       # Unified settings: iOS segmented control (3 tabs: Profil, Telegram, CAPI)
-│   │   ├── ResetPasswordPage.tsx  # Reset password page (from email link)
-│   │   ├── FilterHeader.tsx       # Header filter (search, sort, filter mode)
-│   │   ├── QuotationDocument.tsx  # react-pdf quotation template
-│   │   ├── ItineraryModal.tsx     # Fullscreen PDF/image itinerary viewer
-│   │   ├── FilterModal.tsx        # Fullscreen filter modal (mobile)
-│   │   ├── FloatingControls.tsx   # Floating dark mode / scroll-to-top
-│   │   ├── BrochureModal.tsx      # Fullscreen brochure viewer
-│   │   ├── CompactCard.tsx        # Compact card variant
-│   │   ├── FloatingAgentBar.tsx   # Floating WhatsApp CTA bar
-│   │   ├── AgentProfile.tsx       # Agent info card on package page
-│   │   ├── AIToolsPage.tsx        # AI Tools hub page (tool cards grid)
-│   │   ├── PhotoCropModal.tsx     # Reusable photo crop modal (react-easy-crop)
+│   │   ├── QuotationDocument.tsx  # react-pdf quotation template (~498 lines)
+│   │   ├── ItineraryModal.tsx     # Fullscreen PDF/image itinerary viewer (~491 lines)
+│   │   ├── UpcomingSchedule.tsx   # Calendar widget — mini grid with colored dots + bottom sheet detail (~472 lines)
+│   │   ├── ResetPasswordPage.tsx  # Reset password page (from email link) (~465 lines)
+│   │   ├── FilterHeader.tsx       # Header filter (search, sort, filter mode) (~501 lines)
+│   │   ├── CardVariants.tsx       # Multiple card layout variants: Split, Spotlight, Ticket, Tiled, Magazine (~412 lines)
+│   │   ├── WebItineraryView.tsx   # AI-parsed itinerary timeline view (~373 lines)
+│   │   ├── KursPage.tsx           # Currency exchange rates page (USD, SAR) (~382 lines)
+│   │   ├── CuacaWidget.tsx        # Weather widget — Mekah/Madinah/Jakarta/Surabaya (~331 lines)
+│   │   ├── CalendarInsight.tsx    # AI Insight alert bar + bottom sheet popup (~310 lines)
+│   │   ├── FilterModal.tsx        # Fullscreen filter modal (mobile) (~253 lines)
+│   │   ├── HajiPlusPage.tsx       # Haji Plus stats visualization + chart (~229 lines)
+│   │   ├── FlightMap.tsx          # Leaflet map component for flight routes (lazy-loaded) (~224 lines)
+│   │   ├── FloatingControls.tsx   # Floating dark mode / scroll-to-top (~207 lines)
+│   │   ├── BrochureModal.tsx      # Fullscreen brochure viewer (~205 lines)
+│   │   ├── CompactCard.tsx        # Compact card variant (~148 lines)
+│   │   ├── PhotoCropModal.tsx     # Reusable photo crop modal (react-easy-crop) (~143 lines)
+│   │   ├── AIToolsPage.tsx        # AI Tools hub page (tool cards grid) (~129 lines)
+│   │   ├── SettingsPage.tsx       # Unified settings: iOS segmented control (3 tabs: Profil, Telegram, CAPI) (~114 lines)
+│   │   ├── FloatingAgentBar.tsx   # Floating WhatsApp CTA bar (~107 lines)
+│   │   ├── AgentProfile.tsx       # Agent info card on package page (~85 lines)
+│   │   ├── PinInput.tsx           # 6-digit PIN input component (visual boxes, error state) (~59 lines)
 │   │   └── index.ts               # Barrel re-exports
 │   ├── data/
 │   │   ├── agents.ts           # Agent data + Supabase fetch + fallback
@@ -134,9 +137,13 @@ alhijaz/
 │   ├── lib/
 │   │   ├── supabase.ts         # Supabase client init (frontend/anon key)
 │   │   └── capi.ts             # Meta CAPI event sender
+│   ├── hooks/
+│   │   └── useTypingPlaceholder.ts  # Animated typing placeholder for jamaah notes (72 rotating suggestions)
 │   ├── utils/
 │   │   ├── authUtils.ts        # Shared auth utility (isSessionValid)
 │   │   ├── filter-logic.ts     # Filter/sort logic for packages
+│   │   ├── validation.ts       # 8 shared validators + 2 cleaners (name, phone, email, website, slug, password)
+│   │   ├── analytics.ts        # Event tracking helper (trackEvent, trackPublicEvent)
 │   │   └── index.ts            # Re-exports
 │   └── types/
 │       ├── umroh-package.ts    # TypeScript interfaces for package data
@@ -164,7 +171,13 @@ alhijaz/
 │   ├── telegram-notify.mjs          # Manual telegram notification script
 │   ├── sync-umroh-dates.mjs         # Sync departure dates for OG images
 │   ├── migrate-flight-shares.js     # Create flight_shares table
-│   └── migrate-flight-status-column.js # Add flight_status column to flight_shares
+│   ├── migrate-flight-status-column.js # Add flight_status column to flight_shares
+│   ├── migrate-haji-table.js        # Create jamaah_haji table
+│   ├── migrate-notification-prefs.js # Add notification_prefs JSONB to agents
+│   ├── migrate-photos-to-supabase.js # Migrate agent photos to Supabase Storage
+│   ├── migrate-capi-last-bayar.js   # Add last_bayar tracking to CAPI
+│   ├── migrate-ai-credits.js        # Create ai_credits table
+│   └── check-ai-credits.js          # Debug script for AI credit status
 │
 ├── public/                 # Static assets
 │   ├── og/                 # OG images per agent (slug.png)
@@ -280,13 +293,6 @@ alhijaz/
   - **Kartu Nama Digital** (`/dashboard/ai-tools/business-card`): Generate digital business cards dengan opsi desain premium (gradient, glassmorphism) dan QR code profile.
   - **Haji Plus** (`/dashboard/ai-tools/haji-plus`): Visualisasi data jamaah Haji Plus per tahun, grafik Recharts (multi-color bar chart), stat cards ber-icon, dan fitur export infografis PNG.
   - **Brosur Generator** (`/dashboard/ai-tools/brosur`): Segera hadir (disabled) untuk fitur mendatang.
-- **Quiz Rekomendasi** (`QuizPage.tsx`) — Public quiz flow per agent (`/:slug`)
-  - 6-step quiz: Departure, Package Class + Destination, Budget, Priority (max 2), Room + Pax, Contact (Nama + WA)
-  - Matching engine: filter paket by departure/class/destination/budget, score by hotel proximity + duration + urgency + flexibility
-  - Fallback tiers: relax budget ±20% → relax package type → sold-out fillers
-  - Result: top 3 cards with match %, price, hotel, maskapai, departure, seat indicator
-  - PDF export via `@react-pdf/renderer` (downloadable recommendation summary)
-
 ### Fitur Infrastruktur
 - AI Copywriting (OpenAI proxy — generate caption WhatsApp)
 - Telegram Notifier (node-cron based, runs inside Express process):
@@ -295,12 +301,6 @@ alhijaz/
     - Pagi (07:00 WIB): semua milestone H-14/H-7/H-3/H-1 dalam 1 pesan, progressive detail
     - Sore (17:00 WIB): H-1 only, urgent reminder
     - Anti-duplikat via state keys per agent per hari
-  - **Quiz lead notification**: saat lead baru submit quiz → Telegram DM ke agent with HTML formatting:
-    - Format: `📋 Lead Baru Masuk` header, nama bold+underline, preferensi section (departure/kelas/destinasi/budget/kamar/rombongan/prioritas), top 3 rekomendasi (bold name, italic price, match %)
-    - Human-readable labels: raw values (`reguler`, `plus_turki`, `0-35900000`) → formatted (`Reguler`, `Plus Turki`, `Di bawah 35.9jt`)
-    - Price format: handles pre-formatted `Rp xxx` strings + numeric fallback with `Intl.NumberFormat`
-    - Separator lines `─────────────────` between sections
-    - `parse_mode: 'HTML'` with `<b>`, `<u>`, `<i>` tags
   - **Pembayaran masuk** detection: saat sync jamaah, bandingkan `bayar` before vs after → kirim notif ke agent jika ada kenaikan pembayaran
   - **Notification preferences**: per-agent toggle (10 kategori: departure, paspor, pelunasan, perlengkapan, manasik, seat_alert, paket_baru, perubahan_harga, pembayaran_masuk, ringkasan_mingguan). Disimpan di `agents.notification_prefs` (JSONB)
   - Deep link connect: agent klik tombol di dashboard → Telegram bot auto-link chat_id
@@ -340,6 +340,7 @@ jamaah_kantor     TEXT DEFAULT '2'    -- kode kantor ("2" = Cabang)
 telegram_chat_id  TEXT                -- Telegram chat ID (diisi otomatis via deep link)
 telegram_link_token TEXT              -- Token sementara untuk deep link connect
 notification_prefs JSONB              -- Per-agent notification preferences (10 toggles, default semua true)
+pin_hash          TEXT                -- bcrypt-hashed 6-digit PIN (optional, untuk gate Statistik/komisi)
 ```
 
 ### Tabel `capi_configs`
@@ -389,8 +390,34 @@ pax           INTEGER DEFAULT 0   -- jumlah jamaah
 staff         TEXT                 -- nama staff
 tour_leader   TEXT                 -- nama TL
 raw_data      JSONB                -- data mentah scraping
+jam_kumpul    TEXT                 -- waktu kumpul (enriched dari PDF itinerary)
+titik_kumpul  TEXT                 -- titik kumpul / gathering point (enriched dari PDF itinerary)
 synced_at     TIMESTAMPTZ          -- terakhir sync
 -- Indexes: event_date, event_type
+```
+
+### Tabel `jamaah_haji`
+```
+agent_slug           TEXT NOT NULL     -- FK to agents.slug
+id_haji              TEXT              -- ID haji dari legacy system
+id_jamaah            TEXT              -- ID jamaah
+nama                 TEXT              -- nama jamaah
+jk                   TEXT              -- "L" / "P"
+alamat               TEXT              -- alamat
+telp                 TEXT              -- nomor telepon
+thn_hijriyah         TEXT              -- tahun Hijriah keberangkatan
+thn_masehi           TEXT              -- tahun Masehi keberangkatan
+perwakilan           TEXT              -- kantor perwakilan
+marketing            TEXT              -- nama marketing
+paket                TEXT              -- jenis paket haji
+staff                TEXT              -- nama staff
+jenis                TEXT              -- jenis haji (reguler/plus/dll)
+status_bayar         TEXT              -- status pembayaran
+status_berangkat     TEXT              -- status keberangkatan
+bpih_url             TEXT              -- URL dokumen BPIH
+surat_pernyataan_url TEXT              -- URL surat pernyataan
+synced_at            TIMESTAMPTZ DEFAULT NOW()
+-- UNIQUE(agent_slug, id_haji, id_jamaah)
 ```
 
 ### Tabel `flight_status`
@@ -481,6 +508,11 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | GET | `/api/auth/me` | Bearer | Get current user data |
 | POST | `/api/auth/forgot-password` | — | Send password reset email via Resend |
 | POST | `/api/auth/reset-password` | — | Verify reset token + update password |
+| GET | `/api/auth/pin-status` | Bearer | Check if PIN is set (returns hasPIN boolean) |
+| POST | `/api/auth/set-pin` | Bearer | Create/update 6-digit PIN (bcrypt, requires current PIN if already set) |
+| POST | `/api/auth/verify-pin` | Bearer | Verify PIN (5 attempts max, 15min lockout) |
+| POST | `/api/auth/pin-reset-request` | Bearer | Request PIN reset via email OTP |
+| POST | `/api/auth/pin-reset-verify` | Bearer | Verify OTP and reset PIN to null |
 
 ### Admin
 | Method | Path | Auth | Deskripsi |
@@ -556,7 +588,9 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | Method | Path | Auth | Deskripsi |
 |--------|------|------|-----------|
 | POST | `/api/analytics/event` | Bearer | Track an analytics event |
+| POST | `/api/analytics/public` | — | Public event logging (rate-limited 30 req/min per IP) |
 | GET | `/api/analytics/events` | Bearer | Get events for agent (with date range filter) |
+| GET | `/api/analytics/summary` | Bearer+Admin | Comprehensive analytics summary (daily logins, agent activity, feature usage) |
 
 ### Haji Plus
 | Method | Path | Auth | Deskripsi |
@@ -567,7 +601,9 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | Method | Path | Auth | Deskripsi |
 |--------|------|------|-----------|
 | GET | `/api/calendar/events` | Bearer | Get calendar events (query: `month`, `year`) — grouped by date+type |
+| POST | `/api/calendar/enrich-kumpul` | Bearer | Enrich calendar keberangkatan events with jam_kumpul & titik_kumpul from PDF itineraries |
 | GET | `/api/calendar/insight` | Bearer | Get AI-generated insight (in-memory cache → Supabase fallback) |
+| GET | `/api/calendar/insight-jamaah` | Bearer | Jamaah-specific insights: belum lunas, paspor status, 7-day departures |
 
 ### Itinerary
 | Method | Path | Auth | Deskripsi |
@@ -680,9 +716,6 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Voice Over upgraded to Google Cloud TTS Chirp3-HD (8 voices: 4 wanita + 4 pria, natural Indonesian)
 - AI credit system (25K chars/agent/month, `ai_credits` table, auto-reset 30 days, banner with progress bar)
 - Script generation with casual/gaul Indonesian, duration-aware character limits, AI-friendly word choices
-- Quiz rekomendasi paket (6-step public quiz, matching engine, PDF export, result cards)
-- Leads management dashboard (stat cards, search, status filter, framer-motion expand/collapse, skeleton loading, empty states)
-- Telegram quiz lead notification (HTML formatted, human-readable labels, separator sections, price formatting)
 - Sentry error tracking (server-side, `@sentry/node` + `instrument.mjs`)
 - UI Polish Haji Plus Dashboard (stat cards dengan icon badges, ornamen dekoratif hero card, EMERALD_PALETTE untuk chart bars, custom spacing, override header tool icon)
 - Dynamic navbar icon/color override logic untuk AI Tools sub-pages (Haji Plus, Voice Over, Kartu Nama)
@@ -699,6 +732,16 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Tren Pendaftaran section in Statistik — registration trend analysis
 - AIW Internal System connection management moved to Settings > Profil (branded disconnect UI)
 - Pembayaran masuk detection refined: 7-day buffer to prevent false positives near departure
+- PIN authentication system (6-digit, bcrypt, 5-attempt lockout 15min, email OTP reset)
+- PIN-gated Statistik/komisi data access (sessionStorage 1-hour validity, set/change/disable PIN di Settings)
+- Kumpul enrichment (auto-extract jam_kumpul & titik_kumpul dari PDF itinerary ke calendar_events)
+- Insight Jamaah endpoint (belum lunas, paspor status, 7-day departures summary)
+- Public analytics endpoint (rate-limited 30 req/min per IP, no auth required)
+- Admin analytics summary endpoint (daily logins, agent activity, feature usage)
+- Haji data scraper (haji-api.js) dengan jamaah_haji table (HTTP session + Cheerio, parallel batch sync)
+- Shared validation utilities (validation.ts — 8 validators + 2 cleaners untuk forms)
+- Typing placeholder animation hook (useTypingPlaceholder.ts — 72 rotating catatan suggestions)
+- PinInput component (6-digit visual boxes, error state, auto-focus)
 
 ### Rencana / Backlog
 - [TODO] Testing suite
@@ -725,14 +768,15 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 | **Widened fetch range** | `HIJRIAH_YEARS.tglAwal` dimundurkan 6 bulan dari awal tahun Hijriah untuk capture jamaah yang didaftarkan lebih awal tapi berangkat di tahun Hijriah tersebut. `HIJRIAH_RANGES` (penentuan hijriah_year berdasarkan tgl_berangkat) tetap akurat |
 
 ### Known Issues / Technical Debt
-- **PackageCard.tsx terlalu besar** (~2298 baris) — perlu di-split ke sub-components
+- **PackageCard.tsx terlalu besar** (~2308 baris) — perlu di-split ke sub-components
+- **DashboardProfile.tsx terlalu besar** (~2271 baris) — profile + telegram + PIN management, bisa di-split
 - **CapiPage.tsx terlalu besar** (~1780 baris) — bisa di-modularisasi
-- **server.js monolith** (~6200 baris) — perlu di-split ke route modules
+- **server.js monolith** (~6824 baris) — perlu di-split ke route modules
 - **Tidak ada test suite** — risiko regresi saat refactor
 - **No error boundary** — React errors bisa crash seluruh app
 - **modern-screenshot alignment** — Export image (ComparePage, Haji Plus Export) rawan mengalami vertical overlap jika grid dicampur dengan flexbox; gunakan block layout standar untuk export elements.
 - **CAPI endpoints tidak pakai auth** — hanya dilindungi oleh agent slug (not secret)
-- **telegram-notifier.js besar** (~1640 baris) — bisa di-modularisasi
+- **telegram-notifier.js besar** (~2410 baris) — bisa di-modularisasi
 - **jamaah-api.js masih ada** — file Playwright-based yang deprecated, bisa dihapus
 - **AirLabs API quota** — 1000 calls/bulan di free tier, tracked di `flight_status` table
 - **Flight share `flight_status` column** — harus di-add manual via SQL jika belum ada

@@ -102,20 +102,6 @@ Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 | pax/tahun Badge | `bg-emerald-50 text-emerald-600 border-emerald-100` | `bg-emerald-900/20 text-emerald-400 border-emerald-800/40` |
 | Chart Bars (10 colors) | Enum: EMERALD_PALETTE (`#065f46` to `#2dd4bf`) | same |
 
-### Leads Page Colors
-
-| Context | Light | Dark |
-|---------|-------|------|
-| Status ring (Baru) | `ring-2 ring-blue-300` | same |
-| Status ring (Dihubungi) | `ring-2 ring-amber-300` | same |
-| Status ring (Closing) | `ring-2 ring-emerald-300` | same |
-| Status ring (Tidak Berminat) | `ring-2 ring-gray-300` | same |
-| Badge (Baru) | `bg-blue-50 text-blue-600` | `bg-blue-900/20 text-blue-400` |
-| Badge (Dihubungi) | `bg-amber-50 text-amber-600` | `bg-amber-900/20 text-amber-400` |
-| Badge (Closing) | `bg-emerald-50 text-emerald-600` | `bg-emerald-900/20 text-emerald-400` |
-| Badge (Tidak Berminat) | `bg-gray-100 text-gray-500` | `bg-slate-700 text-slate-400` |
-| Expanded card border | `border-blue-200` | `border-blue-800/50` |
-
 ### Statistik Page Colors
 
 | Context | Light | Dark |
@@ -427,109 +413,6 @@ Sections:
 ```
 text-[10px] text-gray-400  // "Sync: Baru saja"
 text-[10px] font-semibold text-emerald-600 animate-pulse  // syncing
-```
-
-### Leads Page Components
-
-#### Stat Cards (4-column grid)
-
-```
-grid grid-cols-4 gap-2.5
-card: bg-white dark:bg-slate-800 rounded-2xl border shadow-sm p-3 text-center
-      active:scale-95 transition-all cursor-pointer
-active card: border-emerald-500 dark:border-emerald-600 ring-2 ring-emerald-100 dark:ring-emerald-900/30
-```
-
-Inner: icon box `w-8 h-8 mx-auto rounded-xl` → value `text-2xl font-bold` → label `text-[9px] uppercase`
-
-| Status | Icon | Icon Color | Background |
-|--------|------|-----------|------------|
-| Semua | `User` | `emerald-600` / `emerald-400` | `emerald-50` / `emerald-900/20` |
-| Baru | `Clock` | `blue-600` / `blue-400` | `blue-50` / `blue-900/20` |
-| Proses | `MessageSquare` | `amber-600` / `amber-400` | `amber-50` / `amber-900/20` |
-| Closing | `CheckCircle` | `emerald-600` / `emerald-400` | `emerald-50` / `emerald-900/20` |
-
-#### Lead Card (Collapsed)
-
-```
-bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700
-shadow-sm overflow-hidden active:bg-gray-50 dark:active:bg-slate-700/50 transition-colors
-```
-
-Expanded card adds: `border-blue-200 dark:border-blue-800/50 shadow-md shadow-blue-500/5`
-
-Layout: Avatar (w-10 h-10, status ring) → Info (nama + budget + departure) → Status badge → Chevron
-
-#### Avatar with Status Ring
-
-```html
-<div className="w-10 h-10 rounded-full ... ring-2 ring-{status-color}">
-  {initials}
-</div>
-```
-
-| Status | Ring Color |
-|--------|-----------|
-| Baru | `ring-blue-300` |
-| Dihubungi | `ring-amber-300` |
-| Closing | `ring-emerald-300` |
-| Tidak Berminat | `ring-gray-300` |
-
-#### Status Badge
-
-```
-text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md
-baru: bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400
-dihubungi: bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400
-closing: bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400
-tidak_berminat: bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400
-```
-
-#### Chevron Rotation (Expand/Collapse)
-
-```tsx
-<motion.div animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.2 }}>
-  <ChevronDown size={16} strokeWidth={2} className="text-gray-300 dark:text-slate-600" />
-</motion.div>
-```
-
-#### Expanded Detail (Lead)
-
-```
-px-3 pb-3 pt-2 border-t border-gray-50 dark:border-slate-700/50 space-y-3
-```
-
-Animation: `AnimatePresence` + `motion.div` with `initial={{ height: 0, opacity: 0 }}` `animate={{ height: 'auto', opacity: 1 }}` duration 0.2s
-
-#### Skeleton Loading
-
-Shown while `loading === true` (initial fetch only, not on search/filter):
-
-```
-Stat cards: grid-cols-4, each h-20 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse
-Search bar: h-12 rounded-2xl animate-pulse
-Lead cards: 3× h-20 rounded-2xl animate-pulse
-```
-
-#### Empty States
-
-```
-bg-white dark:bg-slate-800 rounded-2xl border shadow-sm p-8 text-center
-Icon: w-12 h-12 mx-auto rounded-full bg-gray-100 dark:bg-slate-700
-Text: text-sm font-medium text-gray-500 dark:text-slate-400
-Sub: text-xs text-gray-400 dark:text-slate-500
-```
-
-| State | Icon | Title |
-|-------|------|-------|
-| No leads | `UserPlus` | "Belum ada lead" |
-| No search results | `Search` | "Tidak ditemukan" |
-
-#### Sync Indicator (Leads)
-
-```
-text-[10px] text-gray-400 dark:text-slate-500 text-center mt-1.5
-// "{n} lead · Terakhir diperbarui: baru saja"
 ```
 
 ---
@@ -868,6 +751,49 @@ uppercase tracking-wide
 
 ---
 
+## PIN Input (`PinInput.tsx`)
+
+6-digit PIN entry component used in StatistikPage for PIN-gated access.
+
+### Container
+
+```
+flex gap-2 justify-center
+```
+
+### Digit Box
+
+```
+w-10 h-12 rounded-xl border-2 text-center text-lg font-bold
+transition-all duration-200
+```
+
+| State | Border | Background |
+|-------|--------|-----------|
+| Empty | `border-gray-200 dark:border-slate-700` | `bg-white dark:bg-slate-900` |
+| Filled (●) | `border-emerald-500 dark:border-emerald-400` | `bg-emerald-50 dark:bg-emerald-900/20` |
+| Active (focus) | `ring-2 ring-emerald-500/30` | same as filled |
+| Error | `border-red-400 dark:border-red-500` | `bg-red-50 dark:bg-red-900/20` |
+
+Hidden input: `type="tel"`, `maxLength={6}`, auto-focus, numeric filter
+
+### PIN Gate (StatistikPage)
+
+Overlay that blocks Statistik/komisi data until PIN is verified:
+
+```
+flex flex-col items-center justify-center py-12
+bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm
+```
+
+- Lock icon: `w-12 h-12 rounded-full bg-emerald-50 dark:bg-emerald-900/20` with `Lock` icon
+- Title: `text-sm font-bold`
+- Subtitle: `text-xs text-gray-400`
+- PinInput component below
+- Session: `pin_unlocked` in sessionStorage (1-hour validity)
+
+---
+
 ## Icons
 
 **Library**: [Lucide React](https://lucide.dev/) — seluruh project menggunakan Lucide.
@@ -917,6 +843,8 @@ uppercase tracking-wide
 | `Download` | Download buttons (MP3/WAV) |
 | `Package` | "Dari Paket" mode toggle |
 | `PenLine` | "Tulis Manual" mode toggle |
+| `Lock` / `Unlock` | PIN gate / PIN verified |
+| `KeyRound` | PIN settings |
 
 ### WhatsApp Icon (Custom SVG)
 

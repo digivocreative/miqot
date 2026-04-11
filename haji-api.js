@@ -148,6 +148,8 @@ export async function fetchHajiDetail(sessionCookies, idHaji) {
  * @returns {{ total: number, uniqueHaji: number }}
  */
 export async function syncHajiData(sessionCookies, agentSlug, supabase) {
+  const syncTime = new Date().toISOString();
+
   // Step 1: Fetch list
   const hajiList = await fetchHajiList(sessionCookies);
   console.log(`[haji-sync] Found ${hajiList.length} haji entries for ${agentSlug}`);
@@ -185,7 +187,7 @@ export async function syncHajiData(sessionCookies, agentSlug, supabase) {
           status_berangkat: detail.status_berangkat,
           bpih_url: detail.bpih_url,
           surat_pernyataan_url: detail.surat_pernyataan_url,
-          synced_at: new Date().toISOString(),
+          synced_at: syncTime,
         }));
       })
     );
@@ -220,6 +222,18 @@ export async function syncHajiData(sessionCookies, agentSlug, supabase) {
       console.error('[haji-sync] Supabase upsert error:', error);
       throw error;
     }
+  }
+
+  // Step 4: Cleanup stale records no longer in internal system
+  const { data: deleted, error: delErr } = await supabase
+    .from('jamaah_haji')
+    .delete()
+    .eq('agent_slug', agentSlug)
+    .lt('synced_at', syncTime)
+    .select('nama');
+  if (delErr) console.error(`[haji-sync] ${agentSlug} cleanup error:`, delErr.message);
+  else if (deleted?.length > 0) {
+    console.log(`[haji-sync] ${agentSlug}: removed ${deleted.length} stale haji jamaah: ${deleted.map(d => d.nama).join(', ')}`);
   }
 
   console.log(`[haji-sync] Synced ${allRows.length} jamaah haji for ${agentSlug}`);
