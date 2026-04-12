@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Loader2 } from 'lucide-react';
+import { X, Share2, Loader2, ZoomIn, ZoomOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ============================================
@@ -23,6 +23,8 @@ interface BrochureModalProps {
 export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModalProps) {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const [scale, setScale] = useState(1);
+  const pinchRef = useRef({ startDist: 0, startScale: 1 });
 
   // Use CDN URL directly if available, otherwise use proxy path
   const isCdnUrl = imageUrl && (imageUrl.includes('.b-cdn.net') || imageUrl.includes('bunnycdn'));
@@ -32,7 +34,41 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
       ? imageUrl.replace(/^https?:\/\/(?:jadwal\.(?:miqot\.com|alhijaz\.co)|115\.124\.86\.220)/i, '')
       : '';
 
-  // Share First, Download Fallback handler
+  // Reset state when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setScale(1);
+      setIsImageLoaded(false);
+    }
+  }, [isOpen, imageUrl]);
+
+  // ── Pinch-to-zoom ──
+  const getTouchDistance = (touches: React.TouchList) => {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      pinchRef.current.startDist = getTouchDistance(e.touches);
+      pinchRef.current.startScale = scale;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dist = getTouchDistance(e.touches);
+      const ratio = dist / pinchRef.current.startDist;
+      setScale(Math.min(3, Math.max(1, pinchRef.current.startScale * ratio)));
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (scale < 1.1) setScale(1);
+  };
+
+  // Share handler
   const handleShareBrosur = async () => {
     if (isSharing || !displayUrl) return;
     setIsSharing(true);
@@ -41,13 +77,11 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
     const fileName = `Brosur-${safeTitle}.png`;
 
     try {
-      // 1. Fetch image (via proxy in dev, direct in prod)
       const response = await fetch(displayUrl);
       if (!response.ok) throw new Error('Fetch failed');
       const blob = await response.blob();
       const blobUrl = window.URL.createObjectURL(blob);
 
-      // 2. Convert to PNG via canvas (source may be WebP)
       const img = new Image();
       img.crossOrigin = 'anonymous';
 
@@ -60,7 +94,6 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
             const ctx = canvas.getContext('2d');
             if (!ctx) throw new Error('Canvas context not available');
             ctx.drawImage(img, 0, 0);
-
             canvas.toBlob((b) => {
               if (!b) { reject(new Error('PNG conversion failed')); return; }
               resolve(b);
@@ -73,7 +106,6 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
 
       window.URL.revokeObjectURL(blobUrl);
 
-      // 3. Create File & try Share API
       const file = new File([pngBlob], fileName, { type: 'image/png' });
       const shareData = {
         title: `Brosur - ${title}`,
@@ -86,16 +118,13 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
           await navigator.share(shareData);
         } catch (err: any) {
           if (err?.name !== 'AbortError') {
-            console.warn('Share error, falling back to download:', err);
             triggerDownload(pngBlob, fileName);
           }
         }
       } else {
         triggerDownload(pngBlob, fileName);
       }
-    } catch (error) {
-      console.error('Gagal share brosur:', error);
-      // CORS fallback: open original URL in new tab
+    } catch {
       const fullUrl = imageUrl.replace(/^http:\/\//i, 'https://');
       window.open(fullUrl, '_blank');
     } finally {
@@ -103,7 +132,6 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
     }
   };
 
-  // Helper: trigger download from blob
   const triggerDownload = (blob: Blob, name: string) => {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -116,7 +144,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
   };
 
   return createPortal(
-    <AnimatePresence onExitComplete={() => setIsImageLoaded(false)}>
+    <AnimatePresence onExitComplete={() => { setIsImageLoaded(false); setScale(1); }}>
       {isOpen && (
         <motion.div
           className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
@@ -140,34 +168,78 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
           </div>
 
           {/* ─── SCROLLABLE CONTENT ─── */}
-          <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 p-4 flex justify-center items-start">
-            <div className="relative bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-md w-full">
-              {/* Loading Spinner */}
-              {!isImageLoaded && displayUrl && (
-                <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-slate-800 rounded-xl z-10">
-                  <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
-                </div>
-              )}
+          <div
+            className="flex-1 overflow-auto bg-gray-100 dark:bg-slate-950 p-4"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
+            <div className="flex justify-center">
+              <div className="relative bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-md w-full">
+                {/* Loading Spinner */}
+                {!isImageLoaded && displayUrl && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-slate-800 rounded-xl z-10">
+                    <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+                  </div>
+                )}
 
-              {/* Brochure Image — NO crossOrigin so it loads cross-domain */}
-              {displayUrl && (
-                <img
-                  src={displayUrl}
-                  alt={`Brosur ${title}`}
-                  className={`w-full h-auto rounded-lg transition-opacity duration-300 ${isImageLoaded ? 'opacity-100' : 'opacity-0'}`}
-                  onLoad={() => setIsImageLoaded(true)}
-                  onError={() => setIsImageLoaded(true)}
-                />
-              )}
+                {displayUrl && (
+                  <img
+                    src={displayUrl}
+                    alt={`Brosur ${title}`}
+                    className={`w-full h-auto rounded-lg transition-opacity duration-300 ${isImageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                    style={{
+                      transform: `scale(${scale})`,
+                      transformOrigin: 'top left',
+                      transition: scale === 1 ? 'transform 0.2s ease-out' : 'none',
+                    }}
+                    onLoad={() => setIsImageLoaded(true)}
+                    onError={() => setIsImageLoaded(true)}
+                  />
+                )}
 
-              {/* Empty State */}
-              {!displayUrl && (
-                <div className="py-20 text-center">
-                  <p className="text-gray-400 dark:text-slate-500">Brosur tidak tersedia</p>
-                </div>
-              )}
+                {!displayUrl && (
+                  <div className="py-20 text-center">
+                    <p className="text-gray-400 dark:text-slate-500">Brosur tidak tersedia</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* ─── ZOOM CONTROLS — bottom right ─── */}
+          {isImageLoaded && (
+            <div className="fixed bottom-24 right-4 z-[10000] pointer-events-none">
+              <div className="pointer-events-auto flex items-center gap-0.5 bg-black/70 backdrop-blur-md rounded-full px-1 py-1 shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => setScale(s => Math.max(1, +(s - 0.25).toFixed(2)))}
+                  disabled={scale <= 1}
+                  className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                  aria-label="Zoom out"
+                >
+                  <ZoomOut size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScale(1)}
+                  className="min-w-[44px] text-center text-xs font-semibold text-white px-1 py-1 rounded-full hover:bg-white/20 transition-colors"
+                  aria-label="Reset zoom"
+                >
+                  {Math.round(scale * 100)}%
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScale(s => Math.min(3, +(s + 0.25).toFixed(2)))}
+                  disabled={scale >= 3}
+                  className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                  aria-label="Zoom in"
+                >
+                  <ZoomIn size={18} />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* ─── FIXED FOOTER ─── */}
           {displayUrl && (
