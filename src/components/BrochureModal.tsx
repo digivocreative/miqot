@@ -24,10 +24,13 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
 
-  // Always use proxy path: Vite proxy in dev, Cloudflare Pages Function in prod
-  const displayUrl = imageUrl
-    ? imageUrl.replace(/^https?:\/\/(?:jadwal\.(?:miqot\.com|alhijaz\.co)|115\.124\.86\.220)/i, '')
-    : '';
+  // Use CDN URL directly if available, otherwise use proxy path
+  const isCdnUrl = imageUrl && (imageUrl.includes('.b-cdn.net') || imageUrl.includes('bunnycdn'));
+  const displayUrl = isCdnUrl
+    ? imageUrl
+    : imageUrl
+      ? imageUrl.replace(/^https?:\/\/(?:jadwal\.(?:miqot\.com|alhijaz\.co)|115\.124\.86\.220)/i, '')
+      : '';
 
   // Share First, Download Fallback handler
   const handleShareBrosur = async () => {

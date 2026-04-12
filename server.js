@@ -5878,6 +5878,408 @@ app.get('/api/weather/cities', authMiddleware, async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
+// Umroh Schedules: Sync from external API → Supabase
+// ──────────────────────────────────────────────
+const SCHEDULE_YEAR_CODES = ['1448', '1449'];
+
+async function syncUmrohSchedules() {
+  console.log('[ScheduleSync] Starting...');
+  const startTime = Date.now();
+  let totalSynced = 0;
+
+  for (const year of SCHEDULE_YEAR_CODES) {
+    try {
+      const res = await fetch(`https://jadwal.alhijaz.co/jadwal/api-get/${year}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!res.ok) {
+        console.error(`[ScheduleSync] API ${year} HTTP ${res.status}`);
+        continue;
+      }
+
+      const json = await res.json();
+      const packages = json.aaData || [];
+
+      if (!packages.length) {
+        console.log(`[ScheduleSync] No packages for year ${year}`);
+        continue;
+      }
+
+      const rows = packages.map(p => ({
+        jadwal_id: p.jadwal_id,
+        year_code: year,
+        jadwal_nama: p.jadwal_nama,
+        promo: p.promo,
+        seat_total: p.seat_total,
+        seat_sisa: p.seat_sisa,
+        maskapai: p.maskapai,
+        berangkat_tgl: /^\d{4}-\d{2}-\d{2}$/.test(p.berangkat_tgl) ? p.berangkat_tgl : null,
+        berangkat_jam: p.berangkat_jam,
+        berangkat_rute: p.berangkat_rute,
+        berangkat_kode_penerbangan: p.berangkat_kode_penerbangan,
+        pulang_tgl: /^\d{4}-\d{2}-\d{2}$/.test(p.pulang_tgl) ? p.pulang_tgl : null,
+        pulang_jam: p.pulang_jam,
+        pulang_rute: p.pulang_rute,
+        pulang_kode_penerbangan: p.pulang_kode_penerbangan,
+        manasik_tgl: p.manasik_tgl,
+        manasik_jam: p.manasik_jam,
+        brosur: p.brosur,
+        itinerary: p.itinerary,
+        perlengkapan_harga: p.perlengkapan_harga,
+        paket_harga: p.paket_harga,
+        paket_hotel: p.paket_hotel,
+        synced_at: new Date().toISOString(),
+      }));
+
+      // Detect brosur/itinerary URL changes → invalidate CDN URLs
+      const { data: existing } = await supabase
+        .from('umroh_schedules')
+        .select('jadwal_id, brosur, itinerary, brosur_cdn, itinerary_cdn')
+        .eq('year_code', year);
+      if (existing?.length) {
+        const oldMap = new Map(existing.map(e => [e.jadwal_id, e]));
+        for (const row of rows) {
+          const old = oldMap.get(row.jadwal_id);
+          if (!old) continue;
+          if (old.brosur_cdn && old.brosur !== row.brosur) {
+            // Source URL changed — delete old file from Bunny, null out CDN URL
+            if (getBunnyEnabled()) {
+              try { await bunnyDelete(old.brosur_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, '')); } catch {}
+            }
+            await supabase.from('umroh_schedules').update({ brosur_cdn: null }).eq('jadwal_id', row.jadwal_id).eq('year_code', year);
+            console.log(`[ScheduleSync] ${row.jadwal_id}: brosur URL changed, CDN invalidated`);
+          }
+          if (old.itinerary_cdn && old.itinerary !== row.itinerary) {
+            if (getBunnyEnabled()) {
+              try { await bunnyDelete(old.itinerary_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, '')); } catch {}
+            }
+            await supabase.from('umroh_schedules').update({ itinerary_cdn: null }).eq('jadwal_id', row.jadwal_id).eq('year_code', year);
+            console.log(`[ScheduleSync] ${row.jadwal_id}: itinerary URL changed, CDN invalidated`);
+          }
+        }
+      }
+
+      const { error } = await supabase
+        .from('umroh_schedules')
+        .upsert(rows, { onConflict: 'jadwal_id,year_code' });
+
+      if (error) {
+        console.error(`[ScheduleSync] Upsert error for year ${year}:`, error.message);
+      } else {
+        // Delete stale packages no longer in external API
+        const currentIds = rows.map(r => r.jadwal_id);
+        // First, fetch stale rows to clean up Bunny files
+        const { data: staleRows } = await supabase
+          .from('umroh_schedules')
+          .select('jadwal_id, brosur_cdn, itinerary_cdn')
+          .eq('year_code', year)
+          .not('jadwal_id', 'in', `(${currentIds.join(',')})`);
+        if (staleRows?.length && getBunnyEnabled()) {
+          for (const stale of staleRows) {
+            try {
+              if (stale.brosur_cdn) await bunnyDelete(stale.brosur_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, ''));
+              if (stale.itinerary_cdn) await bunnyDelete(stale.itinerary_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, ''));
+            } catch (e) { console.error(`[ScheduleSync] Bunny cleanup ${stale.jadwal_id}: ${e.message}`); }
+          }
+        }
+        // Then delete from Supabase
+        const { error: delErr, count } = await supabase
+          .from('umroh_schedules')
+          .delete({ count: 'exact' })
+          .eq('year_code', year)
+          .not('jadwal_id', 'in', `(${currentIds.join(',')})`);
+        if (delErr) {
+          console.error(`[ScheduleSync] Cleanup error for year ${year}:`, delErr.message);
+        } else if (count > 0) {
+          console.log(`[ScheduleSync] Year ${year}: removed ${count} stale packages`);
+        }
+
+        totalSynced += rows.length;
+        console.log(`[ScheduleSync] Year ${year}: ${rows.length} packages synced`);
+      }
+    } catch (err) {
+      console.error(`[ScheduleSync] Year ${year} failed:`, err.message);
+    }
+  }
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[ScheduleSync] Complete: ${totalSynced} packages in ${elapsed}s`);
+}
+
+// ──────────────────────────────────────────────
+// Bunny CDN: Sync brosur & itinerary files to Bunny Storage
+// ──────────────────────────────────────────────
+const BUNNY_STORAGE_API_KEY = process.env.BUNNY_STORAGE_API_KEY;
+const BUNNY_STORAGE_ZONE = process.env.BUNNY_STORAGE_ZONE;
+const BUNNY_STORAGE_HOSTNAME = process.env.BUNNY_STORAGE_HOSTNAME || 'storage.bunnycdn.com';
+const BUNNY_CDN_HOSTNAME = process.env.BUNNY_CDN_HOSTNAME;
+
+function getBunnyEnabled() {
+  return !!(BUNNY_STORAGE_API_KEY && BUNNY_STORAGE_ZONE && BUNNY_CDN_HOSTNAME);
+}
+
+async function bunnyFileExists(path) {
+  try {
+    const res = await fetch(`https://${BUNNY_CDN_HOSTNAME}/${path}`, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function bunnyUpload(path, buffer, contentType) {
+  const res = await fetch(
+    `https://${BUNNY_STORAGE_HOSTNAME}/${BUNNY_STORAGE_ZONE}/${path}`,
+    {
+      method: 'PUT',
+      headers: {
+        'AccessKey': BUNNY_STORAGE_API_KEY,
+        'Content-Type': contentType || 'application/octet-stream',
+      },
+      body: buffer,
+      signal: AbortSignal.timeout(30000),
+    }
+  );
+  if (!res.ok) throw new Error(`Bunny upload failed: ${res.status} ${res.statusText}`);
+}
+
+async function bunnyDelete(path) {
+  const res = await fetch(
+    `https://${BUNNY_STORAGE_HOSTNAME}/${BUNNY_STORAGE_ZONE}/${path}`,
+    {
+      method: 'DELETE',
+      headers: { 'AccessKey': BUNNY_STORAGE_API_KEY },
+      signal: AbortSignal.timeout(10000),
+    }
+  );
+  if (!res.ok && res.status !== 404) throw new Error(`Bunny delete failed: ${res.status}`);
+}
+
+async function downloadFile(url) {
+  const normalizedUrl = url.replace('http://', 'https://');
+  const res = await fetch(normalizedUrl, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  const contentType = res.headers.get('content-type') || 'application/octet-stream';
+  // Extract extension from Content-Disposition or Content-Type
+  const disposition = res.headers.get('content-disposition') || '';
+  let ext = '';
+  const fnMatch = disposition.match(/filename[^;=\n]*=["']?([^"';\n]+)/i);
+  if (fnMatch) {
+    const dotIdx = fnMatch[1].lastIndexOf('.');
+    if (dotIdx > 0) ext = fnMatch[1].substring(dotIdx);
+  }
+  if (!ext) {
+    if (contentType.includes('pdf')) ext = '.pdf';
+    else if (contentType.includes('webp')) ext = '.webp';
+    else if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = '.jpg';
+    else if (contentType.includes('png')) ext = '.png';
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return { buffer, contentType, ext };
+}
+
+async function syncFilesToBunny() {
+  if (!getBunnyEnabled()) {
+    console.log('[BunnySync] Skipped — Bunny credentials not configured');
+    return;
+  }
+
+  console.log('[BunnySync] Starting...');
+  const startTime = Date.now();
+  let uploaded = 0, skipped = 0, errors = 0;
+
+  const { data: packages, error } = await supabase
+    .from('umroh_schedules')
+    .select('jadwal_id, year_code, brosur, itinerary, brosur_cdn, itinerary_cdn');
+
+  if (error || !packages?.length) {
+    console.log('[BunnySync] No packages to sync');
+    return;
+  }
+
+  for (const pkg of packages) {
+    // Sync brosur
+    if (pkg.brosur && !pkg.brosur_cdn) {
+      try {
+        const { buffer, contentType, ext } = await downloadFile(pkg.brosur);
+        const path = `brosur/${pkg.jadwal_id}${ext || '.webp'}`;
+        await bunnyUpload(path, buffer, contentType);
+        const cdnUrl = `https://${BUNNY_CDN_HOSTNAME}/${path}`;
+        await supabase
+          .from('umroh_schedules')
+          .update({ brosur_cdn: cdnUrl })
+          .eq('jadwal_id', pkg.jadwal_id)
+          .eq('year_code', pkg.year_code);
+        uploaded++;
+      } catch (err) {
+        console.error(`[BunnySync] Brosur ${pkg.jadwal_id}: ${err.message}`);
+        errors++;
+      }
+    } else if (pkg.brosur_cdn && pkg.brosur) {
+      // Check if source URL changed (itinerary updated)
+      const expectedSlug = pkg.brosur.split('/').pop();
+      const cachedSlug = pkg.brosur_cdn.split('/').pop().replace(/\.[^.]+$/, '');
+      if (cachedSlug !== pkg.jadwal_id) {
+        // CDN filename always uses jadwal_id, so check if origin URL changed
+        // by re-downloading and re-uploading
+        skipped++;
+      } else {
+        skipped++;
+      }
+    } else {
+      skipped++;
+    }
+
+    // Sync itinerary
+    if (pkg.itinerary && !pkg.itinerary_cdn) {
+      try {
+        const { buffer, contentType, ext } = await downloadFile(pkg.itinerary);
+        const path = `itinerary/${pkg.jadwal_id}${ext || '.pdf'}`;
+        await bunnyUpload(path, buffer, contentType);
+        const cdnUrl = `https://${BUNNY_CDN_HOSTNAME}/${path}`;
+        await supabase
+          .from('umroh_schedules')
+          .update({ itinerary_cdn: cdnUrl })
+          .eq('jadwal_id', pkg.jadwal_id)
+          .eq('year_code', pkg.year_code);
+        uploaded++;
+      } catch (err) {
+        console.error(`[BunnySync] Itinerary ${pkg.jadwal_id}: ${err.message}`);
+        errors++;
+      }
+    } else {
+      skipped++;
+    }
+
+    // Small delay to avoid hammering origin server
+    if (uploaded > 0 && uploaded % 5 === 0) await new Promise(r => setTimeout(r, 1000));
+  }
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[BunnySync] Complete: ${uploaded} uploaded, ${skipped} skipped, ${errors} errors in ${elapsed}s`);
+}
+
+// ──────────────────────────────────────────────
+// Bunny CDN: Cleanup expired & stale files
+// ──────────────────────────────────────────────
+async function cleanupExpiredPackages() {
+  if (!getBunnyEnabled()) return;
+
+  console.log('[BunnyCleanup] Checking for expired packages...');
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+  const cutoffDate = sixMonthsAgo.toISOString().split('T')[0];
+
+  const { data: expired, error } = await supabase
+    .from('umroh_schedules')
+    .select('jadwal_id, year_code, brosur_cdn, itinerary_cdn')
+    .lt('berangkat_tgl', cutoffDate);
+
+  if (error || !expired?.length) {
+    if (!error) console.log('[BunnyCleanup] No expired packages');
+    return;
+  }
+
+  let deleted = 0;
+  for (const pkg of expired) {
+    try {
+      // Delete files from Bunny
+      if (pkg.brosur_cdn) {
+        const path = pkg.brosur_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, '');
+        await bunnyDelete(path);
+      }
+      if (pkg.itinerary_cdn) {
+        const path = pkg.itinerary_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, '');
+        await bunnyDelete(path);
+      }
+
+      // Delete row from Supabase
+      await supabase
+        .from('umroh_schedules')
+        .delete()
+        .eq('jadwal_id', pkg.jadwal_id)
+        .eq('year_code', pkg.year_code);
+
+      deleted++;
+    } catch (err) {
+      console.error(`[BunnyCleanup] ${pkg.jadwal_id}: ${err.message}`);
+    }
+  }
+
+  console.log(`[BunnyCleanup] Removed ${deleted} expired packages (> 6 months past departure)`);
+}
+
+// ──────────────────────────────────────────────
+// API: Read schedules from Supabase (with external API fallback)
+// ──────────────────────────────────────────────
+app.get('/api/schedules/:yearCode', async (req, res) => {
+  const yearCode = req.params.yearCode;
+
+  if (!/^\d{4}$/.test(yearCode)) {
+    return res.status(400).json({ status: 'error', error: 'Invalid year code' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('umroh_schedules')
+      .select('*')
+      .eq('year_code', yearCode)
+      .order('berangkat_tgl', { ascending: true });
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      throw new Error('No data in Supabase');
+    }
+
+    const aaData = data.map(row => {
+      const out = { ...row };
+      // Use CDN URLs when available, then remove CDN-specific fields
+      if (out.brosur_cdn) out.brosur = out.brosur_cdn;
+      if (out.itinerary_cdn) out.itinerary = out.itinerary_cdn;
+      delete out.brosur_cdn;
+      delete out.itinerary_cdn;
+      delete out.synced_at;
+      delete out.year_code;
+      // Coalesce nulls to empty strings for TEXT fields (frontend expects strings, not null)
+      for (const key of Object.keys(out)) {
+        if (out[key] === null && key !== 'paket_harga' && key !== 'paket_hotel') {
+          out[key] = '';
+        }
+      }
+      return out;
+    });
+
+    res.json({
+      status: 'ok',
+      iTotalDisplayRecords: aaData.length,
+      aaData,
+    });
+  } catch (err) {
+    console.error(`[Schedules] Supabase error: ${err.message}, falling back to external API`);
+    try {
+      const extRes = await fetch(
+        `https://jadwal.alhijaz.co/jadwal/api-get/${yearCode}`,
+        { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }, signal: AbortSignal.timeout(10000) }
+      );
+      if (!extRes.ok) throw new Error(`External API returned ${extRes.status}`);
+      const extData = await extRes.text();
+      res.set('Content-Type', 'application/json').send(extData);
+    } catch (extErr) {
+      res.status(500).json({ status: 'error', error: 'Both Supabase and external API failed' });
+    }
+  }
+});
+
+// ──────────────────────────────────────────────
 // API: Proxy to jadwal.alhijaz.co
 // ──────────────────────────────────────────────
 app.all('/api/{*path}', async (req, res) => {
@@ -6782,6 +7184,36 @@ setTimeout(async () => {
 // Run initial sync 30s after startup, then every 1 hour
 setTimeout(syncAllAgents, 30 * 1000);
 setInterval(syncAllAgents, 60 * 60 * 1000);
+
+// ── Umroh schedules sync: 45s after startup, then every 1 hour ──
+// Bunny file sync runs after schedule sync completes
+async function runScheduleAndBunnySync() {
+  await syncUmrohSchedules();
+  await syncFilesToBunny();
+}
+setTimeout(() => {
+  runScheduleAndBunnySync().catch(err => console.error('[ScheduleSync] Error:', err.message));
+}, 45 * 1000);
+setInterval(() => {
+  runScheduleAndBunnySync().catch(err => console.error('[ScheduleSync] Error:', err.message));
+}, 60 * 60 * 1000);
+
+// ── Bunny cleanup: expired packages (> 6 months), once daily at 03:00 WIB ──
+function scheduleBunnyCleanup() {
+  const now = new Date();
+  const target = new Date(now);
+  target.setUTCHours(20, 0, 0, 0); // 03:00 WIB = 20:00 UTC
+  if (target <= now) target.setDate(target.getDate() + 1);
+  const msUntil = target - now;
+  console.log(`[BunnyCleanup] Next cleanup in ${Math.round(msUntil / 60000)} minutes (03:00 WIB)`);
+  setTimeout(async () => {
+    try { await cleanupExpiredPackages(); } catch (e) { console.error('[BunnyCleanup] Error:', e.message); }
+    setInterval(async () => {
+      try { await cleanupExpiredPackages(); } catch (e) { console.error('[BunnyCleanup] Error:', e.message); }
+    }, 24 * 60 * 60 * 1000);
+  }, msUntil);
+}
+scheduleBunnyCleanup();
 
 // ── Calendar sync: every 12 hours (shared data, doesn't change often) ──
 async function runCalendarSync() {

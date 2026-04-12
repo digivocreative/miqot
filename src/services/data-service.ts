@@ -17,7 +17,7 @@ import type {
 // ============================================
 
 // Always use proxy to bypass CORS (works in both dev and production)
-const API_BASE_URL = '/api/api-get';
+const API_BASE_URL = '/api/schedules';
 const DEFAULT_YEAR_CODE = '1448'; // Hijri year code
 
 // ============================================

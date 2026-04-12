@@ -698,6 +698,10 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
+      '/api/schedules': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'https://jadwal.alhijaz.co',
         changeOrigin: true,
