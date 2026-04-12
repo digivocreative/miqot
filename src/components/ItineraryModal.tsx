@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Loader2, AlertCircle, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { X, Share2, Loader2, AlertCircle, ZoomIn, ZoomOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -46,9 +46,8 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
   const [pdfWidth, setPdfWidth] = useState(0);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // ── Pinch-to-zoom state ──
+  // ── Zoom state (re-renders PDF at correct resolution) ──
   const [scale, setScale] = useState(1);
-  const [origin, setOrigin] = useState({ x: 50, y: 50 });
   const pinchRef = useRef({ startDist: 0, startScale: 1 });
 
   // Use CDN URL directly if it's a CDN URL, otherwise use proxy path
@@ -77,7 +76,6 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
       setIsPdfLoading(true);
       setNumPages(null);
       setScale(1);
-      setOrigin({ x: 50, y: 50 });
     }
   }, [isOpen, fileUrl]);
 
@@ -110,7 +108,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     setIsPdfLoading(false);
   }
 
-  // ── Pinch-to-zoom helpers ──
+  // ── Pinch-to-zoom (re-renders PDF at higher resolution, native scroll for panning) ──
   const getTouchDistance = (touches: React.TouchList) => {
     const dx = touches[0].clientX - touches[1].clientX;
     const dy = touches[0].clientY - touches[1].clientY;
@@ -121,15 +119,6 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     if (e.touches.length === 2) {
       pinchRef.current.startDist = getTouchDistance(e.touches);
       pinchRef.current.startScale = scale;
-      const rect = contentRef.current?.getBoundingClientRect();
-      if (rect) {
-        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-        const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-        setOrigin({
-          x: ((midX - rect.left) / rect.width) * 100,
-          y: ((midY - rect.top) / rect.height) * 100,
-        });
-      }
     }
   };
 
@@ -146,19 +135,9 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     if (scale < 1.1) setScale(1);
   };
 
-  const zoomIn = () => {
-    setScale(prev => Math.min(3, +(prev + 0.25).toFixed(2)));
-    setOrigin({ x: 50, y: 50 });
-  };
-
-  const zoomOut = () => {
-    setScale(prev => Math.max(1, +(prev - 0.25).toFixed(2)));
-  };
-
-  const resetZoom = () => {
-    setScale(1);
-    setOrigin({ x: 50, y: 50 });
-  };
+  const zoomIn = () => setScale(prev => Math.min(3, +(prev + 0.25).toFixed(2)));
+  const zoomOut = () => setScale(prev => Math.max(1, +(prev - 0.25).toFixed(2)));
+  const resetZoom = () => setScale(1);
 
   // Share First, Download Fallback handler
   const handleShareItinerary = async () => {
@@ -291,14 +270,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
           </div>
         )}
 
-        <div
-          style={{
-            transform: `scale(${scale})`,
-            transformOrigin: `${origin.x}% ${origin.y}%`,
-            transition: scale === 1 ? 'transform 0.2s ease-out' : 'none',
-          }}
-        >
-        <div className="flex justify-center pt-4">
+        <div className={`flex pt-4 ${scale > 1 ? 'justify-start' : 'justify-center'}`}>
 
         {/* Empty State */}
         {!proxyUrl && (
@@ -310,7 +282,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
 
         {/* PDF Renderer via react-pdf */}
         {proxyUrl && fileType === 'pdf' && (
-          <div className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[50vh] flex flex-col items-center justify-center relative">
+          <div className={`bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg min-h-[50vh] flex flex-col relative ${scale > 1 ? 'items-start w-fit' : 'items-center max-w-2xl w-full'}`}>
             <Document
               file={proxyUrl}
               onLoadSuccess={onDocumentLoadSuccess}
@@ -327,7 +299,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
                   <span className="text-sm">Gagal memuat PDF.</span>
                 </div>
               }
-              className="w-full flex flex-col items-center gap-4"
+              className={`flex flex-col gap-4 ${scale > 1 ? 'items-start' : 'w-full items-center'}`}
             >
               {numPages && Array.from(new Array(numPages), (_, index) => (
                 <Page
@@ -336,7 +308,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
                   renderTextLayer={false}
                   renderAnnotationLayer={false}
                   className="shadow-md rounded-lg overflow-hidden w-full max-w-full"
-                  width={pdfWidth || 400}
+                  width={(pdfWidth || 400) * scale}
                 />
               ))}
             </Document>
@@ -354,7 +326,6 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
             />
           </div>
         )}
-        </div>
         </div>
       </div>
 
