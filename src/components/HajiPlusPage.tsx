@@ -164,7 +164,7 @@ export default function HajiPlusPage({ agent, onExport, initialTab }: HajiPlusPa
         </div>
       </div>
 
-      {activeTab === 'simulasi' && <SimulasiHajiPlus />}
+      {activeTab === 'simulasi' && <SimulasiHajiPlus agent={agent} />}
 
       {activeTab === 'statistik' && data && (
       <div className="px-4 pt-4 pb-8 space-y-4">

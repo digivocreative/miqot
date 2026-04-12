@@ -355,7 +355,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 if (activeTab === 'ai-tools' && getAIToolsSubFromPath()) {
                   const aiSub = getAIToolsSubFromPath();
                   // Export/Simulasi page → go back to haji-plus
-                  if (aiSub === 'haji-plus/export' || aiSub === 'haji-plus/simulasi') {
+                  if (aiSub === 'haji-plus/export') {
                     window.history.pushState({}, '', '/dashboard/ai-tools/haji-plus');
                     document.title = 'Haji Plus';
                     setActiveTab('home');

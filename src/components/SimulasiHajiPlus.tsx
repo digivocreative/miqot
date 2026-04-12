@@ -1,19 +1,13 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Info, User, Calendar, Users, FileText, ChevronLeft, Share2, Loader2, AlertCircle, X } from 'lucide-react';
-import { pdf } from '@react-pdf/renderer';
-import { Document as PdfDoc, Page as PdfPage, pdfjs } from 'react-pdf';
-import 'react-pdf/dist/Page/AnnotationLayer.css';
-import 'react-pdf/dist/Page/TextLayer.css';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { Info, User, Calendar, Users, Loader2, FileText, X, Share2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import SimulasiHajiPlusDocument from './SimulasiHajiPlusDocument';
-
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+import { motion, AnimatePresence } from 'framer-motion';
+import logoWhite from '@/logo-alhijaz-white.png';
 
 // ── Constants ──
 const PACKAGES = [
-  { id: 'rahmah', name: 'RAHMAH', stars: 5, priceUSD: 15700, hotel: 'Hotel Bintang 5 · Walking distance ke Masjidil Haram & Nabawi' },
-  { id: 'uhud', name: 'UHUD', stars: 4, priceUSD: 12500, hotel: 'Hotel Bintang 4 · Lokasi strategis di Makkah & Madinah' },
+  { id: 'rahmah', name: 'RAHMAH', stars: 5, priceUSD: 15700, hotel: 'Lebih Nyaman dengan Hotel Bintang 5' },
+  { id: 'uhud', name: 'UHUD', stars: 4, priceUSD: 12500, hotel: 'Hotel Bintang 4 dengan Lokasi Strategis' },
 ];
 const DP_USD = 4500;
 const PELUNASAN_BULAN = 6;
@@ -22,9 +16,16 @@ const PELUNASAN_BULAN = 6;
 const fmtUSD = (n: number) => `$${n.toLocaleString('en-US')}`;
 const fmtRp = (n: number) => `Rp${Math.round(n).toLocaleString('id-ID')}`;
 
-export default function SimulasiHajiPlus() {
-  const currentYear = new Date().getFullYear();
+interface SimulasiHajiPlusProps {
+  agent?: {
+    name: string;
+    phone: string;
+    website: string;
+    photo?: string;
+  };
+}
 
+export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
   // ── State ──
   const [selectedPkg, setSelectedPkg] = useState<string | null>(null);
   const [tahunBerangkat, setTahunBerangkat] = useState(2035);
@@ -33,16 +34,12 @@ export default function SimulasiHajiPlus() {
   const [kursUSD, setKursUSD] = useState<number | null>(null);
   const [kursDate, setKursDate] = useState('');
   const [kursLoading, setKursLoading] = useState(true);
-
-  // PDF modal state
-  const [pdfModalOpen, setPdfModalOpen] = useState(false);
-  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
-  const [pdfLoading, setPdfLoading] = useState(false);
-  const [pdfSharing, setPdfSharing] = useState(false);
-  const [pdfNumPages, setPdfNumPages] = useState<number | null>(null);
-  const [pdfPageWidth, setPdfPageWidth] = useState(0);
-  const pdfBlobRef = useRef<Blob | null>(null);
-  const pdfContentRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   // ── Fetch Kurs ──
   useEffect(() => {
@@ -72,30 +69,6 @@ export default function SimulasiHajiPlus() {
     fetchKurs();
   }, []);
 
-  // ── Measure PDF container width ──
-  useEffect(() => {
-    const el = pdfContentRef.current;
-    if (!el || !pdfPreviewUrl) return;
-    const measure = () => {
-      const availableWidth = el.clientWidth - 48;
-      setPdfPageWidth(Math.max(availableWidth, 280));
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [pdfPreviewUrl]);
-
-  // ── Body scroll lock for modal ──
-  useEffect(() => {
-    if (pdfModalOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [pdfModalOpen]);
-
   // ── Derived ──
   const pkg = PACKAGES.find(p => p.id === selectedPkg) || null;
 
@@ -111,190 +84,94 @@ export default function SimulasiHajiPlus() {
     deadlineDate.setMonth(deadlineDate.getMonth() - PELUNASAN_BULAN);
     const deadlineLabel = deadlineDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
     const diffMonths = Math.max(0, Math.round((new Date(tahunBerangkat, 0, 1).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30)));
-    return { totalUSD, totalIDR, dpUSD, dpIDR, sisaUSD, sisaIDR, deadlineLabel, diffMonths };
+    const diffYears = Math.max(1, tahunBerangkat - new Date().getFullYear());
+    const inflatedKurs = kursUSD * Math.pow(1.015, diffYears);
+    const estTotalIDR = totalUSD * inflatedKurs;
+    return { totalUSD, totalIDR, dpUSD, dpIDR, sisaUSD, sisaIDR, deadlineLabel, diffMonths, diffYears, inflatedKurs, estTotalIDR };
   }, [pkg, tahunBerangkat, jumlahJamaah, kursUSD]);
 
   // ── Accent colors ──
   const isRahmah = selectedPkg === 'rahmah';
 
-  // ── Open PDF modal & generate ──
-  const handleOpenPdfModal = useCallback(async () => {
-    if (!pkg || !calc || !kursUSD) return;
-    setPdfModalOpen(true);
-    setPdfLoading(true);
-    setPdfNumPages(null);
-    setPdfPreviewUrl(null);
-    try {
-      const blob = await pdf(
-        <SimulasiHajiPlusDocument
-          pkg={pkg}
-          calc={calc}
-          jumlahJamaah={jumlahJamaah}
-          tahunBerangkat={tahunBerangkat}
-          namaJamaah={namaJamaah}
-          kursUSD={kursUSD}
-          kursDate={kursDate}
-        />
-      ).toBlob();
-      pdfBlobRef.current = blob;
-      setPdfPreviewUrl(URL.createObjectURL(blob));
-    } catch (err) {
-      console.error('PDF generation failed:', err);
-    } finally {
-      setPdfLoading(false);
+  // ── Body scroll lock for modal ──
+  useEffect(() => {
+    if (previewOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
     }
-  }, [pkg, calc, jumlahJamaah, tahunBerangkat, namaJamaah, kursUSD, kursDate]);
+    return () => { document.body.style.overflow = ''; };
+  }, [previewOpen]);
 
-  // ── Close modal ──
-  const handleClosePdfModal = () => {
-    setPdfModalOpen(false);
-    if (pdfPreviewUrl) {
-      URL.revokeObjectURL(pdfPreviewUrl);
-      setPdfPreviewUrl(null);
+  // ── Generate preview (Buat Penawaran) ──
+  const handleGeneratePreview = async () => {
+    const el = cardRef.current;
+    if (!el || exporting) return;
+    setExporting(true);
+    try {
+      const { domToPng } = await import('modern-screenshot');
+      const [dataUrl] = await Promise.all([
+        domToPng(el, { scale: 3, quality: 1 }),
+        new Promise(r => setTimeout(r, 1000)),
+      ]);
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setPreviewBlob(blob);
+      setPreviewUrl(url);
+      setPreviewOpen(true);
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExporting(false);
     }
-    pdfBlobRef.current = null;
-    setPdfNumPages(null);
   };
 
-  // ── Share PDF (Web Share API + fallback) ──
-  const handleSharePdf = async () => {
-    if (!pdfBlobRef.current) return;
-    setPdfSharing(true);
-    try {
-      const fileName = `Simulasi_Haji_Plus_${(namaJamaah || 'Alhijaz').replace(/\s+/g, '_').substring(0, 30)}.pdf`;
-      const file = new File([pdfBlobRef.current], fileName, { type: 'application/pdf' });
-      const shareData = { title: 'Simulasi Haji Plus', text: 'Simulasi biaya haji plus Alhijaz', files: [file] };
+  // ── Close preview modal ──
+  const handleClosePreview = () => {
+    setPreviewOpen(false);
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+    }
+    setPreviewBlob(null);
+  };
 
-      if (navigator.canShare && navigator.canShare(shareData)) {
-        try {
-          await navigator.share(shareData);
-        } catch (err: any) {
-          if (err?.name !== 'AbortError') downloadBlob(fileName);
-        }
+  // ── Share from preview modal ──
+  const handleSharePreview = async () => {
+    if (!previewBlob || sharing) return;
+    setSharing(true);
+    try {
+      const fileName = `Simulasi Haji Plus - ${namaJamaah || 'Alhijaz'}.png`;
+      const file = new File([previewBlob], fileName, { type: 'image/png' });
+
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file] });
       } else {
-        downloadBlob(fileName);
+        // Fallback: download
+        const url = URL.createObjectURL(previewBlob);
+        const link = document.createElement('a');
+        link.download = fileName;
+        link.href = url;
+        link.click();
+        URL.revokeObjectURL(url);
       }
     } catch (err) {
-      console.error('Share failed:', err);
+      if ((err as Error).name !== 'AbortError') {
+        console.error('Share failed:', err);
+      }
     } finally {
-      setPdfSharing(false);
+      setSharing(false);
     }
   };
 
-  const downloadBlob = (fileName: string) => {
-    if (!pdfBlobRef.current) return;
-    const url = URL.createObjectURL(pdfBlobRef.current);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  // ── WhatsApp share ──
-  const handleShare = () => {
-    if (!pkg || !calc || !kursUSD) return;
-    const shareText = `*Simulasi Biaya Haji Plus Alhijaz*\n\nNama: ${namaJamaah || '-'}\nPaket: ${pkg.name} ★${pkg.stars}\nTahun Berangkat: ${tahunBerangkat}\nJumlah: ${jumlahJamaah} jamaah\n\n*Total: ${fmtUSD(calc.totalUSD)}* (≈ ${fmtRp(calc.totalIDR)})\nDP: ${fmtUSD(calc.dpUSD)}\nPelunasan: ${fmtUSD(calc.sisaUSD)} (maks. ${calc.deadlineLabel})\n\nKurs USD: ${fmtRp(kursUSD)} (${kursDate})\n\n_Hubungi kami untuk info lebih lanjut_`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, '_blank');
-  };
-
-  // ── PDF Modal (portal) ──
-  const pdfModal = createPortal(
-    <AnimatePresence>
-      {pdfModalOpen && (
-        <motion.div
-          className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
-          initial={{ opacity: 0, y: '100%' }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: '100%' }}
-          transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-        >
-          {/* Header */}
-          <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
-            <div className="flex flex-col">
-              <h2 className="text-lg font-bold text-gray-900 dark:text-slate-100">Simulasi Haji Plus</h2>
-              <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
-                {pdfNumPages ? `Dokumen PDF · ${pdfNumPages} halaman` : 'Preview Dokumen PDF'}
-              </span>
-            </div>
-            <button onClick={handleClosePdfModal} className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0">
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-
-          {/* Body */}
-          <div ref={pdfContentRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-100 dark:bg-slate-950 px-4 pb-6">
-            <div className="flex justify-center pt-4">
-              {pdfLoading ? (
-                <div className="flex flex-col items-center gap-4 py-20">
-                  <div className="relative">
-                    <div className="w-16 h-16 rounded-full border-4 border-emerald-100 border-t-emerald-500 animate-spin" />
-                    <FileText className="absolute inset-0 m-auto w-6 h-6 text-emerald-600" />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm font-semibold text-gray-700 dark:text-slate-300">Membuat PDF...</p>
-                    <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Mohon tunggu sebentar</p>
-                  </div>
-                </div>
-              ) : pdfPreviewUrl ? (
-                <div className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-2xl w-full min-h-[50vh] flex flex-col items-center justify-center relative">
-                  <PdfDoc
-                    file={pdfPreviewUrl}
-                    onLoadSuccess={({ numPages }) => setPdfNumPages(numPages)}
-                    onLoadError={(err) => console.error('react-pdf error:', err)}
-                    loading={
-                      <div className="flex flex-col items-center gap-3 py-10">
-                        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
-                        <span className="text-sm text-gray-500">Memuat Dokumen...</span>
-                      </div>
-                    }
-                    error={
-                      <div className="flex flex-col items-center gap-2 py-10 text-red-500">
-                        <AlertCircle className="w-8 h-8" />
-                        <span className="text-sm">Gagal memuat PDF.</span>
-                      </div>
-                    }
-                    className="w-full flex flex-col items-center gap-4"
-                  >
-                    {pdfNumPages && Array.from(new Array(pdfNumPages), (_, i) => (
-                      <PdfPage
-                        key={`spage_${i + 1}`}
-                        pageNumber={i + 1}
-                        renderTextLayer={false}
-                        renderAnnotationLayer={false}
-                        className="shadow-md rounded-lg overflow-hidden w-full max-w-full"
-                        width={pdfPageWidth || 400}
-                      />
-                    ))}
-                  </PdfDoc>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-2 py-10 text-red-500">
-                  <AlertCircle className="w-8 h-8" />
-                  <span className="text-sm">Gagal membuat PDF.</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-            <div className="flex gap-2">
-              <button onClick={handleClosePdfModal} className="w-[20%] flex items-center justify-center py-3.5 rounded-xl text-sm font-semibold border-2 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 bg-white dark:bg-slate-800 transition-all duration-200 active:scale-[0.97]">
-                <ChevronLeft size={20} />
-              </button>
-              <button onClick={handleSharePdf} disabled={pdfSharing || pdfLoading} className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70">
-                {pdfSharing ? (<><Loader2 size={20} className="animate-spin" /><span>Bentar...</span></>) : (<><Share2 size={20} /><span>Bagikan PDF</span></>)}
-              </button>
-            </div>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>,
-    document.body
-  );
+  // ── Agent display helpers ──
+  const agentPhone = agent?.phone
+    ? (agent.phone.startsWith('62') ? '0' + agent.phone.slice(2) : agent.phone)
+    : '';
+  const agentInitials = agent?.name
+    ? agent.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()
+    : 'AH';
 
   return (
     <div className="px-4 pt-4 pb-8 space-y-4">
@@ -303,20 +180,23 @@ export default function SimulasiHajiPlus() {
       {kursLoading ? (
         <div className="h-10 rounded-xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
       ) : kursUSD ? (
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center flex-shrink-0 shadow-md shadow-emerald-500/20">
-            <span className="text-white text-base font-bold">$</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[9px] text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wide">Kurs Hari Ini</p>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-lg font-bold text-gray-800 dark:text-white">{fmtRp(kursUSD)}</span>
-              <span className="text-[9px] font-bold text-emerald-500 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded">USD</span>
+        <div className="rounded-2xl overflow-hidden relative" style={{ background: 'linear-gradient(135deg, #064e3b, #0d9488)' }}>
+          <div className="absolute top-[-20px] right-[-15px] w-[70px] h-[70px] rounded-full bg-white/[0.06]" />
+          <div className="absolute bottom-[-10px] left-[-20px] w-[50px] h-[50px] rounded-full bg-white/[0.04]" />
+          <div className="relative px-4 py-3 flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center flex-shrink-0 border border-white/10">
+              <span className="text-white text-lg font-bold">$</span>
             </div>
-          </div>
-          <div className="text-right flex-shrink-0">
-            <p className="text-[10px] text-gray-500 dark:text-slate-400 font-medium">Bank Mandiri</p>
-            <p className="text-[10px] text-gray-400 dark:text-slate-500">{kursDate}</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-[9px] text-emerald-200/70 font-semibold uppercase tracking-wide">Kurs USD Hari Ini</p>
+              <div className="flex items-baseline gap-1.5 mt-0.5">
+                <span className="text-xl font-bold text-white">{fmtRp(kursUSD)}</span>
+              </div>
+            </div>
+            <div className="text-right flex-shrink-0">
+              <p className="text-[10px] text-emerald-100/80 font-semibold">Bank Mandiri</p>
+              <p className="text-[10px] text-emerald-200/50 mt-0.5">{kursDate}</p>
+            </div>
           </div>
         </div>
       ) : (
@@ -326,22 +206,7 @@ export default function SimulasiHajiPlus() {
         </div>
       )}
 
-      {/* B. Nama Calon Jamaah */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4">
-        <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">
-          <User size={12} /> Nama Calon Jamaah
-        </label>
-        <input
-          type="text"
-          value={namaJamaah}
-          onChange={e => setNamaJamaah(e.target.value)}
-          placeholder="Masukkan nama lengkap"
-          className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm text-gray-800 dark:text-white placeholder-gray-300 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-colors"
-        />
-        <p className="text-[10px] text-gray-500 dark:text-slate-400 mt-1.5">Akan tampil di dokumen PDF simulasi</p>
-      </div>
-
-      {/* C. Pilih Paket */}
+      {/* B. Pilih Paket */}
       <div>
         <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2 px-1">Pilih Paket</p>
         <div className="grid grid-cols-2 gap-3">
@@ -382,7 +247,6 @@ export default function SimulasiHajiPlus() {
                   <p className={`text-sm font-bold ${selected ? 'text-white' : 'text-gray-800 dark:text-white'}`}>{p.name}</p>
                   <p className={`text-xl font-bold mt-1 ${selected ? 'text-white' : 'text-gray-800 dark:text-white'}`}>{fmtUSD(p.priceUSD)}</p>
                   <p className={`text-[9px] mt-0.5 ${selected ? 'text-white/70' : 'text-gray-500 dark:text-slate-400'}`}>per jamaah</p>
-                  <div className="mb-1" />
                 </div>
               </button>
             );
@@ -507,7 +371,22 @@ export default function SimulasiHajiPlus() {
             </div>
           </div>
 
-          {/* E3. Disclaimer */}
+          {/* E3. Nama Calon Jamaah */}
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4">
+            <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">
+              <User size={12} /> Nama Calon Jamaah
+            </label>
+            <input
+              type="text"
+              value={namaJamaah}
+              onChange={e => setNamaJamaah(e.target.value)}
+              placeholder="Masukkan nama lengkap"
+              className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm text-gray-800 dark:text-white placeholder-gray-300 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-colors"
+            />
+            <p className="text-[10px] text-gray-500 dark:text-slate-400 mt-1.5">Akan tampil di gambar penawaran</p>
+          </div>
+
+          {/* E4. Disclaimer */}
           <div className="bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-700/50 rounded-xl px-3 py-2.5 flex items-start gap-2">
             <Info size={12} className="text-gray-500 dark:text-slate-400 flex-shrink-0 mt-0.5" />
             <p className="text-[10px] text-gray-500 dark:text-slate-400 leading-relaxed">
@@ -515,32 +394,283 @@ export default function SimulasiHajiPlus() {
             </p>
           </div>
 
-          {/* E4. CTA Buttons */}
-          <div className="space-y-2">
-            <button
-              onClick={handleOpenPdfModal}
-              className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold text-white shadow-md active:scale-95 transition-all duration-200 ${
-                isRahmah ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20' : 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/20'
-              }`}
-            >
-              <FileText size={16} /> Lihat & Download PDF
-            </button>
-            <button
-              onClick={handleShare}
-              className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold active:scale-95 transition-all duration-200 border ${
-                isRahmah
-                  ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/40'
-                  : 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800/40'
-              }`}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-              Bagikan via WhatsApp
-            </button>
+          {/* E4. CTA Button */}
+          <button
+            onClick={handleGeneratePreview}
+            disabled={exporting || !namaJamaah.trim()}
+            className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold text-white shadow-md active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:active:scale-100 ${
+              isRahmah ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20' : 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/20'
+            }`}
+          >
+            {exporting ? (
+              <><Loader2 size={16} className="animate-spin" /> Membuat penawaran...</>
+            ) : (
+              <><FileText size={16} /> Buat Penawaran</>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* ── Offscreen Image Card (for export) ── */}
+      {pkg && calc && kursUSD && (
+        <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+          <div
+            ref={cardRef}
+            style={{
+              width: 400,
+              backgroundColor: '#ffffff',
+              fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif",
+              color: '#1f2937',
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #450a0a, #7f1d1d, #991b1b)',
+              padding: '20px 24px',
+              position: 'relative',
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                position: 'absolute', inset: 0, opacity: 0.06,
+                backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M20 4l4 8h-8l4-8zm0 32l-4-8h8l-4 8zm-16-16l8-4v8l-8-4zm32 0l-8 4v-8l8 4z' fill='white' fill-opacity='1'/%3E%3C/svg%3E")`,
+                backgroundSize: '40px 40px',
+              }} />
+              <div style={{
+                position: 'absolute', top: 0, right: 0, width: 160, height: 160,
+                background: 'radial-gradient(circle at 80% 20%, rgba(239,68,68,0.35), transparent 60%)',
+              }} />
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <img src={logoWhite} style={{ height: 28, width: 'auto' }} alt="Alhijaz" />
+                {agent && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ textAlign: 'right' as const }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#ffffff' }}>{agent.name}</div>
+                      <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>{agentPhone}</div>
+                    </div>
+                    <div style={{ position: 'relative', flexShrink: 0 }}>
+                      {agent.photo ? (
+                        <img src={agent.photo} crossOrigin="anonymous" style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.2)' }} alt="" />
+                      ) : (
+                        <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 600, color: '#ffffff' }}>
+                          {agentInitials}
+                        </div>
+                      )}
+                      <div style={{ position: 'absolute', top: -2, left: -2, width: 16, height: 16, borderRadius: '50%', background: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #991b1b' }}>
+                        <svg width="8" height="8" viewBox="0 0 10 10" fill="none"><path d="M2 5.5L4 7.5L8 3" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Title + Nama */}
+            <div style={{ padding: '22px 24px 18px', textAlign: 'center' as const }}>
+              <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.2em', color: '#9ca3af' }}>Simulasi Biaya Haji Plus</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#1f2937', marginTop: 8, lineHeight: '1.2' }}>{namaJamaah || 'Calon Jamaah'}</div>
+            </div>
+
+            {/* Paket Card */}
+            <div style={{
+              margin: '12px 24px 0',
+              borderRadius: 14,
+              padding: '18px 20px',
+              background: isRahmah ? 'linear-gradient(135deg, #064e3b, #047857)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
+              position: 'relative',
+              overflow: 'hidden',
+            }}>
+              <div style={{ position: 'absolute', top: -15, right: -15, width: 60, height: 60, borderRadius: '50%', background: 'rgba(255,255,255,0.07)' }} />
+              <div style={{ position: 'absolute', bottom: -20, left: -10, width: 45, height: 45, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 11, color: '#fbbf24' }}>{'★'.repeat(pkg.stars)}</div>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: '#ffffff', marginTop: 2 }}>Paket {pkg.name}</div>
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 3, lineHeight: '1.4' }}>{pkg.hotel}</div>
+                </div>
+                <div style={{ textAlign: 'right' as const }}>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#ffffff' }}>{fmtUSD(pkg.priceUSD)}</div>
+                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)' }}>per jamaah</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Rincian Pembayaran — Invoice Card */}
+            <div style={{
+              margin: '14px 24px 0',
+              borderRadius: 12,
+              border: '1px solid #e5e7eb',
+              overflow: 'hidden',
+            }}>
+              {/* Card Header */}
+              <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
+                <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.15em', color: '#64748b' }}>Rincian Pembayaran</div>
+              </div>
+
+              {/* Row: DP */}
+              <div style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#1f2937' }}>DP Pendaftaran</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1f2937' }}>{fmtUSD(calc.dpUSD)}</div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 3 }}>
+                  <div style={{ fontSize: 9, color: '#94a3b8' }}>Dibayar saat pendaftaran</div>
+                  <div style={{ fontSize: 9, color: '#94a3b8' }}>≈ {fmtRp(calc.dpIDR)}</div>
+                </div>
+              </div>
+
+              {/* Row: Pelunasan */}
+              <div style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#1f2937' }}>Sisa Pelunasan</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1f2937' }}>{fmtUSD(calc.sisaUSD)}</div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 3 }}>
+                  <div style={{ fontSize: 9, color: '#d97706' }}>Maks. {calc.deadlineLabel}</div>
+                  <div style={{ fontSize: 9, color: '#94a3b8' }}>≈ {fmtRp(calc.sisaIDR)}</div>
+                </div>
+              </div>
+
+              {/* Row: Total */}
+              <div style={{ padding: '14px 16px', background: isRahmah ? '#ecfdf5' : '#eff6ff' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: isRahmah ? '#064e3b' : '#1e3a5f' }}>Total Biaya</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: isRahmah ? '#064e3b' : '#1e3a5f' }}>{fmtUSD(calc.totalUSD)}</div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 3 }}>
+                  <div style={{ fontSize: 9, color: '#6b7280' }}>{jumlahJamaah > 1 ? `${fmtUSD(pkg.priceUSD)} × ${jumlahJamaah} jamaah` : '1 jamaah'}</div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#6b7280' }}>≈ {fmtRp(calc.totalIDR)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Jadwal Keberangkatan */}
+            <div style={{
+              margin: '12px 24px 0',
+              borderRadius: 10,
+              padding: '14px 16px',
+              background: isRahmah ? 'linear-gradient(135deg, #064e3b, #047857)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
+              position: 'relative',
+              overflow: 'hidden',
+            }}>
+              <div style={{ position: 'absolute', top: -10, right: -10, width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }} />
+              <div style={{ position: 'relative' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#ffffff' }}>🕋 Berangkat Tahun {tahunBerangkat}</div>
+                <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.6)', marginTop: 3 }}>Insya Allah · ±{calc.diffMonths} bulan dari sekarang</div>
+              </div>
+            </div>
+
+            {/* Proyeksi Inflasi */}
+            <div style={{ margin: '12px 24px 0', padding: '12px 16px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: 9, fontWeight: 600, color: '#94a3b8', marginBottom: 6 }}>PROYEKSI KURS IDR/USD (inflasi ~1.5%/thn)</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <div style={{ fontSize: 10, color: '#64748b' }}>Est. kurs tahun {tahunBerangkat}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>{fmtRp(calc.inflatedKurs)}/USD</div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
+                <div style={{ fontSize: 10, color: '#64748b' }}>Est. total dalam IDR</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>≈ {fmtRp(calc.estTotalIDR)}</div>
+              </div>
+            </div>
+
+            {/* Kurs Note */}
+            <div style={{ padding: '10px 24px 12px', textAlign: 'center' as const, fontSize: 8, color: '#9ca3af' }}>
+              Kurs saat ini: {fmtRp(kursUSD)}/USD (Bank Mandiri, {kursDate})
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              background: 'linear-gradient(135deg, #450a0a, #7f1d1d, #991b1b)',
+              padding: '16px 24px',
+              textAlign: 'center' as const,
+              position: 'relative',
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                position: 'absolute', inset: 0, opacity: 0.06,
+                backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M20 4l4 8h-8l4-8zm0 32l-4-8h8l-4 8zm-16-16l8-4v8l-8-4zm32 0l-8 4v-8l8 4z' fill='white' fill-opacity='1'/%3E%3C/svg%3E")`,
+                backgroundSize: '40px 40px',
+              }} />
+              <div style={{
+                position: 'absolute', bottom: 0, left: 0, width: 120, height: 120,
+                background: 'radial-gradient(circle at 20% 80%, rgba(239,68,68,0.3), transparent 60%)',
+              }} />
+              <div style={{ position: 'relative' }}>
+                {agent ? (
+                  <>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#ffffff' }}>Hubungi {agent.name}</div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', marginTop: 4 }}>
+                      {agentPhone}{agent.website ? ` · ${agent.website}` : ''}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>alhijazindowisata.com</div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {pdfModal}
+      {/* ── Preview Modal (portal, like BrochureModal) ── */}
+      {createPortal(
+        <AnimatePresence onExitComplete={() => { setPreviewUrl(null); setPreviewBlob(null); }}>
+          {previewOpen && (
+            <motion.div
+              className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
+              initial={{ opacity: 0, y: '100%' }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            >
+              {/* Header */}
+              <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
+                <div className="flex flex-col">
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Preview Penawaran</h2>
+                  <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">Simulasi Haji Plus · {pkg?.name}</span>
+                </div>
+                <button onClick={handleClosePreview} className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-auto bg-gray-100 dark:bg-slate-950 p-4">
+                <div className="flex justify-center">
+                  <div className="relative bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-md w-full">
+                    {previewUrl ? (
+                      <img
+                        src={previewUrl}
+                        alt="Preview Simulasi Haji Plus"
+                        className="w-full h-auto rounded-lg"
+                      />
+                    ) : (
+                      <div className="py-20 flex items-center justify-center">
+                        <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                <button
+                  onClick={handleSharePreview}
+                  disabled={sharing}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                >
+                  {sharing ? (
+                    <><Loader2 size={20} className="animate-spin" /><span>Memproses...</span></>
+                  ) : (
+                    <><Share2 size={20} /><span>Bagikan Penawaran</span></>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }

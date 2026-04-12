@@ -5934,6 +5934,9 @@ async function syncUmrohSchedules() {
       }));
 
       // Detect brosur/itinerary URL changes → invalidate CDN URLs
+      // External API appends a random token to URLs on each request (e.g. -nSDGrYQ),
+      // so strip it before comparing to avoid false "URL changed" detections.
+      const stripUrlToken = (url) => url?.replace(/-[A-Za-z0-9]+$/, '') || '';
       const { data: existing } = await supabase
         .from('umroh_schedules')
         .select('jadwal_id, brosur, itinerary, brosur_cdn, itinerary_cdn')
@@ -5943,7 +5946,7 @@ async function syncUmrohSchedules() {
         for (const row of rows) {
           const old = oldMap.get(row.jadwal_id);
           if (!old) continue;
-          if (old.brosur_cdn && old.brosur !== row.brosur) {
+          if (old.brosur_cdn && stripUrlToken(old.brosur) !== stripUrlToken(row.brosur)) {
             // Source URL changed — delete old file from Bunny, null out CDN URL
             if (getBunnyEnabled()) {
               try { await bunnyDelete(old.brosur_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, '')); } catch {}
@@ -5951,7 +5954,7 @@ async function syncUmrohSchedules() {
             await supabase.from('umroh_schedules').update({ brosur_cdn: null }).eq('jadwal_id', row.jadwal_id).eq('year_code', year);
             console.log(`[ScheduleSync] ${row.jadwal_id}: brosur URL changed, CDN invalidated`);
           }
-          if (old.itinerary_cdn && old.itinerary !== row.itinerary) {
+          if (old.itinerary_cdn && stripUrlToken(old.itinerary) !== stripUrlToken(row.itinerary)) {
             if (getBunnyEnabled()) {
               try { await bunnyDelete(old.itinerary_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, '')); } catch {}
             }
