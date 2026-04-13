@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
-import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, ClipboardCheck, Copy, RefreshCw } from 'lucide-react';
+import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, ClipboardCheck, Copy, RefreshCw, FileText, Maximize2, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UmrohPackage, RoomPricing } from '@/types';
 import { BrochureModal } from './BrochureModal';
@@ -120,7 +120,9 @@ export function PackageCard({
   const [aiCopyText, setAiCopyText] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [brosurError, setBrosurError] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+  const brosurSectionRef = useRef<HTMLDivElement>(null);
 
   // CAPI: fire viewContent event on content interactions
   const agentSlug = useMemo(() => {
@@ -467,6 +469,47 @@ _________________________
   };
 
   // Handle Screenshot & Share (Smart Styling Strategy)
+  const brosurImageUrl = pkg.brosurUrl
+    ? (pkg.brosurUrl.includes('.b-cdn.net') || pkg.brosurUrl.includes('bunnycdn'))
+      ? pkg.brosurUrl
+      : pkg.brosurUrl.replace(/^https?:\/\/(?:jadwal\.(?:miqot\.com|alhijaz\.co)|115\.124\.86\.220)/i, '')
+    : '';
+
+  const handleDownloadBrosur = async () => {
+    try {
+      const response = await fetch(brosurImageUrl);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `Brosur - ${pkg.nama || 'Paket'}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('Download brosur error:', err);
+    }
+  };
+
+  const handleShareBrosur = async () => {
+    try {
+      const response = await fetch(brosurImageUrl);
+      const blob = await response.blob();
+      const file = new File([blob], `Brosur - ${pkg.nama || 'Paket'}.jpg`, { type: 'image/jpeg' });
+
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file] });
+      } else {
+        handleDownloadBrosur();
+      }
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        console.error('Share brosur error:', err);
+      }
+    }
+  };
+
   const handleScreenshot = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!cardRef.current) return;
@@ -1631,8 +1674,8 @@ _________________________
       {/* ============================================ */}
       <div
         className="overflow-hidden transition-all duration-300 ease-out"
-        style={{ 
-          maxHeight: isExpanded ? `${contentHeight}px` : '0px',
+        style={{
+          maxHeight: isExpanded ? (isSingleView ? 'none' : `${contentHeight}px`) : '0px',
           opacity: isExpanded ? 1 : 0,
         }}
       >
@@ -1757,7 +1800,11 @@ _________________________
                   e.stopPropagation();
                   fireViewContent();
                   trackEvent('action', 'download_brosur', { paket: pkg.nama });
-                  setIsBrochureOpen(true);
+                  if (isSingleView && !brosurError && brosurSectionRef.current) {
+                    brosurSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  } else {
+                    setIsBrochureOpen(true);
+                  }
                 }}
                 className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/30 dark:border-slate-700 dark:hover:border-orange-500"
               >
@@ -1913,8 +1960,50 @@ _________________________
           )}
 
 
+          {/* ---- Inline Brosur Preview (Single View Only) ---- */}
+          {isSingleView && !brosurError && pkg.brosurUrl && (
+            <div ref={brosurSectionRef} className="mb-4">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+                {/* Header */}
+                <div className="px-4 py-3 flex items-center gap-1.5">
+                  <FileText size={14} className="text-gray-400 dark:text-slate-500" />
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Brosur Paket</span>
+                </div>
+
+                {/* Image area */}
+                <div
+                  className="cursor-pointer relative"
+                  onClick={() => { fireViewContent(); setIsBrochureOpen(true); }}
+                >
+                  <img
+                    src={brosurImageUrl}
+                    alt="Brosur paket"
+                    className="w-full h-auto block"
+                    loading="lazy"
+                    onError={() => setBrosurError(true)}
+                  />
+                  {/* Badge */}
+                  <div className="absolute bottom-3 right-3 bg-black/50 text-white text-[11px] font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-sm">
+                    <Maximize2 size={12} />
+                    Lihat penuh
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="px-4 py-3 border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
+                  <button type="button" onClick={handleDownloadBrosur} className="flex items-center gap-2">
+                    <Download size={16} className="text-emerald-500" />
+                    <span className="text-xs font-semibold text-emerald-500 dark:text-emerald-400">Download brosur</span>
+                  </button>
+                  <button type="button" onClick={handleShareBrosur} className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors">
+                    <Share2 size={16} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ---- Pricing Table (Compact) ---- */}
-           {/* ---- Pricing Table (Compact) ---- */}
           <div className="mb-4">
             <h4 className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
               Rincian Biaya Paket
