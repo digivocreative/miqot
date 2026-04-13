@@ -62,7 +62,7 @@ const FILTER_MODE_OPTIONS: { value: FilterMode; label: string }[] = [
   { value: 'LIBURAN_SEKOLAH', label: 'LIBURAN SEKOLAH' },
   { value: 'PROMO', label: 'UMROH PROMO' },
   { value: 'UMROH REGULER', label: 'UMROH REGULER' },
-  { value: 'UMROH PLUS', label: 'UMROH PLUS' },
+  { value: 'UMROH MUSIM DINGIN', label: 'UMROH MUSIM DINGIN' },
   { value: 'BINTANG 5', label: 'BINTANG 5' },
   { value: 'DURASI PERJALANAN', label: 'DURASI PERJALANAN' },
   { value: 'DATA PER-BULAN', label: 'DATA PER-BULAN' },
@@ -151,7 +151,7 @@ export function FilterHeader({
   }, [packages]);
 
   // Check if secondary dropdown should be shown
-  const showSortDropdown = filterMode === 'AVAILABLE' || filterMode === 'LIBURAN_SEKOLAH' || filterMode === 'PROMO' || filterMode === 'UMROH REGULER' || filterMode === 'UMROH PLUS' || filterMode === 'BINTANG 5';
+  const showSortDropdown = filterMode === 'AVAILABLE' || filterMode === 'LIBURAN_SEKOLAH' || filterMode === 'PROMO' || filterMode === 'UMROH REGULER' || filterMode === 'UMROH MUSIM DINGIN' || filterMode === 'BINTANG 5';
   const showDurationDropdown = filterMode === 'DURASI PERJALANAN';
   const showMonthDropdown = filterMode === 'DATA PER-BULAN';
 

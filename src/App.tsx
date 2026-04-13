@@ -130,7 +130,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       if (modeFromUrl) {
         setFilterMode(modeFromUrl);
         // Set default sort for modes with sort sub-dropdown
-        const modesWithSort: FilterMode[] = ['AVAILABLE', 'LIBURAN_SEKOLAH', 'PROMO', 'UMROH REGULER', 'UMROH PLUS', 'BINTANG 5'];
+        const modesWithSort: FilterMode[] = ['AVAILABLE', 'LIBURAN_SEKOLAH', 'PROMO', 'UMROH REGULER', 'UMROH MUSIM DINGIN', 'BINTANG 5'];
         setSortOrder(modesWithSort.includes(modeFromUrl) ? 'TANGGAL_TERDEKAT' : null);
       }
     }
@@ -440,7 +440,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setFilterMode(mode);
     setFilterSecondaryValue('');
     // Set default sort for modes with sort sub-dropdown
-    const modesWithSort: FilterMode[] = ['AVAILABLE', 'LIBURAN_SEKOLAH', 'PROMO', 'UMROH REGULER', 'UMROH PLUS', 'BINTANG 5'];
+    const modesWithSort: FilterMode[] = ['AVAILABLE', 'LIBURAN_SEKOLAH', 'PROMO', 'UMROH REGULER', 'UMROH MUSIM DINGIN', 'BINTANG 5'];
     setSortOrder(modesWithSort.includes(mode) ? 'TANGGAL_TERDEKAT' : null);
     // Sync URL slug
     window.history.replaceState(null, '', buildUrlPath(mode));
@@ -464,14 +464,25 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   };
 
 
-  // Set document title for single-package view
+  // Set document title & meta tags for single-package view
   useEffect(() => {
     if (!singlePackageId) return;
     const pkg = packages.find(p => p.jadwalId === singlePackageId);
     if (pkg) {
       const agentName = currentAgent?.name || '';
-      const parts = [pkg.nama, agentName, 'Alhijaz Indowisata'].filter(Boolean);
-      document.title = parts.join(' | ');
+      const title = [pkg.nama, agentName, 'Alhijaz Indowisata'].filter(Boolean).join(' | ');
+      document.title = title;
+
+      // Update meta tags for share preview
+      const ogTitle = document.querySelector('meta[property="og:title"]');
+      if (ogTitle) ogTitle.setAttribute('content', title);
+      const metaDesc = document.querySelector('meta[name="description"]');
+      const ogDesc = document.querySelector('meta[property="og:description"]');
+      const desc = agentName
+        ? `Info paket ${pkg.nama} bersama ${agentName}. Alhijaz Indowisata.`
+        : `Info paket ${pkg.nama}. Alhijaz Indowisata.`;
+      if (metaDesc) metaDesc.setAttribute('content', desc);
+      if (ogDesc) ogDesc.setAttribute('content', desc);
     }
   }, [singlePackageId, packages, currentAgent]);
 

@@ -4,6 +4,7 @@
  */
 
 import type { UmrohPackage } from '@/types';
+import { calculateDuration } from '@/services/data-service';
 
 // ============================================
 // Types
@@ -14,7 +15,7 @@ export type FilterMode =
   | 'LIBURAN_SEKOLAH' // Filter keberangkatan Juni-Juli 2026
   | 'PROMO'          // Filter paket promo
   | 'UMROH REGULER'  // Hanya Mekkah & Madinah
-  | 'UMROH PLUS'     // Paket Plus (Redsea, Thaif, ke negara lain, dll)
+  | 'UMROH MUSIM DINGIN' // Keberangkatan Desember-Januari
   | 'BINTANG 5'      // Semua hotel bintang 5
   | 'DURASI PERJALANAN' // Filter berdasarkan durasi
   | 'DATA PER-BULAN' // Filter berdasarkan bulan keberangkatan
@@ -95,7 +96,7 @@ export const FILTER_MODE_SLUGS: Record<FilterMode, string> = {
   'LIBURAN_SEKOLAH': 'liburan-sekolah',
   'PROMO': 'umroh-promo',
   'UMROH REGULER': 'umroh-reguler',
-  'UMROH PLUS': 'umroh-plus',
+  'UMROH MUSIM DINGIN': 'umroh-musim-dingin',
   'BINTANG 5': 'bintang-5',
   'DURASI PERJALANAN': 'durasi-perjalanan',
   'DATA PER-BULAN': 'data-per-bulan',
@@ -143,21 +144,12 @@ function getCityName(code: string): string {
 }
 
 /**
- * Calculate trip duration in days between departure and return
- */
-function getDurationDays(pkg: UmrohPackage): number {
-  const dep = new Date(pkg.keberangkatan.tgl);
-  const ret = new Date(pkg.kepulangan.tgl);
-  return Math.round((ret.getTime() - dep.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-}
-
-/**
  * Extract unique trip durations from packages
  */
 export function extractUniqueDurations(packages: UmrohPackage[]): { days: number; label: string; count: number }[] {
   const durationMap = new Map<number, number>();
   packages.forEach(pkg => {
-    const days = getDurationDays(pkg);
+    const days = calculateDuration(pkg);
     durationMap.set(days, (durationMap.get(days) || 0) + 1);
   });
   return Array.from(durationMap.entries())
@@ -357,20 +349,11 @@ export function filterPackages(
         });
       });
 
-    case 'UMROH PLUS':
-      // Packages with "PLUS" in name OR destinations outside Saudi Arabia
+    case 'UMROH MUSIM DINGIN':
+      // Packages departing in December or January (winter season)
       return data.filter(pkg => {
-        // Check if package name contains "PLUS" (e.g., PLUS REDSEA, PLUS THAIF, PLUS CAIRO)
-        if (pkg.nama.toUpperCase().includes('PLUS')) return true;
-        // Also check for non-Saudi hotel keys as fallback
-        return Object.values(pkg.hotel).some(hotelInfo => {
-          const keys = Object.keys(hotelInfo);
-          return keys.some(k =>
-            k.endsWith('_hotel') &&
-            !k.startsWith('mekkah') &&
-            !k.startsWith('madinah')
-          );
-        });
+        const month = new Date(pkg.keberangkatan.tgl).getMonth(); // 0-indexed
+        return month === 11 || month === 0; // December or January
       });
 
     case 'BINTANG 5':
@@ -389,7 +372,7 @@ export function filterPackages(
         return data;
       }
       return data.filter(pkg => {
-        const days = getDurationDays(pkg);
+        const days = calculateDuration(pkg);
         return days === parseInt(secondaryValue, 10);
       });
 
