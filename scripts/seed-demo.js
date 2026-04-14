@@ -747,7 +747,7 @@ async function seedAnalyticsEvents() {
 
 async function seedCalendarInsights() {
   const insight = {
-    id: 'latest',
+    id: 'demo_bagas',
     data: {
       today: 'Hari ini ada 2 penerbangan aktif: Group C (35 pax) via Garuda GA 982 berangkat pukul 14.00 WIB ke Madinah — saat ini sedang terbang. Group A (38 pax) via Saudia SV 822 tiba di Jakarta pukul 16.30 — selamat datang kembali! Besok Group D (40 pax) berangkat via SV 821 pukul 22.15.',
       weekly: 'Minggu ini: 2 keberangkatan (Senin & Selasa), 1 kepulangan (Senin), 1 manasik (Sabtu). Total 113 jamaah aktif terlibat. Group E berangkat 20 April — pastikan perlengkapan dan dokumen lengkap. 5 jamaah masih ada sisa pembayaran yang perlu di-follow up.',

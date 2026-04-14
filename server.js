@@ -2519,12 +2519,19 @@ app.get('/api/calendar/events', authMiddleware, async (req, res) => {
     const endYear = m === 12 ? y + 1 : y;
     const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
 
-    const { data: events, error } = await supabase
+    let query = supabase
       .from('calendar_events')
       .select('*')
       .gte('event_date', startDate)
       .lt('event_date', endDate)
       .order('event_date', { ascending: true });
+
+    // Hide _DEMO_ events from non-bagas agents
+    if (req.user.slug !== 'bagas') {
+      query = query.not('id', 'like', '_DEMO_%');
+    }
+
+    const { data: events, error } = await query;
 
     if (error) {
       console.error('[Calendar API] Query error:', error.message);
@@ -2632,8 +2639,8 @@ async function generateCalendarInsight() {
   let weekEvents, monthEvents;
   try {
     const [weekResult, monthResult] = await Promise.all([
-      supabase.from('calendar_events').select('*').gte('event_date', todayStr).lte('event_date', nextWeekStr).order('event_date'),
-      supabase.from('calendar_events').select('event_date, event_type, pax, paket, group_number').gte('event_date', monthStart).lt('event_date', monthEnd).eq('event_type', 'keberangkatan'),
+      supabase.from('calendar_events').select('*').gte('event_date', todayStr).lte('event_date', nextWeekStr).not('id', 'like', '_DEMO_%').order('event_date'),
+      supabase.from('calendar_events').select('event_date, event_type, pax, paket, group_number').gte('event_date', monthStart).lt('event_date', monthEnd).eq('event_type', 'keberangkatan').not('id', 'like', '_DEMO_%'),
     ]);
     weekEvents = weekResult.data || [];
     monthEvents = monthResult.data || [];
@@ -2644,8 +2651,21 @@ async function generateCalendarInsight() {
   }
 
   if (weekEvents.length === 0 && monthEvents.length === 0) {
-    console.log('[AI Insight] No calendar data — skipping generation');
-    return null;
+    console.log('[AI Insight] No calendar data — generating generic insight');
+    const cm = todayWIB.getUTCMonth() + 1;
+    const mT = MEKAH_TEMPS[cm], dT = MADINAH_TEMPS[cm];
+    const data = {
+      today: 'Tidak ada keberangkatan atau kepulangan hari ini. Waktu yang baik untuk follow-up jamaah yang masih ada sisa pembayaran.',
+      weekly: 'Belum ada jadwal keberangkatan atau kepulangan minggu ini.',
+      cuaca: `Mekah ${mT.low}–${mT.high}°C · Madinah ${dT.low}–${dT.high}°C`,
+      dateFor: todayStr,
+      generatedAt: new Date().toISOString(),
+    };
+    insightCache = data;
+    try {
+      await supabase.from('calendar_insights').upsert({ id: 'latest', data, generated_at: data.generatedAt }, { onConflict: 'id' });
+    } catch { /* best-effort */ }
+    return data;
   }
 
   // Build context string
@@ -2860,6 +2880,20 @@ Gaya penulisan hari ini: ${randomStyle}`;
 
 // GET — return insight (in-memory first, then Supabase fallback)
 app.get('/api/calendar/insight', authMiddleware, async (req, res) => {
+  // Bagas uses dedicated demo insight
+  if (req.user.slug === 'bagas') {
+    try {
+      const { data: row, error } = await supabase
+        .from('calendar_insights')
+        .select('data')
+        .eq('id', 'demo_bagas')
+        .single();
+      if (!error && row?.data) {
+        return res.json({ success: true, data: row.data });
+      }
+    } catch { /* fallthrough to normal flow */ }
+  }
+
   // Try in-memory cache first
   if (insightCache) {
     return res.json({ success: true, data: insightCache });
@@ -3432,13 +3466,20 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
     const endDate = tomorrowWIB;
 
     // 1. Get calendar events with flight data in the ±1 day window
-    const { data: events, error: evError } = await supabase
+    let flightQuery = supabase
       .from('calendar_events')
       .select('*')
       .in('event_type', ['keberangkatan', 'kepulangan'])
       .gte('event_date', startDate)
       .lte('event_date', endDate)
       .not('pesawat', 'is', null);
+
+    // Hide _DEMO_ events from non-bagas agents
+    if (req.user.slug !== 'bagas') {
+      flightQuery = flightQuery.not('id', 'like', '_DEMO_%');
+    }
+
+    const { data: events, error: evError } = await flightQuery;
 
     if (evError) throw evError;
     if (!events || events.length === 0) {

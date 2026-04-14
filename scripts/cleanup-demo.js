@@ -67,8 +67,13 @@ async function cleanup() {
   if (e4) console.error('  GAGAL cleanup analytics:', e4.message);
   else console.log(`  OK Hapus ${d4?.length || 0} analytics events`);
 
-  // 6. Calendar Insights — skip, will be overwritten by next sync
-  console.log('  SKIP calendar_insights (akan di-overwrite oleh sistem)');
+  // 6. Calendar Insights (demo_bagas)
+  const { error: e6 } = await supabase
+    .from('calendar_insights')
+    .delete()
+    .eq('id', 'demo_bagas');
+  if (e6) console.error('  GAGAL cleanup calendar insights:', e6.message);
+  else console.log('  OK Hapus calendar insight demo_bagas');
 
   console.log('\nCleanup selesai!\n');
 }
