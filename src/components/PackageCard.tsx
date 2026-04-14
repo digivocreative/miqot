@@ -1528,8 +1528,8 @@ _________________________
     >
 
 
-      {/* Flag overlay — corner peek */}
-      {(() => {
+      {/* Flag overlay — corner peek (hidden when expanded) */}
+      {!isExpanded && (() => {
         const flags = getCountryFlags(hotelInfo);
         return (
           <div className="absolute -right-2.5 -bottom-2.5 z-0 pointer-events-none -rotate-[8deg]">

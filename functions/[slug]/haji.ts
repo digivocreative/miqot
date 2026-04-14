@@ -47,9 +47,10 @@ function buildStickyBarAndFab(agentName: string, agentPhoto: string, waUrl: stri
     '.alhijaz-sticky__text{flex:1;min-width:0}',
     ".alhijaz-sticky__text strong{font-size:13.5px;color:#0F172A;display:block;line-height:1.3;font-family:'Inter','Montserrat',sans-serif}",
     ".alhijaz-sticky__text p{font-size:11px;color:#9A000C;font-weight:600;margin:0;font-family:'Inter','Montserrat',sans-serif}",
-    ".alhijaz-btn--sticky{display:inline-flex;align-items:center;gap:8px;padding:11px 22px;border-radius:50px;font-size:13.5px;font-weight:700;font-family:'Inter','Montserrat',sans-serif;background:#28B83C;color:#fff;white-space:nowrap;box-shadow:0 2px 10px rgba(40,184,60,.25);border:2px solid #149626;text-decoration:none;transition:transform .15s,box-shadow .15s}",
-    '.alhijaz-btn--sticky:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(40,184,60,.35)}',
-    '.alhijaz-btn--sticky:active{transform:scale(.97)}',
+    ".alhijaz-btn--sticky{display:inline-flex!important;align-items:center!important;gap:8px!important;padding:11px 22px!important;border-radius:50px!important;font-size:13.5px!important;font-weight:700!important;font-family:'Inter','Montserrat',sans-serif!important;background:#28B83C!important;color:#fff!important;white-space:nowrap!important;box-shadow:0 2px 10px rgba(40,184,60,.25)!important;border:2px solid #149626!important;text-decoration:none!important;transition:transform .15s,box-shadow .15s!important;line-height:1.4!important}",
+    '.alhijaz-btn--sticky:hover{transform:translateY(-1px)!important;box-shadow:0 4px 16px rgba(40,184,60,.35)!important;background:#28B83C!important;color:#fff!important;border-color:#149626!important}',
+    '.alhijaz-btn--sticky:active{transform:scale(.97)!important}',
+    '.alhijaz-btn--sticky svg{width:20px!important;height:20px!important;fill:currentColor!important}',
     '.alhijaz-fab{position:fixed;bottom:20px;right:16px;z-index:99998;width:56px;height:56px;background:#25D366;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 18px rgba(37,211,102,.4);transition:opacity .3s,transform .3s;animation:alhijaz-glow 2.5s infinite;text-decoration:none}',
     '.alhijaz-fab svg{width:28px;height:28px;fill:#fff}',
     '.alhijaz-fab.hide{opacity:0;transform:scale(.5);pointer-events:none}',
@@ -89,7 +90,7 @@ async function generateHTML(slug: string): Promise<string> {
   const agent = AGENTS[slug];
   const phone = agent?.phone || DEFAULT_PHONE;
   const agentName = agent?.name || 'Alhijaz';
-  const agentPhoto = agent?.photo || '/agents/nikita.jpg';
+  const agentPhoto = 'https://alhijaz.co' + (agent?.photo || '/agents/nikita.jpg');
   const waGeneral = 'https://api.whatsapp.com/send?phone=' + phone + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Paket%20Haji%20Khusus%20di%20Alhijaz';
   const waPembiayaan = 'https://api.whatsapp.com/send?phone=' + phone + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Program%20Pembiayaan%20Haji%20Plus%20di%20Alhijaz';
 
@@ -143,7 +144,10 @@ async function generateHTML(slug: string): Promise<string> {
     '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n<' + '/head>'
   );
 
-  // 4. Remove 4 specific images from ulasan carousel
+  // 4. Remove "Konsultasi via WA (Fast Response)" sticky bar from original page
+  html = html.replace(/<div class="heading-wa">[\s\S]*?<\/div>\s*<\/div>/g, '');
+
+  // 5. Remove 4 specific images from ulasan carousel
   const removeImages = [
     '2026/03/4-1.avif',
     '2026/03/3.avif',
