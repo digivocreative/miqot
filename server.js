@@ -6417,6 +6417,28 @@ app.get('/:slug/umroh', async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
+// Landing Page: /:slug/haji
+// ──────────────────────────────────────────────
+app.get('/:slug/haji', async (req, res) => {
+  const slug = req.params.slug.toLowerCase();
+  try {
+    const mod = await import('./functions/haji-landing.mjs');
+    const result = await mod.onRequest({
+      params: { slug },
+      request: new Request(`http://localhost${req.url}`),
+    });
+    const html = await result.text();
+    res.set({
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+    }).send(html);
+  } catch (err) {
+    console.error('Haji landing error:', err);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+// ──────────────────────────────────────────────
 // Haji Plus: Scrape + Sync + API
 // ──────────────────────────────────────────────
 

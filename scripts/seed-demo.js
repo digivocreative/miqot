@@ -71,12 +71,12 @@ function pick(arr) {
 }
 
 // ══════════════════════════════════════════════
-// 1. JAMAAH UMROH — 30 records
+// 1. JAMAAH UMROH — 89 records
 // ══════════════════════════════════════════════
 
 async function seedJamaahUmroh() {
   const names = [
-    // LUNAS (10)
+    // LUNAS (30)
     { nama: 'Ahmad Fauzi', jk: 'L' },
     { nama: 'Siti Aisyah', jk: 'P' },
     { nama: 'Muhammad Rizki', jk: 'L' },
@@ -87,7 +87,27 @@ async function seedJamaahUmroh() {
     { nama: 'Dewi Kartika', jk: 'P' },
     { nama: 'Umar Faruq', jk: 'L' },
     { nama: 'Rina Susanti', jk: 'P' },
-    // CICILAN (10)
+    { nama: 'Zulkifli Anwar', jk: 'L' },
+    { nama: 'Maisaroh', jk: 'P' },
+    { nama: 'Tarmizi', jk: 'L' },
+    { nama: 'Siti Rohmah', jk: 'P' },
+    { nama: 'Ilham Akbar', jk: 'L' },
+    { nama: 'Nurhayati', jk: 'P' },
+    { nama: 'Faisal Amir', jk: 'L' },
+    { nama: 'Winda Sari', jk: 'P' },
+    { nama: 'Rudi Hartono', jk: 'L' },
+    { nama: 'Sumiati', jk: 'P' },
+    { nama: 'Arief Wicaksono', jk: 'L' },
+    { nama: 'Ratna Juwita', jk: 'P' },
+    { nama: 'Hendra Gunawan', jk: 'L' },
+    { nama: 'Mariam Azzahra', jk: 'P' },
+    { nama: 'Lukman Hakim', jk: 'L' },
+    { nama: 'Ayu Lestari', jk: 'P' },
+    { nama: 'Saiful Bahri', jk: 'L' },
+    { nama: 'Khadijah Nur', jk: 'P' },
+    { nama: 'Darmawan', jk: 'L' },
+    { nama: 'Halimah Tusadiah', jk: 'P' },
+    // CICILAN (30)
     { nama: 'Bambang Setiawan', jk: 'L' },
     { nama: 'Yuliana Putri', jk: 'P' },
     { nama: 'Agus Salim', jk: 'L' },
@@ -98,7 +118,27 @@ async function seedJamaahUmroh() {
     { nama: 'Sri Wahyuni', jk: 'P' },
     { nama: 'Dedi Mulyadi', jk: 'L' },
     { nama: 'Fitri Handayani', jk: 'P' },
-    // BELUM BAYAR (10)
+    { nama: 'Teguh Prasetya', jk: 'L' },
+    { nama: 'Rosmawati', jk: 'P' },
+    { nama: 'Joko Widodo', jk: 'L' },
+    { nama: 'Sulastri', jk: 'P' },
+    { nama: 'Fathur Rohman', jk: 'L' },
+    { nama: 'Neng Komalasari', jk: 'P' },
+    { nama: 'Hendri Setiabudi', jk: 'L' },
+    { nama: 'Yanti Suryani', jk: 'P' },
+    { nama: 'Mulyono Hadi', jk: 'L' },
+    { nama: 'Puji Rahayu', jk: 'P' },
+    { nama: 'Cecep Supriyadi', jk: 'L' },
+    { nama: 'Imas Masitoh', jk: 'P' },
+    { nama: 'Slamet Riyadi', jk: 'L' },
+    { nama: 'Tuti Alawiyah', jk: 'P' },
+    { nama: 'Andi Firmansyah', jk: 'L' },
+    { nama: 'Rohimah', jk: 'P' },
+    { nama: 'Dadang Hermawan', jk: 'L' },
+    { nama: 'Neneng Hasanah', jk: 'P' },
+    { nama: 'Ujang Suryana', jk: 'L' },
+    { nama: 'Euis Komariah', jk: 'P' },
+    // BELUM BAYAR (29)
     { nama: 'Irfan Saputra', jk: 'L' },
     { nama: 'Lestari Dewi', jk: 'P' },
     { nama: 'Rahmat Hidayat', jk: 'L' },
@@ -109,6 +149,25 @@ async function seedJamaahUmroh() {
     { nama: 'Anisa Maharani', jk: 'P' },
     { nama: 'Wahyu Nugroho', jk: 'L' },
     { nama: 'Indah Permata Sari', jk: 'P' },
+    { nama: 'Asep Kurniawan', jk: 'L' },
+    { nama: 'Siti Aminah', jk: 'P' },
+    { nama: 'Yusuf Maulana', jk: 'L' },
+    { nama: 'Dewi Safitri', jk: 'P' },
+    { nama: 'Rizal Ramadhan', jk: 'L' },
+    { nama: 'Nurlela', jk: 'P' },
+    { nama: 'Adi Nugraha', jk: 'L' },
+    { nama: 'Sari Mulyani', jk: 'P' },
+    { nama: 'Guntur Prakoso', jk: 'L' },
+    { nama: 'Fitriani', jk: 'P' },
+    { nama: 'Bayu Segara', jk: 'L' },
+    { nama: 'Aisyah Putri Nabila', jk: 'P' },
+    { nama: 'Doni Prasetyo', jk: 'L' },
+    { nama: 'Nurjanah', jk: 'P' },
+    { nama: 'Fajar Sidiq', jk: 'L' },
+    { nama: 'Siti Nurhaliza', jk: 'P' },
+    { nama: 'Herman Sulaiman', jk: 'L' },
+    { nama: 'Wulan Dari', jk: 'P' },
+    { nama: 'Soleh Abdillah', jk: 'L' },
   ];
 
   const pakets = [
@@ -121,6 +180,7 @@ async function seedJamaahUmroh() {
 
   const departureDates = [
     '2026-05-10', '2026-05-20', '2026-06-05', '2026-06-15', '2026-07-01',
+    '2026-07-10', '2026-07-20', '2026-08-01',
   ];
 
   const rows = names.map((person, i) => {
@@ -129,11 +189,11 @@ async function seedJamaahUmroh() {
     const tglDaftar = subtractDays(tglBerangkat, randomBetween(30, 90));
 
     let bayar, sisa;
-    if (i < 10) {
+    if (i < 30) {
       // LUNAS
       bayar = paket.harga;
       sisa = 0;
-    } else if (i < 20) {
+    } else if (i < 60) {
       // CICILAN — 30-70% paid
       const pct = 0.3 + Math.random() * 0.4;
       bayar = Math.round(paket.harga * pct / 100000) * 100000; // round to 100k
@@ -144,7 +204,7 @@ async function seedJamaahUmroh() {
       sisa = paket.harga;
     }
 
-    const hasPaspor = i < 20; // lunas & cicilan punya paspor
+    const hasPaspor = i < 60; // lunas & cicilan punya paspor
     return {
       agent_slug: AGENT_SLUG,
       id_umroh: `_DEMO_UM${String(i + 1).padStart(3, '0')}`,
