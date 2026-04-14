@@ -90,7 +90,7 @@ async function generateHTML(slug: string): Promise<string> {
   const agent = AGENTS[slug];
   const phone = agent?.phone || DEFAULT_PHONE;
   const agentName = agent?.name || 'Alhijaz';
-  const agentPhoto = 'https://alhijaz.co' + (agent?.photo || '/agents/nikita.jpg');
+  const agentPhoto = 'https://xicthdsuvmwwuvwvvbqa.supabase.co/storage/v1/object/public/agent-photos/' + slug + '.jpg';
   const waGeneral = 'https://api.whatsapp.com/send?phone=' + phone + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Paket%20Haji%20Khusus%20di%20Alhijaz';
   const waPembiayaan = 'https://api.whatsapp.com/send?phone=' + phone + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Program%20Pembiayaan%20Haji%20Plus%20di%20Alhijaz';
 
@@ -126,22 +126,152 @@ async function generateHTML(slug: string): Promise<string> {
     waPembiayaan
   );
 
-  // 2. Update <title> to include agent name
+  // 2. Update <title> and og:title to include agent name
+  const pageTitle = 'Haji Plus | ' + agentName + ' | PT Alhijaz Indowisata';
   html = html.replace(
     /<title>Paket Haji Plus \| Haji Khusus \| PT Alhijaz Indowisata<\/title>/,
-    '<title>Paket Haji Plus' + (agentName !== 'Alhijaz' ? ' — ' + agentName : '') + ' | Haji Khusus | PT Alhijaz Indowisata<' + '/title>'
+    '<title>' + pageTitle + '<' + '/title>'
+  );
+  html = html.replace(
+    /(<meta property="og:title" content=")Paket Haji Plus \| Haji Khusus \| PT Alhijaz Indowisata(")/,
+    '$1' + pageTitle + '$2'
+  );
+  // og:image → agent-specific from jadwal
+  html = html.replace(
+    /(<meta property="og:image" content=")[^"]*(")/,
+    '$1https://alhijaz.co/og/' + slug + '.png$2'
   );
 
-  // 3. Replace Font Awesome CSS from alhijazindonesia.com with cdnjs CDN (CORS-friendly)
-  //    Remove the 4 individual FA stylesheets
+  // ═══════════════════════════════════════════════════
+  // 3. REMOVE UNNECESSARY CSS
+  // ═══════════════════════════════════════════════════
+
+  // Font Awesome: replace 4 individual CORS-blocked stylesheets with 1 CDN version
   html = html.replace(/<link[^>]*elementor-icons-shared-0-css[^>]*\/>/g, '');
   html = html.replace(/<link[^>]*elementor-icons-fa-solid-css[^>]*\/>/g, '');
   html = html.replace(/<link[^>]*elementor-icons-fa-brands-css[^>]*\/>/g, '');
   html = html.replace(/<link[^>]*elementor-icons-fa-regular-css[^>]*\/>/g, '');
+
+  // Elementor Icons (eicons) — not used on this page, no eicon- classes found
+  html = html.replace(/<link[^>]*elementor-icons-css[^>]*\/>/g, '');
+
+  // LandingPress theme CSS — only needed for generic theme chrome we don't use
+  html = html.replace(/<link[^>]*landingpress-css[^>]*\/>/g, '');
+
+  // Elementor Pro CSS — minimal features used, but keep for safety (sticky, carousel)
+  // html = html.replace(/<link[^>]*elementor-pro-css[^>]*\/>/g, '');
+
+  // Google Fonts: replace bloated 5-family request with only Montserrat + Inter (the only ones actually used)
+  html = html.replace(/<link[^>]*google-fonts-1-css[^>]*\/>/g, '');
+  // We inject optimized Google Fonts below
   //    Inject single FA 5.15.4 all.min.css from cdnjs before </head>
   html = html.replace(
     '</head>',
-    '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n<' + '/head>'
+    // Optimized Google Fonts: only Montserrat + Inter, only weights actually used
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    + '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    + '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@500;600;700;800&display=swap" rel="stylesheet">'
+    // Font Awesome from CDN (CORS-friendly)
+    + '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n'
+    + '<st' + 'yle>'
+    // ── Uniform all WA/CTA buttons (all screens) ──
+    + '.elementor-2333 .elementor-button{background-color:#28B83C!important;border-color:#149626!important;color:#fff!important;border-radius:50px!important;border-style:solid!important;border-width:3px!important;font-family:"Inter",sans-serif!important;font-weight:600!important;transition:background-color .2s,transform .2s!important}'
+    + '.elementor-2333 .elementor-button:hover,.elementor-2333 .elementor-button:focus{background-color:#1DA855!important;transform:translateY(-1px)!important}'
+    + '.elementor-2333 .elementor-button:active{transform:scale(.97)!important}'
+    // ── Mobile responsive overrides ──
+    + '@media(max-width:767px){'
+    // Hero: logo
+    + '.elementor-element-a80c529 .elementor-widget-container img{max-width:160px!important;height:auto!important}'
+    + '.elementor-element-a80c529{margin-bottom:0!important}'
+    + '.elementor-element-a80c529 .elementor-widget-container{margin:0!important;padding:0!important}'
+    // Hero: heading (49px → 26px)
+    + '.elementor-element-1bbf918 .elementor-heading-title{font-size:26px!important;line-height:34px!important}'
+    + '.elementor-element-1bbf918{margin-bottom:8px!important}'
+    + '.elementor-element-1bbf918 > .elementor-widget-container{padding:10px 0 0!important}'
+    // Hero: subheading (19px → 14px)
+    + '.elementor-element-4626bd8 .elementor-heading-title{font-size:14px!important;line-height:24px!important}'
+    + '.elementor-element-4626bd8{margin-bottom:8px!important}'
+    // Hero: section padding
+    + '.elementor-element-f55e3ca{padding:20px 0 10px!important}'
+    // ⭐️ stars (50px → 28px)
+    + '.elementor-element-7b80570 .elementor-heading-title{font-size:28px!important;line-height:36px!important}'
+    + '.elementor-element-7b80570 > .elementor-widget-container{padding:30px 0 0!important}'
+    // All section headings (46px → 24px): Profil, Kenapa, Paket, Pelayanan, Ulasan, etc.
+    + '.elementor-element-988fba5 .elementor-heading-title,'
+    + '.elementor-element-efc187a .elementor-heading-title,'
+    + '.elementor-element-dd9ad71 .elementor-heading-title,'
+    + '.elementor-element-dac095f .elementor-heading-title,'
+    + '.elementor-element-f0ad74c .elementor-heading-title,'
+    + '.elementor-element-a1c7e2d .elementor-heading-title,'
+    + '.elementor-element-9c09541 .elementor-heading-title,'
+    + '.elementor-element-21e0891 .elementor-heading-title,'
+    + '.elementor-element-f09fe04 .elementor-heading-title'
+    + '{font-size:24px!important;line-height:32px!important}'
+    // Description paragraphs (18px → 14px)
+    + '.elementor-element-6f2dbdd .elementor-heading-title,'
+    + '.elementor-element-24369bd .elementor-heading-title,'
+    + '.elementor-element-14a6176 .elementor-heading-title'
+    + '{font-size:14px!important;line-height:24px!important}'
+    // Why cards titles (28px → 17px): Masa Tunggu, Pelayanan, Bersama 5
+    + '.elementor-element-2b0afe1 .elementor-icon-box-title,'
+    + '.elementor-element-153ede0 .elementor-icon-box-title,'
+    + '.elementor-element-09cae3b .elementor-icon-box-title'
+    + '{font-size:17px!important;line-height:24px!important}'
+    // Why cards description
+    + '.elementor-element-2b0afe1 .elementor-icon-box-description,'
+    + '.elementor-element-153ede0 .elementor-icon-box-description,'
+    + '.elementor-element-09cae3b .elementor-icon-box-description'
+    + '{font-size:13px!important;line-height:20px!important}'
+    // Service cards titles (22px → 16px): Maktab VIP, Hotel Bintang 5, Direct Flight
+    + '.elementor-element-7e1cd78 .elementor-image-box-title,'
+    + '.elementor-element-84b42ba .elementor-image-box-title,'
+    + '.elementor-element-ecbf32f .elementor-image-box-title'
+    + '{font-size:16px!important;line-height:22px!important}'
+    // Service cards description
+    + '.elementor-element-7e1cd78 .elementor-image-box-description,'
+    + '.elementor-element-84b42ba .elementor-image-box-description,'
+    + '.elementor-element-ecbf32f .elementor-image-box-description'
+    + '{font-size:13px!important;line-height:20px!important}'
+    // Experience cards titles
+    + '.elementor-element-a7d962c .elementor-icon-box-title,'
+    + '.elementor-element-a5492bb .elementor-icon-box-title,'
+    + '.elementor-element-bf86589 .elementor-icon-box-title'
+    + '{font-size:14px!important;line-height:20px!important}'
+    // Paket icons (60px → 40px)
+    + '.elementor-element-94f52ce .elementor-icon,'
+    + '.elementor-element-3be1e29 .elementor-icon'
+    + '{font-size:40px!important}'
+    // Paket title (30px → 20px): Paket Uhud, Paket Rahmah
+    + '.elementor-element-94f52ce .elementor-icon-box-title,'
+    + '.elementor-element-3be1e29 .elementor-icon-box-title'
+    + '{font-size:20px!important;line-height:28px!important}'
+    // Paket sub labels
+    + '.elementor-element-d74ff59 .elementor-heading-title,'
+    + '.elementor-element-20d6395 .elementor-heading-title'
+    + '{font-size:14px!important;line-height:22px!important}'
+    // Paket list items
+    + '.elementor-element-68a1e72 .elementor-icon-list-text,'
+    + '.elementor-element-e9f801f .elementor-icon-list-text'
+    + '{font-size:13px!important}'
+    // 👇👇👇 CTA pointer (40px → 28px)
+    + '.elementor-element-1339e58 .elementor-heading-title{font-size:28px!important}'
+    // Stat cards titles (icon-box inside red section)
+    + '.elementor-element-da0cba2 .elementor-icon-box-title,'
+    + '.elementor-element-c5d3acc .elementor-icon-box-title,'
+    + '.elementor-element-10f1321 .elementor-icon-box-title,'
+    + '.elementor-element-db62956 .elementor-icon-box-title,'
+    + '.elementor-element-cf0da53 .elementor-icon-box-title'
+    + '{font-size:13px!important;line-height:18px!important}'
+    // Stat card icons (41px → 28px)
+    + '.elementor-element-da0cba2 .elementor-icon,'
+    + '.elementor-element-c5d3acc .elementor-icon,'
+    + '.elementor-element-10f1321 .elementor-icon,'
+    + '.elementor-element-db62956 .elementor-icon,'
+    + '.elementor-element-cf0da53 .elementor-icon'
+    + '{font-size:28px!important}'
+    + '}'
+    + '</st' + 'yle>\n'
+    + '<' + '/head>'
   );
 
   // 4. Remove "Konsultasi via WA (Fast Response)" sticky bar from original page
@@ -163,11 +293,56 @@ async function generateHTML(slug: string): Promise<string> {
   // 5. Remove footer section (Nikita profile, legalitas, rekening) — element id 14608478
   html = html.replace(/<section[^>]*elementor-element-14608478[\s\S]*?<\/section>\s*(?=\s*<\/div>\s*<\/main>)/, '');
 
-  // 5. Remove tracking scripts (GTM, Facebook Pixel, Cloudflare challenge)
-  // GTM noscript
+  // ═══════════════════════════════════════════════════
+  // 7. REMOVE TRACKING & UNNECESSARY SCRIPTS
+  // ═══════════════════════════════════════════════════
+
+  // GTM (inline + noscript)
   html = html.replace(/<!-- Google Tag Manager \(noscript\) -->[\s\S]*?<!-- End Google Tag Manager \(noscript\) -->/g, '');
-  // Facebook Pixel noscript
+  html = html.replace(/<!-- Google Tag Manager -->[\s\S]*?<!-- End Google Tag Manager -->/g, '');
+  // Google Ads gtag
+  html = html.replace(/<!-- Google tag \(gtag\.js\) -->/g, '');
+  html = html.replace(/<script[^>]*googletagmanager\.com\/gtag[^>]*><\/script>/g, '');
+  html = html.replace(/<script>\s*window\.dataLayer[\s\S]*?<\/script>/g, '');
+  // Facebook Pixel (inline + noscript)
+  html = html.replace(/<meta name="facebook-domain-verification"[^>]*>/g, '');
   html = html.replace(/<!-- Facebook Pixel Code -->[\s\S]*?<!-- End Facebook Pixel Code -->/g, '');
+  // Cloudflare challenge script
+  html = html.replace(/<script>\(function\(\)\{function c\(\)[\s\S]*?<\/script>/g, '');
+  // Yoast JSON-LD (references alhijazindonesia.com, not relevant for agent page)
+  html = html.replace(/<script type="application\/ld\+json" class="yoast-schema-graph">[\s\S]*?<\/script>/g, '');
+  // flying-press vitals (analytics)
+  html = html.replace(/<script[^>]*flying-press-vitals-js-extra[\s\S]*?<\/script>/g, '');
+  html = html.replace(/<script[^>]*flying-press[^>]*><\/script>/g, '');
+  // LandingPress theme JS
+  html = html.replace(/<script[^>]*landingpress-js[^>]*><\/script>/g, '');
+  // KEEP: jQuery UI core (Elementor frontend depends on it)
+  // WA link cleaner script (was for wa.alhijazindonesia.com, no longer relevant)
+  html = html.replace(/<script>\s*\(function\(\)\{\s*function getCookie[\s\S]*?<\/script>/g, '');
+
+  // jQuery sticky plugin (we have our own sticky bar)
+  html = html.replace(/<script[^>]*elementor-sticky-js[^>]*><\/script>/g, '');
+
+  // KEEP: waypoints, elementor-frontend-js-before config, elements-handlers (needed for Swiper carousel)
+
+  // Remove canonical URL pointing to alhijazindonesia.com (not relevant for agent page)
+  html = html.replace(/<link rel="canonical"[^>]*\/>/g, '');
+  // Remove shortlink
+  html = html.replace(/<link rel='shortlink'[^>]*\/>/g, '');
+  // Remove robots meta (agent page indexing handled separately)
+  html = html.replace(/<meta name='robots'[^>]*\/>/g, '');
+
+  // ═══════════════════════════════════════════════════
+  // 8. PERFORMANCE OPTIMIZATIONS
+  // ═══════════════════════════════════════════════════
+
+  // jQuery: keep from alhijazindonesia.com (Elementor JS tightly coupled to this version)
+
+  // Add lazy loading to all images that don't already have it
+  html = html.replace(/(<img(?![^>]*loading=)[^>]*)(\/?>)/g, '$1 loading="lazy" $2');
+
+  // Remove fetchpriority="high" from non-hero images (only first image should be high priority)
+  // Keep decoding="async" for performance
 
   // 5. Inject sticky bar + FAB before </body>
   const stickyBarHtml = buildStickyBarAndFab(agentName, agentPhoto, waGeneral);

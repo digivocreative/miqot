@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Calendar, ChevronLeft, ChevronRight, Plane, User, Clock, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
@@ -89,10 +89,12 @@ export default function UpcomingSchedule() {
   const [activeTab, setActiveTab] = useState<TabKey>('keberangkatan');
   const [calendarData, setCalendarData] = useState<Record<string, CalendarEvent[]>>({});
   const [loading, setLoading] = useState(true);
+  const calendarDataRef = useRef(calendarData);
+  calendarDataRef.current = calendarData;
 
   const fetchMonth = useCallback(async (year: number, month: number) => {
     const key = cacheKey(year, month);
-    if (calendarData[key]) return;
+    if (calendarDataRef.current[key]) return;
     try {
       const res = await fetch(`/api/calendar/events?month=${month}&year=${year}`, {
         headers: getAuthHeaders(),
@@ -104,7 +106,7 @@ export default function UpcomingSchedule() {
     } catch {
       setCalendarData(prev => ({ ...prev, [key]: [] }));
     }
-  }, [calendarData]);
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -113,11 +115,8 @@ export default function UpcomingSchedule() {
   }, []);
 
   useEffect(() => {
-    const key = cacheKey(currentMonth.year, currentMonth.month);
-    if (!calendarData[key]) {
-      setLoading(true);
-      fetchMonth(currentMonth.year, currentMonth.month).finally(() => setLoading(false));
-    }
+    setLoading(true);
+    fetchMonth(currentMonth.year, currentMonth.month).finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMonth.year, currentMonth.month]);
 
@@ -254,41 +253,40 @@ export default function UpcomingSchedule() {
           ))}
         </div>
 
-        {/* Calendar Grid */}
-        {monthEvents.length === 0 && !loading ? (
-          <div className="py-8 text-center text-[11px] text-gray-400 dark:text-slate-500">
-            Data kalender belum tersedia
-          </div>
-        ) : (
-          <div className="grid grid-cols-7 px-3 pb-2">
-            {cells.map((day, i) => {
-              if (day === null) return <div key={`blank-${i}`} className="py-1.5" />;
-              const types = eventMap[day];
-              const hasEvent = types && types.size > 0;
-              const today = isToday(day);
-              const selected = selectedDay === day;
+        {/* Calendar Grid — always rendered */}
+        <div className="grid grid-cols-7 px-3 pb-2">
+          {cells.map((day, i) => {
+            if (day === null) return <div key={`blank-${i}`} className="py-1.5" />;
+            const types = eventMap[day];
+            const hasEvent = types && types.size > 0;
+            const today = isToday(day);
+            const selected = selectedDay === day;
 
-              return (
-                <button
-                  key={day}
-                  onClick={() => { if (!hasEvent) return; setSelectedDay(selected ? null : day); }}
-                  className={`flex flex-col items-center py-1.5 rounded-lg transition-colors ${selected ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''} ${hasEvent ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700/30' : 'cursor-default'}`}
-                >
-                  {today ? (
-                    <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-semibold">{day}</div>
-                  ) : (
-                    <span className={`text-xs font-semibold leading-6 ${selected ? 'text-emerald-600 dark:text-emerald-400' : hasEvent ? 'text-gray-700 dark:text-slate-300' : 'text-gray-400 dark:text-slate-500'}`}>{day}</span>
-                  )}
-                  {hasEvent ? (
-                    <div className="flex gap-0.5 mt-1">
-                      {TAB_ORDER.map(t => types.has(t) ? <div key={t} className={`w-1.5 h-1.5 rounded-full ${TAB_CONFIG[t].dotColor}`} /> : null)}
-                    </div>
-                  ) : (
-                    <div className="h-1.5 mt-1" />
-                  )}
-                </button>
-              );
-            })}
+            return (
+              <button
+                key={day}
+                onClick={() => { if (!hasEvent) return; setSelectedDay(selected ? null : day); }}
+                className={`flex flex-col items-center py-1.5 rounded-lg transition-colors ${selected ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''} ${hasEvent ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700/30' : 'cursor-default'}`}
+              >
+                {today ? (
+                  <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-semibold">{day}</div>
+                ) : (
+                  <span className={`text-xs font-semibold leading-6 ${selected ? 'text-emerald-600 dark:text-emerald-400' : hasEvent ? 'text-gray-700 dark:text-slate-300' : 'text-gray-400 dark:text-slate-500'}`}>{day}</span>
+                )}
+                {hasEvent ? (
+                  <div className="flex gap-0.5 mt-1">
+                    {TAB_ORDER.map(t => types.has(t) ? <div key={t} className={`w-1.5 h-1.5 rounded-full ${TAB_CONFIG[t].dotColor}`} /> : null)}
+                  </div>
+                ) : (
+                  <div className="h-1.5 mt-1" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+        {monthEvents.length === 0 && !loading && (
+          <div className="pb-2 text-center text-[11px] text-gray-400 dark:text-slate-500">
+            Belum ada jadwal di bulan ini
           </div>
         )}
 
