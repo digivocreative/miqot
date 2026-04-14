@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
 import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, ClipboardCheck, Copy, RefreshCw, FileText, Maximize2, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UmrohPackage, RoomPricing } from '@/types';
+import { UmrohPackage, RoomPricing, HotelInfo } from '@/types';
 import { BrochureModal } from './BrochureModal';
 
 // Lazy-load heavy components (react-pdf ~500kB loaded on-demand)
@@ -92,6 +92,18 @@ const GRADIENT_PRESETS: { name: string; css: string }[] = [
   },
 ];
 
+function getCountryFlags(hotelInfo: HotelInfo | undefined): string[] {
+  if (!hotelInfo) return ['/flags/saudi.png'];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const h = hotelInfo as any;
+  const flags: string[] = [];
+  if (h.cairo_hotel) flags.push('/flags/mesir.png');
+  if (h.istanbul_hotel || h.bursa_hotel || h.cappadocia_hotel || h.ankara_hotel) flags.push('/flags/turki.png');
+  if (h.dubai_hotel) flags.push('/flags/uae.png');
+  if (h.haikou_hotel) flags.push('/flags/china.png');
+  if (flags.length === 0) flags.push('/flags/saudi.png');
+  return flags;
+}
 
 /**
  * PackageCard Component - Expandable Card
@@ -1515,6 +1527,30 @@ _________________________
       `}
     >
 
+
+      {/* Flag overlay — corner peek */}
+      {(() => {
+        const flags = getCountryFlags(hotelInfo);
+        return (
+          <div className="absolute -right-2.5 -bottom-2.5 z-0 pointer-events-none -rotate-[8deg]">
+            {flags.length === 1 ? (
+              <div className="relative w-[125px] h-[88px]">
+                <img src={flags[0]} alt="" className="w-full h-full object-cover opacity-[0.12] rounded" />
+                <div className="absolute inset-0 bg-gradient-to-l from-white dark:from-slate-800 to-transparent to-40%" />
+              </div>
+            ) : (
+              <div className="flex gap-1">
+                {flags.map((flag) => (
+                  <div key={flag} className="relative w-[100px] h-[70px]">
+                    <img src={flag} alt="" className="w-full h-full object-cover opacity-[0.12] rounded" />
+                    <div className="absolute inset-0 bg-gradient-to-l from-white dark:from-slate-800 to-transparent to-40%" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="relative z-10">
 

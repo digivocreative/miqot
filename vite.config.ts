@@ -65,6 +65,35 @@ function umrohLandingDevPlugin() {
   };
 }
 
+// Vite plugin: serve /:slug/haji landing page in dev server
+function hajiLandingDevPlugin() {
+  return {
+    name: 'haji-landing-dev',
+    configureServer(server: any) {
+      server.middlewares.use(async (req: any, res: any, next: any) => {
+        // Match /:slug/haji (with optional trailing slash)
+        const match = req.url?.match(/^\/([a-z0-9-]+)\/haji\/?(\?.*)?$/i);
+        if (!match) return next();
+
+        const slug = match[1].toLowerCase();
+        try {
+          const mod = await server.ssrLoadModule('/functions/[slug]/haji.ts');
+          const result = await mod.onRequest({
+            params: { slug },
+            request: new Request(`http://localhost${req.url}`),
+          });
+          const html = await result.text();
+          res.writeHead(result.status, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(html);
+        } catch (err: any) {
+          console.error('haji-landing-dev error:', err);
+          next();
+        }
+      });
+    },
+  };
+}
+
 // Vite plugin: handle /api/ai-copy in dev server (proxies to OpenAI)
 function aiCopyDevPlugin() {
   return {
@@ -526,6 +555,7 @@ export default defineConfig({
   },
   plugins: [
     umrohLandingDevPlugin(),
+    hajiLandingDevPlugin(),
     aiCopyDevPlugin(),
     analyticsDevPlugin(),
     capiDevPlugin(),
@@ -569,7 +599,7 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         // Don't cache API responses in SW
-        navigateFallbackDenylist: [/^\/api/, /\/umroh$/, /\/brosur/, /\/itinerary/, /^\/agents\//, /^\/login/, /^\/dashboard/, /^\/f\//],
+        navigateFallbackDenylist: [/^\/api/, /\/umroh$/, /\/haji$/, /\/brosur/, /\/itinerary/, /^\/agents\//, /^\/login/, /^\/dashboard/, /^\/f\//],
         runtimeCaching: [
           {
             urlPattern: /^\/api\/.*/i,

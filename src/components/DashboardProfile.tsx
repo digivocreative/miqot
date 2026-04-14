@@ -1005,13 +1005,23 @@ function PreviewCard({ variant }: { variant: string }) {
     </div>
   );
 
+  const FlagOverlay = () => (
+    <div className="absolute -right-2.5 -bottom-2.5 z-0 pointer-events-none -rotate-[8deg]">
+      <div className="relative w-[125px] h-[88px]">
+        <img src="/flags/mesir.png" alt="" className="w-full h-full object-cover opacity-[0.12] rounded" />
+        <div className="absolute inset-0 bg-gradient-to-l from-white dark:from-slate-800 to-transparent to-40%" />
+      </div>
+    </div>
+  );
+
   const DepIcon = <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 22h20"/><path d="M6.36 17.4 4 17l-2-4 1.1-.55a2 2 0 0 1 1.8 0l.17.1a2 2 0 0 0 1.8 0L8 12 5 6l3-1 4 4.5 5.5-1.5a2.086 2.086 0 0 1 1.886.399A2.1 2.1 0 0 1 20 9.78l-12.5 5.4-.14.1a2 2 0 0 1-1 .26Z"/></svg>;
   const ArrIcon = <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 22h20"/><path d="M3.77 10.77 2 9l2-4.5 1.1.55c.55.28.9.84.9 1.45s.35 1.17.9 1.45L8 8.5l3-6 1.05.53a2 2 0 0 1 1.09 1.52l.72 5.4a2 2 0 0 1-.93 1.95l-2.83 1.67a2 2 0 0 1-2.28-.2l-.68-.57a2 2 0 0 0-2.28-.2Z"/></svg>;
 
   if (variant === 'split') {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700">
-        <div className="flex">
+      <div className="relative bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700">
+        <FlagOverlay />
+        <div className="flex relative z-10">
           <div className="w-[72px] shrink-0 bg-gradient-to-b from-emerald-500 to-emerald-600 text-white flex flex-col items-center justify-center py-3 px-1.5 gap-1.5">
             <div className="text-center"><p className="text-2xl font-black leading-none">16</p><p className="text-[10px] uppercase font-bold mt-0.5">Jun</p><p className="text-[10px] font-medium opacity-80">2026</p></div>
             <div className="w-7 border-t border-white/30" />
@@ -1057,8 +1067,9 @@ function PreviewCard({ variant }: { variant: string }) {
 
   if (variant === 'spotlight') {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700">
-        <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-3 text-white">
+      <div className="relative bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700">
+        <FlagOverlay />
+        <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-3 text-white relative z-10">
           <div className="flex justify-between items-start gap-3">
             <h3 className="font-bold text-sm leading-tight flex-1">PLUS CAIRO + ALEXANDRIA 12HR</h3>
             <div className="text-right shrink-0"><p className="text-[10px] font-medium opacity-80">MULAI</p><p className="text-lg font-bold">Rp {formatPreviewPrice(price)} <span className="text-sm">Jt</span></p></div>
@@ -1081,8 +1092,9 @@ function PreviewCard({ variant }: { variant: string }) {
 
   if (variant === 'ticket') {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700">
-        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-slate-900/60 px-4 py-4">
+      <div className="relative bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700">
+        <FlagOverlay />
+        <div className="relative z-10 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-slate-900/60 px-4 py-4">
           <div className="flex items-center justify-between gap-2">
             <div className="text-center"><p className="text-[10px] text-gray-400 font-medium">CGK</p><p className="text-xl font-black text-gray-800 dark:text-white leading-none">{depTime}</p></div>
             <div className="flex-1 flex items-center gap-1 px-2">
@@ -1116,8 +1128,9 @@ function PreviewCard({ variant }: { variant: string }) {
 
   if (variant === 'tiled') {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700 p-4">
-        <div className="flex justify-between items-start gap-3 mb-4">
+      <div className="relative bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700 p-4">
+        <FlagOverlay />
+        <div className="flex justify-between items-start gap-3 mb-4 relative z-10">
           <div className="flex-1 min-w-0"><h3 className="font-bold text-sm leading-tight text-gray-900 dark:text-slate-100">PLUS CAIRO + ALEXANDRIA 12HR</h3></div>
           <div className="text-right shrink-0"><p className="text-xs text-gray-500 dark:text-slate-400">MULAI</p><p className="text-lg font-bold text-orange-600 dark:text-orange-400">Rp {formatPreviewPrice(price)} <span className="text-sm">Jt</span></p></div>
         </div>
@@ -1140,7 +1153,7 @@ function PreviewCard({ variant }: { variant: string }) {
 
   if (variant === 'magazine') {
     return (
-      <div className="rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700">
+      <div className="relative rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700">
         <div className="bg-gradient-to-br from-slate-800 via-slate-700 to-emerald-900 px-4 pt-5 pb-10 relative overflow-hidden">
           <div className="absolute top-2 right-3 w-16 h-16 rounded-full border border-white/10" />
           <div className="absolute -bottom-4 -left-4 w-20 h-20 rounded-full border border-white/5" />
@@ -1150,7 +1163,8 @@ function PreviewCard({ variant }: { variant: string }) {
             <div className="text-right shrink-0"><p className="text-[10px] text-white/60 font-medium">MULAI</p><p className="text-lg font-bold text-white">Rp {formatPreviewPrice(price)} <span className="text-sm">Jt</span></p></div>
           </div>
         </div>
-        <div className="bg-white dark:bg-slate-800 -mt-6 rounded-t-2xl relative z-10 p-4 pt-5">
+        <div className="bg-white dark:bg-slate-800 -mt-6 rounded-t-2xl relative p-4 pt-5">
+          <FlagOverlay />
           <div className="grid grid-cols-2 gap-3 mb-3">
             <FlightInfo icon={DepIcon} code={depCode} date={depDate} t1={depTime} t2={arrTime} />
             <FlightInfo icon={ArrIcon} code={retCode} date={retDate} t1={retDepTime} t2={retArrTime} />
@@ -1167,8 +1181,9 @@ function PreviewCard({ variant }: { variant: string }) {
 
   // Default variant
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700 p-4">
-      <div className="flex justify-between items-start gap-3 mb-4">
+    <div className="relative bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-slate-700 p-4">
+      <FlagOverlay />
+      <div className="flex justify-between items-start gap-3 mb-4 relative z-10">
         <div className="flex-1 min-w-0"><h3 className="font-bold text-sm leading-tight text-gray-900 dark:text-slate-100">PLUS CAIRO + ALEXANDRIA 12HR</h3></div>
         <div className="text-right shrink-0"><p className="text-xs text-gray-500 dark:text-slate-400">MULAI</p><p className="text-lg font-bold text-orange-600 dark:text-orange-400">Rp {formatPreviewPrice(price)} <span className="text-sm">Jt</span></p></div>
       </div>

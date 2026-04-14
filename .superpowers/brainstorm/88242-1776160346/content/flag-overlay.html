@@ -1,0 +1,260 @@
+<h2>Bendera sebagai Background Overlay</h2>
+<p class="subtitle">Paket "PLUS TURKI 12HR" — hanya bendera Turki yang muncul (Saudi tidak ditampilkan untuk paket non-reguler). Klik yang paling cocok.</p>
+
+<div class="cards">
+
+  <!-- Option A: Full card overlay, subtle -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.1);display:flex;font-family:system-ui,sans-serif;position:relative;">
+        <!-- Flag overlay - full card, right-aligned, faded -->
+        <div style="position:absolute;right:-20px;top:50%;transform:translateY(-50%);width:180px;height:120px;opacity:0.07;pointer-events:none;z-index:0;">
+          <img src="turki.png" style="width:100%;height:100%;object-fit:cover;" />
+        </div>
+        <!-- Left emerald panel -->
+        <div style="width:72px;shrink:0;background:linear-gradient(to bottom,#10b981,#059669);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 6px;gap:8px;z-index:1;">
+          <div style="text-align:center;">
+            <div style="font-size:24px;font-weight:900;line-height:1;">15</div>
+            <div style="font-size:10px;font-weight:700;margin-top:2px;">MAR</div>
+            <div style="font-size:10px;opacity:.8;">2026</div>
+          </div>
+          <div style="width:24px;border-top:1px solid rgba(255,255,255,.3);"></div>
+          <div style="text-align:center;">
+            <div style="font-size:13px;font-weight:900;">29.9 <span style="font-size:9px;">Jt</span></div>
+          </div>
+          <div style="width:24px;border-top:1px solid rgba(255,255,255,.3);"></div>
+          <div style="font-size:9px;font-weight:700;">GARUDA</div>
+        </div>
+        <!-- Right content -->
+        <div style="flex:1;padding:12px;min-width:0;position:relative;z-index:1;">
+          <div style="margin-bottom:10px;">
+            <h3 style="font-size:13px;font-weight:700;color:#111;margin:0;line-height:1.3;">PLUS TURKI 12HR</h3>
+          </div>
+          <div style="margin-bottom:10px;">
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;margin-bottom:4px;">
+              <span style="color:#10b981;">✈</span>
+              <span style="font-weight:600;color:#333;">GA 990</span>
+              <span style="color:#ccc;">·</span>
+              <span>06:00 - 12:35</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;">
+              <span style="color:#10b981;">✈</span>
+              <span style="font-weight:600;color:#333;">GA 991</span>
+              <span style="color:#ccc;">·</span>
+              <span>21:00 - 08:45</span>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px;">
+              <span style="color:#10b981;">🏨</span>
+              <span style="color:#333;font-weight:500;">SWISSOTEL MAKKAH</span>
+              <span style="color:#fbbf24;font-size:10px;margin-left:auto;">★★★★★</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;">
+              <span style="color:#10b981;">🏨</span>
+              <span style="color:#333;font-weight:500;">PULLMAN MADINAH</span>
+              <span style="color:#fbbf24;font-size:10px;margin-left:auto;">★★★★★</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>Watermark halus (opacity 7%)</h3>
+        <p>Bendera besar di kanan card sebagai watermark sangat subtle. Tidak mengganggu konten, memberi identitas visual.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B: Right side bleed with gradient fade -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.1);display:flex;font-family:system-ui,sans-serif;position:relative;">
+        <!-- Flag overlay - right side with gradient mask -->
+        <div style="position:absolute;right:0;top:0;bottom:0;width:120px;overflow:hidden;z-index:0;">
+          <img src="turki.png" style="width:100%;height:100%;object-fit:cover;opacity:0.15;" />
+          <div style="position:absolute;inset:0;background:linear-gradient(to right,#fff 0%,transparent 60%);"></div>
+        </div>
+        <!-- Left emerald panel -->
+        <div style="width:72px;background:linear-gradient(to bottom,#10b981,#059669);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 6px;gap:8px;z-index:1;">
+          <div style="text-align:center;">
+            <div style="font-size:24px;font-weight:900;line-height:1;">15</div>
+            <div style="font-size:10px;font-weight:700;margin-top:2px;">MAR</div>
+            <div style="font-size:10px;opacity:.8;">2026</div>
+          </div>
+          <div style="width:24px;border-top:1px solid rgba(255,255,255,.3);"></div>
+          <div style="text-align:center;">
+            <div style="font-size:13px;font-weight:900;">29.9 <span style="font-size:9px;">Jt</span></div>
+          </div>
+          <div style="width:24px;border-top:1px solid rgba(255,255,255,.3);"></div>
+          <div style="font-size:9px;font-weight:700;">GARUDA</div>
+        </div>
+        <!-- Right content -->
+        <div style="flex:1;padding:12px;min-width:0;position:relative;z-index:1;">
+          <div style="margin-bottom:10px;">
+            <h3 style="font-size:13px;font-weight:700;color:#111;margin:0;line-height:1.3;">PLUS TURKI 12HR</h3>
+          </div>
+          <div style="margin-bottom:10px;">
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;margin-bottom:4px;">
+              <span style="color:#10b981;">✈</span>
+              <span style="font-weight:600;color:#333;">GA 990</span>
+              <span style="color:#ccc;">·</span>
+              <span>06:00 - 12:35</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;">
+              <span style="color:#10b981;">✈</span>
+              <span style="font-weight:600;color:#333;">GA 991</span>
+              <span style="color:#ccc;">·</span>
+              <span>21:00 - 08:45</span>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px;">
+              <span style="color:#10b981;">🏨</span>
+              <span style="color:#333;font-weight:500;">SWISSOTEL MAKKAH</span>
+              <span style="color:#fbbf24;font-size:10px;margin-left:auto;">★★★★★</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;">
+              <span style="color:#10b981;">🏨</span>
+              <span style="color:#333;font-weight:500;">PULLMAN MADINAH</span>
+              <span style="color:#fbbf24;font-size:10px;margin-left:auto;">★★★★★</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>Side bleed dengan gradient fade (opacity 15%)</h3>
+        <p>Bendera full-height di sisi kanan dengan gradient fade ke putih. Lebih terlihat dari A, efek editorial/majalah.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option C: Flag overlay on emerald panel -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.1);display:flex;font-family:system-ui,sans-serif;position:relative;">
+        <!-- Left emerald panel WITH flag overlay -->
+        <div style="width:72px;position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 6px;gap:8px;z-index:1;">
+          <!-- Flag as panel background -->
+          <img src="turki.png" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;" />
+          <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(16,185,129,0.82),rgba(5,150,105,0.82));z-index:1;"></div>
+          <!-- Content on top -->
+          <div style="position:relative;z-index:2;color:#fff;text-align:center;">
+            <div style="font-size:24px;font-weight:900;line-height:1;">15</div>
+            <div style="font-size:10px;font-weight:700;margin-top:2px;">MAR</div>
+            <div style="font-size:10px;opacity:.8;">2026</div>
+          </div>
+          <div style="position:relative;z-index:2;width:24px;border-top:1px solid rgba(255,255,255,.3);"></div>
+          <div style="position:relative;z-index:2;color:#fff;text-align:center;">
+            <div style="font-size:13px;font-weight:900;">29.9 <span style="font-size:9px;">Jt</span></div>
+          </div>
+          <div style="position:relative;z-index:2;width:24px;border-top:1px solid rgba(255,255,255,.3);"></div>
+          <div style="position:relative;z-index:2;color:#fff;font-size:9px;font-weight:700;">GARUDA</div>
+          <!-- Small flag badge at bottom -->
+          <div style="position:relative;z-index:2;margin-top:2px;">
+            <img src="turki.png" style="width:26px;height:17px;border-radius:2px;object-fit:cover;border:1.5px solid rgba(255,255,255,.5);box-shadow:0 1px 3px rgba(0,0,0,.2);" />
+          </div>
+        </div>
+        <!-- Right content -->
+        <div style="flex:1;padding:12px;min-width:0;position:relative;z-index:1;">
+          <div style="margin-bottom:10px;">
+            <h3 style="font-size:13px;font-weight:700;color:#111;margin:0;line-height:1.3;">PLUS TURKI 12HR</h3>
+          </div>
+          <div style="margin-bottom:10px;">
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;margin-bottom:4px;">
+              <span style="color:#10b981;">✈</span>
+              <span style="font-weight:600;color:#333;">GA 990</span>
+              <span style="color:#ccc;">·</span>
+              <span>06:00 - 12:35</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;">
+              <span style="color:#10b981;">✈</span>
+              <span style="font-weight:600;color:#333;">GA 991</span>
+              <span style="color:#ccc;">·</span>
+              <span>21:00 - 08:45</span>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px;">
+              <span style="color:#10b981;">🏨</span>
+              <span style="color:#333;font-weight:500;">SWISSOTEL MAKKAH</span>
+              <span style="color:#fbbf24;font-size:10px;margin-left:auto;">★★★★★</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;">
+              <span style="color:#10b981;">🏨</span>
+              <span style="color:#333;font-weight:500;">PULLMAN MADINAH</span>
+              <span style="color:#fbbf24;font-size:10px;margin-left:auto;">★★★★★</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="letter">C</div>
+      <div class="content">
+        <h3>Overlay di panel emerald + badge kecil</h3>
+        <p>Bendera sebagai texture di panel emerald (terlihat subtle lewat hijau), plus badge kecil di bawah. Panel tetap hijau tapi ada karakter unik.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Contoh multi-flag: Plus Cairo + Turki -->
+<h3 style="margin-top:32px;">Contoh paket multi-negara: "PLUS CAIRO + TURKI"</h3>
+<p class="subtitle">Mockup opsi B dengan 2 bendera</p>
+
+<div class="mockup">
+  <div class="mockup-header">Multi-flag: Side bleed dengan 2 bendera</div>
+  <div class="mockup-body" style="padding:0;">
+    <div style="background:#fff;border-radius:8px;overflow:hidden;display:flex;font-family:system-ui,sans-serif;position:relative;">
+      <!-- Dual flag overlay - right side -->
+      <div style="position:absolute;right:0;top:0;bottom:0;width:120px;overflow:hidden;z-index:0;">
+        <div style="position:absolute;top:0;right:0;width:100%;height:50%;overflow:hidden;">
+          <img src="mesir.png" style="width:100%;height:100%;object-fit:cover;opacity:0.13;" />
+        </div>
+        <div style="position:absolute;bottom:0;right:0;width:100%;height:50%;overflow:hidden;">
+          <img src="turki.png" style="width:100%;height:100%;object-fit:cover;opacity:0.13;" />
+        </div>
+        <div style="position:absolute;inset:0;background:linear-gradient(to right,#fff 0%,transparent 50%);"></div>
+      </div>
+      <!-- Left panel -->
+      <div style="width:72px;background:linear-gradient(to bottom,#10b981,#059669);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 6px;gap:8px;z-index:1;">
+        <div style="text-align:center;">
+          <div style="font-size:24px;font-weight:900;line-height:1;">22</div>
+          <div style="font-size:10px;font-weight:700;margin-top:2px;">APR</div>
+          <div style="font-size:10px;opacity:.8;">2026</div>
+        </div>
+        <div style="width:24px;border-top:1px solid rgba(255,255,255,.3);"></div>
+        <div style="text-align:center;font-size:13px;font-weight:900;">35.5 <span style="font-size:9px;">Jt</span></div>
+        <div style="width:24px;border-top:1px solid rgba(255,255,255,.3);"></div>
+        <div style="font-size:9px;font-weight:700;">GARUDA</div>
+      </div>
+      <!-- Content -->
+      <div style="flex:1;padding:12px;min-width:0;position:relative;z-index:1;">
+        <h3 style="font-size:13px;font-weight:700;color:#111;margin:0 0 10px 0;">PLUS CAIRO + TURKI 15HR</h3>
+        <div style="margin-bottom:10px;">
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;margin-bottom:4px;">
+            <span style="color:#10b981;">✈</span><span style="font-weight:600;color:#333;">GA 990</span><span style="color:#ccc;">·</span><span>06:00 - 12:35</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;">
+            <span style="color:#10b981;">✈</span><span style="font-weight:600;color:#333;">GA 991</span><span style="color:#ccc;">·</span><span>21:00 - 08:45</span>
+          </div>
+        </div>
+        <div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px;">
+            <span style="color:#10b981;">🏨</span><span style="color:#333;font-weight:500;">SWISSOTEL MAKKAH</span><span style="color:#fbbf24;font-size:10px;margin-left:auto;">★★★★★</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;">
+            <span style="color:#10b981;">🏨</span><span style="color:#333;font-weight:500;">PULLMAN MADINAH</span><span style="color:#fbbf24;font-size:10px;margin-left:auto;">★★★★★</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
