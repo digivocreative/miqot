@@ -54,11 +54,11 @@ function buildStickyBarAndFab(agentName, agentPhoto, waUrl) {
   const js = "<script>(function(){var bar=document.getElementById('alhijazStickyBar'),fab=document.getElementById('alhijazFab');if(!bar||!fab)return;var hero=document.querySelector('.elementor-element-f55e3ca')||document.querySelector('.elementor-top-section');var hH=hero?hero.offsetHeight:400,on=false;function chk(){var y=window.scrollY||window.pageYOffset;if(y>hH&&!on){bar.classList.add('show');fab.classList.add('hide');on=true}else if(y<=hH&&on){bar.classList.remove('show');fab.classList.remove('hide');on=false}}window.addEventListener('scroll',chk,{passive:true});chk();})();</script>";
   return css + "\n" + stickyBar + "\n" + fab + "\n" + js;
 }
-async function generateHTML(slug) {
+async function generateHTML(slug, agentOverride) {
   const agent = AGENTS[slug];
-  const phone = agent?.phone || DEFAULT_PHONE;
-  const agentName = agent?.name || "Alhijaz";
-  const agentPhoto = "https://xicthdsuvmwwuvwvvbqa.supabase.co/storage/v1/object/public/agent-photos/" + slug + ".jpg";
+  const phone = agentOverride?.phone || agent?.phone || DEFAULT_PHONE;
+  const agentName = agentOverride?.name || agent?.name || slug.charAt(0).toUpperCase() + slug.slice(1);
+  const agentPhoto = agentOverride?.photo || "https://xicthdsuvmwwuvwvvbqa.supabase.co/storage/v1/object/public/agent-photos/" + slug + ".jpg";
   const waGeneral = "https://api.whatsapp.com/send?phone=" + phone + "&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Paket%20Haji%20Khusus%20di%20Alhijaz";
   const waPembiayaan = "https://api.whatsapp.com/send?phone=" + phone + "&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Program%20Pembiayaan%20Haji%20Plus%20di%20Alhijaz";
   let html;
@@ -146,7 +146,8 @@ async function generateHTML(slug) {
 }
 const onRequest = async (context) => {
   const slug = (context.params.slug || "").toLowerCase();
-  return new Response(await generateHTML(slug), {
+  const agentOverride = context.agentOverride;
+  return new Response(await generateHTML(slug, agentOverride), {
     status: 200,
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=3600" }
   });

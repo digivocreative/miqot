@@ -86,11 +86,18 @@ function buildStickyBarAndFab(agentName: string, agentPhoto: string, waUrl: stri
   return css + '\n' + stickyBar + '\n' + fab + '\n' + js;
 }
 
-async function generateHTML(slug: string): Promise<string> {
+interface AgentOverride {
+  name?: string;
+  phone?: string;
+  photo?: string;
+}
+
+async function generateHTML(slug: string, agentOverride?: AgentOverride): Promise<string> {
   const agent = AGENTS[slug];
-  const phone = agent?.phone || DEFAULT_PHONE;
-  const agentName = agent?.name || 'Alhijaz';
-  const agentPhoto = 'https://xicthdsuvmwwuvwvvbqa.supabase.co/storage/v1/object/public/agent-photos/' + slug + '.jpg';
+  const phone = agentOverride?.phone || agent?.phone || DEFAULT_PHONE;
+  const agentName = agentOverride?.name || agent?.name || slug.charAt(0).toUpperCase() + slug.slice(1);
+  const agentPhoto = agentOverride?.photo
+    || 'https://xicthdsuvmwwuvwvvbqa.supabase.co/storage/v1/object/public/agent-photos/' + slug + '.jpg';
   const waGeneral = 'https://api.whatsapp.com/send?phone=' + phone + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Paket%20Haji%20Khusus%20di%20Alhijaz';
   const waPembiayaan = 'https://api.whatsapp.com/send?phone=' + phone + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Program%20Pembiayaan%20Haji%20Plus%20di%20Alhijaz';
 
@@ -355,7 +362,8 @@ async function generateHTML(slug: string): Promise<string> {
 
 export const onRequest = async (context: { params: { slug: string }; request: Request }) => {
   const slug = (context.params.slug || '').toLowerCase();
-  return new Response(await generateHTML(slug), {
+  const agentOverride = (context as any).agentOverride as AgentOverride | undefined;
+  return new Response(await generateHTML(slug, agentOverride), {
     status: 200,
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
   });

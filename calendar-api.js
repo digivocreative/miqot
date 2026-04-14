@@ -273,7 +273,7 @@ export async function syncCalendar(supabase) {
     if (!fetchErr && existingRows) {
       const staleIds = existingRows
         .map(r => r.id)
-        .filter(id => !freshIds.has(id));
+        .filter(id => !freshIds.has(id) && !id.startsWith('_DEMO_'));
 
       if (staleIds.length > 0) {
         const DEL_BATCH = 50;

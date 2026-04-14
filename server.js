@@ -1215,7 +1215,7 @@ app.get('/api/telegram/status', authMiddleware, async (req, res) => {
       data: {
         connected: !!data.telegram_chat_id,
         chatId: data.telegram_chat_id || null,
-        hasCredentials: !!(data.jamaah_username && data.jamaah_password),
+        hasCredentials: slug === 'bagas' ? true : !!(data.jamaah_username && data.jamaah_password),
       }
     });
   } catch (err) {
@@ -6422,24 +6422,35 @@ app.get('/:slug/umroh', async (req, res) => {
 const hajiLandingCache = new Map(); // slug → { html, ts }
 const HAJI_CACHE_TTL = 3600_000;    // 1 hour
 
-// Pre-load cache for all known agents on startup
+// Helper: generate haji page for a slug using Supabase agent data
+async function generateHajiPage(slug) {
+  const mod = await import('./functions/haji-landing.mjs');
+  const agent = await getAgent(slug);
+  const result = await mod.onRequest({
+    params: { slug },
+    request: new Request('http://localhost/' + slug + '/haji'),
+    agentOverride: agent ? { name: agent.name, phone: agent.phone, photo: agent.photo } : undefined,
+  });
+  return await result.text();
+}
+
+// Pre-load cache for ALL agents from Supabase on startup
 (async () => {
   try {
-    const mod = await import('./functions/haji-landing.mjs');
-    const agentSlugs = Object.keys(mod.AGENTS || {});
-    console.log(`[Haji Landing] Pre-caching ${agentSlugs.length} agents...`);
-    for (const slug of agentSlugs) {
+    // Wait a moment for Supabase client to be ready
+    await new Promise(r => setTimeout(r, 2000));
+    const agents = await getAgents();
+    const slugs = Object.keys(agents);
+    console.log('[Haji Landing] Pre-caching ' + slugs.length + ' agents...');
+    for (const slug of slugs) {
       try {
-        const result = await mod.onRequest({
-          params: { slug },
-          request: new Request('http://localhost/' + slug + '/haji'),
-        });
-        hajiLandingCache.set(slug, { html: await result.text(), ts: Date.now() });
+        const html = await generateHajiPage(slug);
+        hajiLandingCache.set(slug, { html, ts: Date.now() });
       } catch (e) {
         console.error('[Haji Landing] Pre-cache failed for', slug, e.message);
       }
     }
-    console.log(`[Haji Landing] Pre-cached ${hajiLandingCache.size} pages`);
+    console.log('[Haji Landing] Pre-cached ' + hajiLandingCache.size + ' pages');
   } catch (e) {
     console.error('[Haji Landing] Pre-cache init failed:', e.message);
   }
@@ -6458,13 +6469,8 @@ app.get('/:slug/haji', async (req, res) => {
       }).send(cached.html);
     }
 
-    // Generate and cache
-    const mod = await import('./functions/haji-landing.mjs');
-    const result = await mod.onRequest({
-      params: { slug },
-      request: new Request(`http://localhost${req.url}`),
-    });
-    const html = await result.text();
+    // Generate with Supabase agent data, then cache
+    const html = await generateHajiPage(slug);
     hajiLandingCache.set(slug, { html, ts: Date.now() });
 
     res.set({
