@@ -1793,18 +1793,33 @@ _________________________
               </div>
             )}
 
-            {pkg.brosurUrl && pkg.brosurUrl.length > 0 ? (
+            {isSingleView ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  document.body.classList.add('navigating');
+                  const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
+                  const base = seg ? `/${seg}/kalkulasi` : '/kalkulasi';
+                  setTimeout(() => {
+                    window.location.href = `${base}?paket=${encodeURIComponent(pkg.jadwalId)}&transition=1`;
+                  }, 280);
+                }}
+                className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30 dark:border-slate-700 dark:hover:border-teal-500"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-teal-600 dark:text-teal-400 mb-1">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 15.75V18m-7.5-6.75h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V13.5Zm0 2.25h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V18Zm2.498-6.75h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V13.5Zm0 2.25h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V18Zm2.504-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5Zm0 2.25h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V18Zm2.498-6.75h.008v.008h-.008v-.008ZM15.75 13.5v.008h-.008V13.5h.008ZM6 6.75A.75.75 0 0 1 6.75 6h10.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-.75.75H6.75A.75.75 0 0 1 6 8.25v-1.5ZM6 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6Z" />
+                </svg>
+                <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Hitung</span>
+              </button>
+            ) : pkg.brosurUrl && pkg.brosurUrl.length > 0 ? (
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   fireViewContent();
                   trackEvent('action', 'download_brosur', { paket: pkg.nama });
-                  if (isSingleView && !brosurError && brosurSectionRef.current) {
-                    brosurSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  } else {
-                    setIsBrochureOpen(true);
-                  }
+                  setIsBrochureOpen(true);
                 }}
                 className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/30 dark:border-slate-700 dark:hover:border-orange-500"
               >
