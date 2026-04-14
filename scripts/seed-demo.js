@@ -159,11 +159,13 @@ async function seedJamaahUmroh() {
       tgl_daftar: tglDaftar,
       hijriah_year: '1448',
       perlengkapan: {
+        batik: Math.random() > 0.3,
+        buku_doa: Math.random() > 0.3,
+        ikhram: person.jk === 'L' ? Math.random() > 0.3 : false,
         koper: Math.random() > 0.3,
-        baju_ihrom: Math.random() > 0.3,
         mukena: person.jk === 'P' ? Math.random() > 0.3 : false,
-        sajadah: Math.random() > 0.4,
-        tas_jinjing: Math.random() > 0.4,
+        sabuk: person.jk === 'P' ? Math.random() > 0.4 : false,
+        tas_paspor: Math.random() > 0.3,
       },
       dokumen: {
         paspor: hasPaspor,

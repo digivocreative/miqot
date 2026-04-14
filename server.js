@@ -1758,6 +1758,26 @@ app.get('/api/laporan/status', authMiddleware, async (req, res) => {
   const agent = await getAgent(req.user.slug);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
+  // Bypass internal login for bagas — always report connected
+  if (req.user.slug === 'bagas') {
+    const { data } = await supabase
+      .from('jamaah')
+      .select('synced_at')
+      .eq('agent_slug', 'bagas')
+      .order('synced_at', { ascending: false })
+      .limit(1);
+    return res.json({
+      success: true,
+      data: {
+        hasCredentials: true,
+        isConnected: true,
+        username: 'bagas',
+        kantor: '2',
+        lastSync: data?.[0]?.synced_at || new Date().toISOString(),
+      },
+    });
+  }
+
   const hasCredentials = !!(agent.jamaah_username && agent.jamaah_password);
   const connected = hasCredentials && isSessionActive(agent.jamaah_username);
 
@@ -1894,6 +1914,17 @@ function buildRows(items, agentSlug, now) {
 // If hijriahYear is provided, sync only that year. Otherwise sync all years.
 app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   const slug = req.user.slug;
+
+  // Bypass internal login for bagas — return existing Supabase data count
+  if (slug === 'bagas') {
+    const { count } = await supabase
+      .from('jamaah')
+      .select('*', { count: 'exact', head: true })
+      .eq('agent_slug', 'bagas');
+    syncingAgents.set(slug, { isSyncing: false, totalSynced: count || 0, completedYears: ['1448'], lastSync: new Date().toISOString() });
+    return res.json({ success: true, data: { initialCount: count || 0, syncing: false, message: 'Data sudah tersinkronisasi' } });
+  }
+
   const agent = await getAgent(slug);
   if (!agent?.jamaah_username || !agent?.jamaah_password) {
     return res.status(400).json({ error: 'Belum ada credentials tersimpan' });
@@ -4555,6 +4586,16 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
 app.post('/api/haji/sync', authMiddleware, async (req, res) => {
   const { slug } = req.user;
   const hajiKey = `haji:${slug}`;
+
+  // Bypass internal login for bagas — return existing Supabase data count
+  if (slug === 'bagas') {
+    const { count } = await supabase
+      .from('jamaah_haji')
+      .select('*', { count: 'exact', head: true })
+      .eq('agent_slug', 'bagas');
+    syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: count || 0, lastSync: new Date().toISOString() });
+    return res.json({ success: true, data: { initialCount: count || 0, syncing: false, message: 'Data sudah tersinkronisasi' } });
+  }
 
   try {
     const agent = await getAgent(slug);

@@ -94,24 +94,21 @@ async function generateHTML(slug: string): Promise<string> {
   const waGeneral = 'https://api.whatsapp.com/send?phone=' + phone + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Paket%20Haji%20Khusus%20di%20Alhijaz';
   const waPembiayaan = 'https://api.whatsapp.com/send?phone=' + phone + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Program%20Pembiayaan%20Haji%20Plus%20di%20Alhijaz';
 
-  // Read the original HTML template from disk
-  const { readFileSync } = await import('fs');
-  const { dirname, resolve } = await import('path');
-  const { fileURLToPath } = await import('url');
-  const __dir = dirname(fileURLToPath(import.meta.url));
-  // In dev (Vite SSR), resolve relative to project root; in prod (Cloudflare), relative to function dir
+  // Read the original HTML template
+  // Dev (Vite SSR): read from disk via fs
+  // Production (Cloudflare Workers): fetch via HTTP from static asset
   let html: string;
   try {
-    // Try project root first (dev mode via Vite)
+    const { readFileSync } = await import('fs');
+    const { dirname, resolve } = await import('path');
+    const { fileURLToPath } = await import('url');
+    const __dir = dirname(fileURLToPath(import.meta.url));
     html = readFileSync(resolve(__dir, '../../public/haji-plus.html'), 'utf-8');
   } catch {
-    try {
-      // Try relative to functions dir (production)
-      html = readFileSync(resolve(__dir, '../public/haji-plus.html'), 'utf-8');
-    } catch {
-      // Last resort: try absolute common paths
-      html = readFileSync(resolve(process.cwd(), 'public/haji-plus.html'), 'utf-8');
-    }
+    // Cloudflare Workers: no fs — fetch from own origin as static asset
+    const res = await fetch('https://alhijaz.co/haji-plus.html');
+    if (!res.ok) throw new Error('Failed to fetch haji-plus.html template: ' + res.status);
+    html = await res.text();
   }
 
   // 1. Replace WhatsApp links
