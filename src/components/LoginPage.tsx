@@ -642,9 +642,28 @@ export default function LoginPage({ onLogin }: { onLogin: (session: AuthSession)
             </form>
           )}
 
+          {/* Register link */}
+          {!showForgotPassword && (
+            <div style={{ textAlign: 'center', marginTop: 20 }}>
+              <span style={{ fontSize: 13, color: '#6b7280' }}>Belum punya akun? </span>
+              <button
+                type="button"
+                onClick={() => { window.location.href = '/register'; }}
+                style={{
+                  background: 'none', border: 'none', fontSize: 13, fontWeight: 600,
+                  color: '#10b981', cursor: 'pointer', padding: 0, transition: 'all 0.25s ease',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = '0.7')}
+                onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+              >
+                Daftar di sini
+              </button>
+            </div>
+          )}
+
           {/* Footer */}
           <p style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', marginTop: 24 }}>
-            © {new Date().getFullYear()} Alhijaz Indowisata
+            &copy; {new Date().getFullYear()} Alhijaz Indowisata
           </p>
         </div>
       </div>

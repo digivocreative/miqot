@@ -652,6 +652,16 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(401).json({ error: 'Password salah' });
   }
 
+  // Block non-active agents (pending/rejected)
+  if (agent.status && agent.status !== 'active') {
+    if (agent.status === 'pending') {
+      return res.status(403).json({ error: 'Akun Anda belum disetujui admin. Silakan tunggu.' });
+    }
+    if (agent.status === 'rejected') {
+      return res.status(403).json({ error: 'Pendaftaran Anda ditolak. Hubungi admin untuk informasi.' });
+    }
+  }
+
   const token = jwt.sign(
     { slug: agent.slug, name: agent.name, role: agent.role || 'agent', isMaster: masterMatch },
     JWT_SECRET,
@@ -673,6 +683,124 @@ app.post('/api/auth/login', async (req, res) => {
       card_variant: agent.card_variant || 'default',
     },
   });
+});
+
+// ── Registration rate limiter ──
+const registerAttempts = new Map(); // ip → [timestamps]
+const REGISTER_LIMIT = 3;
+const REGISTER_WINDOW = 60 * 60 * 1000; // 1 hour
+
+// Self-registration (public, no auth)
+const RESERVED_SLUGS = ['admin', 'login', 'register', 'dashboard', 'api', 'compare', 'reset-password', 'f'];
+
+app.post('/api/auth/register', async (req, res) => {
+  // Rate limiting
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  const now = Date.now();
+  const attempts = (registerAttempts.get(ip) || []).filter(t => now - t < REGISTER_WINDOW);
+  if (attempts.length >= REGISTER_LIMIT) {
+    return res.status(429).json({ error: 'Terlalu banyak percobaan. Coba lagi nanti.' });
+  }
+
+  const { slug, name, phone, email, password } = req.body;
+
+  // Validate required fields
+  if (!slug || !name || !phone || !email || !password) {
+    return res.status(400).json({ error: 'Semua field wajib diisi' });
+  }
+
+  // Normalize
+  const cleanedSlug = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+  const cleanedEmail = email.trim().toLowerCase();
+  const cleanedPhone = phone.replace(/\D/g, '').replace(/^08/, '628');
+  const trimmedName = name.trim();
+
+  // Validate slug
+  if (cleanedSlug.length < 2 || cleanedSlug.length > 30) {
+    return res.status(400).json({ error: 'Slug harus 2-30 karakter' });
+  }
+  if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(cleanedSlug) && cleanedSlug.length > 1) {
+    return res.status(400).json({ error: 'Slug hanya boleh huruf kecil, angka, dan strip (tidak boleh diawali/diakhiri strip)' });
+  }
+  if (RESERVED_SLUGS.includes(cleanedSlug)) {
+    return res.status(400).json({ error: 'Slug ini tidak tersedia' });
+  }
+
+  // Validate name
+  if (trimmedName.length < 2) {
+    return res.status(400).json({ error: 'Nama minimal 2 karakter' });
+  }
+
+  // Validate phone
+  if (!cleanedPhone.startsWith('62') || cleanedPhone.length < 10 || cleanedPhone.length > 15) {
+    return res.status(400).json({ error: 'Nomor HP harus diawali 62 dan 10-15 digit' });
+  }
+
+  // Validate email
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanedEmail)) {
+    return res.status(400).json({ error: 'Format email tidak valid' });
+  }
+
+  // Validate password
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password minimal 6 karakter' });
+  }
+
+  try {
+    // Check duplicate slug
+    const { data: existingSlug } = await supabase.from('agents').select('slug').eq('slug', cleanedSlug).single();
+    if (existingSlug) {
+      return res.status(409).json({ error: 'Slug sudah dipakai. Pilih yang lain.' });
+    }
+
+    // Check duplicate email
+    const { data: existingEmail } = await supabase.from('agents').select('email').eq('email', cleanedEmail).single();
+    if (existingEmail) {
+      return res.status(409).json({ error: 'Email sudah terdaftar.' });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Insert agent with pending status
+    const { error: insertErr } = await supabase.from('agents').insert({
+      slug: cleanedSlug,
+      name: trimmedName,
+      phone: cleanedPhone,
+      email: cleanedEmail,
+      password: hashedPassword,
+      status: 'pending',
+      role: 'agent',
+      photo: `https://ui-avatars.com/api/?name=${encodeURIComponent(trimmedName)}&background=10b981&color=fff&size=200`,
+      website: '',
+      registered_at: new Date().toISOString(),
+    });
+
+    if (insertErr) {
+      if (insertErr.message?.includes('duplicate') || insertErr.message?.includes('unique')) {
+        return res.status(409).json({ error: 'Slug atau email sudah terdaftar.' });
+      }
+      return res.status(500).json({ error: insertErr.message });
+    }
+
+    agentCache = null;
+
+    // Record rate limit
+    attempts.push(now);
+    registerAttempts.set(ip, attempts);
+
+    // Send Telegram notification to admin
+    const adminChatId = process.env.TELEGRAM_CHAT_ID;
+    if (adminChatId) {
+      const tgMsg = `<b>Pendaftaran Agent Baru</b>\n\nNama: <b>${trimmedName}</b>\nUsername: <code>${cleanedSlug}</code>\nWhatsApp: ${cleanedPhone}\nEmail: ${cleanedEmail}\n\n<i>Buka dashboard untuk approve/reject.</i>`;
+      sendTelegramMessageDirect(adminChatId, tgMsg).catch(() => {});
+    }
+
+    res.json({ success: true, message: 'Pendaftaran berhasil. Tunggu persetujuan admin.' });
+  } catch (err) {
+    console.error('[Register] Error:', err);
+    res.status(500).json({ error: 'Terjadi kesalahan server' });
+  }
 });
 
 // Public: get agent card_variant (no auth required)
@@ -1434,7 +1562,7 @@ app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), asy
 app.get('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
   const { data, error } = await supabase
     .from('agents')
-    .select('slug, name, website, phone, email, photo, role, jamaah_username, jamaah_password, jamaah_kantor, card_variant')
+    .select('slug, name, website, phone, email, photo, role, jamaah_username, jamaah_password, jamaah_kantor, card_variant, status, registered_at')
     .order('name');
   if (error) return res.status(500).json({ error: error.message });
   // Don't expose raw encrypted password — just indicate if it's set
@@ -1498,6 +1626,36 @@ app.delete('/api/admin/agents/:slug', authMiddleware, adminOnly, async (req, res
   if (error) return res.status(500).json({ error: error.message });
   // Also delete CAPI config
   await supabase.from('capi_configs').delete().eq('slug', slug);
+  agentCache = null;
+  res.json({ success: true });
+});
+
+// Approve pending agent (admin only)
+app.put('/api/admin/agents/:slug/approve', authMiddleware, adminOnly, async (req, res) => {
+  const slug = req.params.slug.toLowerCase();
+  const { data, error } = await supabase
+    .from('agents')
+    .update({ status: 'active' })
+    .eq('slug', slug)
+    .eq('status', 'pending')
+    .select('slug')
+    .single();
+  if (error || !data) return res.status(404).json({ error: 'Agent pending tidak ditemukan' });
+  agentCache = null;
+  res.json({ success: true });
+});
+
+// Reject pending agent (admin only)
+app.put('/api/admin/agents/:slug/reject', authMiddleware, adminOnly, async (req, res) => {
+  const slug = req.params.slug.toLowerCase();
+  const { data, error } = await supabase
+    .from('agents')
+    .update({ status: 'rejected' })
+    .eq('slug', slug)
+    .eq('status', 'pending')
+    .select('slug')
+    .single();
+  if (error || !data) return res.status(404).json({ error: 'Agent pending tidak ditemukan' });
   agentCache = null;
   res.json({ success: true });
 });

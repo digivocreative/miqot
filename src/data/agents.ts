@@ -67,7 +67,8 @@ export async function loadAgentsFromSupabase(): Promise<Record<string, AgentData
   try {
     const { data, error } = await supabase
       .from('agents')
-      .select('slug, name, website, phone, photo, card_variant');
+      .select('slug, name, website, phone, photo, card_variant')
+      .or('status.eq.active,status.is.null');
 
     if (error) throw error;
     if (data && data.length > 0) {

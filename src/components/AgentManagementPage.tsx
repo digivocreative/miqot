@@ -20,6 +20,8 @@ interface AgentItem {
   jamaah_username: string;
   jamaah_password: string;
   jamaah_kantor: string;
+  status?: string;
+  registered_at?: string;
 }
 
 interface FormData {
@@ -58,6 +60,7 @@ export default function AgentManagementPage() {
   const [agents, setAgents] = useState<AgentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'active' | 'rejected'>('all');
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -100,16 +103,48 @@ export default function AgentManagementPage() {
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
+  // ── Approve / Reject handlers ──
+  const [approving, setApproving] = useState<string | null>(null);
+
+  const handleApprove = async (slug: string) => {
+    setApproving(slug);
+    try {
+      const res = await fetch(`/api/admin/agents/${slug}/approve`, { method: 'PUT', headers: getAuthHeaders() });
+      if (res.ok) fetchAgents();
+    } catch { /* ignore */ }
+    setApproving(null);
+  };
+
+  const handleReject = async (slug: string) => {
+    if (!confirm(`Tolak pendaftaran ${slug}?`)) return;
+    setApproving(slug);
+    try {
+      const res = await fetch(`/api/admin/agents/${slug}/reject`, { method: 'PUT', headers: getAuthHeaders() });
+      if (res.ok) fetchAgents();
+    } catch { /* ignore */ }
+    setApproving(null);
+  };
+
+  // ── Counts ──
+  const pendingCount = agents.filter(a => a.status === 'pending').length;
+
   // ── Filtered list ──
+  const statusFiltered = statusFilter === 'all'
+    ? agents
+    : agents.filter(a => {
+        if (statusFilter === 'active') return !a.status || a.status === 'active';
+        return a.status === statusFilter;
+      });
+
   const filtered = searchQuery.trim()
-    ? agents.filter(a => {
+    ? statusFiltered.filter(a => {
         const q = searchQuery.toLowerCase();
         return a.name.toLowerCase().includes(q)
           || a.slug.toLowerCase().includes(q)
           || (a.phone || '').includes(q)
           || (a.email || '').toLowerCase().includes(q);
       })
-    : agents;
+    : statusFiltered;
 
   // ── Dirty check ──
   const isDirty = JSON.stringify(form) !== JSON.stringify(initialForm) || !!photoFile;
@@ -373,7 +408,7 @@ export default function AgentManagementPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-1">
         <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
-          Semua Agent ({agents.length})
+          Agent ({filtered.length})
         </p>
         <button
           onClick={openCreate}
@@ -402,6 +437,33 @@ export default function AgentManagementPage() {
         </div>
       </div>
 
+      {/* Status Filter Tabs */}
+      <div className="flex gap-1.5 mb-3 overflow-x-auto">
+        {([
+          { key: 'all', label: 'Semua' },
+          { key: 'pending', label: 'Pending', count: pendingCount },
+          { key: 'active', label: 'Active' },
+          { key: 'rejected', label: 'Ditolak' },
+        ] as const).map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setStatusFilter(tab.key)}
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+              statusFilter === tab.key
+                ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                : 'bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            {tab.label}
+            {'count' in tab && tab.count > 0 && (
+              <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                {tab.count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
       {/* Agent List */}
       {filtered.map(a => (
         <button
@@ -423,10 +485,39 @@ export default function AgentManagementPage() {
                   ADMIN
                 </span>
               )}
+              {a.status === 'pending' && (
+                <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800/40 shrink-0">
+                  PENDING
+                </span>
+              )}
+              {a.status === 'rejected' && (
+                <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/40 shrink-0">
+                  DITOLAK
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">{a.slug} · {a.phone}</p>
           </div>
-          <ChevronRight size={16} className="text-gray-300 dark:text-slate-600 shrink-0" />
+          {a.status === 'pending' ? (
+            <div className="flex gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleApprove(a.slug); }}
+                disabled={approving === a.slug}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-500 hover:bg-emerald-600 text-white transition-colors active:scale-95 disabled:opacity-50"
+              >
+                {approving === a.slug ? '...' : 'Approve'}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleReject(a.slug); }}
+                disabled={approving === a.slug}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 transition-colors active:scale-95 disabled:opacity-50"
+              >
+                Tolak
+              </button>
+            </div>
+          ) : (
+            <ChevronRight size={16} className="text-gray-300 dark:text-slate-600 shrink-0" />
+          )}
         </button>
       ))}
 

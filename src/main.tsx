@@ -34,6 +34,7 @@ const updateSW = registerSW({
 // Simple path-based routing (only /:slug/kalkulasi is valid, not bare /kalkulasi)
 const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)
 const isLogin = segments.length === 1 && segments[0] === 'login'
+const isRegister = segments.length === 1 && segments[0] === 'register'
 const isDashboard = segments.length >= 1 && segments[0] === 'dashboard'
 const isResetPassword = segments.length === 1 && segments[0] === 'reset-password'
 const isFlightShare = segments.length >= 2 && segments[0] === 'f'
@@ -44,7 +45,7 @@ const isCapi = segments.length >= 2 && segments[1] === 'capi'
 
 // Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
 import { getFilterModeFromSlug } from '@/utils'
-const knownFirstSegments = ['login', 'dashboard', 'compare', 'reset-password', 'f']
+const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f']
 const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi']
 
 const agentSlugForKalkulasi = isKalkulasi
@@ -106,6 +107,7 @@ import { useState, useEffect } from 'react'
 import LoginPage, { getStoredSession, type AuthSession } from './components/LoginPage.tsx'
 import DashboardLayout from './components/DashboardLayout.tsx'
 import ResetPasswordPage from './components/ResetPasswordPage.tsx'
+import RegisterPage from './components/RegisterPage.tsx'
 
 function LoginRouter() {
   const [session, setSession] = useState<AuthSession | null>(null)
@@ -157,6 +159,7 @@ function DashboardRouter() {
 // Determine which page to render
 const renderPage = () => {
   if (isLogin) return <LoginRouter />
+  if (isRegister) return <RegisterPage />
   if (isResetPassword) return <ResetPasswordPage />
   if (isFlightShare && flightShareCode) {
     return <FlightSharePage code={flightShareCode} />
