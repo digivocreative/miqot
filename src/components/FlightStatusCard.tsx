@@ -639,7 +639,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
           const next = upcoming[0] as { pesawat?: string; group_number?: string; event_date: string };
           const pesawat = next.pesawat
             ? next.pesawat.split(' - ').pop()?.trim() || next.pesawat
-            : `Grup ${next.group_number}`;
+            : next.group_number || '';
 
           const d = new Date(next.event_date + 'T00:00:00');
           const label = d.toLocaleDateString('id-ID', {
@@ -838,7 +838,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                         {/* Grup badge */}
                         {kloter.group && (
                           <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-md px-2 py-0.5 flex-shrink-0">
-                            Grup {kloter.group}
+                            {kloter.group}
                           </span>
                         )}
 

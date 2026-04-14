@@ -5,7 +5,7 @@
  * WhatsApp links with agent-specific links, injects sticky agent bar.
  */
 
-const AGENTS: Record<string, { name: string; phone: string; website: string; photo: string }> = {
+export const AGENTS: Record<string, { name: string; phone: string; website: string; photo: string }> = {
   'bagas':       { name: 'Bagas Pramudita',     phone: '6287878573311', website: 'alhijaz.co',                  photo: '/agents/bagas.jpg' },
   'nikita':      { name: 'Nikita',              phone: '62822900020',   website: 'alhijazindonesia.com',        photo: '/agents/nikita.jpg' },
   'nila':        { name: 'Nila Novita Sari',    phone: '6285211209049', website: 'alhijaztourtravels.com',      photo: '/agents/nila.jpg' },
@@ -152,8 +152,7 @@ async function generateHTML(slug: string): Promise<string> {
   // Elementor Icons (eicons) — not used on this page, no eicon- classes found
   html = html.replace(/<link[^>]*elementor-icons-css[^>]*\/>/g, '');
 
-  // LandingPress theme CSS — only needed for generic theme chrome we don't use
-  html = html.replace(/<link[^>]*landingpress-css[^>]*\/>/g, '');
+  // LandingPress theme CSS — keep it, provides essential layout resets (body margin:0, .site-container padding:0 for full-width pages)
 
   // Elementor Pro CSS — minimal features used, but keep for safety (sticky, carousel)
   // html = html.replace(/<link[^>]*elementor-pro-css[^>]*\/>/g, '');

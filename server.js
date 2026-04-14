@@ -6417,20 +6417,60 @@ app.get('/:slug/umroh', async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
-// Landing Page: /:slug/haji
+// Landing Page: /:slug/haji (with in-memory cache)
 // ──────────────────────────────────────────────
+const hajiLandingCache = new Map(); // slug → { html, ts }
+const HAJI_CACHE_TTL = 3600_000;    // 1 hour
+
+// Pre-load cache for all known agents on startup
+(async () => {
+  try {
+    const mod = await import('./functions/haji-landing.mjs');
+    const agentSlugs = Object.keys(mod.AGENTS || {});
+    console.log(`[Haji Landing] Pre-caching ${agentSlugs.length} agents...`);
+    for (const slug of agentSlugs) {
+      try {
+        const result = await mod.onRequest({
+          params: { slug },
+          request: new Request('http://localhost/' + slug + '/haji'),
+        });
+        hajiLandingCache.set(slug, { html: await result.text(), ts: Date.now() });
+      } catch (e) {
+        console.error('[Haji Landing] Pre-cache failed for', slug, e.message);
+      }
+    }
+    console.log(`[Haji Landing] Pre-cached ${hajiLandingCache.size} pages`);
+  } catch (e) {
+    console.error('[Haji Landing] Pre-cache init failed:', e.message);
+  }
+})();
+
 app.get('/:slug/haji', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
   try {
+    // Check cache
+    const cached = hajiLandingCache.get(slug);
+    if (cached && (Date.now() - cached.ts) < HAJI_CACHE_TTL) {
+      return res.set({
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+        'X-Cache': 'HIT',
+      }).send(cached.html);
+    }
+
+    // Generate and cache
     const mod = await import('./functions/haji-landing.mjs');
     const result = await mod.onRequest({
       params: { slug },
       request: new Request(`http://localhost${req.url}`),
     });
     const html = await result.text();
+    hajiLandingCache.set(slug, { html, ts: Date.now() });
+
     res.set({
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'public, max-age=3600',
+      'X-Cache': 'MISS',
     }).send(html);
   } catch (err) {
     console.error('Haji landing error:', err);

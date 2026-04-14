@@ -100,7 +100,6 @@ async function generateHTML(slug) {
   html = html.replace(/<link[^>]*elementor-icons-fa-brands-css[^>]*\/>/g, "");
   html = html.replace(/<link[^>]*elementor-icons-fa-regular-css[^>]*\/>/g, "");
   html = html.replace(/<link[^>]*elementor-icons-css[^>]*\/>/g, "");
-  html = html.replace(/<link[^>]*landingpress-css[^>]*\/>/g, "");
   html = html.replace(/<link[^>]*google-fonts-1-css[^>]*\/>/g, "");
   html = html.replace(
     "</head>",
@@ -153,5 +152,6 @@ const onRequest = async (context) => {
   });
 };
 export {
+  AGENTS,
   onRequest
 };

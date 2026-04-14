@@ -562,7 +562,7 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
           {(flight.group_number || flight.pax || tlClean) && (
             <div className="flex items-center justify-between pt-3 border-t border-gray-50 text-xs text-gray-500">
               {flight.group_number && (
-                <span className="font-bold text-emerald-700">Grup {flight.group_number}</span>
+                <span className="font-bold text-emerald-700">{flight.group_number}</span>
               )}
               {flight.pax && (
                 <span>{flight.pax} pax</span>

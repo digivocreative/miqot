@@ -47,7 +47,17 @@ async function cleanup() {
   if (e3) console.error('  GAGAL cleanup calendar events:', e3.message);
   else console.log(`  OK Hapus ${d3?.length || 0} calendar events`);
 
-  // 4. Analytics Events (filter by metadata.source = '_DEMO_')
+  // 4. Flight Status (seeded dummy flights for Apr 14-15)
+  const flightIds = ['2026-04-14_GA982', '2026-04-15_SV821'];
+  const { data: d4f, error: e4f } = await supabase
+    .from('flight_status')
+    .delete()
+    .in('id', flightIds)
+    .select('id');
+  if (e4f) console.error('  GAGAL cleanup flight status:', e4f.message);
+  else console.log(`  OK Hapus ${d4f?.length || 0} flight status`);
+
+  // 5. Analytics Events (filter by metadata.source = '_DEMO_')
   const { data: d4, error: e4 } = await supabase
     .from('analytics_events')
     .delete()
@@ -57,7 +67,7 @@ async function cleanup() {
   if (e4) console.error('  GAGAL cleanup analytics:', e4.message);
   else console.log(`  OK Hapus ${d4?.length || 0} analytics events`);
 
-  // 5. Calendar Insights — skip, will be overwritten by next sync
+  // 6. Calendar Insights — skip, will be overwritten by next sync
   console.log('  SKIP calendar_insights (akan di-overwrite oleh sistem)');
 
   console.log('\nCleanup selesai!\n');

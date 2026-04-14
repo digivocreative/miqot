@@ -179,8 +179,8 @@ async function seedJamaahUmroh() {
   ];
 
   const departureDates = [
-    '2026-05-10', '2026-05-20', '2026-06-05', '2026-06-15', '2026-07-01',
-    '2026-07-10', '2026-07-20', '2026-08-01',
+    '2026-04-05', '2026-04-10', '2026-04-15', '2026-04-20',
+    '2026-04-25', '2026-05-10', '2026-06-05', '2026-07-01',
   ];
 
   const rows = names.map((person, i) => {
@@ -335,84 +335,177 @@ async function seedJamaahHaji() {
 }
 
 // ══════════════════════════════════════════════
-// 3. CALENDAR EVENTS — 12 records
+// 3. CALENDAR EVENTS — April 2026 focused
 // ══════════════════════════════════════════════
 
 async function seedCalendarEvents() {
-  const flights = [
-    { code: 'GA 980', airline: 'GARUDA' },
-    { code: 'SV 821', airline: 'SAUDIA' },
-    { code: 'EK 357', airline: 'EMIRATES' },
-    { code: 'GA 982', airline: 'GARUDA' },
-  ];
-
-  const tourLeaders = ['Ustadz Ahmad', 'Ustadz Hasan', 'Ustadzah Fatimah', 'Ustadz Rizki'];
-  const staffNames = ['Bagas', 'Nikita', 'Andra', 'Nila'];
-
-  const keberangkatanDates = ['2026-05-10', '2026-05-20', '2026-06-05', '2026-06-15'];
   const rows = [];
 
-  keberangkatanDates.forEach((date, i) => {
-    const group = String.fromCharCode(65 + i); // A, B, C, D
-    const flight = flights[i];
-    const pax = randomBetween(30, 45);
+  // ── April events (dense, for demo on April 15) ──
+  const aprilGroups = [
+    {
+      group: 'A', dep: '2026-04-02', flight: 'SAUDIA - SV 821', depJam: '22.15',
+      paket: 'UMROH REGULER 9 HARI', pax: 38,
+      staff: 'Bagas', tl: 'Ustadz Ahmad',
+      retFlight: 'SAUDIA - SV 822', retJam: '08.30',
+    },
+    {
+      group: 'B', dep: '2026-04-10', flight: 'GARUDA INDONESIA - GA 980', depJam: '10.30',
+      paket: 'UMROH PLUS CAIRO + ALEXANDRIA 12HR', pax: 42,
+      staff: 'Nikita', tl: 'Ustadz Hasan',
+      retFlight: 'GARUDA INDONESIA - GA 981', retJam: '16.00',
+    },
+    {
+      group: 'Kloter 140', dep: '2026-04-14', flight: 'GARUDA INDONESIA - GA 982', depJam: '14.00',
+      paket: 'UMROH REGULER 9 HARI', pax: 35,
+      staff: 'Bagas', tl: 'Ustadzah Fatimah',
+      retFlight: 'GARUDA INDONESIA - GA 983', retJam: '05.00',
+    },
+    {
+      group: 'Kloter 141', dep: '2026-04-15', flight: 'SAUDIA - SV 821', depJam: '22.15',
+      paket: 'UMROH PLUS TURKEY 12HR', pax: 40,
+      staff: 'Andra', tl: 'Ustadz Rizki',
+      retFlight: 'SAUDIA - SV 822', retJam: '08.30',
+    },
+    {
+      group: 'E', dep: '2026-04-20', flight: 'EMIRATES - EK 357', depJam: '08.00',
+      paket: 'UMROH PROMO AKBAR 9HR', pax: 44,
+      staff: 'Nila', tl: 'Ustadz Farid',
+      retFlight: 'EMIRATES - EK 358', retJam: '21.45',
+    },
+    {
+      group: 'F', dep: '2026-04-25', flight: 'GARUDA INDONESIA - GA 980', depJam: '10.30',
+      paket: 'UMROH REGULER 12 HARI', pax: 36,
+      staff: 'Bagas', tl: 'Ustadz Ahmad',
+      retFlight: 'GARUDA INDONESIA - GA 981', retJam: '16.00',
+    },
+  ];
+
+  for (const g of aprilGroups) {
+    const retDate = addDays(g.dep, g.paket.includes('12') ? 12 : 9);
+    const manasikDate = subtractDays(g.dep, randomBetween(5, 10));
 
     // Keberangkatan
     rows.push({
-      id: `_DEMO_${date}_keberangkatan_${group}`,
-      event_date: date,
+      id: `_DEMO_${g.dep}_keberangkatan_${g.group}`,
+      event_date: g.dep,
       event_type: 'keberangkatan',
-      group_number: group,
-      pesawat: flight.code,
-      jam: pick(['06.30', '10.30', '14.00', '22.15']),
-      paket: pick(['UMROH REGULER 9 HARI', 'UMROH PLUS CAIRO + ALEXANDRIA 12HR', 'UMROH PLUS TURKEY 12HR', 'UMROH PROMO AKBAR 9HR']),
-      pax,
-      staff: staffNames[i],
-      tour_leader: tourLeaders[i],
-      jam_kumpul: pick(['04.30', '07.30', '11.00', '19.00']),
+      group_number: g.group,
+      pesawat: g.flight,
+      jam: g.depJam,
+      paket: g.paket,
+      pax: g.pax,
+      staff: g.staff,
+      tour_leader: g.tl,
+      jam_kumpul: (() => {
+        const [h, m] = g.depJam.split('.');
+        const kumpulH = Math.max(0, parseInt(h) - 3);
+        return `${String(kumpulH).padStart(2, '0')}.${m}`;
+      })(),
       titik_kumpul: 'Terminal 3 Bandara Soekarno-Hatta',
       raw_data: {},
       synced_at: NOW,
     });
 
-    // Kepulangan (+9 to +12 days)
-    const returnDate = addDays(date, randomBetween(9, 12));
+    // Kepulangan
     rows.push({
-      id: `_DEMO_${returnDate}_kepulangan_${group}`,
-      event_date: returnDate,
+      id: `_DEMO_${retDate}_kepulangan_${g.group}`,
+      event_date: retDate,
       event_type: 'kepulangan',
-      group_number: group,
-      pesawat: flight.code,
-      jam: pick(['05.00', '08.30', '16.00', '21.45']),
-      paket: rows[rows.length - 1].paket,
-      pax,
-      staff: staffNames[i],
-      tour_leader: tourLeaders[i],
+      group_number: g.group,
+      pesawat: g.retFlight,
+      jam: g.retJam,
+      paket: g.paket,
+      pax: g.pax,
+      staff: g.staff,
+      tour_leader: g.tl,
       jam_kumpul: null,
       titik_kumpul: null,
       raw_data: {},
       synced_at: NOW,
     });
 
-    // Manasik (7-14 days before departure)
-    const manasikDate = subtractDays(date, randomBetween(7, 14));
+    // Manasik
     rows.push({
-      id: `_DEMO_${manasikDate}_manasik_${group}`,
+      id: `_DEMO_${manasikDate}_manasik_${g.group}`,
       event_date: manasikDate,
       event_type: 'manasik',
-      group_number: group,
+      group_number: g.group,
       pesawat: null,
       jam: pick(['09.00', '13.00', '15.00']),
-      paket: rows[rows.length - 2].paket,
-      pax,
-      staff: staffNames[i],
-      tour_leader: tourLeaders[i],
+      paket: g.paket,
+      pax: g.pax,
+      staff: g.staff,
+      tour_leader: g.tl,
       jam_kumpul: null,
       titik_kumpul: 'Gedung Alhijaz, Jl. Kramat Raya No. 35, Jakarta Pusat',
       raw_data: {},
       synced_at: NOW,
     });
-  });
+  }
+
+  // ── May–July events (future, sparser) ──
+  const futureGroups = [
+    { group: 'G', dep: '2026-05-10', flight: 'GARUDA INDONESIA - GA 980', pax: 38, paket: 'UMROH REGULER 9 HARI', staff: 'Bagas', tl: 'Ustadz Ahmad', retFlight: 'GARUDA INDONESIA - GA 981' },
+    { group: 'H', dep: '2026-06-05', flight: 'SAUDIA - SV 821', pax: 42, paket: 'UMROH PLUS TURKEY 12HR', staff: 'Nikita', tl: 'Ustadz Hasan', retFlight: 'SAUDIA - SV 822' },
+    { group: 'I', dep: '2026-07-01', flight: 'EMIRATES - EK 357', pax: 35, paket: 'UMROH PROMO AKBAR 9HR', staff: 'Andra', tl: 'Ustadzah Fatimah', retFlight: 'EMIRATES - EK 358' },
+  ];
+
+  for (const g of futureGroups) {
+    const retDate = addDays(g.dep, g.paket.includes('12') ? 12 : 9);
+    const manasikDate = subtractDays(g.dep, randomBetween(7, 14));
+
+    rows.push({
+      id: `_DEMO_${g.dep}_keberangkatan_${g.group}`,
+      event_date: g.dep,
+      event_type: 'keberangkatan',
+      group_number: g.group,
+      pesawat: g.flight,
+      jam: pick(['10.30', '14.00', '22.15']),
+      paket: g.paket,
+      pax: g.pax,
+      staff: g.staff,
+      tour_leader: g.tl,
+      jam_kumpul: pick(['07.30', '11.00', '19.00']),
+      titik_kumpul: 'Terminal 3 Bandara Soekarno-Hatta',
+      raw_data: {},
+      synced_at: NOW,
+    });
+
+    rows.push({
+      id: `_DEMO_${retDate}_kepulangan_${g.group}`,
+      event_date: retDate,
+      event_type: 'kepulangan',
+      group_number: g.group,
+      pesawat: g.retFlight,
+      jam: pick(['05.00', '08.30', '16.00']),
+      paket: g.paket,
+      pax: g.pax,
+      staff: g.staff,
+      tour_leader: g.tl,
+      jam_kumpul: null,
+      titik_kumpul: null,
+      raw_data: {},
+      synced_at: NOW,
+    });
+
+    rows.push({
+      id: `_DEMO_${manasikDate}_manasik_${g.group}`,
+      event_date: manasikDate,
+      event_type: 'manasik',
+      group_number: g.group,
+      pesawat: null,
+      jam: pick(['09.00', '13.00']),
+      paket: g.paket,
+      pax: g.pax,
+      staff: g.staff,
+      tour_leader: g.tl,
+      jam_kumpul: null,
+      titik_kumpul: 'Gedung Alhijaz, Jl. Kramat Raya No. 35, Jakarta Pusat',
+      raw_data: {},
+      synced_at: NOW,
+    });
+  }
 
   const { error } = await supabase
     .from('calendar_events')
@@ -424,6 +517,107 @@ async function seedCalendarEvents() {
   }
   console.log(`  OK ${rows.length} calendar events`);
   return rows.length;
+}
+
+// ══════════════════════════════════════════════
+// 3b. FLIGHT STATUS — dummy for today/tomorrow flights
+// ══════════════════════════════════════════════
+
+async function seedFlightStatus() {
+  // Flights around today (Apr 14-15) so the widget picks them up
+  const flightRows = [
+    // Kloter 140: departed today Apr 14, GA982 CGK→MED
+    {
+      id: '2026-04-14_GA982',
+      event_date: '2026-04-14',
+      flight_iata: 'GA982',
+      airline_name: 'GARUDA INDONESIA',
+      airline_iata: 'GA',
+      airline_logo: null,
+      group_number: 'Kloter 140',
+      status: 'en-route',
+      dep_iata: 'CGK',
+      dep_city: 'Jakarta',
+      dep_terminal: '2',
+      dep_gate: 'D5',
+      dep_scheduled: '2026-04-14 14:00',
+      dep_actual: '2026-04-14 14:12',
+      arr_iata: 'MED',
+      arr_city: 'Madinah',
+      arr_terminal: '1',
+      arr_gate: null,
+      arr_scheduled: '2026-04-14 20:30',
+      arr_estimated: '2026-04-14 20:42',
+      pax: 35,
+      tour_leader: 'Ustadzah Fatimah',
+      lat: 15.5,
+      lng: 52.3,
+      alt: 11278,
+      speed: 890,
+      direction: 305,
+      progress: 45,
+      delayed: 0,
+      aircraft_icao: 'B789',
+      aircraft_reg: 'PK-GIA',
+      duration: 570,
+      dep_delayed: 0,
+      arr_delayed: 0,
+      arr_baggage: null,
+      raw_api: null,
+      synced_at: NOW,
+    },
+    // Kloter 141: tomorrow Apr 15, SV821 CGK→MED
+    {
+      id: '2026-04-15_SV821',
+      event_date: '2026-04-15',
+      flight_iata: 'SV821',
+      airline_name: 'SAUDI ARABIAN AIRLINES',
+      airline_iata: 'SV',
+      airline_logo: null,
+      group_number: 'Kloter 141',
+      status: 'scheduled',
+      dep_iata: 'CGK',
+      dep_city: 'Jakarta',
+      dep_terminal: '3',
+      dep_gate: null,
+      dep_scheduled: '2026-04-15 22:15',
+      dep_actual: null,
+      arr_iata: 'MED',
+      arr_city: 'Madinah',
+      arr_terminal: '1',
+      arr_gate: null,
+      arr_scheduled: '2026-04-16 04:45',
+      arr_estimated: null,
+      pax: 40,
+      tour_leader: 'Ustadz Rizki',
+      lat: null,
+      lng: null,
+      alt: null,
+      speed: null,
+      direction: null,
+      progress: 0,
+      delayed: 0,
+      aircraft_icao: 'B789',
+      aircraft_reg: null,
+      duration: 570,
+      dep_delayed: 0,
+      arr_delayed: 0,
+      arr_baggage: null,
+      raw_api: null,
+      synced_at: NOW,
+    },
+  ];
+
+  const { error } = await supabase
+    .from('flight_status')
+    .upsert(flightRows, { onConflict: 'id' });
+
+  if (error) {
+    console.error('  GAGAL seed flight status:', error.message);
+    return 0;
+  }
+  console.log(`  OK ${flightRows.length} flight status`);
+  return flightRows.length;
 }
 
 // ══════════════════════════════════════════════
@@ -555,9 +749,9 @@ async function seedCalendarInsights() {
   const insight = {
     id: 'latest',
     data: {
-      today: 'Hari ini ada 1 grup keberangkatan (Group A, 38 pax) via Garuda GA 980 pukul 10.30 WIB dari Terminal 3 Soekarno-Hatta. Pastikan semua jamaah sudah kumpul pukul 07.30. Tour leader: Ustadz Ahmad.',
-      weekly: 'Minggu ini: 1 keberangkatan (Sabtu), 1 kepulangan (Kamis), 2 manasik (Sabtu & Minggu). Total 78 jamaah aktif terlibat. 3 jamaah masih ada sisa pembayaran yang perlu di-follow up.',
-      cuaca: 'Mekkah: 33-42\u00B0C (cerah, sangat panas siang hari). Madinah: 28-38\u00B0C (cerah berawan). Ingatkan jamaah untuk bawa payung, sunblock, dan air minum yang cukup.',
+      today: 'Hari ini ada 2 penerbangan aktif: Group C (35 pax) via Garuda GA 982 berangkat pukul 14.00 WIB ke Madinah — saat ini sedang terbang. Group A (38 pax) via Saudia SV 822 tiba di Jakarta pukul 16.30 — selamat datang kembali! Besok Group D (40 pax) berangkat via SV 821 pukul 22.15.',
+      weekly: 'Minggu ini: 2 keberangkatan (Senin & Selasa), 1 kepulangan (Senin), 1 manasik (Sabtu). Total 113 jamaah aktif terlibat. Group E berangkat 20 April — pastikan perlengkapan dan dokumen lengkap. 5 jamaah masih ada sisa pembayaran yang perlu di-follow up.',
+      cuaca: 'Mekkah: 30-40\u00B0C (cerah, mulai panas). Madinah: 25-36\u00B0C (cerah berawan). April cuaca relatif nyaman untuk ibadah. Ingatkan jamaah tetap bawa payung dan air minum cukup.',
       generatedAt: NOW,
       _demo: true,
     },
@@ -587,6 +781,7 @@ async function main() {
   results.jamaahUmroh = await seedJamaahUmroh();
   results.jamaahHaji = await seedJamaahHaji();
   results.calendarEvents = await seedCalendarEvents();
+  results.flightStatus = await seedFlightStatus();
   results.analyticsEvents = await seedAnalyticsEvents();
   results.calendarInsights = await seedCalendarInsights();
 
@@ -594,6 +789,7 @@ async function main() {
   console.log(`  Jamaah Umroh   : ${results.jamaahUmroh} records`);
   console.log(`  Jamaah Haji    : ${results.jamaahHaji} records`);
   console.log(`  Calendar Events: ${results.calendarEvents} records`);
+  console.log(`  Flight Status  : ${results.flightStatus} records`);
   console.log(`  Analytics      : ${results.analyticsEvents} records`);
   console.log(`  Insights       : ${results.calendarInsights} records`);
   console.log('\nSelesai! Semua data dummy ber-tag _DEMO_ untuk cleanup.\n');
