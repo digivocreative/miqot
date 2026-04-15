@@ -142,6 +142,10 @@ async function generateHTML(slug, agentOverride) {
     /<body /,
     '<body style="padding-bottom:76px" '
   );
+  html = html.replace(/<!--(?!\[if)[\s\S]*?-->/g, "");
+  html = html.replace(/\n\s*\n/g, "\n");
+  html = html.replace(/^\s+$/gm, "");
+  html = html.replace(/>\s+</g, "> <");
   return html;
 }
 const onRequest = async (context) => {

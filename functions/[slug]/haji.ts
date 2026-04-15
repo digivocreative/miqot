@@ -357,6 +357,12 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
     '<body style="padding-bottom:76px" '
   );
 
+  // Minify output
+  html = html.replace(/<!--(?!\[if)[\s\S]*?-->/g, '');
+  html = html.replace(/\n\s*\n/g, '\n');
+  html = html.replace(/^\s+$/gm, '');
+  html = html.replace(/>\s+</g, '> <');
+
   return html;
 }
 

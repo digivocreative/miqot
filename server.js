@@ -6594,20 +6594,61 @@ app.get(['/itinerary/{*path}', '/brosur/{*path}'], async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
-// Landing Page: /:slug/umroh
+// Landing Page: /:slug/umroh (with in-memory cache)
 // ──────────────────────────────────────────────
+const umrohLandingCache = new Map();
+const UMROH_CACHE_TTL = 3600_000; // 1 hour
+
+async function generateUmrohPage(slug) {
+  const mod = await import('./functions/umroh-landing.mjs');
+  const agent = await getAgent(slug);
+  const result = await mod.onRequest({
+    params: { slug },
+    request: new Request('http://localhost/' + slug + '/umroh'),
+    agentOverride: agent ? { name: agent.name, phone: agent.phone, photo: agent.photo } : undefined,
+  });
+  return await result.text();
+}
+
+(async () => {
+  try {
+    await new Promise(r => setTimeout(r, 2000));
+    const agents = await getAgents();
+    const slugs = Object.keys(agents);
+    console.log('[Umroh Landing] Pre-caching ' + slugs.length + ' agents...');
+    for (const slug of slugs) {
+      try {
+        const html = await generateUmrohPage(slug);
+        umrohLandingCache.set(slug, { html, ts: Date.now() });
+      } catch (e) {
+        console.error('[Umroh Landing] Pre-cache failed for', slug, e.message);
+      }
+    }
+    console.log('[Umroh Landing] Pre-cached ' + umrohLandingCache.size + ' pages');
+  } catch (e) {
+    console.error('[Umroh Landing] Pre-cache init failed:', e.message);
+  }
+})();
+
 app.get('/:slug/umroh', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
   try {
-    const mod = await import('./functions/umroh-landing.mjs');
-    const result = await mod.onRequest({
-      params: { slug },
-      request: new Request(`http://localhost${req.url}`),
-    });
-    const html = await result.text();
+    const cached = umrohLandingCache.get(slug);
+    if (cached && (Date.now() - cached.ts) < UMROH_CACHE_TTL) {
+      return res.set({
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+        'X-Cache': 'HIT',
+      }).send(cached.html);
+    }
+
+    const html = await generateUmrohPage(slug);
+    umrohLandingCache.set(slug, { html, ts: Date.now() });
+
     res.set({
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'public, max-age=3600',
+      'X-Cache': 'MISS',
     }).send(html);
   } catch (err) {
     console.error('Umroh landing error:', err);

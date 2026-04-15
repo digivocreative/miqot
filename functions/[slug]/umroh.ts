@@ -1,10 +1,11 @@
 /**
  * Cloudflare Pages Function — Umroh Landing Page
  * Served at /:slug/umroh
- * Single-page, inline CSS/JS, mobile-first, high-converting
+ * Reads the original HTML from /public/umroh.html and replaces
+ * WhatsApp links with agent-specific links, injects sticky agent bar.
  */
 
-const AGENTS: Record<string, { name: string; phone: string; website: string; photo: string }> = {
+export const AGENTS: Record<string, { name: string; phone: string; website: string; photo: string }> = {
   'bagas':       { name: 'Bagas Pramudita',     phone: '6287878573311', website: 'alhijaz.co',                  photo: '/agents/bagas.jpg' },
   'nikita':      { name: 'Nikita',              phone: '62822900020',   website: 'alhijazindonesia.com',        photo: '/agents/nikita.jpg' },
   'nila':        { name: 'Nila Novita Sari',    phone: '6285211209049', website: 'alhijaztourtravels.com',      photo: '/agents/nila.jpg' },
@@ -31,453 +32,276 @@ const AGENTS: Record<string, { name: string; phone: string; website: string; pho
 };
 const DEFAULT_PHONE = '62822900020';
 
-function formatPhone(phone: string): string {
-  // Convert '62822900020' → '0822-900-020'
-  const local = '0' + phone.slice(2); // strip '62', prepend '0'
-  // Format: 4-4-4 or 4-4-remaining
-  if (local.length <= 12) {
-    return local.slice(0, 4) + '-' + local.slice(4, 8) + '-' + local.slice(8);
-  }
-  return local.slice(0, 4) + '-' + local.slice(4, 8) + '-' + local.slice(8);
+const WA_PATH = 'M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z';
+const WA_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px"><path d="' + WA_PATH + '"/><' + '/svg>';
+
+function buildStickyBarAndFab(agentName: string, agentPhoto: string, waUrl: string): string {
+  const css = [
+    '<st' + 'yle>',
+    '.alhijaz-sticky{position:fixed;bottom:0;left:0;right:0;z-index:99999;background:rgba(255,255,255,.96);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid #e2e8f0;padding:10px 16px;transform:translateY(100%);transition:transform .4s cubic-bezier(.16,1,.3,1)}',
+    '.alhijaz-sticky.show{transform:none}',
+    '.alhijaz-sticky__in{max-width:520px;margin:0 auto;display:flex;align-items:center;gap:12px}',
+    '.alhijaz-sticky__avatar{position:relative;width:40px;height:40px;flex-shrink:0}',
+    '.alhijaz-sticky__avatar img{width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid #F5E0E0}',
+    '.alhijaz-sticky__badge{position:absolute;bottom:-1px;right:-1px;width:16px;height:16px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.1)}',
+    '.alhijaz-sticky__text{flex:1;min-width:0}',
+    ".alhijaz-sticky__text strong{font-size:13.5px;color:#0F172A;display:block;line-height:1.3;font-family:'Inter','Montserrat',sans-serif}",
+    ".alhijaz-sticky__text p{font-size:11px;color:#9A000C;font-weight:600;margin:0;font-family:'Inter','Montserrat',sans-serif}",
+    ".alhijaz-btn--sticky{display:inline-flex!important;align-items:center!important;gap:8px!important;padding:11px 22px!important;border-radius:50px!important;font-size:13.5px!important;font-weight:700!important;font-family:'Inter','Montserrat',sans-serif!important;background:#28B83C!important;color:#fff!important;white-space:nowrap!important;box-shadow:0 2px 10px rgba(40,184,60,.25)!important;border:2px solid #149626!important;text-decoration:none!important;transition:transform .15s,box-shadow .15s!important;line-height:1.4!important}",
+    '.alhijaz-btn--sticky:hover{transform:translateY(-1px)!important;box-shadow:0 4px 16px rgba(40,184,60,.35)!important;background:#28B83C!important;color:#fff!important;border-color:#149626!important}',
+    '.alhijaz-btn--sticky:active{transform:scale(.97)!important}',
+    '.alhijaz-btn--sticky svg{width:20px!important;height:20px!important;fill:currentColor!important}',
+    '.alhijaz-fab{position:fixed;bottom:20px;right:16px;z-index:99998;width:56px;height:56px;background:#25D366;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 18px rgba(37,211,102,.4);transition:opacity .3s,transform .3s;animation:alhijaz-glow 2.5s infinite;text-decoration:none}',
+    '.alhijaz-fab svg{width:28px;height:28px;fill:#fff}',
+    '.alhijaz-fab.hide{opacity:0;transform:scale(.5);pointer-events:none}',
+    '@keyframes alhijaz-glow{0%,100%{box-shadow:0 4px 18px rgba(37,211,102,.4)}50%{box-shadow:0 4px 28px rgba(37,211,102,.6)}}',
+    '</st' + 'yle>',
+  ].join('\n');
+
+  const WA_PATH = 'M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z';
+
+  const stickyBar = '<div class="alhijaz-sticky" id="alhijazStickyBar"><div class="alhijaz-sticky__in">'
+    + '<div class="alhijaz-sticky__avatar">'
+    + '<img src="' + agentPhoto + '" alt="' + agentName + '" loading="lazy">'
+    + '<div class="alhijaz-sticky__badge"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="12" fill="#1DA1F2"/><path d="M9.5 12.5L11 14L15 10" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>'
+    + '</div>'
+    + '<div class="alhijaz-sticky__text"><strong>' + agentName + '</strong><p>Konsultasi Gratis</p></div>'
+    + '<a href="' + waUrl + '" target="_blank" rel="noopener" class="alhijaz-btn--sticky">' + WA_SVG + ' Chat WA</a>'
+    + '</div></div>';
+
+  const fab = '<a href="' + waUrl + '" target="_blank" rel="noopener" class="alhijaz-fab" id="alhijazFab" aria-label="WhatsApp">'
+    + '<svg viewBox="0 0 24 24"><path d="' + WA_PATH + '"/></svg></a>';
+
+  const js = '<sc' + 'ript>'
+    + '(function(){'
+    + "var bar=document.getElementById('alhijazStickyBar'),fab=document.getElementById('alhijazFab');"
+    + 'if(!bar||!fab)return;'
+    + "var hero=document.querySelector('.elementor-element-64c34f3d')||document.querySelector('.elementor-top-section');"
+    + 'var hH=hero?hero.offsetHeight:400,on=false;'
+    + "function chk(){var y=window.scrollY||window.pageYOffset;if(y>hH&&!on){bar.classList.add('show');fab.classList.add('hide');on=true}else if(y<=hH&&on){bar.classList.remove('show');fab.classList.remove('hide');on=false}}"
+    + "window.addEventListener('scroll',chk,{passive:true});chk();"
+    + '})();'
+    + '</sc' + 'ript>';
+
+  return css + '\n' + stickyBar + '\n' + fab + '\n' + js;
 }
 
-const WA_SVG = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>`;
-const WA_SVG_SMALL = `<svg viewBox="0 0 24 24" fill="#25D366" style="width:14px;height:14px;vertical-align:middle;margin-right:3px"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>`;
-
-interface Paket {
-  nama: string;
-  badge?: string;
-  featured?: boolean;
-  keberangkatan: string;
-  harga: string;
-  durasi: string;
-  airline: string;
-  hotelMekkah: string;
-  hotelMadinah: string;
-  hotelLain?: string;
-  highlight?: string;
-  include: string[];
-  ctaText: string;
-  dateKey: string;
+interface AgentOverride {
+  name?: string;
+  phone?: string;
+  photo?: string;
 }
 
-const PAKET_LIST: Paket[] = [
-  {
-    nama: 'Promo Umroh Akbar',
-    badge: '🔥 SEAT TERBATAS',
-    featured: true,
-    keberangkatan: '20 Juni 2026',
-    harga: 'Rp 28 Juta-an',
-    durasi: '9 Hari',
-    airline: 'Saudi Airlines',
-    hotelMekkah: '⭐⭐⭐⭐ Grand Al Massa / Setaraf',
-    hotelMadinah: '⭐⭐⭐ ODST Al Madina / Setaraf',
-    include: ['Perlengkapan', 'Handling Bandara', 'Makan 3x Sehari', 'Visa Umroh', 'FREE Ayam Al-Baik', 'FREE Zamzam 5L'],
-    ctaText: 'Assalamualaikum%2C%20Saya%20mau%20tanya%20paket%20Promo%20Umroh%20Akbar%20(20%20Juni%202026)%20di%20Alhijaz',
-    dateKey: 'promo-akbar',
-  },
-  {
-    nama: 'Umroh Plus Haikou (China)',
-    badge: '✈️ PLUS CHINA',
-    keberangkatan: 'September 2026',
-    harga: 'Rp 33 Juta-an',
-    durasi: '11 Hari',
-    airline: 'Hainan Airlines',
-    hotelMekkah: '⭐⭐⭐⭐ Prestige Ex Elaf Al Mashaer / Setaraf',
-    hotelMadinah: '⭐⭐⭐⭐ Al Ritz Al Madinah / Setaraf',
-    include: ['Perlengkapan', 'Handling Bandara', 'Makan 3x Sehari', 'Visa Umroh', 'FREE Ayam Al-Baik', 'FREE Zamzam 5L'],
-    ctaText: 'Assalamualaikum%2C%20Saya%20mau%20tanya%20paket%20Umroh%20Plus%20Hainan%20(Haikou)%20China%20di%20Alhijaz',
-    dateKey: 'haikou',
-  },
-  {
-    nama: 'Umroh Reguler',
-    keberangkatan: 'Juni – Oktober 2026',
-    harga: 'Rp 33 Juta-an',
-    durasi: '9 Hari',
-    airline: 'Garuda Indonesia / Saudi Airlines',
-    hotelMekkah: '⭐⭐⭐⭐⭐ Pullman ZamZam / Movenpick & ⭐⭐⭐⭐ Prestige',
-    hotelMadinah: '⭐⭐⭐⭐⭐ Al Haram / Anwar Al Madinah Movenpick & ⭐⭐⭐⭐ Al Ritz Al Madinah',
-    highlight: 'Tersedia pilihan Full Hotel Bintang 5',
-    include: ['Perlengkapan', 'Handling Bandara', 'Makan 3x Sehari', 'Visa Umroh', 'FREE Ayam Al-Baik', 'FREE Zamzam 5L'],
-    ctaText: 'Assalamualaikum%2C%20Saya%20mau%20tanya%20paket%20Umroh%20Reguler%20di%20Alhijaz',
-    dateKey: 'reguler',
-  },
-  {
-    nama: 'Umroh Plus Thaif',
-    badge: '🕌 PLUS THAIF',
-    keberangkatan: 'Juni – Oktober 2026',
-    harga: 'Rp 36 Juta-an',
-    durasi: '12 & 15 Hari',
-    airline: 'Garuda Indonesia / Saudi Airlines',
-    hotelMekkah: '⭐⭐⭐⭐⭐ Movenpick & ⭐⭐⭐⭐ Prestige / Al Massa Grand',
-    hotelMadinah: '⭐⭐⭐⭐ Al Ritz Al Madinah / ODST Al Madinah',
-    include: ['Perlengkapan', 'Handling Bandara', 'Makan 3x Sehari', 'FREE Ayam Al-Baik', 'FREE Zamzam 5L', 'Handling Lengkap'],
-    ctaText: 'Assalamualaikum%2C%20Saya%20mau%20tanya%20paket%20Umroh%20Plus%20Thaif%20di%20Alhijaz',
-    dateKey: 'thaif',
-  },
-  {
-    nama: 'Umroh Plus Istanbul & Cappadocia',
-    badge: '🇹🇷 PLUS TURKI',
-    keberangkatan: 'Juni – Oktober 2026',
-    harga: 'Rp 43 Juta-an',
-    durasi: '15 Hari',
-    airline: 'Saudi Airlines',
-    hotelMekkah: '⭐⭐⭐⭐ Prestige Ex Elaf Al Mashaer',
-    hotelMadinah: '⭐⭐⭐⭐ Al Ritz Al Madinah',
-    hotelLain: 'Centro Westside by Rotana ⭐⭐⭐⭐⭐ (Istanbul) · Anatolia ⭐⭐⭐⭐ (Bursa) · Kayseri Loft Hotel ⭐⭐⭐⭐ (Cappadocia)',
-    include: ['Perlengkapan', 'Handling Bandara', 'Makan 3x Sehari', 'Visa Umroh', 'FREE Ayam Al-Baik', 'FREE Zamzam 5L'],
-    ctaText: 'Assalamualaikum%2C%20Saya%20mau%20tanya%20paket%20Umroh%20Plus%20Istanbul-Cappadocia%20di%20Alhijaz',
-    dateKey: 'turkey',
-  },
-  {
-    nama: 'Umroh Plus Cairo & Alexandria',
-    badge: '🇪🇬 PLUS MESIR',
-    keberangkatan: 'Juni – Oktober 2026',
-    harga: 'Rp 41 Juta-an',
-    durasi: '12 Hari',
-    airline: 'Saudi Airlines',
-    hotelMekkah: '⭐⭐⭐⭐ Prestige Ex Elaf',
-    hotelMadinah: '⭐⭐⭐⭐ Al Ritz Al Madina',
-    hotelLain: 'Tiba Pyramid ⭐⭐⭐⭐ (Cairo)',
-    include: ['Perlengkapan', 'Handling Bandara', 'Makan 3x Sehari', 'Visa Umroh', 'FREE Ayam Al-Baik', 'FREE Zamzam 5L'],
-    ctaText: 'Assalamualaikum%2C%20Saya%20mau%20tanya%20paket%20Umroh%20Plus%20Cairo-Alexandria%20di%20Alhijaz',
-    dateKey: 'cairo',
-  },
-];
-
-function buildCard(p: Paket, phone: string, dates: Record<string, string[]>): string {
-  const url = `https://api.whatsapp.com/send?phone=${phone}&text=${p.ctaText}`;
-  const tanggal = dates[p.dateKey] || [];
-  const datePills = tanggal.map(t => `<span class="date-pill">${t}</span>`).join('');
-  return `
-  <div class="card${p.featured ? ' card--promo' : ''}" data-anim>
-    <div class="card__head">
-      ${p.badge ? `<span class="badge${p.featured ? ' badge--gold' : ''}">${p.badge}</span>` : ''}
-      <h3 class="card__name">${p.nama}</h3>
-      <div class="card__price">Mulai <strong>${p.harga}</strong></div>
-    </div>
-    ${tanggal.length ? `<div class="card__dates">
-      <span class="card__dates-t">📅 Tanggal Tersedia:</span>
-      <div class="date-pills">${datePills}</div>
-    </div>` : ''}
-    <table class="card__tbl">
-      <tr><td class="tbl-label">✈️ Penerbangan</td><td class="tbl-val">${p.airline}</td></tr>
-      <tr><td class="tbl-label">⏱️ Durasi</td><td class="tbl-val">${p.durasi}</td></tr>
-      <tr><td class="tbl-label">🕋 Mekkah</td><td class="tbl-val">${p.hotelMekkah}</td></tr>
-      <tr><td class="tbl-label">🕌 Madinah</td><td class="tbl-val">${p.hotelMadinah}</td></tr>
-      ${p.hotelLain ? `<tr><td class="tbl-label">🏨 Hotel Lain</td><td class="tbl-val">${p.hotelLain}</td></tr>` : ''}
-      ${p.highlight ? `<tr class="tbl-hl"><td class="tbl-label">⭐ Highlight</td><td class="tbl-val"><b>${p.highlight}</b></td></tr>` : ''}
-    </table>
-    <div class="card__inc">
-      <div class="tags">${p.include.map(i => `<span class="tag">${i}</span>`).join('')}</div>
-    </div>
-    <a href="${url}" target="_blank" rel="noopener" class="btn btn--card">${WA_SVG} Tanya Paket Ini</a>
-  </div>`;
-}
-
-async function generateHTML(slug: string, requestUrl: string): Promise<string> {
+async function generateHTML(slug: string, agentOverride?: AgentOverride): Promise<string> {
   const agent = AGENTS[slug];
-  const phone = agent?.phone || DEFAULT_PHONE;
-  const website = agent?.website || 'alhijaz.co';
-  const agentName = agent?.name || 'Alhijaz';
-  const agentPhoto = agent?.photo || '/agents/nikita.jpg';
-  const waGeneral = `https://api.whatsapp.com/send?phone=${phone}&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20paket%20Umroh%20di%20Alhijaz`;
+  const phone = agentOverride?.phone || agent?.phone || DEFAULT_PHONE;
+  const agentName = agentOverride?.name || agent?.name || slug.charAt(0).toUpperCase() + slug.slice(1);
+  const agentPhoto = agentOverride?.photo
+    || 'https://xicthdsuvmwwuvwvvbqa.supabase.co/storage/v1/object/public/agent-photos/' + slug + '.jpg';
+  const waBase = 'https://api.whatsapp.com/send?phone=' + phone;
 
-  // Read available dates from JSON file on disk
-  let dates: Record<string, string[]> = {};
+  // Read the original HTML template
+  // Dev (Vite SSR): read from disk via fs
+  // Production (Cloudflare Workers): fetch via HTTP from static asset
+  let html: string;
   try {
     const { readFileSync } = await import('fs');
     const { dirname, resolve } = await import('path');
     const { fileURLToPath } = await import('url');
     const __dir = dirname(fileURLToPath(import.meta.url));
-    const raw = readFileSync(resolve(__dir, 'umroh-dates.json'), 'utf-8');
-    dates = (JSON.parse(raw) as { packages?: Record<string, string[]> }).packages || {};
+    html = readFileSync(resolve(__dir, '../../public/umroh.html'), 'utf-8');
   } catch {
-    // JSON not found or parse error — proceed with empty dates
+    // Cloudflare Workers: no fs — fetch from own origin as static asset
+    const res = await fetch('https://alhijaz.co/umroh.html');
+    if (!res.ok) throw new Error('Failed to fetch umroh.html template: ' + res.status);
+    html = await res.text();
   }
 
-  const cards = PAKET_LIST.map(p => buildCard(p, phone, dates)).join('');
+  // 1. Replace WhatsApp links (generic regex approach)
+  //    With message param: preserve the original message text
+  html = html.replace(/https:\/\/wa\.alhijazindonesia\.com\/\?message=([^"]*)/g, waBase + '&text=$1');
+  //    Bare link (no message param): add default umroh text
+  html = html.replace(/https:\/\/wa\.alhijazindonesia\.com(?=["'])/g, waBase + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Paket%20Umroh%20di%20Alhijaz');
 
-  return `<!DOCTYPE html>
-<html lang="id">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Paket Umroh 2026${agentName ? ` — ${agentName}` : ''} | Alhijaz Indowisata</title>
-<meta name="description" content="Paket Umroh Pasti Berangkat mulai Rp 28 Juta. Travel Akreditasi A, Resmi Kemenag RI. PT Alhijaz Indowisata — 10.000+ jamaah per tahun.">
-<meta property="og:title" content="Umroh Pasti Berangkat — Mulai 28 Juta | Alhijaz">
-<meta property="og:description" content="Paket Umroh Juni–Oktober 2026. Akreditasi A, Resmi Kemenag RI. Direct Flight, Hotel Dekat Masjid.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;0,800;1,700&display=swap" rel="stylesheet">
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
-body{font-family:'Plus Jakarta Sans',sans-serif;color:#1E293B;background:#F8FAFB;line-height:1.6;-webkit-font-smoothing:antialiased;padding-bottom:76px}
-a{text-decoration:none;color:inherit}ul{list-style:none}
-:root{
-  --r900:#1A0505;--r800:#3B0F0F;--r700:#6B1E1E;--r600:#8B2D2D;--r500:#A83838;--r400:#C45050;--r50:#FDF2F2;
-  --gold:#C8A951;--gold-d:#A68523;--gold-l:#E8D9A0;--gold-bg:#FFFCF0;
-  --w:#FFF;--b50:#F8FAFB;--b100:#F1F5F9;--b200:#E2E8F0;--b300:#CBD5E1;--b500:#64748B;--b700:#334155;--b900:#0F172A;
-  --serif:'Playfair Display',Georgia,serif;--mx:480px;--r:16px;--rs:10px;
-  --sh:0 4px 20px rgba(0,0,0,.06);--sh-lg:0 10px 36px rgba(0,0,0,.10);
-}
-.wrap{max-width:var(--mx);margin:0 auto;padding:0 20px}
+  // 2. Update <title> and og:title to include agent name
+  const pageTitle = 'Umroh | ' + agentName + ' | PT Alhijaz Indowisata';
+  html = html.replace(
+    /<title>Paket Umroh \| Travel Umroh Terbaik \| PT Alhijaz Indowisata<\/title>/,
+    '<title>' + pageTitle + '<' + '/title>'
+  );
+  html = html.replace(
+    /(<meta property="og:title" content=")Paket Umroh \| Travel Umroh Terbaik \| PT Alhijaz Indowisata(")/,
+    '$1' + pageTitle + '$2'
+  );
+  // og:image → agent-specific from jadwal
+  html = html.replace(
+    /(<meta property="og:image" content=")[^"]*(")/,
+    '$1https://alhijaz.co/og/' + slug + '.png$2'
+  );
 
-/* ── GEO PATTERN ── */
-.geo{position:absolute;inset:0;opacity:.05;pointer-events:none;
-  background-image:linear-gradient(30deg,var(--gold) 12%,transparent 12.5%,transparent 87%,var(--gold) 87.5%),linear-gradient(150deg,var(--gold) 12%,transparent 12.5%,transparent 87%,var(--gold) 87.5%),linear-gradient(30deg,var(--gold) 12%,transparent 12.5%,transparent 87%,var(--gold) 87.5%),linear-gradient(150deg,var(--gold) 12%,transparent 12.5%,transparent 87%,var(--gold) 87.5%),linear-gradient(60deg,var(--gold-l) 25%,transparent 25.5%,transparent 75%,var(--gold-l) 75%),linear-gradient(60deg,var(--gold-l) 25%,transparent 25.5%,transparent 75%,var(--gold-l) 75%);
-  background-size:56px 97px;background-position:0 0,0 0,28px 48px,28px 48px,0 0,28px 48px}
+  // ═══════════════════════════════════════════════════
+  // 3. REMOVE UNNECESSARY CSS
+  // ═══════════════════════════════════════════════════
 
-/* ── HERO ── */
-.hero{position:relative;background:linear-gradient(175deg,#FFFDF7 0%,#F0EBE0 20%,#D4CEBC 40%,#8FB88A 65%,#2D7A4A 82%,#0D3B2C 100%);padding:64px 20px 56px;text-align:center;overflow:hidden}
-.hero::after{content:'';position:absolute;top:20%;left:50%;transform:translateX(-50%);width:300px;height:300px;background:radial-gradient(circle,rgba(255,253,247,.15) 0%,transparent 70%);pointer-events:none}
-.hero .geo{opacity:.03}
-.hero__in{position:relative;z-index:2;max-width:var(--mx);margin:0 auto}
-.hero__kicker{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:#8B6914;margin-bottom:16px;padding:6px 16px;background:rgba(184,148,31,.1);border:1px solid rgba(184,148,31,.2);border-radius:100px}
-.hero h1{font-family:var(--serif);font-size:40px;font-weight:800;color:#0D2818;line-height:1.12;margin-bottom:20px}
-.hero h1 span{color:var(--gold-d);display:block;font-style:italic}
-.hero__sub{font-size:13px;color:#4A5B4E;line-height:1.7;margin-bottom:28px;max-width:340px;margin-left:auto;margin-right:auto}
-.hero__stats{display:flex;align-items:center;justify-content:center;margin:0 auto 32px;max-width:380px;background:rgba(255,255,255,.75);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-radius:20px;border:1px solid rgba(255,255,255,.5);box-shadow:0 8px 32px rgba(13,59,44,.1),inset 0 1px 0 rgba(255,255,255,.6);padding:20px 0;position:relative;overflow:hidden}
-.hero__stats::before{content:'';position:absolute;inset:0;border-radius:20px;background:linear-gradient(135deg,rgba(37,211,102,.04) 0%,transparent 50%,rgba(184,148,31,.04) 100%);pointer-events:none}
-.hero__stat{flex:1;text-align:center;position:relative;padding:0 8px}
-.hero__stat+.hero__stat::before{content:'';position:absolute;left:0;top:15%;bottom:15%;width:1px;background:linear-gradient(180deg,transparent,rgba(13,59,44,.12),transparent)}
-.hero__stat-val{font-family:var(--serif);font-size:28px;font-weight:800;line-height:1;display:block;background:linear-gradient(135deg,#0D3B2C 0%,#1B5E3A 50%,#25D366 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.hero__stat-label{font-size:9px;font-weight:700;color:#7A8A7E;margin-top:6px;display:block;text-transform:uppercase;letter-spacing:1.2px}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;font-family:inherit;font-weight:700;border:none;cursor:pointer;border-radius:var(--rs);transition:transform .15s,box-shadow .15s}
-.btn:active{transform:scale(.97)}
-.btn svg{width:20px;height:20px;flex-shrink:0}
-.btn--hero{background:linear-gradient(135deg,#25D366,#1DA855);color:var(--w);font-size:16px;padding:16px 32px;width:100%;max-width:380px;box-shadow:0 4px 24px rgba(37,211,102,.35);border-radius:14px}
-.btn--hero:hover{transform:translateY(-1px);box-shadow:0 8px 30px rgba(37,211,102,.4)}
-.hero__micro{margin-top:12px;font-size:11.5px;color:rgba(255,255,255,.75);font-weight:500}
-.hero__legal{margin-top:18px;font-size:10.5px;color:rgba(255,255,255,.45);letter-spacing:.3px}
+  // Font Awesome: replace 3 individual CORS-blocked stylesheets with 1 CDN version
+  html = html.replace(/<link[^>]*elementor-icons-shared-0-css[^>]*\/>/g, '');
+  html = html.replace(/<link[^>]*elementor-icons-fa-solid-css[^>]*\/>/g, '');
+  html = html.replace(/<link[^>]*elementor-icons-fa-brands-css[^>]*\/>/g, '');
 
-@keyframes fade-up{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
-.hero__in>*{animation:fade-up .65s cubic-bezier(.16,1,.3,1) both}
-.hero__in>:nth-child(1){animation-delay:.1s}.hero__in>:nth-child(2){animation-delay:.15s}.hero__in>:nth-child(3){animation-delay:.2s}.hero__in>:nth-child(4){animation-delay:.25s}.hero__in>:nth-child(5){animation-delay:.3s}.hero__in>:nth-child(6){animation-delay:.35s}.hero__in>:nth-child(7){animation-delay:.4s}.hero__in>:nth-child(8){animation-delay:.45s}
+  // Elementor Icons (eicons) — not used on this page, no eicon- classes found
+  html = html.replace(/<link[^>]*elementor-icons-css[^>]*\/>/g, '');
 
-/* ── SOCIAL PROOF ── */
-.proof{background:var(--w);border-bottom:1px solid var(--b200);padding:16px 20px}
-.proof__in{max-width:var(--mx);margin:0 auto;display:flex;gap:8px 16px;align-items:center;justify-content:center;flex-wrap:wrap;font-size:12.5px;color:var(--b700);font-weight:500;text-align:center}
-.proof__sep{color:var(--b300);display:none}
-@media(min-width:640px){.proof__sep{display:inline}}
+  // Google Fonts: replace bloated multi-family request with only Montserrat + Inter (the only ones actually used)
+  html = html.replace(/<link[^>]*google-fonts-1-css[^>]*\/>/g, '');
+  // We inject optimized Google Fonts below
+  //    Inject single FA 5.15.4 all.min.css from cdnjs before </head>
+  html = html.replace(
+    '</head>',
+    // Optimized Google Fonts: only Montserrat + Inter, only weights actually used
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    + '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    + '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@500;600;700;800&display=swap" rel="stylesheet">'
+    // Font Awesome from CDN (CORS-friendly)
+    + '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n'
+    + '<st' + 'yle>'
+    // ── Uniform all WA/CTA buttons (all screens) ──
+    + '.elementor-1291 .elementor-button{background-color:#28B83C!important;border-color:#149626!important;color:#fff!important;border-radius:50px!important;border-style:solid!important;border-width:3px!important;font-family:"Inter",sans-serif!important;font-weight:600!important;transition:background-color .2s,transform .2s!important}'
+    + '.elementor-1291 .elementor-button:hover,.elementor-1291 .elementor-button:focus{background-color:#1DA855!important;transform:translateY(-1px)!important}'
+    + '.elementor-1291 .elementor-button:active{transform:scale(.97)!important}'
+    // ── Hide lottie widget (CORS-blocked animation) ──
+    + '.elementor-widget-lottie{display:none!important}'
+    // ── Hero WA button fix (all screens) ──
+    + '.elementor-element-796244f7 .elementor-button{font-size:16px!important;padding:14px 30px!important;border-color:#149626!important}'
+    + '.elementor-element-796244f7 > .elementor-widget-container{margin:20px 0 0!important}'
+    // ── Mobile responsive overrides ──
+    + '@media(max-width:767px){'
+    // Hero "Umroh Pasti Berangkat" heading (60px → 32px)
+    + '.elementor-element-25901017 .elementor-heading-title{font-size:32px!important;line-height:40px!important}'
+    // Hero WA button mobile
+    + '.elementor-element-796244f7 .elementor-button{font-size:15px!important;padding:13px 24px!important}'
+    + '.elementor-element-796244f7 > .elementor-widget-container{margin:15px 0 0!important}'
+    // Section headings (46-50px → 24px)
+    + '.elementor-element-83b623f .elementor-heading-title,'
+    + '.elementor-element-7ef60bcc .elementor-heading-title,'
+    + '.elementor-element-61fac271 .elementor-heading-title,'
+    + '.elementor-element-14a03f8b .elementor-heading-title,'
+    + '.elementor-element-1d41e06a .elementor-heading-title'
+    + '{font-size:24px!important;line-height:32px!important}'
+    // Icon box icons (41px → 28px)
+    + '.elementor-element-6d00c198 .elementor-icon,'
+    + '.elementor-element-5c4b7ac7 .elementor-icon,'
+    + '.elementor-element-553ebb7e .elementor-icon,'
+    + '.elementor-element-4baee391 .elementor-icon,'
+    + '.elementor-element-18727aa0 .elementor-icon'
+    + '{font-size:28px!important}'
+    + '}'
+    + '</st' + 'yle>\n'
+    + '<' + '/head>'
+  );
 
-/* ── SECTION COMMON ── */
-.sec{padding:44px 20px}
-.sec__label{font-size:11px;font-weight:700;color:var(--gold-d);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;text-align:center}
-.sec__title{font-family:var(--serif);font-size:28px;font-weight:700;color:var(--r900);line-height:1.28;margin-bottom:20px;text-align:center}
-.sec__desc{font-size:14px;color:var(--b500);text-align:center;margin-bottom:28px;line-height:1.6}
+  // 4. Remove "Konsultasi via WA (Fast Response)" sticky bar from original page
+  html = html.replace(/<div class="heading-wa">[\s\S]*?<\/div>\s*<\/div>/g, '');
 
-/* ── CARDS ── */
-.cards{max-width:var(--mx);margin:0 auto;display:flex;flex-direction:column;gap:18px}
-.card{position:relative;background:var(--w);border-radius:16px;overflow:hidden;box-shadow:var(--sh);border:1px solid var(--b200);transition:transform .25s,box-shadow .25s}
-.card:hover{transform:translateY(-2px);box-shadow:var(--sh-lg)}
-.card--promo{background:linear-gradient(170deg,var(--gold-bg),var(--w) 50%);border:2px solid var(--gold);box-shadow:0 4px 20px rgba(200,169,81,.2)}
-.card__head{padding:24px 20px 18px;background:linear-gradient(135deg,#D5F0D5 0%,#E8F5E9 40%,#F5FBF5 100%);border-bottom:1px solid #B8DDB8}
-.card--promo .card__head{background:linear-gradient(135deg,#FFF0C8 0%,#FFF8E7 40%,#FFFDF5 100%);border-bottom:1px solid #E8D48A}
-.badge{display:inline-block;font-size:10px;font-weight:700;padding:5px 14px;border-radius:100px;background:#1B5E3A;color:#fff;margin-bottom:10px;letter-spacing:.3px;border:none}
-.badge--gold{background:linear-gradient(135deg,var(--gold),var(--gold-d));color:var(--w);box-shadow:0 2px 8px rgba(200,169,81,.3);border:none}
-.card__name{font-family:var(--serif);font-size:22px;font-weight:700;color:#0D2818;margin-bottom:6px;line-height:1.25}
-.card--promo .card__name{color:var(--r900)}
-.card__price{font-size:14px;color:#3D5A45}
-.card__price strong{font-size:24px;font-weight:800;color:#0F6B30}
-.card--promo .card__price strong{color:var(--gold-d)}
-.card__dates{padding:14px 20px;border-bottom:1px solid var(--b200)}
-.card__dates-t{font-size:11.5px;font-weight:600;color:#1B5E3A;display:block;margin-bottom:8px}
-.date-pills{display:flex;flex-wrap:wrap;gap:5px}
-.date-pill{font-size:11px;font-weight:600;padding:4px 11px;border-radius:100px;background:#EFF8EF;color:#1B5E3A;border:1px solid #C6E6C6}
-.card__tbl{width:100%;border-collapse:collapse;margin:0;font-size:12.5px}
-.card__tbl tr{border-bottom:1px solid #F0F0F0}
-.card__tbl tr:last-child{border-bottom:none}
-.card__tbl td{padding:12px 20px;vertical-align:top}
-.tbl-label{width:110px;white-space:nowrap;color:#1B5E3A;font-weight:600;font-size:12px}
-.tbl-val{color:var(--b700);line-height:1.5}
-.tbl-hl td{background:#FFF8E7;padding:14px 20px}
-.card__inc{margin:4px 20px 16px;background:linear-gradient(135deg,#F0F9F0,#E8F5E9);border-radius:var(--rs);padding:14px;border:1px solid #C8E6C9}
-.tags{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.tag{font-size:11px;font-weight:600;padding:6px 10px;border-radius:8px;background:#fff;color:#2E7D4F;border:1px solid #A5D6A7;display:flex;align-items:center;gap:5px}
-.tag::before{content:'✓';font-size:10px;font-weight:800;color:#25D366}
-.btn--card{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 20px 20px;padding:14px 18px;border-radius:12px;font-size:14.5px;font-weight:700;background:linear-gradient(135deg,#25D366,#128C7E);color:#fff;box-shadow:0 4px 14px rgba(37,211,102,.3);transition:transform .2s,box-shadow .2s}
-.btn--card svg{width:18px;height:18px;flex-shrink:0}
-.btn--card:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(37,211,102,.4)}
-.card--promo .btn--card{background:linear-gradient(135deg,var(--gold-d),var(--gold));box-shadow:0 3px 12px rgba(200,169,81,.28)}
+  // 5. Remove 4 specific images from ulasan carousel
+  const removeImages = [
+    '2026/03/4-1.avif',
+    '2026/03/3.avif',
+    '2026/03/2.avif',
+    '2026/03/1.avif',
+  ];
+  for (const img of removeImages) {
+    // Each image is inside a <div class="swiper-slide" ...>...</div>
+    const escaped = img.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    html = html.replace(new RegExp('<div class="swiper-slide"[^>]*>\\s*<figure[^>]*>\\s*<img[^>]*' + escaped + '[^>]*/>\\s*</figure>\\s*</div>', 'g'), '');
+  }
 
-/* ── TRUST ── */
-.trust{padding:52px 20px;background:linear-gradient(180deg,#F8FBF8 0%,#EDF5ED 100%);position:relative;overflow:hidden}
-.trust .sec__label{color:#1B5E3A}
-.trust .sec__title{color:#1A3A2A}
-.trust-grid{max-width:var(--mx);margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.trust-card{background:var(--w);border:1px solid #E0EAE0;border-radius:14px;padding:20px 14px;text-align:center;box-shadow:0 2px 12px rgba(27,94,58,.06);transition:transform .2s,box-shadow .2s}
-.trust-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(27,94,58,.1)}
-.trust-card .ic{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#E8F5E9,#C8E6C9);margin:0 auto 10px;font-size:22px}
-.trust-card h4{font-size:13px;font-weight:700;color:#1A3A2A;margin-bottom:4px}
-.trust-card p{font-size:11.5px;color:#6B7B6E;line-height:1.45}
+  // 5. Remove footer section (Nikita profile, legalitas, rekening) — element id 26b2a887
+  html = html.replace(/<section[^>]*elementor-element-26b2a887[\s\S]*?<\/section>\s*(?=\s*<\/div>\s*<\/main>)/, '');
 
-/* ── CLOSING ── */
-.closing{padding:56px 20px;text-align:center;background:linear-gradient(135deg,#0D3B2C 0%,#145A3E 50%,#1B7A52 100%);position:relative;overflow:hidden}
-.closing::before{content:'';position:absolute;top:-60px;right:-60px;width:200px;height:200px;background:radial-gradient(circle,rgba(37,211,102,.12) 0%,transparent 70%);pointer-events:none}
-.closing::after{content:'';position:absolute;bottom:-40px;left:-40px;width:160px;height:160px;background:radial-gradient(circle,rgba(37,211,102,.08) 0%,transparent 70%);pointer-events:none}
-.closing__in{max-width:var(--mx);margin:0 auto;position:relative;z-index:1}
-.closing__icon{font-size:40px;margin-bottom:12px}
-.closing h2{font-family:var(--serif);font-size:26px;font-weight:700;color:#fff;line-height:1.3;margin-bottom:10px}
-.closing h2 em{font-style:italic;color:#25D366}
-.closing p{font-size:14.5px;color:rgba(255,255,255,.7);margin-bottom:24px}
-.closing .btn--hero{font-size:16px;padding:16px 40px;background:#fff;color:#0D3B2C;font-weight:700;border-radius:14px;box-shadow:0 4px 20px rgba(0,0,0,.2);transition:transform .2s,box-shadow .2s}
-.closing .btn--hero:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(0,0,0,.3)}
-.closing .btn--hero svg{fill:#25D366}
-.closing__hint{margin-top:16px;font-size:12.5px;color:rgba(255,255,255,.45)}
+  // ═══════════════════════════════════════════════════
+  // 7. REMOVE TRACKING & UNNECESSARY SCRIPTS
+  // ═══════════════════════════════════════════════════
 
-/* ── FOOTER ── */
-footer{background:#091F18;padding:36px 20px 28px;text-align:center;border-top:3px solid #25D366}
-footer .wrap{max-width:var(--mx);margin:0 auto}
-.footer__brand{font-family:var(--serif);font-size:18px;font-weight:700;color:#fff;margin-bottom:4px}
-.footer__tagline{font-size:11px;color:#25D366;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:18px}
-.footer__info{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
-.footer__info p{font-size:12px;color:rgba(255,255,255,.5);line-height:1.6;margin:0}
-.footer__legal{padding-top:16px;border-top:1px solid rgba(255,255,255,.08);font-size:10.5px;color:rgba(255,255,255,.25)}
+  // GTM (inline + noscript)
+  html = html.replace(/<!-- Google Tag Manager \(noscript\) -->[\s\S]*?<!-- End Google Tag Manager \(noscript\) -->/g, '');
+  html = html.replace(/<!-- Google Tag Manager -->[\s\S]*?<!-- End Google Tag Manager -->/g, '');
+  // Google Ads gtag
+  html = html.replace(/<!-- Google tag \(gtag\.js\) -->/g, '');
+  html = html.replace(/<script[^>]*googletagmanager\.com\/gtag[^>]*><\/script>/g, '');
+  html = html.replace(/<script>\s*window\.dataLayer[\s\S]*?<\/script>/g, '');
+  // Facebook Pixel (inline + noscript)
+  html = html.replace(/<meta name="facebook-domain-verification"[^>]*>/g, '');
+  html = html.replace(/<!-- Facebook Pixel Code -->[\s\S]*?<!-- End Facebook Pixel Code -->/g, '');
+  // Cloudflare challenge script
+  html = html.replace(/<script>\(function\(\)\{function c\(\)[\s\S]*?<\/script>/g, '');
+  // Yoast JSON-LD (references alhijazindonesia.com, not relevant for agent page)
+  html = html.replace(/<script type="application\/ld\+json" class="yoast-schema-graph">[\s\S]*?<\/script>/g, '');
+  // flying-press vitals (analytics)
+  html = html.replace(/<script[^>]*flying-press-vitals-js-extra[\s\S]*?<\/script>/g, '');
+  html = html.replace(/<script[^>]*flying-press[^>]*><\/script>/g, '');
+  // LandingPress theme JS
+  html = html.replace(/<script[^>]*landingpress-js[^>]*><\/script>/g, '');
+  // KEEP: jQuery UI core (Elementor frontend depends on it)
+  // WA link cleaner script (was for wa.alhijazindonesia.com, no longer relevant)
+  html = html.replace(/<script>\s*\(function\(\)\{\s*function getCookie[\s\S]*?<\/script>/g, '');
 
-/* ── STICKY BAR ── */
-.sticky{position:fixed;bottom:0;left:0;right:0;z-index:999;background:rgba(255,255,255,.96);backdrop-filter:blur(12px);border-top:1px solid var(--b200);padding:10px 16px;transform:translateY(100%);transition:transform .4s cubic-bezier(.16,1,.3,1)}
-.sticky.show{transform:none}
-.sticky__in{max-width:var(--mx);margin:0 auto;display:flex;align-items:center;gap:12px}
-.sticky__avatar{position:relative;width:40px;height:40px;flex-shrink:0}
-.sticky__avatar img{width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid #E8F5E9}
-.sticky__badge{position:absolute;bottom:-1px;right:-1px;width:16px;height:16px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.1)}
-.sticky__text{flex:1;min-width:0}
-.sticky__text strong{font-size:13.5px;color:var(--r900);display:block;line-height:1.3}
-.sticky__text p{font-size:11px;color:#25D366;font-weight:600}
-.btn--sticky{padding:11px 22px;border-radius:12px;font-size:13.5px;background:linear-gradient(135deg,#25D366,#1DA855);color:var(--w);white-space:nowrap;box-shadow:0 2px 10px rgba(37,211,102,.25)}
+  // Remove lottie.min.js (animation JSON hosted on alhijazindonesia.com is CORS-blocked)
+  html = html.replace(/<script[^>]*lottie-js[^>]*><\/script>/g, '');
+  // Hide lottie widget via CSS (removing HTML is risky — breaks nested div structure)
+  // The widget is already elementor-hidden-tablet elementor-hidden-mobile, just hide desktop too
+  // Remove jQuery.noConflict inline script (runs before jQuery is loaded, causes ReferenceError)
+  html = html.replace(/<script type="text\/javascript">\s*var \$jQuerySelf[\s\S]*?<\/script>/g, '');
 
-/* ── FAB ── */
-.fab{position:fixed;bottom:20px;right:16px;z-index:998;width:56px;height:56px;background:#25D366;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 18px rgba(37,211,102,.4);transition:opacity .3s,transform .3s;animation:glow 2.5s infinite}
-.fab svg{width:28px;height:28px;fill:var(--w)}
-.fab.hide{opacity:0;transform:scale(.5);pointer-events:none}
-@keyframes glow{0%,100%{box-shadow:0 4px 18px rgba(37,211,102,.4)}50%{box-shadow:0 4px 28px rgba(37,211,102,.6)}}
+  // KEEP: e-gallery.min.js, jquery.sticky.min.js (used on umroh page)
+  // KEEP: waypoints, elementor-frontend-js-before config, elements-handlers (needed for Swiper carousel)
 
-/* ── SCROLL ANIM ── */
-[data-anim]{opacity:0;transform:translateY(20px);transition:opacity .6s cubic-bezier(.16,1,.3,1),transform .6s cubic-bezier(.16,1,.3,1)}
-[data-anim].vis{opacity:1;transform:none}
+  // Remove canonical URL pointing to alhijazindonesia.com (not relevant for agent page)
+  html = html.replace(/<link rel="canonical"[^>]*\/>/g, '');
+  // Remove shortlink
+  html = html.replace(/<link rel='shortlink'[^>]*\/>/g, '');
+  // Remove robots meta (agent page indexing handled separately)
+  html = html.replace(/<meta name='robots'[^>]*\/>/g, '');
 
-/* ── RESPONSIVE ── */
-@media(min-width:640px){:root{--mx:560px}.hero h1{font-size:44px}.hero{padding:68px 28px 56px}.hero__stats{max-width:400px}.sec{padding:52px 28px}.card{padding:28px 24px}}
-@media(min-width:1024px){:root{--mx:640px}.hero h1{font-size:52px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:20px}}
-</style>
-</head>
-<body>
+  // ═══════════════════════════════════════════════════
+  // 8. PERFORMANCE OPTIMIZATIONS
+  // ═══════════════════════════════════════════════════
 
-<!-- HERO -->
-<section class="hero">
-  <div class="geo"></div>
-  <div class="hero__in">
-    <p class="hero__kicker">Saatnya Menjawab Panggilan-Nya</p>
-    <h1>Umroh 28 Juta.<span>Pasti Berangkat.</span></h1>
-    <p class="hero__sub">Keberangkatan Juni–Oktober 2026 · Direct Flight · Hotel Dekat Masjid · Travel Akreditasi "A"</p>
-    <div class="hero__stats">
-      <div class="hero__stat"><span class="hero__stat-val">"A"</span><span class="hero__stat-label">Akreditasi</span></div>
-      <div class="hero__stat"><span class="hero__stat-val">10.000+</span><span class="hero__stat-label">Jamaah / Tahun</span></div>
-      <div class="hero__stat"><span class="hero__stat-val">20+</span><span class="hero__stat-label">Tahun Pengalaman</span></div>
-    </div>
-    <a href="${waGeneral}" target="_blank" rel="noopener" class="btn btn--hero">${WA_SVG} Konsultasi via WhatsApp</a>
-    <p class="hero__micro">Gratis konsultasi · Tanpa komitmen</p>
-    <p class="hero__legal">PPIU U.490 · PIHK 304 · Izin Resmi Kemenag RI</p>
-  </div>
-</section>
+  // jQuery: keep from alhijazindonesia.com (Elementor JS tightly coupled to this version)
 
-<!-- SOCIAL PROOF -->
-<section class="proof" data-anim>
-  <div class="proof__in">
-    <span>⭐ 4.7 Rating Google</span>
-    <span class="proof__sep">·</span>
-    <span>🕋 10.000+ Jamaah/tahun</span>
-  </div>
-</section>
+  // Add lazy loading to all images that don't already have it
+  html = html.replace(/(<img(?![^>]*loading=)[^>]*)(\/?>)/g, '$1 loading="lazy" $2');
 
-<!-- PAKET -->
-<section class="sec" id="paket">
-  <div class="sec__label" data-anim>Pilihan Paket 2026</div>
-  <h2 class="sec__title" data-anim>Pilih Paket Sesuai Kebutuhan Anda</h2>
-  <p class="sec__desc" data-anim>Semua paket sudah termasuk tiket pesawat, hotel, makan 3× sehari, perlengkapan, dan handling. Tanggal berangkat pasti.</p>
-  <div class="cards">${cards}</div>
-</section>
+  // Remove fetchpriority="high" from non-hero images (only first image should be high priority)
+  // Keep decoding="async" for performance
 
-<!-- TRUST -->
-<section class="trust">
-  <div class="sec__label" data-anim>MENGAPA ALHIJAZ?</div>
-  <h2 class="sec__title" data-anim>Travel Umroh yang Bisa<br>Anda Percaya</h2>
-  <div class="trust-grid" data-anim>
-    <div class="trust-card"><div class="ic">🏅</div><h4>Akreditasi "A"</h4><p>Standar tertinggi dari KAN</p></div>
-    <div class="trust-card"><div class="ic">📋</div><h4>Resmi Kemenag RI</h4><p>PPIU & PIHK aktif dan diawasi</p></div>
-    <div class="trust-card"><div class="ic">🕌</div><h4>Hotel Dekat Masjid</h4><p>Lokasi Ring 1, menit dari Haram & Nabawi</p></div>
-    <div class="trust-card"><div class="ic">🏢</div><h4>Gedung Milik Sendiri</h4><p>4 lantai di Cawang, Jakarta Timur</p></div>
-    <div class="trust-card"><div class="ic">✈️</div><h4>Direct Flight</h4><p>Penerbangan langsung tanpa transit</p></div>
-    <div class="trust-card"><div class="ic">👥</div><h4>10.000+ Jamaah/Tahun</h4><p>Pengalaman besar, sistem teruji</p></div>
-  </div>
-</section>
+  // 5. Inject sticky bar + FAB before </body>
+  const stickyBarHtml = buildStickyBarAndFab(agentName, agentPhoto, waBase + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Paket%20Umroh%20di%20Alhijaz');
+  html = html.replace('</body>', stickyBarHtml + '\n</body>');
 
-<!-- CLOSING CTA -->
-<section class="closing" data-anim>
-  <div class="closing__in">
-    <div class="closing__icon">🕋</div>
-    <h2>Niat Sudah Ada,<br>Tinggal <em>Satu Langkah Lagi.</em></h2>
-    <p>Kursi terbatas untuk setiap keberangkatan. Jangan tunda lagi.</p>
-    <a href="${waGeneral}" target="_blank" rel="noopener" class="btn btn--hero">${WA_SVG} Konsultasi via WhatsApp</a>
-    <p class="closing__hint">Konsultasi gratis, tanpa komitmen.</p>
-  </div>
-</section>
+  // 6. Add padding-bottom to body so sticky bar doesn't overlap content
+  html = html.replace(
+    /<body /,
+    '<body style="padding-bottom:76px" '
+  );
 
-<!-- FOOTER -->
-<footer>
-  <div class="wrap">
-    <div class="footer__brand">PT Alhijaz Indowisata</div>
-    <div class="footer__tagline">Travel Umroh Terpercaya Sejak 2000</div>
-    <div class="footer__info">
-      <p>📍 Jl. Dewi Sartika No. 239A, Cawang, Jakarta Timur</p>
-      <p>📜 PPIU U.490 Tahun 2020 · PIHK 304 Tahun 2022</p>
-      <p>${WA_SVG_SMALL} <a href="https://wa.me/${phone}" style="color:rgba(255,255,255,.7);text-decoration:none">${formatPhone(phone)}</a> · 🌐 <a href="https://${website}" style="color:rgba(255,255,255,.7);text-decoration:none">${website}</a></p>
-    </div>
-    <div class="footer__legal">© 2026 PT Alhijaz Indowisata. All rights reserved.</div>
-  </div>
-</footer>
+  // ═══════════════════════════════════════════════════
+  // 9. MINIFY OUTPUT
+  // ═══════════════════════════════════════════════════
+  // Remove HTML comments (except conditional IE comments)
+  html = html.replace(/<!--(?!\[if)[\s\S]*?-->/g, '');
+  // Collapse multiple whitespace/newlines into single space (except inside <pre>, <script>, <style>)
+  html = html.replace(/\n\s*\n/g, '\n');
+  html = html.replace(/^\s+$/gm, '');
+  // Remove whitespace between tags
+  html = html.replace(/>\s+</g, '> <');
 
-<!-- STICKY BAR -->
-<div class="sticky" id="stickyBar">
-  <div class="sticky__in">
-    <div class="sticky__avatar">
-      <img src="${agentPhoto}" alt="${agentName}" loading="lazy">
-      <div class="sticky__badge"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="12" fill="#1DA1F2"/><path d="M9.5 12.5L11 14L15 10" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-    </div>
-    <div class="sticky__text">
-      <strong>${agentName}</strong>
-      <p>Konsultasi Gratis</p>
-    </div>
-    <a href="${waGeneral}" target="_blank" rel="noopener" class="btn btn--sticky">${WA_SVG} Chat WA</a>
-  </div>
-</div>
-
-<!-- FAB -->
-<a href="${waGeneral}" target="_blank" rel="noopener" class="fab" id="fab" aria-label="WhatsApp">
-  <svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-</a>
-
-<script>
-(function(){
-  var els=document.querySelectorAll('[data-anim]');
-  if('IntersectionObserver' in window){
-    var obs=new IntersectionObserver(function(e){e.forEach(function(en){if(en.isIntersecting){en.target.classList.add('vis');obs.unobserve(en.target)}})},{threshold:.1,rootMargin:'0px 0px -20px 0px'});
-    els.forEach(function(el){obs.observe(el)});
-  }else{els.forEach(function(el){el.classList.add('vis')})}
-  var bar=document.getElementById('stickyBar'),fab=document.getElementById('fab'),hH=document.querySelector('.hero').offsetHeight,on=false;
-  function chk(){var y=window.scrollY||window.pageYOffset;if(y>hH&&!on){bar.classList.add('show');fab.classList.add('hide');on=true}else if(y<=hH&&on){bar.classList.remove('show');fab.classList.remove('hide');on=false}}
-  window.addEventListener('scroll',chk,{passive:true});chk();
-})();
-</script>
-</body>
-</html>`;
+  return html;
 }
 
 export const onRequest = async (context: { params: { slug: string }; request: Request }) => {
   const slug = (context.params.slug || '').toLowerCase();
-  return new Response(await generateHTML(slug, context.request.url), {
+  const agentOverride = (context as any).agentOverride as AgentOverride | undefined;
+  return new Response(await generateHTML(slug, agentOverride), {
     status: 200,
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
   });
