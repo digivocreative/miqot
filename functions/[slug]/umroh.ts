@@ -62,7 +62,7 @@ function buildStickyBarAndFab(agentName: string, agentPhoto: string, waUrl: stri
 
   const stickyBar = '<div class="alhijaz-sticky" id="alhijazStickyBar"><div class="alhijaz-sticky__in">'
     + '<div class="alhijaz-sticky__avatar">'
-    + '<img src="' + agentPhoto + '" alt="' + agentName + '" loading="lazy">'
+    + '<img src="' + agentPhoto + '" alt="' + agentName + '" loading="eager">'
     + '<div class="alhijaz-sticky__badge"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="12" fill="#1DA1F2"/><path d="M9.5 12.5L11 14L15 10" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>'
     + '</div>'
     + '<div class="alhijaz-sticky__text"><strong>' + agentName + '</strong><p>Konsultasi Gratis</p></div>'

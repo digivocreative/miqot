@@ -685,23 +685,10 @@ app.post('/api/auth/login', async (req, res) => {
   });
 });
 
-// ── Registration rate limiter ──
-const registerAttempts = new Map(); // ip → [timestamps]
-const REGISTER_LIMIT = 3;
-const REGISTER_WINDOW = 60 * 60 * 1000; // 1 hour
-
 // Self-registration (public, no auth)
 const RESERVED_SLUGS = ['admin', 'login', 'register', 'dashboard', 'api', 'compare', 'reset-password', 'f'];
 
 app.post('/api/auth/register', async (req, res) => {
-  // Rate limiting
-  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
-  const now = Date.now();
-  const attempts = (registerAttempts.get(ip) || []).filter(t => now - t < REGISTER_WINDOW);
-  if (attempts.length >= REGISTER_LIMIT) {
-    return res.status(429).json({ error: 'Terlalu banyak percobaan. Coba lagi nanti.' });
-  }
-
   const { slug, name, phone, email, password } = req.body;
 
   // Validate required fields
@@ -784,10 +771,6 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     agentCache = null;
-
-    // Record rate limit
-    attempts.push(now);
-    registerAttempts.set(ip, attempts);
 
     // Send Telegram notification to all admins with telegram_chat_id
     const { data: admins } = await supabase
