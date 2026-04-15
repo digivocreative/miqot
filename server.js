@@ -789,11 +789,17 @@ app.post('/api/auth/register', async (req, res) => {
     attempts.push(now);
     registerAttempts.set(ip, attempts);
 
-    // Send Telegram notification to admin
-    const adminChatId = process.env.TELEGRAM_CHAT_ID;
-    if (adminChatId) {
+    // Send Telegram notification to all admins with telegram_chat_id
+    const { data: admins } = await supabase
+      .from('agents')
+      .select('telegram_chat_id')
+      .eq('role', 'admin')
+      .not('telegram_chat_id', 'is', null);
+    if (admins?.length) {
       const tgMsg = `<b>Pendaftaran Agent Baru</b>\n\nNama: <b>${trimmedName}</b>\nUsername: <code>${cleanedSlug}</code>\nWhatsApp: ${cleanedPhone}\nEmail: ${cleanedEmail}\n\n<i>Buka dashboard untuk approve/reject.</i>`;
-      sendTelegramMessageDirect(adminChatId, tgMsg).catch(() => {});
+      for (const admin of admins) {
+        sendTelegramMessageDirect(admin.telegram_chat_id, tgMsg).catch(() => {});
+      }
     }
 
     res.json({ success: true, message: 'Pendaftaran berhasil. Tunggu persetujuan admin.' });
