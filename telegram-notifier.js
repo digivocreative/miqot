@@ -275,6 +275,7 @@ function freshState() {
     lastWeeklyReport: null,
     sentDepartureReminders: {},
     lastHotDeal: null,
+    lastKursSentDate: null,
   };
 }
 
@@ -2274,6 +2275,14 @@ export async function sendKursUpdate() {
 
     // Load previous rates for comparison
     const state = await loadState();
+
+    // Dedup: skip if already sent today
+    const today = new Date().toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta' });
+    if (state.lastKursSentDate === today) {
+      log('[Kurs] Already sent today, skipping');
+      return;
+    }
+
     const prev = state.lastKurs || {};
 
     const delta = (curr, old) => {
@@ -2307,8 +2316,9 @@ export async function sendKursUpdate() {
     await broadcastToAgents('kurs_dollar', () => msg + FOOTER);
     log('[Kurs] Broadcast to agents done');
 
-    // Save current rates for tomorrow's comparison
+    // Save current rates and mark as sent today
     state.lastKurs = { USD: usd, SAR: sar };
+    state.lastKursSentDate = today;
     await saveState(state);
   } catch (err) {
     warn('[Kurs] sendKursUpdate error:', err.message);
