@@ -2147,6 +2147,8 @@ app.post('/api/capi/:slug/event', async (req, res) => {
         ...(fbc ? { fbc } : {}),
         ...(fbp ? { fbp } : {}),
         ...(userAgent ? { client_user_agent: userAgent } : {}),
+        client_ip_address: req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || '',
+        country: require('crypto').createHash('sha256').update('id').digest('hex'),
       },
       custom_data: customData || {},
       action_source: actionSource || 'website',

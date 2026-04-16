@@ -155,7 +155,7 @@ export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
                       )}
                     </td>
                     <td className="px-2.5 py-1.5 text-right font-semibold text-gray-700 dark:text-slate-200 tabular-nums whitespace-nowrap">
-                      {log.value ? fmtRpShort(log.value) : '-'}
+                      {log.value ? `Rp${log.value.toLocaleString('id-ID')}` : '-'}
                     </td>
                   </tr>
                 ))}
