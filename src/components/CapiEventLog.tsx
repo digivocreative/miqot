@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { RefreshCw, ChevronLeft, ChevronRight, Filter, Inbox } from 'lucide-react';
+import { RefreshCw, ChevronLeft, ChevronRight, Filter, Inbox, CheckCircle2, XCircle, ArrowUpRight } from 'lucide-react';
 
 interface LogEntry {
   id: number;
@@ -11,12 +11,12 @@ interface LogEntry {
   created_at: string;
 }
 
-const EVENT_COLORS: Record<string, string> = {
-  Purchase: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  Contact: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  PageView: 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300',
-  Search: 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300',
-  ViewContent: 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300',
+const EVENT_STYLE: Record<string, { bg: string; text: string; icon: string }> = {
+  Purchase:    { bg: 'bg-emerald-50 dark:bg-emerald-950/30', text: 'text-emerald-600 dark:text-emerald-400', icon: '💰' },
+  Contact:     { bg: 'bg-blue-50 dark:bg-blue-950/30', text: 'text-blue-600 dark:text-blue-400', icon: '💬' },
+  PageView:    { bg: 'bg-slate-50 dark:bg-slate-800/50', text: 'text-slate-500 dark:text-slate-400', icon: '👁' },
+  Search:      { bg: 'bg-slate-50 dark:bg-slate-800/50', text: 'text-slate-500 dark:text-slate-400', icon: '🔍' },
+  ViewContent: { bg: 'bg-slate-50 dark:bg-slate-800/50', text: 'text-slate-500 dark:text-slate-400', icon: '📄' },
 };
 
 const EVENT_OPTIONS = ['', 'Purchase', 'Contact', 'PageView', 'Search', 'ViewContent'];
@@ -25,17 +25,25 @@ function timeAgo(dateStr: string): string {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
   const diff = Math.floor((now - then) / 1000);
-  if (diff < 60) return `${diff} detik lalu`;
-  if (diff < 3600) return `${Math.floor(diff / 60)} menit lalu`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} jam lalu`;
-  return `${Math.floor(diff / 86400)} hari lalu`;
+  if (diff < 10) return 'baru saja';
+  if (diff < 60) return `${diff}dtk lalu`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}mnt lalu`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}jam lalu`;
+  return `${Math.floor(diff / 86400)}hr lalu`;
 }
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleString('id-ID', {
     day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
+}
+
+function formatValue(value: number | null): string {
+  if (!value) return '';
+  if (value >= 1_000_000) return `Rp${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}jt`;
+  if (value >= 1_000) return `Rp${(value / 1_000).toFixed(0)}rb`;
+  return `Rp${value.toLocaleString('id-ID')}`;
 }
 
 export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
@@ -69,9 +77,10 @@ export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
     fetchLogs(page, filter);
   }, [page, filter]);
 
-  // Auto-refresh every 30s
+  // Auto-refresh every 30s only when tab visible
   useEffect(() => {
-    intervalRef.current = setInterval(() => fetchLogs(page, filter), 30000);
+    const tick = () => { if (!document.hidden) fetchLogs(page, filter); };
+    intervalRef.current = setInterval(tick, 30000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [fetchLogs, page, filter]);
 
@@ -84,114 +93,120 @@ export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200">
-          Event Log
-          {total > 0 && <span className="ml-1.5 text-xs font-normal text-gray-400 dark:text-slate-500">({total})</span>}
-        </h3>
         <div className="flex items-center gap-2">
-          {/* Filter */}
+          <span className="text-[13px] font-semibold text-gray-700 dark:text-slate-200">Event Log</span>
+          {total > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 font-medium">{total}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
           <div className="relative">
             <select
               value={filter}
               onChange={e => handleFilter(e.target.value)}
-              className="appearance-none text-[11px] pl-6 pr-6 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-600 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+              className="appearance-none text-[11px] pl-6 pr-5 py-1 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-600 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-400"
             >
               <option value="">Semua Event</option>
               {EVENT_OPTIONS.filter(Boolean).map(e => (
                 <option key={e} value={e}>{e}</option>
               ))}
             </select>
-            <Filter size={10} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 pointer-events-none" />
+            <Filter size={9} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 pointer-events-none" />
           </div>
-          {/* Refresh */}
           <button
             onClick={() => { setLoading(true); fetchLogs(page, filter); }}
             className="p-1.5 rounded-lg text-gray-400 dark:text-slate-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
             title="Refresh"
           >
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
 
-      {/* Table */}
+      {/* Content */}
       {loading && logs.length === 0 ? (
-        <div className="flex items-center justify-center py-12 text-gray-400 dark:text-slate-500">
-          <RefreshCw size={16} className="animate-spin mr-2" /> Memuat...
+        <div className="flex items-center justify-center py-16 text-gray-400 dark:text-slate-500">
+          <RefreshCw size={14} className="animate-spin mr-2" />
+          <span className="text-xs">Memuat...</span>
         </div>
       ) : logs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-slate-500">
-          <Inbox size={28} className="mb-2 opacity-50" />
-          <p className="text-xs">Belum ada event.</p>
-          <p className="text-[10px] mt-0.5">Event akan muncul saat pengunjung berinteraksi atau jamaah di-sync.</p>
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-slate-500">
+          <Inbox size={24} className="mb-2 opacity-40" />
+          <p className="text-xs font-medium">Belum ada event</p>
+          <p className="text-[10px] mt-1 text-center leading-relaxed opacity-70">
+            Event akan muncul saat pengunjung<br />berinteraksi atau jamaah di-sync.
+          </p>
         </div>
       ) : (
         <>
-          <div className="rounded-xl border border-gray-100 dark:border-slate-700 overflow-hidden">
-            <table className="w-full text-[11px]">
-              <thead>
-                <tr className="bg-gray-50 dark:bg-slate-800 text-gray-500 dark:text-slate-400">
-                  <th className="text-left px-3 py-2 font-medium">Waktu</th>
-                  <th className="text-left px-3 py-2 font-medium">Event</th>
-                  <th className="text-left px-3 py-2 font-medium">Status</th>
-                  <th className="text-right px-3 py-2 font-medium">Value</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-slate-700/50">
-                {logs.map(log => (
-                  <tr key={log.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/50 transition-colors">
-                    <td className="px-3 py-2 text-gray-500 dark:text-slate-400 whitespace-nowrap" title={formatDate(log.created_at)}>
-                      {timeAgo(log.created_at)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${EVENT_COLORS[log.event_name] || EVENT_COLORS.PageView}`}>
+          {/* Card list */}
+          <div className="space-y-1.5">
+            {logs.map(log => {
+              const style = EVENT_STYLE[log.event_name] || EVENT_STYLE.PageView;
+              return (
+                <div
+                  key={log.id}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ${style.bg} transition-colors`}
+                  title={log.error_message || undefined}
+                >
+                  {/* Status icon */}
+                  <div className="flex-shrink-0">
+                    {log.status === 'success' ? (
+                      <CheckCircle2 size={16} className="text-emerald-500 dark:text-emerald-400" />
+                    ) : (
+                      <XCircle size={16} className="text-red-400 dark:text-red-400" />
+                    )}
+                  </div>
+
+                  {/* Event info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-[12px] font-semibold ${style.text}`}>
                         {log.event_name}
                       </span>
                       {log.source === 'sync' && (
-                        <span className="ml-1 text-[9px] text-gray-400 dark:text-slate-500">sync</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      {log.status === 'success' ? (
-                        <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
-                          OK
-                        </span>
-                      ) : (
-                        <span
-                          className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 cursor-help"
-                          title={log.error_message || 'Error'}
-                        >
-                          Error
+                        <span className="text-[9px] px-1 py-px rounded bg-white/60 dark:bg-white/10 text-gray-400 dark:text-slate-500 font-medium">
+                          sync
                         </span>
                       )}
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-600 dark:text-slate-300 font-mono whitespace-nowrap">
-                      {log.value ? `Rp${log.value.toLocaleString('id-ID')}` : '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      {log.source === 'browser' && (
+                        <ArrowUpRight size={10} className="text-gray-300 dark:text-slate-600" />
+                      )}
+                    </div>
+                    <span className="text-[10px] text-gray-400 dark:text-slate-500" title={formatDate(log.created_at)}>
+                      {timeAgo(log.created_at)}
+                    </span>
+                  </div>
+
+                  {/* Value */}
+                  {log.value ? (
+                    <span className="text-[11px] font-semibold text-gray-700 dark:text-slate-200 tabular-nums">
+                      {formatValue(log.value)}
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-3">
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 dark:border-slate-700/50">
               <span className="text-[10px] text-gray-400 dark:text-slate-500">
-                Hal {page}/{totalPages}
+                Hal {page} dari {totalPages}
               </span>
               <div className="flex gap-1">
                 <button
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page <= 1}
-                  className="p-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-gray-500 dark:text-slate-400 disabled:opacity-30 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-medium border border-gray-200 dark:border-slate-600 text-gray-500 dark:text-slate-400 disabled:opacity-25 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
                 >
                   <ChevronLeft size={12} />
                 </button>
                 <button
                   onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages}
-                  className="p-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-gray-500 dark:text-slate-400 disabled:opacity-30 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-medium border border-gray-200 dark:border-slate-600 text-gray-500 dark:text-slate-400 disabled:opacity-25 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
                 >
                   <ChevronRight size={12} />
                 </button>
