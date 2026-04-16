@@ -102,6 +102,19 @@ async function loadKursFromSupabase() {
   }
 }
 
+// Check if kurs updatedAt matches today's date (WIB)
+function isKursToday(updatedAt) {
+  if (!updatedAt) return false;
+  const now = new Date();
+  const dd = String(now.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit' })).padStart(2, '0');
+  const mm = String(now.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', month: '2-digit' })).padStart(2, '0');
+  const yy = String(now.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', year: '2-digit' })).padStart(2, '0');
+  const today = `${dd}/${mm}/${yy}`;
+  const fetchedDate = updatedAt.split(' ')[0];
+  return fetchedDate === today;
+}
+
+// Returns true if fetched data is from today, false otherwise
 async function fetchKursMandiri() {
   try {
     const res = await fetch('https://www.bankmandiri.co.id/kurs', {
@@ -157,7 +170,7 @@ async function fetchKursMandiri() {
         updatedAt: updatedAt || new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
         fetchedAt: Date.now(),
       };
-      console.log(`[Kurs] Fetched ${Object.keys(rates).length} currencies. USD=${rates.USD}, SAR=${rates.SAR}`);
+      console.log(`[Kurs] Fetched ${Object.keys(rates).length} currencies. USD=${rates.USD}, SAR=${rates.SAR}, date=${updatedAt}`);
 
       // Persist to Supabase
       try {
@@ -170,39 +183,67 @@ async function fetchKursMandiri() {
       } catch (err) {
         console.error('[Kurs] Supabase persist error:', err.message);
       }
+
+      return isKursToday(updatedAt);
     } else {
       console.warn('[Kurs] Gagal parse rates dari halaman Bank Mandiri');
+      return false;
     }
   } catch (err) {
     console.error('[Kurs] Fetch error:', err.message);
+    return false;
   }
 }
 
-// On startup: load from Supabase first, then fetch fresh if no cache
+// On startup: load from Supabase, then fetch fresh if cache is missing or stale
 (async () => {
   const loaded = await loadKursFromSupabase();
   if (!loaded) {
     console.log('[Kurs] No Supabase cache, attempting first fetch...');
     await fetchKursMandiri();
+  } else if (!isKursToday(kursCache?.updatedAt)) {
+    console.log('[Kurs] Cached kurs is not from today, fetching fresh...');
+    await fetchKursMandiri();
   }
 })();
+
+const KURS_RETRY_INTERVAL = 30 * 60 * 1000; // 30 minutes
+const KURS_MAX_RETRIES = 8;
+
 function scheduleKursCron() {
   const now = new Date();
-  // 10:00 WIB = 03:00 UTC
+  // 08:00 WIB = 01:00 UTC
   const next = new Date(now);
-  next.setUTCHours(3, 0, 0, 0);
+  next.setUTCHours(1, 0, 0, 0);
   if (next <= now) {
     next.setUTCDate(next.getUTCDate() + 1);
   }
   const msUntil = next - now;
   const wibHour = (next.getUTCHours() + 7) % 24;
   const wibMin = String(next.getUTCMinutes()).padStart(2, '0');
-  console.log(`[Kurs] Next fetch in ${Math.round(msUntil / 60000)} minutes (${wibHour}:${wibMin} WIB)`);
+  console.log(`[Kurs] Next daily fetch in ${Math.round(msUntil / 60000)} minutes (${wibHour}:${wibMin} WIB)`);
   setTimeout(async () => {
-    await fetchKursMandiri();
+    await fetchKursWithRetry();
     scheduleKursCron();
   }, msUntil);
 }
+
+async function fetchKursWithRetry() {
+  for (let attempt = 1; attempt <= KURS_MAX_RETRIES; attempt++) {
+    const isCurrent = await fetchKursMandiri();
+    if (isCurrent) {
+      console.log(`[Kurs] Got today's rates on attempt ${attempt}`);
+      return;
+    }
+    if (attempt < KURS_MAX_RETRIES) {
+      console.log(`[Kurs] Data belum hari ini (attempt ${attempt}/${KURS_MAX_RETRIES}), retry in 30 min...`);
+      await new Promise(r => setTimeout(r, KURS_RETRY_INTERVAL));
+    } else {
+      console.warn(`[Kurs] Max retries reached (${KURS_MAX_RETRIES}), using latest available data`);
+    }
+  }
+}
+
 scheduleKursCron();
 
 // GET /api/kurs — Kurs semua mata uang (public, no auth)
@@ -1881,13 +1922,22 @@ async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, v
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
   );
 
-  if (!resp.ok) {
-    const errText = await resp.text();
-    console.error(`[CAPI] Purchase failed ${slug}/${id}:`, errText);
-    logCapiEvent(agentId, 'Purchase', 'error', { value, errorMessage: errText.slice(0, 500), source: 'sync' });
+  const respData = await resp.json();
+  console.log(`[CAPI] Purchase ${slug}/${id} Meta response:`, JSON.stringify(respData));
+
+  if (!resp.ok || respData?.error) {
+    const errMsg = respData?.error?.message || `HTTP ${resp.status}`;
+    console.error(`[CAPI] Purchase failed ${slug}/${id}:`, errMsg);
+    logCapiEvent(agentId, 'Purchase', 'error', { value, errorMessage: errMsg.slice(0, 500), source: 'sync' });
     return false;
   }
-  console.log(`[CAPI] Purchase sent: ${slug}/${id} (${contentType}) = Rp${value.toLocaleString('id-ID')}`);
+  if (respData?.events_received === 0) {
+    const msg = 'Meta received 0 events: ' + JSON.stringify(respData.messages || []);
+    console.error(`[CAPI] Purchase ${slug}/${id}:`, msg);
+    logCapiEvent(agentId, 'Purchase', 'error', { value, errorMessage: msg.slice(0, 500), source: 'sync' });
+    return false;
+  }
+  console.log(`[CAPI] Purchase sent: ${slug}/${id} (${contentType}) = Rp${value.toLocaleString('id-ID')} | events_received: ${respData.events_received}`);
   logCapiEvent(agentId, 'Purchase', 'success', { value, source: 'sync' });
   return true;
 }
@@ -2159,10 +2209,17 @@ app.post('/api/capi/:slug/event', async (req, res) => {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(metaPayload),
     });
     const metaData = await metaRes.json();
+    console.log(`[CAPI] ${slug}/${resolvedEventName} Meta response:`, JSON.stringify(metaData));
     if (!metaRes.ok || metaData?.error) {
       const errMsg = metaData?.error?.message || `HTTP ${metaRes.status}`;
       logCapiEvent(agent.id, resolvedEventName, 'error', { errorMessage: errMsg, source: 'browser' });
       return res.json({ sent: false, reason: errMsg });
+    }
+    if (metaData?.events_received === 0) {
+      const msg = 'Meta received 0 events: ' + JSON.stringify(metaData.messages || []);
+      console.error(`[CAPI] ${slug}/${resolvedEventName}:`, msg);
+      logCapiEvent(agent.id, resolvedEventName, 'error', { errorMessage: msg, source: 'browser' });
+      return res.json({ sent: false, reason: msg });
     }
     logCapiEvent(agent.id, resolvedEventName, 'success', { source: 'browser' });
     res.json({ sent: true, response: metaData });
