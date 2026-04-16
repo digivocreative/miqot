@@ -794,6 +794,218 @@ bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-
 
 ---
 
+## Register Page (`RegisterPage.tsx`)
+
+Self-registration page at `/register` — mint-green themed, same Outfit font as LoginPage.
+
+### Container
+
+```
+min-height: 100vh
+background: #f0fdf4 (mint green)
+font-family: 'Outfit', sans-serif
+display: flex, align-items: center, justify-content: center
+padding: 24px 20px
+```
+
+Decorative circles: `linear-gradient(135deg, #d1fae5, #a7f3d0)` top-right (opacity 0.6) + `linear-gradient(135deg, #6ee7b7, #34d399)` bottom-left (opacity 0.15)
+
+### Form Inputs (Inline Style — Not Tailwind)
+
+```css
+.login-mint-input {
+  width: 100%; padding: 14px 16px;
+  background: #fff; border: none; border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04);
+  font-size: 15px; font-weight: 500; color: #111;
+  transition: all 0.25s ease;
+}
+.login-mint-input:focus {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 2px #10b981;
+}
+.login-mint-input.input-error {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 2px #ef4444;
+}
+```
+
+### Slug Field (Composite Input)
+
+```
+alhijaz.co/ prefix (gray, non-editable) + slug input (bold)
+border-radius: 14px, same shadow as standard inputs
+```
+
+### Submit Button
+
+```
+width: 100%; padding: 16px; background: #065f46; color: white;
+border-radius: 14px; font-size: 15px; font-weight: 600;
+hover: background #064e3b, translateY(-1px), box-shadow 0 8px 24px rgba(6,95,70,0.3)
+```
+
+### Success Screen
+
+- CheckCircle2 icon (`size={28}`, color `#10b981`) inside `#d1fae5` circle
+- Title: `fontSize: 22, fontWeight: 700, color: #064e3b`
+- "Kembali ke Login" button: same style as submit
+
+### Animations
+
+```css
+@keyframes fadeSlideIn { from { opacity: 0; translateY(8px); } to { opacity: 1; translateY(0); } }
+@keyframes errorSlideIn { from { opacity: 0; translateY(-6px); } to { opacity: 1; translateY(0); } }
+```
+
+Icons: `Eye`, `EyeOff`, `ArrowRight`, `Loader2`, `CheckCircle2`, `ArrowLeft`, `User`, `Phone`, `Mail`
+
+---
+
+## CAPI Event Log (`CapiEventLog.tsx`)
+
+Real-time Meta CAPI event log viewer, embedded in `CapiPage.tsx`.
+
+### Header
+
+```
+flex items-center justify-between mb-2
+Label: text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-slate-300
+Count badge: text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700 text-gray-400
+```
+
+### Filter Select (Compact)
+
+```
+h-7 text-[10px] font-bold text-gray-600 dark:text-slate-300
+bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700
+rounded-lg px-2 pr-6 outline-none appearance-none cursor-pointer
+```
+
+Options: Semua, Purchase, Contact, PageView, Search, ViewContent
+
+### Refresh Button
+
+```
+w-7 h-7 flex items-center justify-center rounded-lg
+bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700
+text-gray-400 dark:text-slate-500 hover:bg-gray-100 dark:hover:bg-slate-700
+```
+
+### Event Table
+
+```
+bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden
+table: w-full text-[11px]
+```
+
+| Column | Align | Style |
+|--------|-------|-------|
+| Waktu | left | `text-gray-400 dark:text-slate-500 whitespace-nowrap` |
+| Event | left | `font-semibold text-gray-700 dark:text-slate-200` + optional sync badge |
+| Status | left | OK: `text-[10px] font-bold text-emerald-600 dark:text-emerald-400`, Error: `text-red-500 dark:text-red-400` |
+| Value | right | `font-semibold text-gray-700 dark:text-slate-200 tabular-nums` |
+
+Sync badge: `text-[9px] font-bold uppercase px-1 py-px rounded bg-gray-100 dark:bg-slate-700 text-gray-400`
+
+### Pagination
+
+```
+w-8 h-8 flex items-center justify-center rounded-xl text-xs font-bold
+border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400
+disabled:opacity-25 hover:bg-gray-50 dark:hover:bg-slate-700
+bg-white dark:bg-slate-800
+```
+
+Page indicator: `text-[10px] text-gray-400 dark:text-slate-500 font-medium`
+
+### Empty State
+
+```
+flex flex-col items-center justify-center py-16 text-gray-400 dark:text-slate-500
+Inbox icon (size 24, opacity-40) + text-xs + text-[10px]
+```
+
+### Auto-Refresh
+
+- Interval: 30 seconds
+- Pauses when `document.hidden` (tab not visible)
+- 20 items per page
+
+---
+
+## Simulasi Haji Plus (`SimulasiHajiPlus.tsx`)
+
+Haji Plus pricing calculator with package selection, export, and share.
+
+### Package Selection Cards
+
+Two packages: RAHMAH (5-star, $15,700) and UHUD (4-star, $12,500)
+
+```
+p-4 rounded-2xl border-2 cursor-pointer transition-all duration-200
+Selected: border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 shadow-lg
+Unselected: border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800
+```
+
+Star rating: `text-amber-400` (filled) / `text-gray-200` (empty)
+
+### Calculator Controls
+
+- Year selector: `select` with years starting 2035
+- Jamaah count: `+`/`-` buttons with number display
+- Name input: text field for jamaah name
+
+### Result Card (Export Target)
+
+```
+bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-5
+```
+
+Contains: package summary, DP amount ($4,500/person), total cost (USD + IDR), payment deadline, inflation projection (1.5%/year)
+
+### Export & Share
+
+- Uses `modern-screenshot` (`domToPng` with `{ scale: 3, quality: 1 }`)
+- Share via `navigator.share({ files: [file] })`
+- Framer Motion animations for modal transitions
+
+### Preview Modal (Full-screen)
+
+```
+fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col
+```
+
+- Framer Motion `y: '100%' → 0`, spring damping=28 stiffness=300
+- Share CTA + close button
+
+---
+
+## PackageCard Flag Overlay
+
+Country flag images displayed as semi-transparent background overlays on package cards.
+
+### Flag Assets (`public/flags/`)
+
+| Country | File | Detection |
+|---------|------|-----------|
+| Saudi Arabia | `saudi.png` | Default for regular packages |
+| Turkey | `turki.png` | Package name contains Turkey/Turki |
+| Egypt | `mesir.png` | Package name contains Mesir/Kairo |
+| China | `china.png` | Package name contains China |
+| UAE | `uae.png` | Package name contains Dubai/Abu Dhabi |
+
+### Overlay Style
+
+```
+absolute inset-0 pointer-events-none
+opacity: 0.06 (light) / 0.04 (dark)
+background-size: cover
+background-position: center
+```
+
+Gradient overlay: `linear-gradient(to bottom, transparent, white)` / `linear-gradient(to bottom, transparent, slate-800)` for dark mode
+
+---
+
 ## Icons
 
 **Library**: [Lucide React](https://lucide.dev/) — seluruh project menggunakan Lucide.
@@ -845,6 +1057,12 @@ bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-
 | `PenLine` | "Tulis Manual" mode toggle |
 | `Lock` / `Unlock` | PIN gate / PIN verified |
 | `KeyRound` | PIN settings |
+| `CheckCircle2` | Registration success |
+| `Inbox` | CAPI event log empty state |
+| `ArrowLeft` | Back navigation (RegisterPage) |
+| `Info` | Simulasi Haji Plus info |
+| `FileText` | PDF preview (Simulasi) |
+| `Share2` | Share button (export/share features) |
 
 ### WhatsApp Icon (Custom SVG)
 
@@ -989,6 +1207,7 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 | Legacy table styling | `.laporan-content table/th/td` |
 | Disconnect modal anims | `dcOverlayIn/Out`, `dcModalIn/Out` (inline `<style>` in component) |
 | Telegram badge anims | `tgFloat` (icon bob), `tgPulseGlow` (green dot pulse) (inline `<style>`) |
+| Register form anims | `fadeSlideIn` (form entry), `errorSlideIn` (error msg) (inline `<style>`) |
 
 ---
 

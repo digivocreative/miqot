@@ -15,7 +15,7 @@
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
-| **Database** | Supabase (PostgreSQL) — 12 tabel: `agents`, `capi_configs`, `jamaah`, `jamaah_haji`, `calendar_events`, `calendar_insights`, `ai_credits`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events` |
+| **Database** | Supabase (PostgreSQL) — 15 tabel: `agents`, `capi_configs`, `capi_event_logs`, `jamaah`, `jamaah_haji`, `calendar_events`, `calendar_insights`, `ai_credits`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events`, `umroh_schedules`, `kurs_cache` |
 | **Telegram** | Telegram Bot API — group alerts (node-cron) + per-agent DM (deep link connect, departure reminders, pembayaran masuk) |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
@@ -68,58 +68,61 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~6824 lines) — API, proxy, auth, sync, stats, AI insight, AI tools, flight tracking, analytics, PIN auth, SPA serve
+├── server.js              # Express backend (~8090 lines) — API, proxy, auth, register, sync, stats, AI insight, AI tools, flight tracking, analytics, CAPI event logs, PIN auth, SPA serve
 ├── instrument.mjs         # Sentry initialization (must be imported before everything else)
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
 ├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
 ├── haji-api.js             # Haji data scraper (HTTP session + Cheerio, parallel batch sync to `jamaah_haji` table)
 ├── jamaah-api.js           # Legacy: Playwright-based jamaah scraping (deprecated, replaced by laporan-api.js)
-├── telegram-notifier.js    # Telegram alerts (~2410 lines) — seat, price, weekly, AI insights, per-agent departure reminders, pembayaran masuk
+├── telegram-notifier.js    # Telegram alerts (~2449 lines) — seat, price, weekly, AI insights, per-agent departure reminders, pembayaran masuk
 ├── deploy-webhook.js       # GitHub webhook listener (port 9000) → auto deploy
 ├── deploy.sh               # Deploy script: pull, install, build, restart systemd
 ├── Dockerfile              # Docker multi-stage build
 ├── docker-compose.yml      # Docker compose config
-├── vite.config.ts          # Vite config (600+ lines) — dev plugins, PWA, proxy, build
+├── vite.config.ts          # Vite config (~759 lines) — dev plugins, PWA, proxy, build
 ├── package.json            # Dependencies & scripts
 │
 ├── src/                    # Frontend (React + TypeScript)
 │   ├── main.tsx            # Entry point — routing, PWA registration, page resolution
 │   ├── App.tsx             # Main SPA component — package list, filters, layout
 │   ├── index.css           # Global CSS (TailwindCSS + custom animations)
-│   ├── components/         # 41 React components
-│   │   ├── PackageCard.tsx        # Card paket umroh (komponen terbesar, ~2308 lines)
-│   │   ├── DashboardProfile.tsx   # Edit profile + photo crop + Telegram + AIW internal system + PIN management (~2271 lines)
-│   │   ├── CapiPage.tsx           # Meta Conversion API config UI (~1780 lines)
+│   ├── components/         # 44 React components
+│   │   ├── PackageCard.tsx        # Card paket umroh (komponen terbesar, ~2452 lines) — flag overlay per negara tujuan
+│   │   ├── DashboardProfile.tsx   # Edit profile + photo crop + Telegram + AIW internal system + PIN management (~2334 lines)
+│   │   ├── CapiPage.tsx           # Meta Conversion API config UI + event log (~1876 lines)
 │   │   ├── KalkulasiPage.tsx      # Hitung harga + generate quotation PDF (~1498 lines)
 │   │   ├── JamaahPage.tsx         # View jamaah umroh data, sync & filter (~1435 lines)
 │   │   ├── HajiPage.tsx           # View jamaah haji data, login to legacy, sync, document viewer popup (~1171 lines)
 │   │   ├── FlightStatusCard.tsx   # Real-time flight tracking with AirLabs API, grouped kloter cards, share link (~1159 lines)
 │   │   ├── ComparePage.tsx        # Bandingkan 2 paket side-by-side (~1101 lines)
 │   │   ├── StatistikPage.tsx      # Dashboard statistik: ringkasan jamaah, komisi, chart tren, PIN-gated (~1070 lines)
+│   │   ├── AgentManagementPage.tsx # Admin: manage all agents CRUD + approval (~851 lines)
 │   │   ├── FlightSharePage.tsx    # Public flight share page /f/:code — hero card, map, boarding pass, weather, agent CTA (~830 lines)
-│   │   ├── DashboardLayout.tsx    # Dashboard home + navigation + tab routing (~786 lines)
-│   │   ├── AgentManagementPage.tsx # Admin: manage all agents CRUD (~760 lines)
-│   │   ├── LoginPage.tsx          # Login + JWT session management (~654 lines)
+│   │   ├── DashboardLayout.tsx    # Dashboard home + navigation + tab routing (~796 lines)
+│   │   ├── SimulasiHajiPlus.tsx   # Haji Plus simulation calculator — package pricing, USD→IDR, inflation projection, export PNG (~676 lines)
+│   │   ├── LoginPage.tsx          # Login + JWT session management (~673 lines)
 │   │   ├── AnalyticsPage.tsx      # Analytics dashboard with event tracking charts (~584 lines)
 │   │   ├── BusinessCardPage.tsx   # Digital business card generator (~574 lines)
 │   │   ├── HajiPlusExportPage.tsx # Haji Plus infographic export PNG (~555 lines)
+│   │   ├── RegisterPage.tsx       # Agent self-registration form — slug auto-gen, validation, pending approval workflow (~529 lines)
 │   │   ├── TrenDaftarSection.tsx   # Registration trend section for Statistik (~510 lines)
 │   │   ├── VoiceOverPage.tsx      # Voice Over Generator (3-step: script → voice → audio player) (~505 lines)
-│   │   ├── QuotationDocument.tsx  # react-pdf quotation template (~498 lines)
-│   │   ├── ItineraryModal.tsx     # Fullscreen PDF/image itinerary viewer (~491 lines)
-│   │   ├── UpcomingSchedule.tsx   # Calendar widget — mini grid with colored dots + bottom sheet detail (~472 lines)
-│   │   ├── ResetPasswordPage.tsx  # Reset password page (from email link) (~465 lines)
 │   │   ├── FilterHeader.tsx       # Header filter (search, sort, filter mode) (~501 lines)
+│   │   ├── QuotationDocument.tsx  # react-pdf quotation template (~498 lines)
+│   │   ├── UpcomingSchedule.tsx   # Calendar widget — mini grid with colored dots + bottom sheet detail (~470 lines)
+│   │   ├── ResetPasswordPage.tsx  # Reset password page (from email link) (~465 lines)
 │   │   ├── CardVariants.tsx       # Multiple card layout variants: Split, Spotlight, Ticket, Tiled, Magazine (~412 lines)
-│   │   ├── WebItineraryView.tsx   # AI-parsed itinerary timeline view (~373 lines)
 │   │   ├── KursPage.tsx           # Currency exchange rates page (USD, SAR) (~382 lines)
+│   │   ├── WebItineraryView.tsx   # AI-parsed itinerary timeline view (~373 lines)
+│   │   ├── ItineraryModal.tsx     # Fullscreen PDF/image itinerary viewer + pinch-to-zoom (~366 lines)
 │   │   ├── CuacaWidget.tsx        # Weather widget — Mekah/Madinah/Jakarta/Surabaya (~331 lines)
 │   │   ├── CalendarInsight.tsx    # AI Insight alert bar + bottom sheet popup (~310 lines)
+│   │   ├── HajiPlusPage.tsx       # Haji Plus stats visualization + chart (~300 lines)
+│   │   ├── BrochureModal.tsx      # Fullscreen brochure viewer + CDN + pinch-to-zoom (~280 lines)
 │   │   ├── FilterModal.tsx        # Fullscreen filter modal (mobile) (~253 lines)
-│   │   ├── HajiPlusPage.tsx       # Haji Plus stats visualization + chart (~229 lines)
 │   │   ├── FlightMap.tsx          # Leaflet map component for flight routes (lazy-loaded) (~224 lines)
 │   │   ├── FloatingControls.tsx   # Floating dark mode / scroll-to-top (~207 lines)
-│   │   ├── BrochureModal.tsx      # Fullscreen brochure viewer (~205 lines)
+│   │   ├── CapiEventLog.tsx       # CAPI event log viewer — pagination, filtering, auto-refresh 30s (~194 lines)
 │   │   ├── CompactCard.tsx        # Compact card variant (~148 lines)
 │   │   ├── PhotoCropModal.tsx     # Reusable photo crop modal (react-easy-crop) (~143 lines)
 │   │   ├── AIToolsPage.tsx        # AI Tools hub page (tool cards grid) (~129 lines)
