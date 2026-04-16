@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import CapiEventLog from './CapiEventLog';
 
 // ── Types ──
 
@@ -259,6 +260,7 @@ function LoginPage({ agentSlug, agentName, isDark, onToggleDark, onLogin }: { ag
 // ── Settings Page ──
 
 function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hideHeader = false }: { agentSlug: string; agentName: string; isDark: boolean; onToggleDark: () => void; onLogout: () => void; hideHeader?: boolean }) {
+  const [capiView, setCapiView] = useState<'settings' | 'event-log'>('settings');
   const [config, setConfig] = useState<CapiConfig>(DEFAULT_CONFIG);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -409,6 +411,33 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
       </header>
       )}
 
+      {/* Sub-tab: Settings | Event Log */}
+      <div className="capi-subtab-bar">
+        <div className="capi-subtab-bar-inner">
+          <button
+            type="button"
+            className={`capi-subtab${capiView === 'settings' ? ' capi-subtab-active' : ''}`}
+            onClick={() => setCapiView('settings')}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            Settings
+          </button>
+          <button
+            type="button"
+            className={`capi-subtab${capiView === 'event-log' ? ' capi-subtab-active' : ''}`}
+            onClick={() => setCapiView('event-log')}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            Event Log
+          </button>
+        </div>
+      </div>
+
+      {capiView === 'event-log' ? (
+        <div className="capi-content">
+          <CapiEventLog agentSlug={agentSlug} />
+        </div>
+      ) : (
       <div className="capi-content">
         {/* Section 1: Meta Credentials */}
         <section className="capi-card">
@@ -664,6 +693,7 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
           </button>
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -927,6 +957,51 @@ const capiStyles = `
   border-color: rgba(148,163,184,0.1);
 }
 .capi-dark .capi-header-logout:hover { color: #f87171; border-color: rgba(239,68,68,0.2); background: rgba(239,68,68,0.06); }
+
+/* ── Sub-tab Pill ── */
+.capi-subtab-bar {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px 16px 0;
+  display: flex;
+  gap: 4px;
+  padding-bottom: 0;
+}
+.capi-subtab-bar-inner {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: #f3f4f6;
+  border-radius: 12px;
+  width: 100%;
+}
+.capi-subtab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.capi-subtab:hover { color: #6b7280; }
+.capi-subtab-active {
+  background: white;
+  color: #059669;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.capi-dark .capi-subtab-bar-inner { background: #1e293b; }
+.capi-dark .capi-subtab { color: #64748b; }
+.capi-dark .capi-subtab:hover { color: #94a3b8; }
+.capi-dark .capi-subtab-active { background: #334155; color: #34d399; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
 
 /* ── Content ── */
 .capi-content {

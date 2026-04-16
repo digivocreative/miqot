@@ -170,6 +170,8 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
     + '.elementor-1291 .elementor-button:active{transform:scale(.97)!important}'
     // ── Hide lottie widget (CORS-blocked animation) ──
     + '.elementor-widget-lottie{display:none!important}'
+    // ── Spacing after voucher section removed ──
+    + '.elementor-element-4c9c46b3{margin-top:40px!important}'
     // ── Hero WA button fix (all screens) ──
     + '.elementor-element-796244f7 .elementor-button{font-size:16px!important;padding:14px 30px!important;border-color:#149626!important}'
     + '.elementor-element-796244f7 > .elementor-widget-container{margin:20px 0 0!important}'
@@ -199,7 +201,10 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
     + '<' + '/head>'
   );
 
-  // 4. Remove "Konsultasi via WA (Fast Response)" sticky bar from original page
+  // 4. Remove voucher promo section (element defd89e)
+  html = html.replace(/<section[^>]*elementor-element-defd89e[\s\S]*?<\/section>\s*(?=\s*<section)/, '');
+
+  // 5. Remove "Konsultasi via WA (Fast Response)" sticky bar from original page
   html = html.replace(/<div class="heading-wa">[\s\S]*?<\/div>\s*<\/div>/g, '');
 
   // 5. Remove 4 specific images from ulasan carousel

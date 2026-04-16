@@ -1829,46 +1829,189 @@ async function writeCapiConfig(agentId, config) {
 }
 
 /**
- * Fire a CAPI Purchase event server-side for a jamaah.
+ * Log a CAPI event to capi_event_logs table. Fire-and-forget.
+ */
+function logCapiEvent(agentId, eventName, status, { value, errorMessage, source } = {}) {
+  supabase.from('capi_event_logs').insert({
+    agent_id: agentId,
+    event_name: eventName,
+    status,
+    value: value || null,
+    error_message: errorMessage || null,
+    source: source || 'browser',
+  }).then(({ error }) => {
+    if (error) console.error('[CAPI] Log insert error:', error.message);
+  });
+}
+
+/**
+ * Fire a single CAPI Purchase event to Meta Graph API.
  * Silent fail — jangan ganggu sync flow.
  */
-async function fireCapiPurchase(agentId, slug, jamaah) {
+async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, value, contentName, contentType }) {
+  const payload = {
+    data: [{
+      event_name: 'Purchase',
+      event_time: Math.floor(Date.now() / 1000),
+      event_source_url: `https://alhijaz.co/${slug}`,
+      action_source: 'system_generated',
+      user_data: { client_user_agent: 'Miqot Server Sync' },
+      custom_data: {
+        currency: 'IDR',
+        value,
+        content_name: contentName,
+        content_ids: [id],
+        content_type: 'product',
+      },
+    }],
+    ...(config.testMode && config.testEventCode ? { test_event_code: config.testEventCode } : {}),
+  };
+
+  const resp = await fetch(
+    `https://graph.facebook.com/v21.0/${config.pixelId}/events?access_token=${encodeURIComponent(accessToken)}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    console.error(`[CAPI] Purchase failed ${slug}/${id}:`, errText);
+    logCapiEvent(agentId, 'Purchase', 'error', { value, errorMessage: errText.slice(0, 500), source: 'sync' });
+    return false;
+  }
+  console.log(`[CAPI] Purchase sent: ${slug}/${id} (${contentType}) = Rp${value.toLocaleString('id-ID')}`);
+  logCapiEvent(agentId, 'Purchase', 'success', { value, source: 'sync' });
+  return true;
+}
+
+const HAJI_PURCHASE_VALUE = 60000000;
+
+/**
+ * Process CAPI Purchase events for Umroh or Haji jamaah after sync upsert.
+ * Sends Purchase at DP (first payment) and again at Lunas (full payment).
+ * Dedup via capi_purchase_status column: null → 'dp' → 'lunas'.
+ *
+ * @param {string} agentId
+ * @param {string} slug - agent slug
+ * @param {'umroh'|'haji'} type
+ * @param {Array} upsertedIdentifiers - for umroh: [{id_umroh, nama}], for haji: [{id_haji, id_jamaah}]
+ */
+async function processCapiPurchases(agentId, slug, type, upsertedIdentifiers) {
   try {
+    if (!upsertedIdentifiers?.length) return;
+
     const config = await readCapiConfig(agentId);
     if (!config?.pixelId || !config?.accessToken) return;
     const accessToken = capiDecrypt(config.accessToken);
     if (!accessToken) return;
 
-    const payload = {
-      data: [{
-        event_name: 'Purchase',
-        event_time: Math.floor(Date.now() / 1000),
-        event_source_url: `https://alhijaz.co/${slug}`,
-        action_source: 'system_generated',
-        user_data: { client_user_agent: 'Miqot Server Sync' },
-        custom_data: {
-          currency: 'IDR',
-          value: jamaah.bayar,
-          content_name: jamaah.paket || 'Paket Umroh',
-          content_ids: [jamaah.id_umroh],
-          content_type: 'product',
-        },
-      }],
-      ...(config.testMode && config.testEventCode ? { test_event_code: config.testEventCode } : {}),
-    };
+    const table = type === 'haji' ? 'jamaah_haji' : 'jamaah';
+    let rows;
 
-    const resp = await fetch(
-      `https://graph.facebook.com/v21.0/${config.pixelId}/events?access_token=${encodeURIComponent(accessToken)}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
-    );
-
-    if (!resp.ok) {
-      console.error(`[CAPI] Purchase failed ${slug}/${jamaah.id_umroh}:`, await resp.text());
+    if (type === 'umroh') {
+      const ids = upsertedIdentifiers.map(r => r.id_umroh || r);
+      const uniqueIds = [...new Set(ids)];
+      const { data } = await supabase
+        .from(table)
+        .select('id_umroh, nama, paket, bayar, sisa, capi_purchase_status')
+        .eq('agent_id', agentId)
+        .in('id_umroh', uniqueIds);
+      rows = data || [];
     } else {
-      console.log(`[CAPI] Purchase sent: ${slug}/${jamaah.id_umroh} = Rp${jamaah.bayar.toLocaleString('id-ID')}`);
+      const ids = upsertedIdentifiers.map(r => r.id_haji || r);
+      const uniqueIds = [...new Set(ids)];
+      const { data } = await supabase
+        .from(table)
+        .select('id_haji, id_jamaah, nama, paket, status_bayar, capi_purchase_status')
+        .eq('agent_id', agentId)
+        .in('id_haji', uniqueIds);
+      rows = data || [];
+    }
+
+    if (rows.length === 0) return;
+
+    const dpRows = [];
+    const lunasRows = [];
+
+    for (const row of rows) {
+      const status = row.capi_purchase_status;
+      if (status === 'lunas') continue; // already fully fired
+
+      if (type === 'umroh') {
+        const bayar = row.bayar || 0;
+        const sisa = row.sisa ?? 0;
+        if (bayar <= 0) continue;
+
+        if (sisa <= 0) {
+          // Lunas — either via DP or direct
+          lunasRows.push({
+            id: row.id_umroh,
+            value: bayar, // saat lunas, bayar = total harga (sisa = 0)
+            contentName: row.paket || 'Paket Umroh',
+            contentType: 'umroh',
+            matchKey: { id_umroh: row.id_umroh, nama: row.nama },
+          });
+        } else if (sisa > 0 && status === null) {
+          // DP
+          dpRows.push({
+            id: row.id_umroh,
+            value: bayar,
+            contentName: row.paket || 'Paket Umroh',
+            contentType: 'umroh',
+            matchKey: { id_umroh: row.id_umroh, nama: row.nama },
+          });
+        }
+      } else {
+        // Haji
+        const statusBayar = (row.status_bayar || '').toUpperCase();
+        if (statusBayar === 'BELUM BAYAR') continue;
+
+        if (statusBayar === 'LUNAS' && status !== 'lunas') {
+          lunasRows.push({
+            id: row.id_haji,
+            value: HAJI_PURCHASE_VALUE,
+            contentName: row.paket || 'Paket Haji',
+            contentType: 'haji',
+            matchKey: { id_haji: row.id_haji, id_jamaah: row.id_jamaah },
+          });
+        } else if (statusBayar === 'CICILAN' && status === null) {
+          dpRows.push({
+            id: row.id_haji,
+            value: HAJI_PURCHASE_VALUE,
+            contentName: row.paket || 'Paket Haji',
+            contentType: 'haji',
+            matchKey: { id_haji: row.id_haji, id_jamaah: row.id_jamaah },
+          });
+        }
+      }
+    }
+
+    // Fire DP events and update status
+    for (const row of dpRows) {
+      const ok = await fireCapiPurchaseEvent(agentId, config, accessToken, slug, row);
+      if (ok) {
+        // Build WHERE: agent_id = X AND id_umroh = Y AND nama = Z (or id_haji + id_jamaah for haji)
+        const q = Object.entries(row.matchKey).reduce((qb, [k, v]) => qb.eq(k, v), supabase.from(table).update({ capi_purchase_status: 'dp' }).eq('agent_id', agentId));
+        const { error } = await q;
+        if (error) console.error(`[CAPI] Failed to update status to dp for ${row.id}:`, error.message);
+      }
+    }
+
+    // Fire Lunas events and update status
+    for (const row of lunasRows) {
+      const ok = await fireCapiPurchaseEvent(agentId, config, accessToken, slug, row);
+      if (ok) {
+        const q = Object.entries(row.matchKey).reduce((qb, [k, v]) => qb.eq(k, v), supabase.from(table).update({ capi_purchase_status: 'lunas' }).eq('agent_id', agentId));
+        const { error } = await q;
+        if (error) console.error(`[CAPI] Failed to update status to lunas for ${row.id}:`, error.message);
+      }
+    }
+
+    const total = dpRows.length + lunasRows.length;
+    if (total > 0) {
+      console.log(`[CAPI] ${slug}: fired ${dpRows.length} DP + ${lunasRows.length} Lunas Purchase events (${type})`);
     }
   } catch (err) {
-    console.error(`[CAPI] Purchase error ${slug}:`, err.message);
+    console.error(`[CAPI] processCapiPurchases error (${type}) ${slug}:`, err.message);
   }
 }
 
@@ -1975,14 +2118,22 @@ app.post('/api/capi/:slug/event', async (req, res) => {
     }],
     ...(config.testMode && config.testEventCode ? { test_event_code: config.testEventCode } : {}),
   };
+  const resolvedEventName = eventName || 'PageView';
   try {
     const metaRes = await fetch(`https://graph.facebook.com/v21.0/${config.pixelId}/events?access_token=${encodeURIComponent(accessToken)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(metaPayload),
     });
     const metaData = await metaRes.json();
+    if (!metaRes.ok || metaData?.error) {
+      const errMsg = metaData?.error?.message || `HTTP ${metaRes.status}`;
+      logCapiEvent(agent.id, resolvedEventName, 'error', { errorMessage: errMsg, source: 'browser' });
+      return res.json({ sent: false, reason: errMsg });
+    }
+    logCapiEvent(agent.id, resolvedEventName, 'success', { source: 'browser' });
     res.json({ sent: true, response: metaData });
   } catch (err) {
     console.error('[CAPI] Meta API error:', err);
+    logCapiEvent(agent.id, resolvedEventName, 'error', { errorMessage: err.message, source: 'browser' });
     res.json({ sent: false, reason: err.message });
   }
 });
@@ -2010,6 +2161,51 @@ app.post('/api/capi/:slug/validate', async (req, res) => {
     console.error('[CAPI Validate] Error:', err);
     res.json({ valid: false, reason: 'Connection failed' });
   }
+});
+
+// Event Logs
+const capiLogCleanupLast = new Map(); // agentId -> timestamp
+app.get('/api/capi/:slug/logs', async (req, res) => {
+  const slug = req.params.slug.toLowerCase();
+  const agent = await getAgentBySlug(slug);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
+  const offset = (page - 1) * limit;
+  const eventFilter = req.query.event || null;
+
+  let query = supabase
+    .from('capi_event_logs')
+    .select('id, event_name, status, value, error_message, source, created_at', { count: 'exact' })
+    .eq('agent_id', agent.id)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (eventFilter) query = query.eq('event_name', eventFilter);
+
+  const { data: logs, count, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Async cleanup: delete logs older than 30 days (throttled to once/hour per agent)
+  const now = Date.now();
+  if (!capiLogCleanupLast.has(agent.id) || now - capiLogCleanupLast.get(agent.id) > 3600000) {
+    capiLogCleanupLast.set(agent.id, now);
+    supabase.from('capi_event_logs')
+      .delete()
+      .eq('agent_id', agent.id)
+      .lt('created_at', new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString())
+      .then(({ error: cleanErr }) => {
+        if (cleanErr) console.error('[CAPI] Log cleanup error:', cleanErr.message);
+      });
+  }
+
+  res.json({
+    logs: logs || [],
+    total: count || 0,
+    page,
+    totalPages: Math.ceil((count || 0) / limit),
+  });
 });
 
 // ──────────────────────────────────────────────
@@ -2514,36 +2710,11 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         }
         // Phase 2: no counter update — just keep syncing state alive
 
-        // Fire CAPI Purchase for jamaah with increased payments
-        try {
-          const upsertedIds = rows.map(r => r.id_umroh);
-          const { data: currentJamaah } = await supabase
-            .from('jamaah')
-            .select('id_umroh, nama, paket, bayar, capi_last_bayar')
-            .eq('agent_id', agentId)
-            .in('id_umroh', upsertedIds);
-
-          if (currentJamaah?.length > 0) {
-            const capiUpdates = [];
-            for (const j of currentJamaah) {
-              const lastBayar = j.capi_last_bayar || 0;
-              if (j.bayar > 0 && j.bayar > lastBayar) {
-                fireCapiPurchase(agentId, slug, j);
-                capiUpdates.push(j);
-              }
-            }
-            if (capiUpdates.length > 0) {
-              for (const u of capiUpdates) {
-                await supabase.from('jamaah')
-                  .update({ capi_last_bayar: u.bayar })
-                  .eq('agent_id', agentId).eq('id_umroh', u.id_umroh).eq('nama', u.nama);
-              }
-              console.log(`[CAPI] Updated capi_last_bayar for ${capiUpdates.length} jamaah (${slug})`);
-            }
-          }
-        } catch (capiErr) {
-          console.error(`[CAPI] Manual sync Purchase error:`, capiErr.message);
-        }
+        // Fire CAPI Purchase events (DP & Lunas)
+        const upsertedIds = rows.map(r => ({ id_umroh: r.id_umroh, nama: r.nama }));
+        processCapiPurchases(agentId, slug, 'umroh', upsertedIds).catch(e =>
+          console.error(`[CAPI] Manual sync Purchase error:`, e.message)
+        );
 
         // If Phase 1 produced nothing, send response on first Phase 2 batch
         if (!firstBatchSent) {
@@ -4957,6 +5128,12 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
         .from('jamaah_haji')
         .upsert(firstRows, { onConflict: 'agent_id,id_haji,id_jamaah' });
       if (firstErr) console.error('[haji-sync] First batch upsert error:', firstErr.message);
+
+      // Fire CAPI Purchase events (DP & Lunas) for Haji
+      const hajiCapiIds = firstRows.map(r => ({ id_haji: r.id_haji, id_jamaah: r.id_jamaah }));
+      processCapiPurchases(agentId, slug, 'haji', hajiCapiIds).catch(e =>
+        console.error(`[CAPI] Haji first batch Purchase error:`, e.message)
+      );
     }
 
     const moreToSync = restIds.length > 0;
@@ -5009,10 +5186,18 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
             // Upsert in batches of 50
             if (bgRows.length >= 50 || i + BATCH_SIZE >= restIds.length) {
               if (bgRows.length > 0) {
+                // Fire CAPI Purchase events before clearing batch
+                const bgCapiIds = bgRows.map(r => ({ id_haji: r.id_haji, id_jamaah: r.id_jamaah }));
+
                 const { error } = await supabase
                   .from('jamaah_haji')
                   .upsert(bgRows, { onConflict: 'agent_id,id_haji,id_jamaah' });
                 if (error) console.error('[haji-sync] BG batch error:', error.message);
+
+                processCapiPurchases(agentId, slug, 'haji', bgCapiIds).catch(e =>
+                  console.error(`[CAPI] Haji BG batch Purchase error:`, e.message)
+                );
+
                 syncingAgents.set(hajiKey, {
                   isSyncing: true,
                   totalSynced: firstRows.length + bgRows.length,
@@ -7429,26 +7614,11 @@ async function syncOneAgent(agent) {
           );
         }
 
-        // Fire CAPI Purchase for jamaah with increased payments
-        try {
-          const capiRows = allNewRows.filter(row => {
-            const key = `${row.id_umroh}_${row.nama}`;
-            return (key in existingMap) && (row.bayar || 0) > 0 && (row.bayar || 0) > existingMap[key];
-          });
-          if (capiRows.length > 0) {
-            for (const row of capiRows) {
-              fireCapiPurchase(agentId, slug, row);
-            }
-            for (const row of capiRows) {
-              await supabase.from('jamaah')
-                .update({ capi_last_bayar: row.bayar })
-                .eq('agent_id', agentId).eq('id_umroh', row.id_umroh).eq('nama', row.nama);
-            }
-            console.log(`[CAPI] Updated capi_last_bayar for ${capiRows.length} jamaah (${slug})`);
-          }
-        } catch (capiErr) {
-          console.error(`[CAPI] Background sync Purchase error:`, capiErr.message);
-        }
+        // Fire CAPI Purchase events (DP & Lunas)
+        const capiIds = allNewRows.map(r => ({ id_umroh: r.id_umroh, nama: r.nama }));
+        processCapiPurchases(agentId, slug, 'umroh', capiIds).catch(e =>
+          console.error(`[CAPI] Background sync Purchase error:`, e.message)
+        );
       }
     }
 
