@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { RefreshCw, ChevronLeft, ChevronRight, Inbox, CheckCircle2, XCircle } from 'lucide-react';
+import { RefreshCw, ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
 
 interface LogEntry {
   id: number;
@@ -18,10 +18,10 @@ function timeAgo(dateStr: string): string {
   const then = new Date(dateStr).getTime();
   const diff = Math.floor((now - then) / 1000);
   if (diff < 10) return 'Baru saja';
-  if (diff < 60) return `${diff}dtk lalu`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}mnt lalu`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}jam lalu`;
-  return `${Math.floor(diff / 86400)}hr lalu`;
+  if (diff < 60) return `${diff}dtk`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}mnt`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}jam`;
+  return `${Math.floor(diff / 86400)}hr`;
 }
 
 function formatDate(dateStr: string): string {
@@ -32,10 +32,10 @@ function formatDate(dateStr: string): string {
 }
 
 function fmtRpShort(value: number): string {
-  if (value >= 1_000_000_000) return `Rp${(value / 1_000_000_000).toFixed(1)}M`;
-  if (value >= 1_000_000) return `Rp${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}jt`;
-  if (value >= 1_000) return `Rp${(value / 1_000).toFixed(0)}rb`;
-  return `Rp${value.toLocaleString('id-ID')}`;
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}M`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}jt`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(0)}rb`;
+  return value.toLocaleString('id-ID');
 }
 
 export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
@@ -78,7 +78,7 @@ export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-slate-300">Event Log</span>
           {total > 0 && (
@@ -121,46 +121,46 @@ export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
         </div>
       ) : (
         <>
-          {/* Card container with rows */}
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
-            {logs.map((log, i) => (
-              <div
-                key={log.id}
-                className={`px-4 py-3 flex items-center gap-3 ${i < logs.length - 1 ? 'border-b border-gray-50 dark:border-slate-700/50' : ''}`}
-                title={log.error_message || formatDate(log.created_at)}
-              >
-                {/* Status icon */}
-                {log.status === 'success' ? (
-                  <CheckCircle2 size={14} className="flex-shrink-0 text-emerald-500 dark:text-emerald-400" />
-                ) : (
-                  <XCircle size={14} className="flex-shrink-0 text-red-500 dark:text-red-400" />
-                )}
-
-                {/* Event info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-semibold text-gray-700 dark:text-slate-200">
-                      {log.event_name}
-                    </span>
-                    {log.source === 'sync' && (
-                      <span className="text-[9px] font-bold uppercase px-1 py-px rounded bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500">
-                        sync
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[10px] text-gray-400 dark:text-slate-500">
-                    {timeAgo(log.created_at)}
-                  </span>
-                </div>
-
-                {/* Value */}
-                {log.value ? (
-                  <span className="text-xs font-bold text-gray-700 dark:text-slate-200 tabular-nums flex-shrink-0">
-                    {fmtRpShort(log.value)}
-                  </span>
-                ) : null}
-              </div>
-            ))}
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="border-b border-gray-100 dark:border-slate-700">
+                  <th className="text-left px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Waktu</th>
+                  <th className="text-left px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Event</th>
+                  <th className="text-left px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Status</th>
+                  <th className="text-right px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((log, i) => (
+                  <tr
+                    key={log.id}
+                    className={i < logs.length - 1 ? 'border-b border-gray-50 dark:border-slate-700/50' : ''}
+                    title={log.error_message || formatDate(log.created_at)}
+                  >
+                    <td className="px-2.5 py-1.5 text-gray-400 dark:text-slate-500 whitespace-nowrap">
+                      {timeAgo(log.created_at)}
+                    </td>
+                    <td className="px-2.5 py-1.5">
+                      <span className="font-semibold text-gray-700 dark:text-slate-200">{log.event_name}</span>
+                      {log.source === 'sync' && (
+                        <span className="ml-1 text-[9px] font-bold uppercase px-1 py-px rounded bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500">sync</span>
+                      )}
+                    </td>
+                    <td className="px-2.5 py-1.5">
+                      {log.status === 'success' ? (
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">OK</span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-red-500 dark:text-red-400">Error</span>
+                      )}
+                    </td>
+                    <td className="px-2.5 py-1.5 text-right font-semibold text-gray-700 dark:text-slate-200 tabular-nums whitespace-nowrap">
+                      {log.value ? fmtRpShort(log.value) : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
 
           {/* Pagination */}
