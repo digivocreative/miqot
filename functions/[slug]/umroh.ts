@@ -281,7 +281,22 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
 
   // 5. Inject sticky bar + FAB before </body>
   const stickyBarHtml = buildStickyBarAndFab(agentName, agentPhoto, waBase + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Paket%20Umroh%20di%20Alhijaz');
-  html = html.replace('</body>', stickyBarHtml + '\n</body>');
+
+  // 6. Inject CAPI tracking script (PageView on load, Contact on WA click)
+  const capiScript = '<sc' + 'ript>'
+    + '(function(){'
+    + 'var s="' + slug + '";'
+    + 'function gc(n){var v="; "+document.cookie,p=v.split("; "+n+"=");if(p.length===2)return p.pop().split(";").shift();return""}'
+    + 'function fire(k){try{var b={eventKey:k,eventId:k+"-"+Date.now()+"-"+Math.random().toString(36).slice(2,8),sourceUrl:location.href,userAgent:navigator.userAgent,fbc:gc("_fbc"),fbp:gc("_fbp"),timestamp:Math.floor(Date.now()/1000)};'
+    + 'var u="/api/capi/"+s+"/event",bl=new Blob([JSON.stringify(b)],{type:"application/json"});'
+    + 'if(navigator.sendBeacon)navigator.sendBeacon(u,bl);else fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b),keepalive:true}).catch(function(){})'
+    + '}catch(e){}}'
+    + 'fire("pageView");'
+    + 'document.addEventListener("click",function(e){var t=e.target;if(t.closest&&(t.closest("a[href*=\\"wa.me\\"]")||t.closest("a[href*=\\"whatsapp.com\\"]")||t.closest(".alhijaz-btn--sticky")||t.closest(".alhijaz-fab")||t.closest("a[href*=\\"api.whatsapp\\"]")))fire("contact")});'
+    + '})();'
+    + '</sc' + 'ript>';
+
+  html = html.replace('</body>', stickyBarHtml + '\n' + capiScript + '\n</body>');
 
   // 6. Add padding-bottom to body so sticky bar doesn't overlap content
   html = html.replace(

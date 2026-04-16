@@ -2106,19 +2106,35 @@ app.post('/api/capi/:slug/event', async (req, res) => {
   const config = await readCapiConfig(agent.id);
   if (!config?.pixelId || !config?.accessToken) return res.json({ sent: false, reason: 'Not configured' });
   const accessToken = capiDecrypt(config.accessToken);
-  const { eventName, userData, customData, eventSourceUrl, actionSource } = req.body;
+  const { eventKey, eventName, userData, customData, eventSourceUrl, sourceUrl, actionSource, fbc, fbp, userAgent } = req.body;
+
+  // Map eventKey to Meta event name using agent's config, fallback to defaults
+  const EVENT_KEY_DEFAULTS = { pageView: 'PageView', search: 'Search', viewContent: 'ViewContent', contact: 'Contact' };
+  let resolvedEventName = eventName || 'PageView';
+  if (eventKey && !eventName) {
+    const eventConfig = config.events?.[eventKey];
+    resolvedEventName = eventConfig?.enabled !== false
+      ? (eventConfig?.eventName || EVENT_KEY_DEFAULTS[eventKey] || 'PageView')
+      : null; // disabled event
+  }
+  if (!resolvedEventName) return res.json({ sent: false, reason: 'Event disabled' });
+
   const metaPayload = {
     data: [{
-      event_name: eventName || 'PageView',
+      event_name: resolvedEventName,
       event_time: Math.floor(Date.now() / 1000),
-      event_source_url: eventSourceUrl || '',
-      user_data: userData || {},
+      event_source_url: eventSourceUrl || sourceUrl || '',
+      user_data: {
+        ...(userData || {}),
+        ...(fbc ? { fbc } : {}),
+        ...(fbp ? { fbp } : {}),
+        ...(userAgent ? { client_user_agent: userAgent } : {}),
+      },
       custom_data: customData || {},
       action_source: actionSource || 'website',
     }],
     ...(config.testMode && config.testEventCode ? { test_event_code: config.testEventCode } : {}),
   };
-  const resolvedEventName = eventName || 'PageView';
   try {
     const metaRes = await fetch(`https://graph.facebook.com/v21.0/${config.pixelId}/events?access_token=${encodeURIComponent(accessToken)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(metaPayload),
