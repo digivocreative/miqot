@@ -1850,7 +1850,6 @@ function logCapiEvent(agentId, eventName, status, { value, errorMessage, source 
  */
 async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, value, contentName, contentType, userName, userPhone }) {
   // Hash user data for Meta (SHA-256) — Meta requires hashed PII
-  const crypto = await import('crypto');
   const sha256 = (v) => v ? crypto.createHash('sha256').update(v.trim().toLowerCase()).digest('hex') : undefined;
 
   const userData = { client_user_agent: 'Miqot Server Sync' };
@@ -2148,7 +2147,7 @@ app.post('/api/capi/:slug/event', async (req, res) => {
         ...(fbp ? { fbp } : {}),
         ...(userAgent ? { client_user_agent: userAgent } : {}),
         client_ip_address: req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || '',
-        country: require('crypto').createHash('sha256').update('id').digest('hex'),
+        country: crypto.createHash('sha256').update('id').digest('hex'),
       },
       custom_data: customData || {},
       action_source: actionSource || 'website',
