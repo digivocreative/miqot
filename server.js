@@ -264,7 +264,7 @@ app.get('/api/jamaah/session/:id', authMiddleware, (req, res) => {
 });
 
 // ── JWT Auth middleware ──
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Token required' });
@@ -272,6 +272,11 @@ function authMiddleware(req, res, next) {
   try {
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, JWT_SECRET);
+    // Backward compat: old tokens don't have id, resolve from slug
+    if (!decoded.id && decoded.slug) {
+      const agent = await getAgentBySlug(decoded.slug);
+      if (agent) decoded.id = agent.id;
+    }
     req.user = decoded; // { id, slug, name, role }
     next();
   } catch {
@@ -2030,7 +2035,7 @@ function getActiveHijriahYears() {
 }
 
 // Helper: build rows from parsed items — hijriah_year determined per item by tgl_berangkat
-function buildRows(items, agentSlug, now) {
+function buildRows(items, agentId, now) {
   const MIN_HIJRIAH_YEAR = 1447;
   const DEFAULT_YEAR = String(MIN_HIJRIAH_YEAR);
   const map = new Map();
@@ -2038,7 +2043,7 @@ function buildRows(items, agentSlug, now) {
     // Skip old year data (< 1447 H); default null to current year
     const year = getHijriahYear(item.tgl_berangkat) || DEFAULT_YEAR;
     if (Number(year) < MIN_HIJRIAH_YEAR) continue;
-    const key = `${agentSlug}_${item.id_umroh || ''}_${item.nama || ''}`.trim().toLowerCase();
+    const key = `${agentId}_${item.id_umroh || ''}_${item.nama || ''}`.trim().toLowerCase();
     map.set(key, {
       agent_id: agentId,
       id_umroh: item.id_umroh,
@@ -2385,7 +2390,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         const { items } = parseLaporanHtml(fetchResult.html);
         if (items.length === 0) continue;
 
-        const rows = buildRows(items, slug, now);
+        const rows = buildRows(items, agentId, now);
         // Preserve Phase 1 data that Phase 2 might not have
         for (const row of rows) {
           // Staf: only from list page, not in laporan
@@ -4959,7 +4964,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
 
 // Haji sync status (separate from umroh)
 app.get('/api/haji/sync-status', authMiddleware, async (req, res) => {
-  const hajiKey = `haji:${req.user.slug}`;
+  const hajiKey = `haji:${req.user.id}`;
   const state = syncingAgents.get(hajiKey);
   if (!state) {
     const { data } = await supabase
@@ -5197,7 +5202,7 @@ app.post('/api/analytics/event', authMiddleware, (req, res) => {
   }
   // Skip tracking for admin users
   if (req.user.role !== 'admin') {
-    logAnalyticsEvent(req.user.slug, eventType, eventName, metadata || {});
+    logAnalyticsEvent(req.user.id, eventType, eventName, metadata || {});
   }
   res.json({ success: true });
 });
@@ -7250,7 +7255,7 @@ async function syncOneAgent(agent) {
         const BATCH = 50;
         for (let b = 0; b < items.length; b += BATCH) {
           const batchItems = items.slice(b, b + BATCH);
-          const rows = buildRows(batchItems, slug, syncTime);
+          const rows = buildRows(batchItems, agentId, syncTime);
           // Preserve Phase 1 data that Phase 2 might not have
           for (const row of rows) {
             const staf = bookingStafMap?.get(row.id_umroh);

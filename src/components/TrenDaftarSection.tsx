@@ -222,6 +222,9 @@ export default function TrenDaftarSection({ selectedYear }: { selectedYear: stri
         </div>
       </div>
 
+      {/* Ranking Agent */}
+      <AgentRankingSection agents={d.agentRanking} year={d.period} />
+
       {/* Section 2: Pendaftaran per Bulan */}
       <Card title="Pendaftaran per Bulan" extra={
         <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">{d.period}H vs {d.periodPrev}H</span>
@@ -484,9 +487,6 @@ export default function TrenDaftarSection({ selectedYear }: { selectedYear: stri
           );
         })()}
       </Card>
-
-      {/* Section 11: Ranking Agent */}
-      <AgentRankingSection agents={d.agentRanking} year={d.period} />
 
       {/* Section 12: Paket Terpopuler */}
       <Card title="Paket Terpopuler" extra={<span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">{d.period}H</span>}>

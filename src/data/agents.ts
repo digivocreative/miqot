@@ -32,7 +32,7 @@ const FALLBACK_AGENTS: Record<string, AgentData> = {
   'ferra': { name: 'Ferra', website: 'alhijaztourtravel.id', phone: '62811802789', photo: '/agents/ferra.jpg' },
   'jan-praba': { name: 'Jan Praba', website: 'alhijaz.co/jan-praba', phone: '62816728940', photo: '/agents/jan-praba.jpg' },
   'ekawati': { name: 'Ekawati', website: 'alhijaz.co/ekawati', phone: '62816728904', photo: '/agents/ekawati.jpg' },
-  'bagas': { name: 'Bagas', website: 'alhijaz.co/bagas', phone: '6281234567890', photo: 'https://ui-avatars.com/api/?name=Bagas&background=10b981&color=fff&size=200' },
+  'bagas': { name: 'Bagas Pramudita', website: 'alhijaz.co', phone: '6287878573311', photo: '/agents/bagas.jpg' },
 };
 
 // ── localStorage cache key ──

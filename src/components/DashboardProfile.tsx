@@ -1218,10 +1218,6 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [slugValue, setSlugValue] = useState(agent.slug);
-  const [showSlugEdit, setShowSlugEdit] = useState(false);
-  const [closingSlugEdit, setClosingSlugEdit] = useState(false);
-  const [slugInput, setSlugInput] = useState(agent.slug);
-  const [savingSlug, setSavingSlug] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Card variant state ──
@@ -1427,46 +1423,6 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
     setCropImage(null);
   };
 
-  const handleSlugSave = async () => {
-    const newSlug = slugInput.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
-    if (!newSlug || newSlug === slugValue) {
-      setShowSlugEdit(false);
-      return;
-    }
-    setSavingSlug(true);
-    try {
-      const res = await fetch('/api/admin/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ slug: newSlug }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        // Server returns new JWT when slug changes — update stored session
-        if (data.newToken && data.user) {
-          const session = { token: data.newToken, user: data.user };
-          const storage = localStorage.getItem('auth_session') ? localStorage : sessionStorage;
-          storage.setItem('auth_session', JSON.stringify(session));
-        }
-        setSlugValue(newSlug);
-        onUpdated();
-      } else {
-        setError(data.error || 'Gagal mengubah slug');
-      }
-    } catch {
-      setError('Gagal menghubungi server');
-    }
-    setSavingSlug(false);
-    setShowSlugEdit(false);
-  };
-
-  const closeSlugEdit = () => {
-    setClosingSlugEdit(true);
-    setTimeout(() => {
-      setShowSlugEdit(false);
-      setClosingSlugEdit(false);
-    }, 200);
-  };
 
   const hasChanges = name !== agent.name || website !== agent.website || phone !== agent.phone || email !== (agent.email || '');
   const requiredMissing = !name.trim() || !phone.trim();
@@ -1532,86 +1488,16 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
           </div>
           {/* Name only */}
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">{agent.name}</h2>
-          {/* URL + edit slug */}
+          {/* URL slug (read-only) */}
           <div className="flex items-center justify-center mt-2">
-            <button
-              type="button"
-              onClick={() => { setSlugInput(slugValue); setShowSlugEdit(true); }}
-              className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-full hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors cursor-pointer"
-              title="Edit slug"
+            <span
+              className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-full cursor-default"
             >
               <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">alhijaz.co/{slugValue}</span>
-              <Pencil size={11} className="text-emerald-500 dark:text-emerald-400" />
-            </button>
+            </span>
           </div>
         </div>
 
-        {/* Slug Edit Modal */}
-        {showSlugEdit && (
-          <>
-            <style>{`
-              @keyframes slugOverlayIn { from { opacity: 0; } to { opacity: 1; } }
-              @keyframes slugOverlayOut { from { opacity: 1; } to { opacity: 0; } }
-              @keyframes slugModalIn { from { opacity: 0; transform: scale(0.92) translateY(12px); } to { opacity: 1; transform: scale(1) translateY(0); } }
-              @keyframes slugModalOut { from { opacity: 1; transform: scale(1) translateY(0); } to { opacity: 0; transform: scale(0.92) translateY(12px); } }
-            `}</style>
-            <div
-              className="fixed inset-0 z-50 flex items-center justify-center px-4"
-              style={{
-                background: 'rgba(0,0,0,0.5)',
-                backdropFilter: 'blur(4px)',
-                animation: closingSlugEdit ? 'slugOverlayOut 0.2s ease forwards' : 'slugOverlayIn 0.25s ease',
-              }}
-              onClick={e => { if (e.target === e.currentTarget) closeSlugEdit(); }}
-            >
-              <div
-                className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-xs shadow-2xl overflow-hidden"
-                style={{
-                  animation: closingSlugEdit ? 'slugModalOut 0.2s ease forwards' : 'slugModalIn 0.3s cubic-bezier(0.16,1,0.3,1)',
-                }}
-              >
-                <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 dark:border-slate-700">
-                  <h3 className="text-sm font-bold text-gray-800 dark:text-white">Edit URL Slug</h3>
-                  <button
-                    onClick={closeSlugEdit}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-                <div className="px-5 py-4">
-                  <label className="block text-xs font-semibold text-gray-500 dark:text-slate-400 mb-1.5">Slug</label>
-                  <div className="flex items-center gap-0 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-emerald-500">
-                    <span className="pl-3 text-sm text-gray-400 dark:text-slate-500 whitespace-nowrap">alhijaz.co/</span>
-                    <input
-                      type="text"
-                      value={slugInput}
-                      onChange={e => setSlugInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                      autoFocus
-                      className="flex-1 px-1 py-2.5 bg-transparent text-sm text-gray-800 dark:text-white outline-none"
-                      onKeyDown={e => { if (e.key === 'Enter') handleSlugSave(); }}
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-3 px-5 py-3 border-t border-gray-100 dark:border-slate-700">
-                  <button
-                    onClick={closeSlugEdit}
-                    className="flex-1 py-2 rounded-xl text-sm font-semibold text-gray-600 dark:text-slate-300 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    onClick={handleSlugSave}
-                    disabled={savingSlug}
-                    className="flex-1 py-2 rounded-xl text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 transition-colors active:scale-95 disabled:opacity-60"
-                  >
-                    {savingSlug ? 'Menyimpan...' : 'Simpan'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
 
         {/* ── Card Variant Picker ── */}
         <div className="mb-4">
