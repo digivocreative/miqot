@@ -378,7 +378,7 @@ export async function fetchUmrahDetail(username, idUmroh) {
         bayar: bayar > 0 ? bayar : 0,
         sisa: sisaPaket,
         tgl_berangkat,
-        raw_data: { jm_id: jmId, status_bayar: statusBayar, source: 'umrah_detail' },
+        raw_data: { jm_id: jmId, status_bayar: statusBayar, harga_paket: hargaPaket, source: 'umrah_detail' },
       });
     });
 

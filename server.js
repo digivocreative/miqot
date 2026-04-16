@@ -2476,6 +2476,21 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         if (items.length === 0) continue;
 
         const rows = buildRows(items, agentId, now);
+
+        // Fetch existing bayar to prevent Phase 2 from regressing payment data
+        // (laporan page can show stale/different bayar than umrah detail page)
+        const rowNames = rows.map(r => r.nama);
+        const { data: existingPayments, error: paymentLookupErr } = await supabase
+          .from('jamaah')
+          .select('id_umroh, nama, bayar')
+          .eq('agent_id', agentId)
+          .in('nama', rowNames);
+        if (paymentLookupErr) console.warn(`[Sync] ${slug} bayar lookup error:`, paymentLookupErr.message);
+        const existingBayarLookup = {};
+        (existingPayments || []).forEach(r => {
+          existingBayarLookup[`${r.id_umroh}_${r.nama}`.toLowerCase()] = r.bayar || 0;
+        });
+
         // Preserve Phase 1 data that Phase 2 might not have
         for (const row of rows) {
           // Staf: only from list page, not in laporan
@@ -2484,6 +2499,11 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           // tgl_daftar: if Phase 2 parsing failed, keep Phase 1's value
           if (!row.tgl_daftar) {
             row.tgl_daftar = bookingTglDaftarMap.get(row.id_umroh) || null;
+          }
+          // bayar: never regress — payment can only increase
+          const existingBayar = existingBayarLookup[`${row.id_umroh}_${row.nama}`.toLowerCase()];
+          if (existingBayar !== undefined && existingBayar > (row.bayar || 0)) {
+            row.bayar = existingBayar;
           }
         }
         const BATCH = 50;
@@ -7336,6 +7356,19 @@ async function syncOneAgent(agent) {
         console.log(`[SYNC] ${slug} range ${job.tglAwal}: ${items.length} items`);
         if (items.length === 0) continue;
 
+        // Fetch existing bayar to prevent Phase 2 from regressing payment data
+        const laporanNames = items.map(it => it.nama).filter(Boolean);
+        const { data: bgExistingPayments, error: bgPaymentLookupErr } = await supabase
+          .from('jamaah')
+          .select('id_umroh, nama, bayar')
+          .eq('agent_id', agentId)
+          .in('nama', laporanNames);
+        if (bgPaymentLookupErr) console.warn(`[SYNC] ${slug} bayar lookup error:`, bgPaymentLookupErr.message);
+        const bgExistingBayarLookup = {};
+        (bgExistingPayments || []).forEach(r => {
+          bgExistingBayarLookup[`${r.id_umroh}_${r.nama}`.toLowerCase()] = r.bayar || 0;
+        });
+
         const allNewRows = [];
         const BATCH = 50;
         for (let b = 0; b < items.length; b += BATCH) {
@@ -7347,6 +7380,11 @@ async function syncOneAgent(agent) {
             if (staf) row.raw_data = { ...(row.raw_data || {}), staf };
             if (!row.tgl_daftar) {
               row.tgl_daftar = bookingTglDaftarMap?.get(row.id_umroh) || null;
+            }
+            // bayar: never regress — payment can only increase
+            const bgExistingBayar = bgExistingBayarLookup[`${row.id_umroh}_${row.nama}`.toLowerCase()];
+            if (bgExistingBayar !== undefined && bgExistingBayar > (row.bayar || 0)) {
+              row.bayar = bgExistingBayar;
             }
           }
           allNewRows.push(...rows);
