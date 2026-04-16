@@ -1218,6 +1218,10 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [slugValue, setSlugValue] = useState(agent.slug);
+  const [editingSlug, setEditingSlug] = useState(false);
+  const [closingSlugModal, setClosingSlugModal] = useState(false);
+  const [slugError, setSlugError] = useState('');
+  const [slugCooldown, setSlugCooldown] = useState<{ canChange: boolean; nextChangeDate: string | null; isAdmin?: boolean }>({ canChange: true, nextChangeDate: null });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Card variant state ──
@@ -1233,6 +1237,17 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
     const v = agent.card_variant || 'default';
     setSelectedVariant(v);
   }, [agent.card_variant]);
+
+  // ── Fetch slug cooldown on mount ──
+  useEffect(() => {
+    fetch('/api/auth/slug-cooldown', { headers: { ...getAuthHeaders() } })
+      .then(r => r.json())
+      .then(data => {
+        if (data.canChange !== undefined) setSlugCooldown({ canChange: data.canChange, nextChangeDate: data.nextChangeDate, isAdmin: data.isAdmin });
+        if (data.currentSlug) setSlugValue(data.currentSlug);
+      })
+      .catch(() => {});
+  }, []);
 
   // ── PIN Security state ──
   const [hasPIN, setHasPIN] = useState(false);
@@ -1488,13 +1503,27 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
           </div>
           {/* Name only */}
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">{agent.name}</h2>
-          {/* URL slug (read-only) */}
-          <div className="flex items-center justify-center mt-2">
-            <span
-              className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-full cursor-default"
+          {/* URL slug badge + pencil icon */}
+          <div className="flex flex-col items-center mt-2 gap-1">
+            <button
+              type="button"
+              onClick={() => { if (slugCooldown.canChange) { setSlugValue(agent.slug); setSlugError(''); setEditingSlug(true); } }}
+              disabled={!slugCooldown.canChange}
+              className={`flex items-center gap-1.5 px-3 py-1 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-full transition-all duration-200 group ${slugCooldown.canChange ? 'hover:bg-emerald-100 dark:hover:bg-emerald-900/30 active:scale-95 cursor-pointer' : 'cursor-default'}`}
             >
               <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">alhijaz.co/{slugValue}</span>
-            </span>
+              {slugCooldown.canChange && (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400 dark:text-emerald-500 opacity-50 group-hover:opacity-100 transition-opacity"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+              )}
+            </button>
+            {!slugCooldown.isAdmin && (
+              <p className="text-[10px] text-gray-400 dark:text-slate-500 font-medium">
+                {slugCooldown.canChange
+                  ? 'Hanya bisa diubah 1x per bulan'
+                  : `Bisa diganti lagi pada ${slugCooldown.nextChangeDate ? new Date(slugCooldown.nextChangeDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'}`
+                }
+              </p>
+            )}
           </div>
         </div>
 
@@ -2130,6 +2159,139 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
             setTimeout(() => { setSaved(false); setSavedMessage(''); }, 2500);
           }}
         />
+
+        {/* Slug Change Modal */}
+        {editingSlug && (
+          <>
+            <style>{`
+              @keyframes slugOverlayIn { from { opacity: 0 } to { opacity: 1 } }
+              @keyframes slugOverlayOut { from { opacity: 1 } to { opacity: 0 } }
+              @keyframes slugModalIn { from { opacity: 0; transform: scale(0.92) } to { opacity: 1; transform: scale(1) } }
+              @keyframes slugModalOut { from { opacity: 1; transform: scale(1) } to { opacity: 0; transform: scale(0.92) } }
+            `}</style>
+            <div
+              className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+              style={{ animation: `${closingSlugModal ? 'slugOverlayOut' : 'slugOverlayIn'} 250ms cubic-bezier(0.16,1,0.3,1) forwards` }}
+              onClick={() => {
+                setClosingSlugModal(true);
+                setTimeout(() => { setEditingSlug(false); setClosingSlugModal(false); setSlugValue(agent.slug); setSlugError(''); }, 200);
+              }}
+            />
+            <div className="fixed inset-0 z-50 flex items-center justify-center px-4 pointer-events-none">
+              <div
+                className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl pointer-events-auto"
+                style={{ animation: `${closingSlugModal ? 'slugModalOut' : 'slugModalIn'} 250ms cubic-bezier(0.16,1,0.3,1) forwards` }}
+              >
+                {/* Header */}
+                <div className="px-5 py-3 border-b border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-gray-800 dark:text-white">Ubah Username</h3>
+                  <button onClick={() => {
+                    setClosingSlugModal(true);
+                    setTimeout(() => { setEditingSlug(false); setClosingSlugModal(false); setSlugValue(agent.slug); setSlugError(''); }, 200);
+                  }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+                {/* Body */}
+                <div className="p-5">
+                  <p className="text-xs text-gray-500 dark:text-slate-400 mb-4">URL lama akan otomatis redirect ke username baru.</p>
+
+                  <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide">Username</label>
+                  <div className="flex items-center rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden focus-within:ring-2 focus-within:ring-emerald-500 focus-within:border-emerald-500 transition-all">
+                    <span className="text-sm text-gray-400 dark:text-slate-500 pl-3 pr-0.5 py-2.5 select-none whitespace-nowrap">alhijaz.co/</span>
+                    <input
+                      type="text"
+                      value={slugValue}
+                      onChange={e => {
+                        setSlugValue(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''));
+                        setSlugError('');
+                      }}
+                      className="flex-1 w-full px-1 py-2.5 bg-white dark:bg-slate-900 text-sm text-gray-800 dark:text-white placeholder:text-gray-400 outline-none"
+                      placeholder={agent.slug}
+                      maxLength={30}
+                      autoFocus
+                    />
+                  </div>
+                  {slugError ? (
+                    <p className="text-xs font-medium text-red-500 dark:text-red-400 mt-1.5">{slugError}</p>
+                  ) : (
+                    <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1.5 font-medium">Huruf kecil, angka, dan strip. 2–30 karakter.</p>
+                  )}
+
+                  {/* Preview */}
+                  {slugValue && slugValue !== agent.slug && slugValue.length >= 2 && (
+                    <div className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-xl">
+                      <p className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wide mb-0.5">Preview URL</p>
+                      <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">alhijaz.co/{slugValue}</p>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex gap-2 mt-5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setClosingSlugModal(true);
+                        setTimeout(() => { setEditingSlug(false); setClosingSlugModal(false); setSlugValue(agent.slug); setSlugError(''); }, 200);
+                      }}
+                      className="flex-1 py-3 rounded-xl text-sm font-bold text-gray-600 dark:text-slate-300 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 transition-all duration-200 active:scale-95"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!slugValue || slugValue === agent.slug || slugValue.length < 2 || saving}
+                      onClick={async () => {
+                        if (slugValue.length < 2) { setSlugError('Minimal 2 karakter'); return; }
+                        if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(slugValue) && slugValue.length > 1) { setSlugError('Format tidak valid'); return; }
+                        setSaving(true);
+                        try {
+                          const res = await fetch('/api/admin/profile', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                            body: JSON.stringify({ slug: slugValue }),
+                          });
+                          const data = await res.json();
+                          if (!res.ok || !data.success) {
+                            setSlugError(data.error === 'SLUG_COOLDOWN' ? data.message : (data.error || 'Gagal menyimpan'));
+                            setSaving(false);
+                            return;
+                          }
+                          if (data.newToken) {
+                            const stored = localStorage.getItem('auth_session') || sessionStorage.getItem('auth_session');
+                            if (stored) {
+                              const session = JSON.parse(stored);
+                              session.token = data.newToken;
+                              if (data.user) session.user = { ...session.user, ...data.user };
+                              const storage = localStorage.getItem('auth_session') ? localStorage : sessionStorage;
+                              storage.setItem('auth_session', JSON.stringify(session));
+                            }
+                            setSlugCooldown({ canChange: false, nextChangeDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() });
+                          }
+                          setSaving(false);
+                          setClosingSlugModal(true);
+                          setTimeout(() => { setEditingSlug(false); setClosingSlugModal(false); }, 200);
+                          setSaved(true);
+                          setSavedMessage('Username berhasil diubah.');
+                          onUpdated();
+                          setTimeout(() => { setSaved(false); setSavedMessage(''); }, 2500);
+                        } catch {
+                          setSlugError('Gagal menghubungi server');
+                          setSaving(false);
+                        }
+                      }}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95 disabled:opacity-70"
+                    >
+                      {saving ? (
+                        <><svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg> Menyimpan...</>
+                      ) : 'Simpan'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
         </div>
 
         {/* Error */}

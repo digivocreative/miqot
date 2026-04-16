@@ -22,6 +22,7 @@ const DATA_DIR = path.join(__dirname, 'data');
 
 // Lazy-loaded after dotenv.config() runs
 let YEAR_CODES, BASE_URL, BOT_TOKEN, CHAT_ID, CHAT_ID_DEV, TELEGRAM_API, OPENAI_KEY, IS_PROD, supabaseAdmin;
+let isCheckRunning = false;
 
 function loadConfig() {
   YEAR_CODES = (process.env.NOTIFIER_YEAR_CODES || '1448').split(',').map(s => s.trim());
@@ -1576,6 +1577,11 @@ function findAlternatives(soldPkg, allPackages) {
 // ─── Core: Check & Notify ────────────────────────────
 
 async function checkAndNotify() {
+  if (isCheckRunning) {
+    log('checkAndNotify already running, skipping this cycle');
+    return;
+  }
+  isCheckRunning = true;
   try {
     const packages = await fetchAllPackages();
     if (packages.length === 0) { warn('No packages fetched, skipping check'); return; }
@@ -1875,6 +1881,8 @@ async function checkAndNotify() {
     await saveState(state);
   } catch (err) {
     warn('checkAndNotify error:', err.message);
+  } finally {
+    isCheckRunning = false;
   }
 }
 

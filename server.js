@@ -274,8 +274,22 @@ async function authMiddleware(req, res, next) {
     const decoded = jwt.verify(token, JWT_SECRET);
     // Backward compat: old tokens don't have id, resolve from slug
     if (!decoded.id && decoded.slug) {
-      const agent = await getAgentBySlug(decoded.slug);
-      if (agent) decoded.id = agent.id;
+      let agent = await getAgentBySlug(decoded.slug);
+      // If slug was changed, check history
+      if (!agent) {
+        const { data: history } = await supabase
+          .from('agent_slug_history')
+          .select('agent_id')
+          .eq('old_slug', decoded.slug)
+          .order('changed_at', { ascending: false })
+          .limit(1)
+          .single();
+        if (history) agent = await getAgentById(history.agent_id);
+      }
+      if (agent) {
+        decoded.id = agent.id;
+        decoded.slug = agent.slug; // update to current slug
+      }
     }
     req.user = decoded; // { id, slug, name, role }
     next();
@@ -844,6 +858,42 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
   });
 });
 
+// Slug change cooldown status
+app.get('/api/auth/slug-cooldown', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    if (req.user.role === 'admin') {
+      return res.json({ canChange: true, nextChangeDate: null, currentSlug: agent.slug, isAdmin: true });
+    }
+
+    const { data: lastChange } = await supabase
+      .from('agent_slug_history')
+      .select('changed_at')
+      .eq('agent_id', req.user.id)
+      .order('changed_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!lastChange) {
+      return res.json({ canChange: true, nextChangeDate: null, currentSlug: agent.slug });
+    }
+
+    const nextDate = new Date(new Date(lastChange.changed_at).getTime() + 30 * 24 * 60 * 60 * 1000);
+    const canChange = Date.now() >= nextDate.getTime();
+
+    res.json({
+      canChange,
+      nextChangeDate: canChange ? null : nextDate.toISOString(),
+      currentSlug: agent.slug,
+    });
+  } catch (err) {
+    console.error('[Slug Cooldown] Error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── Resend client (transactional emails) ──
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -1207,10 +1257,45 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
     updates.password = await bcrypt.hash(password, 12);
   }
   if (newSlug && newSlug !== req.user.slug) {
+    // Validate slug format
+    const cleanSlug = newSlug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+    if (cleanSlug.length < 2 || cleanSlug.length > 30) {
+      return res.status(400).json({ error: 'Username harus 2-30 karakter' });
+    }
+    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(cleanSlug) && cleanSlug.length > 1) {
+      return res.status(400).json({ error: 'Username hanya boleh huruf kecil, angka, dan strip' });
+    }
+    const RESERVED_SLUGS = ['admin', 'login', 'register', 'dashboard', 'api', 'compare', 'reset-password', 'f'];
+    if (RESERVED_SLUGS.includes(cleanSlug)) {
+      return res.status(400).json({ error: 'Username ini tidak tersedia' });
+    }
+
+    // 30-day cooldown (skip for admin)
+    if (req.user.role !== 'admin') {
+      const { data: lastChange } = await supabase
+        .from('agent_slug_history')
+        .select('changed_at')
+        .eq('agent_id', req.user.id)
+        .order('changed_at', { ascending: false })
+        .limit(1)
+        .single();
+      if (lastChange) {
+        const daysSince = (Date.now() - new Date(lastChange.changed_at).getTime()) / (1000 * 60 * 60 * 24);
+        if (daysSince < 30) {
+          const nextDate = new Date(new Date(lastChange.changed_at).getTime() + 30 * 24 * 60 * 60 * 1000);
+          return res.status(400).json({
+            error: 'SLUG_COOLDOWN',
+            message: `Username baru bisa diganti lagi pada ${nextDate.toISOString().split('T')[0]}`,
+            nextChangeDate: nextDate.toISOString(),
+          });
+        }
+      }
+    }
+
     // Check if slug is taken
-    const { data: existing } = await supabase.from('agents').select('slug').eq('slug', newSlug).single();
-    if (existing) return res.status(400).json({ error: 'Slug sudah digunakan' });
-    updates.slug = newSlug;
+    const { data: existing } = await supabase.from('agents').select('slug').eq('slug', cleanSlug).single();
+    if (existing) return res.status(400).json({ error: 'Username sudah digunakan' });
+    updates.slug = cleanSlug;
   }
   if (Object.keys(updates).length === 0) return res.json({ success: true });
 
