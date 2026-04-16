@@ -1848,14 +1848,24 @@ function logCapiEvent(agentId, eventName, status, { value, errorMessage, source 
  * Fire a single CAPI Purchase event to Meta Graph API.
  * Silent fail — jangan ganggu sync flow.
  */
-async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, value, contentName, contentType }) {
+async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, value, contentName, contentType, userName, userPhone }) {
+  // Hash user data for Meta (SHA-256) — Meta requires hashed PII
+  const crypto = await import('crypto');
+  const sha256 = (v) => v ? crypto.createHash('sha256').update(v.trim().toLowerCase()).digest('hex') : undefined;
+
+  const userData = { client_user_agent: 'Miqot Server Sync' };
+  if (userName) userData.fn = sha256(userName.split(' ')[0]); // first name
+  if (userName && userName.includes(' ')) userData.ln = sha256(userName.split(' ').slice(1).join(' ')); // last name
+  if (userPhone) userData.ph = sha256(userPhone.replace(/\D/g, '')); // phone digits only
+  userData.country = sha256('id'); // Indonesia
+
   const payload = {
     data: [{
       event_name: 'Purchase',
       event_time: Math.floor(Date.now() / 1000),
       event_source_url: `https://alhijaz.co/${slug}`,
       action_source: 'system_generated',
-      user_data: { client_user_agent: 'Miqot Server Sync' },
+      user_data: userData,
       custom_data: {
         currency: 'IDR',
         value,
@@ -1912,7 +1922,7 @@ async function processCapiPurchases(agentId, slug, type, upsertedIdentifiers) {
       const uniqueIds = [...new Set(ids)];
       const { data } = await supabase
         .from(table)
-        .select('id_umroh, nama, paket, bayar, sisa, capi_purchase_status')
+        .select('id_umroh, nama, wa, paket, bayar, sisa, capi_purchase_status')
         .eq('agent_id', agentId)
         .in('id_umroh', uniqueIds);
       rows = data || [];
@@ -1921,7 +1931,7 @@ async function processCapiPurchases(agentId, slug, type, upsertedIdentifiers) {
       const uniqueIds = [...new Set(ids)];
       const { data } = await supabase
         .from(table)
-        .select('id_haji, id_jamaah, nama, paket, status_bayar, capi_purchase_status')
+        .select('id_haji, id_jamaah, nama, telp, paket, status_bayar, capi_purchase_status')
         .eq('agent_id', agentId)
         .in('id_haji', uniqueIds);
       rows = data || [];
@@ -1945,9 +1955,11 @@ async function processCapiPurchases(agentId, slug, type, upsertedIdentifiers) {
           // Lunas — either via DP or direct
           lunasRows.push({
             id: row.id_umroh,
-            value: bayar, // saat lunas, bayar = total harga (sisa = 0)
+            value: bayar,
             contentName: row.paket || 'Paket Umroh',
             contentType: 'umroh',
+            userName: row.nama,
+            userPhone: row.wa,
             matchKey: { id_umroh: row.id_umroh, nama: row.nama },
           });
         } else if (sisa > 0 && status === null) {
@@ -1957,6 +1969,8 @@ async function processCapiPurchases(agentId, slug, type, upsertedIdentifiers) {
             value: bayar,
             contentName: row.paket || 'Paket Umroh',
             contentType: 'umroh',
+            userName: row.nama,
+            userPhone: row.wa,
             matchKey: { id_umroh: row.id_umroh, nama: row.nama },
           });
         }
@@ -1971,6 +1985,8 @@ async function processCapiPurchases(agentId, slug, type, upsertedIdentifiers) {
             value: HAJI_PURCHASE_VALUE,
             contentName: row.paket || 'Paket Haji',
             contentType: 'haji',
+            userName: row.nama,
+            userPhone: row.telp,
             matchKey: { id_haji: row.id_haji, id_jamaah: row.id_jamaah },
           });
         } else if (statusBayar === 'CICILAN' && status === null) {
@@ -1979,6 +1995,8 @@ async function processCapiPurchases(agentId, slug, type, upsertedIdentifiers) {
             value: HAJI_PURCHASE_VALUE,
             contentName: row.paket || 'Paket Haji',
             contentType: 'haji',
+            userName: row.nama,
+            userPhone: row.telp,
             matchKey: { id_haji: row.id_haji, id_jamaah: row.id_jamaah },
           });
         }
