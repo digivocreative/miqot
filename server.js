@@ -55,14 +55,20 @@ app.use(express.json());
 // ── Analytics: fire-and-forget event logger ──
 async function logAnalyticsEvent(agentId, eventType, eventName, metadata = {}) {
   try {
-    await supabase.from('analytics_events').insert({
+    const { error } = await supabase.from('analytics_events').insert({
       agent_id: agentId,
       event_type: eventType,
       event_name: eventName,
       metadata,
     });
+    if (error) {
+      console.error('[Analytics] Supabase insert error:', error.message, error.details);
+      return { ok: false, error: error.message };
+    }
+    return { ok: true };
   } catch (err) {
     console.error('[Analytics] Log error:', err.message);
+    return { ok: false, error: err.message };
   }
 }
 
@@ -2173,7 +2179,8 @@ app.post('/api/capi/:slug/event', async (req, res) => {
   const config = await readCapiConfig(agent.id);
   if (!config?.pixelId || !config?.accessToken) return res.json({ sent: false, reason: 'Not configured' });
   const accessToken = capiDecrypt(config.accessToken);
-  const { eventKey, eventName, userData, customData, eventSourceUrl, sourceUrl, actionSource, fbc, fbp, userAgent } = req.body;
+  const { eventKey, eventName, eventId, userData, customData, eventSourceUrl, sourceUrl, actionSource, fbc, fbp, userAgent } = req.body;
+  console.log(`[CAPI] ${slug} incoming:`, JSON.stringify({ eventKey, eventName, eventId, sourceUrl: sourceUrl || eventSourceUrl, fbc: !!fbc, fbp: !!fbp }));
 
   // Map eventKey to Meta event name using agent's config, fallback to defaults
   const EVENT_KEY_DEFAULTS = { pageView: 'PageView', search: 'Search', viewContent: 'ViewContent', contact: 'Contact' };
@@ -2186,17 +2193,22 @@ app.post('/api/capi/:slug/event', async (req, res) => {
   }
   if (!resolvedEventName) return res.json({ sent: false, reason: 'Event disabled' });
 
+  const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || '';
+  const resolvedSourceUrl = eventSourceUrl || sourceUrl || `https://alhijaz.co/${slug}`;
+  const resolvedEventId = eventId || `${resolvedEventName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
   const metaPayload = {
     data: [{
       event_name: resolvedEventName,
+      event_id: resolvedEventId,
       event_time: Math.floor(Date.now() / 1000),
-      event_source_url: eventSourceUrl || sourceUrl || '',
+      event_source_url: resolvedSourceUrl,
       user_data: {
         ...(userData || {}),
         ...(fbc ? { fbc } : {}),
         ...(fbp ? { fbp } : {}),
         ...(userAgent ? { client_user_agent: userAgent } : {}),
-        client_ip_address: req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || '',
+        client_ip_address: clientIp,
         country: crypto.createHash('sha256').update('id').digest('hex'),
       },
       custom_data: customData || {},
@@ -2204,6 +2216,7 @@ app.post('/api/capi/:slug/event', async (req, res) => {
     }],
     ...(config.testMode && config.testEventCode ? { test_event_code: config.testEventCode } : {}),
   };
+  console.log(`[CAPI] ${slug}/${resolvedEventName} payload:`, JSON.stringify({ event_id: resolvedEventId, event_source_url: resolvedSourceUrl, client_ip: clientIp, user_data_keys: Object.keys(metaPayload.data[0].user_data) }));
   try {
     const metaRes = await fetch(`https://graph.facebook.com/v21.0/${config.pixelId}/events?access_token=${encodeURIComponent(accessToken)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(metaPayload),
@@ -5574,7 +5587,7 @@ app.options('/api/analytics/:path', (req, res) => {
 });
 
 // Authenticated event logging (frontend → backend)
-app.post('/api/analytics/event', authMiddleware, (req, res) => {
+app.post('/api/analytics/event', authMiddleware, async (req, res) => {
   const { eventType, eventName, metadata } = req.body;
   if (!eventType || !VALID_EVENT_TYPES.includes(eventType)) {
     return res.status(400).json({ error: 'Invalid eventType' });
@@ -5582,11 +5595,11 @@ app.post('/api/analytics/event', authMiddleware, (req, res) => {
   if (!eventName || typeof eventName !== 'string' || eventName.length > 50) {
     return res.status(400).json({ error: 'Invalid eventName' });
   }
-  // Skip tracking for admin users
-  if (req.user.role !== 'admin') {
-    logAnalyticsEvent(req.user.id, eventType, eventName, metadata || {});
+  if (req.user.role === 'admin') {
+    return res.json({ success: true, skipped: true });
   }
-  res.json({ success: true });
+  const result = await logAnalyticsEvent(req.user.id, eventType, eventName, metadata || {});
+  res.json({ success: result.ok, error: result.ok ? undefined : result.error });
 });
 
 // Public (unauthenticated) event logging
