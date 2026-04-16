@@ -359,8 +359,8 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
     + 'var u="/api/capi/"+s+"/event",bl=new Blob([JSON.stringify(b)],{type:"application/json"});'
     + 'if(navigator.sendBeacon)navigator.sendBeacon(u,bl);else fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b),keepalive:true}).catch(function(){})'
     + '}catch(e){}}'
-    + 'fire("pageView");'
-    + 'document.addEventListener("click",function(e){var t=e.target;if(t.closest&&(t.closest("a[href*=\\"wa.me\\"]")||t.closest("a[href*=\\"whatsapp.com\\"]")||t.closest(".alhijaz-btn--sticky")||t.closest(".alhijaz-fab")||t.closest("a[href*=\\"api.whatsapp\\"]")))fire("contact")});'
+    + 'console.log("[CAPI] \\ud83d\\udfe2 pageView",{slug:s,url:location.href});fire("pageView");'
+    + 'document.addEventListener("click",function(e){var t=e.target;if(t.closest&&(t.closest("a[href*=\\"wa.me\\"]")||t.closest("a[href*=\\"whatsapp.com\\"]")||t.closest(".alhijaz-btn--sticky")||t.closest(".alhijaz-fab")||t.closest("a[href*=\\"api.whatsapp\\"]"))){console.log("[CAPI] \\ud83d\\udfe2 contact",{slug:s,url:location.href});fire("contact")}});'
     + '})();'
     + '</sc' + 'ript>';
 

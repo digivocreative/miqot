@@ -59,6 +59,8 @@ export function sendCapiEvent(
       timestamp: Math.floor(Date.now() / 1000),
     };
 
+    console.log(`[CAPI] 🔵 ${eventKey}`, { slug, sourceUrl: body.sourceUrl });
+
     // Use sendBeacon for reliability on page unload, fallback to fetch
     const url = `/api/capi/${slug}/event`;
     const blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
