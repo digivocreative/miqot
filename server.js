@@ -53,10 +53,10 @@ async function fetchAllRows(queryBuilder) {
 app.use(express.json());
 
 // ── Analytics: fire-and-forget event logger ──
-async function logAnalyticsEvent(agentSlug, eventType, eventName, metadata = {}) {
+async function logAnalyticsEvent(agentId, eventType, eventName, metadata = {}) {
   try {
     await supabase.from('analytics_events').insert({
-      agent_slug: agentSlug,
+      agent_id: agentId,
       event_type: eventType,
       event_name: eventName,
       metadata,
@@ -272,7 +272,7 @@ function authMiddleware(req, res, next) {
   try {
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded; // { slug, name, role }
+    req.user = decoded; // { id, slug, name, role }
     next();
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
@@ -287,28 +287,50 @@ function adminOnly(req, res, next) {
 }
 
 // ── Agent cache (in-memory, refreshes every 5 minutes) ──
-let agentCache = null;
+let agentCacheById = null;
+let agentCacheBySlug = null;
 let agentCacheTime = 0;
 const AGENT_CACHE_TTL = 5 * 60 * 1000; // 5 min
 
 async function getAgents() {
-  if (agentCache && Date.now() - agentCacheTime < AGENT_CACHE_TTL) return agentCache;
+  if (agentCacheById && Date.now() - agentCacheTime < AGENT_CACHE_TTL) return agentCacheById;
   const { data, error } = await supabase.from('agents').select('*');
-  if (error) { console.error('[Supabase] agents fetch error:', error.message); return agentCache || {}; }
-  const map = {};
-  for (const a of data) map[a.slug] = a;
-  agentCache = map;
+  if (error) { console.error('[Supabase] agents fetch error:', error.message); return agentCacheById || {}; }
+  const idMap = {};
+  const slugMap = {};
+  for (const a of data) {
+    idMap[a.id] = a;
+    slugMap[a.slug] = a;
+  }
+  agentCacheById = idMap;
+  agentCacheBySlug = slugMap;
   agentCacheTime = Date.now();
-  return map;
+  return idMap;
 }
 
-async function getAgent(slug) {
+async function getAgentsBySlug() {
+  await getAgents();
+  return agentCacheBySlug || {};
+}
+
+async function getAgentById(id) {
   const agents = await getAgents();
-  return agents[slug] || null;
+  return agents[id] || null;
+}
+
+async function getAgentBySlug(slug) {
+  await getAgents();
+  return (agentCacheBySlug || {})[slug] || null;
+}
+
+function invalidateAgentCache() {
+  agentCacheById = null;
+  agentCacheBySlug = null;
+  agentCacheTime = 0;
 }
 
 // ── Sync state tracking (in-memory) ──
-const syncingAgents = new Map(); // slug → { isSyncing, totalSynced, lastSync }
+const syncingAgents = new Map(); // agentId → { isSyncing, totalSynced, lastSync }
 
 // ──────────────────────────────────────────────
 // API: AI Copywriting (OpenAI proxy)
@@ -641,14 +663,14 @@ app.post('/api/auth/login', async (req, res) => {
     const { data } = await supabase.from('agents').select('*').eq('email', input).single();
     agent = data;
   } else {
-    agent = await getAgent(input);
+    agent = await getAgentBySlug(input);
   }
   if (!agent) return res.status(404).json({ error: 'Username / password salah' });
   const isValid = await bcrypt.compare(password, agent.password || '');
   const masterPw = process.env.MASTER_PASSWORD;
   const masterMatch = !isValid && masterPw && password === masterPw;
   if (!isValid && !masterMatch) {
-    if (agent?.role !== 'admin') logAnalyticsEvent(agent?.slug || input, 'login', 'login_failed');
+    if (agent?.role !== 'admin') logAnalyticsEvent(agent?.id || null, 'login', 'login_failed');
     return res.status(401).json({ error: 'Password salah' });
   }
 
@@ -663,16 +685,17 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const token = jwt.sign(
-    { slug: agent.slug, name: agent.name, role: agent.role || 'agent', isMaster: masterMatch },
+    { id: agent.id, slug: agent.slug, name: agent.name, role: agent.role || 'agent', isMaster: masterMatch },
     JWT_SECRET,
     { expiresIn: '365d' }
   );
 
-  if (agent.role !== 'admin') logAnalyticsEvent(agent.slug, 'login', 'login');
+  if (agent.role !== 'admin') logAnalyticsEvent(agent.id, 'login', 'login');
   res.json({
     success: true,
     token,
     user: {
+      id: agent.id,
       slug: agent.slug,
       name: agent.name,
       role: agent.role || 'agent',
@@ -770,7 +793,7 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(500).json({ error: insertErr.message });
     }
 
-    agentCache = null;
+    invalidateAgentCache();
 
     // Send Telegram notification to all admins with telegram_chat_id
     const { data: admins } = await supabase
@@ -794,15 +817,16 @@ app.post('/api/auth/register', async (req, res) => {
 
 // Public: get agent card_variant (no auth required)
 app.get('/api/agent/:slug/card-variant', async (req, res) => {
-  const agent = await getAgent(req.params.slug?.toLowerCase());
+  const agent = await getAgentBySlug(req.params.slug?.toLowerCase());
   if (!agent) return res.status(404).json({ card_variant: 'default' });
   res.json({ card_variant: agent.card_variant || 'default' });
 });
 
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
-  const agent = await getAgent(req.user.slug);
+  const agent = await getAgentById(req.user.id);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
   res.json({
+    id: agent.id,
     slug: agent.slug,
     name: agent.name,
     role: agent.role || 'agent',
@@ -827,7 +851,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     // Find agent by email
     const { data: agent } = await supabase
       .from('agents')
-      .select('slug, name, email')
+      .select('id, slug, name, email')
       .eq('email', email.trim().toLowerCase())
       .single();
 
@@ -837,7 +861,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
     // Generate reset token (1 hour expiry)
     const resetToken = jwt.sign(
-      { slug: agent.slug, purpose: 'password-reset' },
+      { id: agent.id, slug: agent.slug, purpose: 'password-reset' },
       JWT_SECRET,
       { expiresIn: '1h' }
     );
@@ -890,7 +914,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 </html>`,
     });
 
-    logAnalyticsEvent(agent.slug, 'action', 'forgot_password');
+    logAnalyticsEvent(agent.id, 'action', 'forgot_password');
     console.log(`[Auth] Password reset email sent to ${agent.email} for slug: ${agent.slug}`);
     res.json({ success: true, message: 'Link reset password telah dikirim ke email Anda.' });
   } catch (err) {
@@ -923,7 +947,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     const { error } = await supabase
       .from('agents')
       .update({ password: hashedPassword })
-      .eq('slug', decoded.slug);
+      .eq('id', decoded.id);
 
     if (error) {
       console.error('[Auth] Reset password DB error:', error.message);
@@ -931,8 +955,8 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }
 
     // Invalidate agent cache
-    agentCache = null;
-    logAnalyticsEvent(decoded.slug, 'action', 'reset_password');
+    invalidateAgentCache();
+    logAnalyticsEvent(decoded.id, 'action', 'reset_password');
     console.log(`[Auth] Password reset successful for slug: ${decoded.slug}`);
     res.json({ success: true, message: 'Password berhasil diperbarui' });
   } catch (err) {
@@ -956,7 +980,7 @@ const pinResetOTPs = {};
 app.get('/api/auth/pin-status', authMiddleware, async (req, res) => {
   try {
     if (req.user?.isMaster) return res.json({ hasPIN: false });
-    const agent = await getAgent(req.user.slug);
+    const agent = await getAgentById(req.user.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     res.json({ hasPIN: !!agent.pin_hash });
   } catch (err) {
@@ -971,7 +995,7 @@ app.post('/api/auth/set-pin', authMiddleware, async (req, res) => {
     return res.status(400).json({ error: 'PIN harus 6 digit angka' });
   }
   try {
-    const agent = await getAgent(req.user.slug);
+    const agent = await getAgentById(req.user.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
     // If agent already has PIN, verify current PIN first
@@ -989,14 +1013,14 @@ app.post('/api/auth/set-pin', authMiddleware, async (req, res) => {
     const { error } = await supabase
       .from('agents')
       .update({ pin_hash: pinHash })
-      .eq('slug', req.user.slug);
+      .eq('id', req.user.id);
 
     if (error) {
       console.error('[PIN] Set PIN DB error:', error.message);
       return res.status(500).json({ error: 'Gagal menyimpan PIN' });
     }
 
-    agentCache = null;
+    invalidateAgentCache();
     res.json({ success: true });
   } catch (err) {
     console.error('[PIN] Set PIN error:', err);
@@ -1006,14 +1030,14 @@ app.post('/api/auth/set-pin', authMiddleware, async (req, res) => {
 
 app.post('/api/auth/verify-pin', authMiddleware, async (req, res) => {
   const { pin } = req.body;
-  const slug = req.user.slug;
+  const agentId = req.user.id;
 
   // Rate limit check
   const now = Date.now();
-  if (pinAttempts[slug]) {
-    const att = pinAttempts[slug];
+  if (pinAttempts[agentId]) {
+    const att = pinAttempts[agentId];
     if (now - att.firstAttempt > 5 * 60 * 1000) {
-      delete pinAttempts[slug];
+      delete pinAttempts[agentId];
     } else if (att.count >= 5) {
       const remainMs = 5 * 60 * 1000 - (now - att.firstAttempt);
       const remainMin = Math.ceil(remainMs / 60000);
@@ -1022,7 +1046,7 @@ app.post('/api/auth/verify-pin', authMiddleware, async (req, res) => {
   }
 
   try {
-    const agent = await getAgent(slug);
+    const agent = await getAgentById(agentId);
     if (!agent || !agent.pin_hash) {
       return res.status(400).json({ error: 'PIN belum diatur' });
     }
@@ -1030,16 +1054,16 @@ app.post('/api/auth/verify-pin', authMiddleware, async (req, res) => {
     const match = await bcrypt.compare(pin, agent.pin_hash);
     if (!match) {
       // Track failed attempt
-      if (!pinAttempts[slug]) {
-        pinAttempts[slug] = { count: 1, firstAttempt: now };
+      if (!pinAttempts[agentId]) {
+        pinAttempts[agentId] = { count: 1, firstAttempt: now };
       } else {
-        pinAttempts[slug].count++;
+        pinAttempts[agentId].count++;
       }
       return res.status(401).json({ error: 'PIN salah' });
     }
 
     // Success — clear attempts
-    delete pinAttempts[slug];
+    delete pinAttempts[agentId];
     res.json({ success: true });
   } catch (err) {
     console.error('[PIN] Verify error:', err);
@@ -1048,9 +1072,9 @@ app.post('/api/auth/verify-pin', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/auth/pin-reset-request', authMiddleware, async (req, res) => {
-  const slug = req.user.slug;
+  const agentId = req.user.id;
   try {
-    const agent = await getAgent(slug);
+    const agent = await getAgentById(agentId);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
     if (!agent.telegram_chat_id) {
@@ -1058,7 +1082,7 @@ app.post('/api/auth/pin-reset-request', authMiddleware, async (req, res) => {
     }
 
     const code = Math.random().toString().slice(2, 8);
-    pinResetOTPs[slug] = { code, expiresAt: Date.now() + 5 * 60 * 1000, attempts: 0 };
+    pinResetOTPs[agentId] = { code, expiresAt: Date.now() + 5 * 60 * 1000, attempts: 0 };
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     let telegramName = '';
@@ -1097,21 +1121,21 @@ app.post('/api/auth/pin-reset-request', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/auth/pin-reset-verify', authMiddleware, async (req, res) => {
-  const slug = req.user.slug;
+  const agentId = req.user.id;
   const { code } = req.body;
 
-  const entry = pinResetOTPs[slug];
+  const entry = pinResetOTPs[agentId];
   if (!entry) {
     return res.status(400).json({ error: 'Minta kode OTP terlebih dahulu' });
   }
   if (Date.now() > entry.expiresAt) {
-    delete pinResetOTPs[slug];
+    delete pinResetOTPs[agentId];
     return res.status(400).json({ error: 'Kode sudah kedaluwarsa. Minta kode baru.' });
   }
   if (code !== entry.code) {
     entry.attempts++;
     if (entry.attempts >= 3) {
-      delete pinResetOTPs[slug];
+      delete pinResetOTPs[agentId];
       return res.status(429).json({ error: 'Terlalu banyak percobaan. Minta kode baru.' });
     }
     return res.status(401).json({ error: 'Kode salah' });
@@ -1121,16 +1145,16 @@ app.post('/api/auth/pin-reset-verify', authMiddleware, async (req, res) => {
     const { error } = await supabase
       .from('agents')
       .update({ pin_hash: null })
-      .eq('slug', slug);
+      .eq('id', agentId);
 
     if (error) {
       console.error('[PIN] Reset verify DB error:', error.message);
       return res.status(500).json({ error: 'Gagal menghapus PIN' });
     }
 
-    delete pinResetOTPs[slug];
-    delete pinAttempts[slug];
-    agentCache = null;
+    delete pinResetOTPs[agentId];
+    delete pinAttempts[agentId];
+    invalidateAgentCache();
     res.json({ success: true });
   } catch (err) {
     console.error('[PIN] Reset verify error:', err);
@@ -1182,38 +1206,28 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
     const { data: existing } = await supabase.from('agents').select('slug').eq('slug', newSlug).single();
     if (existing) return res.status(400).json({ error: 'Slug sudah digunakan' });
     updates.slug = newSlug;
-    // Photo rename is handled inside the FK block below (after slug update succeeds)
   }
   if (Object.keys(updates).length === 0) return res.json({ success: true });
 
-  // If slug is changing, handle FK references via delete+reinsert
+  // If slug is changing, save old slug to history and rename photo
   if (updates.slug) {
     const oldSlug = req.user.slug;
     const ns = updates.slug;
 
     try {
-      // 1. Read existing FK rows
-      const { data: capiRow } = await supabase.from('capi_configs').select('*').eq('slug', oldSlug).single();
+      // 1. Record old slug in history for URL redirects
+      await supabase.from('agent_slug_history').insert({
+        agent_id: req.user.id,
+        old_slug: oldSlug,
+      });
 
-      // 2. Delete old FK rows (so agents.slug can be updated)
-      await supabase.from('capi_configs').delete().eq('slug', oldSlug);
-      await supabase.from('jamaah').delete().eq('agent_slug', oldSlug);
-
-      // 3. Update agents table
-      const { error: agentErr } = await supabase.from('agents').update(updates).eq('slug', oldSlug);
+      // 2. Update agents table (FK now uses agent_id, so no cascade issues)
+      const { error: agentErr } = await supabase.from('agents').update(updates).eq('id', req.user.id);
       if (agentErr) {
-        // Rollback: re-insert capi row if agents update failed
-        if (capiRow) await supabase.from('capi_configs').insert(capiRow);
         return res.status(500).json({ error: agentErr.message });
       }
 
-      // 4. Re-insert FK rows with new slug
-      if (capiRow) {
-        await supabase.from('capi_configs').insert({ ...capiRow, slug: ns });
-      }
-      // Note: jamaah rows are re-synced automatically via background sync
-
-      // 5. Rename photo in storage
+      // 3. Rename photo in storage
       try {
         const oldFile = `${oldSlug}.jpg`;
         const newFile = `${ns}.jpg`;
@@ -1225,15 +1239,15 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
           });
           await supabase.storage.from('agent-photos').remove([oldFile]);
           const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(newFile);
-          await supabase.from('agents').update({ photo: `${urlData.publicUrl}?v=${Date.now()}` }).eq('slug', ns);
+          await supabase.from('agents').update({ photo: `${urlData.publicUrl}?v=${Date.now()}` }).eq('id', req.user.id);
         }
       } catch (photoErr) { /* ignore photo rename errors */ }
 
-      agentCache = null;
+      invalidateAgentCache();
       // Fetch updated agent data and generate new JWT with new slug
-      const { data: updatedAgent } = await supabase.from('agents').select('*').eq('slug', ns).single();
+      const { data: updatedAgent } = await supabase.from('agents').select('*').eq('id', req.user.id).single();
       const newToken = jwt.sign(
-        { slug: ns, name: updatedAgent?.name || req.user.name, role: updatedAgent?.role || req.user.role },
+        { id: req.user.id, slug: ns, name: updatedAgent?.name || req.user.name, role: updatedAgent?.role || req.user.role },
         JWT_SECRET,
         { expiresIn: '365d' }
       );
@@ -1241,6 +1255,7 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
         success: true,
         newToken,
         user: {
+          id: req.user.id,
           slug: ns,
           name: updatedAgent?.name || req.user.name,
           role: updatedAgent?.role || req.user.role,
@@ -1260,13 +1275,12 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
   const { error } = await supabase
     .from('agents')
     .update(updates)
-    .eq('slug', req.user.slug);
+    .eq('id', req.user.id);
   if (error) return res.status(500).json({ error: error.message });
-  // Invalidate cache
-  agentCache = null;
+  invalidateAgentCache();
   if (req.user.role !== 'admin') {
-    if (password) logAnalyticsEvent(req.user.slug, 'action', 'change_password');
-    else logAnalyticsEvent(req.user.slug, 'action', 'update_profil');
+    if (password) logAnalyticsEvent(req.user.id, 'action', 'change_password');
+    else logAnalyticsEvent(req.user.id, 'action', 'update_profil');
   }
   res.json({ success: true });
 });
@@ -1276,13 +1290,13 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
 // Generate deep link for agent to connect Telegram
 app.get('/api/telegram/link', authMiddleware, async (req, res) => {
   try {
-    const { slug } = req.user;
+    const { id: agentId, slug } = req.user;
 
     // Check credentials before generating token
     const { data: agentData, error: agentErr } = await supabase
       .from('agents')
       .select('jamaah_username, jamaah_password')
-      .eq('slug', slug)
+      .eq('id', agentId)
       .single();
 
     if (agentErr) throw agentErr;
@@ -1300,11 +1314,11 @@ app.get('/api/telegram/link', authMiddleware, async (req, res) => {
     const { error } = await supabase
       .from('agents')
       .update({ telegram_link_token: token })
-      .eq('slug', slug);
+      .eq('id', agentId);
 
     if (error) throw error;
 
-    agentCache = null;
+    invalidateAgentCache();
     const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'alhijaz_alert_bot';
     const deepLink = `https://t.me/${botUsername}?start=${token}`;
 
@@ -1318,11 +1332,11 @@ app.get('/api/telegram/link', authMiddleware, async (req, res) => {
 // Check if agent has connected Telegram
 app.get('/api/telegram/status', authMiddleware, async (req, res) => {
   try {
-    const { slug } = req.user;
+    const { id: agentId } = req.user;
     const { data, error } = await supabase
       .from('agents')
       .select('telegram_chat_id, jamaah_username, jamaah_password')
-      .eq('slug', slug)
+      .eq('id', agentId)
       .single();
 
     if (error) throw error;
@@ -1332,7 +1346,7 @@ app.get('/api/telegram/status', authMiddleware, async (req, res) => {
       data: {
         connected: !!data.telegram_chat_id,
         chatId: data.telegram_chat_id || null,
-        hasCredentials: slug === 'bagas' ? true : !!(data.jamaah_username && data.jamaah_password),
+        hasCredentials: !!(data.jamaah_username && data.jamaah_password),
       }
     });
   } catch (err) {
@@ -1344,15 +1358,15 @@ app.get('/api/telegram/status', authMiddleware, async (req, res) => {
 // Disconnect Telegram
 app.post('/api/telegram/disconnect', authMiddleware, async (req, res) => {
   try {
-    const { slug } = req.user;
+    const { id: agentId } = req.user;
     const { error } = await supabase
       .from('agents')
       .update({ telegram_chat_id: null, telegram_link_token: null })
-      .eq('slug', slug);
+      .eq('id', agentId);
 
     if (error) throw error;
-    agentCache = null;
-    logAnalyticsEvent(slug, 'action', 'disconnect_telegram');
+    invalidateAgentCache();
+    logAnalyticsEvent(agentId, 'action', 'disconnect_telegram');
     res.json({ success: true });
   } catch (err) {
     console.error('[telegram-disconnect] Error:', err);
@@ -1371,11 +1385,11 @@ const DEFAULT_NOTIFICATION_PREFS = {
 
 app.get('/api/telegram/prefs', authMiddleware, async (req, res) => {
   try {
-    const { slug } = req.user;
+    const { id: agentId } = req.user;
     const { data, error } = await supabase
       .from('agents')
       .select('notification_prefs')
-      .eq('slug', slug)
+      .eq('id', agentId)
       .single();
 
     if (error) throw error;
@@ -1392,7 +1406,7 @@ app.get('/api/telegram/prefs', authMiddleware, async (req, res) => {
 
 app.put('/api/telegram/prefs', authMiddleware, async (req, res) => {
   try {
-    const { slug } = req.user;
+    const { id: agentId } = req.user;
     const updates = req.body;
 
     const validKeys = Object.keys(DEFAULT_NOTIFICATION_PREFS);
@@ -1410,7 +1424,7 @@ app.put('/api/telegram/prefs', authMiddleware, async (req, res) => {
     const { data: existing, error: fetchErr } = await supabase
       .from('agents')
       .select('notification_prefs')
-      .eq('slug', slug)
+      .eq('id', agentId)
       .single();
 
     if (fetchErr) throw fetchErr;
@@ -1420,11 +1434,11 @@ app.put('/api/telegram/prefs', authMiddleware, async (req, res) => {
     const { error: updateErr } = await supabase
       .from('agents')
       .update({ notification_prefs: merged })
-      .eq('slug', slug);
+      .eq('id', agentId);
 
     if (updateErr) throw updateErr;
 
-    agentCache = null;
+    invalidateAgentCache();
     res.json({ success: true, data: merged });
   } catch (err) {
     console.error('[telegram-prefs] Update error:', err);
@@ -1463,7 +1477,7 @@ app.post('/api/telegram/webhook', async (req, res) => {
 
       const { data: agent, error } = await supabase
         .from('agents')
-        .select('slug, name')
+        .select('id, slug, name')
         .eq('telegram_link_token', token)
         .single();
 
@@ -1475,14 +1489,14 @@ app.post('/api/telegram/webhook', async (req, res) => {
       const { error: updateError } = await supabase
         .from('agents')
         .update({ telegram_chat_id: chatId, telegram_link_token: null })
-        .eq('slug', agent.slug);
+        .eq('id', agent.id);
 
       if (updateError) {
         console.error('[telegram-webhook] Update error:', updateError);
         return;
       }
 
-      agentCache = null;
+      invalidateAgentCache();
 
       await sendMsg(chatId,
         `✅ <b>Berhasil terhubung!</b>\n\nHalo ${agent.name}, akun Telegram kamu sekarang terhubung dengan Alhijaz.co by Bagas/Nikita. Kamu akan menerima notifikasi keberangkatan jamaah di sini.\n\n💡 Kamu bisa putuskan koneksi kapan saja dari halaman Profil di dasbor.`,
@@ -1509,7 +1523,14 @@ app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), asy
   if (!image) return res.status(400).json({ error: 'No image provided' });
 
   // Admin can upload for any agent; non-admin only for themselves
-  const slug = (req.user.role === 'admin' && targetSlug) ? targetSlug.toLowerCase() : req.user.slug;
+  let targetAgent;
+  if (req.user.role === 'admin' && targetSlug) {
+    targetAgent = await getAgentBySlug(targetSlug.toLowerCase());
+  } else {
+    targetAgent = await getAgentById(req.user.id);
+  }
+  if (!targetAgent) return res.status(404).json({ error: 'Agent not found' });
+  const slug = targetAgent.slug;
 
   try {
     // Extract base64 data
@@ -1537,10 +1558,10 @@ app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), asy
     const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(fileName);
     const photoUrl = `${urlData.publicUrl}?v=${Date.now()}`;
     console.log(`[Photo] ${slug} uploaded → ${photoUrl}`);
-    await supabase.from('agents').update({ photo: photoUrl }).eq('slug', slug);
+    await supabase.from('agents').update({ photo: photoUrl }).eq('id', targetAgent.id);
 
     // Invalidate cache
-    agentCache = null;
+    invalidateAgentCache();
     res.json({ success: true, photo: photoUrl });
   } catch (err) {
     console.error('Photo upload error:', err);
@@ -1561,6 +1582,8 @@ app.get('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
 
 // Update any agent (admin only)
 app.put('/api/admin/agents/:slug', authMiddleware, adminOnly, async (req, res) => {
+  const targetAgent = await getAgentBySlug(req.params.slug.toLowerCase());
+  if (!targetAgent) return res.status(404).json({ error: 'Agent not found' });
   const { name, website, phone, email, role, password: rawPassword, jamaah_username, jamaah_password, jamaah_kantor } = req.body;
   const updates = {};
   if (name !== undefined) updates.name = name;
@@ -1576,9 +1599,9 @@ app.put('/api/admin/agents/:slug', authMiddleware, adminOnly, async (req, res) =
   const { error } = await supabase
     .from('agents')
     .update(updates)
-    .eq('slug', req.params.slug.toLowerCase());
+    .eq('id', targetAgent.id);
   if (error) return res.status(500).json({ error: error.message });
-  agentCache = null;
+  invalidateAgentCache();
   res.json({ success: true });
 });
 
@@ -1600,52 +1623,55 @@ app.post('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
   if (jamaah_kantor) insert.jamaah_kantor = jamaah_kantor;
   const { error } = await supabase.from('agents').insert(insert);
   if (error) return res.status(500).json({ error: error.message });
-  agentCache = null;
+  invalidateAgentCache();
   res.json({ success: true });
 });
 
 // Delete agent (admin only)
 app.delete('/api/admin/agents/:slug', authMiddleware, adminOnly, async (req, res) => {
-  const slug = req.params.slug.toLowerCase();
+  const targetAgent = await getAgentBySlug(req.params.slug.toLowerCase());
+  if (!targetAgent) return res.status(404).json({ error: 'Agent not found' });
   // Don't allow deleting yourself
-  if (slug === req.user.slug) {
+  if (targetAgent.id === req.user.id) {
     return res.status(400).json({ error: 'Tidak bisa menghapus akun sendiri' });
   }
-  const { error } = await supabase.from('agents').delete().eq('slug', slug);
+  const { error } = await supabase.from('agents').delete().eq('id', targetAgent.id);
   if (error) return res.status(500).json({ error: error.message });
   // Also delete CAPI config
-  await supabase.from('capi_configs').delete().eq('slug', slug);
-  agentCache = null;
+  await supabase.from('capi_configs').delete().eq('agent_id', targetAgent.id);
+  invalidateAgentCache();
   res.json({ success: true });
 });
 
 // Approve pending agent (admin only)
 app.put('/api/admin/agents/:slug/approve', authMiddleware, adminOnly, async (req, res) => {
-  const slug = req.params.slug.toLowerCase();
+  const targetAgent = await getAgentBySlug(req.params.slug.toLowerCase());
+  if (!targetAgent) return res.status(404).json({ error: 'Agent not found' });
   const { data, error } = await supabase
     .from('agents')
     .update({ status: 'active' })
-    .eq('slug', slug)
+    .eq('id', targetAgent.id)
     .eq('status', 'pending')
     .select('slug')
     .single();
   if (error || !data) return res.status(404).json({ error: 'Agent pending tidak ditemukan' });
-  agentCache = null;
+  invalidateAgentCache();
   res.json({ success: true });
 });
 
 // Reject pending agent (admin only)
 app.put('/api/admin/agents/:slug/reject', authMiddleware, adminOnly, async (req, res) => {
-  const slug = req.params.slug.toLowerCase();
+  const targetAgent = await getAgentBySlug(req.params.slug.toLowerCase());
+  if (!targetAgent) return res.status(404).json({ error: 'Agent not found' });
   const { data, error } = await supabase
     .from('agents')
     .update({ status: 'rejected' })
-    .eq('slug', slug)
+    .eq('id', targetAgent.id)
     .eq('status', 'pending')
     .select('slug')
     .single();
   if (error || !data) return res.status(404).json({ error: 'Agent pending tidak ditemukan' });
-  agentCache = null;
+  invalidateAgentCache();
   res.json({ success: true });
 });
 
@@ -1680,11 +1706,11 @@ function capiDecrypt(data) {
   } catch { return data; }
 }
 
-async function readCapiConfig(slug) {
+async function readCapiConfig(agentId) {
   const { data, error } = await supabase
     .from('capi_configs')
     .select('*')
-    .eq('slug', slug)
+    .eq('agent_id', agentId)
     .single();
   if (error || !data) return null;
   return {
@@ -1697,18 +1723,18 @@ async function readCapiConfig(slug) {
   };
 }
 
-async function writeCapiConfig(slug, config) {
+async function writeCapiConfig(agentId, config) {
   const { error } = await supabase
     .from('capi_configs')
     .upsert({
-      slug,
+      agent_id: agentId,
       pixel_id: config.pixelId || '',
       access_token: config.accessToken || '',
       test_event_code: config.testEventCode || '',
       test_mode: config.testMode || false,
       events: config.events || {},
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'slug' });
+    }, { onConflict: 'agent_id' });
   if (error) console.error('[Supabase] CAPI write error:', error.message);
 }
 
@@ -1716,9 +1742,9 @@ async function writeCapiConfig(slug, config) {
  * Fire a CAPI Purchase event server-side for a jamaah.
  * Silent fail — jangan ganggu sync flow.
  */
-async function fireCapiPurchase(slug, jamaah) {
+async function fireCapiPurchase(agentId, slug, jamaah) {
   try {
-    const config = await readCapiConfig(slug);
+    const config = await readCapiConfig(agentId);
     if (!config?.pixelId || !config?.accessToken) return;
     const accessToken = capiDecrypt(config.accessToken);
     if (!accessToken) return;
@@ -1779,7 +1805,7 @@ app.options('/api/capi/:slug/:action', (req, res) => {
 // Login
 app.post('/api/capi/:slug/login', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
-  const agent = await getAgent(slug);
+  const agent = await getAgentBySlug(slug);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
   const isValid = await bcrypt.compare(req.body.password, agent.password || '');
   const masterPw = process.env.MASTER_PASSWORD;
@@ -1790,9 +1816,9 @@ app.post('/api/capi/:slug/login', async (req, res) => {
 // Config GET — returns decrypted token
 app.get('/api/capi/:slug/config', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
-  const agent = await getAgent(slug);
+  const agent = await getAgentBySlug(slug);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
-  const config = await readCapiConfig(slug);
+  const config = await readCapiConfig(agent.id);
   if (!config) return res.json({ config: null });
   const decryptedToken = capiDecrypt(config.accessToken || '');
   res.json({ config: { ...config, accessToken: decryptedToken } });
@@ -1801,7 +1827,7 @@ app.get('/api/capi/:slug/config', async (req, res) => {
 // Config POST — validates, saves, returns savedToken
 app.post('/api/capi/:slug/config', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
-  const agent = await getAgent(slug);
+  const agent = await getAgentBySlug(slug);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
   const body = req.body;
 
@@ -1819,8 +1845,8 @@ app.post('/api/capi/:slug/config', async (req, res) => {
     testEventCode: body.testEventCode || '', testMode: !!body.testMode,
     events: body.events || {}, updatedAt: new Date().toISOString(),
   };
-  await writeCapiConfig(slug, configToSave);
-  logAnalyticsEvent(slug, 'action', 'save_capi_config');
+  await writeCapiConfig(agent.id, configToSave);
+  logAnalyticsEvent(agent.id, 'action', 'save_capi_config');
   const decryptedForDisplay = capiDecrypt(configToSave.accessToken);
   res.json({ success: true, savedToken: decryptedForDisplay });
 });
@@ -1828,23 +1854,23 @@ app.post('/api/capi/:slug/config', async (req, res) => {
 // Config DELETE (reset)
 app.delete('/api/capi/:slug/config', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
-  const agent = await getAgent(slug);
+  const agent = await getAgentBySlug(slug);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
   const configToSave = {
     pixelId: '', accessToken: '', testEventCode: '',
     testMode: false, events: {}, updatedAt: new Date().toISOString(),
   };
-  await writeCapiConfig(slug, configToSave);
+  await writeCapiConfig(agent.id, configToSave);
   res.json({ success: true });
 });
 
 // Event
 app.post('/api/capi/:slug/event', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
-  const agent = await getAgent(slug);
+  const agent = await getAgentBySlug(slug);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
   if (!checkCapiRateLimit(slug)) return res.status(429).json({ error: 'Rate limited' });
-  const config = await readCapiConfig(slug);
+  const config = await readCapiConfig(agent.id);
   if (!config?.pixelId || !config?.accessToken) return res.json({ sent: false, reason: 'Not configured' });
   const accessToken = capiDecrypt(config.accessToken);
   const { eventName, userData, customData, eventSourceUrl, actionSource } = req.body;
@@ -1874,9 +1900,9 @@ app.post('/api/capi/:slug/event', async (req, res) => {
 // Validate
 app.post('/api/capi/:slug/validate', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
-  const agent = await getAgent(slug);
+  const agent = await getAgentBySlug(slug);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
-  const config = await readCapiConfig(slug);
+  const config = await readCapiConfig(agent.id);
   if (!config?.pixelId || !config?.accessToken) return res.json({ valid: false, reason: 'Missing credentials' });
   const accessToken = capiDecrypt(config.accessToken);
   try {
@@ -1902,28 +1928,8 @@ app.post('/api/capi/:slug/validate', async (req, res) => {
 
 // Status: check credentials + session + last sync
 app.get('/api/laporan/status', authMiddleware, async (req, res) => {
-  const agent = await getAgent(req.user.slug);
+  const agent = await getAgentById(req.user.id);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
-  // Bypass internal login for bagas — always report connected
-  if (req.user.slug === 'bagas') {
-    const { data } = await supabase
-      .from('jamaah')
-      .select('synced_at')
-      .eq('agent_slug', 'bagas')
-      .order('synced_at', { ascending: false })
-      .limit(1);
-    return res.json({
-      success: true,
-      data: {
-        hasCredentials: true,
-        isConnected: true,
-        username: 'bagas',
-        kantor: '2',
-        lastSync: data?.[0]?.synced_at || new Date().toISOString(),
-      },
-    });
-  }
 
   const hasCredentials = !!(agent.jamaah_username && agent.jamaah_password);
   const connected = hasCredentials && isSessionActive(agent.jamaah_username);
@@ -1934,7 +1940,7 @@ app.get('/api/laporan/status', authMiddleware, async (req, res) => {
     const { data } = await supabase
       .from('jamaah')
       .select('synced_at')
-      .eq('agent_slug', req.user.slug)
+      .eq('agent_id', req.user.id)
       .order('synced_at', { ascending: false })
       .limit(1);
     if (data?.[0]) lastSync = data[0].synced_at;
@@ -1974,8 +1980,8 @@ app.post('/api/laporan/login', authMiddleware, async (req, res) => {
       jamaah_password: encryptedPassword,
       jamaah_kantor: k,
     })
-    .eq('slug', req.user.slug);
-  agentCache = null;
+    .eq('id', req.user.id);
+  invalidateAgentCache();
 
   res.json({ ...result, username, kantor: k });
 });
@@ -2034,7 +2040,7 @@ function buildRows(items, agentSlug, now) {
     if (Number(year) < MIN_HIJRIAH_YEAR) continue;
     const key = `${agentSlug}_${item.id_umroh || ''}_${item.nama || ''}`.trim().toLowerCase();
     map.set(key, {
-      agent_slug: agentSlug,
+      agent_id: agentId,
       id_umroh: item.id_umroh,
       nama: item.nama,
       jk: item.jk || null,
@@ -2060,38 +2066,29 @@ function buildRows(items, agentSlug, now) {
 // Sync: fetch from legacy → parse → progressive upsert to Supabase
 // If hijriahYear is provided, sync only that year. Otherwise sync all years.
 app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
+  const agentId = req.user.id;
   const slug = req.user.slug;
 
-  // Bypass internal login for bagas — return existing Supabase data count
-  if (slug === 'bagas') {
-    const { count } = await supabase
-      .from('jamaah')
-      .select('*', { count: 'exact', head: true })
-      .eq('agent_slug', 'bagas');
-    syncingAgents.set(slug, { isSyncing: false, totalSynced: count || 0, completedYears: ['1448'], lastSync: new Date().toISOString() });
-    return res.json({ success: true, data: { initialCount: count || 0, syncing: false, message: 'Data sudah tersinkronisasi' } });
-  }
-
-  const agent = await getAgent(slug);
+  const agent = await getAgentById(agentId);
   if (!agent?.jamaah_username || !agent?.jamaah_password) {
     return res.status(400).json({ error: 'Belum ada credentials tersimpan' });
   }
 
   // Prevent concurrent sync
-  const state = syncingAgents.get(slug);
+  const state = syncingAgents.get(agentId);
   if (state?.isSyncing) {
     return res.json({ success: true, data: { initialCount: 0, syncing: true, message: 'Sync sudah berjalan' } });
   }
 
-  syncingAgents.set(slug, { isSyncing: true, totalSynced: 0, completedYears: [], lastSync: null });
-  if (req.user?.role !== 'admin') logAnalyticsEvent(slug, 'action', 'sync_jamaah');
+  syncingAgents.set(agentId, { isSyncing: true, totalSynced: 0, completedYears: [], lastSync: null });
+  if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'sync_jamaah');
 
   // Force fresh session to ensure clean state with legacy system
   await laporanDisconnect(agent.jamaah_username);
   const decrypted = capiDecrypt(agent.jamaah_password);
   const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
   if (!loginResult.success) {
-    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null });
+    syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null });
     return res.status(401).json({ error: 'Gagal login ulang ke sistem internal' });
   }
 
@@ -2131,7 +2128,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
       const { data: existingYearRows } = await supabase
         .from('jamaah')
         .select('id_umroh, nama, hijriah_year')
-        .eq('agent_slug', slug)
+        .eq('agent_id', agentId)
         .not('hijriah_year', 'is', null);
       const existingYearLookup = new Map();
       (existingYearRows || []).forEach(r => {
@@ -2144,13 +2141,13 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
       const allDetailIds = bookings.map(b => b.id_umroh);
       // Deduplicate (same id_umroh can appear in list if multiple jadwal)
       const uniqueIds = [...new Set(allDetailIds)];
-      // Global dedup: track unique (agent_slug, id_umroh, nama) across ALL batches
+      // Global dedup: track unique (agent_id, id_umroh, nama) across ALL batches
       // to avoid inflated counter when same jamaah appears under multiple bookings
       const globalKeys = new Set();
 
       for (let i = 0; i < uniqueIds.length; i += DETAIL_PARALLEL) {
         // Check if sync was cancelled (user disconnected/deleted credentials)
-        if (syncingAgents.get(slug)?.cancelled) {
+        if (syncingAgents.get(agentId)?.cancelled) {
           console.log(`[Sync] ${slug}: Phase 1 aborted — user disconnected`);
           break;
         }
@@ -2184,7 +2181,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
             if (Number(itemYear) < 1447) continue;
             item.paket = item.paket || bookingPaketMap.get(idUmroh) || null;
             rowsToUpsert.push({
-              agent_slug: slug,
+              agent_id: agentId,
               id_umroh: item.id_umroh,
               nama: item.nama,
               jk: item.jk || null,
@@ -2210,7 +2207,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         if (rowsToUpsert.length > 0) {
           const deduped = new Map();
           for (const row of rowsToUpsert) {
-            const key = `${row.agent_slug}_${row.id_umroh}_${row.nama}`.toLowerCase();
+            const key = `${row.agent_id}_${row.id_umroh}_${row.nama}`.toLowerCase();
             deduped.set(key, row);
             globalKeys.add(key); // Track globally for accurate counter
           }
@@ -2219,10 +2216,10 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           const BATCH = 50;
           for (let b = 0; b < dedupedRows.length; b += BATCH) {
             const upsertBatch = dedupedRows.slice(b, b + BATCH);
-            const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_slug,id_umroh,nama' });
+            const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,nama' });
             if (error) console.error(`[Sync] ${slug} Phase 1 upsert error:`, error.message);
           }
-          syncingAgents.set(slug, { isSyncing: true, totalSynced: globalKeys.size, phase: 1, completedYears: [], lastSync: now });
+          syncingAgents.set(agentId, { isSyncing: true, totalSynced: globalKeys.size, phase: 1, completedYears: [], lastSync: now });
         }
 
         // Send response after first successful batch (progressive hydration)
@@ -2241,17 +2238,17 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
       const { count: actualCount } = await supabase
         .from('jamaah')
         .select('*', { count: 'exact', head: true })
-        .eq('agent_slug', slug);
+        .eq('agent_id', agentId);
       totalItems = actualCount || globalKeys.size;
 
       console.log(`[Sync] ${slug}: Phase 1 complete — ${globalKeys.size} processed, ${actualCount} in DB, from ${uniqueIds.length} bookings (${detailErrors} errors)`);
-      syncingAgents.set(slug, { isSyncing: true, totalSynced: totalItems, phase: 1, completedYears: [], lastSync: now });
+      syncingAgents.set(agentId, { isSyncing: true, totalSynced: totalItems, phase: 1, completedYears: [], lastSync: now });
 
       // Collect completed years from Phase 1 data — counts are already accurate
       const { data: phase1Rows } = await supabase
         .from('jamaah')
         .select('hijriah_year')
-        .eq('agent_slug', slug)
+        .eq('agent_id', agentId)
         .not('hijriah_year', 'is', null);
       const phase1Years = [...new Set((phase1Rows || []).map(r => r.hijriah_year))]
         .filter(y => Number(y) >= 1447)
@@ -2260,11 +2257,11 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 
       // Cleanup: delete jamaah that no longer exist in internal system
       // Phase 1 fetches the complete jamaah list — anything not upserted is stale
-      if (!syncingAgents.get(slug)?.cancelled) {
+      if (!syncingAgents.get(agentId)?.cancelled) {
         const { data: deleted, error: delErr } = await supabase
           .from('jamaah')
           .delete()
-          .eq('agent_slug', slug)
+          .eq('agent_id', agentId)
           .lt('synced_at', now)
           .select('nama');
         if (delErr) console.error(`[Sync] ${slug} cleanup error:`, delErr.message);
@@ -2344,11 +2341,11 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     // Mark Phase 2 — frontend hides counter, shows "enriching" text
     // Use phase1Years if available (from Phase 1 completion above)
     const completedYears = typeof phase1Years !== 'undefined' ? phase1Years : [];
-    syncingAgents.set(slug, { isSyncing: true, totalSynced: totalItems, phase: 2, completedYears, lastSync: now });
+    syncingAgents.set(agentId, { isSyncing: true, totalSynced: totalItems, phase: 2, completedYears, lastSync: now });
 
     for (let i = 0; i < fetchJobs.length; i += PARALLEL) {
       // Check if sync was cancelled (user disconnected/deleted credentials)
-      if (syncingAgents.get(slug)?.cancelled) {
+      if (syncingAgents.get(agentId)?.cancelled) {
         console.log(`[Sync] ${slug}: Phase 2 aborted — user disconnected`);
         break;
       }
@@ -2402,7 +2399,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         const BATCH = 50;
         for (let b = 0; b < rows.length; b += BATCH) {
           const upsertBatch = rows.slice(b, b + BATCH);
-          const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_slug,id_umroh,nama' });
+          const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,nama' });
           if (error) console.error(`[Sync] ${slug} Phase 2 range ${job.tglAwal} error:`, error.message);
         }
         // Phase 2: no counter update — just keep syncing state alive
@@ -2413,7 +2410,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           const { data: currentJamaah } = await supabase
             .from('jamaah')
             .select('id_umroh, nama, paket, bayar, capi_last_bayar')
-            .eq('agent_slug', slug)
+            .eq('agent_id', agentId)
             .in('id_umroh', upsertedIds);
 
           if (currentJamaah?.length > 0) {
@@ -2421,7 +2418,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
             for (const j of currentJamaah) {
               const lastBayar = j.capi_last_bayar || 0;
               if (j.bayar > 0 && j.bayar > lastBayar) {
-                fireCapiPurchase(slug, j);
+                fireCapiPurchase(agentId, slug, j);
                 capiUpdates.push(j);
               }
             }
@@ -2429,7 +2426,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
               for (const u of capiUpdates) {
                 await supabase.from('jamaah')
                   .update({ capi_last_bayar: u.bayar })
-                  .eq('agent_slug', slug).eq('id_umroh', u.id_umroh).eq('nama', u.nama);
+                  .eq('agent_id', agentId).eq('id_umroh', u.id_umroh).eq('nama', u.nama);
               }
               console.log(`[CAPI] Updated capi_last_bayar for ${capiUpdates.length} jamaah (${slug})`);
             }
@@ -2457,25 +2454,25 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     console.error(`[Sync] ${slug} sync error:`, err);
   } finally {
     console.log(`[Sync] ${slug}: sync complete — ${totalItems} total items`);
-    syncingAgents.set(slug, { isSyncing: false, totalSynced: totalItems, lastSync: now });
+    syncingAgents.set(agentId, { isSyncing: false, totalSynced: totalItems, lastSync: now });
   }
 
   // If we never sent response (all phases empty)
   if (!firstBatchSent) {
-    syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: now });
+    syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: now });
     return res.json({ success: true, data: { initialCount: 0, syncing: false } });
   }
 });
 
 // Sync status: check if an agent's sync is in progress
 app.get('/api/laporan/sync-status', authMiddleware, async (req, res) => {
-  const state = syncingAgents.get(req.user.slug);
+  const state = syncingAgents.get(req.user.id);
   if (!state) {
     // No sync state — check last sync from Supabase
     const { data } = await supabase
       .from('jamaah')
       .select('synced_at')
-      .eq('agent_slug', req.user.slug)
+      .eq('agent_id', req.user.id)
       .order('synced_at', { ascending: false })
       .limit(1);
     return res.json({
@@ -2514,11 +2511,6 @@ app.get('/api/calendar/events', authMiddleware, async (req, res) => {
       .gte('event_date', startDate)
       .lt('event_date', endDate)
       .order('event_date', { ascending: true });
-
-    // Hide _DEMO_ events from non-bagas agents
-    if (req.user.slug !== 'bagas') {
-      query = query.not('id', 'like', '_DEMO_%');
-    }
 
     const { data: events, error } = await query;
 
@@ -2628,8 +2620,8 @@ async function generateCalendarInsight() {
   let weekEvents, monthEvents;
   try {
     const [weekResult, monthResult] = await Promise.all([
-      supabase.from('calendar_events').select('*').gte('event_date', todayStr).lte('event_date', nextWeekStr).not('id', 'like', '_DEMO_%').order('event_date'),
-      supabase.from('calendar_events').select('event_date, event_type, pax, paket, group_number').gte('event_date', monthStart).lt('event_date', monthEnd).eq('event_type', 'keberangkatan').not('id', 'like', '_DEMO_%'),
+      supabase.from('calendar_events').select('*').gte('event_date', todayStr).lte('event_date', nextWeekStr).order('event_date'),
+      supabase.from('calendar_events').select('event_date, event_type, pax, paket, group_number').gte('event_date', monthStart).lt('event_date', monthEnd).eq('event_type', 'keberangkatan'),
     ]);
     weekEvents = weekResult.data || [];
     monthEvents = monthResult.data || [];
@@ -2869,19 +2861,6 @@ Gaya penulisan hari ini: ${randomStyle}`;
 
 // GET — return insight (in-memory first, then Supabase fallback)
 app.get('/api/calendar/insight', authMiddleware, async (req, res) => {
-  // Bagas uses dedicated demo insight
-  if (req.user.slug === 'bagas') {
-    try {
-      const { data: row, error } = await supabase
-        .from('calendar_insights')
-        .select('data')
-        .eq('id', 'demo_bagas')
-        .single();
-      if (!error && row?.data) {
-        return res.json({ success: true, data: row.data });
-      }
-    } catch { /* fallthrough to normal flow */ }
-  }
 
   // Try in-memory cache first
   if (insightCache) {
@@ -2920,7 +2899,7 @@ app.post('/api/calendar/insight/refresh', authMiddleware, async (req, res) => {
 // GET — per-agent jamaah status for personalized insight card
 app.get('/api/calendar/insight-jamaah', authMiddleware, async (req, res) => {
   try {
-    const slug = req.user.slug;
+    const agentId = req.user.id;
     const todayWIB = new Date(Date.now() + 7 * 60 * 60 * 1000);
     const todayStr = todayWIB.toISOString().split('T')[0];
 
@@ -2938,7 +2917,7 @@ app.get('/api/calendar/insight-jamaah', authMiddleware, async (req, res) => {
     const { data: jamaahData, error } = await supabase
       .from('jamaah')
       .select('nama, sisa, tgl_berangkat, dokumen, no_paspor, paspor_expired')
-      .eq('agent_slug', slug)
+      .eq('agent_id', agentId)
       .gte('tgl_berangkat', todayStr)
       .lt('tgl_berangkat', monthEnd);
 
@@ -3463,11 +3442,6 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
       .lte('event_date', endDate)
       .not('pesawat', 'is', null);
 
-    // Hide _DEMO_ events from non-bagas agents
-    if (req.user.slug !== 'bagas') {
-      flightQuery = flightQuery.not('id', 'like', '_DEMO_%');
-    }
-
     const { data: events, error: evError } = await flightQuery;
 
     if (evError) throw evError;
@@ -3510,7 +3484,7 @@ app.get('/api/flights/status', authMiddleware, async (req, res) => {
       const { data: agentJamaah } = await supabase
         .from('jamaah')
         .select('nama, jk, wa, tgl_berangkat')
-        .eq('agent_slug', req.user.slug)
+        .eq('agent_id', req.user.id)
         .in('tgl_berangkat', Array.from(depDatesNeeded));
 
       for (const j of (agentJamaah || [])) {
@@ -4100,7 +4074,7 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   let query = supabase
     .from('jamaah')
     .select('*', { count: 'exact' })
-    .eq('agent_slug', req.user.slug)
+    .eq('agent_id', req.user.id)
     .range(offset, offset + limitNum - 1);
 
   // Sorting
@@ -4149,7 +4123,7 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   const { data: syncData } = await supabase
     .from('jamaah')
     .select('synced_at')
-    .eq('agent_slug', req.user.slug)
+    .eq('agent_id', req.user.id)
     .order('synced_at', { ascending: false })
     .limit(1);
 
@@ -4159,26 +4133,26 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   let totalQ = supabase
     .from('jamaah')
     .select('*', { count: 'exact', head: true })
-    .eq('agent_slug', req.user.slug);
+    .eq('agent_id', req.user.id);
   const { count: totalCount } = await applyYearFilter(totalQ);
 
   let belumQ = supabase
     .from('jamaah')
     .select('*', { count: 'exact', head: true })
-    .eq('agent_slug', req.user.slug)
+    .eq('agent_id', req.user.id)
     .gt('sisa', 0);
   const { count: belumCount } = await applyYearFilter(belumQ);
 
   let berangkatQ = supabase
     .from('jamaah')
     .select('*', { count: 'exact', head: true })
-    .eq('agent_slug', req.user.slug)
+    .eq('agent_id', req.user.id)
     .gte('tgl_berangkat', todayStr)
     .lte('tgl_berangkat', cutoffStr);
   const { count: berangkatCount } = await applyYearFilter(berangkatQ);
 
   let piutang = 0;
-  let pQ = supabase.from('jamaah').select('sisa').eq('agent_slug', req.user.slug).gt('sisa', 0);
+  let pQ = supabase.from('jamaah').select('sisa').eq('agent_id', req.user.id).gt('sisa', 0);
   pQ = applyYearFilter(pQ);
   const { data: pData } = await pQ;
   if (pData) piutang = pData.reduce((s, r) => s + (r.sisa || 0), 0);
@@ -4204,7 +4178,7 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
 // Jamaah note: create/update/clear note for a specific jamaah
 app.post('/api/laporan/jamaah/note', authMiddleware, async (req, res) => {
   try {
-    const slug = req.user.slug;
+    const agentId = req.user.id;
     const { id_umroh, nama, notes } = req.body;
 
     if (!id_umroh || !nama) {
@@ -4218,7 +4192,7 @@ app.post('/api/laporan/jamaah/note', authMiddleware, async (req, res) => {
     const { error } = await supabase
       .from('jamaah')
       .update(updateData)
-      .eq('agent_slug', slug)
+      .eq('agent_id', agentId)
       .eq('id_umroh', id_umroh)
       .eq('nama', nama);
 
@@ -4236,33 +4210,33 @@ app.post('/api/laporan/jamaah/note', authMiddleware, async (req, res) => {
 
 // Disconnect: clear in-memory session only
 app.post('/api/laporan/disconnect', authMiddleware, async (req, res) => {
-  const slug = req.user.slug;
-  const agent = await getAgent(slug);
+  const agentId = req.user.id;
+  const agent = await getAgentById(agentId);
   if (agent?.jamaah_username) {
     await laporanDisconnect(agent.jamaah_username);
   }
   // Cancel any running sync
-  const state = syncingAgents.get(slug);
+  const state = syncingAgents.get(agentId);
   if (state?.isSyncing) {
-    syncingAgents.set(slug, { ...state, isSyncing: false, cancelled: true });
-    console.log(`[Sync] ${slug}: cancelled by disconnect`);
+    syncingAgents.set(agentId, { ...state, isSyncing: false, cancelled: true });
+    console.log(`[Sync] ${agent?.slug}: cancelled by disconnect`);
   }
   res.json({ success: true });
 });
 
 // Delete saved credentials
 app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
-  const slug = req.user.slug;
+  const agentId = req.user.id;
   // Also disconnect if active
-  const agent = await getAgent(slug);
+  const agent = await getAgentById(agentId);
   if (agent?.jamaah_username) {
     await laporanDisconnect(agent.jamaah_username);
   }
   // Cancel any running sync
-  const state = syncingAgents.get(slug);
+  const state = syncingAgents.get(agentId);
   if (state?.isSyncing) {
-    syncingAgents.set(slug, { ...state, isSyncing: false, cancelled: true });
-    console.log(`[Sync] ${slug}: cancelled by credential deletion`);
+    syncingAgents.set(agentId, { ...state, isSyncing: false, cancelled: true });
+    console.log(`[Sync] ${agent?.slug}: cancelled by credential deletion`);
   }
 
   const { error } = await supabase
@@ -4272,9 +4246,9 @@ app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
       jamaah_password: null,
       jamaah_kantor: null,
     })
-    .eq('slug', slug);
+    .eq('id', agentId);
   if (error) return res.status(500).json({ error: error.message });
-  agentCache = null;
+  invalidateAgentCache();
   res.json({ success: true });
 });
 
@@ -4308,7 +4282,7 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
 
     // Fetch all jamaah for this year + prev year
     const [rowsCur, rowsPrev] = await Promise.all([
-      fetchAllRows(supabase.from('jamaah').select('tgl_daftar, tgl_berangkat, tgl_lahir, jk, bayar, sisa, paket, agent_slug').eq('hijriah_year', year)),
+      fetchAllRows(supabase.from('jamaah').select('tgl_daftar, tgl_berangkat, tgl_lahir, jk, bayar, sisa, paket, agent_id').eq('hijriah_year', year)),
       fetchAllRows(supabase.from('jamaah').select('tgl_daftar').eq('hijriah_year', prevYear)),
     ]);
 
@@ -4462,14 +4436,14 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
 
     // Agent Ranking
     const agentMap = {};
-    cur.forEach(j => { if (j.agent_slug) agentMap[j.agent_slug] = (agentMap[j.agent_slug] || 0) + 1; });
-    const agentSlugs = Object.keys(agentMap);
-    const { data: agentRows } = agentSlugs.length > 0
-      ? await supabase.from('agents').select('slug, name, photo').in('slug', agentSlugs)
+    cur.forEach(j => { if (j.agent_id) agentMap[j.agent_id] = (agentMap[j.agent_id] || 0) + 1; });
+    const agentIds = Object.keys(agentMap);
+    const { data: agentRows } = agentIds.length > 0
+      ? await supabase.from('agents').select('id, slug, name, photo').in('id', agentIds)
       : { data: [] };
-    const agentInfo = Object.fromEntries((agentRows || []).map(a => [a.slug, a]));
+    const agentInfo = Object.fromEntries((agentRows || []).map(a => [a.id, a]));
     const agentRanking = Object.entries(agentMap)
-      .map(([slug, count]) => ({ slug, name: agentInfo[slug]?.name || slug, photo: agentInfo[slug]?.photo || '', count }))
+      .map(([id, count]) => ({ slug: agentInfo[id]?.slug || id, name: agentInfo[id]?.name || id, photo: agentInfo[id]?.photo || '', count }))
       .sort((a, b) => b.count - a.count);
 
     // Paket Ranking (grouped by first word)
@@ -4498,12 +4472,12 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
 // API: Stats — aggregated jamaah statistics
 // ──────────────────────────────────────────────
 app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
-  const slug = req.user.slug;
+  const agentId = req.user.id;
 
   try {
     // ── availableYears ──
     const ayData = await fetchAllRows(
-      supabase.from('jamaah').select('hijriah_year').eq('agent_slug', slug).not('hijriah_year', 'is', null)
+      supabase.from('jamaah').select('hijriah_year').eq('agent_id', agentId).not('hijriah_year', 'is', null)
     );
     let availableYears = [...new Set(ayData.map(r => r.hijriah_year))]
       .filter(y => Number(y) >= 1447)  // Only show 1447+
@@ -4519,7 +4493,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     }
 
     // Base filter
-    const baseMatch = { agent_slug: slug };
+    const baseMatch = { agent_id: agentId };
     if (year) baseMatch.hijriah_year = year;
 
     // ── totalJamaah ──
@@ -4543,7 +4517,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       .gt('sisa', 0);
 
     // ── totalOutstanding: SUM(sisa) where sisa > 0 ──
-    let outQ = supabase.from('jamaah').select('sisa').eq('agent_slug', slug).gt('sisa', 0);
+    let outQ = supabase.from('jamaah').select('sisa').eq('agent_id', agentId).gt('sisa', 0);
     if (year) outQ = outQ.eq('hijriah_year', year);
     const outData = await fetchAllRows(outQ);
     const totalOutstanding = outData.reduce((s, r) => s + (r.sisa || 0), 0);
@@ -4554,7 +4528,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     // ── berangkatSegera: jamaah in the nearest upcoming departure month ──
     let bebQ = supabase.from('jamaah')
       .select('nama, paket, jk, tgl_berangkat, sisa, wa')
-      .eq('agent_slug', slug)
+      .eq('agent_id', agentId)
       .gte('tgl_berangkat', todayStr)
       .order('tgl_berangkat', { ascending: true })
       .order('nama', { ascending: true });
@@ -4631,7 +4605,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     const sevenMonthsAgo = new Date();
     sevenMonthsAgo.setMonth(sevenMonthsAgo.getMonth() - 6);
     const tmStr = `${sevenMonthsAgo.getFullYear()}-${String(sevenMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
-    let trendQ = supabase.from('jamaah').select('tgl_daftar').eq('agent_slug', slug)
+    let trendQ = supabase.from('jamaah').select('tgl_daftar').eq('agent_id', agentId)
       .gte('tgl_daftar', tmStr).order('tgl_daftar', { ascending: true });
     if (year) trendQ = trendQ.eq('hijriah_year', year);
     const trendRows = await fetchAllRows(trendQ);
@@ -4649,7 +4623,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     // ── outstandingList: jamaah with sisa > 0, sorted by sisa DESC ──
     let olQ = supabase.from('jamaah')
       .select('nama, paket, jk, sisa, tgl_berangkat, wa')
-      .eq('agent_slug', slug)
+      .eq('agent_id', agentId)
       .gt('sisa', 0)
       .order('sisa', { ascending: false })
       .order('tgl_berangkat', { ascending: true });
@@ -4678,7 +4652,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     const KOMISI_REGULER = 1800000;
     const getRate = (p) => (p && p.toLowerCase().includes('hemat') ? KOMISI_HEMAT : KOMISI_REGULER);
 
-    let komisiQ = supabase.from('jamaah').select('paket, sisa, tgl_berangkat').eq('agent_slug', slug);
+    let komisiQ = supabase.from('jamaah').select('paket, sisa, tgl_berangkat').eq('agent_id', agentId);
     if (year) komisiQ = komisiQ.eq('hijriah_year', year);
     const komisiRows = await fetchAllRows(komisiQ);
 
@@ -4734,7 +4708,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     const { data: syncData } = await supabase
       .from('jamaah')
       .select('synced_at')
-      .eq('agent_slug', slug)
+      .eq('agent_id', agentId)
       .order('synced_at', { ascending: false })
       .limit(1);
     const lastSync = syncData?.[0]?.synced_at || null;
@@ -4772,21 +4746,11 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
 
 // POST /api/haji/sync — progressive sync (same pattern as umroh)
 app.post('/api/haji/sync', authMiddleware, async (req, res) => {
-  const { slug } = req.user;
-  const hajiKey = `haji:${slug}`;
-
-  // Bypass internal login for bagas — return existing Supabase data count
-  if (slug === 'bagas') {
-    const { count } = await supabase
-      .from('jamaah_haji')
-      .select('*', { count: 'exact', head: true })
-      .eq('agent_slug', 'bagas');
-    syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: count || 0, lastSync: new Date().toISOString() });
-    return res.json({ success: true, data: { initialCount: count || 0, syncing: false, message: 'Data sudah tersinkronisasi' } });
-  }
+  const { id: agentId, slug } = req.user;
+  const hajiKey = `haji:${agentId}`;
 
   try {
-    const agent = await getAgent(slug);
+    const agent = await getAgentById(agentId);
     if (!agent?.jamaah_username || !agent?.jamaah_password) {
       return res.status(400).json({
         error: 'Belum terhubung ke sistem internal. Silakan login di halaman Jamaah terlebih dahulu.'
@@ -4826,7 +4790,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
       const { data: deleted } = await supabase
         .from('jamaah_haji')
         .delete()
-        .eq('agent_slug', slug)
+        .eq('agent_id', agentId)
         .select('nama');
       if (deleted?.length > 0) {
         console.log(`[haji-sync] ${slug}: removed ${deleted.length} haji (internal system empty)`);
@@ -4849,7 +4813,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
           const details = await fetchHajiDetail(sessionCookies, idHaji);
           const listEntry = hajiList.find(h => h.id_haji === idHaji);
           return details.map(detail => ({
-            agent_slug: slug,
+            agent_id: agentId,
             id_haji: idHaji,
             id_jamaah: detail.id_jamaah,
             nama: detail.nama,
@@ -4881,7 +4845,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     if (firstRows.length > 0) {
       const { error: firstErr } = await supabase
         .from('jamaah_haji')
-        .upsert(firstRows, { onConflict: 'agent_slug,id_haji,id_jamaah' });
+        .upsert(firstRows, { onConflict: 'agent_id,id_haji,id_jamaah' });
       if (firstErr) console.error('[haji-sync] First batch upsert error:', firstErr.message);
     }
 
@@ -4906,7 +4870,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
                 const details = await fetchHajiDetail(sessionCookies, idHaji);
                 const listEntry = hajiList.find(h => h.id_haji === idHaji);
                 return details.map(detail => ({
-                  agent_slug: slug,
+                  agent_id: agentId,
                   id_haji: idHaji,
                   id_jamaah: detail.id_jamaah,
                   nama: detail.nama,
@@ -4937,7 +4901,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
               if (bgRows.length > 0) {
                 const { error } = await supabase
                   .from('jamaah_haji')
-                  .upsert(bgRows, { onConflict: 'agent_slug,id_haji,id_jamaah' });
+                  .upsert(bgRows, { onConflict: 'agent_id,id_haji,id_jamaah' });
                 if (error) console.error('[haji-sync] BG batch error:', error.message);
                 syncingAgents.set(hajiKey, {
                   isSyncing: true,
@@ -4953,7 +4917,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
           const { data: hajiDeleted, error: hajiDelErr } = await supabase
             .from('jamaah_haji')
             .delete()
-            .eq('agent_slug', slug)
+            .eq('agent_id', agentId)
             .lt('synced_at', now)
             .select('nama');
           if (hajiDelErr) console.error(`[haji-sync] ${slug} cleanup error:`, hajiDelErr.message);
@@ -4973,7 +4937,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
       const { data: hajiDeleted, error: hajiDelErr } = await supabase
         .from('jamaah_haji')
         .delete()
-        .eq('agent_slug', slug)
+        .eq('agent_id', agentId)
         .lt('synced_at', now)
         .select('nama');
       if (hajiDelErr) console.error(`[haji-sync] ${slug} cleanup error:`, hajiDelErr.message);
@@ -5001,7 +4965,7 @@ app.get('/api/haji/sync-status', authMiddleware, async (req, res) => {
     const { data } = await supabase
       .from('jamaah_haji')
       .select('synced_at')
-      .eq('agent_slug', req.user.slug)
+      .eq('agent_id', req.user.id)
       .order('synced_at', { ascending: false })
       .limit(1);
     return res.json({
@@ -5015,7 +4979,7 @@ app.get('/api/haji/sync-status', authMiddleware, async (req, res) => {
 // GET /api/haji/jamaah — list jamaah haji with filters
 app.get('/api/haji/jamaah', authMiddleware, async (req, res) => {
   try {
-    const { slug } = req.user;
+    const agentId = req.user.id;
     const {
       search = '',
       thn_hijriyah = '',
@@ -5029,7 +4993,7 @@ app.get('/api/haji/jamaah', authMiddleware, async (req, res) => {
     let query = supabase
       .from('jamaah_haji')
       .select('*', { count: 'exact' })
-      .eq('agent_slug', slug)
+      .eq('agent_id', agentId)
       .order('id_haji', { ascending: false });
 
     if (search) {
@@ -5073,7 +5037,7 @@ app.get('/api/haji/jamaah', authMiddleware, async (req, res) => {
 // Haji jamaah note: create/update/clear note for a specific haji jamaah
 app.post('/api/haji/jamaah/note', authMiddleware, async (req, res) => {
   try {
-    const slug = req.user.slug;
+    const agentId = req.user.id;
     const { id_haji, id_jamaah, notes } = req.body;
 
     if (!id_haji || !id_jamaah) {
@@ -5087,7 +5051,7 @@ app.post('/api/haji/jamaah/note', authMiddleware, async (req, res) => {
     const { error } = await supabase
       .from('jamaah_haji')
       .update(updateData)
-      .eq('agent_slug', slug)
+      .eq('agent_id', agentId)
       .eq('id_haji', id_haji)
       .eq('id_jamaah', id_jamaah);
 
@@ -5106,12 +5070,12 @@ app.post('/api/haji/jamaah/note', authMiddleware, async (req, res) => {
 // GET /api/haji/stats — aggregated haji statistics
 app.get('/api/haji/stats', authMiddleware, async (req, res) => {
   try {
-    const { slug } = req.user;
+    const agentId = req.user.id;
 
     const { data, error } = await supabase
       .from('jamaah_haji')
       .select('id_haji, thn_hijriyah, thn_masehi, status_bayar, jenis, paket')
-      .eq('agent_slug', slug);
+      .eq('agent_id', agentId);
 
     if (error) throw error;
 
@@ -5178,8 +5142,7 @@ app.get('/api/haji/doc-proxy', authMiddleware, async (req, res) => {
     }
 
     // Get session cookies for PHP pages (pernyataan needs auth)
-    const { slug } = req.user;
-    const agent = await getAgent(slug);
+    const agent = await getAgentById(req.user.id);
     const sessionCookies = agent?.jamaah_username ? getSessionCookie(agent.jamaah_username) : null;
 
     const headers = {};
@@ -5259,9 +5222,9 @@ app.post('/api/analytics/public', async (req, res) => {
     publicEventRateLimits.set(ip, { count: 1, resetAt: now + 60000 });
   }
   // Validate slug exists
-  const agent = await getAgent(slug.toLowerCase());
+  const agent = await getAgentBySlug(slug.toLowerCase());
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
-  logAnalyticsEvent(slug.toLowerCase(), 'public', eventName, metadata || {});
+  logAnalyticsEvent(agent.id, 'public', eventName, metadata || {});
   res.json({ success: true });
 });
 
@@ -5296,12 +5259,12 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
     const totalWAClicks = events.filter(e => ['wa_click_public', 'wa_click_jamaah'].includes(e.event_name)).length;
 
     // Active agents (any event in last 7 days)
-    const { data: allAgents } = await supabase.from('agents').select('slug, name, photo');
+    const { data: allAgents } = await supabase.from('agents').select('id, slug, name, photo');
     const agentList = allAgents || [];
-    const recentSlugs = new Set(
-      events.filter(e => new Date(e.created_at) >= new Date(now7d)).map(e => e.agent_slug)
+    const recentIds = new Set(
+      events.filter(e => new Date(e.created_at) >= new Date(now7d)).map(e => e.agent_id)
     );
-    const activeAgents = recentSlugs.size;
+    const activeAgents = recentIds.size;
 
     // Daily logins (last 7 days)
     const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
@@ -5318,7 +5281,7 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
 
     // Agent Activity
     const agentActivity = agentList.map(agent => {
-      const agentEvents = events.filter(e => e.agent_slug === agent.slug);
+      const agentEvents = events.filter(e => e.agent_id === agent.id);
       const logins = agentEvents.filter(e => e.event_name === 'login').length;
       const featureClicks = agentEvents.filter(e => e.event_type === 'feature').length;
       const pageViews = agentEvents.filter(e => e.event_name === 'page_view').length;
@@ -5388,7 +5351,8 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
 
     // Recent Activity (today, exclude page_view, max 10)
     const todayStr = now.toISOString().slice(0, 10);
-    const agentNameMap = Object.fromEntries(agentList.map(a => [a.slug, a.name]));
+    const agentNameMap = Object.fromEntries(agentList.map(a => [a.id, a.name]));
+    const agentSlugMap = Object.fromEntries(agentList.map(a => [a.id, a.slug]));
     const allLabels = {
       ...featureLabels, ...actionLabels, login: 'Login', login_failed: 'Login Gagal',
       quiz_started: 'Quiz Dimulai', quiz_completed: 'Quiz Selesai', inquiry_submitted: 'Inquiry Masuk',
@@ -5398,8 +5362,8 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       .filter(e => e.created_at.slice(0, 10) === todayStr && e.event_name !== 'page_view')
       .slice(0, 10)
       .map(e => ({
-        agentSlug: e.agent_slug,
-        agentName: agentNameMap[e.agent_slug] || e.agent_slug,
+        agentSlug: agentSlugMap[e.agent_id] || e.agent_id,
+        agentName: agentNameMap[e.agent_id] || e.agent_id,
         eventName: e.event_name,
         label: allLabels[e.event_name] || e.event_name,
         createdAt: e.created_at,
@@ -5445,13 +5409,13 @@ function shouldResetCredits(firstUsedAt) {
 // Get credit info for current agent
 app.get('/api/ai-tools/credits', authMiddleware, async (req, res) => {
   try {
-    const { slug } = req.user;
+    const agentId = req.user.id;
     const quota = AI_AGENT_QUOTA;
 
     const { data: credit } = await supabase
       .from('ai_credits')
       .select('*')
-      .eq('agent_slug', slug)
+      .eq('agent_id', agentId)
       .maybeSingle();
 
     let charsUsed = 0;
@@ -5462,7 +5426,7 @@ app.get('/api/ai-tools/credits', authMiddleware, async (req, res) => {
         await supabase
           .from('ai_credits')
           .update({ chars_used: 0, first_used_at: new Date().toISOString() })
-          .eq('agent_slug', slug);
+          .eq('agent_id', agentId);
         charsUsed = 0;
         daysUntilReset = 30;
       } else {
@@ -5575,7 +5539,7 @@ Seat tersisa: ${paketData.seat_sisa || '-'}`
 app.post('/api/ai-tools/generate-voice', authMiddleware, async (req, res) => {
   try {
     const { script, voice, format = 'mp3' } = req.body;
-    const { slug } = req.user;
+    const agentId = req.user.id;
 
     if (!script || !voice) {
       return res.status(400).json({ error: 'Script dan voice diperlukan' });
@@ -5609,7 +5573,7 @@ app.post('/api/ai-tools/generate-voice', authMiddleware, async (req, res) => {
     let { data: credit } = await supabase
       .from('ai_credits')
       .select('*')
-      .eq('agent_slug', slug)
+      .eq('agent_id', agentId)
       .maybeSingle();
 
     if (!credit) {
@@ -5617,18 +5581,18 @@ app.post('/api/ai-tools/generate-voice', authMiddleware, async (req, res) => {
       await supabase
         .from('ai_credits')
         .upsert({
-          agent_slug: slug,
+          agent_id: agentId,
           chars_used: 0,
           first_used_at: now,
         });
-      credit = { agent_slug: slug, chars_used: 0, first_used_at: now };
+      credit = { agent_id: agentId, chars_used: 0, first_used_at: now };
     }
 
     if (credit.first_used_at && shouldResetCredits(credit.first_used_at)) {
       await supabase
         .from('ai_credits')
         .update({ chars_used: 0, first_used_at: new Date().toISOString() })
-        .eq('agent_slug', slug);
+        .eq('agent_id', agentId);
       credit.chars_used = 0;
     }
 
@@ -5680,7 +5644,7 @@ app.post('/api/ai-tools/generate-voice', authMiddleware, async (req, res) => {
     const { error: deductError } = await supabase
       .from('ai_credits')
       .update({ chars_used: newCharsUsed })
-      .eq('agent_slug', slug);
+      .eq('agent_id', agentId);
     if (deductError) {
       console.error('[ai-credits] Deduction FAILED:', deductError);
     } else {
@@ -5718,7 +5682,7 @@ function generateShareCode(length = 8) {
 // POST /api/flight-share — Create or retrieve share link (auth required)
 app.post('/api/flight-share', authMiddleware, async (req, res) => {
   try {
-    const agentSlug = req.user.slug;
+    const agentId = req.user.id;
     const {
       flight_number, flight_date, dep_iata, arr_iata,
       dep_city, arr_city, dep_time, arr_time, duration,
@@ -5733,7 +5697,7 @@ app.post('/api/flight-share', authMiddleware, async (req, res) => {
     const { data: existing } = await supabase
       .from('flight_shares')
       .select('code')
-      .eq('agent_slug', agentSlug)
+      .eq('agent_id', agentId)
       .eq('flight_number', flight_number)
       .eq('flight_date', flight_date)
       .single();
@@ -5778,7 +5742,7 @@ app.post('/api/flight-share', authMiddleware, async (req, res) => {
       .from('flight_shares')
       .insert({
         code,
-        agent_slug: agentSlug,
+        agent_id: agentId,
         flight_number,
         flight_date,
         dep_iata,
@@ -5831,8 +5795,8 @@ app.get('/api/flight-share/:code', async (req, res) => {
     // Ambil data agent
     const { data: agent } = await supabase
       .from('agents')
-      .select('name, phone, email, photo, website, slug')
-      .eq('slug', share.agent_slug)
+      .select('id, name, phone, email, photo, website, slug')
+      .eq('id', share.agent_id)
       .single();
 
     // --- Live data enrichment ---
@@ -6590,7 +6554,7 @@ const UMROH_CACHE_TTL = 3600_000; // 1 hour
 
 async function generateUmrohPage(slug) {
   const mod = await import('./functions/umroh-landing.mjs');
-  const agent = await getAgent(slug);
+  const agent = await getAgentBySlug(slug);
   const result = await mod.onRequest({
     params: { slug },
     request: new Request('http://localhost/' + slug + '/umroh'),
@@ -6602,7 +6566,7 @@ async function generateUmrohPage(slug) {
 (async () => {
   try {
     await new Promise(r => setTimeout(r, 2000));
-    const agents = await getAgents();
+    const agents = await getAgentsBySlug();
     const slugs = Object.keys(agents);
     console.log('[Umroh Landing] Pre-caching ' + slugs.length + ' agents...');
     for (const slug of slugs) {
@@ -6654,7 +6618,7 @@ const HAJI_CACHE_TTL = 3600_000;    // 1 hour
 // Helper: generate haji page for a slug using Supabase agent data
 async function generateHajiPage(slug) {
   const mod = await import('./functions/haji-landing.mjs');
-  const agent = await getAgent(slug);
+  const agent = await getAgentBySlug(slug);
   const result = await mod.onRequest({
     params: { slug },
     request: new Request('http://localhost/' + slug + '/haji'),
@@ -6668,7 +6632,7 @@ async function generateHajiPage(slug) {
   try {
     // Wait a moment for Supabase client to be ready
     await new Promise(r => setTimeout(r, 2000));
-    const agents = await getAgents();
+    const agents = await getAgentsBySlug();
     const slugs = Object.keys(agents);
     console.log('[Haji Landing] Pre-caching ' + slugs.length + ' agents...');
     for (const slug of slugs) {
@@ -6843,7 +6807,7 @@ app.get('/f/:code', async (req, res, next) => {
 
     const { data: share } = await supabase
       .from('flight_shares')
-      .select('flight_number, flight_date, dep_iata, arr_iata, dep_city, arr_city, agent_slug, airline_code')
+      .select('flight_number, flight_date, dep_iata, arr_iata, dep_city, arr_city, agent_id, airline_code')
       .eq('code', code)
       .single();
 
@@ -6852,17 +6816,18 @@ app.get('/f/:code', async (req, res, next) => {
     // Ambil nama agent
     const { data: agent } = await supabase
       .from('agents')
-      .select('name')
-      .eq('slug', share.agent_slug)
+      .select('slug, name')
+      .eq('id', share.agent_id)
       .single();
 
     const agentName = agent?.name || 'Agent';
+    const agentSlug = agent?.slug || '';
     const airlineName = AIRLINE_NAMES_SERVER[share.airline_code] || '';
     const flightNum = share.flight_number.replace(/^([A-Z]{2})(\d+)$/, '$1 $2');
 
     const title = `Lacak Penerbangan ${airlineName ? airlineName + ' ' : ''}${flightNum} - ${agentName}`;
     const description = `Status penerbangan ${share.flight_number} dari ${share.dep_city || share.dep_iata} ke ${share.arr_city || share.arr_iata}. Dikelola oleh ${agentName} — Alhijaz Indowisata.`;
-    const ogImageUrl = `${req.protocol}://${req.get('host')}/og/${share.agent_slug}.png`;
+    const ogImageUrl = `${req.protocol}://${req.get('host')}/og/${agentSlug}.png`;
 
     const indexPath = resolve(distPath, 'index.html');
     let html = readFileSync(indexPath, 'utf-8');
@@ -6912,7 +6877,25 @@ app.get('{*path}', async (req, res) => {
 
   // Extract slug
   const slug = req.path.replace(/^\/+/, '').split('/')[0].toLowerCase();
-  const agent = await getAgent(slug);
+  let agent = await getAgentBySlug(slug);
+
+  // Redirect old slugs to current slug
+  if (!agent && slug && slug !== '' && !['login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f'].includes(slug)) {
+    const { data: history } = await supabase
+      .from('agent_slug_history')
+      .select('agent_id')
+      .eq('old_slug', slug)
+      .order('changed_at', { ascending: false })
+      .limit(1)
+      .single();
+    if (history) {
+      const currentAgent = await getAgentById(history.agent_id);
+      if (currentAgent) {
+        const restPath = req.path.slice(slug.length + 1);
+        return res.redirect(301, `/${currentAgent.slug}${restPath}`);
+      }
+    }
+  }
 
   if (agent) {
     const newTitle = `Jadwal Umroh Alhijaz | ${agent.name}`;
@@ -6986,14 +6969,15 @@ setInterval(pingSupabase, KEEP_ALIVE_INTERVAL);
 // Uses the same monthly-chunk strategy as manual sync to avoid timeouts
 async function syncOneAgent(agent) {
   const slug = agent.slug;
+  const agentId = agent.id;
   // Skip if ANY sync (manual or background) is already running for this agent
-  const state = syncingAgents.get(slug);
+  const state = syncingAgents.get(agentId);
   if (state?.isSyncing) {
     console.log(`[SYNC] Skipping ${slug} — already syncing`);
     return;
   }
 
-  syncingAgents.set(slug, { isSyncing: true, background: true, totalSynced: 0, lastSync: null, startedAt: Date.now(), username: agent.jamaah_username });
+  syncingAgents.set(agentId, { isSyncing: true, background: true, totalSynced: 0, lastSync: null, startedAt: Date.now(), username: agent.jamaah_username });
 
   try {
     // Force fresh session for each background sync (skip remote logout to avoid rate-limiting)
@@ -7003,7 +6987,7 @@ async function syncOneAgent(agent) {
     if (!loginResult.success) {
       console.error(`[SYNC] ${slug}: login failed — ${loginResult.error || 'unknown reason'}`);
       const rateLimited = loginResult.reason === 'rate_limited';
-      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true, rateLimited });
+      syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true, rateLimited });
       return;
     }
 
@@ -7054,7 +7038,7 @@ async function syncOneAgent(agent) {
               if (itemYear && Number(itemYear) < 1447) continue;
               item.paket = item.paket || bookingPaketMap.get(idUmroh) || null;
               rowsToUpsert.push({
-                agent_slug: slug,
+                agent_id: agentId,
                 id_umroh: item.id_umroh,
                 nama: item.nama,
                 jk: item.jk || null,
@@ -7073,7 +7057,7 @@ async function syncOneAgent(agent) {
           if (rowsToUpsert.length > 0) {
             const deduped = new Map();
             for (const row of rowsToUpsert) {
-              const key = `${row.agent_slug}_${row.id_umroh}_${row.nama}`.toLowerCase();
+              const key = `${row.agent_id}_${row.id_umroh}_${row.nama}`.toLowerCase();
               bgGlobalKeys.add(key);
               deduped.set(key, row);
             }
@@ -7084,7 +7068,7 @@ async function syncOneAgent(agent) {
             const { data: existingRows } = await supabase
               .from('jamaah')
               .select('id_umroh, nama, wa, tgl_lahir, perlengkapan, dokumen, no_paspor, paspor_expired, hijriah_year')
-              .eq('agent_slug', slug)
+              .eq('agent_id', agentId)
               .in('nama', existingNames);
             const existingLookup = {};
             (existingRows || []).forEach(r => {
@@ -7124,7 +7108,7 @@ async function syncOneAgent(agent) {
             const BATCH = 50;
             for (let b = 0; b < dedupedRows.length; b += BATCH) {
               const upsertBatch = dedupedRows.slice(b, b + BATCH);
-              const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_slug,id_umroh,nama' });
+              const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,nama' });
               if (error) console.error(`[SYNC] ${slug} Phase 1 upsert error:`, error.message);
             }
           }
@@ -7133,7 +7117,7 @@ async function syncOneAgent(agent) {
         const { count: bgActualCount } = await supabase
           .from('jamaah')
           .select('*', { count: 'exact', head: true })
-          .eq('agent_slug', slug);
+          .eq('agent_id', agentId);
         totalSynced = bgActualCount || bgGlobalKeys.size;
         console.log(`[SYNC] ${slug}: Phase 1 — ${bgGlobalKeys.size} processed, ${bgActualCount} in DB`);
 
@@ -7142,7 +7126,7 @@ async function syncOneAgent(agent) {
         const { data: bgDeleted, error: bgDelErr } = await supabase
           .from('jamaah')
           .delete()
-          .eq('agent_slug', slug)
+          .eq('agent_id', agentId)
           .lt('synced_at', syncTime)
           .select('nama');
         if (bgDelErr) console.error(`[SYNC] ${slug} cleanup error:`, bgDelErr.message);
@@ -7213,7 +7197,7 @@ async function syncOneAgent(agent) {
     const { data: existingData } = await supabase
       .from('jamaah')
       .select('id_umroh, nama, bayar')
-      .eq('agent_slug', slug)
+      .eq('agent_id', agentId)
       .gte('tgl_berangkat', bgTodayStr);
     const existingMap = {};
     (existingData || []).forEach(j => { existingMap[`${j.id_umroh}_${j.nama}`] = j.bayar || 0; });
@@ -7278,10 +7262,10 @@ async function syncOneAgent(agent) {
           allNewRows.push(...rows);
           const { error } = await supabase
             .from('jamaah')
-            .upsert(rows, { onConflict: 'agent_slug,id_umroh,nama' });
+            .upsert(rows, { onConflict: 'agent_id,id_umroh,nama' });
           if (error) console.error(`[SYNC] ${slug} range ${job.tglAwal} batch error:`, error.message);
           totalSynced += batchItems.length;
-          syncingAgents.set(slug, { isSyncing: true, background: true, totalSynced, lastSync: syncTime });
+          syncingAgents.set(agentId, { isSyncing: true, background: true, totalSynced, lastSync: syncTime });
         }
 
         // Detect pembayaran masuk (only for jamaah departing in the future)
@@ -7312,7 +7296,7 @@ async function syncOneAgent(agent) {
           }
         }
         if (pembayaranBaru.length > 0) {
-          notifyPembayaranMasuk(slug, pembayaranBaru).catch(e =>
+          notifyPembayaranMasuk(agentId, pembayaranBaru).catch(e =>
             console.error(`[SYNC] ${slug}: pembayaran notif error:`, e.message)
           );
         }
@@ -7325,12 +7309,12 @@ async function syncOneAgent(agent) {
           });
           if (capiRows.length > 0) {
             for (const row of capiRows) {
-              fireCapiPurchase(slug, row);
+              fireCapiPurchase(agentId, slug, row);
             }
             for (const row of capiRows) {
               await supabase.from('jamaah')
                 .update({ capi_last_bayar: row.bayar })
-                .eq('agent_slug', slug).eq('id_umroh', row.id_umroh).eq('nama', row.nama);
+                .eq('agent_id', agentId).eq('id_umroh', row.id_umroh).eq('nama', row.nama);
             }
             console.log(`[CAPI] Updated capi_last_bayar for ${capiRows.length} jamaah (${slug})`);
           }
@@ -7366,7 +7350,7 @@ async function syncOneAgent(agent) {
                 const details = await fetchHajiDetail(sessionCookies, idHaji);
                 const listEntry = hajiList.find(h => h.id_haji === idHaji);
                 return details.map(detail => ({
-                  agent_slug: slug,
+                  agent_id: agentId,
                   id_haji: idHaji,
                   id_jamaah: detail.id_jamaah,
                   nama: detail.nama,
@@ -7397,7 +7381,7 @@ async function syncOneAgent(agent) {
               if (allHajiRows.length > 0) {
                 const { error: hajiErr } = await supabase
                   .from('jamaah_haji')
-                  .upsert(allHajiRows, { onConflict: 'agent_slug,id_haji,id_jamaah' });
+                  .upsert(allHajiRows, { onConflict: 'agent_id,id_haji,id_jamaah' });
                 if (hajiErr) console.error(`[SYNC] ${slug} haji batch error:`, hajiErr.message);
                 hajiSynced += allHajiRows.length;
                 allHajiRows.length = 0;
@@ -7413,7 +7397,7 @@ async function syncOneAgent(agent) {
           const { data: hajiDeleted, error: hajiDelErr } = await supabase
             .from('jamaah_haji')
             .delete()
-            .eq('agent_slug', slug)
+            .eq('agent_id', agentId)
             .lt('synced_at', syncTime)
             .select('nama');
           if (hajiDelErr) console.error(`[SYNC] ${slug} haji cleanup error:`, hajiDelErr.message);
@@ -7431,15 +7415,15 @@ async function syncOneAgent(agent) {
     const { count: finalCount } = await supabase
       .from('jamaah')
       .select('*', { count: 'exact', head: true })
-      .eq('agent_slug', slug);
-    syncingAgents.set(slug, { isSyncing: false, totalSynced: finalCount || totalSynced, lastSync: syncTime });
+      .eq('agent_id', agentId);
+    syncingAgents.set(agentId, { isSyncing: false, totalSynced: finalCount || totalSynced, lastSync: syncTime });
   } catch (err) {
     console.error(`[SYNC] ${slug} error:`, err.message);
   } finally {
     // ALWAYS reset isSyncing — prevents stuck lock
-    const currentState = syncingAgents.get(slug);
+    const currentState = syncingAgents.get(agentId);
     if (currentState?.isSyncing) {
-      syncingAgents.set(slug, {
+      syncingAgents.set(agentId, {
         isSyncing: false,
         totalSynced: currentState.totalSynced || 0,
         lastSync: currentState.lastSync || null
@@ -7455,10 +7439,10 @@ async function syncAllAgents() {
 
   // Force-reset stuck syncs (>15 min)
   const STUCK_TIMEOUT = 15 * 60 * 1000;
-  for (const [slug, state] of syncingAgents) {
+  for (const [id, state] of syncingAgents) {
     if (state.isSyncing && state.startedAt && (Date.now() - state.startedAt > STUCK_TIMEOUT)) {
-      console.warn(`[SYNC] Force-resetting stuck sync: ${slug} (${Math.round((Date.now() - state.startedAt) / 60000)}m)`);
-      syncingAgents.set(slug, { isSyncing: false, totalSynced: 0, lastSync: null });
+      console.warn(`[SYNC] Force-resetting stuck sync: ${id} (${Math.round((Date.now() - state.startedAt) / 60000)}m)`);
+      syncingAgents.set(id, { isSyncing: false, totalSynced: 0, lastSync: null });
       try { if (state.username) await laporanDisconnect(state.username, { skipRemoteLogout: true }); } catch {}
     }
   }

@@ -7,7 +7,7 @@
  * Functions:
  *   fetchHajiList(sessionCookies)            → array of haji list entries
  *   fetchHajiDetail(sessionCookies, idHaji)  → array of jamaah per id_haji
- *   syncHajiData(sessionCookies, agentSlug, supabase) → full sync flow
+ *   syncHajiData(sessionCookies, agentId, supabase, agentSlug?) → full sync flow
  */
 
 import * as cheerio from 'cheerio';
@@ -143,16 +143,17 @@ export async function fetchHajiDetail(sessionCookies, idHaji) {
  * Full sync: fetch list → deduplicate → fetch details → merge → upsert to Supabase.
  *
  * @param {string} sessionCookies - Valid PHPSESSID cookie string
- * @param {string} agentSlug - Agent identifier
+ * @param {string} agentId - Agent UUID
  * @param {object} supabase - Supabase client (service role)
+ * @param {string} [agentSlug] - Agent slug (for logging only)
  * @returns {{ total: number, uniqueHaji: number }}
  */
-export async function syncHajiData(sessionCookies, agentSlug, supabase) {
+export async function syncHajiData(sessionCookies, agentId, supabase, agentSlug = '') {
   const syncTime = new Date().toISOString();
 
   // Step 1: Fetch list
   const hajiList = await fetchHajiList(sessionCookies);
-  console.log(`[haji-sync] Found ${hajiList.length} haji entries for ${agentSlug}`);
+  console.log(`[haji-sync] Found ${hajiList.length} haji entries for ${agentSlug || agentId}`);
 
   const allRows = [];
 
@@ -169,7 +170,7 @@ export async function syncHajiData(sessionCookies, agentSlug, supabase) {
         const details = await fetchHajiDetail(sessionCookies, idHaji);
         const listEntry = hajiList.find(h => h.id_haji === idHaji);
         return details.map(detail => ({
-          agent_slug: agentSlug,
+          agent_id: agentId,
           id_haji: idHaji,
           id_jamaah: detail.id_jamaah,
           nama: detail.nama,
@@ -207,7 +208,7 @@ export async function syncHajiData(sessionCookies, agentSlug, supabase) {
       await new Promise(r => setTimeout(r, 100));
     }
 
-    console.log(`[haji-sync] ${agentSlug}: ${Math.min(i + BATCH_SIZE, uniqueIds.length)}/${uniqueIds.length} haji fetched`);
+    console.log(`[haji-sync] ${agentSlug || agentId}: ${Math.min(i + BATCH_SIZE, uniqueIds.length)}/${uniqueIds.length} haji fetched`);
   }
 
   // Step 3: Upsert to Supabase
@@ -215,7 +216,7 @@ export async function syncHajiData(sessionCookies, agentSlug, supabase) {
     const { error } = await supabase
       .from('jamaah_haji')
       .upsert(allRows, {
-        onConflict: 'agent_slug,id_haji,id_jamaah',
+        onConflict: 'agent_id,id_haji,id_jamaah',
       });
 
     if (error) {
@@ -228,14 +229,14 @@ export async function syncHajiData(sessionCookies, agentSlug, supabase) {
   const { data: deleted, error: delErr } = await supabase
     .from('jamaah_haji')
     .delete()
-    .eq('agent_slug', agentSlug)
+    .eq('agent_id', agentId)
     .lt('synced_at', syncTime)
     .select('nama');
-  if (delErr) console.error(`[haji-sync] ${agentSlug} cleanup error:`, delErr.message);
+  if (delErr) console.error(`[haji-sync] ${agentSlug || agentId} cleanup error:`, delErr.message);
   else if (deleted?.length > 0) {
-    console.log(`[haji-sync] ${agentSlug}: removed ${deleted.length} stale haji jamaah: ${deleted.map(d => d.nama).join(', ')}`);
+    console.log(`[haji-sync] ${agentSlug || agentId}: removed ${deleted.length} stale haji jamaah: ${deleted.map(d => d.nama).join(', ')}`);
   }
 
-  console.log(`[haji-sync] Synced ${allRows.length} jamaah haji for ${agentSlug}`);
+  console.log(`[haji-sync] Synced ${allRows.length} jamaah haji for ${agentSlug || agentId}`);
   return { total: allRows.length, uniqueHaji: uniqueIds.length };
 }

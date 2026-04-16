@@ -769,7 +769,7 @@ async function sendAgentDepartureReminders() {
 
     const { data: jamaahData, error: jErr } = await supabaseAdmin
       .from('jamaah')
-      .select('agent_slug, nama, sisa, tgl_berangkat')
+      .select('agent_id, nama, sisa, tgl_berangkat')
       .in('tgl_berangkat', allDates);
 
     if (jErr) { warn('Failed to query jamaah:', jErr.message); return; }
@@ -777,13 +777,13 @@ async function sendAgentDepartureReminders() {
 
     const { data: agents, error: aErr } = await supabaseAdmin
       .from('agents')
-      .select('slug, name, telegram_chat_id, notification_prefs')
+      .select('id, slug, name, telegram_chat_id, notification_prefs')
       .not('telegram_chat_id', 'is', null);
 
     if (aErr || !agents || agents.length === 0) { log('No agents with telegram_chat_id'); return; }
 
     const agentMap = {};
-    for (const a of agents) { if (a.telegram_chat_id) agentMap[a.slug] = a; }
+    for (const a of agents) { if (a.telegram_chat_id) agentMap[a.id] = a; }
 
     const state = await loadState() || freshState();
     if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
@@ -791,9 +791,9 @@ async function sendAgentDepartureReminders() {
     // Group jamaah per agent
     const perAgent = {};
     for (const j of jamaahData) {
-      if (!agentMap[j.agent_slug]) continue;
-      if (!perAgent[j.agent_slug]) perAgent[j.agent_slug] = [];
-      perAgent[j.agent_slug].push(j);
+      if (!agentMap[j.agent_id]) continue;
+      if (!perAgent[j.agent_id]) perAgent[j.agent_id] = [];
+      perAgent[j.agent_id].push(j);
     }
 
     let sentCount = 0;
@@ -866,7 +866,7 @@ async function departureReminderSore() {
 
     const { data: jamaahData, error: jErr } = await supabaseAdmin
       .from('jamaah')
-      .select('agent_slug, nama, sisa, tgl_berangkat')
+      .select('agent_id, nama, sisa, tgl_berangkat')
       .eq('tgl_berangkat', tomorrow);
 
     if (jErr) { warn('Sore query error:', jErr.message); return; }
@@ -874,13 +874,13 @@ async function departureReminderSore() {
 
     const { data: agents, error: aErr } = await supabaseAdmin
       .from('agents')
-      .select('slug, name, telegram_chat_id, notification_prefs')
+      .select('id, slug, name, telegram_chat_id, notification_prefs')
       .not('telegram_chat_id', 'is', null);
 
     if (aErr || !agents || agents.length === 0) return;
 
     const agentMap = {};
-    for (const a of agents) { if (a.telegram_chat_id) agentMap[a.slug] = a; }
+    for (const a of agents) { if (a.telegram_chat_id) agentMap[a.id] = a; }
 
     const state = await loadState() || freshState();
     if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
@@ -888,9 +888,9 @@ async function departureReminderSore() {
     // Group per agent
     const perAgent = {};
     for (const j of jamaahData) {
-      if (!agentMap[j.agent_slug]) continue;
-      if (!perAgent[j.agent_slug]) perAgent[j.agent_slug] = [];
-      perAgent[j.agent_slug].push(j);
+      if (!agentMap[j.agent_id]) continue;
+      if (!perAgent[j.agent_id]) perAgent[j.agent_id] = [];
+      perAgent[j.agent_id].push(j);
     }
 
     let sentCount = 0;
@@ -996,7 +996,7 @@ async function passportReminder() {
     // Query jamaah berangkat dalam 30 hari ke depan
     const { data: jamaahData, error: jError } = await supabaseAdmin
       .from('jamaah')
-      .select('agent_slug, nama, tgl_berangkat, dokumen, paspor_expired, no_paspor')
+      .select('agent_id, nama, tgl_berangkat, dokumen, paspor_expired, no_paspor')
       .gte('tgl_berangkat', today)
       .lte('tgl_berangkat', maxDate);
 
@@ -1019,21 +1019,21 @@ async function passportReminder() {
     // Query agents dengan telegram_chat_id
     const { data: agents, error: aError } = await supabaseAdmin
       .from('agents')
-      .select('slug, name, telegram_chat_id, notification_prefs')
+      .select('id, slug, name, telegram_chat_id, notification_prefs')
       .not('telegram_chat_id', 'is', null);
 
     if (aError) throw aError;
     if (!agents || agents.length === 0) return;
 
     const agentMap = {};
-    agents.forEach(a => { agentMap[a.slug] = a; });
+    agents.forEach(a => { agentMap[a.id] = a; });
 
     // Group per agent
     const perAgent = {};
     problemJamaah.forEach(j => {
-      if (!agentMap[j.agent_slug]) return;
-      if (!perAgent[j.agent_slug]) perAgent[j.agent_slug] = [];
-      perAgent[j.agent_slug].push(j);
+      if (!agentMap[j.agent_id]) return;
+      if (!perAgent[j.agent_id]) perAgent[j.agent_id] = [];
+      perAgent[j.agent_id].push(j);
     });
 
     const state = await loadState() || freshState();
@@ -1224,7 +1224,7 @@ async function perlengkapanReminder() {
 
     const { data: jamaahData, error: jError } = await supabaseAdmin
       .from('jamaah')
-      .select('agent_slug, nama, tgl_berangkat, perlengkapan')
+      .select('agent_id, nama, tgl_berangkat, perlengkapan')
       .gte('tgl_berangkat', today)
       .lte('tgl_berangkat', maxDate);
 
@@ -1241,20 +1241,20 @@ async function perlengkapanReminder() {
 
     const { data: agents, error: aError } = await supabaseAdmin
       .from('agents')
-      .select('slug, name, telegram_chat_id, notification_prefs')
+      .select('id, slug, name, telegram_chat_id, notification_prefs')
       .not('telegram_chat_id', 'is', null);
 
     if (aError) throw aError;
     if (!agents || agents.length === 0) return;
 
     const agentMap = {};
-    agents.forEach(a => { agentMap[a.slug] = a; });
+    agents.forEach(a => { agentMap[a.id] = a; });
 
     const perAgent = {};
     incomplete.forEach(j => {
-      if (!agentMap[j.agent_slug]) return;
-      if (!perAgent[j.agent_slug]) perAgent[j.agent_slug] = [];
-      perAgent[j.agent_slug].push(j);
+      if (!agentMap[j.agent_id]) return;
+      if (!perAgent[j.agent_id]) perAgent[j.agent_id] = [];
+      perAgent[j.agent_id].push(j);
     });
 
     const state = await loadState() || freshState();
@@ -1372,7 +1372,7 @@ async function weeklySummary() {
       const { data: jamaahData, error: jError } = await supabaseAdmin
         .from('jamaah')
         .select('nama, sisa, tgl_berangkat, dokumen, perlengkapan, no_paspor')
-        .eq('agent_slug', agent.slug);
+        .eq('agent_id', agent.id);
 
       if (jError) { warn(`[weekly] Error fetching jamaah for ${agent.slug}:`, jError.message); continue; }
       if (!jamaahData || jamaahData.length === 0) continue;
@@ -1456,14 +1456,14 @@ function buildPembayaranMessage(agentName, pembayaranList) {
     '💡 Cek detail di dashboard → Jamaah';
 }
 
-async function notifyPembayaranMasuk(agentSlug, pembayaranList) {
+async function notifyPembayaranMasuk(agentId, pembayaranList) {
   try {
     if (!supabaseAdmin) return;
 
     const { data: agent, error } = await supabaseAdmin
       .from('agents')
-      .select('slug, name, telegram_chat_id, notification_prefs')
-      .eq('slug', agentSlug)
+      .select('id, slug, name, telegram_chat_id, notification_prefs')
+      .eq('id', agentId)
       .single();
 
     if (error || !agent) return;
@@ -1474,7 +1474,7 @@ async function notifyPembayaranMasuk(agentSlug, pembayaranList) {
     if (!message) return;
 
     await sendTelegramToAgent(agent.telegram_chat_id, message);
-    log(`✅ Pembayaran notif sent to ${agentSlug}: ${pembayaranList.length} payment(s)`);
+    log(`✅ Pembayaran notif sent to ${agent.slug}: ${pembayaranList.length} payment(s)`);
   } catch (err) {
     warn(`[pembayaran-notif] Error for ${agentSlug}:`, err.message);
   }

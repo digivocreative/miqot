@@ -52,7 +52,7 @@ function WaIcon({ size = 14 }: { size?: number }) {
 
 // ── Types ──
 interface HajiJamaah {
-  agent_slug: string;
+  agent_id: string;
   id_haji: string;
   id_jamaah: string;
   nama: string | null;
