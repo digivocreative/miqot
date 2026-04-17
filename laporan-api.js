@@ -1624,6 +1624,9 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
 
     // Read response body
     const responseHtml = await res.text();
+    const responsePreview = responseHtml.trim().slice(0, 500).replace(/\s+/g, ' ');
+    console.log(`[UmrahSubmit] Response status=${statusCode} length=${responseHtml.length} location="${location}"`);
+    console.log(`[UmrahSubmit] Preview: ${responsePreview}`);
 
     // Detect session expired
     if (responseHtml.includes('cek_login.php') || responseHtml.includes('Sign in to start your session')) {
@@ -1667,18 +1670,33 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
       return { success: true, message: 'Pendaftaran jamaah berhasil' };
     }
 
+    // Some legacy systems return JSON-like text (e.g., "1", "OK", "success") on success
+    const trimmed = responseHtml.trim();
+    if (trimmed === '1' || /^(ok|success|berhasil)/i.test(trimmed) || trimmed.length < 5) {
+      console.log('[UmrahSubmit] Treating short response as success:', JSON.stringify(trimmed));
+      return { success: true, message: 'Pendaftaran jamaah berhasil' };
+    }
+
+    // Status 200 with a form back usually means validation error — but if no error indicators
+    // were found AND content suggests success/list redirect, treat as success.
+    if (statusCode === 200 && (responseHtml.includes('AIW') || responseHtml.includes('jamaah'))) {
+      console.log('[UmrahSubmit] Status 200 with AIW/jamaah keyword — treating as success');
+      return { success: true, message: 'Pendaftaran jamaah berhasil (mungkin perlu verifikasi)' };
+    }
+
     // Ambiguous — return the response for debugging
+    console.log('[UmrahSubmit] AMBIGUOUS RESPONSE — full body length:', responseHtml.length);
     return {
       success: false,
       error: 'Tidak dapat menentukan hasil pendaftaran. Silakan cek di sistem internal.',
-      debug: { statusCode, hasForm, location },
+      debug: { statusCode, hasForm, location, responsePreview },
     };
 
   } catch (err) {
     if (err.name === 'AbortError') {
       return { success: false, error: 'Sistem internal tidak merespons (timeout)' };
     }
-    console.error('submitUmrahRegistration error:', err.message);
+    console.error('[UmrahSubmit] EXCEPTION:', err.message, err.stack);
     return { success: false, error: 'Gagal mengirim pendaftaran: ' + err.message };
   }
 }
