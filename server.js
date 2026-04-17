@@ -16,7 +16,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
-import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, submitUmrahRegistration } from './laporan-api.js';
+import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
 import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
@@ -2780,7 +2780,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     return res.json({ success: true, data: { initialCount: 0, syncing: true, message: 'Sync sudah berjalan' } });
   }
 
-  syncingAgents.set(agentId, { isSyncing: true, totalSynced: 0, completedYears: [], lastSync: null });
+  syncingAgents.set(agentId, { isSyncing: true, scope: 'umroh-manual', totalSynced: 0, completedYears: [], lastSync: null });
   if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'sync_jamaah');
 
   // Force fresh session to ensure clean state with legacy system
@@ -2931,7 +2931,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
             const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,nama' });
             if (error) console.error(`[Sync] ${slug} Phase 1 upsert error:`, error.message);
           }
-          syncingAgents.set(agentId, { isSyncing: true, totalSynced: globalKeys.size, phase: 1, completedYears: [], lastSync: now });
+          syncingAgents.set(agentId, { isSyncing: true, scope: 'umroh-manual', totalSynced: globalKeys.size, phase: 1, completedYears: [], lastSync: now });
         }
 
         // Send response after first successful batch (progressive hydration)
@@ -2954,7 +2954,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
       totalItems = actualCount || globalKeys.size;
 
       console.log(`[Sync] ${slug}: Phase 1 complete — ${globalKeys.size} processed, ${actualCount} in DB, from ${uniqueIds.length} bookings (${detailErrors} errors)`);
-      syncingAgents.set(agentId, { isSyncing: true, totalSynced: totalItems, phase: 1, completedYears: [], lastSync: now });
+      syncingAgents.set(agentId, { isSyncing: true, scope: 'umroh-manual', totalSynced: totalItems, phase: 1, completedYears: [], lastSync: now });
 
       // Collect completed years from Phase 1 data — counts are already accurate
       const { data: phase1Rows } = await supabase
@@ -3067,7 +3067,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     // Mark Phase 2 — frontend hides counter, shows "enriching" text
     // Use phase1Years if available (from Phase 1 completion above)
     const completedYears = typeof phase1Years !== 'undefined' ? phase1Years : [];
-    syncingAgents.set(agentId, { isSyncing: true, totalSynced: totalItems, phase: 2, completedYears, lastSync: now });
+    syncingAgents.set(agentId, { isSyncing: true, scope: 'umroh-manual', totalSynced: totalItems, phase: 2, completedYears, lastSync: now });
 
     for (let i = 0; i < fetchJobs.length; i += PARALLEL) {
       // Check if sync was cancelled (user disconnected/deleted credentials)
@@ -5044,9 +5044,30 @@ app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit:
       fileName = file.name;
     }
 
+    // ── Auto-fetch paket details (harga_paket, npaket, harga_perlengkapan) ──
+    // The legacy form's JS calls _pkt.php on paket change to populate these fields.
+    // Without this, submission results in harga=0/sisa=0 → status LUNAS bug.
+    const enrichedFields = { ...fields };
+    const jadwalValue = fields.jadwal || fields.berangkat || fields.tgl_berangkat;
+    const paketValue = fields.paket || fields.paket_umroh;
+    if (jadwalValue && paketValue) {
+      const paketDetails = await fetchUmrahPaketDetails(agent.jamaah_username, jadwalValue, paketValue);
+      if (paketDetails.success && paketDetails.fields) {
+        // Merge fetched values, but don't override user-provided values
+        for (const [name, value] of Object.entries(paketDetails.fields)) {
+          if (enrichedFields[name] === undefined || enrichedFields[name] === '' || enrichedFields[name] === '0') {
+            enrichedFields[name] = value;
+          }
+        }
+        console.log('[Register] Enriched fields with paket details:', Object.keys(paketDetails.fields));
+      } else {
+        console.warn('[Register] Failed to fetch paket details:', paketDetails.error);
+      }
+    }
+
     const result = await submitUmrahRegistration(agent.jamaah_username, {
       formAction,
-      fields,
+      fields: enrichedFields,
       hiddenFields: hiddenFields || {},
       fileBuffer,
       fileName,
@@ -5082,7 +5103,12 @@ app.get('/api/umrah/dependent-options', authMiddleware, adminOnly, async (req, r
       return res.status(502).json({ error: result.error });
     }
 
-    res.json({ success: true, data: result.data, sourceUrl: result.sourceUrl });
+    res.json({
+      success: true,
+      data: result.data,
+      sourceUrl: result.sourceUrl,
+      extraFields: result.extraFields, // additional form fields discovered from AJAX response
+    });
   } catch (err) {
     console.error('GET /api/umrah/dependent-options error:', err);
     res.status(500).json({ error: 'Gagal mengambil opsi dependent' });
@@ -8133,7 +8159,7 @@ async function syncOneAgent(agent) {
     return;
   }
 
-  syncingAgents.set(agentId, { isSyncing: true, background: true, totalSynced: 0, lastSync: null, startedAt: Date.now(), username: agent.jamaah_username });
+  syncingAgents.set(agentId, { isSyncing: true, background: true, scope: 'umroh-bg', totalSynced: 0, lastSync: null, startedAt: Date.now(), username: agent.jamaah_username });
 
   try {
     // Force fresh session for each background sync (skip remote logout to avoid rate-limiting)
@@ -8463,8 +8489,9 @@ async function syncOneAgent(agent) {
             .from('jamaah')
             .upsert(rows, { onConflict: 'agent_id,id_umroh,nama' });
           if (error) console.error(`[SYNC] ${slug} range ${job.tglAwal} batch error:`, error.message);
-          totalSynced += batchItems.length;
-          syncingAgents.set(agentId, { isSyncing: true, background: true, totalSynced, lastSync: syncTime });
+          // Phase 2 is enrichment, not new-jamaah-count. Don't re-count — same jamaah
+          // appears across multiple 7-day chunks which would inflate the counter.
+          syncingAgents.set(agentId, { isSyncing: true, background: true, scope: 'umroh-bg', totalSynced, lastSync: syncTime });
         }
 
         // Detect pembayaran masuk (only for jamaah departing in the future)
@@ -8518,6 +8545,8 @@ async function syncOneAgent(agent) {
     try {
       const sessionCookies = getSessionCookie(agent.jamaah_username);
       if (sessionCookies) {
+        // Switch scope so HajiPage sees haji-specific counter instead of umroh leftover.
+        syncingAgents.set(agentId, { isSyncing: true, background: true, scope: 'haji-bg', totalSynced: 0, lastSync: syncTime });
         const { rows: hajiList, complete: hajiListComplete } = await fetchHajiList(sessionCookies);
         const uniqueIds = [...new Set(hajiList.map(h => h.id_haji))];
         console.log(`[SYNC] ${slug}: found ${uniqueIds.length} unique haji entries, complete=${hajiListComplete}`);
@@ -8584,6 +8613,7 @@ async function syncOneAgent(agent) {
                 if (hajiErr) console.error(`[SYNC] ${slug} haji batch error:`, hajiErr.message);
                 hajiSynced += allHajiRows.length;
                 allHajiRows.length = 0;
+                syncingAgents.set(agentId, { isSyncing: true, background: true, scope: 'haji-bg', totalSynced: hajiSynced, lastSync: syncTime });
               }
             }
 

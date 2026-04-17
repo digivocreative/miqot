@@ -826,13 +826,21 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat } = {}) {
     // Extract all select elements — search globally (not just inside first form)
     // because legacy layouts sometimes place selects outside form or in nested structures.
     // Prefer form-scoped selects when there's a conflict.
+    // Skips placeholder options ("-", empty, "Pilih...") so frontend can detect
+    // empty-state for dependent dropdowns.
+    const isPlaceholderOption = (value, label) => {
+      if (!value || value === '-' || value === '0') return true;
+      if (!label || label === '-' || /^pilih/i.test(label.trim())) return true;
+      return false;
+    };
     const allSelects = {};
     const extractSelectOptions = (el) => {
       const opts = [];
       $(el).find('option').each((_, opt) => {
         const value = $(opt).attr('value') || '';
         const label = $(opt).text().trim();
-        if (value || label) opts.push({ value, label });
+        if (isPlaceholderOption(value, label)) return;
+        opts.push({ value, label });
       });
       return opts;
     };
@@ -913,6 +921,36 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat } = {}) {
       session.jsHandlers = jsHandlers;
     }
 
+    // ── Auto-fetch jdaftar-specific fields (kelamin, ktp, status_nikah, etc.) ──
+    // The legacy form uses `ojd(val)` JS to load these when jdaftar changes.
+    // We trigger it with the "Jamaah Baru" option so the fields are available immediately.
+    try {
+      const jdaftarOpts = allSelects.jdaftar || [];
+      const jamaahBaru = jdaftarOpts.find(o => /jamaah\s*baru|baru/i.test(o.label));
+      if (jamaahBaru?.value) {
+        const jdaftarRes = await fetchUmrahJdaftarFields(username, jamaahBaru.value);
+        if (jdaftarRes.success && jdaftarRes.fields) {
+          // Merge jdaftar-specific fields into main form (don't override existing)
+          for (const [name, opts] of Object.entries(jdaftarRes.fields.selects || {})) {
+            if (!allSelects[name] || allSelects[name].length === 0) {
+              allSelects[name] = opts;
+            }
+          }
+          for (const [name, info] of Object.entries(jdaftarRes.fields.inputs || {})) {
+            if (!allInputs[name]) allInputs[name] = info;
+          }
+          for (const [name, info] of Object.entries(jdaftarRes.fields.textareas || {})) {
+            if (!allTextareas[name]) allTextareas[name] = info;
+          }
+          console.log('[UmrahForm] After jdaftar merge — Selects:', Object.fromEntries(
+            Object.entries(allSelects).map(([k, v]) => [k, v.length])
+          ));
+        }
+      }
+    } catch (err) {
+      console.warn('[UmrahForm] Failed to fetch jdaftar fields:', err.message);
+    }
+
     return {
       success: true,
       formAction,
@@ -933,6 +971,55 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat } = {}) {
   }
 }
 
+// ── Fetch Jdaftar Fields: Call _jdaftar.php with selected jdaftar value ──
+// Triggered by function ojd(val) in legacy JS. The response contains fields
+// specific to the jamaah type: kelamin, ktp, status_nikah, pekerjaan, pendamping,
+// pengalaman, remarks, mahram, kondisi_jamaah, alamat, etc.
+export async function fetchUmrahJdaftarFields(username, jdaftarValue) {
+  const session = sessions.get(username);
+  if (!session) return { success: false, error: 'Belum login' };
+
+  if (Date.now() - session.createdAt > SESSION_TTL) {
+    sessions.delete(username);
+    return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
+  }
+
+  const url = `${BASE}/pages/route/data_umrah/_jdaftar.php`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Cookie: session.cookie,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Referer': `${BASE}/pages/main.php?route=umrah&act=tdaftar`,
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      },
+      body: new URLSearchParams({ jdaftar: jdaftarValue }).toString(),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) {
+      console.log('[UmrahJdaftar] HTTP', res.status);
+      return { success: false, error: `HTTP ${res.status}` };
+    }
+
+    const html = await res.text();
+    if (html.includes('cek_login.php') || html.includes('Sign in to start your session')) {
+      sessions.delete(username);
+      return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+    }
+
+    const fields = extractAllFieldsFromHtml(html);
+    console.log(`[UmrahJdaftar] Fields loaded for jdaftar=${jdaftarValue}: ${Object.keys(fields.selects).length} selects, ${Object.keys(fields.inputs).length} inputs, ${Object.keys(fields.textareas).length} textareas`);
+    return { success: true, fields };
+  } catch (err) {
+    console.error('[UmrahJdaftar] Error:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 // ── Helper: Parse HTML fragment for <option> tags (used for AJAX responses) ──
 function extractOptionsFromHtml(html) {
   const $ = cheerio.load(html);
@@ -945,6 +1032,59 @@ function extractOptionsFromHtml(html) {
     }
   });
   return opts;
+}
+
+// ── Helper: Parse ALL form fields (selects/inputs/textareas) from an HTML fragment.
+// Used for AJAX responses that inject additional form fields (e.g. _otb.php response
+// which contains kelamin, ktp, status_nikah, pekerjaan, alamat, etc.)
+function extractAllFieldsFromHtml(html) {
+  const $ = cheerio.load(html);
+  const selects = {};
+  const inputs = {};
+  const textareas = {};
+  const hiddenFields = {};
+
+  $('select').each((_, el) => {
+    const name = $(el).attr('name');
+    if (!name) return;
+    const opts = [];
+    $(el).find('option').each((_, opt) => {
+      const value = $(opt).attr('value') || '';
+      const label = $(opt).text().trim();
+      // Skip placeholder options consistently with main form scraper
+      if (!value || value === '-' || value === '0') return;
+      if (!label || label === '-' || /^pilih/i.test(label)) return;
+      opts.push({ value, label });
+    });
+    selects[name] = opts;
+  });
+
+  $('input').each((_, el) => {
+    const name = $(el).attr('name');
+    if (!name) return;
+    const type = $(el).attr('type') || 'text';
+    if (type === 'hidden') {
+      hiddenFields[name] = $(el).attr('value') || '';
+      return;
+    }
+    if (type === 'submit' || type === 'button' || type === 'reset') return;
+    inputs[name] = {
+      type,
+      placeholder: $(el).attr('placeholder') || '',
+      required: $(el).attr('required') !== undefined,
+    };
+  });
+
+  $('textarea').each((_, el) => {
+    const name = $(el).attr('name');
+    if (!name) return;
+    textareas[name] = {
+      placeholder: $(el).attr('placeholder') || '',
+      required: $(el).attr('required') !== undefined,
+    };
+  });
+
+  return { selects, inputs, textareas, hiddenFields };
 }
 
 // ── Helper: Resolve URL relative to the form page base ──
@@ -1090,8 +1230,17 @@ async function tryPaketAjax(session, jadwal, jsHandlers) {
       // Parse as multiple formats (HTML fragment, JSON, delimited text)
       const opts = parseOptionsFromResponse(responseText);
       if (opts.length > 0) {
-        console.log(`[UmrahDeps] Paket AJAX ✓ ${attempt.method} ${attempt.param} ${Object.keys(attempt.data).length ? '+ctx' : ''} → ${opts.length} options`);
-        return { options: opts, sourceUrl: url, method: attempt.method, param: attempt.param };
+        // Also extract all OTHER form fields from the response — the _otb.php response
+        // injects additional fields (kelamin, ktp, status_nikah, etc.) into the #otb div.
+        const allFields = extractAllFieldsFromHtml(responseText);
+        console.log(`[UmrahDeps] Paket AJAX ✓ ${attempt.method} ${attempt.param} ${Object.keys(attempt.data).length ? '+ctx' : ''} → ${opts.length} paket options, +${Object.keys(allFields.selects).length} selects, +${Object.keys(allFields.inputs).length} inputs, +${Object.keys(allFields.textareas).length} textareas`);
+        return {
+          options: opts,
+          sourceUrl: url,
+          method: attempt.method,
+          param: attempt.param,
+          extraFields: allFields,
+        };
       } else {
         console.log(`[UmrahDeps] Paket AJAX ${attempt.method} ${attempt.param} ${Object.keys(attempt.data).length ? '+ctx' : ''} → 0 options (${responseText.length} bytes). Preview: ${preview}`);
       }
@@ -1119,6 +1268,8 @@ export async function fetchUmrahDependentOptions(username, jadwal) {
 
   const combined = {};
   let lastSourceUrl = null;
+  // Extra fields discovered from _otb.php response (kelamin, ktp, status_nikah, etc.)
+  let extraFields = null;
 
   // ── Step 1: Try discovered paket AJAX URL first (from JS analysis) ──
   if (session.jsHandlers?.paketAjaxUrl) {
@@ -1130,6 +1281,9 @@ export async function fetchUmrahDependentOptions(username, jadwal) {
     if (paketResult?.options?.length > 0) {
       combined.paket = paketResult.options;
       lastSourceUrl = paketResult.sourceUrl;
+      if (paketResult.extraFields) {
+        extraFields = paketResult.extraFields;
+      }
     }
   } else {
     console.log('[UmrahDeps] No paket AJAX URL cached — run form-options first to discover it.');
@@ -1230,10 +1384,10 @@ export async function fetchUmrahDependentOptions(username, jadwal) {
 
   console.log('[UmrahDeps] Jadwal:', jadwal, 'Found:', Object.fromEntries(
     Object.entries(combined).map(([k, v]) => [k, v.length])
-  ));
+  ), extraFields ? `+ extraFields (${Object.keys(extraFields.selects).length} selects, ${Object.keys(extraFields.inputs).length} inputs, ${Object.keys(extraFields.textareas).length} textareas)` : '');
 
   if (Object.keys(combined).length > 0) {
-    return { success: true, data: combined, sourceUrl: lastSourceUrl };
+    return { success: true, data: combined, sourceUrl: lastSourceUrl, extraFields };
   }
 
   return { success: false, error: 'Tidak bisa mengambil opsi dependent' };
@@ -1332,6 +1486,66 @@ export async function fetchUmrahPaketOptions(username, tglBerangkat) {
   }
 
   return { success: false, error: 'Tidak bisa mengambil paket options', tried };
+}
+
+// ── Fetch Paket Details: call _pkt.php to get harga_paket, npaket, harga_perlengkapan ──
+// Triggered by legacy JS function `pkt(val)` when paket dropdown changes.
+// The endpoint returns HTML fragment with price/hidden fields — without these,
+// legacy submit results in harga=0, sisa=0, which is treated as LUNAS (paid off).
+export async function fetchUmrahPaketDetails(username, jadwal, paketValue) {
+  const session = sessions.get(username);
+  if (!session) return { success: false, error: 'Belum login' };
+
+  if (!jadwal || !paketValue) {
+    return { success: false, error: 'jadwal & paketValue required' };
+  }
+
+  // Legacy composite format: {jadwal}.{paket}
+  const compositePkt = `${jadwal}.${paketValue}`;
+  const url = `${BASE}/pages/route/data_umrah/_pkt.php`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Cookie: session.cookie,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Referer': `${BASE}/pages/main.php?route=umrah&act=tdaftar`,
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      },
+      body: new URLSearchParams({ pkt: compositePkt }).toString(),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) {
+      console.log('[UmrahPaketDetails] HTTP', res.status);
+      return { success: false, error: `HTTP ${res.status}` };
+    }
+
+    const html = await res.text();
+    if (html.includes('cek_login.php') || html.includes('Sign in to start your session')) {
+      sessions.delete(username);
+      return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+    }
+
+    // Parse response HTML for all input values (hpaket, npaket, harga_perlengkapan, etc.)
+    const $ = cheerio.load(html);
+    const extractedFields = {};
+    $('input').each((_, el) => {
+      const name = $(el).attr('name');
+      const value = $(el).attr('value');
+      if (name && value !== undefined) {
+        extractedFields[name] = value;
+      }
+    });
+
+    console.log(`[UmrahPaketDetails] pkt=${compositePkt} → extracted:`, extractedFields);
+    return { success: true, fields: extractedFields };
+  } catch (err) {
+    console.error('[UmrahPaketDetails] Error:', err.message);
+    return { success: false, error: err.message };
+  }
 }
 
 // ── Submit Umrah Registration: POST form data to legacy system ──

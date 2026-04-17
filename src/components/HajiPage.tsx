@@ -416,7 +416,10 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
         if (result.success && result.data.isSyncing) {
           setSyncing(true);
           setBackgroundSyncing(true);
-          if (result.data.totalSynced) setSyncedCount(result.data.totalSynced);
+          // Only trust totalSynced if sync scope is haji-related — otherwise it's
+          // umroh's counter leaking via the shared mutex.
+          const isHajiScope = typeof result.data.scope === 'string' && result.data.scope.startsWith('haji');
+          if (isHajiScope && result.data.totalSynced) setSyncedCount(result.data.totalSynced);
           startPolling();
         }
       } catch {
@@ -528,7 +531,9 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
         const result = await res.json();
         errorCount = 0;
         if (result.success) {
-          if (result.data.totalSynced) setSyncedCount(result.data.totalSynced);
+          // Only trust totalSynced if sync scope is haji-related (see note above).
+          const isHajiScope = typeof result.data.scope === 'string' && result.data.scope.startsWith('haji');
+          if (isHajiScope && result.data.totalSynced) setSyncedCount(result.data.totalSynced);
           if (!result.data.isSyncing) {
             if (pollRef.current) clearInterval(pollRef.current);
             pollRef.current = null;
