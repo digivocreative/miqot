@@ -162,9 +162,10 @@ interface SearchableSelectProps {
   onChange: (value: string) => void;
   placeholder?: string;
   error?: boolean;
+  disabled?: boolean;
 }
 
-function SearchableSelect({ options, value, onChange, placeholder = '— Pilih —', error }: SearchableSelectProps) {
+function SearchableSelect({ options, value, onChange, placeholder = '— Pilih —', error, disabled }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -210,6 +211,16 @@ function SearchableSelect({ options, value, onChange, placeholder = '— Pilih �
   const borderClass = error
     ? 'border-red-300 dark:border-red-600 focus-within:ring-red-500'
     : 'border-gray-200 dark:border-slate-700 focus-within:ring-emerald-500 focus-within:border-emerald-500';
+
+  // Disabled state: show as readonly, no dropdown, muted appearance
+  if (disabled) {
+    return (
+      <div className={`w-full px-3 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-500 dark:text-slate-400 cursor-not-allowed flex items-center justify-between gap-2`}>
+        <span className="truncate">{displayLabel}</span>
+        <ChevronDown size={16} className="text-gray-300 dark:text-slate-600 flex-shrink-0 opacity-50" />
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} className="relative">
@@ -336,6 +347,19 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
         }
       }
 
+      // Auto-fill tgl_daftar with today's date (DD/MM/YYYY) — field is hidden but still submitted
+      const today = new Date();
+      const dd = String(today.getDate()).padStart(2, '0');
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const yyyy = today.getFullYear();
+      const todayStr = `${dd}/${mm}/${yyyy}`;
+      for (const inputName of Object.keys(data.data.inputs || {})) {
+        if (/tgl_?daftar/i.test(inputName)) {
+          defaults[inputName] = todayStr;
+          break;
+        }
+      }
+
       if (Object.keys(defaults).length > 0) {
         setFields(prev => ({ ...defaults, ...prev }));
       }
@@ -379,12 +403,20 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
           }
           return { ...prev, selects: newSelects };
         });
-        // Clear previously selected values for dependent fields since options changed
-        const clearedFields: Record<string, string> = {};
-        for (const name of Object.keys(data.data)) {
-          clearedFields[name] = '';
+        // For each dependent field:
+        // - Marketing (vmarketing) & Koordinator (perwakilan): auto-select the first option (user is locked to their assigned one)
+        // - Paket: clear so user picks manually
+        const fieldUpdates: Record<string, string> = {};
+        for (const [name, opts] of Object.entries(data.data as Record<string, SelectOption[]>)) {
+          const def = getFieldDef(name);
+          const isLocked = def.label === 'Marketing' || def.label === 'Koordinator';
+          if (isLocked && opts && opts.length > 0) {
+            fieldUpdates[name] = opts[0].value;
+          } else {
+            fieldUpdates[name] = ''; // clear for paket
+          }
         }
-        setFields(prev => ({ ...prev, ...clearedFields }));
+        setFields(prev => ({ ...prev, ...fieldUpdates }));
         console.log('Dependent options refreshed:', data.data, 'from', data.sourceUrl);
       } else {
         console.warn('Failed to refresh dependent options:', data);
@@ -748,20 +780,24 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
   if (!options) return null;
 
   // ── Build ordered field list ──
+  // Only render required fields. Optional fields are still tracked in state
+  // (e.g., from OCR auto-fill) and submitted silently.
   type FieldEntry = { name: string; type: 'select' | 'input' | 'textarea'; def: FieldDef };
   const allFields: FieldEntry[] = [];
 
+  const includeField = (def: FieldDef) => !def.skip && def.required === true;
+
   for (const name of Object.keys(options.selects)) {
     const def = getFieldDef(name);
-    if (!def.skip) allFields.push({ name, type: 'select', def });
+    if (includeField(def)) allFields.push({ name, type: 'select', def });
   }
   for (const name of Object.keys(options.inputs)) {
     const def = getFieldDef(name);
-    if (!def.skip) allFields.push({ name, type: 'input', def });
+    if (includeField(def)) allFields.push({ name, type: 'input', def });
   }
   for (const name of Object.keys(options.textareas)) {
     const def = getFieldDef(name);
-    if (!def.skip) allFields.push({ name, type: 'textarea', def });
+    if (includeField(def)) allFields.push({ name, type: 'textarea', def });
   }
 
   // Sort by section order then field order
@@ -787,12 +823,18 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
     // paket, marketing, koordinator are all dependent on jadwal selection
     const isDependentField = ['Paket Umroh', 'Marketing', 'Koordinator'].includes(fieldLabel);
     const showLoading = isDependentField && loadingPaket;
+    // Fields locked to auto-assigned defaults — rendered as disabled (read-only)
+    // Jenis Daftar = always "JAMAAH BARU"; Marketing/Koordinator = user's assignment
+    const isLocked =
+      fieldLabel === 'Jenis Daftar' ||
+      fieldLabel === 'Marketing' ||
+      fieldLabel === 'Koordinator';
 
     // Dependent fields always shown (even if empty) so user sees the placeholder message
     if (opts.length === 0 && !isDependentField) return null;
 
-    // Auto-enable search for dropdowns with many options
-    const useSearch = searchable || opts.length >= 10;
+    // Auto-enable search for dropdowns with many options (but not for locked fields)
+    const useSearch = !isLocked && (searchable || opts.length >= 10);
 
     return (
       <div key={name}>
@@ -804,6 +846,14 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
           <div className={`${INPUT_CLASS} text-gray-400 flex items-center`}>
             {showLoading ? 'Mengambil opsi...' : 'Pilih tanggal berangkat dulu'}
           </div>
+        ) : isLocked ? (
+          <SearchableSelect
+            options={opts}
+            value={fields[name] || ''}
+            onChange={() => {}}
+            error={!!fieldErrors[name]}
+            disabled
+          />
         ) : useSearch ? (
           <SearchableSelect
             options={opts}

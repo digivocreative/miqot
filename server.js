@@ -21,6 +21,7 @@ import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
 import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent } from './lib/og-generator.mjs';
+import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -2807,11 +2808,17 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 
     const ringkasanRes = await fetchUmrahBookings(agent.jamaah_username);
     const bookings = ringkasanRes.success ? (ringkasanRes.bookings || []) : [];
-    console.log(`[Sync] ${slug}: Phase 1 — ${bookings.length} bookings from list page`);
+    const listComplete = !!ringkasanRes.complete;
+    console.log(`[Sync] ${slug}: Phase 1 — ${bookings.length} bookings from list page, complete=${listComplete}`);
 
     // Maps from list page — hoisted so Phase 2 can also use them
     let bookingStafMap = new Map();
     let bookingTglDaftarMap = new Map();
+
+    // Track sync outcome for set-based cleanup decision at end of Phase 1
+    const umrohFetchedBookingIds = new Set();
+    const umrohSuccessfulBookingIds = new Set();
+    const umrohSuccessfulJamaahPerBooking = new Map();
 
     if (bookings.length > 0) {
       // Get existing DB data to map paket, staf, and tgl_daftar from list page
@@ -2840,6 +2847,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
       const allDetailIds = bookings.map(b => b.id_umroh);
       // Deduplicate (same id_umroh can appear in list if multiple jadwal)
       const uniqueIds = [...new Set(allDetailIds)];
+      for (const id of uniqueIds) umrohFetchedBookingIds.add(id);
       // Global dedup: track unique (agent_id, id_umroh, nama) across ALL batches
       // to avoid inflated counter when same jamaah appears under multiple bookings
       const globalKeys = new Set();
@@ -2871,8 +2879,12 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
             continue;
           }
 
+          umrohSuccessfulBookingIds.add(idUmroh);
+          const jamaahSet = umrohSuccessfulJamaahPerBooking.get(idUmroh) || new Set();
+
           // Build rows from detail items — paket comes from list page
           for (const item of result.items) {
+            if (item.nama) jamaahSet.add(String(item.nama).trim().toLowerCase());
             // Determine hijriah year: use actual date, or preserve existing DB value, or default
             const computedYear = getHijriahYear(item.tgl_berangkat);
             const existingYear = existingYearLookup.get(`${item.id_umroh}_${item.nama}`.toLowerCase());
@@ -2900,6 +2912,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
               synced_at: now,
             });
           }
+          umrohSuccessfulJamaahPerBooking.set(idUmroh, jamaahSet);
         }
 
         // Upsert this batch — deduplicate by composite key first
@@ -2954,19 +2967,33 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         .sort((a, b) => Number(b) - Number(a));
       console.log(`[Sync] ${slug}: Phase 1 completed years: ${phase1Years.join(', ')}`);
 
-      // Cleanup: delete jamaah that no longer exist in internal system
-      // Phase 1 fetches the complete jamaah list — anything not upserted is stale
+      // Cleanup via set-based guard: protect rows for bookings whose detail fetch
+      // failed, and abort entirely if list response was truncated or would-delete
+      // exceeds safety threshold.
       if (!syncingAgents.get(agentId)?.cancelled) {
-        const { data: deleted, error: delErr } = await supabase
+        const { data: existingDbRows } = await supabase
           .from('jamaah')
-          .delete()
-          .eq('agent_id', agentId)
-          .lt('synced_at', now)
-          .select('nama');
-        if (delErr) console.error(`[Sync] ${slug} cleanup error:`, delErr.message);
-        else if (deleted?.length > 0) {
-          console.log(`[Sync] ${slug}: removed ${deleted.length} stale jamaah: ${deleted.map(d => d.nama).join(', ')}`);
-          totalItems -= deleted.length;
+          .select('id_umroh, nama')
+          .eq('agent_id', agentId);
+        const existingForCleanup = (existingDbRows || []).map(r => ({
+          bookingId: r.id_umroh,
+          jamaahKey: String(r.nama || '').trim().toLowerCase(),
+          nama: r.nama,
+        }));
+        const plan = computeSafeDeletions({
+          listComplete,
+          fetchedBookingIds: umrohFetchedBookingIds,
+          successfulBookingIds: umrohSuccessfulBookingIds,
+          successfulJamaahPerBooking: umrohSuccessfulJamaahPerBooking,
+          existingRows: existingForCleanup,
+          maxDeletePercent: 0.3,
+        });
+        if (plan.decision === 'skip') {
+          console.warn(`[Sync] ${slug} cleanup skipped: ${plan.reason} (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+        } else if (plan.toDelete.length > 0) {
+          const deletedCount = await executeUmrohDeletions(slug, agentId, plan.toDelete);
+          totalItems -= deletedCount;
+          console.log(`[Sync] ${slug}: removed ${deletedCount} stale jamaah (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
         }
       }
     }
@@ -5213,7 +5240,8 @@ app.get('/api/umrah/form-debug', authMiddleware, adminOnly, async (req, res) => 
       selects: result.selects,
       inputs: result.inputs,
       textareas: result.textareas,
-      ajaxHints: [...new Set(ajaxHints)], // unique URLs found in JS
+      ajaxHints: [...new Set(ajaxHints)], // unique URLs found in JS (legacy)
+      jsHandlers: result.jsHandlers, // structured AJAX handlers discovered from JS
     });
   } catch (err) {
     console.error('GET /api/umrah/form-debug error:', err);
@@ -5716,7 +5744,6 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
 // POST /api/haji/sync — progressive sync (same pattern as umroh)
 app.post('/api/haji/sync', authMiddleware, async (req, res) => {
   const { id: agentId, slug } = req.user;
-  const hajiKey = `haji:${agentId}`;
 
   try {
     const agent = await getAgentById(agentId);
@@ -5726,54 +5753,81 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
       });
     }
 
-    // Prevent concurrent haji sync (separate from umroh)
-    const state = syncingAgents.get(hajiKey);
+    // Unified mutex: blocks manual haji if umroh (manual or background) is running, and vice versa.
+    const state = syncingAgents.get(agentId);
     if (state?.isSyncing) {
       return res.json({ success: true, data: { initialCount: 0, syncing: true, message: 'Sync sudah berjalan' } });
     }
 
-    syncingAgents.set(hajiKey, { isSyncing: true, totalSynced: 0, lastSync: null });
+    syncingAgents.set(agentId, { isSyncing: true, scope: 'haji-manual', totalSynced: 0, lastSync: null, startedAt: Date.now() });
 
     // Login fresh to legacy system
     await laporanDisconnect(agent.jamaah_username);
     const decrypted = capiDecrypt(agent.jamaah_password);
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
-      syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: 0, lastSync: null });
+      syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
       return res.status(401).json({ error: 'Gagal login ke sistem internal. Silakan login ulang.' });
     }
 
     const sessionCookies = getSessionCookie(agent.jamaah_username);
     if (!sessionCookies) {
-      syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: 0, lastSync: null });
+      syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
       return res.status(400).json({ error: 'Session cookies tidak tersedia setelah login.' });
     }
 
     // Step 1: Fetch the haji list
-    const hajiList = await fetchHajiList(sessionCookies);
+    const { rows: hajiList, complete: listComplete } = await fetchHajiList(sessionCookies);
     const uniqueIds = [...new Set(hajiList.map(h => h.id_haji))];
-    console.log(`[haji-sync] ${slug}: found ${hajiList.length} entries, ${uniqueIds.length} unique`);
+    console.log(`[haji-sync] ${slug}: found ${hajiList.length} entries, ${uniqueIds.length} unique, complete=${listComplete}`);
 
     if (uniqueIds.length === 0) {
-      // All haji removed from internal system — clean up DB
-      const { data: deleted } = await supabase
-        .from('jamaah_haji')
-        .delete()
-        .eq('agent_id', agentId)
-        .select('nama');
-      if (deleted?.length > 0) {
-        console.log(`[haji-sync] ${slug}: removed ${deleted.length} haji (internal system empty)`);
+      if (!listComplete) {
+        // Truncated response with empty list — refuse to wipe DB on untrusted signal.
+        console.warn(`[haji-sync] ${slug}: list empty BUT response incomplete — skipping cleanup`);
+        syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: new Date().toISOString() });
+        return res.json({ success: true, data: { initialCount: 0, syncing: false, message: 'Respons list tidak lengkap — cleanup dilewati' } });
       }
-      syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: 0, lastSync: new Date().toISOString() });
+      // Legitimate empty — but go through cleanup guard which also percent-guards.
+      const { data: existingRows } = await supabase
+        .from('jamaah_haji')
+        .select('id_haji, id_jamaah')
+        .eq('agent_id', agentId);
+      const plan = computeSafeDeletions({
+        listComplete: true,
+        fetchedBookingIds: new Set(),
+        successfulBookingIds: new Set(),
+        successfulJamaahPerBooking: new Map(),
+        existingRows: (existingRows || []).map(r => ({ bookingId: r.id_haji, jamaahKey: r.id_jamaah })),
+        maxDeletePercent: 0.3,
+      });
+      if (plan.decision === 'skip') {
+        console.warn(`[haji-sync] ${slug} cleanup skipped: ${plan.reason}`);
+      } else if (plan.toDelete.length > 0) {
+        await executeHajiDeletions(slug, agentId, plan.toDelete);
+        console.log(`[haji-sync] ${slug}: removed ${plan.toDelete.length} haji (internal system empty)`);
+      }
+      syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: new Date().toISOString() });
       return res.json({ success: true, data: { initialCount: 0, syncing: false } });
     }
 
-    // Step 2: Fetch first batch (up to 5 detail pages) for immediate response
+    // Step 2: Fetch first batch (up to 10 detail pages, 5 parallel) for immediate response
     const BATCH_SIZE = 5;
     const firstBatchIds = uniqueIds.slice(0, 10);
     const restIds = uniqueIds.slice(10);
     const now = new Date().toISOString();
     const firstRows = [];
+
+    // Track sync outcome for cleanup decision
+    const fetchedBookingIds = new Set(uniqueIds);
+    const successfulBookingIds = new Set();
+    const successfulJamaahPerBooking = new Map();
+    const recordSuccess = (idHaji, details) => {
+      successfulBookingIds.add(idHaji);
+      const set = successfulJamaahPerBooking.get(idHaji) || new Set();
+      for (const d of details) set.add(d.id_jamaah);
+      successfulJamaahPerBooking.set(idHaji, set);
+    };
 
     for (let i = 0; i < firstBatchIds.length; i += BATCH_SIZE) {
       const batch = firstBatchIds.slice(i, i + BATCH_SIZE);
@@ -5781,32 +5835,40 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
         batch.map(async (idHaji) => {
           const details = await fetchHajiDetail(sessionCookies, idHaji);
           const listEntry = hajiList.find(h => h.id_haji === idHaji);
-          return details.map(detail => ({
-            agent_id: agentId,
-            id_haji: idHaji,
-            id_jamaah: detail.id_jamaah,
-            nama: detail.nama,
-            jk: detail.jk,
-            alamat: detail.alamat,
-            telp: detail.telp,
-            thn_hijriyah: listEntry.thn_hijriyah,
-            thn_masehi: listEntry.thn_masehi,
-            perwakilan: listEntry.perwakilan,
-            marketing: listEntry.marketing,
-            paket: listEntry.paket,
-            staff: listEntry.staff,
-            jenis: listEntry.jenis,
-            status_bayar: detail.status_bayar,
-            status_berangkat: detail.status_berangkat,
-            bpih_url: detail.bpih_url,
-            surat_pernyataan_url: detail.surat_pernyataan_url,
-            synced_at: now,
-          }));
+          return { idHaji, details, listEntry };
         })
       );
-      for (const r of results) {
-        if (r.status === 'fulfilled') firstRows.push(...r.value);
-        else if (r.reason?.message === 'SESSION_EXPIRED') throw r.reason;
+      for (let j = 0; j < results.length; j++) {
+        const r = results[j];
+        if (r.status === 'fulfilled') {
+          const { idHaji, details, listEntry } = r.value;
+          recordSuccess(idHaji, details);
+          for (const detail of details) {
+            firstRows.push({
+              agent_id: agentId,
+              id_haji: idHaji,
+              id_jamaah: detail.id_jamaah,
+              nama: detail.nama,
+              jk: detail.jk,
+              alamat: detail.alamat,
+              telp: detail.telp,
+              thn_hijriyah: listEntry.thn_hijriyah,
+              thn_masehi: listEntry.thn_masehi,
+              perwakilan: listEntry.perwakilan,
+              marketing: listEntry.marketing,
+              paket: listEntry.paket,
+              staff: listEntry.staff,
+              jenis: listEntry.jenis,
+              status_bayar: detail.status_bayar,
+              status_berangkat: detail.status_berangkat,
+              bpih_url: detail.bpih_url,
+              surat_pernyataan_url: detail.surat_pernyataan_url,
+              synced_at: now,
+            });
+          }
+        } else if (r.reason?.message === 'SESSION_EXPIRED') {
+          throw r.reason;
+        }
       }
     }
 
@@ -5825,7 +5887,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     }
 
     const moreToSync = restIds.length > 0;
-    syncingAgents.set(hajiKey, { isSyncing: moreToSync, totalSynced: firstRows.length, lastSync: now });
+    syncingAgents.set(agentId, { isSyncing: moreToSync, scope: 'haji-manual', totalSynced: firstRows.length, lastSync: now });
 
     // Respond immediately with first batch
     res.json({
@@ -5834,6 +5896,31 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     });
 
     // Step 3: Continue syncing rest in background
+    const runCleanup = async () => {
+      const { data: existingRows } = await supabase
+        .from('jamaah_haji')
+        .select('id_haji, id_jamaah')
+        .eq('agent_id', agentId);
+      const plan = computeSafeDeletions({
+        listComplete,
+        fetchedBookingIds,
+        successfulBookingIds,
+        successfulJamaahPerBooking,
+        existingRows: (existingRows || []).map(r => ({ bookingId: r.id_haji, jamaahKey: r.id_jamaah })),
+        maxDeletePercent: 0.3,
+      });
+      if (plan.decision === 'skip') {
+        console.warn(`[haji-sync] ${slug} cleanup skipped: ${plan.reason} (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+        return;
+      }
+      if (plan.toDelete.length === 0) {
+        console.log(`[haji-sync] ${slug} cleanup: no stale rows`);
+        return;
+      }
+      const deletedCount = await executeHajiDeletions(slug, agentId, plan.toDelete);
+      console.log(`[haji-sync] ${slug}: removed ${deletedCount} stale haji (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+    };
+
     if (moreToSync) {
       (async () => {
         try {
@@ -5844,93 +5931,77 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
               batch.map(async (idHaji) => {
                 const details = await fetchHajiDetail(sessionCookies, idHaji);
                 const listEntry = hajiList.find(h => h.id_haji === idHaji);
-                return details.map(detail => ({
-                  agent_id: agentId,
-                  id_haji: idHaji,
-                  id_jamaah: detail.id_jamaah,
-                  nama: detail.nama,
-                  jk: detail.jk,
-                  alamat: detail.alamat,
-                  telp: detail.telp,
-                  thn_hijriyah: listEntry.thn_hijriyah,
-                  thn_masehi: listEntry.thn_masehi,
-                  perwakilan: listEntry.perwakilan,
-                  marketing: listEntry.marketing,
-                  paket: listEntry.paket,
-                  staff: listEntry.staff,
-                  jenis: listEntry.jenis,
-                  status_bayar: detail.status_bayar,
-                  status_berangkat: detail.status_berangkat,
-                  bpih_url: detail.bpih_url,
-                  surat_pernyataan_url: detail.surat_pernyataan_url,
-                  synced_at: now,
-                }));
+                return { idHaji, details, listEntry };
               })
             );
             for (const r of results) {
-              if (r.status === 'fulfilled') bgRows.push(...r.value);
-              else if (r.reason?.message === 'SESSION_EXPIRED') throw r.reason;
+              if (r.status === 'fulfilled') {
+                const { idHaji, details, listEntry } = r.value;
+                recordSuccess(idHaji, details);
+                for (const detail of details) {
+                  bgRows.push({
+                    agent_id: agentId,
+                    id_haji: idHaji,
+                    id_jamaah: detail.id_jamaah,
+                    nama: detail.nama,
+                    jk: detail.jk,
+                    alamat: detail.alamat,
+                    telp: detail.telp,
+                    thn_hijriyah: listEntry.thn_hijriyah,
+                    thn_masehi: listEntry.thn_masehi,
+                    perwakilan: listEntry.perwakilan,
+                    marketing: listEntry.marketing,
+                    paket: listEntry.paket,
+                    staff: listEntry.staff,
+                    jenis: listEntry.jenis,
+                    status_bayar: detail.status_bayar,
+                    status_berangkat: detail.status_berangkat,
+                    bpih_url: detail.bpih_url,
+                    surat_pernyataan_url: detail.surat_pernyataan_url,
+                    synced_at: now,
+                  });
+                }
+              } else if (r.reason?.message === 'SESSION_EXPIRED') {
+                throw r.reason;
+              }
             }
             // Upsert in batches of 50
             if (bgRows.length >= 50 || i + BATCH_SIZE >= restIds.length) {
               if (bgRows.length > 0) {
-                // Fire CAPI Purchase events before clearing batch
                 const bgCapiIds = bgRows.map(r => ({ id_haji: r.id_haji, id_jamaah: r.id_jamaah }));
-
                 const { error } = await supabase
                   .from('jamaah_haji')
                   .upsert(bgRows, { onConflict: 'agent_id,id_haji,id_jamaah' });
                 if (error) console.error('[haji-sync] BG batch error:', error.message);
-
                 processCapiPurchases(agentId, slug, 'haji', bgCapiIds).catch(e =>
                   console.error(`[CAPI] Haji BG batch Purchase error:`, e.message)
                 );
-
-                syncingAgents.set(hajiKey, {
+                syncingAgents.set(agentId, {
                   isSyncing: true,
+                  scope: 'haji-manual',
                   totalSynced: firstRows.length + bgRows.length,
                   lastSync: now,
                 });
-                bgRows.length = 0; // clear
+                bgRows.length = 0;
               }
             }
             if (i + BATCH_SIZE < restIds.length) await new Promise(r => setTimeout(r, 100));
           }
-          // Cleanup: delete haji jamaah that no longer exist in internal system
-          const { data: hajiDeleted, error: hajiDelErr } = await supabase
-            .from('jamaah_haji')
-            .delete()
-            .eq('agent_id', agentId)
-            .lt('synced_at', now)
-            .select('nama');
-          if (hajiDelErr) console.error(`[haji-sync] ${slug} cleanup error:`, hajiDelErr.message);
-          else if (hajiDeleted?.length > 0) {
-            console.log(`[haji-sync] ${slug}: removed ${hajiDeleted.length} stale haji jamaah: ${hajiDeleted.map(d => d.nama).join(', ')}`);
-          }
-
+          await runCleanup();
           console.log(`[haji-sync] ${slug}: background sync complete`);
-          syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: firstRows.length, lastSync: now });
+          syncingAgents.set(agentId, { isSyncing: false, totalSynced: firstRows.length, lastSync: now });
         } catch (err) {
           console.error('[haji-sync] BG sync error:', err.message);
-          syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: 0, lastSync: null });
+          syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
         }
       })();
     } else {
-      // No background sync needed — cleanup stale records now
-      const { data: hajiDeleted, error: hajiDelErr } = await supabase
-        .from('jamaah_haji')
-        .delete()
-        .eq('agent_id', agentId)
-        .lt('synced_at', now)
-        .select('nama');
-      if (hajiDelErr) console.error(`[haji-sync] ${slug} cleanup error:`, hajiDelErr.message);
-      else if (hajiDeleted?.length > 0) {
-        console.log(`[haji-sync] ${slug}: removed ${hajiDeleted.length} stale haji jamaah: ${hajiDeleted.map(d => d.nama).join(', ')}`);
-      }
+      await runCleanup();
+      syncingAgents.set(agentId, { isSyncing: false, totalSynced: firstRows.length, lastSync: now });
     }
   } catch (err) {
     console.error('[haji] Sync error:', err);
-    syncingAgents.set(hajiKey, { isSyncing: false, totalSynced: 0, lastSync: null });
+    syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
     if (!res.headersSent) {
       if (err.message === 'SESSION_EXPIRED') {
         return res.status(401).json({ error: 'Session expired. Silakan login ulang.' });
@@ -5940,10 +6011,52 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
   }
 });
 
-// Haji sync status (separate from umroh)
+// Delete haji rows grouped by id_haji for efficiency. Returns count deleted.
+async function executeHajiDeletions(slug, agentId, toDelete) {
+  const byBooking = new Map();
+  for (const row of toDelete) {
+    if (!byBooking.has(row.bookingId)) byBooking.set(row.bookingId, []);
+    byBooking.get(row.bookingId).push(row.jamaahKey);
+  }
+  let count = 0;
+  for (const [idHaji, idJamaahList] of byBooking) {
+    const { error } = await supabase
+      .from('jamaah_haji')
+      .delete()
+      .eq('agent_id', agentId)
+      .eq('id_haji', idHaji)
+      .in('id_jamaah', idJamaahList);
+    if (error) console.error(`[haji-sync] ${slug} delete ${idHaji} error:`, error.message);
+    else count += idJamaahList.length;
+  }
+  return count;
+}
+
+// Delete umroh rows grouped by id_umroh. toDelete rows carry the original DB `nama`
+// (case preserved) which is what Supabase needs for the DELETE match.
+async function executeUmrohDeletions(slug, agentId, toDelete) {
+  const byBooking = new Map();
+  for (const row of toDelete) {
+    if (!byBooking.has(row.bookingId)) byBooking.set(row.bookingId, []);
+    byBooking.get(row.bookingId).push(row.nama);
+  }
+  let count = 0;
+  for (const [idUmroh, namaList] of byBooking) {
+    const { error } = await supabase
+      .from('jamaah')
+      .delete()
+      .eq('agent_id', agentId)
+      .eq('id_umroh', idUmroh)
+      .in('nama', namaList);
+    if (error) console.error(`[Sync] ${slug} delete ${idUmroh} error:`, error.message);
+    else count += namaList.length;
+  }
+  return count;
+}
+
+// Haji sync status — shares unified mutex with umroh sync
 app.get('/api/haji/sync-status', authMiddleware, async (req, res) => {
-  const hajiKey = `haji:${req.user.id}`;
-  const state = syncingAgents.get(hajiKey);
+  const state = syncingAgents.get(req.user.id);
   if (!state) {
     const { data } = await supabase
       .from('jamaah_haji')
@@ -8041,9 +8154,15 @@ async function syncOneAgent(agent) {
     // Captures ALL jamaah including calon (belum DP), plus staf names
     let bookingStafMap = new Map();
     let bookingTglDaftarMap = new Map();
+    // Track sync outcome for set-based cleanup decision at end of Phase 1
+    const bgFetchedBookingIds = new Set();
+    const bgSuccessfulBookingIds = new Set();
+    const bgSuccessfulJamaahPerBooking = new Map();
+    let bgListComplete = false;
     try {
       const ringkasanRes = await fetchUmrahBookings(agent.jamaah_username);
       const bookings = ringkasanRes.success ? (ringkasanRes.bookings || []) : [];
+      bgListComplete = !!ringkasanRes.complete;
       if (!ringkasanRes.success) {
         console.warn(`[SYNC] ${slug}: Phase 1 fetchUmrahBookings failed — ${ringkasanRes.error || 'unknown'}`);
       }
@@ -8057,6 +8176,7 @@ async function syncOneAgent(agent) {
         }
 
         const uniqueIds = [...new Set(bookings.map(b => b.id_umroh))];
+        for (const id of uniqueIds) bgFetchedBookingIds.add(id);
         const DETAIL_PARALLEL = 5;
         const bgGlobalKeys = new Set();
 
@@ -8073,7 +8193,11 @@ async function syncOneAgent(agent) {
             if (!result.success || !result.items?.length) continue;
             const idUmroh = batch[j];
 
+            bgSuccessfulBookingIds.add(idUmroh);
+            const jamaahSet = bgSuccessfulJamaahPerBooking.get(idUmroh) || new Set();
+
             for (const item of result.items) {
+              if (item.nama) jamaahSet.add(String(item.nama).trim().toLowerCase());
               // Determine hijriah year: use actual date first, null if unknown
               // (existing DB value is preserved in the merge step below)
               const computedYear = getHijriahYear(item.tgl_berangkat);
@@ -8095,6 +8219,7 @@ async function syncOneAgent(agent) {
                 synced_at: syncTime,
               });
             }
+            bgSuccessfulJamaahPerBooking.set(idUmroh, jamaahSet);
           }
 
           if (rowsToUpsert.length > 0) {
@@ -8164,18 +8289,31 @@ async function syncOneAgent(agent) {
         totalSynced = bgActualCount || bgGlobalKeys.size;
         console.log(`[SYNC] ${slug}: Phase 1 — ${bgGlobalKeys.size} processed, ${bgActualCount} in DB`);
 
-        // Cleanup: delete jamaah that no longer exist in internal system
-        // Phase 1 fetches the complete jamaah list — anything not upserted is stale
-        const { data: bgDeleted, error: bgDelErr } = await supabase
+        // Set-based cleanup: protect rows whose booking detail failed; abort if
+        // list response truncated or would-delete exceeds safety threshold.
+        const { data: existingDbRows } = await supabase
           .from('jamaah')
-          .delete()
-          .eq('agent_id', agentId)
-          .lt('synced_at', syncTime)
-          .select('nama');
-        if (bgDelErr) console.error(`[SYNC] ${slug} cleanup error:`, bgDelErr.message);
-        else if (bgDeleted?.length > 0) {
-          console.log(`[SYNC] ${slug}: removed ${bgDeleted.length} stale jamaah: ${bgDeleted.map(d => d.nama).join(', ')}`);
-          totalSynced -= bgDeleted.length;
+          .select('id_umroh, nama')
+          .eq('agent_id', agentId);
+        const existingForCleanup = (existingDbRows || []).map(r => ({
+          bookingId: r.id_umroh,
+          jamaahKey: String(r.nama || '').trim().toLowerCase(),
+          nama: r.nama,
+        }));
+        const bgPlan = computeSafeDeletions({
+          listComplete: bgListComplete,
+          fetchedBookingIds: bgFetchedBookingIds,
+          successfulBookingIds: bgSuccessfulBookingIds,
+          successfulJamaahPerBooking: bgSuccessfulJamaahPerBooking,
+          existingRows: existingForCleanup,
+          maxDeletePercent: 0.3,
+        });
+        if (bgPlan.decision === 'skip') {
+          console.warn(`[SYNC] ${slug} cleanup skipped: ${bgPlan.reason} (wouldDelete=${bgPlan.wouldDelete}/${bgPlan.totalExisting})`);
+        } else if (bgPlan.toDelete.length > 0) {
+          const deletedCount = await executeUmrohDeletions(slug, agentId, bgPlan.toDelete);
+          totalSynced -= deletedCount;
+          console.log(`[SYNC] ${slug}: removed ${deletedCount} stale jamaah (wouldDelete=${bgPlan.wouldDelete}/${bgPlan.totalExisting})`);
         }
       }
     } catch (p1err) {
@@ -8380,9 +8518,13 @@ async function syncOneAgent(agent) {
     try {
       const sessionCookies = getSessionCookie(agent.jamaah_username);
       if (sessionCookies) {
-        const hajiList = await fetchHajiList(sessionCookies);
+        const { rows: hajiList, complete: hajiListComplete } = await fetchHajiList(sessionCookies);
         const uniqueIds = [...new Set(hajiList.map(h => h.id_haji))];
-        console.log(`[SYNC] ${slug}: found ${uniqueIds.length} unique haji entries`);
+        console.log(`[SYNC] ${slug}: found ${uniqueIds.length} unique haji entries, complete=${hajiListComplete}`);
+
+        const hajiFetchedBookingIds = new Set(uniqueIds);
+        const hajiSuccessfulBookingIds = new Set();
+        const hajiSuccessfulJamaahPerBooking = new Map();
 
         if (uniqueIds.length > 0) {
           const HAJI_BATCH = 5;
@@ -8395,31 +8537,42 @@ async function syncOneAgent(agent) {
               batch.map(async (idHaji) => {
                 const details = await fetchHajiDetail(sessionCookies, idHaji);
                 const listEntry = hajiList.find(h => h.id_haji === idHaji);
-                return details.map(detail => ({
-                  agent_id: agentId,
-                  id_haji: idHaji,
-                  id_jamaah: detail.id_jamaah,
-                  nama: detail.nama,
-                  jk: detail.jk,
-                  alamat: detail.alamat,
-                  telp: detail.telp,
-                  thn_hijriyah: listEntry.thn_hijriyah,
-                  thn_masehi: listEntry.thn_masehi,
-                  perwakilan: listEntry.perwakilan,
-                  marketing: listEntry.marketing,
-                  paket: listEntry.paket,
-                  staff: listEntry.staff,
-                  jenis: listEntry.jenis,
-                  status_bayar: detail.status_bayar,
-                  status_berangkat: detail.status_berangkat,
-                  bpih_url: detail.bpih_url,
-                  surat_pernyataan_url: detail.surat_pernyataan_url,
-                  synced_at: syncTime,
-                }));
+                return { idHaji, details, listEntry };
               })
             );
             for (const r of results) {
-              if (r.status === 'fulfilled') allHajiRows.push(...r.value);
+              if (r.status === 'fulfilled') {
+                const { idHaji, details, listEntry } = r.value;
+                hajiSuccessfulBookingIds.add(idHaji);
+                const jamaahSet = hajiSuccessfulJamaahPerBooking.get(idHaji) || new Set();
+                for (const detail of details) {
+                  jamaahSet.add(detail.id_jamaah);
+                  allHajiRows.push({
+                    agent_id: agentId,
+                    id_haji: idHaji,
+                    id_jamaah: detail.id_jamaah,
+                    nama: detail.nama,
+                    jk: detail.jk,
+                    alamat: detail.alamat,
+                    telp: detail.telp,
+                    thn_hijriyah: listEntry.thn_hijriyah,
+                    thn_masehi: listEntry.thn_masehi,
+                    perwakilan: listEntry.perwakilan,
+                    marketing: listEntry.marketing,
+                    paket: listEntry.paket,
+                    staff: listEntry.staff,
+                    jenis: listEntry.jenis,
+                    status_bayar: detail.status_bayar,
+                    status_berangkat: detail.status_berangkat,
+                    bpih_url: detail.bpih_url,
+                    surat_pernyataan_url: detail.surat_pernyataan_url,
+                    synced_at: syncTime,
+                  });
+                }
+                hajiSuccessfulJamaahPerBooking.set(idHaji, jamaahSet);
+              } else if (r.reason?.message === 'SESSION_EXPIRED') {
+                throw r.reason;
+              }
             }
 
             // Upsert in batches of 50
@@ -8438,18 +8591,26 @@ async function syncOneAgent(agent) {
             if (i + HAJI_BATCH < uniqueIds.length) await new Promise(r => setTimeout(r, 100));
           }
           console.log(`[SYNC] ${slug}: ${hajiSynced} haji jamaah synced`);
+        }
 
-          // Cleanup: delete haji jamaah that no longer exist in internal system
-          const { data: hajiDeleted, error: hajiDelErr } = await supabase
-            .from('jamaah_haji')
-            .delete()
-            .eq('agent_id', agentId)
-            .lt('synced_at', syncTime)
-            .select('nama');
-          if (hajiDelErr) console.error(`[SYNC] ${slug} haji cleanup error:`, hajiDelErr.message);
-          else if (hajiDeleted?.length > 0) {
-            console.log(`[SYNC] ${slug}: removed ${hajiDeleted.length} stale haji jamaah: ${hajiDeleted.map(d => d.nama).join(', ')}`);
-          }
+        // Safe cleanup via set-based guard (runs even if uniqueIds empty — with protection)
+        const { data: existingHajiRows } = await supabase
+          .from('jamaah_haji')
+          .select('id_haji, id_jamaah')
+          .eq('agent_id', agentId);
+        const plan = computeSafeDeletions({
+          listComplete: hajiListComplete,
+          fetchedBookingIds: hajiFetchedBookingIds,
+          successfulBookingIds: hajiSuccessfulBookingIds,
+          successfulJamaahPerBooking: hajiSuccessfulJamaahPerBooking,
+          existingRows: (existingHajiRows || []).map(r => ({ bookingId: r.id_haji, jamaahKey: r.id_jamaah })),
+          maxDeletePercent: 0.3,
+        });
+        if (plan.decision === 'skip') {
+          console.warn(`[SYNC] ${slug} haji cleanup skipped: ${plan.reason} (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+        } else if (plan.toDelete.length > 0) {
+          const deletedCount = await executeHajiDeletions(slug, agentId, plan.toDelete);
+          console.log(`[SYNC] ${slug}: removed ${deletedCount} stale haji (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
         }
       }
     } catch (hajiErr) {
@@ -8508,11 +8669,11 @@ async function syncAllAgents() {
   let ok = 0, fail = 0, skipped = 0, loginFail = 0;
   for (const agent of agents) {
     try {
-      const prevState = syncingAgents.get(agent.slug);
+      const prevState = syncingAgents.get(agent.id);
       if (prevState?.isSyncing) { skipped++; continue; }
       await syncOneAgent(agent);
       // Check if login failed (syncOneAgent returns normally but sets loginFailed flag)
-      const afterState = syncingAgents.get(agent.slug);
+      const afterState = syncingAgents.get(agent.id);
       if (afterState?.loginFailed) {
         loginFail++;
         // If rate-limited, abort remaining agents — no point hammering the server

@@ -16,7 +16,8 @@ const BASE_URL = process.env.INTERNAL_API_BASE || 'http://115.124.86.220';
 
 /**
  * Fetch and parse the haji list page.
- * Returns array of { id_haji, thn_hijriyah, thn_masehi, perwakilan, marketing, paket, staff, jenis }
+ * Returns { rows: [...], complete: boolean } — complete=false means response was truncated
+ * and the row list may be partial. Callers MUST NOT run cleanup when complete=false.
  */
 export async function fetchHajiList(sessionCookies) {
   const res = await fetch(`${BASE_URL}/aiw/staff/pages/main.php?route=haji`, {
@@ -52,7 +53,9 @@ export async function fetchHajiList(sessionCookies) {
     });
   });
 
-  return rows;
+  const tail = html.slice(-4096).toLowerCase();
+  const complete = tail.includes('</html>') || tail.includes('</body>');
+  return { rows, complete };
 }
 
 /**
@@ -152,7 +155,7 @@ export async function syncHajiData(sessionCookies, agentId, supabase, agentSlug 
   const syncTime = new Date().toISOString();
 
   // Step 1: Fetch list
-  const hajiList = await fetchHajiList(sessionCookies);
+  const { rows: hajiList } = await fetchHajiList(sessionCookies);
   console.log(`[haji-sync] Found ${hajiList.length} haji entries for ${agentSlug || agentId}`);
 
   const allRows = [];
