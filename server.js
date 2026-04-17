@@ -6623,7 +6623,7 @@ app.post('/api/ai-tools/generate-voice', authMiddleware, async (req, res) => {
 
     // Deduct credits after successful TTS
     const newCharsUsed = (credit.chars_used || 0) + scriptLength;
-    console.log(`[ai-credits] Deducting: slug=${slug}, old=${credit.chars_used || 0}, scriptLen=${scriptLength}, new=${newCharsUsed}`);
+    console.log(`[ai-credits] Deducting: agentId=${agentId}, old=${credit.chars_used || 0}, scriptLen=${scriptLength}, new=${newCharsUsed}`);
     const { error: deductError } = await supabase
       .from('ai_credits')
       .update({ chars_used: newCharsUsed })
@@ -6631,7 +6631,7 @@ app.post('/api/ai-tools/generate-voice', authMiddleware, async (req, res) => {
     if (deductError) {
       console.error('[ai-credits] Deduction FAILED:', deductError);
     } else {
-      console.log(`[ai-credits] Deduction OK: ${slug} now at ${newCharsUsed} chars_used`);
+      console.log(`[ai-credits] Deduction OK: agentId=${agentId} now at ${newCharsUsed} chars_used`);
     }
 
     const audioBuffer = Buffer.from(data.audioContent, 'base64');
