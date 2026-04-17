@@ -1500,8 +1500,17 @@ export async function fetchUmrahPaketDetails(username, jadwal, paketValue) {
     return { success: false, error: 'jadwal & paketValue required' };
   }
 
-  // Legacy composite format: {jadwal}.{paket}
-  const compositePkt = `${jadwal}.${paketValue}`;
+  // Legacy composite format expected by _pkt.php:
+  //   {jadwal_value}.{paket_specific_parts}
+  // where {jadwal_value} = "JBU1519.2026-07-04.16" (3 parts: kode.date.seat)
+  // and {paket_value} = "JBU1519.PKT035.UHUD.Quard" (4 parts, first part DUPLICATES jadwal_kode)
+  // We must strip the duplicate jadwal_kode from paket before joining, or PHP gets:
+  //   [3] = jadwal_kode instead of expected [3] = PKT_code → lookup fails
+  const jadwalKode = jadwal.split('.')[0];
+  const paketParts = paketValue.split('.');
+  // Drop leading jadwal_kode if present, otherwise use full paket value
+  const paketSpecific = (paketParts[0] === jadwalKode ? paketParts.slice(1) : paketParts).join('.');
+  const compositePkt = `${jadwal}.${paketSpecific}`;
   const url = `${BASE}/pages/route/data_umrah/_pkt.php`;
 
   try {
@@ -1534,10 +1543,19 @@ export async function fetchUmrahPaketDetails(username, jadwal, paketValue) {
     const extractedFields = {};
     $('input').each((_, el) => {
       const name = $(el).attr('name');
-      const value = $(el).attr('value');
-      if (name && value !== undefined) {
-        extractedFields[name] = value;
+      let value = $(el).attr('value');
+      if (!name || value === undefined) return;
+      // Filter out PHP warnings / HTML tags / empty noise — keep only clean values
+      if (typeof value === 'string') {
+        // If value contains "Warning" or HTML tags, it's a PHP error response — skip
+        if (/<\s*b\s*>|<br|warning|notice|fatal/i.test(value)) {
+          console.warn(`[UmrahPaketDetails] Skipping field "${name}" — contains PHP error noise:`, value.slice(0, 80));
+          return;
+        }
+        // Normalize numeric "0" string to actual zero (not useful, skip too)
+        value = value.trim();
       }
+      extractedFields[name] = value;
     });
 
     console.log(`[UmrahPaketDetails] pkt=${compositePkt} → extracted:`, extractedFields);

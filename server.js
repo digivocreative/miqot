@@ -5065,6 +5065,53 @@ app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit:
       }
     }
 
+    // ── PHP aksi_umrah.php compatibility shims — discovered via PHP warnings:
+    //   - $_POST['tgl_pendaftaran'] (line 71)
+    //   - $_POST[someArr][1], [2] (line 72) — assumed to be nama[1], nama[2]
+    //   - $_POST['plahir'] (place of birth)
+    // We always inject these fields so PHP doesn't bail with warnings.
+    const today = new Date();
+    const dd = String(today.getDate()).padStart(2, '0');
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const yyyy = today.getFullYear();
+    const todayStr = `${dd}/${mm}/${yyyy}`;
+
+    // Always send tgl_pendaftaran with today's date (or user value if present)
+    if (!enrichedFields.tgl_pendaftaran) {
+      enrichedFields.tgl_pendaftaran = enrichedFields.tgldaftar || enrichedFields.tgl_daftar || todayStr;
+    }
+
+    // Always send plahir (tempat lahir)
+    if (!enrichedFields.plahir) {
+      enrichedFields.plahir = enrichedFields.tempat_lahir || enrichedFields.tempatlahir || '';
+    }
+
+    // Always send tlahir (tanggal lahir)
+    if (!enrichedFields.tlahir) {
+      enrichedFields.tlahir = enrichedFields.tgl_lahir || enrichedFields.tgllahir || '';
+    }
+
+    // Always send name as array (nama[0], nama[1], nama[2]) for PHP $_POST['nama']
+    const firstName = enrichedFields.firstname || enrichedFields.first || '';
+    const middleName = enrichedFields.middlename || enrichedFields.middle || '';
+    const lastName = enrichedFields.lastname || enrichedFields.last || '';
+    enrichedFields['nama[0]'] = firstName;
+    enrichedFields['nama[1]'] = middleName;
+    enrichedFields['nama[2]'] = lastName;
+    // Also try full nama as single field
+    if (!enrichedFields.nama_lengkap && (firstName || lastName)) {
+      enrichedFields.nama_lengkap = [firstName, middleName, lastName].filter(Boolean).join(' ');
+    }
+
+    console.log('[Register] Compatibility fields applied:', {
+      tgl_pendaftaran: enrichedFields.tgl_pendaftaran,
+      plahir: enrichedFields.plahir,
+      tlahir: enrichedFields.tlahir,
+      'nama[0]': enrichedFields['nama[0]'],
+      'nama[1]': enrichedFields['nama[1]'],
+      'nama[2]': enrichedFields['nama[2]'],
+    });
+
     const result = await submitUmrahRegistration(agent.jamaah_username, {
       formAction,
       fields: enrichedFields,
