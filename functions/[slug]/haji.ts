@@ -90,6 +90,19 @@ interface AgentOverride {
   name?: string;
   phone?: string;
   photo?: string;
+  landing?: {
+    title?: string | null;
+    description?: string | null;
+    og_image_url?: string | null;
+  };
+}
+
+function escapeHtmlAttr(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 async function generateHTML(slug: string, agentOverride?: AgentOverride): Promise<string> {
@@ -130,20 +143,39 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
     waPembiayaan
   );
 
-  // 2. Update <title> and og:title to include agent name
-  const pageTitle = 'Haji Plus | ' + agentName + ' | PT Alhijaz Indowisata';
+  // 2. Update <title>, og:title, meta description, and og:image using landing config (or defaults)
+  const customTitle = agentOverride?.landing?.title;
+  const pageTitle = customTitle || ('Haji Plus | ' + agentName + ' | PT Alhijaz Indowisata');
+  const safeTitle = escapeHtmlAttr(pageTitle);
   html = html.replace(
     /<title>Paket Haji Plus \| Haji Khusus \| PT Alhijaz Indowisata<\/title>/,
-    '<title>' + pageTitle + '<' + '/title>'
+    '<title>' + safeTitle + '<' + '/title>'
   );
   html = html.replace(
     /(<meta property="og:title" content=")Paket Haji Plus \| Haji Khusus \| PT Alhijaz Indowisata(")/,
-    '$1' + pageTitle + '$2'
+    '$1' + safeTitle + '$2'
   );
-  // og:image → agent-specific from jadwal
+
+  // Meta description — only inject when agent has customized (keeps backward compat for everyone else)
+  const customDescription = agentOverride?.landing?.description;
+  if (customDescription) {
+    const safeDesc = escapeHtmlAttr(customDescription);
+    html = html.replace(
+      /(<meta\s+name=["']description["']\s+content=["'])[^"']*(["'])/i,
+      '$1' + safeDesc + '$2'
+    );
+    html = html.replace(
+      /(<meta\s+property=["']og:description["']\s+content=["'])[^"']*(["'])/i,
+      '$1' + safeDesc + '$2'
+    );
+  }
+
+  // og:image — custom URL if set, otherwise the default generated /og/{slug}.png
+  const customOg = agentOverride?.landing?.og_image_url;
+  const ogImageUrl = customOg || ('https://alhijaz.co/og/' + slug + '.png');
   html = html.replace(
     /(<meta property="og:image" content=")[^"]*(")/,
-    '$1https://alhijaz.co/og/' + slug + '.png$2'
+    '$1' + escapeHtmlAttr(ogImageUrl) + '$2'
   );
 
   // ═══════════════════════════════════════════════════

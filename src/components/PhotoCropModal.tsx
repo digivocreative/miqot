@@ -7,8 +7,9 @@ import { X, ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
 async function getCroppedImage(
   imageSrc: string,
   pixelCrop: Area,
-  maxSize = 600,
+  opts: { outputWidth?: number; outputHeight?: number; maxSize?: number; quality?: number } = {},
 ): Promise<string> {
+  const { outputWidth, outputHeight, maxSize = 600, quality = 0.85 } = opts;
   const image = new Image();
   image.crossOrigin = 'anonymous';
 
@@ -22,9 +23,19 @@ async function getCroppedImage(
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas not supported');
 
-  const outputSize = Math.min(pixelCrop.width, maxSize);
-  canvas.width = outputSize;
-  canvas.height = outputSize;
+  let outW: number;
+  let outH: number;
+  if (outputWidth && outputHeight) {
+    outW = outputWidth;
+    outH = outputHeight;
+  } else {
+    const size = Math.min(pixelCrop.width, maxSize);
+    outW = size;
+    outH = size;
+  }
+
+  canvas.width = outW;
+  canvas.height = outH;
 
   ctx.drawImage(
     image,
@@ -34,11 +45,11 @@ async function getCroppedImage(
     pixelCrop.height,
     0,
     0,
-    outputSize,
-    outputSize,
+    outW,
+    outH,
   );
 
-  return canvas.toDataURL('image/jpeg', 0.85);
+  return canvas.toDataURL('image/jpeg', quality);
 }
 
 // ── Component ──
@@ -47,9 +58,30 @@ interface PhotoCropModalProps {
   imageUrl: string;
   onClose: () => void;
   onCropComplete: (croppedBase64: string) => void;
+  aspect?: number;
+  cropShape?: 'rect' | 'round';
+  outputWidth?: number;
+  outputHeight?: number;
+  title?: string;
+  confirmLabel?: string;
+  quality?: number;
+  hint?: string;
 }
 
-export default function PhotoCropModal({ isOpen, imageUrl, onClose, onCropComplete }: PhotoCropModalProps) {
+export default function PhotoCropModal({
+  isOpen,
+  imageUrl,
+  onClose,
+  onCropComplete,
+  aspect = 1,
+  cropShape = 'round',
+  outputWidth,
+  outputHeight,
+  title = 'Crop Foto',
+  confirmLabel = 'Gunakan Foto',
+  quality = 0.85,
+  hint,
+}: PhotoCropModalProps) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
@@ -63,10 +95,13 @@ export default function PhotoCropModal({ isOpen, imageUrl, onClose, onCropComple
     if (!croppedAreaPixels) return;
     setProcessing(true);
     try {
-      const result = await getCroppedImage(imageUrl, croppedAreaPixels);
+      const result = await getCroppedImage(imageUrl, croppedAreaPixels, {
+        outputWidth,
+        outputHeight,
+        quality,
+      });
       onCropComplete(result);
     } catch {
-      // fallback — just pass original
       onCropComplete(imageUrl);
     } finally {
       setProcessing(false);
@@ -79,7 +114,10 @@ export default function PhotoCropModal({ isOpen, imageUrl, onClose, onCropComple
     <div className="fixed inset-0 z-[70] flex flex-col" style={{ background: 'rgba(0,0,0,0.85)' }}>
       {/* Header */}
       <div className="px-4 py-3 flex items-center justify-between flex-shrink-0 bg-black/50">
-        <p className="text-sm font-bold text-white">Crop Foto</p>
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-white truncate">{title}</p>
+          {hint && <p className="text-[11px] text-white/60 truncate mt-0.5">{hint}</p>}
+        </div>
         <button
           onClick={onClose}
           className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors active:scale-95"
@@ -94,9 +132,9 @@ export default function PhotoCropModal({ isOpen, imageUrl, onClose, onCropComple
           image={imageUrl}
           crop={crop}
           zoom={zoom}
-          aspect={1}
-          cropShape="round"
-          showGrid={false}
+          aspect={aspect}
+          cropShape={cropShape}
+          showGrid={cropShape === 'rect'}
           onCropChange={setCrop}
           onZoomChange={setZoom}
           onCropComplete={onCropAreaComplete}
@@ -134,7 +172,7 @@ export default function PhotoCropModal({ isOpen, imageUrl, onClose, onCropComple
           {processing ? (
             <><Loader2 size={16} className="animate-spin" /> Memproses...</>
           ) : (
-            'Gunakan Foto'
+            confirmLabel
           )}
         </button>
       </div>

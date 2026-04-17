@@ -50,7 +50,7 @@ async function fetchAllRows(queryBuilder) {
   return allRows;
 }
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // ── Analytics: fire-and-forget event logger ──
 async function logAnalyticsEvent(agentId, eventType, eventName, metadata = {}) {
@@ -393,6 +393,63 @@ function invalidateAgentCache() {
   agentCacheById = null;
   agentCacheBySlug = null;
   agentCacheTime = 0;
+}
+
+// ── Landing config helpers ──
+// Raw description from /public/{umroh,haji-plus}.html — read once at boot.
+// Shown to agents as placeholder text so they see the literal fallback the public page serves.
+let rawLandingDescription = { umroh: '', haji: '' };
+try {
+  const extractDescription = (html) => {
+    const m = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']*)["']/i);
+    return m ? m[1] : '';
+  };
+  const umrohHtml = readFileSync(resolve(__dirname, 'public/umroh.html'), 'utf-8');
+  const hajiHtml = readFileSync(resolve(__dirname, 'public/haji-plus.html'), 'utf-8');
+  rawLandingDescription = {
+    umroh: extractDescription(umrohHtml),
+    haji: extractDescription(hajiHtml),
+  };
+} catch (e) {
+  console.warn('[LandingConfig] Could not read raw HTML descriptions:', e.message);
+}
+
+function getDefaultLandingConfig(agent) {
+  const name = agent?.name || 'Alhijaz';
+  return {
+    umroh: {
+      title: `Umroh | ${name} | PT Alhijaz Indowisata`,
+      description: null,   // null = don't inject; raw HTML description stays
+      og_image_url: null,  // null = fall back to /og/{slug}.png
+    },
+    haji: {
+      title: `Haji Plus | ${name} | PT Alhijaz Indowisata`,
+      description: null,
+      og_image_url: null,
+    },
+  };
+}
+
+function mergeLandingConfig(agent) {
+  const defaults = getDefaultLandingConfig(agent);
+  const custom = agent?.landing_config || {};
+  return {
+    umroh: {
+      title: custom.umroh?.title || defaults.umroh.title,
+      description: custom.umroh?.description ?? defaults.umroh.description,
+      og_image_url: custom.umroh?.og_image_url ?? defaults.umroh.og_image_url,
+    },
+    haji: {
+      title: custom.haji?.title || defaults.haji.title,
+      description: custom.haji?.description ?? defaults.haji.description,
+      og_image_url: custom.haji?.og_image_url ?? defaults.haji.og_image_url,
+    },
+  };
+}
+
+function invalidateLandingCaches(slug) {
+  umrohLandingCache.delete(slug);
+  hajiLandingCache.delete(slug);
 }
 
 // ── Sync state tracking (in-memory) ──
@@ -1708,6 +1765,209 @@ app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), asy
     res.status(500).json({ error: 'Failed to save photo' });
   }
 });
+
+// ──────────────────────────────────────────────
+// Landing Page Config API
+// ──────────────────────────────────────────────
+
+// GET /api/landing-config — return raw config + defaults + live fallback description
+app.get('/api/landing-config', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    res.json({
+      success: true,
+      data: agent.landing_config || {},
+      defaults: getDefaultLandingConfig(agent),
+      currentMeta: {
+        umroh: { currentDescription: rawLandingDescription.umroh },
+        haji: { currentDescription: rawLandingDescription.haji },
+      },
+    });
+  } catch (err) {
+    console.error('[landing-config] GET error:', err);
+    res.status(500).json({ error: 'Gagal memuat konfigurasi' });
+  }
+});
+
+// PUT /api/landing-config — save title & description for umroh and/or haji
+app.put('/api/landing-config', authMiddleware, express.json({ limit: '100kb' }), async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const normalizeField = (val, max) => {
+      if (val === undefined) return undefined;          // not in body → don't touch
+      if (val === null) return null;
+      if (typeof val !== 'string') return undefined;
+      const trimmed = val.trim();
+      if (!trimmed) return null;                        // empty → reset to default
+      if (trimmed.length > max) {
+        throw new Error(`Melebihi batas ${max} karakter`);
+      }
+      return trimmed;
+    };
+
+    const existing = agent.landing_config || {};
+    const merged = {
+      umroh: { ...(existing.umroh || {}) },
+      haji: { ...(existing.haji || {}) },
+    };
+
+    for (const type of ['umroh', 'haji']) {
+      const patch = req.body?.[type];
+      if (!patch || typeof patch !== 'object') continue;
+      const title = normalizeField(patch.title, 60);
+      const description = normalizeField(patch.description, 160);
+      if (title !== undefined) merged[type].title = title;
+      if (description !== undefined) merged[type].description = description;
+    }
+
+    const { error } = await supabase
+      .from('agents')
+      .update({ landing_config: merged })
+      .eq('id', agent.id);
+    if (error) throw error;
+
+    invalidateAgentCache();
+    invalidateLandingCaches(agent.slug);
+    res.json({ success: true, data: merged });
+  } catch (err) {
+    console.error('[landing-config] PUT error:', err.message);
+    const status = /Melebihi batas/.test(err.message) ? 400 : 500;
+    res.status(status).json({ error: err.message || 'Gagal menyimpan konfigurasi' });
+  }
+});
+
+// POST /api/landing-config/og-image — upload custom OG image to Supabase Storage
+app.post('/api/landing-config/og-image', authMiddleware, express.json({ limit: '6mb' }), async (req, res) => {
+  let stage = 'init';
+  try {
+    stage = 'validate-body';
+    const { landing_type, image_data } = req.body || {};
+    if (!['umroh', 'haji'].includes(landing_type)) {
+      return res.status(400).json({ error: 'landing_type harus "umroh" atau "haji"' });
+    }
+    if (typeof image_data !== 'string' || !image_data.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'image_data tidak valid' });
+    }
+
+    stage = 'validate-mime';
+    const mimeMatch = image_data.match(/^data:(image\/(jpeg|png|webp));base64,/);
+    if (!mimeMatch) {
+      return res.status(400).json({ error: 'Format harus JPEG, PNG, atau WebP' });
+    }
+    const mime = mimeMatch[1];
+
+    stage = 'decode-base64';
+    const base64Data = image_data.slice(image_data.indexOf(',') + 1);
+    const buffer = Buffer.from(base64Data, 'base64');
+    if (buffer.length > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Ukuran file maksimal 5MB' });
+    }
+    console.log(`[landing-config] OG upload — type=${landing_type} mime=${mime} bytes=${buffer.length}`);
+
+    stage = 'lookup-agent';
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    const slug = agent.slug;
+
+    const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+    const fileName = `og/${slug}-${landing_type}-${Date.now()}.${ext}`;
+
+    stage = 'storage-upload';
+    const { error: uploadError } = await supabase.storage
+      .from('agent-photos')
+      .upload(fileName, buffer, { contentType: mime, upsert: true });
+    if (uploadError) {
+      console.error('[landing-config] Storage upload error:', uploadError);
+      throw new Error(`storage-upload: ${uploadError.message || JSON.stringify(uploadError)}`);
+    }
+
+    stage = 'build-url';
+    const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(fileName);
+    const newUrl = urlData.publicUrl;
+
+    // Delete previous OG image (silent failure OK — storage cleanup is best-effort)
+    const prevUrl = agent.landing_config?.[landing_type]?.og_image_url;
+    if (prevUrl && prevUrl.includes('/agent-photos/og/')) {
+      const prevPath = prevUrl.substring(prevUrl.indexOf('/agent-photos/') + '/agent-photos/'.length).split('?')[0];
+      if (prevPath && prevPath !== fileName) {
+        supabase.storage.from('agent-photos').remove([prevPath]).catch(err =>
+          console.warn('[landing-config] Could not delete previous OG:', err.message)
+        );
+      }
+    }
+
+    stage = 'db-update';
+    const existing = agent.landing_config || {};
+    const merged = {
+      umroh: { ...(existing.umroh || {}) },
+      haji: { ...(existing.haji || {}) },
+    };
+    merged[landing_type].og_image_url = newUrl;
+
+    const { error: dbErr } = await supabase
+      .from('agents')
+      .update({ landing_config: merged })
+      .eq('id', agent.id);
+    if (dbErr) {
+      console.error('[landing-config] DB update error:', dbErr);
+      throw new Error(`db-update: ${dbErr.message || JSON.stringify(dbErr)}`);
+    }
+
+    invalidateAgentCache();
+    invalidateLandingCaches(slug);
+    res.json({ success: true, og_image_url: newUrl });
+  } catch (err) {
+    console.error(`[landing-config] OG upload error at stage=${stage}:`, err);
+    res.status(500).json({ error: err.message || 'Gagal mengunggah gambar', stage });
+  }
+});
+
+// DELETE /api/landing-config/og-image — reset OG image to default (null)
+app.delete('/api/landing-config/og-image', authMiddleware, express.json({ limit: '10kb' }), async (req, res) => {
+  try {
+    const { landing_type } = req.body || {};
+    if (!['umroh', 'haji'].includes(landing_type)) {
+      return res.status(400).json({ error: 'landing_type harus "umroh" atau "haji"' });
+    }
+
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const prevUrl = agent.landing_config?.[landing_type]?.og_image_url;
+    if (prevUrl && prevUrl.includes('/agent-photos/og/')) {
+      const prevPath = prevUrl.substring(prevUrl.indexOf('/agent-photos/') + '/agent-photos/'.length).split('?')[0];
+      if (prevPath) {
+        supabase.storage.from('agent-photos').remove([prevPath]).catch(err =>
+          console.warn('[landing-config] Could not delete OG:', err.message)
+        );
+      }
+    }
+
+    const existing = agent.landing_config || {};
+    const merged = {
+      umroh: { ...(existing.umroh || {}) },
+      haji: { ...(existing.haji || {}) },
+    };
+    merged[landing_type].og_image_url = null;
+
+    const { error: dbErr } = await supabase
+      .from('agents')
+      .update({ landing_config: merged })
+      .eq('id', agent.id);
+    if (dbErr) throw dbErr;
+
+    invalidateAgentCache();
+    invalidateLandingCaches(agent.slug);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[landing-config] OG delete error:', err);
+    res.status(500).json({ error: 'Gagal menghapus gambar' });
+  }
+});
+
 // List all agents (admin only)
 app.get('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
   const { data, error } = await supabase
@@ -4641,12 +4901,38 @@ app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
   res.json({ success: true });
 });
 
+// ── Helper: Ensure legacy session active, auto-relogin if credentials saved ──
+async function ensureLegacySession(agent) {
+  if (!agent?.jamaah_username) {
+    return { success: false, error: 'Belum ada kredensial sistem internal. Silakan login di halaman Jamaah.' };
+  }
+  if (isSessionActive(agent.jamaah_username)) {
+    return { success: true };
+  }
+  // Session expired — try auto-relogin with stored credentials
+  if (!agent.jamaah_password) {
+    return { success: false, error: 'Session kedaluwarsa. Silakan login ulang di halaman Jamaah.' };
+  }
+  try {
+    const decrypted = capiDecrypt(agent.jamaah_password);
+    const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
+    if (!loginResult.success) {
+      return { success: false, error: 'Gagal login ulang ke sistem internal. Silakan login manual di halaman Jamaah.' };
+    }
+    return { success: true };
+  } catch (err) {
+    console.error('Auto-relogin error:', err);
+    return { success: false, error: 'Gagal login ulang ke sistem internal.' };
+  }
+}
+
 // ── Umrah Registration: Fetch form options from legacy system ──
 app.get('/api/umrah/form-options', authMiddleware, adminOnly, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
-    if (!agent?.jamaah_username || !isSessionActive(agent.jamaah_username)) {
-      return res.status(400).json({ error: 'Belum terhubung ke sistem internal. Silakan login terlebih dahulu.' });
+    const sess = await ensureLegacySession(agent);
+    if (!sess.success) {
+      return res.status(400).json({ error: sess.error });
     }
 
     const result = await fetchUmrahFormOptions(agent.jamaah_username);
@@ -4667,8 +4953,9 @@ app.get('/api/umrah/form-options', authMiddleware, adminOnly, async (req, res) =
 app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit: '10mb' }), async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
-    if (!agent?.jamaah_username || !isSessionActive(agent.jamaah_username)) {
-      return res.status(400).json({ error: 'Belum terhubung ke sistem internal. Silakan login terlebih dahulu.' });
+    const sess = await ensureLegacySession(agent);
+    if (!sess.success) {
+      return res.status(400).json({ error: sess.error });
     }
 
     const { formAction, fields, hiddenFields, file } = req.body;
@@ -4704,12 +4991,97 @@ app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit:
   }
 });
 
+// ── Umrah Registration: OCR KTP using OpenAI Vision ──
+app.post('/api/umrah/ocr-ktp', authMiddleware, adminOnly, express.json({ limit: '15mb' }), async (req, res) => {
+  const OPENAI_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_KEY) {
+    return res.status(500).json({ error: 'OPENAI_API_KEY not configured' });
+  }
+
+  const { imageBase64, imageMimeType } = req.body;
+  if (!imageBase64) {
+    return res.status(400).json({ error: 'imageBase64 required' });
+  }
+
+  try {
+    const mime = imageMimeType || 'image/jpeg';
+    const dataUrl = `data:${mime};base64,${imageBase64}`;
+
+    const systemPrompt = `Kamu adalah AI yang mengekstrak data dari foto KTP Indonesia.
+Kembalikan HANYA JSON (tanpa markdown atau penjelasan) dengan format:
+{
+  "nik": "16 digit NIK",
+  "nama": "Nama lengkap sesuai KTP (huruf kapital)",
+  "tempat_lahir": "Kota kelahiran",
+  "tgl_lahir": "DD-MM-YYYY",
+  "jenis_kelamin": "LAKI-LAKI" atau "PEREMPUAN",
+  "alamat": "Alamat lengkap (baris alamat saja, tanpa RT/RW)",
+  "rt_rw": "RT/RW (contoh: 001/002)",
+  "kelurahan": "Nama kelurahan/desa",
+  "kecamatan": "Nama kecamatan",
+  "agama": "Agama",
+  "status_perkawinan": "BELUM KAWIN" / "KAWIN" / "CERAI HIDUP" / "CERAI MATI",
+  "pekerjaan": "Pekerjaan",
+  "kewarganegaraan": "WNI/WNA"
+}
+Jika field tidak terbaca, gunakan null. Jangan invent data.`;
+
+    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Ekstrak data dari KTP ini:' },
+              { type: 'image_url', image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+        temperature: 0.1,
+        max_tokens: 800,
+      }),
+    });
+
+    if (!openaiRes.ok) {
+      const errBody = await openaiRes.text();
+      console.error('OpenAI OCR error:', errBody);
+      return res.status(502).json({ error: 'OCR gagal', details: errBody });
+    }
+
+    const result = await openaiRes.json();
+    const text = result.choices?.[0]?.message?.content || '';
+
+    // Strip markdown code fences if present
+    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+
+    let parsed;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      return res.status(500).json({ error: 'OCR response tidak valid', raw: text });
+    }
+
+    res.json({ success: true, data: parsed });
+  } catch (err) {
+    console.error('OCR KTP error:', err);
+    res.status(500).json({ error: 'Gagal memproses OCR: ' + err.message });
+  }
+});
+
 // ── Umrah Registration: Debug — fetch raw form HTML (admin only, temporary) ──
 app.get('/api/umrah/form-debug', authMiddleware, adminOnly, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
-    if (!agent?.jamaah_username || !isSessionActive(agent.jamaah_username)) {
-      return res.status(400).json({ error: 'Belum terhubung ke sistem internal' });
+    const sess = await ensureLegacySession(agent);
+    if (!sess.success) {
+      return res.status(400).json({ error: sess.error });
     }
 
     const result = await fetchUmrahFormOptions(agent.jamaah_username);
@@ -7052,7 +7424,12 @@ async function generateUmrohPage(slug) {
   const result = await mod.onRequest({
     params: { slug },
     request: new Request('http://localhost/' + slug + '/umroh'),
-    agentOverride: agent ? { name: agent.name, phone: agent.phone, photo: agent.photo } : undefined,
+    agentOverride: agent ? {
+      name: agent.name,
+      phone: agent.phone,
+      photo: agent.photo,
+      landing: mergeLandingConfig(agent).umroh,
+    } : undefined,
   });
   return await result.text();
 }
@@ -7148,7 +7525,12 @@ async function generateHajiPage(slug) {
   const result = await mod.onRequest({
     params: { slug },
     request: new Request('http://localhost/' + slug + '/haji'),
-    agentOverride: agent ? { name: agent.name, phone: agent.phone, photo: agent.photo } : undefined,
+    agentOverride: agent ? {
+      name: agent.name,
+      phone: agent.phone,
+      photo: agent.photo,
+      landing: mergeLandingConfig(agent).haji,
+    } : undefined,
   });
   return await result.text();
 }

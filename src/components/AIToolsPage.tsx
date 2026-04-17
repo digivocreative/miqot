@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Mic, Image, CreditCard, BarChart3, Banknote, ArrowLeftRight } from 'lucide-react';
+import { Mic, Image, CreditCard, BarChart3, Banknote, ArrowLeftRight, Globe } from 'lucide-react';
 import { trackEvent } from '../utils/analytics';
 
 interface AIToolsPageProps {
@@ -7,6 +7,15 @@ interface AIToolsPageProps {
 }
 
 const TOOLS = [
+  {
+    id: 'landing-page',
+    name: 'Landing Page',
+    desc: 'Atur SEO & link preview saat link dibagikan',
+    icon: Globe,
+    color: 'purple',
+    route: 'landing-page',
+    active: true,
+  },
   {
     id: 'compare',
     name: 'Bandingkan Paket',

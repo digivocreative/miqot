@@ -727,6 +727,10 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
+      '/api/landing-config': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
 
       '/agents': {
         target: 'http://localhost:3000',

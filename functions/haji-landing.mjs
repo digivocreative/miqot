@@ -54,6 +54,9 @@ function buildStickyBarAndFab(agentName, agentPhoto, waUrl) {
   const js = "<script>(function(){var bar=document.getElementById('alhijazStickyBar'),fab=document.getElementById('alhijazFab');if(!bar||!fab)return;var hero=document.querySelector('.elementor-element-f55e3ca')||document.querySelector('.elementor-top-section');var hH=hero?hero.offsetHeight:400,on=false;function chk(){var y=window.scrollY||window.pageYOffset;if(y>hH&&!on){bar.classList.add('show');fab.classList.add('hide');on=true}else if(y<=hH&&on){bar.classList.remove('show');fab.classList.remove('hide');on=false}}window.addEventListener('scroll',chk,{passive:true});chk();})();</script>";
   return css + "\n" + stickyBar + "\n" + fab + "\n" + js;
 }
+function escapeHtmlAttr(s) {
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 async function generateHTML(slug, agentOverride) {
   const agent = AGENTS[slug];
   const phone = agentOverride?.phone || agent?.phone || DEFAULT_PHONE;
@@ -82,18 +85,34 @@ async function generateHTML(slug, agentOverride) {
     /https:\/\/wa\.alhijazindonesia\.com\/\?message=Assalamualaikum,%20Saya%20mau%20tanya%20Program%20Pembiayaan%20Haji%20Plus%20di%20Alhijaz/g,
     waPembiayaan
   );
-  const pageTitle = "Haji Plus | " + agentName + " | PT Alhijaz Indowisata";
+  const customTitle = agentOverride?.landing?.title;
+  const pageTitle = customTitle || "Haji Plus | " + agentName + " | PT Alhijaz Indowisata";
+  const safeTitle = escapeHtmlAttr(pageTitle);
   html = html.replace(
     /<title>Paket Haji Plus \| Haji Khusus \| PT Alhijaz Indowisata<\/title>/,
-    "<title>" + pageTitle + "</title>"
+    "<title>" + safeTitle + "</title>"
   );
   html = html.replace(
     /(<meta property="og:title" content=")Paket Haji Plus \| Haji Khusus \| PT Alhijaz Indowisata(")/,
-    "$1" + pageTitle + "$2"
+    "$1" + safeTitle + "$2"
   );
+  const customDescription = agentOverride?.landing?.description;
+  if (customDescription) {
+    const safeDesc = escapeHtmlAttr(customDescription);
+    html = html.replace(
+      /(<meta\s+name=["']description["']\s+content=["'])[^"']*(["'])/i,
+      "$1" + safeDesc + "$2"
+    );
+    html = html.replace(
+      /(<meta\s+property=["']og:description["']\s+content=["'])[^"']*(["'])/i,
+      "$1" + safeDesc + "$2"
+    );
+  }
+  const customOg = agentOverride?.landing?.og_image_url;
+  const ogImageUrl = customOg || "https://alhijaz.co/og/" + slug + ".png";
   html = html.replace(
     /(<meta property="og:image" content=")[^"]*(")/,
-    "$1https://alhijaz.co/og/" + slug + ".png$2"
+    "$1" + escapeHtmlAttr(ogImageUrl) + "$2"
   );
   html = html.replace(/<link[^>]*elementor-icons-shared-0-css[^>]*\/>/g, "");
   html = html.replace(/<link[^>]*elementor-icons-fa-solid-css[^>]*\/>/g, "");
@@ -137,7 +156,8 @@ async function generateHTML(slug, agentOverride) {
   html = html.replace(/<meta name='robots'[^>]*\/>/g, "");
   html = html.replace(/(<img(?![^>]*loading=)[^>]*)(\/?>)/g, '$1 loading="lazy" $2');
   const stickyBarHtml = buildStickyBarAndFab(agentName, agentPhoto, waGeneral);
-  html = html.replace("</body>", stickyBarHtml + "\n</body>");
+  const capiScript = '<script>(function(){var s="' + slug + '";function gc(n){var v="; "+document.cookie,p=v.split("; "+n+"=");if(p.length===2)return p.pop().split(";").shift();return""}function fire(k){try{var b={eventKey:k,eventId:k+"-"+Date.now()+"-"+Math.random().toString(36).slice(2,8),sourceUrl:location.href,userAgent:navigator.userAgent,fbc:gc("_fbc"),fbp:gc("_fbp"),timestamp:Math.floor(Date.now()/1000)};var u="/api/capi/"+s+"/event",bl=new Blob([JSON.stringify(b)],{type:"application/json"});if(navigator.sendBeacon)navigator.sendBeacon(u,bl);else fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b),keepalive:true}).catch(function(){})}catch(e){}}console.log("[CAPI] \\ud83d\\udfe2 pageView",{slug:s,url:location.href});fire("pageView");document.addEventListener("click",function(e){var t=e.target;if(t.closest&&(t.closest("a[href*=\\"wa.me\\"]")||t.closest("a[href*=\\"whatsapp.com\\"]")||t.closest(".alhijaz-btn--sticky")||t.closest(".alhijaz-fab")||t.closest("a[href*=\\"api.whatsapp\\"]"))){console.log("[CAPI] \\ud83d\\udfe2 contact",{slug:s,url:location.href});fire("contact")}});})();</script>';
+  html = html.replace("</body>", stickyBarHtml + "\n" + capiScript + "\n</body>");
   html = html.replace(
     /<body /,
     '<body style="padding-bottom:76px" '

@@ -4,7 +4,7 @@ import {
   Eye, EyeOff, LogIn, Loader2, User, Users, Lock, Search,
   Calendar, Building2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, RefreshCw,
-  ArrowUpDown, SlidersHorizontal, X, Check, Plane, Landmark, PenLine,
+  ArrowUpDown, SlidersHorizontal, X, Check, Plane, Landmark, PenLine, Camera,
 } from 'lucide-react';
 import { getAuthHeaders, getStoredSession } from './LoginPage';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
@@ -138,6 +138,16 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
 
   const [filterOpen, setFilterOpen] = useState(false);
   const [subTab, setSubTab] = useState<'umroh' | 'haji'>(initialSubTab);
+  const [showDaftarChoice, setShowDaftarChoice] = useState(false);
+  const [daftarChoiceClosing, setDaftarChoiceClosing] = useState(false);
+
+  const closeDaftarChoice = useCallback(() => {
+    setDaftarChoiceClosing(true);
+    setTimeout(() => {
+      setShowDaftarChoice(false);
+      setDaftarChoiceClosing(false);
+    }, 200);
+  }, []);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollStartRef = useRef<number>(0);
   const hasAutoSynced = useRef(false);
@@ -638,10 +648,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
         {/* Daftar Jamaah button (admin only) */}
         {getStoredSession()?.user?.role === 'admin' && (
           <button
-            onClick={() => {
-              window.history.pushState({}, '', '/dashboard/jamaah/daftar');
-              window.location.reload();
-            }}
+            onClick={() => setShowDaftarChoice(true)}
             className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 transition-all active:scale-[0.98]"
           >
             <PenLine size={14} />
@@ -1358,6 +1365,73 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
             <span className="text-[10px] text-gray-400 dark:text-slate-500">
               {((page - 1) * 10) + 1}–{Math.min(page * 10, data.total)} dari {data.total} jamaah
             </span>
+          </div>
+        )}
+
+        {/* Daftar Jamaah Choice Modal */}
+        {showDaftarChoice && (
+          <div
+            className={`fixed inset-0 z-50 flex items-center justify-center px-6 ${daftarChoiceClosing ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
+            onClick={closeDaftarChoice}
+            style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
+          >
+            <div
+              className={`w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl overflow-hidden ${daftarChoiceClosing ? 'dc-card-exit' : 'dc-card-enter'}`}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="px-5 pt-5 pb-3 text-center">
+                <p className="text-sm font-bold text-gray-800 dark:text-white">Daftar Jamaah Baru</p>
+                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Pilih cara input data jamaah</p>
+              </div>
+              <div className="px-4 pb-4 space-y-2">
+                <button
+                  onClick={() => {
+                    closeDaftarChoice();
+                    setTimeout(() => {
+                      window.history.pushState({}, '', '/dashboard/jamaah/daftar?mode=ocr');
+                      window.location.reload();
+                    }, 220);
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50 dark:bg-emerald-900/20 hover:border-emerald-300 dark:hover:border-emerald-700 transition-all active:scale-[0.98]"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center flex-shrink-0">
+                    <Camera size={18} className="text-white" strokeWidth={2} />
+                  </div>
+                  <div className="flex-1 text-left min-w-0">
+                    <div className="text-xs font-bold text-gray-900 dark:text-white">Upload KTP</div>
+                    <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-0.5 leading-snug">
+                      Otomatis isi data dari foto KTP
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    closeDaftarChoice();
+                    setTimeout(() => {
+                      window.history.pushState({}, '', '/dashboard/jamaah/daftar');
+                      window.location.reload();
+                    }, 220);
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-gray-300 dark:hover:border-slate-600 transition-all active:scale-[0.98]"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-gray-100 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                    <PenLine size={18} className="text-gray-600 dark:text-slate-300" strokeWidth={2} />
+                  </div>
+                  <div className="flex-1 text-left min-w-0">
+                    <div className="text-xs font-bold text-gray-900 dark:text-white">Isi Manual</div>
+                    <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-0.5 leading-snug">
+                      Input data jamaah satu per satu
+                    </div>
+                  </div>
+                </button>
+              </div>
+              <button
+                onClick={closeDaftarChoice}
+                className="w-full py-3 text-xs font-semibold text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors border-t border-gray-100 dark:border-slate-700"
+              >
+                Batal
+              </button>
+            </div>
           </div>
         )}
       </div>
