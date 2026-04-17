@@ -789,14 +789,36 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
 
     setSubmitting(true);
     try {
+      // ── Pre-submit transforms ──
+      const submitFields: Record<string, string> = { ...fields };
+
+      // 1. Default No. HP Jamaah ← No. HP Pendaftar (if jamaah HP empty)
+      let hpJamaahName: string | undefined;
+      let hpPendaftarName: string | undefined;
+      for (const name of Object.keys(options.inputs)) {
+        const lbl = getFieldDef(name).label;
+        if (lbl === 'No. Telp/HP Jamaah' && !hpJamaahName) hpJamaahName = name;
+        if (lbl === 'No. Telp/HP Pendaftar' && !hpPendaftarName) hpPendaftarName = name;
+      }
+      if (hpJamaahName && hpPendaftarName && !submitFields[hpJamaahName] && submitFields[hpPendaftarName]) {
+        submitFields[hpJamaahName] = submitFields[hpPendaftarName];
+      }
+
+      // 2. Discover the actual file field name from the legacy form
+      let fileFieldName: string | undefined;
+      for (const name of Object.keys(options.inputs)) {
+        if (options.inputs[name].type === 'file') { fileFieldName = name; break; }
+      }
+
       const res = await fetch('/api/umrah/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           formAction: options.formAction,
-          fields,
+          fields: submitFields,
           hiddenFields: options.hiddenFields,
           file: file || undefined,
+          fileFieldName,
         }),
       });
       const data = await res.json();

@@ -5030,7 +5030,7 @@ app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit:
       return res.status(400).json({ error: sess.error });
     }
 
-    const { formAction, fields, hiddenFields, file } = req.body;
+    const { formAction, fields, hiddenFields, file, fileFieldName } = req.body;
 
     if (!formAction || !fields) {
       return res.status(400).json({ error: 'Data form tidak lengkap' });
@@ -5071,6 +5071,7 @@ app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit:
       hiddenFields: hiddenFields || {},
       fileBuffer,
       fileName,
+      fileFieldName,
     });
 
     if (!result.success) {

@@ -264,13 +264,13 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
         });
         const result = await res.json();
         if (cancelled) return;
-        if (result.success && result.data.isSyncing && !result.data.background) {
+        // Only show sync UI if active sync is umroh-related. Haji sync sharing
+        // the mutex would otherwise make this page show misleading progress.
+        const isUmrohScope = typeof result.data.scope === 'string' && result.data.scope.startsWith('umroh');
+        if (result.success && result.data.isSyncing && !result.data.background && isUmrohScope) {
           setSyncing(true);
           setBackgroundSyncing(true);
-          // Only trust totalSynced if sync scope is umroh-related — otherwise it's
-          // haji's counter leaking via the shared mutex.
-          const isUmrohScope = typeof result.data.scope === 'string' && result.data.scope.startsWith('umroh');
-          if (isUmrohScope && result.data.totalSynced) setSyncedCount(result.data.totalSynced);
+          if (result.data.totalSynced) setSyncedCount(result.data.totalSynced);
           if (result.data.phase) setSyncPhase(result.data.phase);
           startPolling();
         }
@@ -410,8 +410,18 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
         const result = await res.json();
         errorCount = 0;
         if (result.success) {
-          // Only trust totalSynced if sync scope is umroh-related (see note above).
           const isUmrohScope = typeof result.data.scope === 'string' && result.data.scope.startsWith('umroh');
+          // If active sync switched to a different scope (e.g. haji sync took over
+          // after umroh finished), stop polling — don't mirror its counter.
+          if (result.data.isSyncing && !isUmrohScope) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+            setBackgroundSyncing(false);
+            setSyncing(false);
+            await fetchStats();
+            fetchJamaah(page);
+            return;
+          }
           if (isUmrohScope && result.data.totalSynced) setSyncedCount(result.data.totalSynced);
           if (result.data.phase) setSyncPhase(result.data.phase);
           // Refetch data when transitioning Phase 1→2 (all core data is ready)

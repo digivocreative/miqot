@@ -413,13 +413,14 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
         });
         const result = await res.json();
         if (cancelled) return;
-        if (result.success && result.data.isSyncing) {
+        // Only show "syncing" UI if the active sync is haji-related. Otherwise the
+        // shared mutex (bg sync for umroh) would make HajiPage misleadingly show
+        // sync progress for data that isn't haji.
+        const isHajiScope = typeof result.data.scope === 'string' && result.data.scope.startsWith('haji');
+        if (result.success && result.data.isSyncing && isHajiScope) {
           setSyncing(true);
           setBackgroundSyncing(true);
-          // Only trust totalSynced if sync scope is haji-related — otherwise it's
-          // umroh's counter leaking via the shared mutex.
-          const isHajiScope = typeof result.data.scope === 'string' && result.data.scope.startsWith('haji');
-          if (isHajiScope && result.data.totalSynced) setSyncedCount(result.data.totalSynced);
+          if (result.data.totalSynced) setSyncedCount(result.data.totalSynced);
           startPolling();
         }
       } catch {
@@ -531,8 +532,18 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
         const result = await res.json();
         errorCount = 0;
         if (result.success) {
-          // Only trust totalSynced if sync scope is haji-related (see note above).
           const isHajiScope = typeof result.data.scope === 'string' && result.data.scope.startsWith('haji');
+          // If active sync switched to a different scope (e.g. bg umroh sync took
+          // over after haji finished), stop polling — don't mirror its counter.
+          if (result.data.isSyncing && !isHajiScope) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+            setBackgroundSyncing(false);
+            setSyncing(false);
+            await fetchStats();
+            fetchJamaah(page);
+            return;
+          }
           if (isHajiScope && result.data.totalSynced) setSyncedCount(result.data.totalSynced);
           if (!result.data.isSyncing) {
             if (pollRef.current) clearInterval(pollRef.current);
