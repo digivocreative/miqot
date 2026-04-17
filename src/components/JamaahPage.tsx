@@ -635,6 +635,20 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
           </button>
         </div>
 
+        {/* Daftar Jamaah button (admin only) */}
+        {getStoredSession()?.user?.role === 'admin' && (
+          <button
+            onClick={() => {
+              window.history.pushState({}, '', '/dashboard/jamaah/daftar');
+              window.location.reload();
+            }}
+            className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 transition-all active:scale-[0.98]"
+          >
+            <PenLine size={14} />
+            Daftar Jamaah Baru
+          </button>
+        )}
+
         {/* Command bar */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
           {/* Top bar — always visible */}

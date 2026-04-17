@@ -24,6 +24,7 @@ import BusinessCardPage from './BusinessCardPage';
 import HajiPlusPage from './HajiPlusPage';
 import HajiPlusExportPage from './HajiPlusExportPage';
 import KursPage from './KursPage';
+import UmrahRegisterPage from './UmrahRegisterPage';
 import CuacaWidget from './CuacaWidget';
 import { trackEvent } from '../utils/analytics';
 
@@ -59,10 +60,12 @@ function getTabFromPath(): TabId {
   return 'home';
 }
 
-function getSubTabFromPath(): 'umroh' | 'haji' {
+function getSubTabFromPath(): 'umroh' | 'haji' | 'daftar' {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
   // /dashboard/jamaah/haji
   if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'jamaah' && segments[2] === 'haji') return 'haji';
+  // /dashboard/jamaah/daftar
+  if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'jamaah' && segments[2] === 'daftar') return 'daftar';
   return 'umroh';
 }
 
@@ -490,15 +493,24 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             <StatistikPage agentSlug={agentData.slug} role={agentData.role} onHeaderRight={setStatistikHeaderRight} initialStatTab={getStatistikTabFromPath()} />
           )}
           {activeTab === 'jamaah' && (
-            <JamaahPage
-              jamaahConnected={jamaahConnected}
-              jamaahUser={jamaahUser}
-              initialSubTab={getSubTabFromPath()}
-              onConnectionChange={(connected, user) => {
-                setJamaahConnected(connected);
-                setJamaahUser(user);
-              }}
-            />
+            getSubTabFromPath() === 'daftar' && isAdmin ? (
+              <UmrahRegisterPage onBack={() => {
+                window.history.pushState({}, '', '/dashboard/jamaah');
+                // Force re-render by toggling tab
+                setActiveTab('home');
+                setTimeout(() => setActiveTab('jamaah'), 0);
+              }} />
+            ) : (
+              <JamaahPage
+                jamaahConnected={jamaahConnected}
+                jamaahUser={jamaahUser}
+                initialSubTab={getSubTabFromPath() === 'haji' ? 'haji' : 'umroh'}
+                onConnectionChange={(connected, user) => {
+                  setJamaahConnected(connected);
+                  setJamaahUser(user);
+                }}
+              />
+            )
           )}
 
           {activeTab === 'analytics' && isAdmin && (

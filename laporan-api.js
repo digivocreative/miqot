@@ -572,6 +572,273 @@ function parseDateDMY(str) {
   return null; // Return null instead of raw string to prevent DB errors
 }
 
+// ── Fetch Umrah Registration Form: Extract dropdown options & form structure ──
+export async function fetchUmrahFormOptions(username) {
+  const session = sessions.get(username);
+  if (!session) return { success: false, error: 'Belum login' };
+
+  if (Date.now() - session.createdAt > SESSION_TTL) {
+    sessions.delete(username);
+    return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
+  }
+
+  const url = `${BASE}/pages/main.php?route=umrah&act=tdaftar`;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20_000);
+
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Cookie: session.cookie,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    const html = await res.text();
+    if (html.includes('cek_login.php') || html.includes('Sign in to start your session')) {
+      sessions.delete(username);
+      return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+    }
+
+    const $ = cheerio.load(html);
+
+    // Extract form action URL
+    const formEl = $('form').first();
+    const formAction = formEl.attr('action') || '';
+
+    // Extract hidden fields
+    const hiddenFields = {};
+    formEl.find('input[type="hidden"]').each((_, el) => {
+      const name = $(el).attr('name');
+      const value = $(el).attr('value') || '';
+      if (name) hiddenFields[name] = value;
+    });
+
+    // Helper to extract select options
+    function extractOptions(selectName) {
+      const opts = [];
+      formEl.find(`select[name="${selectName}"] option`).each((_, el) => {
+        const value = $(el).attr('value') || '';
+        const label = $(el).text().trim();
+        if (value || label) opts.push({ value, label });
+      });
+      return opts;
+    }
+
+    // Extract all select elements and their names for discovery
+    const allSelects = {};
+    formEl.find('select').each((_, el) => {
+      const name = $(el).attr('name');
+      if (name) {
+        const opts = [];
+        $(el).find('option').each((_, opt) => {
+          const value = $(opt).attr('value') || '';
+          const label = $(opt).text().trim();
+          if (value || label) opts.push({ value, label });
+        });
+        allSelects[name] = opts;
+      }
+    });
+
+    // Extract all input fields for discovery
+    const allInputs = {};
+    formEl.find('input').each((_, el) => {
+      const name = $(el).attr('name');
+      const type = $(el).attr('type') || 'text';
+      if (name && type !== 'hidden') {
+        allInputs[name] = {
+          type,
+          placeholder: $(el).attr('placeholder') || '',
+          required: $(el).attr('required') !== undefined,
+        };
+      }
+    });
+
+    // Extract textarea fields
+    const allTextareas = {};
+    formEl.find('textarea').each((_, el) => {
+      const name = $(el).attr('name');
+      if (name) {
+        allTextareas[name] = {
+          placeholder: $(el).attr('placeholder') || '',
+          required: $(el).attr('required') !== undefined,
+        };
+      }
+    });
+
+    return {
+      success: true,
+      formAction,
+      hiddenFields,
+      selects: allSelects,
+      inputs: allInputs,
+      textareas: allTextareas,
+      rawHtml: html,
+    };
+
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return { success: false, error: 'Sistem internal tidak merespons (timeout)' };
+    }
+    console.error('fetchUmrahFormOptions error:', err.message);
+    return { success: false, error: 'Gagal mengambil form pendaftaran' };
+  }
+}
+
+// ── Submit Umrah Registration: POST form data to legacy system ──
+export async function submitUmrahRegistration(username, { formAction, fields, hiddenFields, fileBuffer, fileName }) {
+  const session = sessions.get(username);
+  if (!session) return { success: false, error: 'Belum login' };
+
+  if (Date.now() - session.createdAt > SESSION_TTL) {
+    sessions.delete(username);
+    return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
+  }
+
+  // Build the full URL
+  const actionUrl = formAction.startsWith('http')
+    ? formAction
+    : `${BASE}/${formAction.replace(/^\/+/, '')}`;
+
+  try {
+    // Build multipart form body using URLSearchParams for non-file fields
+    // and native FormData for file uploads
+    const boundary = '----FormBoundary' + Date.now().toString(36);
+    const parts = [];
+
+    // Add hidden fields first
+    if (hiddenFields) {
+      for (const [key, value] of Object.entries(hiddenFields)) {
+        parts.push(
+          `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="${key}"\r\n\r\n` +
+          `${value}\r\n`
+        );
+      }
+    }
+
+    // Add form fields
+    for (const [key, value] of Object.entries(fields)) {
+      parts.push(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="${key}"\r\n\r\n` +
+        `${value}\r\n`
+      );
+    }
+
+    // Add file if provided
+    if (fileBuffer && fileName) {
+      const ext = fileName.split('.').pop().toLowerCase();
+      const mimeTypes = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf' };
+      const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+      parts.push(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file_ktp"; filename="${fileName}"\r\n` +
+        `Content-Type: ${contentType}\r\n\r\n`
+      );
+      // File binary will be appended separately
+    }
+
+    // Build final body as Buffer for proper binary handling
+    const textPart = parts.join('');
+    const endBoundary = `\r\n--${boundary}--\r\n`;
+
+    let bodyBuffer;
+    if (fileBuffer) {
+      const textBuf = Buffer.from(textPart, 'utf-8');
+      const endBuf = Buffer.from(endBoundary, 'utf-8');
+      bodyBuffer = Buffer.concat([textBuf, fileBuffer, endBuf]);
+    } else {
+      bodyBuffer = Buffer.from(textPart + `--${boundary}--\r\n`, 'utf-8');
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
+    const res = await fetch(actionUrl, {
+      method: 'POST',
+      headers: {
+        Cookie: session.cookie,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': bodyBuffer.length.toString(),
+      },
+      body: bodyBuffer,
+      redirect: 'manual',
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    // Check for redirect (usually means success in PHP forms)
+    const location = res.headers.get('location') || '';
+    const statusCode = res.status;
+
+    // Read response body
+    const responseHtml = await res.text();
+
+    // Detect session expired
+    if (responseHtml.includes('cek_login.php') || responseHtml.includes('Sign in to start your session')) {
+      sessions.delete(username);
+      return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+    }
+
+    // PHP forms typically redirect on success (302/303)
+    if (statusCode >= 300 && statusCode < 400) {
+      return { success: true, message: 'Pendaftaran jamaah berhasil', redirectUrl: location };
+    }
+
+    // Check for success indicators in response HTML
+    const $ = cheerio.load(responseHtml);
+    const alertSuccess = $('.alert-success').text().trim();
+    if (alertSuccess) {
+      return { success: true, message: alertSuccess || 'Pendaftaran jamaah berhasil' };
+    }
+
+    // Check for error indicators
+    const alertError = $('.alert-danger, .alert-warning').text().trim();
+    if (alertError) {
+      return { success: false, error: alertError };
+    }
+
+    // If we got a 200 with no clear success/error, check if we're back on the form
+    // (which might mean validation errors)
+    const hasForm = $('form').length > 0;
+    const errorMessages = [];
+    $('.help-block, .error-message, .text-danger, .has-error .help-block').each((_, el) => {
+      const text = $(el).text().trim();
+      if (text) errorMessages.push(text);
+    });
+
+    if (errorMessages.length > 0) {
+      return { success: false, error: errorMessages.join('; ') };
+    }
+
+    // If redirected back to list page or any success-like page
+    if (responseHtml.includes('route=umrah') && !hasForm) {
+      return { success: true, message: 'Pendaftaran jamaah berhasil' };
+    }
+
+    // Ambiguous — return the response for debugging
+    return {
+      success: false,
+      error: 'Tidak dapat menentukan hasil pendaftaran. Silakan cek di sistem internal.',
+      debug: { statusCode, hasForm, location },
+    };
+
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return { success: false, error: 'Sistem internal tidak merespons (timeout)' };
+    }
+    console.error('submitUmrahRegistration error:', err.message);
+    return { success: false, error: 'Gagal mengirim pendaftaran: ' + err.message };
+  }
+}
+
 // ── Get session cookie for reuse (e.g. haji sync) ──
 export function getSessionCookie(username) {
   const session = sessions.get(username);

@@ -16,7 +16,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
-import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail } from './laporan-api.js';
+import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, submitUmrahRegistration } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
 import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
@@ -1381,6 +1381,9 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
       } catch (photoErr) { /* ignore photo rename errors */ }
 
       invalidateAgentCache();
+      // Invalidate landing page caches for old slug (so subsequent requests redirect)
+      umrohLandingCache.delete(oldSlug);
+      hajiLandingCache.delete(oldSlug);
       // Fetch updated agent data and generate new JWT with new slug
       const { data: updatedAgent } = await supabase.from('agents').select('*').eq('id', req.user.id).single();
       const newToken = jwt.sign(
@@ -4638,6 +4641,97 @@ app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
   res.json({ success: true });
 });
 
+// ── Umrah Registration: Fetch form options from legacy system ──
+app.get('/api/umrah/form-options', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent?.jamaah_username || !isSessionActive(agent.jamaah_username)) {
+      return res.status(400).json({ error: 'Belum terhubung ke sistem internal. Silakan login terlebih dahulu.' });
+    }
+
+    const result = await fetchUmrahFormOptions(agent.jamaah_username);
+    if (!result.success) {
+      return res.status(502).json({ error: result.error });
+    }
+
+    // Return structured form data (exclude rawHtml for security)
+    const { rawHtml, ...formData } = result;
+    res.json({ success: true, data: formData });
+  } catch (err) {
+    console.error('GET /api/umrah/form-options error:', err);
+    res.status(500).json({ error: 'Gagal mengambil opsi form pendaftaran' });
+  }
+});
+
+// ── Umrah Registration: Submit new jamaah to legacy system ──
+app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit: '10mb' }), async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent?.jamaah_username || !isSessionActive(agent.jamaah_username)) {
+      return res.status(400).json({ error: 'Belum terhubung ke sistem internal. Silakan login terlebih dahulu.' });
+    }
+
+    const { formAction, fields, hiddenFields, file } = req.body;
+
+    if (!formAction || !fields) {
+      return res.status(400).json({ error: 'Data form tidak lengkap' });
+    }
+
+    // Convert base64 file to Buffer if provided
+    let fileBuffer = null;
+    let fileName = null;
+    if (file?.data && file?.name) {
+      fileBuffer = Buffer.from(file.data, 'base64');
+      fileName = file.name;
+    }
+
+    const result = await submitUmrahRegistration(agent.jamaah_username, {
+      formAction,
+      fields,
+      hiddenFields: hiddenFields || {},
+      fileBuffer,
+      fileName,
+    });
+
+    if (!result.success) {
+      return res.status(502).json({ error: result.error, debug: result.debug });
+    }
+
+    res.json({ success: true, message: result.message });
+  } catch (err) {
+    console.error('POST /api/umrah/register error:', err);
+    res.status(500).json({ error: 'Gagal mengirim pendaftaran' });
+  }
+});
+
+// ── Umrah Registration: Debug — fetch raw form HTML (admin only, temporary) ──
+app.get('/api/umrah/form-debug', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent?.jamaah_username || !isSessionActive(agent.jamaah_username)) {
+      return res.status(400).json({ error: 'Belum terhubung ke sistem internal' });
+    }
+
+    const result = await fetchUmrahFormOptions(agent.jamaah_username);
+    if (!result.success) {
+      return res.status(502).json({ error: result.error });
+    }
+
+    // Return full details including raw HTML for debugging field names
+    res.json({
+      success: true,
+      formAction: result.formAction,
+      hiddenFields: result.hiddenFields,
+      selects: result.selects,
+      inputs: result.inputs,
+      textareas: result.textareas,
+    });
+  } catch (err) {
+    console.error('GET /api/umrah/form-debug error:', err);
+    res.status(500).json({ error: 'Debug error' });
+  }
+});
+
 // ── Tren Daftar: Available Hijriah Years (Admin only) ──
 app.get('/api/laporan/tren-daftar/years', authMiddleware, adminOnly, async (req, res) => {
   try {
@@ -6983,9 +7077,41 @@ async function generateUmrohPage(slug) {
   }
 })();
 
+// Helper: resolve slug → current slug (or null if unknown)
+// Handles slug history redirects (returns { redirect: 'new-slug' } if old slug)
+async function resolveSlug(slug) {
+  const agent = await getAgentBySlug(slug);
+  if (agent) return { agent };
+  // Check history for old slugs
+  const { data: history } = await supabase
+    .from('agent_slug_history')
+    .select('agent_id')
+    .eq('old_slug', slug)
+    .order('changed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (history) {
+    const current = await getAgentById(history.agent_id);
+    if (current) return { redirect: current.slug };
+  }
+  return null;
+}
+
 app.get('/:slug/umroh', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
   try {
+    const resolved = await resolveSlug(slug);
+    if (!resolved) {
+      // Unknown slug — remove stale cache entry if any
+      umrohLandingCache.delete(slug);
+      return res.status(404).send('Agent not found');
+    }
+    if (resolved.redirect) {
+      // Old slug — clear stale cache and 301 redirect to current slug
+      umrohLandingCache.delete(slug);
+      return res.redirect(301, `/${resolved.redirect}/umroh`);
+    }
+
     const cached = umrohLandingCache.get(slug);
     if (cached && (Date.now() - cached.ts) < UMROH_CACHE_TTL) {
       return res.set({
@@ -7052,7 +7178,16 @@ async function generateHajiPage(slug) {
 app.get('/:slug/haji', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
   try {
-    // Check cache
+    const resolved = await resolveSlug(slug);
+    if (!resolved) {
+      hajiLandingCache.delete(slug);
+      return res.status(404).send('Agent not found');
+    }
+    if (resolved.redirect) {
+      hajiLandingCache.delete(slug);
+      return res.redirect(301, `/${resolved.redirect}/haji`);
+    }
+
     const cached = hajiLandingCache.get(slug);
     if (cached && (Date.now() - cached.ts) < HAJI_CACHE_TTL) {
       return res.set({
@@ -7062,7 +7197,6 @@ app.get('/:slug/haji', async (req, res) => {
       }).send(cached.html);
     }
 
-    // Generate with Supabase agent data, then cache
     const html = await generateHajiPage(slug);
     hajiLandingCache.set(slug, { html, ts: Date.now() });
 
