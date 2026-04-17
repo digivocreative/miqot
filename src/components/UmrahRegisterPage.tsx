@@ -105,6 +105,7 @@ const FIELD_CONFIG: Record<string, FieldDef> = {
   diskon:        { label: 'Disc. Marketing', section: 'paket', order: 44, placeholder: 'Masukan diskon marketing' },
   diskon_marketing: { label: 'Disc. Marketing', section: 'paket', order: 44, placeholder: 'Masukan diskon marketing' },
   marketing:     { label: 'Marketing', section: 'paket', order: 45, required: true, searchable: true },
+  vmarketing:    { label: 'Marketing', section: 'paket', order: 45, required: true, searchable: true },
   koordinator:   { label: 'Koordinator', section: 'paket', order: 46, required: true, searchable: true },
   perwakilan:    { label: 'Koordinator', section: 'paket', order: 46, required: true, searchable: true },
   koord:         { label: 'Koordinator', section: 'paket', order: 46, required: true, searchable: true },
@@ -224,7 +225,7 @@ function SearchableSelect({ options, value, onChange, placeholder = '— Pilih �
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-lg overflow-hidden">
+        <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-lg overflow-hidden">
           {/* Search input */}
           <div className="p-2 border-b border-gray-100 dark:border-slate-700/50">
             <div className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-50 dark:bg-slate-900 rounded-lg">
@@ -299,6 +300,7 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [file, setFile] = useState<{ name: string; data: string } | null>(null);
   const [fileName, setFileName] = useState('');
+  const [loadingPaket, setLoadingPaket] = useState(false);
 
   // ── OCR mode state ──
   const isOcrMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'ocr';
@@ -349,9 +351,58 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
     document.title = 'Pendaftaran Jamaah Umroh - Alhijaz';
   }, [fetchOptions]);
 
+  // Check if a field name represents "jadwal" / tgl berangkat (schedule field)
+  const isJadwalField = (name: string) => {
+    const def = getFieldDef(name);
+    return def.section === 'pendaftaran' && def.label.toLowerCase().includes('berangkat');
+  };
+
+  // Refresh paket/marketing/koordinator options based on selected jadwal
+  // These 3 fields are dependent on jadwal selection in the legacy system
+  const refreshDependentOptions = async (jadwal: string) => {
+    if (!options || !jadwal) return;
+
+    setLoadingPaket(true);
+    try {
+      const res = await fetch(`/api/umrah/dependent-options?jadwal=${encodeURIComponent(jadwal)}`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (res.ok && data.data && Object.keys(data.data).length > 0) {
+        setOptions(prev => {
+          if (!prev) return prev;
+          const newSelects = { ...prev.selects };
+          for (const [name, opts] of Object.entries(data.data as Record<string, SelectOption[]>)) {
+            if (opts && opts.length > 0) {
+              newSelects[name] = opts;
+            }
+          }
+          return { ...prev, selects: newSelects };
+        });
+        // Clear previously selected values for dependent fields since options changed
+        const clearedFields: Record<string, string> = {};
+        for (const name of Object.keys(data.data)) {
+          clearedFields[name] = '';
+        }
+        setFields(prev => ({ ...prev, ...clearedFields }));
+        console.log('Dependent options refreshed:', data.data, 'from', data.sourceUrl);
+      } else {
+        console.warn('Failed to refresh dependent options:', data);
+      }
+    } catch (err) {
+      console.error('refreshDependentOptions error:', err);
+    }
+    setLoadingPaket(false);
+  };
+
   const updateField = (name: string, value: string) => {
     setFields(prev => ({ ...prev, [name]: value }));
     if (fieldErrors[name]) setFieldErrors(prev => ({ ...prev, [name]: '' }));
+
+    // When jadwal changes, refresh all dependent dropdowns (paket, marketing, koordinator)
+    if (value && isJadwalField(name)) {
+      refreshDependentOptions(value);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -732,7 +783,13 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
   // ── Render helpers ──
   const renderSelect = (name: string, label: string, required: boolean, searchable = false) => {
     const opts = options.selects[name] || [];
-    if (opts.length === 0) return null;
+    const fieldLabel = getFieldDef(name).label;
+    // paket, marketing, koordinator are all dependent on jadwal selection
+    const isDependentField = ['Paket Umroh', 'Marketing', 'Koordinator'].includes(fieldLabel);
+    const showLoading = isDependentField && loadingPaket;
+
+    // Dependent fields always shown (even if empty) so user sees the placeholder message
+    if (opts.length === 0 && !isDependentField) return null;
 
     // Auto-enable search for dropdowns with many options
     const useSearch = searchable || opts.length >= 10;
@@ -741,8 +798,13 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
       <div key={name}>
         <label className={LABEL_CLASS}>
           {label} {required && <span className="text-red-500">*</span>}
+          {showLoading && <Loader2 size={12} className="animate-spin text-emerald-500 ml-1" />}
         </label>
-        {useSearch ? (
+        {isDependentField && opts.length === 0 ? (
+          <div className={`${INPUT_CLASS} text-gray-400 flex items-center`}>
+            {showLoading ? 'Mengambil opsi...' : 'Pilih tanggal berangkat dulu'}
+          </div>
+        ) : useSearch ? (
           <SearchableSelect
             options={opts}
             value={fields[name] || ''}
@@ -843,7 +905,7 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
           const entries = sections[sec];
           if (!entries || entries.length === 0) return null;
           return (
-            <div key={sec} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+            <div key={sec} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
               <div className="px-4 py-2.5 border-b border-gray-50 dark:border-slate-700/50">
                 <h3 className="text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-slate-300">
                   {SECTION_TITLES[sec]}
@@ -857,7 +919,7 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
         })}
 
         {/* ── File KTP ── */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
           <div className="px-4 py-2.5 border-b border-gray-50 dark:border-slate-700/50">
             <h3 className="text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-slate-300">Dokumen</h3>
           </div>

@@ -573,7 +573,8 @@ function parseDateDMY(str) {
 }
 
 // ── Fetch Umrah Registration Form: Extract dropdown options & form structure ──
-export async function fetchUmrahFormOptions(username) {
+// Optional: pass tglBerangkat to get paket options filtered by departure schedule
+export async function fetchUmrahFormOptions(username, { tglBerangkat } = {}) {
   const session = sessions.get(username);
   if (!session) return { success: false, error: 'Belum login' };
 
@@ -582,7 +583,12 @@ export async function fetchUmrahFormOptions(username) {
     return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
   }
 
-  const url = `${BASE}/pages/main.php?route=umrah&act=tdaftar`;
+  // Build URL — if tglBerangkat provided, include it as query param to trigger
+  // server-side rendering of dependent fields (e.g. paket umroh for that schedule)
+  let url = `${BASE}/pages/main.php?route=umrah&act=tdaftar`;
+  if (tglBerangkat) {
+    url += `&tgl_berangkat=${encodeURIComponent(tglBerangkat)}&berangkat=${encodeURIComponent(tglBerangkat)}&jadwal=${encodeURIComponent(tglBerangkat)}`;
+  }
 
   try {
     const controller = new AbortController();
@@ -606,9 +612,19 @@ export async function fetchUmrahFormOptions(username) {
 
     const $ = cheerio.load(html);
 
-    // Extract form action URL
-    const formEl = $('form').first();
+    // Find the registration form — pick the form with the most input fields (not header search form)
+    let formEl = $('form').first();
+    let maxFields = formEl.find('input, select, textarea').length;
+    $('form').each((_, el) => {
+      const count = $(el).find('input, select, textarea').length;
+      if (count > maxFields) {
+        formEl = $(el);
+        maxFields = count;
+      }
+    });
+
     const formAction = formEl.attr('action') || '';
+    console.log('[UmrahForm] Form found with', maxFields, 'fields, action:', formAction);
 
     // Extract hidden fields
     const hiddenFields = {};
@@ -629,24 +645,48 @@ export async function fetchUmrahFormOptions(username) {
       return opts;
     }
 
-    // Extract all select elements and their names for discovery
+    // Extract all select elements — search globally (not just inside first form)
+    // because legacy layouts sometimes place selects outside form or in nested structures.
+    // Prefer form-scoped selects when there's a conflict.
     const allSelects = {};
+    const extractSelectOptions = (el) => {
+      const opts = [];
+      $(el).find('option').each((_, opt) => {
+        const value = $(opt).attr('value') || '';
+        const label = $(opt).text().trim();
+        if (value || label) opts.push({ value, label });
+      });
+      return opts;
+    };
+
+    // First: form-scoped selects
     formEl.find('select').each((_, el) => {
       const name = $(el).attr('name');
-      if (name) {
-        const opts = [];
-        $(el).find('option').each((_, opt) => {
-          const value = $(opt).attr('value') || '';
-          const label = $(opt).text().trim();
-          if (value || label) opts.push({ value, label });
-        });
+      if (name) allSelects[name] = extractSelectOptions(el);
+    });
+
+    // Then: any select outside the form (fill in missing ones, or replace if form had empty)
+    $('select').each((_, el) => {
+      const name = $(el).attr('name');
+      if (!name) return;
+      const opts = extractSelectOptions(el);
+      if (!allSelects[name] || allSelects[name].length === 0) {
+        allSelects[name] = opts;
+      } else if (opts.length > allSelects[name].length) {
+        // Prefer the select with MORE options (more likely the real dropdown)
         allSelects[name] = opts;
       }
     });
 
-    // Extract all input fields for discovery
+    // Log for debugging
+    const selectSummary = Object.fromEntries(
+      Object.entries(allSelects).map(([k, v]) => [k, v.length])
+    );
+    console.log('[UmrahForm] Selects found:', selectSummary);
+
+    // Extract all input fields — search globally
     const allInputs = {};
-    formEl.find('input').each((_, el) => {
+    const collectInput = (el) => {
       const name = $(el).attr('name');
       const type = $(el).attr('type') || 'text';
       if (name && type !== 'hidden') {
@@ -656,11 +696,13 @@ export async function fetchUmrahFormOptions(username) {
           required: $(el).attr('required') !== undefined,
         };
       }
-    });
+    };
+    formEl.find('input').each((_, el) => collectInput(el));
+    $('input').each((_, el) => { if (!allInputs[$(el).attr('name')]) collectInput(el); });
 
-    // Extract textarea fields
+    // Extract textarea fields — search globally
     const allTextareas = {};
-    formEl.find('textarea').each((_, el) => {
+    const collectTextarea = (el) => {
       const name = $(el).attr('name');
       if (name) {
         allTextareas[name] = {
@@ -668,7 +710,9 @@ export async function fetchUmrahFormOptions(username) {
           required: $(el).attr('required') !== undefined,
         };
       }
-    });
+    };
+    formEl.find('textarea').each((_, el) => collectTextarea(el));
+    $('textarea').each((_, el) => { if (!allTextareas[$(el).attr('name')]) collectTextarea(el); });
 
     return {
       success: true,
@@ -689,6 +733,207 @@ export async function fetchUmrahFormOptions(username) {
   }
 }
 
+// ── Fetch Dependent Options: paket, vmarketing, perwakilan — all depend on jadwal ──
+// Re-fetches the form with jadwal selected to get the populated dependent selects.
+export async function fetchUmrahDependentOptions(username, jadwal) {
+  const session = sessions.get(username);
+  if (!session) return { success: false, error: 'Belum login' };
+
+  if (Date.now() - session.createdAt > SESSION_TTL) {
+    sessions.delete(username);
+    return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
+  }
+
+  if (!jadwal) return { success: false, error: 'jadwal required' };
+
+  const j = encodeURIComponent(jadwal);
+
+  // Strategy: re-fetch the full form page with jadwal parameter.
+  // PHP pages often use the same URL but render different dependent dropdown
+  // contents when the parameter is present.
+  const urls = [
+    `${BASE}/pages/main.php?route=umrah&act=tdaftar&jadwal=${j}`,
+    `${BASE}/pages/main.php?route=umrah&act=tdaftar&berangkat=${j}`,
+    `${BASE}/pages/main.php?route=umrah&act=tdaftar&tgl_berangkat=${j}`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Cookie: session.cookie,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': `${BASE}/pages/main.php?route=umrah&act=tdaftar`,
+        },
+        signal: AbortSignal.timeout(15_000),
+      });
+
+      if (!res.ok) continue;
+      const html = await res.text();
+      if (html.includes('cek_login.php') || html.includes('Sign in to start your session')) {
+        sessions.delete(username);
+        return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+      }
+
+      const $ = cheerio.load(html);
+
+      // Find the registration form (most fields)
+      let formEl = $('form').first();
+      let maxFields = formEl.find('input, select, textarea').length;
+      $('form').each((_, el) => {
+        const count = $(el).find('input, select, textarea').length;
+        if (count > maxFields) {
+          formEl = $(el);
+          maxFields = count;
+        }
+      });
+
+      // Extract dependent selects: paket, vmarketing, perwakilan
+      const result = {};
+      const extract = (sel) => {
+        const opts = [];
+        $(sel).find('option').each((_, opt) => {
+          const value = $(opt).attr('value') || '';
+          const label = $(opt).text().trim();
+          if (value && label && value !== '-' && label !== '-') {
+            opts.push({ value, label });
+          }
+        });
+        return opts;
+      };
+
+      // Look for each dependent field
+      for (const name of ['paket', 'vmarketing', 'marketing', 'perwakilan', 'koordinator']) {
+        const sel = formEl.find(`select[name="${name}"]`);
+        if (sel.length > 0) {
+          const opts = extract(sel.first());
+          if (opts.length > 0) result[name] = opts;
+        }
+      }
+
+      // Also try global scan as fallback
+      if (Object.keys(result).length === 0) {
+        $('select').each((_, el) => {
+          const name = $(el).attr('name');
+          if (!name) return;
+          if (['paket', 'vmarketing', 'marketing', 'perwakilan', 'koordinator'].includes(name)) {
+            const opts = extract(el);
+            if (opts.length > 0 && !result[name]) result[name] = opts;
+          }
+        });
+      }
+
+      console.log('[UmrahDeps] Jadwal:', jadwal, 'Found:', Object.fromEntries(
+        Object.entries(result).map(([k, v]) => [k, v.length])
+      ));
+
+      if (Object.keys(result).length > 0) {
+        return { success: true, data: result, sourceUrl: url };
+      }
+    } catch (err) {
+      console.warn('[UmrahDeps] URL failed:', url, err.message);
+    }
+  }
+
+  return { success: false, error: 'Tidak bisa mengambil opsi dependent' };
+}
+
+// ── Fetch Paket Options (legacy, kept for compatibility): Try multiple approaches ──
+export async function fetchUmrahPaketOptions(username, tglBerangkat) {
+  const session = sessions.get(username);
+  if (!session) return { success: false, error: 'Belum login' };
+
+  if (Date.now() - session.createdAt > SESSION_TTL) {
+    sessions.delete(username);
+    return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
+  }
+
+  if (!tglBerangkat) return { success: false, error: 'tglBerangkat required' };
+
+  // Try common AJAX endpoint patterns used by legacy PHP systems.
+  // Based on discovered form action: pages/route/data_umrah/aksi_umrah.php
+  // So dependent dropdowns likely live in the same directory: pages/route/data_umrah/*.php
+  const j = encodeURIComponent(tglBerangkat);
+  const candidateUrls = [
+    // data_umrah directory (discovered from form action)
+    `${BASE}/pages/route/data_umrah/get_paket.php?jadwal=${j}`,
+    `${BASE}/pages/route/data_umrah/paket.php?jadwal=${j}`,
+    `${BASE}/pages/route/data_umrah/_paket.php?jadwal=${j}`,
+    `${BASE}/pages/route/data_umrah/cpaket.php?jadwal=${j}`,
+    `${BASE}/pages/route/data_umrah/_cpaket.php?jadwal=${j}`,
+    `${BASE}/pages/route/data_umrah/aksi_umrah.php?act=getpaket&jadwal=${j}`,
+    `${BASE}/pages/route/data_umrah/aksi_umrah.php?route=umrah&act=getpaket&jadwal=${j}`,
+    `${BASE}/pages/route/data_umrah/aksi_umrah.php?route=umrah&act=paket&jadwal=${j}`,
+    // Fallback: old guesses
+    `${BASE}/pages/route/umrah/_paket.php?berangkat=${j}`,
+    `${BASE}/pages/route/umrah/paket.php?berangkat=${j}`,
+    // Re-render whole form with jadwal selected (last resort)
+    `${BASE}/pages/main.php?route=umrah&act=tdaftar&jadwal=${j}`,
+  ];
+
+  const tried = [];
+
+  for (const url of candidateUrls) {
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Cookie: session.cookie,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'X-Requested-With': 'XMLHttpRequest', // Common marker for AJAX requests
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!res.ok) {
+        tried.push({ url, status: res.status });
+        continue;
+      }
+
+      const body = await res.text();
+      if (body.includes('cek_login.php') || body.includes('Sign in to start your session')) {
+        sessions.delete(username);
+        return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+      }
+
+      // Try parsing as options list — could be raw <option> tags or full HTML
+      const $ = cheerio.load(body);
+      const opts = [];
+
+      // Look for <option> tags anywhere in the response
+      $('option').each((_, el) => {
+        const value = $(el).attr('value') || '';
+        const label = $(el).text().trim();
+        if (value && label && value !== '-' && label !== '-') {
+          opts.push({ value, label });
+        }
+      });
+
+      // If no options in <option>, try parsing full form and look for paket select
+      if (opts.length === 0) {
+        $('select[name*="paket" i]').find('option').each((_, el) => {
+          const value = $(el).attr('value') || '';
+          const label = $(el).text().trim();
+          if (value && label && value !== '-' && label !== '-') {
+            opts.push({ value, label });
+          }
+        });
+      }
+
+      tried.push({ url, status: res.status, optionsCount: opts.length });
+
+      if (opts.length > 0) {
+        return { success: true, options: opts, sourceUrl: url };
+      }
+    } catch (err) {
+      tried.push({ url, error: err.message });
+    }
+  }
+
+  return { success: false, error: 'Tidak bisa mengambil paket options', tried };
+}
+
 // ── Submit Umrah Registration: POST form data to legacy system ──
 export async function submitUmrahRegistration(username, { formAction, fields, hiddenFields, fileBuffer, fileName }) {
   const session = sessions.get(username);
@@ -699,10 +944,21 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
     return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
   }
 
-  // Build the full URL
-  const actionUrl = formAction.startsWith('http')
-    ? formAction
-    : `${BASE}/${formAction.replace(/^\/+/, '')}`;
+  // Build the full URL.
+  // Form action can be:
+  //   - absolute: starts with http
+  //   - root-relative: starts with /
+  //   - relative: e.g. "route/data_umrah/aksi_umrah.php?..."
+  // Relative URLs resolve against the current page URL: ${BASE}/pages/main.php
+  // So they become ${BASE}/pages/<relative>.
+  let actionUrl;
+  if (formAction.startsWith('http')) {
+    actionUrl = formAction;
+  } else if (formAction.startsWith('/')) {
+    actionUrl = `${BASE}${formAction}`;
+  } else {
+    actionUrl = `${BASE}/pages/${formAction}`;
+  }
 
   try {
     // Build multipart form body using URLSearchParams for non-file fields

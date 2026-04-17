@@ -16,10 +16,11 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
-import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, submitUmrahRegistration } from './laporan-api.js';
+import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, submitUmrahRegistration } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
 import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
+import { regenerateOgForAgent } from './lib/og-generator.mjs';
 import { PDFParse as pdfParse } from 'pdf-parse';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -450,6 +451,32 @@ function mergeLandingConfig(agent) {
 function invalidateLandingCaches(slug) {
   umrohLandingCache.delete(slug);
   hajiLandingCache.delete(slug);
+}
+
+// Fire-and-forget: regenerate /public/og/{slug}.png using fresh agent data.
+// Safe to call from any request handler — never throws, never blocks the response.
+function triggerOgRegen(slug) {
+  if (!slug) return;
+  const normalizedSlug = String(slug).toLowerCase();
+  (async () => {
+    try {
+      // Fetch fresh from Supabase (bypass any stale cache)
+      const { data, error } = await supabase
+        .from('agents')
+        .select('slug, name, website, phone, photo')
+        .eq('slug', normalizedSlug)
+        .maybeSingle();
+      if (error || !data) {
+        console.warn(`[og-regen] Skipping ${normalizedSlug}:`, error?.message || 'not found');
+        return;
+      }
+      await regenerateOgForAgent(data);
+      // Bust the SSR landing-page HTML cache so the new OG URL is re-read on next request
+      invalidateLandingCaches(normalizedSlug);
+    } catch (err) {
+      console.warn(`[og-regen] Failed for ${normalizedSlug}:`, err.message);
+    }
+  })();
 }
 
 // ── Sync state tracking (in-memory) ──
@@ -1717,6 +1744,16 @@ app.post('/api/telegram/webhook', async (req, res) => {
 // Upload profile photo (base64 JPEG) → Supabase Storage
 app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), async (req, res) => {
   const { image, slug: targetSlug } = req.body; // base64 data URL, optional slug for admin
+  console.log('[Photo] incoming upload', {
+    userId: req.user?.id,
+    userSlug: req.user?.slug,
+    userRole: req.user?.role,
+    targetSlug: targetSlug || null,
+    hasImage: !!image,
+    imageLength: typeof image === 'string' ? image.length : null,
+    imagePrefix: typeof image === 'string' ? image.slice(0, 32) : null,
+    contentLength: req.headers['content-length'],
+  });
   if (!image) return res.status(400).json({ error: 'No image provided' });
 
   // Admin can upload for any agent; non-admin only for themselves
@@ -1759,6 +1796,8 @@ app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), asy
 
     // Invalidate cache
     invalidateAgentCache();
+    // Regenerate default OG image with the new photo (fire-and-forget)
+    triggerOgRegen(slug);
     res.json({ success: true, photo: photoUrl });
   } catch (err) {
     console.error('Photo upload error:', err);
@@ -2002,6 +2041,10 @@ app.put('/api/admin/agents/:slug', authMiddleware, adminOnly, async (req, res) =
     .eq('id', targetAgent.id);
   if (error) return res.status(500).json({ error: error.message });
   invalidateAgentCache();
+  // Name / website / phone changes affect the default OG text
+  if (updates.name !== undefined || updates.website !== undefined || updates.phone !== undefined) {
+    triggerOgRegen(targetAgent.slug);
+  }
   res.json({ success: true });
 });
 
@@ -2024,6 +2067,7 @@ app.post('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
   const { error } = await supabase.from('agents').insert(insert);
   if (error) return res.status(500).json({ error: error.message });
   invalidateAgentCache();
+  triggerOgRegen(insert.slug);
   res.json({ success: true });
 });
 
@@ -2056,6 +2100,7 @@ app.put('/api/admin/agents/:slug/approve', authMiddleware, adminOnly, async (req
     .single();
   if (error || !data) return res.status(404).json({ error: 'Agent pending tidak ditemukan' });
   invalidateAgentCache();
+  triggerOgRegen(data.slug);
   res.json({ success: true });
 });
 
@@ -4991,6 +5036,58 @@ app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit:
   }
 });
 
+// ── Umrah Registration: Fetch all dependent options (paket, marketing, koordinator) for a given jadwal ──
+app.get('/api/umrah/dependent-options', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    const sess = await ensureLegacySession(agent);
+    if (!sess.success) {
+      return res.status(400).json({ error: sess.error });
+    }
+
+    const { jadwal } = req.query;
+    if (!jadwal) {
+      return res.status(400).json({ error: 'jadwal required' });
+    }
+
+    const result = await fetchUmrahDependentOptions(agent.jamaah_username, jadwal);
+    if (!result.success) {
+      return res.status(502).json({ error: result.error });
+    }
+
+    res.json({ success: true, data: result.data, sourceUrl: result.sourceUrl });
+  } catch (err) {
+    console.error('GET /api/umrah/dependent-options error:', err);
+    res.status(500).json({ error: 'Gagal mengambil opsi dependent' });
+  }
+});
+
+// ── Umrah Registration: Fetch paket options for a given tgl_berangkat ──
+app.get('/api/umrah/paket-options', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    const sess = await ensureLegacySession(agent);
+    if (!sess.success) {
+      return res.status(400).json({ error: sess.error });
+    }
+
+    const { tgl_berangkat } = req.query;
+    if (!tgl_berangkat) {
+      return res.status(400).json({ error: 'tgl_berangkat required' });
+    }
+
+    const result = await fetchUmrahPaketOptions(agent.jamaah_username, tgl_berangkat);
+    if (!result.success) {
+      return res.status(502).json({ error: result.error, debug: result.tried });
+    }
+
+    res.json({ success: true, data: { options: result.options, sourceUrl: result.sourceUrl } });
+  } catch (err) {
+    console.error('GET /api/umrah/paket-options error:', err);
+    res.status(500).json({ error: 'Gagal mengambil paket options' });
+  }
+});
+
 // ── Umrah Registration: OCR KTP using OpenAI Vision ──
 app.post('/api/umrah/ocr-ktp', authMiddleware, adminOnly, express.json({ limit: '15mb' }), async (req, res) => {
   const OPENAI_KEY = process.env.OPENAI_API_KEY;
@@ -5089,6 +5186,25 @@ app.get('/api/umrah/form-debug', authMiddleware, adminOnly, async (req, res) => 
       return res.status(502).json({ error: result.error });
     }
 
+    // Look for AJAX endpoint patterns in JavaScript / inline script tags
+    const html = result.rawHtml || '';
+    const ajaxHints = [];
+
+    // Common patterns: $.ajax({url: '...'}), $.get('...'), $.post('...'), fetch('...')
+    const patterns = [
+      /\$\.ajax\s*\(\s*\{[^}]*url\s*:\s*['"]([^'"]+)['"]/gi,
+      /\$\.(?:get|post|load)\s*\(\s*['"]([^'"]+)['"]/gi,
+      /fetch\s*\(\s*['"]([^'"]+)['"]/gi,
+      /url\s*:\s*['"]([^'"]+paket[^'"]*)['"]/gi,
+    ];
+
+    for (const pattern of patterns) {
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        ajaxHints.push(match[1]);
+      }
+    }
+
     // Return full details including raw HTML for debugging field names
     res.json({
       success: true,
@@ -5097,6 +5213,7 @@ app.get('/api/umrah/form-debug', authMiddleware, adminOnly, async (req, res) => 
       selects: result.selects,
       inputs: result.inputs,
       textareas: result.textareas,
+      ajaxHints: [...new Set(ajaxHints)], // unique URLs found in JS
     });
   } catch (err) {
     console.error('GET /api/umrah/form-debug error:', err);
@@ -7692,8 +7809,18 @@ Sentry.setupExpressErrorHandler(app);
 
 // Fallback error handler (setelah Sentry)
 app.use((err, req, res, next) => {
-  console.error('[server] Unhandled error:', err.message);
-  res.status(500).json({ error: 'Internal server error' });
+  const status = err.status || err.statusCode || 500;
+  console.error('[server] Unhandled error:', {
+    method: req.method,
+    url: req.originalUrl,
+    status,
+    type: err.type,
+    name: err.name,
+    message: err.message,
+    contentLength: req.headers['content-length'],
+    contentType: req.headers['content-type'],
+  });
+  res.status(status).json({ error: err.message || 'Internal server error' });
 });
 
 // ──────────────────────────────────────────────
