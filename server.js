@@ -6486,51 +6486,62 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
     const now7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
     const now30d = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Fetch all events for the month
-    const { data: monthEvents } = await supabase
-      .from('analytics_events')
-      .select('*')
-      .gte('created_at', startOfMonth)
-      .lte('created_at', endOfMonth)
-      .order('created_at', { ascending: false });
+    // Fetch events for the month, split between raw (<=14d) and agg (>14d).
+    const { rawEvents, aggEvents } = await fetchEventsForRange(supabase, startOfMonth, endOfMonth);
+    // Sort raw DESC by created_at (agg has no timestamp granularity beyond date)
+    rawEvents.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 
-    const events = monthEvents || [];
+    // Overview — counts sum across raw + agg
+    const totalLogins = countMatches(rawEvents, aggEvents, e => e.event_name === 'login');
+    const totalPageViews = countMatches(rawEvents, aggEvents, e => e.event_name === 'page_view');
+    const totalWAClicks = countMatches(
+      rawEvents, aggEvents,
+      e => e.event_name === 'wa_click_public' || e.event_name === 'wa_click_jamaah',
+    );
 
-    // Overview
-    const totalLogins = events.filter(e => e.event_name === 'login').length;
-    const totalPageViews = events.filter(e => e.event_name === 'page_view').length;
-    const totalWAClicks = events.filter(e => ['wa_click_public', 'wa_click_jamaah'].includes(e.event_name)).length;
-
-    // Active agents (any event in last 7 days)
+    // Active agents (any event in last 7 days). 7d ⊂ 14d, so raw is sufficient.
     const { data: allAgents } = await supabase.from('agents').select('id, slug, name, photo');
     const agentList = allAgents || [];
     const recentIds = new Set(
-      events.filter(e => new Date(e.created_at) >= new Date(now7d)).map(e => e.agent_id)
+      rawEvents.filter(e => new Date(e.created_at) >= new Date(now7d)).map(e => e.agent_id)
     );
     const activeAgents = recentIds.size;
 
-    // Daily logins (last 7 days)
+    // Daily logins (last 7 days). Within retention window, use raw.
     const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
     const dailyLogins = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
       const dateStr = d.toISOString().slice(0, 10);
-      const count = events.filter(e =>
+      const count = rawEvents.filter(e =>
         e.event_name === 'login' && e.created_at.slice(0, 10) === dateStr
       ).length;
       dailyLogins.push({ date: dateStr, day: dayNames[d.getDay()], count });
     }
 
-    // Agent Activity
+    // Agent Activity. Per-agent metrics merge raw + agg.
+    // lastActive: prefer raw timestamp (precise); fallback to agg max date (day-granular).
     const agentActivity = agentList.map(agent => {
-      const agentEvents = events.filter(e => e.agent_id === agent.id);
-      const logins = agentEvents.filter(e => e.event_name === 'login').length;
-      const featureClicks = agentEvents.filter(e => e.event_type === 'feature').length;
-      const pageViews = agentEvents.filter(e => e.event_name === 'page_view').length;
-      const waClicks = agentEvents.filter(e => ['wa_click_public', 'wa_click_jamaah'].includes(e.event_name)).length;
-      const lastEvent = agentEvents[0];
-      const lastActive = lastEvent?.created_at || null;
+      const rawForAgent = rawEvents.filter(e => e.agent_id === agent.id);
+      const aggForAgent = aggEvents.filter(a => a.agent_id === agent.id);
+
+      const logins = countMatches(rawForAgent, aggForAgent, e => e.event_name === 'login');
+      const featureClicks = countMatches(rawForAgent, aggForAgent, e => e.event_type === 'feature');
+      const pageViews = countMatches(rawForAgent, aggForAgent, e => e.event_name === 'page_view');
+      const waClicks = countMatches(
+        rawForAgent, aggForAgent,
+        e => e.event_name === 'wa_click_public' || e.event_name === 'wa_click_jamaah',
+      );
+
+      // lastActive: raw events are DESC-sorted, so [0] is the newest.
+      const rawLast = rawForAgent[0]?.created_at || null;
+      const aggMaxDate = aggForAgent.reduce((m, a) => (!m || a.date > m ? a.date : m), null);
+      // Normalize agg date to end-of-day ISO for comparison
+      const aggLast = aggMaxDate ? `${aggMaxDate}T23:59:59.999Z` : null;
+      const lastActive = rawLast && aggLast
+        ? (rawLast > aggLast ? rawLast : aggLast)
+        : (rawLast || aggLast);
 
       let status = 'never';
       if (lastActive) {
@@ -6548,9 +6559,7 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
     const statusOrder = { active: 0, inactive: 1, dormant: 2, never: 3 };
     agentActivity.sort((a, b) => (statusOrder[a.status] - statusOrder[b.status]) || (b.logins - a.logins));
 
-    // Feature Usage
-    const featureEvents = events.filter(e => e.event_type === 'feature');
-    const featureMap = {};
+    // Feature Usage — merge raw + agg via tallyBy
     const featureLabels = {
       open_jamaah: 'Jamaah', open_statistik: 'Statistik', open_kalkulasi: 'Kalkulasi',
       open_compare: 'Compare', open_capi: 'Meta CAPI', open_profil: 'Profil',
@@ -6560,14 +6569,12 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       open_settings: 'Settings', open_tren_daftar: 'Tren Daftar',
       open_kurs: 'Kurs',
     };
-    featureEvents.forEach(e => { featureMap[e.event_name] = (featureMap[e.event_name] || 0) + 1; });
+    const featureMap = tallyBy(rawEvents, aggEvents, e => e.event_name, e => e.event_type === 'feature');
     const featureUsage = Object.entries(featureMap)
       .map(([feature, count]) => ({ feature, label: featureLabels[feature] || feature, count }))
       .sort((a, b) => b.count - a.count);
 
-    // Action Tracking
-    const actionEvents = events.filter(e => e.event_type === 'action');
-    const actionMap = {};
+    // Action Tracking — merge raw + agg via tallyBy
     const actionLabels = {
       sync_jamaah: 'Sync Jamaah', generate_pdf: 'Generate PDF Quotation',
       share_screenshot: 'Share Screenshot', download_brosur: 'Download Brosur',
@@ -6587,12 +6594,12 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       view_web_itinerary: 'Web Itinerary', view_flight_status: 'Flight Status',
       share_flight: 'Share Flight Status',
     };
-    actionEvents.forEach(e => { actionMap[e.event_name] = (actionMap[e.event_name] || 0) + 1; });
+    const actionMap = tallyBy(rawEvents, aggEvents, e => e.event_name, e => e.event_type === 'action');
     const actionTracking = Object.entries(actionMap)
       .map(([action, count]) => ({ action, label: actionLabels[action] || action, count }))
       .sort((a, b) => b.count - a.count);
 
-    // Recent Activity (today, exclude page_view, max 10)
+    // Recent Activity (today, exclude page_view, max 10). Today is always in raw.
     const todayStr = now.toISOString().slice(0, 10);
     const agentNameMap = Object.fromEntries(agentList.map(a => [a.id, a.name]));
     const agentSlugMap = Object.fromEntries(agentList.map(a => [a.id, a.slug]));
@@ -6601,7 +6608,7 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       quiz_started: 'Quiz Dimulai', quiz_completed: 'Quiz Selesai', inquiry_submitted: 'Inquiry Masuk',
       page_view: 'Page View', wa_click_public: 'WA Click Public',
     };
-    const recentActivity = events
+    const recentActivity = rawEvents
       .filter(e => e.created_at.slice(0, 10) === todayStr && e.event_name !== 'page_view')
       .slice(0, 10)
       .map(e => ({
