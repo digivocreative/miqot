@@ -2560,20 +2560,62 @@ app.post('/api/capi/:slug/validate', async (req, res) => {
   const config = await readCapiConfig(agent.id);
   if (!config?.pixelId || !config?.accessToken) return res.json({ valid: false, reason: 'Missing credentials' });
   const accessToken = capiDecrypt(config.accessToken);
+
+  // Validate by actually attempting to send a test event — this checks exactly what we need (can send events)
+  // rather than a GET which requires different read permissions.
   try {
-    const metaRes = await fetch(`https://graph.facebook.com/v21.0/${config.pixelId}?access_token=${encodeURIComponent(accessToken)}&fields=name,id`);
+    const testPayload = {
+      data: [{
+        event_name: 'PageView',
+        event_id: `validate-${Date.now()}`,
+        event_time: Math.floor(Date.now() / 1000),
+        event_source_url: `https://alhijaz.co/${slug}`,
+        action_source: 'website',
+        user_data: {
+          client_user_agent: 'Miqot Validation',
+          client_ip_address: req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || '127.0.0.1',
+          country: crypto.createHash('sha256').update('id').digest('hex'),
+        },
+      }],
+      test_event_code: 'TEST_VALIDATION_' + Date.now(), // Always test mode — doesn't count toward live events
+    };
+
+    const metaRes = await fetch(
+      `https://graph.facebook.com/v21.0/${config.pixelId}/events?access_token=${encodeURIComponent(accessToken)}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(testPayload) }
+    );
     const metaData = await metaRes.json();
-    console.log('[CAPI Validate]', slug, JSON.stringify(metaData));
-    if (metaData?.id && !metaData?.error) {
-      return res.json({ valid: true, pixel: metaData });
+    console.log('[CAPI Validate]', slug, 'status:', metaRes.status, 'response:', JSON.stringify(metaData));
+
+    // Success: Meta accepted the event
+    if (metaRes.ok && metaData?.events_received >= 1) {
+      return res.json({ valid: true, pixel: { id: config.pixelId } });
     }
-    if (metaData?.error?.code === 100 && metaData?.error?.message?.includes('Missing Permission')) {
-      return res.json({ valid: true, note: 'Token valid, CAPI ready' });
+
+    // Failure: Meta returned an error
+    const err = metaData?.error;
+    if (err) {
+      // Specific errors that mean the credentials are actually invalid:
+      // - code 190: invalid access token
+      // - code 803: pixel doesn't exist or no access
+      // - code 100 + "access token" or "pixel" in message: invalid token/pixel
+      const isInvalidCredentials =
+        err.code === 190 ||
+        err.code === 803 ||
+        (err.code === 100 && /access token|pixel|permission to access|invalid param/i.test(err.message || ''));
+
+      if (isInvalidCredentials) {
+        return res.json({ valid: false, error: err, reason: err.message });
+      }
+      // Other errors (e.g., temporary issues, rate limits) — treat as valid but flag
+      return res.json({ valid: true, warning: err.message, pixel: { id: config.pixelId } });
     }
-    res.json({ valid: false, error: metaData?.error });
+
+    // No error, no events_received — unusual but not an invalid-credentials signal
+    return res.json({ valid: true, pixel: { id: config.pixelId }, note: 'Unclear response from Meta' });
   } catch (err) {
-    console.error('[CAPI Validate] Error:', err);
-    res.json({ valid: false, reason: 'Connection failed' });
+    console.error('[CAPI Validate] Network error:', err.message);
+    res.json({ valid: false, reason: 'Connection failed: ' + err.message });
   }
 });
 

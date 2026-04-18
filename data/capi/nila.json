@@ -1,0 +1,25 @@
+{
+  "pixelId": "3076509945851245",
+  "accessToken": "00552f8ab447051170647461:ecc45054d83073d4ddd104ec63e811da:278c61ab96c2c924ada82648b02d016da13193b271a0f8323d99385271607a524521b3698d3ad66167997845df4935b4ad1a0baeb7e30272beb8dc0c774e9fffb1fac51b03023ecebafa153039547986dc21a44331dd1ee7b593710bb799dd4a750bc6f701a5df47f2f904b8cffd6ed2588e47c5519fb4f6fd199d5f05e9c8098719d2918321317b0d3cde6b6904df09fe4b93e95263d30df6b1429f27eb57d87ef066002eef704a991821deed34fdabd16ac2d958dd034b2ae34dfcfdf1fe0e02ed66103eb7bb1f",
+  "testEventCode": "",
+  "testMode": false,
+  "events": {
+    "pageView": {
+      "enabled": true,
+      "eventName": "PageView"
+    },
+    "search": {
+      "enabled": true,
+      "eventName": "Search"
+    },
+    "viewContent": {
+      "enabled": true,
+      "eventName": "ViewContent"
+    },
+    "contact": {
+      "enabled": true,
+      "eventName": "Contact"
+    }
+  },
+  "updatedAt": "2026-04-18T07:13:32.711Z"
+}
