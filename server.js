@@ -6488,8 +6488,6 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
 
     // Fetch events for the month, split between raw (<=14d) and agg (>14d).
     const { rawEvents, aggEvents } = await fetchEventsForRange(supabase, startOfMonth, endOfMonth);
-    // Sort raw DESC by created_at (agg has no timestamp granularity beyond date)
-    rawEvents.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 
     // Overview — counts sum across raw + agg
     const totalLogins = countMatches(rawEvents, aggEvents, e => e.event_name === 'login');
@@ -6522,9 +6520,23 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
 
     // Agent Activity. Per-agent metrics merge raw + agg.
     // lastActive: prefer raw timestamp (precise); fallback to agg max date (day-granular).
+    // Precompute per-agent buckets — avoid O(A·R) nested filters.
+    const rawByAgent = new Map();
+    for (const e of rawEvents) {
+      const arr = rawByAgent.get(e.agent_id);
+      if (arr) arr.push(e);
+      else rawByAgent.set(e.agent_id, [e]);
+    }
+    const aggByAgent = new Map();
+    for (const a of aggEvents) {
+      const arr = aggByAgent.get(a.agent_id);
+      if (arr) arr.push(a);
+      else aggByAgent.set(a.agent_id, [a]);
+    }
+
     const agentActivity = agentList.map(agent => {
-      const rawForAgent = rawEvents.filter(e => e.agent_id === agent.id);
-      const aggForAgent = aggEvents.filter(a => a.agent_id === agent.id);
+      const rawForAgent = rawByAgent.get(agent.id) ?? [];
+      const aggForAgent = aggByAgent.get(agent.id) ?? [];
 
       const logins = countMatches(rawForAgent, aggForAgent, e => e.event_name === 'login');
       const featureClicks = countMatches(rawForAgent, aggForAgent, e => e.event_type === 'feature');
