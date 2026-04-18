@@ -8173,7 +8173,10 @@ app.get('{*path}', async (req, res) => {
     const newTitle = `Jadwal Umroh Alhijaz | ${agent.name}`;
     const newDescription = `Dapatkan info lengkap paket umrah Alhijaz Indowisata bersama ${agent.name}. Klik untuk konsultasi via WhatsApp.`;
     const pageUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
-    const ogImageUrl = `${req.protocol}://${req.get('host')}/og/${slug}.png`;
+    // Prefer the agent's custom Umroh landing OG (if they set one via AI Tools → Landing Page).
+    // Falls back to the auto-generated /og/{slug}.png.
+    const customUmrohOg = agent.landing_config?.umroh?.og_image_url;
+    const ogImageUrl = customUmrohOg || `${req.protocol}://${req.get('host')}/og/${slug}.png`;
 
     // Replace <title>
     html = html.replace(/<title>[^<]*<\/title>/i, `<title>${newTitle}</title>`);
