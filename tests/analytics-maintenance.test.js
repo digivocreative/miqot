@@ -123,3 +123,22 @@ test('buildCountMap: event_name containing pipe is preserved (regression)', () =
   assert.equal(rowsOut.length, 1);
   assert.equal(rowsOut[0].event_name, 'foo|bar');
 });
+
+test('computeRangeSplit: cutoffMidnight alignment — rawStartISO is always on a UTC day boundary', () => {
+  // Pick three different hours-of-day to confirm rawStartISO is invariant.
+  const cases = [
+    new Date('2026-04-18T00:15:00Z').getTime(),
+    new Date('2026-04-18T12:00:00Z').getTime(),
+    new Date('2026-04-18T23:45:00Z').getTime(),
+  ];
+  for (const nowMs of cases) {
+    const split = computeRangeSplit(
+      '2026-04-01T00:00:00.000Z',
+      '2026-04-30T23:59:59.999Z',
+      nowMs,
+    );
+    // cutoff day = 2026-04-04 regardless of hour
+    assert.equal(split.rawStartISO, '2026-04-04T00:00:00.000Z');
+    assert.equal(split.aggEndDate, '2026-04-03');
+  }
+});
