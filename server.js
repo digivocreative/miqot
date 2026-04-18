@@ -3094,10 +3094,12 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
       }
     }
 
-    // Cap merged ranges at 2 months into the future
+    // Cap merged ranges at 6 months into the future — covers most jamaah with
+    // booked departures so WA/tgl_lahir/paspor/perlengkapan/dokumen get enriched
+    // shortly after registration, not only near departure.
     const today = new Date();
     const futureCapDate = new Date(today);
-    futureCapDate.setMonth(futureCapDate.getMonth() + 2);
+    futureCapDate.setMonth(futureCapDate.getMonth() + 6);
     const futureCap = futureCapDate.toISOString().split('T')[0];
     for (const span of merged) {
       if (span.tglAkhir > futureCap) span.tglAkhir = futureCap;
@@ -8503,10 +8505,10 @@ async function syncOneAgent(agent) {
       return chunks;
     }
 
-    // Cap at 2 months into the future, sort newest-first
+    // Cap at 6 months into the future, sort newest-first — matches manual sync.
     const bgToday = new Date();
     const bgFutureCap = new Date(bgToday);
-    bgFutureCap.setMonth(bgFutureCap.getMonth() + 2);
+    bgFutureCap.setMonth(bgFutureCap.getMonth() + 6);
     const bgFutureCapStr = bgFutureCap.toISOString().split('T')[0];
     const bgTodayStr = bgToday.toISOString().split('T')[0];
     for (const span of merged) {
@@ -8871,9 +8873,23 @@ setTimeout(async () => {
   }
 }, 15 * 1000);
 
-// Run initial sync 30s after startup, then every 1 hour
-setTimeout(syncAllAgents, 30 * 1000);
-setInterval(syncAllAgents, 60 * 60 * 1000);
+// Chain-scheduled sync: next cycle starts a fixed cooldown AFTER the previous
+// finishes. Prevents cycle-overlap regardless of how long a single cycle takes
+// (cycle duration grew when Phase 2 enrichment window expanded 2→6 months).
+const SYNC_COOLDOWN_MS = 30 * 60 * 1000;
+async function runSyncCycleLoop() {
+  while (true) {
+    try {
+      await syncAllAgents();
+    } catch (err) {
+      console.error('[SYNC] Cycle error:', err.message);
+    }
+    await new Promise(r => setTimeout(r, SYNC_COOLDOWN_MS));
+  }
+}
+setTimeout(() => {
+  runSyncCycleLoop().catch(err => console.error('[SYNC] Loop crashed:', err.message));
+}, 30 * 1000);
 
 // ── Umroh schedules sync: 45s after startup, then every 1 hour ──
 // Bunny file sync runs after schedule sync completes

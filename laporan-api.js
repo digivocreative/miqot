@@ -1567,8 +1567,9 @@ export async function fetchUmrahPaketDetails(username, jadwal, paketValue) {
 }
 
 // ── Submit Umrah Registration: POST form data to legacy system ──
-// Uses native FormData (Node 18+) — produces correct multipart/form-data that
-// PHP $_POST/$_FILES can parse reliably.
+// Uses manual multipart body construction — proved reliable against legacy PHP.
+// Field names with brackets (e.g. "nama[0]") are preserved literally so PHP
+// parses them as array elements.
 export async function submitUmrahRegistration(username, { formAction, fields, hiddenFields, fileBuffer, fileName, fileFieldName }) {
   const session = sessions.get(username);
   if (!session) return { success: false, error: 'Belum login' };
@@ -1579,7 +1580,6 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
   }
 
   // Build the full URL.
-  // Form action can be: absolute, root-relative, or relative to /pages/main.php
   let actionUrl;
   if (formAction.startsWith('http')) {
     actionUrl = formAction;
@@ -1590,34 +1590,57 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
   }
 
   try {
-    // Build multipart body using native FormData (correctly handles binary files,
-    // boundary, content-types — all the things our manual builder got wrong)
-    const formData = new FormData();
+    const boundary = '----FormBoundary' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    const textParts = [];
 
     // Hidden fields first
     if (hiddenFields) {
       for (const [key, value] of Object.entries(hiddenFields)) {
-        formData.append(key, String(value ?? ''));
+        textParts.push(
+          `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="${key}"\r\n\r\n` +
+          `${value ?? ''}\r\n`
+        );
       }
     }
 
-    // Visible/user-entered fields
+    // Visible/user-entered fields (bracket names like "nama[0]" preserved literally)
     for (const [key, value] of Object.entries(fields)) {
-      formData.append(key, String(value ?? ''));
+      textParts.push(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="${key}"\r\n\r\n` +
+        `${value ?? ''}\r\n`
+      );
     }
 
-    // File field — use discovered field name from legacy form (not hardcoded)
+    // File field (if present) — use discovered field name
+    const fldName = fileFieldName || 'file_ktp';
+    let fileHeaderBuf = null;
     if (fileBuffer && fileName) {
       const ext = (fileName.split('.').pop() || '').toLowerCase();
       const mimeTypes = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf' };
       const contentType = mimeTypes[ext] || 'application/octet-stream';
-      const blob = new Blob([fileBuffer], { type: contentType });
-      const fldName = fileFieldName || 'file_ktp';
-      formData.append(fldName, blob, fileName);
+      fileHeaderBuf = Buffer.from(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="${fldName}"; filename="${fileName}"\r\n` +
+        `Content-Type: ${contentType}\r\n\r\n`,
+        'utf-8'
+      );
       console.log(`[UmrahSubmit] File "${fileName}" (${fileBuffer.length} bytes, ${contentType}) attached as field "${fldName}"`);
     }
 
-    console.log(`[UmrahSubmit] POST ${actionUrl} — fields:`, Object.keys(fields).length, 'hidden:', Object.keys(hiddenFields || {}).length, 'file:', !!fileBuffer);
+    // Assemble body as Buffer (supports both text and binary file)
+    const textBuf = Buffer.from(textParts.join(''), 'utf-8');
+    let bodyBuffer;
+    if (fileBuffer && fileHeaderBuf) {
+      const endBuf = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf-8');
+      bodyBuffer = Buffer.concat([textBuf, fileHeaderBuf, fileBuffer, endBuf]);
+    } else {
+      const endBuf = Buffer.from(`--${boundary}--\r\n`, 'utf-8');
+      bodyBuffer = Buffer.concat([textBuf, endBuf]);
+    }
+
+    console.log(`[UmrahSubmit] POST ${actionUrl} — fields:`, Object.keys(fields).length, 'hidden:', Object.keys(hiddenFields || {}).length, 'file:', !!fileBuffer, 'body size:', bodyBuffer.length);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
@@ -1628,9 +1651,10 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
         Cookie: session.cookie,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': `${BASE}/pages/main.php?route=umrah&act=tdaftar`,
-        // Don't set Content-Type — fetch + FormData sets it correctly with boundary
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': String(bodyBuffer.length),
       },
-      body: formData,
+      body: bodyBuffer,
       redirect: 'manual',
       signal: controller.signal,
     });
