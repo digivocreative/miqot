@@ -10,9 +10,10 @@ import { calculateDuration } from '@/services/data-service';
 // Types
 // ============================================
 
-export type FilterMode = 
+export type FilterMode =
   | 'AVAILABLE'      // Filter paket dengan kursi tersedia
   | 'LIBURAN_SEKOLAH' // Filter keberangkatan Juni-Juli 2026
+  | 'UMROH CUTI 5 HARI' // Berangkat Jumat malam/Sabtu, pulang Sabtu/Minggu/Senin dini hari
   | 'PROMO'          // Filter paket promo
   | 'UMROH REGULER'  // Hanya Mekkah & Madinah
   | 'UMROH MUSIM DINGIN' // Keberangkatan Desember-Januari
@@ -94,6 +95,7 @@ const HIJRI_MONTH_NAMES = [
 export const FILTER_MODE_SLUGS: Record<FilterMode, string> = {
   'AVAILABLE': '',
   'LIBURAN_SEKOLAH': 'liburan-sekolah',
+  'UMROH CUTI 5 HARI': 'cuti-5-hari',
   'PROMO': 'umroh-promo',
   'UMROH REGULER': 'umroh-reguler',
   'UMROH MUSIM DINGIN': 'umroh-musim-dingin',
@@ -155,6 +157,34 @@ export function extractUniqueDurations(packages: UmrohPackage[]): { days: number
   return Array.from(durationMap.entries())
     .map(([days, count]) => ({ days, label: `${days} Hari`, count }))
     .sort((a, b) => a.days - b.days);
+}
+
+/**
+ * Parse a YYYY-MM-DD string as a local date (not UTC).
+ * new Date('YYYY-MM-DD') is parsed as UTC midnight by JS, which makes .getDay() shift a day in negative timezones.
+ */
+function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/**
+ * Check if a package qualifies for "UMROH CUTI 5 HARI":
+ * - Departure: Friday >= 18:00, OR any time Saturday
+ * - Return (landing in Indonesia): Saturday any time, OR Sunday any time, OR Monday < 06:00
+ * Day codes: 0=Sun, 1=Mon, 5=Fri, 6=Sat
+ */
+function matchesCuti5Hari(pkg: UmrohPackage): boolean {
+  const depDay = parseLocalDate(pkg.keberangkatan.tgl).getDay();
+  const depHour = parseInt(pkg.keberangkatan.jam.split('.')[0], 10);
+
+  const retDay = parseLocalDate(pkg.kepulangan.tgl).getDay();
+  const retHour = parseInt(pkg.kepulangan.jam.split('.')[0], 10);
+
+  const depOk = (depDay === 5 && depHour >= 18) || depDay === 6;
+  const retOk = retDay === 6 || retDay === 0 || (retDay === 1 && retHour < 6);
+
+  return depOk && retOk;
 }
 
 /**
@@ -328,6 +358,9 @@ export function filterPackages(
         const year = depDate.getFullYear();
         return year === 2026 && (month === 5 || month === 6);
       });
+
+    case 'UMROH CUTI 5 HARI':
+      return data.filter(matchesCuti5Hari);
 
     case 'PROMO':
       // Filter promo packages only
