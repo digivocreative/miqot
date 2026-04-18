@@ -64,7 +64,7 @@ const FILTER_MODE_OPTIONS: { value: FilterMode; label: string }[] = [
   { value: 'PROMO', label: 'UMROH PROMO' },
   { value: 'UMROH REGULER', label: 'UMROH REGULER' },
   { value: 'UMROH MUSIM DINGIN', label: 'UMROH MUSIM DINGIN' },
-  { value: 'BINTANG 5', label: 'BINTANG 5' },
+  { value: 'BINTANG 5', label: 'UMROH BINTANG 5' },
   { value: 'DURASI PERJALANAN', label: 'DURASI PERJALANAN' },
   { value: 'DATA PER-BULAN', label: 'DATA PER-BULAN' },
   { value: 'SEMUA DATA', label: 'SEMUA DATA' },
