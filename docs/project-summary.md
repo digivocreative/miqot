@@ -15,7 +15,7 @@
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
-| **Database** | Supabase (PostgreSQL) — 15 tabel: `agents`, `capi_configs`, `capi_event_logs`, `jamaah`, `jamaah_haji`, `calendar_events`, `calendar_insights`, `ai_credits`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events`, `umroh_schedules`, `kurs_cache` |
+| **Database** | Supabase (PostgreSQL) — 16 tabel: `agents`, `capi_configs`, `capi_event_logs`, `jamaah`, `jamaah_haji`, `calendar_events`, `calendar_insights`, `ai_credits`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events`, `analytics_events_daily`, `umroh_schedules`, `kurs_cache` |
 | **Telegram** | Telegram Bot API — group alerts (node-cron) + per-agent DM (deep link connect, departure reminders, pembayaran masuk) |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
@@ -507,6 +507,20 @@ event_type    TEXT                 -- "pageview" | "action" | "conversion"
 event_name    TEXT                 -- nama event
 event_data    JSONB                -- metadata event
 created_at    TIMESTAMPTZ          -- waktu event
+```
+
+### Tabel `analytics_events_daily`
+```
+date        DATE NOT NULL        -- hari (YYYY-MM-DD)
+agent_id    UUID NOT NULL        -- FK to agents.id; '00000000-...-000' utk anonymous (login_failed no-agent)
+event_type  TEXT NOT NULL        -- sama seperti analytics_events.event_type
+event_name  TEXT NOT NULL        -- sama seperti analytics_events.event_name
+count       INTEGER NOT NULL     -- jumlah event untuk kombinasi (date, agent_id, event_type, event_name)
+updated_at  TIMESTAMPTZ          -- waktu agregat terakhir di-upsert
+-- PRIMARY KEY (date, agent_id, event_type, event_name)
+-- Index: idx_analytics_daily_date ON (date DESC)
+-- Index: idx_analytics_daily_agent ON (agent_id, date DESC)
+-- Populated by: cron 02:00 WIB (runAnalyticsMaintenance)
 ```
 
 ### Tabel `haji_plus_stats`
