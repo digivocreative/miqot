@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ANON_AGENT,
+  KEY_SEP,
   buildCountMap,
   countMapToRows,
   computeRangeSplit,
@@ -18,25 +19,25 @@ test('buildCountMap: groups by (agent_id|event_type|event_name) and coalesces nu
     { agent_id: null, event_type: 'login', event_name: 'login_failed' },
   ];
   const m = buildCountMap(rows);
-  assert.equal(m.get('a1|action|sync_jamaah'), 2);
-  assert.equal(m.get('a2|login|login'), 1);
-  assert.equal(m.get(`${ANON_AGENT}|login|login_failed`), 2);
+  assert.equal(m.get(`a1${KEY_SEP}action${KEY_SEP}sync_jamaah`), 2);
+  assert.equal(m.get(`a2${KEY_SEP}login${KEY_SEP}login`), 1);
+  assert.equal(m.get(`${ANON_AGENT}${KEY_SEP}login${KEY_SEP}login_failed`), 2);
 });
 
 test('countMapToRows: builds upsert rows with the given dateKey', () => {
   const m = new Map([
-    ['a1|action|sync_jamaah', 2],
-    ['a2|login|login', 1],
+    [`a1${KEY_SEP}action${KEY_SEP}sync_jamaah`, 2],
+    [`a2${KEY_SEP}login${KEY_SEP}login`, 1],
   ]);
   const rows = countMapToRows(m, '2026-04-10');
   assert.equal(rows.length, 2);
-  const byKey = Object.fromEntries(rows.map(r => [`${r.agent_id}|${r.event_type}|${r.event_name}`, r]));
+  const byKey = Object.fromEntries(rows.map(r => [`${r.agent_id}${KEY_SEP}${r.event_type}${KEY_SEP}${r.event_name}`, r]));
   assert.deepEqual(
-    { date: byKey['a1|action|sync_jamaah'].date, count: byKey['a1|action|sync_jamaah'].count },
+    { date: byKey[`a1${KEY_SEP}action${KEY_SEP}sync_jamaah`].date, count: byKey[`a1${KEY_SEP}action${KEY_SEP}sync_jamaah`].count },
     { date: '2026-04-10', count: 2 }
   );
-  assert.equal(byKey['a2|login|login'].count, 1);
-  assert.ok(byKey['a1|action|sync_jamaah'].updated_at);
+  assert.equal(byKey[`a2${KEY_SEP}login${KEY_SEP}login`].count, 1);
+  assert.ok(byKey[`a1${KEY_SEP}action${KEY_SEP}sync_jamaah`].updated_at);
 });
 
 test('computeRangeSplit: month before cutoff → pure agg, no raw', () => {
@@ -111,4 +112,14 @@ test('tallyBy: sums per key across raw + agg', () => {
   assert.equal(m['open_compare'], 1);
   assert.equal(m['open_analytics'], 4);
   assert.equal(m['sync_jamaah'], undefined);
+});
+
+test('buildCountMap: event_name containing pipe is preserved (regression)', () => {
+  const rows = [
+    { agent_id: 'a1', event_type: 'action', event_name: 'foo|bar' },
+  ];
+  const m = buildCountMap(rows);
+  const rowsOut = countMapToRows(m, '2026-04-18');
+  assert.equal(rowsOut.length, 1);
+  assert.equal(rowsOut[0].event_name, 'foo|bar');
 });
