@@ -60,6 +60,7 @@ export interface FilterHeaderProps {
 const FILTER_MODE_OPTIONS: { value: FilterMode; label: string }[] = [
   { value: 'AVAILABLE', label: 'SEAT TERSEDIA' },
   { value: 'LIBURAN_SEKOLAH', label: 'LIBURAN SEKOLAH' },
+  { value: 'UMROH CUTI 5 HARI', label: 'UMROH CUTI 5 HARI' },
   { value: 'PROMO', label: 'UMROH PROMO' },
   { value: 'UMROH REGULER', label: 'UMROH REGULER' },
   { value: 'UMROH MUSIM DINGIN', label: 'UMROH MUSIM DINGIN' },
@@ -151,7 +152,7 @@ export function FilterHeader({
   }, [packages]);
 
   // Check if secondary dropdown should be shown
-  const showSortDropdown = filterMode === 'AVAILABLE' || filterMode === 'LIBURAN_SEKOLAH' || filterMode === 'PROMO' || filterMode === 'UMROH REGULER' || filterMode === 'UMROH MUSIM DINGIN' || filterMode === 'BINTANG 5';
+  const showSortDropdown = filterMode === 'AVAILABLE' || filterMode === 'LIBURAN_SEKOLAH' || filterMode === 'UMROH CUTI 5 HARI' || filterMode === 'PROMO' || filterMode === 'UMROH REGULER' || filterMode === 'UMROH MUSIM DINGIN' || filterMode === 'BINTANG 5';
   const showDurationDropdown = filterMode === 'DURASI PERJALANAN';
   const showMonthDropdown = filterMode === 'DATA PER-BULAN';
 
