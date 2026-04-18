@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Loader2, Upload, X, CheckCircle2, AlertCircle, Camera, Sparkles, Search, ChevronDown, Check, Mars, Venus, Save, XCircle } from 'lucide-react';
+import { Loader2, Upload, X, CheckCircle2, AlertCircle, Camera, Sparkles, Search, ChevronDown, Check, Mars, Venus, Save, XCircle, Wand2 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 
 type ViewMode = 'form' | 'ocr-processing';
@@ -165,7 +165,25 @@ function getFieldDef(name: string): FieldDef {
 // ── Input class matching DESIGN-SYSTEM.md ──
 const INPUT_CLASS = 'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50';
 const INPUT_ERROR_CLASS = 'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-red-300 dark:border-red-600 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400';
-const LABEL_CLASS = 'flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide';
+const LABEL_CLASS_INLINE = 'flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 uppercase tracking-wide';
+const DUMMY_BTN_CLASS = 'flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 uppercase tracking-wide px-2 py-0.5 rounded-md hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors';
+
+// Labels that should NOT show the Insert (dummy-generate) button
+const NO_INSERT_BTN_LABELS = new Set(['Jenis Kelamin', 'Nama Pendaftar', 'Tanggal Berangkat', 'Paket Umroh']);
+
+function dummyValueFor(label: string): string {
+  const l = label.toLowerCase();
+  if (l.includes('no. ktp') || l.includes('nik')) return '111111111111';
+  if (l.includes('telp') || l.includes('hp')) return '081234567890';
+  if (l.includes('tanggal lahir') || l.includes('tgl lahir')) return '01/01/1990';
+  if (l.includes('tempat lahir')) return 'Jakarta';
+  if (l.includes('nama depan')) return 'Ahmad';
+  if (l.includes('nama tengah')) return 'Budi';
+  if (l.includes('nama belakang')) return 'Santoso';
+  if (l.includes('alamat')) return 'Jl. Contoh No. 123, Jakarta Selatan';
+  if (l.includes('email')) return 'dummy@example.com';
+  return 'Data Dummy';
+}
 
 // ── Searchable Select Component ──
 interface SearchableSelectProps {
@@ -247,70 +265,79 @@ function SearchableSelect({ options, value, onChange, placeholder = '— Pilih �
         <ChevronDown size={16} className={`text-gray-400 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
-      {open && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-lg overflow-hidden">
-          {/* Search input — shown only when there are enough options to warrant searching */}
-          {options.length >= 8 && (
-            <div className="p-2 border-b border-gray-100 dark:border-slate-700/50">
-              <div className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-50 dark:bg-slate-900 rounded-lg">
-                <Search size={14} className="text-gray-400 flex-shrink-0" />
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                  placeholder="Cari..."
-                  className="flex-1 bg-transparent text-xs text-gray-800 dark:text-white placeholder:text-gray-400 outline-none min-w-0"
-                />
-                {query && (
-                  <button
-                    type="button"
-                    onClick={() => setQuery('')}
-                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
+      {/* Always mounted so we can animate close — visibility controlled via classes. */}
+      <div
+        aria-hidden={!open}
+        className={`absolute left-0 right-0 top-full mt-1 z-40 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-lg overflow-hidden origin-top transition-all duration-150 ease-out ${
+          open
+            ? 'opacity-100 scale-100 translate-y-0'
+            : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
+        }`}
+      >
+        {/* Search input — shown only when there are enough options to warrant searching */}
+        {options.length >= 8 && (
+          <div className="p-2 border-b border-gray-100 dark:border-slate-700/50">
+            <div className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-50 dark:bg-slate-900 rounded-lg">
+              <Search size={14} className="text-gray-400 flex-shrink-0" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Cari..."
+                className="flex-1 bg-transparent text-xs text-gray-800 dark:text-white placeholder:text-gray-400 outline-none min-w-0"
+                tabIndex={open ? 0 : -1}
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  tabIndex={open ? 0 : -1}
+                >
+                  <X size={12} />
+                </button>
+              )}
             </div>
-          )}
-
-          {/* Options list */}
-          <div className="max-h-60 overflow-y-auto">
-            {filtered.length === 0 ? (
-              <div className="px-3 py-4 text-center text-[11px] text-gray-400">
-                Tidak ada hasil
-              </div>
-            ) : (
-              filtered.map((opt, i) => {
-                const isSelected = opt.value === value;
-                return (
-                  <button
-                    key={`${opt.value}-${i}`}
-                    type="button"
-                    onClick={() => {
-                      onChange(opt.value);
-                      setOpen(false);
-                    }}
-                    className={`w-full flex items-start gap-2 px-3 py-2 text-left text-xs transition-colors ${
-                      isSelected
-                        ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
-                        : 'text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700/50'
-                    }`}
-                  >
-                    <div className="flex-shrink-0 w-3.5 h-3.5 mt-0.5">
-                      {isSelected && <Check size={14} className="text-emerald-500" strokeWidth={3} />}
-                    </div>
-                    <span className={`flex-1 leading-snug ${isSelected ? 'font-semibold' : ''}`}>
-                      {opt.label}
-                    </span>
-                  </button>
-                );
-              })
-            )}
           </div>
+        )}
+
+        {/* Options list */}
+        <div className="max-h-60 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <div className="px-3 py-4 text-center text-[11px] text-gray-400">
+              Tidak ada hasil
+            </div>
+          ) : (
+            filtered.map((opt, i) => {
+              const isSelected = opt.value === value;
+              return (
+                <button
+                  key={`${opt.value}-${i}`}
+                  type="button"
+                  tabIndex={open ? 0 : -1}
+                  onClick={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
+                  className={`w-full flex items-start gap-2 px-3 py-2 text-left text-xs transition-colors ${
+                    isSelected
+                      ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
+                      : 'text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700/50'
+                  }`}
+                >
+                  <div className="flex-shrink-0 w-3.5 h-3.5 mt-0.5">
+                    {isSelected && <Check size={14} className="text-emerald-500" strokeWidth={3} />}
+                  </div>
+                  <span className={`flex-1 leading-snug ${isSelected ? 'font-semibold' : ''}`}>
+                    {opt.label}
+                  </span>
+                </button>
+              );
+            })
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -920,6 +947,24 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
   }
 
   // ── Render helpers ──
+  const renderLabelRow = (label: string, required: boolean, onDummy: (() => void) | null, extra?: React.ReactNode) => {
+    const showBtn = onDummy && !NO_INSERT_BTN_LABELS.has(label);
+    return (
+      <div className="flex items-center justify-between mb-1.5">
+        <label className={LABEL_CLASS_INLINE}>
+          {label} {required && <span className="text-red-500">*</span>}
+          {extra}
+        </label>
+        {showBtn && (
+          <button type="button" onClick={onDummy} className={DUMMY_BTN_CLASS} title="Isi dengan data dummy">
+            <Wand2 size={10} strokeWidth={2.5} />
+            Auto
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const renderSelect = (name: string, label: string, required: boolean, _searchable = false) => {
     const opts = options.selects[name] || [];
     const fieldLabel = getFieldDef(name).label;
@@ -936,6 +981,16 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
     // Dependent fields always shown (even if empty) so user sees the placeholder message
     if (opts.length === 0 && !isDependentField) return null;
 
+    // Pekerjaan has a preferred dummy option
+    const preferredOption = fieldLabel === 'Pekerjaan'
+      ? opts.find(o => o.value && /karyawan\s*swasta/i.test(o.label))
+      : undefined;
+    const firstUsableOption = opts.find(o => o.value && o.value.trim() !== '');
+    const dummyOption = preferredOption || firstUsableOption;
+    const handleDummy = !isLocked && dummyOption
+      ? () => updateField(name, dummyOption.value)
+      : null;
+
     // Gender field: render as 2-button radio-style toggle (Laki / Perempuan side-by-side)
     if (isGenderField && opts.length > 0) {
       // Identify Laki vs Perempuan options by label
@@ -943,24 +998,21 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
       const perempuan = opts.find(o => /^p|perempuan/i.test(o.label)) || opts[opts.length - 1];
       const selected = fields[name] || '';
 
-      const toggleClass = (isSelected: boolean, colorScheme: 'blue' | 'pink') =>
-        `flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98] ` +
+      // Secondary outlined style. Border always 1px to prevent layout shift on toggle.
+      const toggleClass = (isSelected: boolean) =>
+        `flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold border transition-colors ` +
         (isSelected
-          ? colorScheme === 'blue'
-            ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20'
-            : 'bg-pink-500 text-white shadow-md shadow-pink-500/20'
-          : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-800');
+          ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
+          : 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800');
 
       return (
         <div key={name}>
-          <label className={LABEL_CLASS}>
-            {label} {required && <span className="text-red-500">*</span>}
-          </label>
+          {renderLabelRow(label, required, () => updateField(name, laki.value))}
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => updateField(name, laki.value)}
-              className={toggleClass(selected === laki.value, 'blue')}
+              className={toggleClass(selected === laki.value)}
             >
               <Mars size={16} strokeWidth={2.5} />
               Laki-laki
@@ -968,7 +1020,7 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
             <button
               type="button"
               onClick={() => updateField(name, perempuan.value)}
-              className={toggleClass(selected === perempuan.value, 'pink')}
+              className={toggleClass(selected === perempuan.value)}
             >
               <Venus size={16} strokeWidth={2.5} />
               Perempuan
@@ -981,10 +1033,12 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
 
     return (
       <div key={name}>
-        <label className={LABEL_CLASS}>
-          {label} {required && <span className="text-red-500">*</span>}
-          {showLoading && <Loader2 size={12} className="animate-spin text-emerald-500 ml-1" />}
-        </label>
+        {renderLabelRow(
+          label,
+          required,
+          handleDummy,
+          showLoading ? <Loader2 size={12} className="animate-spin text-emerald-500 ml-1" /> : undefined,
+        )}
         {isDependentField && opts.length === 0 ? (
           <div className={`${INPUT_CLASS} text-gray-400 flex items-center`}>
             {showLoading ? 'Mengambil opsi...' : 'Pilih tanggal berangkat dulu'}
@@ -1006,9 +1060,7 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
 
   const renderInput = (name: string, label: string, placeholder: string, required: boolean, type = 'text') => (
     <div key={name}>
-      <label className={LABEL_CLASS}>
-        {label} {required && <span className="text-red-500">*</span>}
-      </label>
+      {renderLabelRow(label, required, () => updateField(name, dummyValueFor(label)))}
       <input
         type={type}
         value={fields[name] || ''}
@@ -1022,9 +1074,7 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
 
   const renderTextarea = (name: string, label: string, placeholder: string, required: boolean) => (
     <div key={name}>
-      <label className={LABEL_CLASS}>
-        {label} {required && <span className="text-red-500">*</span>}
-      </label>
+      {renderLabelRow(label, required, () => updateField(name, dummyValueFor(label)))}
       <textarea
         value={fields[name] || ''}
         onChange={e => updateField(name, e.target.value)}
@@ -1105,9 +1155,30 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
               )}
 
               {viewMode === 'ocr-processing' ? (
-                <div className="flex items-center justify-center gap-2 py-6 rounded-xl border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50 dark:bg-emerald-900/15">
-                  <Loader2 size={18} className="animate-spin text-emerald-500" />
-                  <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Membaca KTP...</span>
+                <div className="flex flex-col items-center justify-center gap-3 py-6 rounded-xl border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50 dark:bg-emerald-900/15">
+                  {/* Stylized KTP card with a laser-like scan beam sweeping vertically */}
+                  <div className="relative w-20 h-12 rounded-md border-2 border-emerald-500 bg-white dark:bg-slate-800 overflow-hidden shadow-sm animate-ktpGlow">
+                    {/* Photo placeholder */}
+                    <div className="absolute top-1.5 right-1.5 w-3.5 h-6 rounded-sm bg-emerald-200/80 dark:bg-emerald-700/50" />
+                    {/* Text line mocks */}
+                    <div className="absolute top-1.5 left-1.5 h-1.5 w-6 rounded-sm bg-emerald-300/90 dark:bg-emerald-600/60" />
+                    <div className="absolute top-5 left-1.5 h-1 w-10 rounded-sm bg-emerald-200 dark:bg-emerald-700/40" />
+                    <div className="absolute top-7 left-1.5 h-1 w-8 rounded-sm bg-emerald-200 dark:bg-emerald-700/40" />
+                    <div className="absolute top-9 left-1.5 h-1 w-9 rounded-sm bg-emerald-200 dark:bg-emerald-700/40" />
+                    {/* Scanning beam */}
+                    <div
+                      className="absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-500 to-transparent animate-ktpScan"
+                      style={{ boxShadow: '0 0 8px rgba(16,185,129,0.9), 0 0 14px rgba(16,185,129,0.5)' }}
+                    />
+                  </div>
+                  <div className="flex items-baseline gap-0.5 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                    <span>Membaca KTP</span>
+                    <span className="inline-flex gap-0.5 ml-0.5">
+                      <span className="w-1 h-1 rounded-full bg-emerald-500 animate-bounce [animation-delay:-0.3s]" />
+                      <span className="w-1 h-1 rounded-full bg-emerald-500 animate-bounce [animation-delay:-0.15s]" />
+                      <span className="w-1 h-1 rounded-full bg-emerald-500 animate-bounce" />
+                    </span>
+                  </div>
                 </div>
               ) : fileName ? (
                 /* Preview card: image + filename/status — stacked, balanced spacing */

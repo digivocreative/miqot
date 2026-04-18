@@ -5213,7 +5213,8 @@ app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit:
     let fileName = null;
     if (file?.data && file?.name) {
       fileBuffer = Buffer.from(file.data, 'base64');
-      fileName = file.name;
+      // Lowercase extension — legacy PHP rejects uppercase (.JPG, .JPEG, .PNG).
+      fileName = file.name.replace(/\.([A-Z]+)$/, (_m, ext) => '.' + ext.toLowerCase());
     }
 
     // ── Auto-fetch paket details (harga_paket, npaket, harga_perlengkapan) ──
@@ -5253,35 +5254,96 @@ app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit:
       enrichedFields.tgl_pendaftaran = enrichedFields.tgldaftar || enrichedFields.tgl_daftar || todayStr;
     }
 
+    // Helper: find value by scanning all keys against regex patterns (handles field-name variants)
+    const findFieldByPatterns = (patterns) => {
+      for (const key of Object.keys(enrichedFields)) {
+        if (!enrichedFields[key]) continue;
+        if (patterns.some((re) => re.test(key))) return enrichedFields[key];
+      }
+      return '';
+    };
+
     // Always send plahir (tempat lahir)
     if (!enrichedFields.plahir) {
-      enrichedFields.plahir = enrichedFields.tempat_lahir || enrichedFields.tempatlahir || '';
+      enrichedFields.plahir = findFieldByPatterns([/^tempat[-_]?lahir$/i, /^plahir$/i, /tmp[-_]?lahir/i]);
     }
 
     // Always send tlahir (tanggal lahir)
     if (!enrichedFields.tlahir) {
-      enrichedFields.tlahir = enrichedFields.tgl_lahir || enrichedFields.tgllahir || '';
+      enrichedFields.tlahir = findFieldByPatterns([/^tgl[-_]?lahir$/i, /^tanggal[-_]?lahir$/i, /^tlahir$/i]);
     }
 
-    // Always send name as array (nama[0], nama[1], nama[2]) for PHP $_POST['nama']
-    const firstName = enrichedFields.firstname || enrichedFields.first || '';
-    const middleName = enrichedFields.middlename || enrichedFields.middle || '';
-    const lastName = enrichedFields.lastname || enrichedFields.last || '';
-    enrichedFields['nama[0]'] = firstName;
-    enrichedFields['nama[1]'] = middleName;
-    enrichedFields['nama[2]'] = lastName;
-    // Also try full nama as single field
+    // Name fields — form has a single `pendaftar` (Nama Pendaftar) field.
+    // Split into first/middle/last, then send every variant PHP might read:
+    // nama[0..2], ndepan/ntengah/nbelakang, first/middle/last, nama_depan/tengah/belakang.
+    let firstName = findFieldByPatterns([/^first(name)?$/i, /^ndepan$/i, /^nama[-_]?depan$/i]);
+    let middleName = findFieldByPatterns([/^middle(name)?$/i, /^ntengah$/i, /^nama[-_]?tengah$/i]);
+    let lastName = findFieldByPatterns([/^last(name)?$/i, /^surname$/i, /^nbelakang$/i, /^nama[-_]?belakang$/i]);
+    if (!firstName && !lastName) {
+      const fullName = (enrichedFields.pendaftar || enrichedFields.nama || enrichedFields.nama_lengkap || '').trim();
+      const parts = fullName.split(/\s+/).filter(Boolean);
+      if (parts.length === 1) {
+        firstName = parts[0];
+      } else if (parts.length === 2) {
+        firstName = parts[0];
+        lastName = parts[1];
+      } else if (parts.length >= 3) {
+        firstName = parts[0];
+        middleName = parts.slice(1, -1).join(' ');
+        lastName = parts[parts.length - 1];
+      }
+    }
+    const nameVariants = {
+      'nama[0]': firstName,
+      'nama[1]': middleName,
+      'nama[2]': lastName,
+      ndepan: firstName,
+      ntengah: middleName,
+      nbelakang: lastName,
+      first: firstName,
+      middle: middleName,
+      last: lastName,
+      firstname: firstName,
+      middlename: middleName,
+      lastname: lastName,
+      nama_depan: firstName,
+      nama_tengah: middleName,
+      nama_belakang: lastName,
+    };
+    for (const [key, value] of Object.entries(nameVariants)) {
+      if (!enrichedFields[key]) enrichedFields[key] = value;
+    }
     if (!enrichedFields.nama_lengkap && (firstName || lastName)) {
       enrichedFields.nama_lengkap = [firstName, middleName, lastName].filter(Boolean).join(' ');
     }
 
+    // tjamaah: legacy PHP expects telp jamaah — fall back to pendaftar phone
+    if (!enrichedFields.tjamaah) {
+      enrichedFields.tjamaah = findFieldByPatterns([/^telp$/i, /^hp$/i, /^no[-_]?telp$/i, /^tpendaftar$/i, /^tlp[-_]?pendaftar$/i]);
+    }
+
+    // status: legacy PHP expects payment/registration status — default to empty string
+    if (enrichedFields.status === undefined) {
+      enrichedFields.status = '';
+    }
+
+    // pakets: legacy aksi_umrah.php line 84 does explode('.', $_POST['pakets']) and
+    // accesses [1]/[2] (date/seat). The client-side JS pkt() builds it as j+"."+p.
+    if (!enrichedFields.pakets && jadwalValue && paketValue) {
+      enrichedFields.pakets = `${jadwalValue}.${paketValue}`;
+    }
+
+    console.log('[Register] All field keys being sent:', Object.keys(enrichedFields).sort());
     console.log('[Register] Compatibility fields applied:', {
       tgl_pendaftaran: enrichedFields.tgl_pendaftaran,
       plahir: enrichedFields.plahir,
       tlahir: enrichedFields.tlahir,
+      ndepan: enrichedFields.ndepan,
+      ntengah: enrichedFields.ntengah,
+      nbelakang: enrichedFields.nbelakang,
       'nama[0]': enrichedFields['nama[0]'],
-      'nama[1]': enrichedFields['nama[1]'],
-      'nama[2]': enrichedFields['nama[2]'],
+      tjamaah: enrichedFields.tjamaah,
+      status: enrichedFields.status,
     });
 
     const result = await submitUmrahRegistration(agent.jamaah_username, {

@@ -914,6 +914,11 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat } = {}) {
     if (jsHandlers.jadwalOnchange) {
       console.log('[UmrahForm] jadwal onchange attr:', jsHandlers.jadwalOnchange);
     }
+    // Dump the `pkt` function body — this is the legacy JS that builds the _pkt.php payload.
+    // Knowing its exact format lets us match it and fix the "LUNAS bug" (price=0).
+    if (jsHandlers.scriptFunctions.pkt) {
+      console.log('[UmrahForm] pkt() body:\n' + jsHandlers.scriptFunctions.pkt);
+    }
 
     // Cache the discovered handlers on the session for reuse by fetchUmrahDependentOptions
     // Note: `session` is the outer-scope var from the top of this function
@@ -1500,20 +1505,20 @@ export async function fetchUmrahPaketDetails(username, jadwal, paketValue) {
     return { success: false, error: 'jadwal & paketValue required' };
   }
 
-  // Legacy composite format expected by _pkt.php:
-  //   {jadwal_value}.{paket_specific_parts}
-  // where {jadwal_value} = "JBU1519.2026-07-04.16" (3 parts: kode.date.seat)
-  // and {paket_value} = "JBU1519.PKT035.UHUD.Quard" (4 parts, first part DUPLICATES jadwal_kode)
-  // We must strip the duplicate jadwal_kode from paket before joining, or PHP gets:
-  //   [3] = jadwal_kode instead of expected [3] = PKT_code → lookup fails
+  // Build candidate pkt formats. Legacy JS is opaque; we try several and take the first
+  // one whose hpaket parses as a non-zero number (real package price).
   const jadwalKode = jadwal.split('.')[0];
   const paketParts = paketValue.split('.');
-  // Drop leading jadwal_kode if present, otherwise use full paket value
   const paketSpecific = (paketParts[0] === jadwalKode ? paketParts.slice(1) : paketParts).join('.');
-  const compositePkt = `${jadwal}.${paketSpecific}`;
+  const candidates = [
+    `${jadwal}.${paketSpecific}`,      // JBU1530.2026-06-13.18.PKT042.RAHMAH.Triple
+    paketValue,                         // raw as-is from _otb.php option value
+    `${jadwalKode}.${paketSpecific}`,   // JBU1530.PKT042.RAHMAH.Triple
+    `${jadwal}.${paketValue}`,          // duplicated kode (PHP might expect this)
+  ];
   const url = `${BASE}/pages/route/data_umrah/_pkt.php`;
 
-  try {
+  const parseResponse = async (compositePkt) => {
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -1527,39 +1532,62 @@ export async function fetchUmrahPaketDetails(username, jadwal, paketValue) {
       signal: AbortSignal.timeout(10_000),
     });
 
-    if (!res.ok) {
-      console.log('[UmrahPaketDetails] HTTP', res.status);
-      return { success: false, error: `HTTP ${res.status}` };
-    }
+    if (!res.ok) return { ok: false, httpStatus: res.status };
 
     const html = await res.text();
     if (html.includes('cek_login.php') || html.includes('Sign in to start your session')) {
       sessions.delete(username);
-      return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+      return { ok: false, sessionExpired: true };
     }
 
-    // Parse response HTML for all input values (hpaket, npaket, harga_perlengkapan, etc.)
     const $ = cheerio.load(html);
     const extractedFields = {};
+    let hpaketRaw = null;
     $('input').each((_, el) => {
       const name = $(el).attr('name');
       let value = $(el).attr('value');
       if (!name || value === undefined) return;
-      // Filter out PHP warnings / HTML tags / empty noise — keep only clean values
       if (typeof value === 'string') {
-        // If value contains "Warning" or HTML tags, it's a PHP error response — skip
         if (/<\s*b\s*>|<br|warning|notice|fatal/i.test(value)) {
-          console.warn(`[UmrahPaketDetails] Skipping field "${name}" — contains PHP error noise:`, value.slice(0, 80));
+          if (name === 'hpaket') hpaketRaw = value;
           return;
         }
-        // Normalize numeric "0" string to actual zero (not useful, skip too)
         value = value.trim();
       }
       extractedFields[name] = value;
     });
+    // hpaket is returned in Indonesian format "39.900.000" — strip dots before numeric parse
+    const hpaketStr = String(extractedFields.hpaket || '').replace(/\./g, '');
+    const hpaketNumeric = Number(hpaketStr) || 0;
+    return { ok: true, compositePkt, extractedFields, hpaketNumeric, hpaketRaw, html };
+  };
 
-    console.log(`[UmrahPaketDetails] pkt=${compositePkt} → extracted:`, extractedFields);
-    return { success: true, fields: extractedFields };
+  try {
+    let best = null;
+    for (const compositePkt of candidates) {
+      const attempt = await parseResponse(compositePkt);
+      if (!attempt.ok) {
+        if (attempt.sessionExpired) return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+        if (attempt.httpStatus) return { success: false, error: `HTTP ${attempt.httpStatus}` };
+        continue;
+      }
+      console.log(`[UmrahPaketDetails] pkt="${compositePkt}" → hpaket=${attempt.hpaketNumeric}, fields=`, attempt.extractedFields);
+      if (attempt.hpaketNumeric > 0) {
+        return { success: true, fields: attempt.extractedFields };
+      }
+      if (!best) best = attempt;
+    }
+    // No candidate produced a non-zero hpaket — return the first attempt's fields + log
+    // so we can diagnose. Caller should warn user that price wasn't resolved.
+    console.warn('[UmrahPaketDetails] All pkt formats failed to resolve hpaket (>0). Tried:', candidates);
+    if (best?.hpaketRaw) {
+      console.warn('[UmrahPaketDetails] Raw hpaket PHP error:', best.hpaketRaw.slice(0, 200));
+    }
+    return {
+      success: true,
+      fields: best?.extractedFields || {},
+      warning: 'hpaket not resolved — legacy system may mark registration as LUNAS',
+    };
   } catch (err) {
     console.error('[UmrahPaketDetails] Error:', err.message);
     return { success: false, error: err.message };

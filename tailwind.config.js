@@ -33,10 +33,21 @@ export default {
           '0%': { transform: 'translateY(100%)' },
           '100%': { transform: 'translateY(0)' },
         },
+        ktpScan: {
+          '0%, 100%': { top: '0%', opacity: '0' },
+          '10%, 90%': { opacity: '1' },
+          '50%': { top: 'calc(100% - 2px)', opacity: '1' },
+        },
+        ktpGlow: {
+          '0%, 100%': { boxShadow: '0 0 0 0 rgba(16, 185, 129, 0)' },
+          '50%': { boxShadow: '0 0 0 6px rgba(16, 185, 129, 0.12)' },
+        },
       },
       animation: {
         barPulse: 'barPulse 2s ease-in-out infinite',
         slideUp: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+        ktpScan: 'ktpScan 1.8s ease-in-out infinite',
+        ktpGlow: 'ktpGlow 1.8s ease-in-out infinite',
       },
     },
   },

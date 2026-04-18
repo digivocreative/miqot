@@ -345,7 +345,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   };
 
   const isAdmin = agentData.role === 'admin';
-  const visibleCards = MENU_CARDS.filter(c => !c.hidden && (!c.adminOnly || isAdmin));
+  const visibleCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly);
+  const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly) : [];
 
   // ── Sub-page view with dashboard header ──
   if (activeTab !== 'home') {
@@ -561,6 +562,74 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     );
   }
 
+  const renderMenuCard = (card: MenuCard) => {
+    const Icon = card.icon;
+    return (
+      <button
+        key={card.id + (card.comingSoon ? '-cs' : '')}
+        onClick={async () => {
+          if (card.comingSoon) {
+            setShowComingSoon(true);
+            setTimeout(() => setShowComingSoon(false), 2000);
+            return;
+          }
+          if (card.openExternal) {
+            trackEvent('feature', 'open_jadwal');
+            window.open(`/${agentData.slug}`, '_blank');
+            return;
+          }
+          if (card.id === 'statistik') {
+            trackEvent('feature', 'open_statistik');
+            setCheckingStatistik(true);
+            try {
+              const res = await fetch('/api/laporan/status', { headers: getAuthHeaders() });
+              const result = await res.json();
+              const d = result.success ? result.data : {};
+              if (d.hasCredentials || d.lastSync) {
+                navigateTab('statistik');
+              } else {
+                setShowStatAlert(true);
+              }
+            } catch {
+              navigateTab('statistik');
+            } finally {
+              setCheckingStatistik(false);
+            }
+            return;
+          }
+          const eventMap: Record<string, string> = {
+            jamaah: 'open_jamaah', kalkulasi: 'open_kalkulasi',
+            settings: 'open_settings', analytics: 'open_analytics', 'ai-tools': 'open_ai_tools',
+          };
+          if (eventMap[card.id]) trackEvent('feature', eventMap[card.id]);
+          navigateTab(card.id);
+        }}
+        className="group relative overflow-hidden bg-white dark:bg-slate-800 rounded-2xl p-3.5 border border-gray-100 dark:border-slate-700 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.97]"
+      >
+        <div className={`absolute -top-4 -right-4 w-16 h-16 rounded-full ${card.bgLight} ${card.bgDark} opacity-60 blur-xl group-hover:opacity-80 transition-opacity`} />
+        {card.openExternal && (
+          <ExternalLink size={10} className="absolute top-2 right-2 text-gray-300 dark:text-slate-500" />
+        )}
+        <div className="relative flex flex-col items-center text-center">
+          {card.id === 'settings' ? (
+            <div className="w-11 h-11 rounded-xl bg-gray-50 dark:bg-gray-800/30 flex items-center justify-center border border-gray-200 dark:border-gray-700/40 mb-2 group-hover:scale-110 transition-transform duration-200">
+              <Settings size={22} className="text-gray-600 dark:text-gray-400" strokeWidth={1.8} />
+            </div>
+          ) : (
+            <div className={`w-11 h-11 rounded-xl ${card.bgLight} ${card.bgDark} flex items-center justify-center border ${card.borderLight} ${card.borderDark} mb-2 group-hover:scale-110 transition-transform duration-200`}>
+              {card.id === 'statistik' && checkingStatistik
+                ? <Loader2 size={22} className={card.color} strokeWidth={1.8} style={{ animation: 'spin 1s linear infinite' }} />
+                : <Icon size={22} className={card.color} strokeWidth={1.8} />}
+            </div>
+          )}
+          <p className="text-[12px] font-bold text-gray-800 dark:text-white leading-tight">
+            {card.label}
+          </p>
+        </div>
+      </button>
+    );
+  };
+
   // ── Home / Card Grid ──
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 transition-colors">
@@ -613,75 +682,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
         {/* ── Feature Cards Grid ── */}
         <div className="grid grid-cols-3 gap-3">
-          {visibleCards.map(card => {
-            const Icon = card.icon;
-            return (
-              <button
-                key={card.id + (card.comingSoon ? '-cs' : '')}
-                onClick={async () => {
-                  if (card.comingSoon) {
-                    setShowComingSoon(true);
-                    setTimeout(() => setShowComingSoon(false), 2000);
-                    return;
-                  }
-                  if (card.openExternal) {
-                    trackEvent('feature', 'open_jadwal');
-                    window.open(`/${agentData.slug}`, '_blank');
-                    return;
-                  }
-                  if (card.id === 'statistik') {
-                    trackEvent('feature', 'open_statistik');
-                    setCheckingStatistik(true);
-                    try {
-                      const res = await fetch('/api/laporan/status', { headers: getAuthHeaders() });
-                      const result = await res.json();
-                      const d = result.success ? result.data : {};
-                      if (d.hasCredentials || d.lastSync) {
-                        navigateTab('statistik');
-                      } else {
-                        setShowStatAlert(true);
-                      }
-                    } catch {
-                      navigateTab('statistik');
-                    } finally {
-                      setCheckingStatistik(false);
-                    }
-                    return;
-                  }
-                  const eventMap: Record<string, string> = {
-                    jamaah: 'open_jamaah', kalkulasi: 'open_kalkulasi',
-                    settings: 'open_settings', analytics: 'open_analytics', 'ai-tools': 'open_ai_tools',
-                  };
-                  if (eventMap[card.id]) trackEvent('feature', eventMap[card.id]);
-                  navigateTab(card.id);
-                }}
-                className="group relative overflow-hidden bg-white dark:bg-slate-800 rounded-2xl p-3.5 border border-gray-100 dark:border-slate-700 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.97]"
-              >
-                {/* Decorative gradient blob */}
-                <div className={`absolute -top-4 -right-4 w-16 h-16 rounded-full ${card.bgLight} ${card.bgDark} opacity-60 blur-xl group-hover:opacity-80 transition-opacity`} />
-                {/* External link indicator */}
-                {card.openExternal && (
-                  <ExternalLink size={10} className="absolute top-2 right-2 text-gray-300 dark:text-slate-500" />
-                )}
-                <div className="relative flex flex-col items-center text-center">
-                  {card.id === 'settings' ? (
-                    <div className="w-11 h-11 rounded-xl bg-gray-50 dark:bg-gray-800/30 flex items-center justify-center border border-gray-200 dark:border-gray-700/40 mb-2 group-hover:scale-110 transition-transform duration-200">
-                      <Settings size={22} className="text-gray-600 dark:text-gray-400" strokeWidth={1.8} />
-                    </div>
-                  ) : (
-                    <div className={`w-11 h-11 rounded-xl ${card.bgLight} ${card.bgDark} flex items-center justify-center border ${card.borderLight} ${card.borderDark} mb-2 group-hover:scale-110 transition-transform duration-200`}>
-                      {card.id === 'statistik' && checkingStatistik
-                        ? <Loader2 size={22} className={card.color} strokeWidth={1.8} style={{ animation: 'spin 1s linear infinite' }} />
-                        : <Icon size={22} className={card.color} strokeWidth={1.8} />}
-                    </div>
-                  )}
-                  <p className="text-[12px] font-bold text-gray-800 dark:text-white leading-tight">
-                    {card.label}
-                  </p>
-                </div>
-              </button>
-            );
-          })}
+          {visibleCards.map(renderMenuCard)}
         </div>
 
         {/* ── Flight Status + Upcoming Schedule + Cuaca + Kurs (flight card goes above calendar when has flights) ── */}
@@ -755,6 +756,13 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             </div>
           )}
         </div>
+
+        {/* ── Admin-Only Cards (bottom of dashboard) ── */}
+        {adminCards.length > 0 && (
+          <div className="grid grid-cols-3 gap-3 mt-4">
+            {adminCards.map(renderMenuCard)}
+          </div>
+        )}
 
         {/* ── Statistik Not Ready Alert ── */}
         {showStatAlert && (
