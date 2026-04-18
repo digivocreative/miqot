@@ -984,9 +984,15 @@ app.post('/api/auth/register', async (req, res) => {
       .eq('role', 'admin')
       .not('telegram_chat_id', 'is', null);
     if (admins?.length) {
-      const tgMsg = `<b>Pendaftaran Agent Baru</b>\n\nNama: <b>${trimmedName}</b>\nUsername: <code>${cleanedSlug}</code>\nWhatsApp: ${cleanedPhone}\nEmail: ${cleanedEmail}\n\n<i>Buka dashboard untuk approve/reject.</i>`;
+      const tgMsg = `<b>Pendaftaran Agent Baru</b>\n\nNama: <b>${trimmedName}</b>\nUsername: <code>${cleanedSlug}</code>\nWhatsApp: ${cleanedPhone}\nEmail: ${cleanedEmail}`;
+      const replyMarkup = {
+        inline_keyboard: [[
+          { text: '✅ Approve', callback_data: `agent_approve:${cleanedSlug}` },
+          { text: '❌ Reject', callback_data: `agent_reject:${cleanedSlug}` },
+        ]],
+      };
       for (const admin of admins) {
-        sendTelegramMessageDirect(admin.telegram_chat_id, tgMsg).catch(() => {});
+        sendTelegramMessageDirect(admin.telegram_chat_id, tgMsg, { reply_markup: replyMarkup }).catch(() => {});
       }
     }
 
@@ -1708,6 +1714,13 @@ app.post('/api/telegram/webhook', async (req, res) => {
     res.sendStatus(200); // Always respond 200
 
     const update = req.body;
+
+    // Handle inline-button callbacks (e.g., admin approve/reject for agent registration)
+    if (update?.callback_query) {
+      await handleTelegramCallbackQuery(update.callback_query);
+      return;
+    }
+
     if (!update?.message?.text) return;
 
     const text = update.message.text;
@@ -4609,21 +4622,120 @@ function markFlightNotifSent(flightId, changeType) {
   }
 }
 
-async function sendTelegramMessageDirect(chatId, text) {
+async function sendTelegramMessageDirect(chatId, text, options = {}) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) return;
   try {
+    const body = {
+      chat_id: chatId, text,
+      parse_mode: 'HTML', disable_web_page_preview: true,
+    };
+    if (options.reply_markup) body.reply_markup = options.reply_markup;
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId, text,
-        parse_mode: 'HTML', disable_web_page_preview: true,
-      }),
+      body: JSON.stringify(body),
     });
   } catch (err) {
     console.error(`[FlightNotif] Telegram send error:`, err.message);
   }
+}
+
+async function answerTelegramCallbackQuery(callbackQueryId, text) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !callbackQueryId) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callback_query_id: callbackQueryId, text: text || '' }),
+    });
+  } catch (err) {
+    console.error(`[Telegram] answerCallbackQuery error:`, err.message);
+  }
+}
+
+async function editTelegramMessageText(chatId, messageId, text) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId || !messageId) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId, message_id: messageId, text,
+        parse_mode: 'HTML', disable_web_page_preview: true,
+      }),
+    });
+  } catch (err) {
+    console.error(`[Telegram] editMessageText error:`, err.message);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function handleTelegramCallbackQuery(cbq) {
+  const cbqId = cbq.id;
+  const data = cbq.data || '';
+  const fromChatId = cbq.message?.chat?.id?.toString();
+  const messageId = cbq.message?.message_id;
+  const originalText = cbq.message?.text || '';
+
+  const match = data.match(/^agent_(approve|reject):(.+)$/);
+  if (!match || !fromChatId || !messageId) {
+    await answerTelegramCallbackQuery(cbqId, '');
+    return;
+  }
+  const action = match[1];
+  const targetSlug = match[2].toLowerCase();
+
+  const { data: admin } = await supabase
+    .from('agents')
+    .select('id, name, role')
+    .eq('telegram_chat_id', fromChatId)
+    .single();
+
+  if (!admin || admin.role !== 'admin') {
+    await answerTelegramCallbackQuery(cbqId, 'Tidak diizinkan.');
+    return;
+  }
+
+  const escapedOriginal = escapeHtml(originalText);
+
+  const target = await getAgentBySlug(targetSlug);
+  if (!target) {
+    await answerTelegramCallbackQuery(cbqId, 'Agent tidak ditemukan.');
+    await editTelegramMessageText(fromChatId, messageId, `${escapedOriginal}\n\nℹ️ <i>Agent tidak ditemukan.</i>`);
+    return;
+  }
+
+  const newStatus = action === 'approve' ? 'active' : 'rejected';
+  const { data: updated, error: updateErr } = await supabase
+    .from('agents')
+    .update({ status: newStatus })
+    .eq('id', target.id)
+    .eq('status', 'pending')
+    .select('slug')
+    .single();
+
+  if (updateErr || !updated) {
+    await answerTelegramCallbackQuery(cbqId, 'Sudah diproses admin lain.');
+    await editTelegramMessageText(fromChatId, messageId, `${escapedOriginal}\n\nℹ️ <i>Sudah diproses.</i>`);
+    return;
+  }
+
+  invalidateAgentCache();
+  if (action === 'approve') triggerOgRegen(updated.slug);
+
+  const waktu = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' });
+  const adminName = escapeHtml(admin.name || 'admin');
+  const footer = action === 'approve'
+    ? `\n\n✅ <i>Disetujui oleh ${adminName} • ${waktu} WIB</i>`
+    : `\n\n❌ <i>Ditolak oleh ${adminName} • ${waktu} WIB</i>`;
+  await editTelegramMessageText(fromChatId, messageId, escapedOriginal + footer);
+  await answerTelegramCallbackQuery(cbqId, action === 'approve' ? 'Agent disetujui.' : 'Agent ditolak.');
 }
 
 async function detectAndNotifyChanges(oldData, newData, calendarEvent) {

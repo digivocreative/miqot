@@ -118,8 +118,8 @@ const FIELD_CONFIG: Record<string, FieldDef> = {
   // appearing right before "No. KTP" (order 14) per user preference. ──
   pendaftar:     { label: 'Nama Pendaftar', section: 'jamaah', order: 13.5, required: true, placeholder: 'Nama pendaftar' },
   nama_pendaftar:{ label: 'Nama Pendaftar', section: 'jamaah', order: 13.5, required: true, placeholder: 'Nama pendaftar' },
-  tpendaftar:    { label: 'No. Telp/HP Pendaftar', section: 'jamaah', order: 13.6, required: true, placeholder: 'Nomor HP pendaftar' },
-  tlp_pendaftar: { label: 'No. Telp/HP Pendaftar', section: 'jamaah', order: 13.6, required: true, placeholder: 'Nomor HP pendaftar' },
+  tpendaftar:    { label: 'No. Telp/HP Pendaftar', section: 'jamaah', order: 13.6, required: true, hidden: true, defaultValue: '1111111111' },
+  tlp_pendaftar: { label: 'No. Telp/HP Pendaftar', section: 'jamaah', order: 13.6, required: true, hidden: true, defaultValue: '1111111111' },
 
   // ── Keterangan: hidden, submitted as "X" ──
   keterangan:    { label: 'Keterangan (Lain-lain)', section: 'jamaah', order: 22.5, required: true, hidden: true, defaultValue: 'X' },
