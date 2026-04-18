@@ -2650,8 +2650,6 @@ app.post('/api/capi/:slug/validate', async (req, res) => {
   }
 });
 
-// Event Logs
-const capiLogCleanupLast = new Map(); // agentId -> timestamp
 app.get('/api/capi/:slug/logs', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
   const agent = await getAgentBySlug(slug);
@@ -2673,19 +2671,6 @@ app.get('/api/capi/:slug/logs', async (req, res) => {
 
   const { data: logs, count, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
-
-  // Async cleanup: delete logs older than 30 days (throttled to once/hour per agent)
-  const now = Date.now();
-  if (!capiLogCleanupLast.has(agent.id) || now - capiLogCleanupLast.get(agent.id) > 3600000) {
-    capiLogCleanupLast.set(agent.id, now);
-    supabase.from('capi_event_logs')
-      .delete()
-      .eq('agent_id', agent.id)
-      .lt('created_at', new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString())
-      .then(({ error: cleanErr }) => {
-        if (cleanErr) console.error('[CAPI] Log cleanup error:', cleanErr.message);
-      });
-  }
 
   res.json({
     logs: logs || [],
