@@ -22,6 +22,13 @@ import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
+import {
+  runAnalyticsMaintenance,
+  fetchEventsForRange,
+  countMatches,
+  tallyBy,
+  RAW_RETENTION_DAYS,
+} from './lib/analytics-maintenance.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -253,6 +260,30 @@ async function fetchKursWithRetry() {
 }
 
 scheduleKursCron();
+
+function scheduleAnalyticsMaintenanceCron() {
+  const now = new Date();
+  // 02:00 WIB = 19:00 UTC previous day
+  const next = new Date(now);
+  next.setUTCHours(19, 0, 0, 0);
+  if (next <= now) {
+    next.setUTCDate(next.getUTCDate() + 1);
+  }
+  const msUntil = next - now;
+  const wibHour = (next.getUTCHours() + 7) % 24;
+  const wibMin = String(next.getUTCMinutes()).padStart(2, '0');
+  console.log(`[Analytics] Next maintenance run in ${Math.round(msUntil / 60000)} minutes (${wibHour}:${wibMin} WIB)`);
+  setTimeout(async () => {
+    try {
+      await runAnalyticsMaintenance(supabase);
+    } catch (err) {
+      console.error('[Analytics] Maintenance run threw:', err.message);
+    }
+    scheduleAnalyticsMaintenanceCron();
+  }, msUntil);
+}
+
+scheduleAnalyticsMaintenanceCron();
 
 // GET /api/kurs — Kurs semua mata uang (public, no auth)
 app.get('/api/kurs', (req, res) => {
