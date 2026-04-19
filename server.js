@@ -63,6 +63,10 @@ app.use(express.json({ limit: '10mb' }));
 
 // ── Analytics: fire-and-forget event logger ──
 async function logAnalyticsEvent(agentId, eventType, eventName, metadata = {}) {
+  if (!agentId) {
+    console.warn('[Analytics] Skipping event with null agent_id:', { eventType, eventName });
+    return { ok: false, error: 'missing agent_id' };
+  }
   try {
     const { error } = await supabase.from('analytics_events').insert({
       agent_id: agentId,
@@ -370,6 +374,9 @@ async function authMiddleware(req, res, next) {
         decoded.id = agent.id;
         decoded.slug = agent.slug; // update to current slug
       }
+    }
+    if (!decoded.id) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
     }
     req.user = decoded; // { id, slug, name, role }
     next();
@@ -6966,7 +6973,7 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       page_view: 'Page View', wa_click_public: 'WA Click Public',
     };
     const recentActivity = rawEvents
-      .filter(e => e.created_at.slice(0, 10) === todayStr && e.event_name !== 'page_view')
+      .filter(e => e.agent_id && e.created_at.slice(0, 10) === todayStr && e.event_name !== 'page_view')
       .slice(0, 10)
       .map(e => ({
         agentSlug: agentSlugMap[e.agent_id] || e.agent_id,
