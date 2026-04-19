@@ -2800,6 +2800,28 @@ function getActiveHijriahYears() {
   return Object.keys(HIJRIAH_YEARS).sort((a, b) => Number(b) - Number(a));
 }
 
+// Defensive filter applied right before every jamaah upsert. Drops any row
+// whose jm_id isn't a real legacy `JM...` identifier, so stray code paths
+// can never again introduce ghost duplicates into the table.
+function filterSafeJamaahRows(rows, context) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+  const safe = [];
+  let dropped = 0;
+  for (const r of rows) {
+    const v = r && r.jm_id ? String(r.jm_id).trim() : '';
+    if (v && /^JM/i.test(v) && !v.startsWith('__')) {
+      safe.push(r);
+    } else {
+      dropped++;
+      console.log(`[Sync/${context}] DROP ghost row ${r?.id_umroh || '?'} ${r?.nama || '?'} jm_id=${JSON.stringify(r?.jm_id)}`);
+    }
+  }
+  if (dropped > 0) {
+    console.warn(`[Sync/${context}] filterSafeJamaahRows dropped ${dropped}/${rows.length}`);
+  }
+  return safe;
+}
+
 // Helper: build rows from parsed items — hijriah_year determined per item by tgl_berangkat
 function buildRows(items, agentId, now) {
   const MIN_HIJRIAH_YEAR = 1447;
@@ -2813,7 +2835,10 @@ function buildRows(items, agentId, now) {
     // skip rows where the scraper couldn't extract one, otherwise we'd create
     // ghost duplicates when a later sync pass produces the real jm_id.
     const jmId = item.jm_id || (item.raw_data && item.raw_data.jm_id) || null;
-    if (!jmId || !/^JM/i.test(jmId)) continue;
+    if (!jmId || !/^JM/i.test(String(jmId).trim())) {
+      console.log(`[Sync/buildRows] SKIP no-jmid ${item.id_umroh || '?'} ${item.nama || '?'} (raw=${JSON.stringify(item.jm_id)})`);
+      continue;
+    }
     const key = `${agentId}_${item.id_umroh || ''}_${jmId}`.trim().toLowerCase();
     map.set(key, {
       agent_id: agentId,
@@ -2972,7 +2997,10 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
             // the scraper didn't extract a real JM... id; Phase 2 will populate
             // them with the real id later. Synthesizing a fallback here would
             // create ghost duplicates that diverge from Phase 2's canonical row.
-            if (!item.jm_id || !/^JM/i.test(item.jm_id)) continue;
+            if (!item.jm_id || !/^JM/i.test(String(item.jm_id).trim())) {
+              console.log(`[Sync/P1-manual] SKIP no-jmid ${item.id_umroh || '?'} ${item.nama || '?'} (raw=${JSON.stringify(item.jm_id)})`);
+              continue;
+            }
             rowsToUpsert.push({
               agent_id: agentId,
               id_umroh: item.id_umroh,
@@ -3010,7 +3038,8 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 
           const BATCH = 50;
           for (let b = 0; b < dedupedRows.length; b += BATCH) {
-            const upsertBatch = dedupedRows.slice(b, b + BATCH);
+            const upsertBatch = filterSafeJamaahRows(dedupedRows.slice(b, b + BATCH), 'P1-manual');
+            if (upsertBatch.length === 0) continue;
             const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
             if (error) console.error(`[Sync] ${slug} Phase 1 upsert error:`, error.message);
           }
@@ -3263,7 +3292,8 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         });
         const BATCH = 50;
         for (let b = 0; b < safeRows.length; b += BATCH) {
-          const upsertBatch = safeRows.slice(b, b + BATCH);
+          const upsertBatch = filterSafeJamaahRows(safeRows.slice(b, b + BATCH), 'P2-manual');
+          if (upsertBatch.length === 0) continue;
           const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
           if (error) console.error(`[Sync] ${slug} Phase 2 range ${job.tglAwal} error:`, error.message);
         }
@@ -8636,7 +8666,10 @@ async function syncOneAgent(agent) {
               item.paket = item.paket || bookingPaketMap.get(idUmroh) || null;
               // Skip rows without a real JM jm_id — Phase 2 will populate them.
               // Synthesizing a fallback here would create ghost duplicates.
-              if (!item.jm_id || !/^JM/i.test(item.jm_id)) continue;
+              if (!item.jm_id || !/^JM/i.test(String(item.jm_id).trim())) {
+                console.log(`[Sync/P1-bg] SKIP no-jmid ${item.id_umroh || '?'} ${item.nama || '?'} (raw=${JSON.stringify(item.jm_id)})`);
+                continue;
+              }
               rowsToUpsert.push({
                 agent_id: agentId,
                 id_umroh: item.id_umroh,
@@ -8712,7 +8745,8 @@ async function syncOneAgent(agent) {
 
             const BATCH = 50;
             for (let b = 0; b < dedupedRows.length; b += BATCH) {
-              const upsertBatch = dedupedRows.slice(b, b + BATCH);
+              const upsertBatch = filterSafeJamaahRows(dedupedRows.slice(b, b + BATCH), 'P1-bg');
+              if (upsertBatch.length === 0) continue;
               const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
               if (error) console.error(`[SYNC] ${slug} Phase 1 upsert error:`, error.message);
             }
@@ -8897,10 +8931,13 @@ async function syncOneAgent(agent) {
             }
           }
           allNewRows.push(...rows);
-          const { error } = await supabase
-            .from('jamaah')
-            .upsert(rows, { onConflict: 'agent_id,id_umroh,jm_id' });
-          if (error) console.error(`[SYNC] ${slug} range ${job.tglAwal} batch error:`, error.message);
+          const safeRows = filterSafeJamaahRows(rows, 'P2-bg');
+          if (safeRows.length > 0) {
+            const { error } = await supabase
+              .from('jamaah')
+              .upsert(safeRows, { onConflict: 'agent_id,id_umroh,jm_id' });
+            if (error) console.error(`[SYNC] ${slug} range ${job.tglAwal} batch error:`, error.message);
+          }
           // Phase 2 is enrichment, not new-jamaah-count. Don't re-count — same jamaah
           // appears across multiple 7-day chunks which would inflate the counter.
           syncingAgents.set(agentId, { isSyncing: true, background: true, scope: 'umroh-bg', totalSynced, lastSync: syncTime });
