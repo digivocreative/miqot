@@ -210,7 +210,7 @@ async function broadcastToAgents(changeType, messageBuilder) {
     for (const agent of agents) {
       if (agent.notification_prefs?.[changeType] === false) continue;
 
-      const message = messageBuilder(agent.name);
+      const message = messageBuilder(agent.name, agent.slug);
       if (!message) continue;
 
       try {
@@ -1811,6 +1811,7 @@ async function checkAndNotify() {
           const { type: bType, pkg: bPkg, changes: bChanges } = notif.agentBroadcast;
           if (bType === 'seat_alert') {
             seatAlerts.push({
+              id: bPkg.jadwal_id,
               nama: escHtml(bPkg.jadwal_nama || ''),
               tgl: formatDateShort(bPkg.berangkat_tgl),
               sisa: seatInt(bPkg),
@@ -1818,6 +1819,7 @@ async function checkAndNotify() {
           } else if (bType === 'paket_baru') {
             const { lowest } = getLowestPrice(bPkg.paket_harga);
             paketBarus.push({
+              id: bPkg.jadwal_id,
               nama: escHtml(bPkg.jadwal_nama || ''),
               tgl: formatDateShort(bPkg.berangkat_tgl),
               harga: lowest ? formatRupiah(lowest) : '-',
@@ -1825,6 +1827,7 @@ async function checkAndNotify() {
             });
           } else if (bType === 'perubahan_harga' && bChanges) {
             hargaChanges.push({
+              id: bPkg.jadwal_id,
               nama: escHtml(bPkg.jadwal_nama || bPkg.jadwal_id || ''),
               tgl: formatDateShort(bPkg.berangkat_tgl),
               changes: bChanges,
@@ -1832,40 +1835,46 @@ async function checkAndNotify() {
           }
         }
 
+        const pkgUrl = (slug, id) => `https://alhijaz.co/${slug}/${id}`;
+
         if (seatAlerts.length > 0) {
-          const lines = seatAlerts.map(s => `→ ${s.nama}\n   Berangkat: ${s.tgl} • Sisa: <b>${s.sisa} seat</b>`).join('\n\n');
-          await broadcastToAgents('seat_alert', (agentName) =>
-            `🪑 Halo ${agentName}!\n\n` +
-            `<b>Seat tinggal sedikit!</b>\n\n` +
-            lines + '\n\n' +
-            `Segera infokan ke calon jamaah yang berminat! 🏃‍♂️`
-          );
+          await broadcastToAgents('seat_alert', (agentName, agentSlug) => {
+            const lines = seatAlerts.map(s =>
+              `→ <b>${s.nama}</b>\n   Berangkat: ${s.tgl} • Sisa: <b>${s.sisa} seat</b>\n   🔗 <code>${pkgUrl(agentSlug, s.id)}</code>`
+            ).join('\n\n');
+            return `🪑 Halo ${agentName}!\n\n` +
+              `<b>Seat tinggal sedikit!</b>\n\n` +
+              lines + '\n\n' +
+              `Segera infokan ke calon jamaah yang berminat! 🏃‍♂️`;
+          });
         }
 
         if (paketBarus.length > 0) {
-          const lines = paketBarus.map(p => `→ ${p.nama}\n   Berangkat: ${p.tgl} • Harga mulai: <b>${p.harga}</b> • Seat: ${p.seat}`).join('\n\n');
-          await broadcastToAgents('paket_baru', (agentName) =>
-            `🆕 Halo ${agentName}!\n\n` +
-            `<b>${paketBarus.length > 1 ? paketBarus.length + ' paket baru' : 'Paket baru'} tersedia!</b>\n\n` +
-            lines + '\n\n' +
-            `Cek detail dan mulai promosikan ke calon jamaah! 🎉`
-          );
+          await broadcastToAgents('paket_baru', (agentName, agentSlug) => {
+            const lines = paketBarus.map(p =>
+              `→ <b>${p.nama}</b>\n   Berangkat: ${p.tgl} • Harga mulai: <b>${p.harga}</b> • Seat: ${p.seat}\n   🔗 <code>${pkgUrl(agentSlug, p.id)}</code>`
+            ).join('\n\n');
+            return `🆕 Halo ${agentName}!\n\n` +
+              `<b>${paketBarus.length > 1 ? paketBarus.length + ' paket baru' : 'Paket baru'} tersedia!</b>\n\n` +
+              lines + '\n\n' +
+              `Cek detail dan mulai promosikan ke calon jamaah! 🎉`;
+          });
         }
 
         if (hargaChanges.length > 0) {
-          const lines = hargaChanges.map(h => {
-            const cl = h.changes.map(c => {
-              const dir = c.newPrice > c.oldPrice ? '📈 naik' : '📉 turun';
-              return `   ${escHtml(c.paketType)} ${escHtml(c.roomType)}: ${formatRupiah(c.oldPrice)} → ${formatRupiah(c.newPrice)} (${dir})`;
-            }).join('\n');
-            return `→ ${h.nama}\n   Berangkat: ${h.tgl}\n${cl}`;
-          }).join('\n\n');
-          await broadcastToAgents('perubahan_harga', (agentName) =>
-            `💲 Halo ${agentName}!\n\n` +
-            `<b>Perubahan harga paket!</b>\n\n` +
-            lines + '\n\n' +
-            `Update info ke jamaah yang sudah tanya ya!`
-          );
+          await broadcastToAgents('perubahan_harga', (agentName, agentSlug) => {
+            const lines = hargaChanges.map(h => {
+              const cl = h.changes.map(c => {
+                const dir = c.newPrice > c.oldPrice ? '📈 naik' : '📉 turun';
+                return `   ${escHtml(c.paketType)} ${escHtml(c.roomType)}: ${formatRupiah(c.oldPrice)} → ${formatRupiah(c.newPrice)} (${dir})`;
+              }).join('\n');
+              return `→ <b>${h.nama}</b>\n   Berangkat: ${h.tgl}\n${cl}\n   🔗 <code>${pkgUrl(agentSlug, h.id)}</code>`;
+            }).join('\n\n');
+            return `💲 Halo ${agentName}!\n\n` +
+              `<b>Perubahan harga paket!</b>\n\n` +
+              lines + '\n\n' +
+              `Update info ke jamaah yang sudah tanya ya!`;
+          });
         }
       } else {
         // Queue for later
