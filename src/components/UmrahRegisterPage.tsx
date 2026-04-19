@@ -1221,8 +1221,11 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
           showLoading ? <Loader2 size={12} className="animate-spin text-emerald-500 ml-1" /> : undefined,
         )}
         {isDependentField && opts.length === 0 ? (
-          <div className={`${INPUT_CLASS} text-gray-400 flex items-center`}>
-            {showLoading ? 'Mengambil opsi...' : 'Pilih tanggal berangkat dulu'}
+          <div className={`${INPUT_CLASS} relative overflow-hidden flex items-center text-gray-400`}>
+            {showLoading && (
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-emerald-200/30 dark:via-emerald-400/10 to-transparent animate-shimmer" />
+            )}
+            <span className="relative">{showLoading ? 'Mengambil opsi…' : 'Pilih tanggal berangkat dulu'}</span>
           </div>
         ) : (
           // Always use SearchableSelect for visual consistency across all dropdowns

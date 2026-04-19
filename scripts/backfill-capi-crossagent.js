@@ -22,7 +22,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // ── Config ──
-const SLUGS = ['anne'];
+const SLUGS = ['ninanasution'];
 const PER_AGENT = 200;
 const DELAY_MS = 120; // ~8 req/sec per agent
 

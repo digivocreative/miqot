@@ -21,8 +21,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // ── Config ──
-const SLUGS = ['isti', 'zakia', 'yenitaofficial', 'linda', 'sari', 'dianwahyuni', 'nila', 'andra', 'aisyah'];
-const LIMIT = 200;
+const SLUGS = ['ninanasution'];
+const LIMIT = 1000;
 const DELAY_MS = 120; // ~8 req/sec per agent
 
 // ── Setup ──
@@ -44,7 +44,7 @@ function capiDecrypt(data) {
 
 const sha256 = (v) => v ? crypto.createHash('sha256').update(v.trim().toLowerCase()).digest('hex') : undefined;
 
-async function fireCapiPurchase(config, accessToken, slug, jamaah) {
+async function fireCapiPurchase(config, accessToken, slug, jamaah, agentId) {
   const userName = jamaah.nama || '';
   const userPhone = jamaah.wa || '';
   const value = (jamaah.bayar || 0) + (jamaah.sisa || 0);
@@ -56,10 +56,11 @@ async function fireCapiPurchase(config, accessToken, slug, jamaah) {
   if (userPhone) userData.ph = sha256(userPhone.replace(/\D/g, ''));
   userData.country = sha256('id');
 
+  // Deterministic event_id: Meta auto-dedupes if same jamaah re-fires later via sync
   const payload = {
     data: [{
       event_name: 'Purchase',
-      event_id: `backfill-${slug}-${id}-${Date.now()}`,
+      event_id: `${agentId}-${id}-lunas`,
       event_time: Math.floor(Date.now() / 1000),
       event_source_url: `https://alhijaz.co/${slug}`,
       action_source: 'system_generated',
@@ -140,7 +141,7 @@ async function processAgent(slug) {
 
   for (let i = 0; i < jamaahList.length; i++) {
     const j = jamaahList[i];
-    const result = await fireCapiPurchase(config, accessToken, slug, j);
+    const result = await fireCapiPurchase(config, accessToken, slug, j, agent.id);
 
     if (result.ok) {
       success++;

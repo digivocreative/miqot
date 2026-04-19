@@ -42,12 +42,22 @@ export default {
           '0%, 100%': { boxShadow: '0 0 0 0 rgba(16, 185, 129, 0)' },
           '50%': { boxShadow: '0 0 0 6px rgba(16, 185, 129, 0.12)' },
         },
+        shimmer: {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(100%)' },
+        },
+        paketFloat: {
+          '0%, 100%': { transform: 'translateY(0) rotate(-2deg)' },
+          '50%': { transform: 'translateY(-2px) rotate(2deg)' },
+        },
       },
       animation: {
         barPulse: 'barPulse 2s ease-in-out infinite',
         slideUp: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
         ktpScan: 'ktpScan 1.8s ease-in-out infinite',
         ktpGlow: 'ktpGlow 1.8s ease-in-out infinite',
+        shimmer: 'shimmer 1.6s ease-in-out infinite',
+        paketFloat: 'paketFloat 2.2s ease-in-out infinite',
       },
     },
   },

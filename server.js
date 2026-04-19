@@ -2247,8 +2247,11 @@ function logCapiEvent(agentId, eventName, status, { value, errorMessage, source 
 /**
  * Fire a single CAPI Purchase event to Meta Graph API.
  * Silent fail — jangan ganggu sync flow.
+ *
+ * `phase` is 'dp' or 'lunas' — used to generate DETERMINISTIC event_id
+ * so Meta auto-dedupes if the same event is accidentally sent more than once.
  */
-async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, value, contentName, contentType, userName, userPhone }) {
+async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, value, contentName, contentType, userName, userPhone, phase }) {
   // Hash user data for Meta (SHA-256) — Meta requires hashed PII
   const sha256 = (v) => v ? crypto.createHash('sha256').update(v.trim().toLowerCase()).digest('hex') : undefined;
 
@@ -2258,9 +2261,13 @@ async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, v
   if (userPhone) userData.ph = sha256(userPhone.replace(/\D/g, '')); // phone digits only
   userData.country = sha256('id'); // Indonesia
 
+  // Deterministic event_id: same jamaah + same phase = same ID, Meta auto-dedupes
+  const eventId = `${agentId}-${id}-${phase}`;
+
   const payload = {
     data: [{
       event_name: 'Purchase',
+      event_id: eventId,
       event_time: Math.floor(Date.now() / 1000),
       event_source_url: `https://alhijaz.co/${slug}`,
       action_source: 'system_generated',
@@ -2282,7 +2289,6 @@ async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, v
   );
 
   const respData = await resp.json();
-  console.log(`[CAPI] Purchase ${slug}/${id} Meta response:`, JSON.stringify(respData));
 
   if (!resp.ok || respData?.error) {
     const errMsg = respData?.error?.message || `HTTP ${resp.status}`;
@@ -2296,12 +2302,16 @@ async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, v
     logCapiEvent(agentId, 'Purchase', 'error', { value, errorMessage: msg.slice(0, 500), source: 'sync' });
     return false;
   }
-  console.log(`[CAPI] Purchase sent: ${slug}/${id} (${contentType}) = Rp${value.toLocaleString('id-ID')} | events_received: ${respData.events_received}`);
+  console.log(`[CAPI] Purchase sent: ${slug}/${id} (${contentType}/${phase}) = Rp${value.toLocaleString('id-ID')}`);
   logCapiEvent(agentId, 'Purchase', 'success', { value, source: 'sync' });
   return true;
 }
 
 const HAJI_PURCHASE_VALUE = 60000000;
+
+// In-memory mutex: serialize processCapiPurchases per agent.
+// Prevents race conditions when multiple sync batches fire in parallel.
+const capiPurchaseLocks = new Map(); // agentId -> Promise
 
 /**
  * Process CAPI Purchase events for Umroh or Haji jamaah after sync upsert.
@@ -2314,6 +2324,61 @@ const HAJI_PURCHASE_VALUE = 60000000;
  * @param {Array} upsertedIdentifiers - for umroh: [{id_umroh, nama}], for haji: [{id_haji, id_jamaah}]
  */
 async function processCapiPurchases(agentId, slug, type, upsertedIdentifiers) {
+  // Serialize per-agent to eliminate race conditions between parallel sync batches.
+  // Multiple calls for the same agent queue up sequentially; different agents run parallel.
+  const prev = capiPurchaseLocks.get(agentId);
+  const currentPromise = (async () => {
+    if (prev) { try { await prev; } catch {} } // wait for previous call, ignore its errors
+    return await _doProcessCapiPurchases(agentId, slug, type, upsertedIdentifiers);
+  })();
+  capiPurchaseLocks.set(agentId, currentPromise);
+  try {
+    return await currentPromise;
+  } finally {
+    // Only clear if this is still the latest promise (another may have chained on)
+    if (capiPurchaseLocks.get(agentId) === currentPromise) {
+      capiPurchaseLocks.delete(agentId);
+    }
+  }
+}
+
+/**
+ * Atomic claim: try to transition capi_purchase_status from expected values to target.
+ * Only rows that were actually updated (matching expected status) are returned.
+ * Prevents duplicate fires when multiple workers race for the same jamaah.
+ */
+async function _claimCapiStatus(table, agentId, matchKey, expectedStatuses, target) {
+  // Build WHERE from matchKey (id_umroh+nama OR id_haji+id_jamaah)
+  let q = supabase.from(table).update({ capi_purchase_status: target }).eq('agent_id', agentId);
+  for (const [k, v] of Object.entries(matchKey)) q = q.eq(k, v);
+
+  // Expected status filter: 'null' for NULL, or exact value
+  // Supabase .or() syntax: "col.is.null,col.eq.dp"
+  const orClauses = expectedStatuses.map(s => s === null ? 'capi_purchase_status.is.null' : `capi_purchase_status.eq.${s}`).join(',');
+  q = q.or(orClauses);
+
+  const { data, error } = await q.select();
+  if (error) {
+    console.error(`[CAPI] Claim error (${JSON.stringify(matchKey)} → ${target}):`, error.message);
+    return false;
+  }
+  return data && data.length > 0;
+}
+
+/**
+ * Rollback a claim: revert capi_purchase_status back to previous value.
+ * Used when fire fails after claim, so next sync can retry.
+ */
+async function _rollbackCapiStatus(table, agentId, matchKey, fromStatus, toStatus) {
+  let q = supabase.from(table).update({ capi_purchase_status: toStatus }).eq('agent_id', agentId);
+  for (const [k, v] of Object.entries(matchKey)) q = q.eq(k, v);
+  if (fromStatus === null) q = q.is('capi_purchase_status', null);
+  else q = q.eq('capi_purchase_status', fromStatus);
+  const { error } = await q;
+  if (error) console.error(`[CAPI] Rollback error:`, error.message);
+}
+
+async function _doProcessCapiPurchases(agentId, slug, type, upsertedIdentifiers) {
   try {
     if (!upsertedIdentifiers?.length) return;
 
@@ -2360,81 +2425,66 @@ async function processCapiPurchases(agentId, slug, type, upsertedIdentifiers) {
         if (bayar <= 0) continue;
 
         if (sisa <= 0) {
-          // Lunas — either via DP or direct
           lunasRows.push({
-            id: row.id_umroh,
-            value: bayar,
-            contentName: row.paket || 'Paket Umroh',
-            contentType: 'umroh',
-            userName: row.nama,
-            userPhone: row.wa,
+            id: row.id_umroh, value: bayar, contentName: row.paket || 'Paket Umroh',
+            contentType: 'umroh', userName: row.nama, userPhone: row.wa,
             matchKey: { id_umroh: row.id_umroh, nama: row.nama },
+            phase: 'lunas', fromStatus: status,
           });
         } else if (sisa > 0 && status === null) {
-          // DP
           dpRows.push({
-            id: row.id_umroh,
-            value: bayar,
-            contentName: row.paket || 'Paket Umroh',
-            contentType: 'umroh',
-            userName: row.nama,
-            userPhone: row.wa,
+            id: row.id_umroh, value: bayar, contentName: row.paket || 'Paket Umroh',
+            contentType: 'umroh', userName: row.nama, userPhone: row.wa,
             matchKey: { id_umroh: row.id_umroh, nama: row.nama },
+            phase: 'dp', fromStatus: null,
           });
         }
       } else {
-        // Haji
         const statusBayar = (row.status_bayar || '').toUpperCase();
         if (statusBayar === 'BELUM BAYAR') continue;
 
         if (statusBayar === 'LUNAS' && status !== 'lunas') {
           lunasRows.push({
-            id: row.id_haji,
-            value: HAJI_PURCHASE_VALUE,
-            contentName: row.paket || 'Paket Haji',
-            contentType: 'haji',
-            userName: row.nama,
-            userPhone: row.telp,
+            id: row.id_haji, value: HAJI_PURCHASE_VALUE, contentName: row.paket || 'Paket Haji',
+            contentType: 'haji', userName: row.nama, userPhone: row.telp,
             matchKey: { id_haji: row.id_haji, id_jamaah: row.id_jamaah },
+            phase: 'lunas', fromStatus: status,
           });
         } else if (statusBayar === 'CICILAN' && status === null) {
           dpRows.push({
-            id: row.id_haji,
-            value: HAJI_PURCHASE_VALUE,
-            contentName: row.paket || 'Paket Haji',
-            contentType: 'haji',
-            userName: row.nama,
-            userPhone: row.telp,
+            id: row.id_haji, value: HAJI_PURCHASE_VALUE, contentName: row.paket || 'Paket Haji',
+            contentType: 'haji', userName: row.nama, userPhone: row.telp,
             matchKey: { id_haji: row.id_haji, id_jamaah: row.id_jamaah },
+            phase: 'dp', fromStatus: null,
           });
         }
       }
     }
 
-    // Fire DP events and update status
+    let firedDp = 0, firedLunas = 0, skippedByClaim = 0;
+
+    // DP phase: claim NULL → 'dp', fire, rollback to NULL on failure
     for (const row of dpRows) {
+      const claimed = await _claimCapiStatus(table, agentId, row.matchKey, [null], 'dp');
+      if (!claimed) { skippedByClaim++; continue; } // another worker got it
+
       const ok = await fireCapiPurchaseEvent(agentId, config, accessToken, slug, row);
-      if (ok) {
-        // Build WHERE: agent_id = X AND id_umroh = Y AND nama = Z (or id_haji + id_jamaah for haji)
-        const q = Object.entries(row.matchKey).reduce((qb, [k, v]) => qb.eq(k, v), supabase.from(table).update({ capi_purchase_status: 'dp' }).eq('agent_id', agentId));
-        const { error } = await q;
-        if (error) console.error(`[CAPI] Failed to update status to dp for ${row.id}:`, error.message);
-      }
+      if (ok) firedDp++;
+      else await _rollbackCapiStatus(table, agentId, row.matchKey, 'dp', null); // retry next sync
     }
 
-    // Fire Lunas events and update status
+    // Lunas phase: claim (NULL or 'dp') → 'lunas', fire, rollback on failure
     for (const row of lunasRows) {
+      const claimed = await _claimCapiStatus(table, agentId, row.matchKey, [null, 'dp'], 'lunas');
+      if (!claimed) { skippedByClaim++; continue; }
+
       const ok = await fireCapiPurchaseEvent(agentId, config, accessToken, slug, row);
-      if (ok) {
-        const q = Object.entries(row.matchKey).reduce((qb, [k, v]) => qb.eq(k, v), supabase.from(table).update({ capi_purchase_status: 'lunas' }).eq('agent_id', agentId));
-        const { error } = await q;
-        if (error) console.error(`[CAPI] Failed to update status to lunas for ${row.id}:`, error.message);
-      }
+      if (ok) firedLunas++;
+      else await _rollbackCapiStatus(table, agentId, row.matchKey, 'lunas', row.fromStatus); // retry next sync
     }
 
-    const total = dpRows.length + lunasRows.length;
-    if (total > 0) {
-      console.log(`[CAPI] ${slug}: fired ${dpRows.length} DP + ${lunasRows.length} Lunas Purchase events (${type})`);
+    if (firedDp + firedLunas + skippedByClaim > 0) {
+      console.log(`[CAPI] ${slug}: fired ${firedDp} DP + ${firedLunas} Lunas, skipped ${skippedByClaim} (already claimed) — ${type}`);
     }
   } catch (err) {
     console.error(`[CAPI] processCapiPurchases error (${type}) ${slug}:`, err.message);
