@@ -50,6 +50,35 @@ export default {
           '0%, 100%': { transform: 'translateY(0) rotate(-2deg)' },
           '50%': { transform: 'translateY(-2px) rotate(2deg)' },
         },
+        'icon-float': {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-2px)' },
+        },
+        'icon-breathe': {
+          '0%, 100%': { transform: 'scale(1)' },
+          '50%': { transform: 'scale(1.08)' },
+        },
+        'icon-sway': {
+          '0%, 100%': { transform: 'rotate(-5deg)' },
+          '50%': { transform: 'rotate(5deg)' },
+        },
+        'icon-wiggle': {
+          '0%, 100%': { transform: 'rotate(0deg)' },
+          '25%': { transform: 'rotate(-4deg)' },
+          '75%': { transform: 'rotate(4deg)' },
+        },
+        'icon-twinkle': {
+          '0%, 100%': { transform: 'scale(1) rotate(0deg)', opacity: '1' },
+          '50%': { transform: 'scale(1.15) rotate(12deg)', opacity: '0.85' },
+        },
+        'icon-spin-slow': {
+          '0%': { transform: 'rotate(0deg)' },
+          '100%': { transform: 'rotate(360deg)' },
+        },
+        'icon-rise': {
+          '0%, 100%': { transform: 'translateY(0) scale(1)' },
+          '50%': { transform: 'translateY(-1.5px) scale(1.05)' },
+        },
       },
       animation: {
         barPulse: 'barPulse 2s ease-in-out infinite',
@@ -58,6 +87,13 @@ export default {
         ktpGlow: 'ktpGlow 1.8s ease-in-out infinite',
         shimmer: 'shimmer 1.6s ease-in-out infinite',
         paketFloat: 'paketFloat 2.2s ease-in-out infinite',
+        'icon-float': 'icon-float 3s ease-in-out infinite',
+        'icon-breathe': 'icon-breathe 2.8s ease-in-out infinite',
+        'icon-sway': 'icon-sway 3.2s ease-in-out infinite',
+        'icon-wiggle': 'icon-wiggle 3.5s ease-in-out infinite',
+        'icon-twinkle': 'icon-twinkle 2.4s ease-in-out infinite',
+        'icon-spin-slow': 'icon-spin-slow 12s linear infinite',
+        'icon-rise': 'icon-rise 3s ease-in-out infinite',
       },
     },
   },

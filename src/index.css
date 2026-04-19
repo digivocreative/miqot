@@ -56,6 +56,45 @@ body {
     -webkit-mask-repeat: no-repeat;
     mask-repeat: no-repeat;
   }
+
+  /* Dashboard menu icon ambient animations */
+  .animate-icon-float    { animation: icon-float    3s   ease-in-out infinite; transform-origin: center; }
+  .animate-icon-breathe  { animation: icon-breathe  2.8s ease-in-out infinite; transform-origin: center; }
+  .animate-icon-sway     { animation: icon-sway     3.2s ease-in-out infinite; transform-origin: center; }
+  .animate-icon-wiggle   { animation: icon-wiggle   3.5s ease-in-out infinite; transform-origin: center; }
+  .animate-icon-twinkle  { animation: icon-twinkle  2.4s ease-in-out infinite; transform-origin: center; }
+  .animate-icon-spin-slow{ animation: icon-spin-slow 12s linear      infinite; transform-origin: center; }
+  .animate-icon-rise     { animation: icon-rise     3s   ease-in-out infinite; transform-origin: center; }
+}
+
+@keyframes icon-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-2px); }
+}
+@keyframes icon-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.08); }
+}
+@keyframes icon-sway {
+  0%, 100% { transform: rotate(-5deg); }
+  50%      { transform: rotate(5deg); }
+}
+@keyframes icon-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25%      { transform: rotate(-4deg); }
+  75%      { transform: rotate(4deg); }
+}
+@keyframes icon-twinkle {
+  0%, 100% { transform: scale(1) rotate(0deg);    opacity: 1; }
+  50%      { transform: scale(1.15) rotate(12deg); opacity: 0.85; }
+}
+@keyframes icon-spin-slow {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes icon-rise {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-1.5px) scale(1.05); }
 }
 
 /* Custom scrollbar */

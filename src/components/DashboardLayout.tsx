@@ -131,6 +131,7 @@ interface MenuCard {
   iconBg: string;
   iconShadow: string;
   hoverShadow: string;
+  iconAnim: string;
   adminOnly?: boolean;
   hidden?: boolean;
   openExternal?: boolean;
@@ -148,6 +149,7 @@ const MENU_CARDS: MenuCard[] = [
     iconBg: 'bg-gradient-to-br from-emerald-400 to-teal-600 dark:from-emerald-500 dark:to-teal-700',
     iconShadow: 'shadow-lg shadow-emerald-500/30 dark:shadow-emerald-900/40',
     hoverShadow: 'hover:shadow-emerald-300/40 dark:hover:shadow-emerald-900/30',
+    iconAnim: 'animate-icon-float',
     openExternal: true,
   },
   {
@@ -160,6 +162,7 @@ const MENU_CARDS: MenuCard[] = [
     iconBg: 'bg-gradient-to-br from-amber-400 to-orange-500 dark:from-amber-500 dark:to-orange-600',
     iconShadow: 'shadow-lg shadow-amber-500/30 dark:shadow-amber-900/40',
     hoverShadow: 'hover:shadow-amber-300/40 dark:hover:shadow-amber-900/30',
+    iconAnim: 'animate-icon-breathe',
   },
   {
     id: 'statistik', label: 'Statistik', desc: 'Ringkasan data',
@@ -171,6 +174,7 @@ const MENU_CARDS: MenuCard[] = [
     iconBg: 'bg-gradient-to-br from-green-400 to-emerald-600 dark:from-green-500 dark:to-emerald-700',
     iconShadow: 'shadow-lg shadow-green-500/30 dark:shadow-emerald-900/40',
     hoverShadow: 'hover:shadow-green-300/40 dark:hover:shadow-emerald-900/30',
+    iconAnim: 'animate-icon-rise',
   },
   {
     id: 'kalkulasi', label: 'Kalkulasi', desc: 'Hitung harga paket',
@@ -182,6 +186,7 @@ const MENU_CARDS: MenuCard[] = [
     iconBg: 'bg-gradient-to-br from-sky-400 to-indigo-600 dark:from-blue-500 dark:to-indigo-700',
     iconShadow: 'shadow-lg shadow-blue-500/30 dark:shadow-blue-900/40',
     hoverShadow: 'hover:shadow-sky-300/40 dark:hover:shadow-blue-900/30',
+    iconAnim: 'animate-icon-wiggle',
   },
   {
     id: 'ai-tools', label: 'Tools', desc: 'Voice over & AI lainnya',
@@ -193,6 +198,7 @@ const MENU_CARDS: MenuCard[] = [
     iconBg: 'bg-gradient-to-br from-fuchsia-400 to-purple-600 dark:from-fuchsia-500 dark:to-purple-700',
     iconShadow: 'shadow-lg shadow-purple-500/30 dark:shadow-purple-900/40',
     hoverShadow: 'hover:shadow-fuchsia-300/40 dark:hover:shadow-purple-900/30',
+    iconAnim: 'animate-icon-twinkle',
   },
   {
     id: 'settings', label: 'Settings', desc: 'Profil, Telegram & CAPI',
@@ -204,6 +210,7 @@ const MENU_CARDS: MenuCard[] = [
     iconBg: 'bg-gradient-to-br from-slate-500 to-slate-700 dark:from-slate-600 dark:to-slate-800',
     iconShadow: 'shadow-lg shadow-slate-500/25 dark:shadow-slate-900/40',
     hoverShadow: 'hover:shadow-slate-300/40 dark:hover:shadow-slate-900/30',
+    iconAnim: 'animate-icon-spin-slow',
   },
   {
     id: 'agents', label: 'Agents', desc: 'Lihat & edit agent',
@@ -215,6 +222,7 @@ const MENU_CARDS: MenuCard[] = [
     iconBg: 'bg-gradient-to-br from-cyan-400 to-teal-600 dark:from-cyan-500 dark:to-teal-700',
     iconShadow: 'shadow-lg shadow-cyan-500/30 dark:shadow-cyan-900/40',
     hoverShadow: 'hover:shadow-cyan-300/40 dark:hover:shadow-cyan-900/30',
+    iconAnim: 'animate-icon-breathe',
     adminOnly: true,
   },
   {
@@ -227,6 +235,7 @@ const MENU_CARDS: MenuCard[] = [
     iconBg: 'bg-gradient-to-br from-cyan-400 to-sky-600 dark:from-cyan-500 dark:to-sky-700',
     iconShadow: 'shadow-lg shadow-cyan-500/30 dark:shadow-cyan-900/40',
     hoverShadow: 'hover:shadow-cyan-300/40 dark:hover:shadow-cyan-900/30',
+    iconAnim: 'animate-icon-rise',
     adminOnly: true,
   },
 ];
@@ -671,7 +680,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           <div className={`w-11 h-11 rounded-xl ${card.iconBg} ${card.iconShadow} flex items-center justify-center mb-2 ring-1 ring-white/40 dark:ring-white/10 group-hover:scale-110 group-hover:rotate-3 transition-transform duration-200`}>
             {card.id === 'statistik' && checkingStatistik
               ? <Loader2 size={22} className="text-white" strokeWidth={2} style={{ animation: 'spin 1s linear infinite' }} />
-              : <Icon size={22} className="text-white" strokeWidth={2} />}
+              : <Icon size={22} className={`text-white ${card.iconAnim}`} strokeWidth={2} />}
           </div>
           <p className="text-[12px] font-bold text-gray-800 dark:text-white leading-tight">
             {card.label}
