@@ -2809,9 +2809,11 @@ function buildRows(items, agentId, now) {
     // Skip old year data (< 1447 H); default null to current year
     const year = getHijriahYear(item.tgl_berangkat) || DEFAULT_YEAR;
     if (Number(year) < MIN_HIJRIAH_YEAR) continue;
-    // jm_id uniquely identifies a row per legacy booking. Synthesize from nama
-    // as a fallback for older data where jm_id wasn't captured.
-    const jmId = item.jm_id || (item.raw_data && item.raw_data.jm_id) || `__name_${item.nama}`;
+    // jm_id uniquely identifies a row per legacy booking. Must be real (`JM...`);
+    // skip rows where the scraper couldn't extract one, otherwise we'd create
+    // ghost duplicates when a later sync pass produces the real jm_id.
+    const jmId = item.jm_id || (item.raw_data && item.raw_data.jm_id) || null;
+    if (!jmId || !/^JM/i.test(jmId)) continue;
     const key = `${agentId}_${item.id_umroh || ''}_${jmId}`.trim().toLowerCase();
     map.set(key, {
       agent_id: agentId,
@@ -2966,13 +2968,15 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
             const itemYear = computedYear || existingYear || '1447';
             if (Number(itemYear) < 1447) continue;
             item.paket = item.paket || bookingPaketMap.get(idUmroh) || null;
-            // jm_id is the per-row unique identifier in legacy. Fall back to a
-            // nama-based synthetic if missing so the NOT NULL constraint holds.
-            const jmId = item.jm_id || `__name_${item.nama}`;
+            // jm_id is the per-row unique identifier in legacy. Skip rows where
+            // the scraper didn't extract a real JM... id; Phase 2 will populate
+            // them with the real id later. Synthesizing a fallback here would
+            // create ghost duplicates that diverge from Phase 2's canonical row.
+            if (!item.jm_id || !/^JM/i.test(item.jm_id)) continue;
             rowsToUpsert.push({
               agent_id: agentId,
               id_umroh: item.id_umroh,
-              jm_id: jmId,
+              jm_id: item.jm_id,
               nama: item.nama,
               jk: item.jk || null,
               wa: null,                // Phase 2 fills this
@@ -5668,10 +5672,16 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
     const year = String(hijriahYear);
     const prevYear = String(Number(year) - 1);
 
-    // Fetch all jamaah for this year + prev year
+    // Exclude "Belum DP" jamaah (bayar=0 AND sisa>0) from all count-based metrics
+    // so Ranking Agent / monthly trend / gender / age / paket distribution only
+    // reflect jamaah who have actually committed (paid DP or Lunas).
+    // Equivalent to: NOT (bayar = 0 AND sisa > 0) = bayar>0 OR sisa=0 OR sisa IS NULL.
+    const excludeBelumDP = (q) => q.or('bayar.gt.0,sisa.eq.0,sisa.is.null');
+
+    // Fetch all jamaah for this year + prev year (excluding Belum DP)
     const [rowsCur, rowsPrev] = await Promise.all([
-      fetchAllRows(supabase.from('jamaah').select('tgl_daftar, tgl_berangkat, tgl_lahir, jk, bayar, sisa, paket, agent_id').eq('hijriah_year', year)),
-      fetchAllRows(supabase.from('jamaah').select('tgl_daftar').eq('hijriah_year', prevYear)),
+      fetchAllRows(excludeBelumDP(supabase.from('jamaah').select('tgl_daftar, tgl_berangkat, tgl_lahir, jk, bayar, sisa, paket, agent_id').eq('hijriah_year', year))),
+      fetchAllRows(excludeBelumDP(supabase.from('jamaah').select('tgl_daftar, bayar, sisa').eq('hijriah_year', prevYear))),
     ]);
 
     const cur = rowsCur;
@@ -5730,7 +5740,7 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
 
     for (const hy of allYears) {
       if (heatmap[hy]) continue;
-      const hyRows = await fetchAllRows(supabase.from('jamaah').select('tgl_daftar').eq('hijriah_year', hy));
+      const hyRows = await fetchAllRows(excludeBelumDP(supabase.from('jamaah').select('tgl_daftar, bayar, sisa').eq('hijriah_year', hy)));
       const arr = new Array(12).fill(0);
       hyRows.forEach(j => { if (j.tgl_daftar) { arr[new Date(j.tgl_daftar).getMonth()]++; } });
       heatmap[hy] = arr;
@@ -5884,25 +5894,32 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     const baseMatch = { agent_id: agentId };
     if (year) baseMatch.hijriah_year = year;
 
+    // Exclude "Belum DP" jamaah (bayar=0 AND sisa>0) from jamaah-count metrics.
+    // "Belum DP" are prospects who haven't paid anything yet, so they shouldn't
+    // inflate totals, monthly trends, or comparison numbers shown in Statistik.
+    // Equivalent SQL: NOT (bayar = 0 AND sisa > 0) = bayar>0 OR sisa=0 OR sisa IS NULL.
+    const excludeBelumDP = (q) => q.or('bayar.gt.0,sisa.eq.0,sisa.is.null');
+
     // ── totalJamaah ──
-    const { count: totalJamaah } = await supabase
+    const { count: totalJamaah } = await excludeBelumDP(supabase
       .from('jamaah')
       .select('*', { count: 'exact', head: true })
-      .match(baseMatch);
+      .match(baseMatch));
 
-    // ── lunas: sisa = 0 ──
+    // ── lunas: sisa = 0 (already excludes Belum DP since Belum DP has sisa > 0) ──
     const { count: lunas } = await supabase
       .from('jamaah')
       .select('*', { count: 'exact', head: true })
       .match(baseMatch)
       .or('sisa.eq.0,sisa.is.null');
 
-    // ── belumLunas: sisa > 0 ──
+    // ── belumLunas: sisa > 0 AND sudah DP (bayar > 0) — excludes Belum DP ──
     const { count: belumLunas } = await supabase
       .from('jamaah')
       .select('*', { count: 'exact', head: true })
       .match(baseMatch)
-      .gt('sisa', 0);
+      .gt('sisa', 0)
+      .gt('bayar', 0);
 
     // ── totalOutstanding: SUM(sisa) where sisa > 0 ──
     let outQ = supabase.from('jamaah').select('sisa').eq('agent_id', agentId).gt('sisa', 0);
@@ -5915,13 +5932,13 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
 
     // ── berangkatSegera: jamaah in the nearest upcoming departure month ──
     let bebQ = supabase.from('jamaah')
-      .select('nama, paket, jk, tgl_berangkat, sisa, wa')
+      .select('nama, paket, jk, tgl_berangkat, sisa, bayar, wa')
       .eq('agent_id', agentId)
       .gte('tgl_berangkat', todayStr)
       .order('tgl_berangkat', { ascending: true })
       .order('nama', { ascending: true });
     if (year) bebQ = bebQ.eq('hijriah_year', year);
-    const bebRows = await fetchAllRows(bebQ);
+    const bebRows = await fetchAllRows(excludeBelumDP(bebQ));
 
     let berangkatBulanIni = [];
     let berangkatSegera = 0;
@@ -5958,7 +5975,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     const monthEnd = nextMonth.toISOString().split('T')[0];
     let jbQ = supabase.from('jamaah').select('*', { count: 'exact', head: true })
       .match(baseMatch).gte('tgl_daftar', monthStart).lt('tgl_daftar', monthEnd);
-    const { count: jamaahBaru } = await jbQ;
+    const { count: jamaahBaru } = await excludeBelumDP(jbQ);
 
     // ── lunasPercent ──
     const total = totalJamaah || 0;
@@ -5966,21 +5983,21 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
 
     // ── comparison vs previous month ──
     // totalJamaah: prev = jamaah registered before this month
-    const { count: prevTotal } = await supabase
+    const { count: prevTotal } = await excludeBelumDP(supabase
       .from('jamaah')
       .select('*', { count: 'exact', head: true })
       .match(baseMatch)
-      .lt('tgl_daftar', monthStart);
+      .lt('tgl_daftar', monthStart));
 
     // jamaahBaru: prev = registrations in previous month
     const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const prevMonthStart = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}-01`;
-    const { count: prevJamaahBaru } = await supabase
+    const { count: prevJamaahBaru } = await excludeBelumDP(supabase
       .from('jamaah')
       .select('*', { count: 'exact', head: true })
       .match(baseMatch)
       .gte('tgl_daftar', prevMonthStart)
-      .lt('tgl_daftar', monthStart);
+      .lt('tgl_daftar', monthStart));
 
     const comparison = {
       totalJamaah: { prev: prevTotal || 0, diff: (totalJamaah || 0) - (prevTotal || 0) },
@@ -5993,10 +6010,10 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     const sevenMonthsAgo = new Date();
     sevenMonthsAgo.setMonth(sevenMonthsAgo.getMonth() - 6);
     const tmStr = `${sevenMonthsAgo.getFullYear()}-${String(sevenMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
-    let trendQ = supabase.from('jamaah').select('tgl_daftar').eq('agent_id', agentId)
+    let trendQ = supabase.from('jamaah').select('tgl_daftar, bayar, sisa').eq('agent_id', agentId)
       .gte('tgl_daftar', tmStr).order('tgl_daftar', { ascending: true });
     if (year) trendQ = trendQ.eq('hijriah_year', year);
-    const trendRows = await fetchAllRows(trendQ);
+    const trendRows = await fetchAllRows(excludeBelumDP(trendQ));
 
     const trendMap = new Map();
     for (const row of trendRows) {
@@ -8617,11 +8634,13 @@ async function syncOneAgent(agent) {
               const itemYear = computedYear || null;
               if (itemYear && Number(itemYear) < 1447) continue;
               item.paket = item.paket || bookingPaketMap.get(idUmroh) || null;
-              const jmId = item.jm_id || `__name_${item.nama}`;
+              // Skip rows without a real JM jm_id — Phase 2 will populate them.
+              // Synthesizing a fallback here would create ghost duplicates.
+              if (!item.jm_id || !/^JM/i.test(item.jm_id)) continue;
               rowsToUpsert.push({
                 agent_id: agentId,
                 id_umroh: item.id_umroh,
-                jm_id: jmId,
+                jm_id: item.jm_id,
                 nama: item.nama,
                 jk: item.jk || null,
                 paket: item.paket || null,
