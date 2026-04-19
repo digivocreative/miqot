@@ -2636,27 +2636,31 @@ app.post('/api/capi/:slug/validate', async (req, res) => {
       return res.json({ valid: true, pixel: { id: config.pixelId } });
     }
 
-    // Failure: Meta returned an error
+    // Failure: Meta returned an error — strictly reject any error
+    // Rationale: if Meta can't accept a test event, credentials are effectively unusable
+    // for sending real events. Treating errors as "valid with warning" caused silent
+    // failures where users thought CAPI was working when it wasn't.
     const err = metaData?.error;
     if (err) {
-      // Specific errors that mean the credentials are actually invalid:
-      // - code 190: invalid access token
-      // - code 803: pixel doesn't exist or no access
-      // - code 100 + "access token" or "pixel" in message: invalid token/pixel
-      const isInvalidCredentials =
-        err.code === 190 ||
-        err.code === 803 ||
-        (err.code === 100 && /access token|pixel|permission to access|invalid param/i.test(err.message || ''));
-
-      if (isInvalidCredentials) {
-        return res.json({ valid: false, error: err, reason: err.message });
+      // Known transient errors that shouldn't mark credentials invalid
+      // (e.g., rate limiting — user can retry)
+      const isTransient =
+        err.code === 4 ||   // rate limit
+        err.code === 17 ||  // user request limit
+        err.code === 341;   // application request limit
+      if (isTransient) {
+        return res.json({ valid: false, reason: `Temporary Meta limit: ${err.message}. Coba lagi dalam beberapa menit.` });
       }
-      // Other errors (e.g., temporary issues, rate limits) — treat as valid but flag
-      return res.json({ valid: true, warning: err.message, pixel: { id: config.pixelId } });
+      return res.json({ valid: false, error: err, reason: err.message });
     }
 
-    // No error, no events_received — unusual but not an invalid-credentials signal
-    return res.json({ valid: true, pixel: { id: config.pixelId }, note: 'Unclear response from Meta' });
+    // No error, no events_received — unusual case, reject conservatively
+    if (!metaData?.events_received) {
+      return res.json({ valid: false, reason: 'Meta tidak merespons dengan benar. Cek Pixel ID dan Access Token.' });
+    }
+
+    // Fallback — shouldn't reach here, but if it does, treat as valid
+    return res.json({ valid: true, pixel: { id: config.pixelId } });
   } catch (err) {
     console.error('[CAPI Validate] Network error:', err.message);
     res.json({ valid: false, reason: 'Connection failed: ' + err.message });
