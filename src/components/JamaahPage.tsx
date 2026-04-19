@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Eye, EyeOff, LogIn, Loader2, User, Users, Lock, Search,
@@ -92,18 +92,21 @@ interface JamaahPageProps {
 }
 
 export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab = 'umroh', onConnectionChange, onHeaderRight }: JamaahPageProps) {
-  // Compute current Hijriah year dynamically
-  const currentHijriYear = (() => {
+  // Compute current Hijriah year dynamically. Memoized so the `hijriahOptions`
+  // array reference is stable across renders — otherwise the useEffect that
+  // registers the header selector (deps on hijriahOptions) would rerun every
+  // render, hitting React's "Maximum update depth exceeded" loop.
+  const currentHijriYear = useMemo(() => {
     const now = new Date();
-    const gYear = now.getFullYear();
-    const approx = Math.floor((gYear - 622) * (33 / 32));
-    return approx;
-  })();
-  // Show from latest (current+2) down to 1447 minimum
-  const hijriahOptions = Array.from(
-    { length: currentHijriYear + 2 - 1447 + 1 },
-    (_, i) => currentHijriYear + 2 - i
-  ).filter(y => y >= 1447);
+    return Math.floor((now.getFullYear() - 622) * (33 / 32));
+  }, []);
+  const hijriahOptions = useMemo(
+    () => Array.from(
+      { length: currentHijriYear + 2 - 1447 + 1 },
+      (_, i) => currentHijriYear + 2 - i
+    ).filter(y => y >= 1447),
+    [currentHijriYear],
+  );
   const [view, setView] = useState<ViewState>('loading');
 
   // Login form
@@ -701,19 +704,17 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
               placeholder="Cari jamaah..."
               className="flex-1 h-9 bg-transparent text-xs text-gray-800 dark:text-white placeholder:text-gray-400 outline-none min-w-0"
             />
-            {getStoredSession()?.user?.role === 'admin' && (
-              <button
-                onClick={() => {
-                  window.history.pushState({}, '', '/dashboard/jamaah/daftar');
-                  window.location.reload();
-                }}
-                className="h-9 px-2.5 flex items-center gap-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold shadow-sm shadow-emerald-500/20 transition-all active:scale-95 shrink-0"
-                title="Jamaah Baru"
-              >
-                <Plus size={14} strokeWidth={3} />
-                Jamaah Baru
-              </button>
-            )}
+            <button
+              onClick={() => {
+                window.history.pushState({}, '', '/dashboard/jamaah/daftar');
+                window.location.reload();
+              }}
+              className="h-9 px-2.5 flex items-center gap-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold shadow-sm shadow-emerald-500/20 transition-all active:scale-95 shrink-0"
+              title="Jamaah Baru"
+            >
+              <Plus size={14} strokeWidth={3} />
+              Jamaah Baru
+            </button>
             <button
               onClick={() => setFilterOpen(!filterOpen)}
               className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all active:scale-95 shrink-0 ${
@@ -956,24 +957,22 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                         </span>
                         <span className="text-[10px] font-mono text-gray-400 dark:text-slate-500 truncate">· {entry.idu}</span>
                       </div>
-                      {getStoredSession()?.user?.role === 'admin' && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const paramsObj: Record<string, string> = { idb: entry.idu, from: first.nama };
-                            if (first.tgl_berangkat) paramsObj.date = first.tgl_berangkat;
-                            if (first.paket) paramsObj.paket = first.paket;
-                            const params = new URLSearchParams(paramsObj);
-                            window.history.pushState({}, '', `/dashboard/jamaah/daftar?${params}`);
-                            window.location.reload();
-                          }}
-                          className="shrink-0 flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors rounded-lg px-2 py-1 active:scale-95"
-                          title={`Tambah jamaah ke ID Umroh ${entry.idu}`}
-                        >
-                          <UserPlus size={11} strokeWidth={2.5} />
-                          Tambah
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const paramsObj: Record<string, string> = { idb: entry.idu, from: first.nama };
+                          if (first.tgl_berangkat) paramsObj.date = first.tgl_berangkat;
+                          if (first.paket) paramsObj.paket = first.paket;
+                          const params = new URLSearchParams(paramsObj);
+                          window.history.pushState({}, '', `/dashboard/jamaah/daftar?${params}`);
+                          window.location.reload();
+                        }}
+                        className="shrink-0 flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors rounded-lg px-2 py-1 active:scale-95"
+                        title={`Tambah jamaah ke ID Umroh ${entry.idu}`}
+                      >
+                        <UserPlus size={11} strokeWidth={2.5} />
+                        Tambah
+                      </button>
                     </div>
                     <div className="divide-y divide-gray-100 dark:divide-slate-700/50">
                       {members.slice(0, 2).map(m => {
@@ -1457,7 +1456,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
 
                       {/* ─── Section 4: Action Buttons ─── */}
                       <div className="px-3 py-2.5 flex gap-2">
-                        {getStoredSession()?.user?.role === 'admin' && item.id_umroh && (
+                        {item.id_umroh && (
                           <button
                             type="button"
                             onClick={() => {

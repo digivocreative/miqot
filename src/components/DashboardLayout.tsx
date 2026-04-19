@@ -561,7 +561,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             <StatistikPage agentSlug={agentData.slug} role={agentData.role} onHeaderRight={setStatistikHeaderRight} initialStatTab={getStatistikTabFromPath()} />
           )}
           {activeTab === 'jamaah' && (
-            getSubTabFromPath() === 'daftar' && isAdmin ? (
+            getSubTabFromPath() === 'daftar' ? (
               <UmrahRegisterPage onBack={() => {
                 // Land on /dashboard/jamaah (the jamaah list), not the dashboard home.
                 // Route is driven by pathname → we just replace URL then nudge a re-render.

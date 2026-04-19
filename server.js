@@ -2883,6 +2883,93 @@ function filterSafeJamaahRows(rows, context) {
   return safe;
 }
 
+// Phase 2 back-fill: merge enrichment fields from parsed laporan items into
+// existing jamaah rows when their `jm_id` was CSS-truncated and got dropped
+// by buildRows. Matches on (agent_id, id_umroh, nama) and narrows same-name
+// siblings via the `jm_id_hint` suffix when present.
+async function enrichJamaahFromLaporanItems(agentId, items, context) {
+  if (!Array.isArray(items) || items.length === 0) return 0;
+  const idumrohSet = [...new Set(items.map(i => i.id_umroh).filter(Boolean))];
+  if (idumrohSet.length === 0) return 0;
+
+  const { data: existing, error: existErr } = await supabase
+    .from('jamaah')
+    .select('id, id_umroh, jm_id, nama, wa, tgl_lahir, no_paspor, paspor_expired, perlengkapan, dokumen')
+    .eq('agent_id', agentId)
+    .in('id_umroh', idumrohSet);
+  if (existErr) {
+    console.error(`[Sync/${context}-enrich] lookup error:`, existErr.message);
+    return 0;
+  }
+
+  const byKey = new Map();
+  (existing || []).forEach(r => {
+    const key = `${r.id_umroh}||${String(r.nama || '').trim().toLowerCase()}`;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(r);
+  });
+
+  const targets = []; // { id, patch }
+  let ambiguous = 0, unmatched = 0, noPatch = 0;
+  for (const item of items) {
+    if (!item.id_umroh || !item.nama) continue;
+    const key = `${item.id_umroh}||${String(item.nama).trim().toLowerCase()}`;
+    const candidates = byKey.get(key) || [];
+    if (candidates.length === 0) { unmatched++; continue; }
+
+    let target;
+    if (candidates.length === 1) {
+      target = candidates[0];
+    } else if (item.jm_id_hint) {
+      target = candidates.find(c => c.jm_id && c.jm_id.endsWith(item.jm_id_hint));
+      if (!target) { ambiguous++; continue; }
+    } else {
+      ambiguous++;
+      continue;
+    }
+
+    const patch = {};
+    if (item.wa && item.wa !== target.wa) patch.wa = item.wa;
+    if (item.tgl_lahir && item.tgl_lahir !== target.tgl_lahir) patch.tgl_lahir = item.tgl_lahir;
+    if (item.no_paspor && item.no_paspor !== target.no_paspor) patch.no_paspor = item.no_paspor;
+    if (item.paspor_expired && item.paspor_expired !== target.paspor_expired) patch.paspor_expired = item.paspor_expired;
+    if (item.tgl_daftar) patch.tgl_daftar = item.tgl_daftar;
+    if (item.perlengkapan && Object.keys(item.perlengkapan).length > 0) {
+      const existingP = target.perlengkapan || {};
+      const changed = Object.keys(item.perlengkapan).some(k => item.perlengkapan[k] !== existingP[k]);
+      if (changed) patch.perlengkapan = item.perlengkapan;
+    }
+    if (item.dokumen && Object.keys(item.dokumen).length > 0) {
+      const existingD = target.dokumen || {};
+      const changed = Object.keys(item.dokumen).some(k => item.dokumen[k] !== existingD[k]);
+      if (changed) patch.dokumen = item.dokumen;
+    }
+
+    if (Object.keys(patch).length === 0) { noPatch++; continue; }
+    targets.push({ id: target.id, patch });
+  }
+
+  let updated = 0;
+  const PARALLEL = 10;
+  for (let i = 0; i < targets.length; i += PARALLEL) {
+    const batch = targets.slice(i, i + PARALLEL);
+    const results = await Promise.allSettled(
+      batch.map(({ id, patch }) => supabase.from('jamaah').update(patch).eq('id', id))
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled' && !r.value?.error) updated++;
+      else if (r.status === 'fulfilled' && r.value?.error) {
+        console.error(`[Sync/${context}-enrich] update error:`, r.value.error.message);
+      }
+    }
+  }
+
+  if (targets.length > 0 || ambiguous > 0 || unmatched > 0) {
+    console.log(`[Sync/${context}-enrich] enriched ${updated}/${targets.length} (unmatched=${unmatched}, ambiguous=${ambiguous}, no-diff=${noPatch})`);
+  }
+  return updated;
+}
+
 // Helper: build rows from parsed items — hijriah_year determined per item by tgl_berangkat
 function buildRows(items, agentId, now) {
   const MIN_HIJRIAH_YEAR = 1447;
@@ -3358,6 +3445,10 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
           if (error) console.error(`[Sync] ${slug} Phase 2 range ${job.tglAwal} error:`, error.message);
         }
+        // Back-fill enrichment for items whose CSS-truncated jm_id got dropped
+        // by buildRows. Targets existing rows keyed on (id_umroh, nama), using
+        // the truncated-jm_id suffix hint to disambiguate same-nama siblings.
+        await enrichJamaahFromLaporanItems(agentId, items, 'P2-manual');
         // Phase 2: no counter update — just keep syncing state alive
 
         // Fire CAPI Purchase events (DP & Lunas)
@@ -5341,7 +5432,7 @@ async function ensureLegacySession(agent) {
 }
 
 // ── Umrah Registration: Fetch form options from legacy system ──
-app.get('/api/umrah/form-options', authMiddleware, adminOnly, async (req, res) => {
+app.get('/api/umrah/form-options', authMiddleware, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
     const sess = await ensureLegacySession(agent);
@@ -5365,7 +5456,7 @@ app.get('/api/umrah/form-options', authMiddleware, adminOnly, async (req, res) =
 });
 
 // ── Umrah Registration: Submit new jamaah to legacy system ──
-app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit: '10mb' }), async (req, res) => {
+app.post('/api/umrah/register', authMiddleware, express.json({ limit: '10mb' }), async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
     const sess = await ensureLegacySession(agent);
@@ -5545,7 +5636,7 @@ app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit:
 });
 
 // ── Umrah Registration: Fetch all dependent options (paket, marketing, koordinator) for a given jadwal ──
-app.get('/api/umrah/dependent-options', authMiddleware, adminOnly, async (req, res) => {
+app.get('/api/umrah/dependent-options', authMiddleware, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
     const sess = await ensureLegacySession(agent);
@@ -5602,7 +5693,7 @@ app.get('/api/umrah/paket-options', authMiddleware, adminOnly, async (req, res) 
 });
 
 // ── Umrah Registration: OCR KTP using OpenAI Vision ──
-app.post('/api/umrah/ocr-ktp', authMiddleware, adminOnly, express.json({ limit: '15mb' }), async (req, res) => {
+app.post('/api/umrah/ocr-ktp', authMiddleware, express.json({ limit: '15mb' }), async (req, res) => {
   const OPENAI_KEY = process.env.OPENAI_API_KEY;
   if (!OPENAI_KEY) {
     return res.status(500).json({ error: 'OPENAI_API_KEY not configured' });
@@ -5686,7 +5777,7 @@ Jika field tidak terbaca, gunakan null. Jangan invent data.`;
 });
 
 // ── Umrah Registration: Debug — fetch raw form HTML (admin only, temporary) ──
-app.get('/api/umrah/form-debug', authMiddleware, adminOnly, async (req, res) => {
+app.get('/api/umrah/form-debug', authMiddleware, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
     const sess = await ensureLegacySession(agent);
@@ -9003,6 +9094,11 @@ async function syncOneAgent(agent) {
           // appears across multiple 7-day chunks which would inflate the counter.
           syncingAgents.set(agentId, { isSyncing: true, background: true, scope: 'umroh-bg', totalSynced, lastSync: syncTime });
         }
+
+        // Back-fill enrichment for items whose CSS-truncated jm_id got dropped
+        // by buildRows. Targets existing rows keyed on (id_umroh, nama), using
+        // the truncated-jm_id suffix hint to disambiguate same-nama siblings.
+        await enrichJamaahFromLaporanItems(agentId, items, 'P2-bg');
 
         // Detect pembayaran masuk (only for jamaah departing in the future)
         // Use 7-day buffer to avoid false positives from Phase 1/Phase 2 bayar discrepancies

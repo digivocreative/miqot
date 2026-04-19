@@ -433,10 +433,17 @@ export function parseLaporanHtml(html) {
     // col2: NAMA — parse HTML to separate JM ID from actual name
     const namaCell = $(tds[2]);
     // The <small> tag often contains a CSS-truncated display like "JM...50706".
-    // If that happens, treat it as missing — the detail page (Phase 1) has the
-    // full jm_id and the sync logic will back-fill from (id_umroh, nama) lookup.
+    // Reject dotted values as jm_id (they'd create ghost rows on upsert), but
+    // capture the trailing suffix as a hint — enrichment matching keys on it
+    // to disambiguate same-nama family members sharing an id_umroh.
     const jmIdRawSmall = namaCell.find('small').text().trim();
     const jmIdSmall = /^JM[^.]+$/i.test(jmIdRawSmall) ? jmIdRawSmall : '';
+    let jmIdHint = null;
+    if (!jmIdSmall && /^JM/i.test(jmIdRawSmall)) {
+      const lastDot = jmIdRawSmall.lastIndexOf('.');
+      const suffix = lastDot >= 0 ? jmIdRawSmall.slice(lastDot + 1).trim() : '';
+      if (/^\w{3,}$/.test(suffix)) jmIdHint = suffix;
+    }
     // Get the actual name: text after <br>, or all text minus the small tag content
     let nama = '';
     const namaCellHtml = namaCell.html() || '';
@@ -530,6 +537,7 @@ export function parseLaporanHtml(html) {
       items.push({
         id_umroh,
         jm_id: jmIdSmall || null,
+        jm_id_hint: jmIdHint,
         nama,
         jk: jk || null,
         wa: wa || null,
@@ -543,7 +551,7 @@ export function parseLaporanHtml(html) {
         tgl_daftar,
         no_paspor,
         paspor_expired,
-        raw_data: { jm_id: jmIdSmall, cols_count: tds.length },
+        raw_data: { jm_id: jmIdSmall, jm_id_hint: jmIdHint, cols_count: tds.length },
       });
     }
   });
