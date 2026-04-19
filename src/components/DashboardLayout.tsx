@@ -125,6 +125,12 @@ interface MenuCard {
   bgDark: string;
   borderLight: string;
   borderDark: string;
+  // Vibrant styling for home grid cards
+  cardBg: string;
+  cardBorder: string;
+  iconBg: string;
+  iconShadow: string;
+  hoverShadow: string;
   adminOnly?: boolean;
   hidden?: boolean;
   openExternal?: boolean;
@@ -137,6 +143,11 @@ const MENU_CARDS: MenuCard[] = [
     icon: CalendarRange, color: 'text-emerald-600 dark:text-emerald-400',
     bgLight: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20',
     borderLight: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40',
+    cardBg: 'bg-gradient-to-br from-emerald-50 via-white to-teal-100/70 dark:from-emerald-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-emerald-200/70 dark:border-emerald-800/40',
+    iconBg: 'bg-gradient-to-br from-emerald-400 to-teal-600 dark:from-emerald-500 dark:to-teal-700',
+    iconShadow: 'shadow-lg shadow-emerald-500/30 dark:shadow-emerald-900/40',
+    hoverShadow: 'hover:shadow-emerald-300/40 dark:hover:shadow-emerald-900/30',
     openExternal: true,
   },
   {
@@ -144,36 +155,66 @@ const MENU_CARDS: MenuCard[] = [
     icon: Users, color: 'text-amber-600 dark:text-amber-400',
     bgLight: 'bg-amber-50', bgDark: 'dark:bg-amber-900/20',
     borderLight: 'border-amber-100', borderDark: 'dark:border-amber-800/40',
+    cardBg: 'bg-gradient-to-br from-amber-50 via-white to-orange-100/70 dark:from-amber-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-amber-200/70 dark:border-amber-800/40',
+    iconBg: 'bg-gradient-to-br from-amber-400 to-orange-500 dark:from-amber-500 dark:to-orange-600',
+    iconShadow: 'shadow-lg shadow-amber-500/30 dark:shadow-amber-900/40',
+    hoverShadow: 'hover:shadow-amber-300/40 dark:hover:shadow-amber-900/30',
   },
   {
     id: 'statistik', label: 'Statistik', desc: 'Ringkasan data',
     icon: BarChart3, color: 'text-emerald-600 dark:text-emerald-400',
     bgLight: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20',
     borderLight: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40',
+    cardBg: 'bg-gradient-to-br from-green-50 via-white to-emerald-100/70 dark:from-green-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-green-200/70 dark:border-emerald-800/40',
+    iconBg: 'bg-gradient-to-br from-green-400 to-emerald-600 dark:from-green-500 dark:to-emerald-700',
+    iconShadow: 'shadow-lg shadow-green-500/30 dark:shadow-emerald-900/40',
+    hoverShadow: 'hover:shadow-green-300/40 dark:hover:shadow-emerald-900/30',
   },
   {
     id: 'kalkulasi', label: 'Kalkulasi', desc: 'Hitung harga paket',
     icon: Calculator, color: 'text-blue-600 dark:text-blue-400',
     bgLight: 'bg-blue-50', bgDark: 'dark:bg-blue-900/20',
     borderLight: 'border-blue-100', borderDark: 'dark:border-blue-800/40',
+    cardBg: 'bg-gradient-to-br from-sky-50 via-white to-indigo-100/70 dark:from-blue-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-sky-200/70 dark:border-blue-800/40',
+    iconBg: 'bg-gradient-to-br from-sky-400 to-indigo-600 dark:from-blue-500 dark:to-indigo-700',
+    iconShadow: 'shadow-lg shadow-blue-500/30 dark:shadow-blue-900/40',
+    hoverShadow: 'hover:shadow-sky-300/40 dark:hover:shadow-blue-900/30',
   },
   {
     id: 'ai-tools', label: 'Tools', desc: 'Voice over & AI lainnya',
     icon: Sparkles, color: 'text-purple-600 dark:text-purple-400',
     bgLight: 'bg-purple-50', bgDark: 'dark:bg-purple-900/20',
     borderLight: 'border-purple-100', borderDark: 'dark:border-purple-800/40',
+    cardBg: 'bg-gradient-to-br from-fuchsia-50 via-white to-purple-100/70 dark:from-purple-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-fuchsia-200/70 dark:border-purple-800/40',
+    iconBg: 'bg-gradient-to-br from-fuchsia-400 to-purple-600 dark:from-fuchsia-500 dark:to-purple-700',
+    iconShadow: 'shadow-lg shadow-purple-500/30 dark:shadow-purple-900/40',
+    hoverShadow: 'hover:shadow-fuchsia-300/40 dark:hover:shadow-purple-900/30',
   },
   {
     id: 'settings', label: 'Settings', desc: 'Profil, Telegram & CAPI',
     icon: Settings, color: 'text-gray-600 dark:text-gray-400',
     bgLight: 'bg-gray-50', bgDark: 'dark:bg-gray-800/30',
     borderLight: 'border-gray-200', borderDark: 'dark:border-gray-700/40',
+    cardBg: 'bg-gradient-to-br from-slate-100 via-white to-slate-200/70 dark:from-slate-700/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-slate-200/80 dark:border-slate-700/40',
+    iconBg: 'bg-gradient-to-br from-slate-500 to-slate-700 dark:from-slate-600 dark:to-slate-800',
+    iconShadow: 'shadow-lg shadow-slate-500/25 dark:shadow-slate-900/40',
+    hoverShadow: 'hover:shadow-slate-300/40 dark:hover:shadow-slate-900/30',
   },
   {
     id: 'agents', label: 'Agents', desc: 'Lihat & edit agent',
     icon: Users, color: 'text-cyan-600 dark:text-cyan-400',
     bgLight: 'bg-cyan-50', bgDark: 'dark:bg-cyan-900/20',
     borderLight: 'border-cyan-100', borderDark: 'dark:border-cyan-800/40',
+    cardBg: 'bg-gradient-to-br from-cyan-50 via-white to-teal-100/70 dark:from-cyan-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-cyan-200/70 dark:border-cyan-800/40',
+    iconBg: 'bg-gradient-to-br from-cyan-400 to-teal-600 dark:from-cyan-500 dark:to-teal-700',
+    iconShadow: 'shadow-lg shadow-cyan-500/30 dark:shadow-cyan-900/40',
+    hoverShadow: 'hover:shadow-cyan-300/40 dark:hover:shadow-cyan-900/30',
     adminOnly: true,
   },
   {
@@ -181,6 +222,11 @@ const MENU_CARDS: MenuCard[] = [
     icon: TrendingUp, color: 'text-cyan-600 dark:text-cyan-400',
     bgLight: 'bg-cyan-50', bgDark: 'dark:bg-cyan-900/20',
     borderLight: 'border-cyan-100', borderDark: 'dark:border-cyan-800/40',
+    cardBg: 'bg-gradient-to-br from-cyan-50 via-white to-sky-100/70 dark:from-cyan-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-cyan-200/70 dark:border-cyan-800/40',
+    iconBg: 'bg-gradient-to-br from-cyan-400 to-sky-600 dark:from-cyan-500 dark:to-sky-700',
+    iconShadow: 'shadow-lg shadow-cyan-500/30 dark:shadow-cyan-900/40',
+    hoverShadow: 'hover:shadow-cyan-300/40 dark:hover:shadow-cyan-900/30',
     adminOnly: true,
   },
 ];
@@ -614,24 +660,19 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           if (eventMap[card.id]) trackEvent('feature', eventMap[card.id]);
           navigateTab(card.id);
         }}
-        className="group relative overflow-hidden bg-white dark:bg-slate-800 rounded-2xl p-3.5 border border-gray-100 dark:border-slate-700 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.97]"
+        className={`group relative overflow-hidden ${card.cardBg} rounded-2xl p-3.5 border ${card.cardBorder} shadow-sm ${card.hoverShadow} hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.97]`}
       >
-        <div className={`absolute -top-4 -right-4 w-16 h-16 rounded-full ${card.bgLight} ${card.bgDark} opacity-60 blur-xl group-hover:opacity-80 transition-opacity`} />
+        <div className={`pointer-events-none absolute -top-6 -right-6 w-20 h-20 rounded-full ${card.iconBg} opacity-20 blur-2xl group-hover:opacity-30 transition-opacity`} />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/40 via-transparent to-transparent dark:from-white/5" />
         {card.openExternal && (
-          <ExternalLink size={10} className="absolute top-2 right-2 text-gray-300 dark:text-slate-500" />
+          <ExternalLink size={10} className="absolute top-2 right-2 text-gray-400 dark:text-slate-500" />
         )}
         <div className="relative flex flex-col items-center text-center">
-          {card.id === 'settings' ? (
-            <div className="w-11 h-11 rounded-xl bg-gray-50 dark:bg-gray-800/30 flex items-center justify-center border border-gray-200 dark:border-gray-700/40 mb-2 group-hover:scale-110 transition-transform duration-200">
-              <Settings size={22} className="text-gray-600 dark:text-gray-400" strokeWidth={1.8} />
-            </div>
-          ) : (
-            <div className={`w-11 h-11 rounded-xl ${card.bgLight} ${card.bgDark} flex items-center justify-center border ${card.borderLight} ${card.borderDark} mb-2 group-hover:scale-110 transition-transform duration-200`}>
-              {card.id === 'statistik' && checkingStatistik
-                ? <Loader2 size={22} className={card.color} strokeWidth={1.8} style={{ animation: 'spin 1s linear infinite' }} />
-                : <Icon size={22} className={card.color} strokeWidth={1.8} />}
-            </div>
-          )}
+          <div className={`w-11 h-11 rounded-xl ${card.iconBg} ${card.iconShadow} flex items-center justify-center mb-2 ring-1 ring-white/40 dark:ring-white/10 group-hover:scale-110 group-hover:rotate-3 transition-transform duration-200`}>
+            {card.id === 'statistik' && checkingStatistik
+              ? <Loader2 size={22} className="text-white" strokeWidth={2} style={{ animation: 'spin 1s linear infinite' }} />
+              : <Icon size={22} className="text-white" strokeWidth={2} />}
+          </div>
           <p className="text-[12px] font-bold text-gray-800 dark:text-white leading-tight">
             {card.label}
           </p>
