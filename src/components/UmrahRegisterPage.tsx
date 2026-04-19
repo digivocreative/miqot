@@ -372,8 +372,9 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
   const bindIdb = searchParams.get('idb') || '';
   const bindFromNama = searchParams.get('from') || '';
   const bindFromDate = searchParams.get('date') || ''; // parent's tgl_berangkat (YYYY-MM-DD)
+  const bindFromPaket = searchParams.get('paket') || ''; // parent's paket label (for auto-select)
   if (bindIdb) {
-    console.log('[UmrahRegister] bindIdb:', bindIdb, 'from:', bindFromNama, 'date:', bindFromDate);
+    console.log('[UmrahRegister] bindIdb:', bindIdb, 'from:', bindFromNama, 'date:', bindFromDate, 'paket:', bindFromPaket);
   }
 
   const fetchOptions = useCallback(async () => {
@@ -480,45 +481,68 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
   }, [fetchOptions]);
 
   // When the form loads in idb-bound mode, auto-select the parent's jadwal on the
-  // vjadwal dropdown and trigger dependent options. Tries two strategies:
-  //   1. Legacy form has `<option selected>` on vjadwal → selectedValues
-  //   2. Fallback: match first option whose value contains parent's tgl_berangkat
-  //      (passed via `?date=YYYY-MM-DD` URL param from the "Tambah" button)
+  // vjadwal dropdown and trigger dependent options. Strategy:
+  //   1. Collect candidate jadwal values — start with legacy's `<option selected>`,
+  //      then append every jadwal whose value contains parent's tgl_berangkat.
+  //   2. Try each candidate in order: set the field, fetch dependent options, and
+  //      check whether the parent's paket label is found in the paket dropdown.
+  //      First candidate whose paket list contains the target wins. If no target
+  //      paket is provided (bindFromPaket empty), we just accept the first candidate.
+  //
+  //   This fixes a class of bugs where two jadwals share the same tgl_berangkat
+  //   but belong to different pakets — the naive "first match by date" picker
+  //   was picking the wrong jadwal, so the paket list shown to the user didn't
+  //   include the parent's paket.
   const autoFetchedJadwalRef = useRef(false);
   useEffect(() => {
     if (!options || autoFetchedJadwalRef.current) return;
+    autoFetchedJadwalRef.current = true;
 
-    let jadwalFieldName: string | null = null;
-    let jadwalValue: string | null = null;
+    const candidates: { field: string; value: string }[] = [];
+    const seen = new Set<string>();
+    const push = (field: string, value: string) => {
+      const key = `${field}|${value}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      candidates.push({ field, value });
+    };
 
-    // Strategy 1: server-reported selected option
+    // Strategy 1: server-reported <option selected> values (legacy .idb binding)
     for (const [name, value] of Object.entries(options.selectedValues || {})) {
-      if (value && isJadwalField(name)) {
-        jadwalFieldName = name;
-        jadwalValue = value;
-        break;
-      }
+      if (value && isJadwalField(name)) push(name, value);
     }
 
-    // Strategy 2: match by date from URL
-    if (!jadwalValue && bindFromDate) {
+    // Strategy 2: every jadwal option whose value contains the parent's date
+    if (bindFromDate) {
       for (const name of Object.keys(options.selects)) {
         if (!isJadwalField(name)) continue;
-        const match = options.selects[name].find(o => o.value && o.value.includes(bindFromDate));
-        if (match) {
-          jadwalFieldName = name;
-          jadwalValue = match.value;
-          break;
+        for (const o of options.selects[name]) {
+          if (o.value && o.value.includes(bindFromDate)) push(name, o.value);
         }
       }
     }
 
-    if (jadwalFieldName && jadwalValue) {
-      autoFetchedJadwalRef.current = true;
-      console.log('[UmrahRegister] Auto-picking jadwal', jadwalFieldName, '=', jadwalValue);
-      setFields(prev => ({ ...prev, [jadwalFieldName!]: jadwalValue! }));
-      refreshDependentOptions(jadwalValue);
-    }
+    if (candidates.length === 0) return;
+
+    (async () => {
+      for (let i = 0; i < candidates.length; i++) {
+        const { field, value } = candidates[i];
+        console.log(`[UmrahRegister] Trying jadwal candidate ${i + 1}/${candidates.length}:`, field, '=', value);
+        setFields(prev => ({ ...prev, [field]: value }));
+        const { paketMatched } = await refreshDependentOptions(value, bindFromPaket || undefined);
+        // Without a target paket, first candidate wins
+        if (!bindFromPaket) break;
+        if (paketMatched) {
+          console.log('[UmrahRegister] Paket matched for jadwal', value);
+          break;
+        }
+        if (i < candidates.length - 1) {
+          console.log('[UmrahRegister] Paket NOT matched for jadwal', value, '— trying next candidate');
+        } else {
+          console.warn('[UmrahRegister] Exhausted all jadwal candidates — paket could not be auto-matched for', bindFromPaket);
+        }
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options]);
 
@@ -531,11 +555,20 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
   // Refresh dependent options when jadwal is selected:
   // - paket/vmarketing/perwakilan (always populated by _otb.php)
   // - additional fields like kelamin, ktp, status_nikah, pekerjaan, etc. (injected into #otb div)
-  const refreshDependentOptions = async (jadwal: string) => {
-    if (!options || !jadwal) return;
+  //
+  // When `targetPaketLabel` is provided (idb-bound flow), this also attempts to
+  // auto-select the paket option whose label matches the parent's paket. Returns
+  // `{ paketMatched }` so callers can try alternate jadwals if no match is found —
+  // multiple jadwals can share the same tgl_berangkat but belong to different pakets.
+  const refreshDependentOptions = async (
+    jadwal: string,
+    targetPaketLabel?: string,
+  ): Promise<{ paketMatched: boolean }> => {
+    if (!options || !jadwal) return { paketMatched: false };
 
-    console.log('[UmrahDeps] Fetching dependent options for jadwal:', jadwal);
+    console.log('[UmrahDeps] Fetching dependent options for jadwal:', jadwal, targetPaketLabel ? `(target paket: ${targetPaketLabel})` : '');
     setLoadingPaket(true);
+    let paketMatched = false;
     try {
       const res = await fetch(`/api/umrah/dependent-options?jadwal=${encodeURIComponent(jadwal)}`, {
         headers: getAuthHeaders(),
@@ -576,15 +609,31 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
         });
         // For each dependent field:
         // - Marketing (vmarketing) & Koordinator (perwakilan): auto-select the first option
-        // - Paket: clear so user picks manually
+        // - Paket: auto-select parent's paket in idb-bound mode, otherwise clear
         const fieldUpdates: Record<string, string> = {};
+        const normalizeLabel = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+        const targetNorm = targetPaketLabel ? normalizeLabel(targetPaketLabel) : '';
         for (const [name, opts] of Object.entries(data.data as Record<string, SelectOption[]>)) {
           const def = getFieldDef(name);
+          const isPaket = def.label === 'Paket Umroh' || /^paket$/i.test(name);
           const isLocked = def.label === 'Marketing' || def.label === 'Koordinator';
           if (isLocked && opts && opts.length > 0) {
             fieldUpdates[name] = opts[0].value;
+          } else if (isPaket && targetNorm && opts && opts.length > 0) {
+            // Try exact label match first, then looser contains match both ways
+            const match = opts.find(o => normalizeLabel(o.label) === targetNorm)
+              || opts.find(o => normalizeLabel(o.label).includes(targetNorm))
+              || opts.find(o => targetNorm.includes(normalizeLabel(o.label)));
+            if (match) {
+              fieldUpdates[name] = match.value;
+              paketMatched = true;
+              console.log('[UmrahDeps] Auto-matched paket:', targetPaketLabel, '→', match.label, `(${match.value})`);
+            } else {
+              fieldUpdates[name] = '';
+              console.log('[UmrahDeps] No paket match for target', targetPaketLabel, 'in', opts.map(o => o.label));
+            }
           } else {
-            fieldUpdates[name] = ''; // clear for paket
+            fieldUpdates[name] = ''; // clear for paket (non-idb flow)
           }
         }
 
@@ -612,6 +661,7 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
       console.error('refreshDependentOptions error:', err);
     }
     setLoadingPaket(false);
+    return { paketMatched };
   };
 
   const updateField = (name: string, value: string) => {

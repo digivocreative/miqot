@@ -962,6 +962,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                           onClick={() => {
                             const paramsObj: Record<string, string> = { idb: entry.idu, from: first.nama };
                             if (first.tgl_berangkat) paramsObj.date = first.tgl_berangkat;
+                            if (first.paket) paramsObj.paket = first.paket;
                             const params = new URLSearchParams(paramsObj);
                             window.history.pushState({}, '', `/dashboard/jamaah/daftar?${params}`);
                             window.location.reload();
@@ -1462,6 +1463,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                             onClick={() => {
                               const paramsObj: Record<string, string> = { idb: item.id_umroh, from: item.nama };
                               if (item.tgl_berangkat) paramsObj.date = item.tgl_berangkat;
+                              if (item.paket) paramsObj.paket = item.paket;
                               const params = new URLSearchParams(paramsObj);
                               window.history.pushState({}, '', `/dashboard/jamaah/daftar?${params}`);
                               window.location.reload();
