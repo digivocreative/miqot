@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Loader2, Upload, X, CheckCircle2, AlertCircle, Camera, Sparkles, Search, ChevronDown, Check, Mars, Venus, Save, XCircle, Wand2 } from 'lucide-react';
+import { Loader2, Upload, X, CheckCircle2, AlertCircle, Camera, Sparkles, Search, ChevronDown, Check, Mars, Venus, Save, XCircle, Wand2, UserPlus } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 
 type ViewMode = 'form' | 'ocr-processing';
@@ -29,6 +29,7 @@ interface FormOptions {
   formAction: string;
   hiddenFields: Record<string, string>;
   selects: Record<string, SelectOption[]>;
+  selectedValues?: Record<string, string>;
   inputs: Record<string, { type: string; placeholder: string; required: boolean }>;
   textareas: Record<string, { placeholder: string; required: boolean }>;
 }
@@ -54,6 +55,7 @@ const FIELD_CONFIG: Record<string, FieldDef> = {
   tgldaftar:     { label: 'Tanggal Daftar', section: 'pendaftaran', order: 2 },
   berangkat:     { label: 'Tanggal Berangkat', section: 'pendaftaran', order: 3, required: true, searchable: true },
   jadwal:        { label: 'Tanggal Berangkat', section: 'pendaftaran', order: 3, required: true, searchable: true },
+  vjadwal:       { label: 'Tanggal Berangkat', section: 'pendaftaran', order: 3, required: true, searchable: true },
   tgl_berangkat: { label: 'Tanggal Berangkat', section: 'pendaftaran', order: 3, required: true, searchable: true },
 
   // ── Data Jamaah ──
@@ -112,6 +114,7 @@ const FIELD_CONFIG: Record<string, FieldDef> = {
   vmarketing:    { label: 'Marketing', section: 'paket', order: 45, required: true, searchable: true },
   koordinator:   { label: 'Koordinator', section: 'paket', order: 46, required: true, searchable: true },
   perwakilan:    { label: 'Koordinator', section: 'paket', order: 46, required: true, searchable: true },
+  vperwakilan:   { label: 'Koordinator', section: 'paket', order: 46, required: true, searchable: true },
   koord:         { label: 'Koordinator', section: 'paket', order: 46, required: true, searchable: true },
 
   // ── Nama Pendaftar & No. Telp Pendaftar: moved into "Data Jamaah" section,
@@ -169,7 +172,7 @@ const LABEL_CLASS_INLINE = 'flex items-center gap-1.5 text-xs font-semibold text
 const DUMMY_BTN_CLASS = 'flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 uppercase tracking-wide px-2 py-0.5 rounded-md hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors';
 
 // Labels that should NOT show the Insert (dummy-generate) button
-const NO_INSERT_BTN_LABELS = new Set(['Jenis Kelamin', 'Nama Pendaftar', 'Tanggal Berangkat', 'Paket Umroh']);
+const NO_INSERT_BTN_LABELS = new Set(['Jenis Kelamin', 'Tanggal Berangkat', 'Paket Umroh']);
 
 function dummyValueFor(label: string): string {
   const l = label.toLowerCase();
@@ -177,6 +180,7 @@ function dummyValueFor(label: string): string {
   if (l.includes('telp') || l.includes('hp')) return '081234567890';
   if (l.includes('tanggal lahir') || l.includes('tgl lahir')) return '01/01/1990';
   if (l.includes('tempat lahir')) return 'Jakarta';
+  if (l.includes('nama pendaftar')) return 'AHMAD BUDI SANTOSO';
   if (l.includes('nama depan')) return 'Ahmad';
   if (l.includes('nama tengah')) return 'Budi';
   if (l.includes('nama belakang')) return 'Santoso';
@@ -362,11 +366,22 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
   const [ocrError, setOcrError] = useState('');
   const [ocrResult, setOcrResult] = useState<KtpData | null>(null);
 
+  // Read `?idb=<id_umroh>` from URL — when present, this binds the new jamaah to an
+  // existing ID Umroh (family/group registration). Legacy URL: &.idb=AIW0028715.JBU1539
+  const searchParams = new URLSearchParams(window.location.search);
+  const bindIdb = searchParams.get('idb') || '';
+  const bindFromNama = searchParams.get('from') || '';
+  const bindFromDate = searchParams.get('date') || ''; // parent's tgl_berangkat (YYYY-MM-DD)
+  if (bindIdb) {
+    console.log('[UmrahRegister] bindIdb:', bindIdb, 'from:', bindFromNama, 'date:', bindFromDate);
+  }
+
   const fetchOptions = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/umrah/form-options', { headers: getAuthHeaders() });
+      const qs = bindIdb ? `?idb=${encodeURIComponent(bindIdb)}` : '';
+      const res = await fetch(`/api/umrah/form-options${qs}`, { headers: getAuthHeaders() });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || 'Gagal mengambil opsi form');
@@ -443,6 +458,12 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
         }
       }
 
+      // Pre-selected values from legacy form (e.g. vjadwal when .idb binds a parent jadwal)
+      const preSelected = data.data.selectedValues || {};
+      for (const [name, value] of Object.entries(preSelected as Record<string, string>)) {
+        if (value) defaults[name] = value;
+      }
+
       if (Object.keys(defaults).length > 0) {
         setFields(prev => ({ ...defaults, ...prev }));
       }
@@ -458,6 +479,49 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
     document.title = 'Pendaftaran Jamaah Umroh - Alhijaz';
   }, [fetchOptions]);
 
+  // When the form loads in idb-bound mode, auto-select the parent's jadwal on the
+  // vjadwal dropdown and trigger dependent options. Tries two strategies:
+  //   1. Legacy form has `<option selected>` on vjadwal → selectedValues
+  //   2. Fallback: match first option whose value contains parent's tgl_berangkat
+  //      (passed via `?date=YYYY-MM-DD` URL param from the "Tambah" button)
+  const autoFetchedJadwalRef = useRef(false);
+  useEffect(() => {
+    if (!options || autoFetchedJadwalRef.current) return;
+
+    let jadwalFieldName: string | null = null;
+    let jadwalValue: string | null = null;
+
+    // Strategy 1: server-reported selected option
+    for (const [name, value] of Object.entries(options.selectedValues || {})) {
+      if (value && isJadwalField(name)) {
+        jadwalFieldName = name;
+        jadwalValue = value;
+        break;
+      }
+    }
+
+    // Strategy 2: match by date from URL
+    if (!jadwalValue && bindFromDate) {
+      for (const name of Object.keys(options.selects)) {
+        if (!isJadwalField(name)) continue;
+        const match = options.selects[name].find(o => o.value && o.value.includes(bindFromDate));
+        if (match) {
+          jadwalFieldName = name;
+          jadwalValue = match.value;
+          break;
+        }
+      }
+    }
+
+    if (jadwalFieldName && jadwalValue) {
+      autoFetchedJadwalRef.current = true;
+      console.log('[UmrahRegister] Auto-picking jadwal', jadwalFieldName, '=', jadwalValue);
+      setFields(prev => ({ ...prev, [jadwalFieldName!]: jadwalValue! }));
+      refreshDependentOptions(jadwalValue);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options]);
+
   // Check if a field name represents "jadwal" / tgl berangkat (schedule field)
   const isJadwalField = (name: string) => {
     const def = getFieldDef(name);
@@ -470,12 +534,14 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
   const refreshDependentOptions = async (jadwal: string) => {
     if (!options || !jadwal) return;
 
+    console.log('[UmrahDeps] Fetching dependent options for jadwal:', jadwal);
     setLoadingPaket(true);
     try {
       const res = await fetch(`/api/umrah/dependent-options?jadwal=${encodeURIComponent(jadwal)}`, {
         headers: getAuthHeaders(),
       });
       const data = await res.json();
+      console.log('[UmrahDeps] Response:', { status: res.status, data });
       if (res.ok && data.data && Object.keys(data.data).length > 0) {
         setOptions(prev => {
           if (!prev) return prev;
@@ -549,12 +615,15 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
   };
 
   const updateField = (name: string, value: string) => {
-    setFields(prev => ({ ...prev, [name]: value }));
+    // Single source of truth for Nama Pendaftar uppercase — normalizes every code path
+    // (typing, Auto button, OCR, OCR retry, hidden-field defaults).
+    const normalized = getFieldDef(name).label === 'Nama Pendaftar' ? value.toUpperCase() : value;
+    setFields(prev => ({ ...prev, [name]: normalized }));
     if (fieldErrors[name]) setFieldErrors(prev => ({ ...prev, [name]: '' }));
 
     // When jadwal changes, refresh all dependent dropdowns (paket, marketing, koordinator)
-    if (value && isJadwalField(name)) {
-      refreshDependentOptions(value);
+    if (normalized && isJadwalField(name)) {
+      refreshDependentOptions(normalized);
     }
   };
 
@@ -671,9 +740,10 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
         }
       }
 
-      // Nama Pendaftar: default = same as jamaah name (user can edit if different)
+      // Nama Pendaftar: default = same as jamaah name (user can edit if different).
+      // Legacy requires UPPERCASE — KTP text may already be upper, but normalize to be safe.
       const namaPendaftar = findInputByLabel('Nama Pendaftar');
-      if (namaPendaftar) updates[namaPendaftar] = ktp.nama;
+      if (namaPendaftar) updates[namaPendaftar] = ktp.nama.toUpperCase();
     }
 
     // ── NIK / No. KTP ──
@@ -846,6 +916,7 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
           hiddenFields: options.hiddenFields,
           file: file || undefined,
           fileFieldName,
+          idb: bindIdb || undefined,
         }),
       });
       const data = await res.json();
@@ -867,12 +938,70 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
     }
   };
 
-  // ── Loading ──
+  // ── Loading — skeleton that mirrors the actual form layout ──
   if (loading) {
+    const SkeletonBar = ({ className = '', style }: { className?: string; style?: React.CSSProperties }) => (
+      <div
+        style={style}
+        className={`bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded-lg animate-pulse bg-[length:200%_100%] ${className}`}
+      />
+    );
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 size={24} className="animate-spin text-emerald-500" />
-        <span className="ml-2 text-sm text-gray-500 dark:text-slate-400">Mengambil form pendaftaran...</span>
+      <div className="px-4 pt-4 pb-8 space-y-3">
+        {/* Status pill — live indicator while the form scrape runs */}
+        <div className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-50/80 dark:bg-emerald-900/15 border border-emerald-100 dark:border-emerald-800/30">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+          </span>
+          <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Menyiapkan form pendaftaran...</span>
+        </div>
+
+        {/* Info Pendaftaran skeleton */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-gray-50 dark:border-slate-700/50">
+            <SkeletonBar className="h-3 w-28" />
+          </div>
+          <div className="p-4 space-y-4">
+            <div>
+              <SkeletonBar className="h-2.5 w-20 mb-2" />
+              <SkeletonBar className="h-10 w-full" />
+            </div>
+            <div>
+              <SkeletonBar className="h-2.5 w-24 mb-2" />
+              <SkeletonBar className="h-10 w-full" />
+            </div>
+          </div>
+        </div>
+
+        {/* KTP OCR skeleton */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-gray-50 dark:border-slate-700/50 flex items-center gap-2">
+            <Sparkles size={14} className="text-gray-300 dark:text-slate-600 animate-pulse" />
+            <SkeletonBar className="h-3 w-32" />
+          </div>
+          <div className="p-4">
+            <div className="h-36 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-xl flex flex-col items-center justify-center gap-2 bg-gray-50/50 dark:bg-slate-900/30">
+              <Camera size={28} className="text-gray-300 dark:text-slate-600 animate-pulse" />
+              <SkeletonBar className="h-2.5 w-24" />
+            </div>
+          </div>
+        </div>
+
+        {/* Data Jamaah skeleton */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-gray-50 dark:border-slate-700/50">
+            <SkeletonBar className="h-3 w-24" />
+          </div>
+          <div className="p-4 space-y-4">
+            {[0, 1, 2, 3, 4].map(i => (
+              <div key={i}>
+                <SkeletonBar className="h-2.5 w-20 mb-2" style={{ animationDelay: `${i * 80}ms` }} />
+                <SkeletonBar className="h-10 w-full" style={{ animationDelay: `${i * 80}ms` }} />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -971,11 +1100,13 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
     // paket, marketing, koordinator are all dependent on jadwal selection
     const isDependentField = ['Paket Umroh', 'Marketing', 'Koordinator'].includes(fieldLabel);
     const showLoading = isDependentField && loadingPaket;
-    // Fields locked to auto-assigned defaults — rendered as disabled (read-only)
+    // Fields locked to auto-assigned defaults — rendered as disabled (read-only).
+    // In idb-bound mode, Tanggal Berangkat also locks because the parent's jadwal is inherited.
     const isLocked =
       fieldLabel === 'Jenis Daftar' ||
       fieldLabel === 'Marketing' ||
-      fieldLabel === 'Koordinator';
+      fieldLabel === 'Koordinator' ||
+      (!!bindIdb && fieldLabel === 'Tanggal Berangkat');
     const isGenderField = fieldLabel === 'Jenis Kelamin';
 
     // Dependent fields always shown (even if empty) so user sees the placeholder message
@@ -1058,19 +1189,23 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
     );
   };
 
-  const renderInput = (name: string, label: string, placeholder: string, required: boolean, type = 'text') => (
-    <div key={name}>
-      {renderLabelRow(label, required, () => updateField(name, dummyValueFor(label)))}
-      <input
-        type={type}
-        value={fields[name] || ''}
-        onChange={e => updateField(name, e.target.value)}
-        placeholder={placeholder}
-        className={fieldErrors[name] ? INPUT_ERROR_CLASS : INPUT_CLASS}
-      />
-      {fieldErrors[name] && <p className="mt-1 text-xs text-red-500">{fieldErrors[name]}</p>}
-    </div>
-  );
+  const renderInput = (name: string, label: string, placeholder: string, required: boolean, type = 'text') => {
+    // Legacy registrations store Nama Pendaftar in uppercase, so force-match here.
+    const forceUpper = label === 'Nama Pendaftar';
+    return (
+      <div key={name}>
+        {renderLabelRow(label, required, () => updateField(name, dummyValueFor(label)))}
+        <input
+          type={type}
+          value={fields[name] || ''}
+          onChange={e => updateField(name, forceUpper ? e.target.value.toUpperCase() : e.target.value)}
+          placeholder={placeholder}
+          className={`${fieldErrors[name] ? INPUT_ERROR_CLASS : INPUT_CLASS}${forceUpper ? ' uppercase' : ''}`}
+        />
+        {fieldErrors[name] && <p className="mt-1 text-xs text-red-500">{fieldErrors[name]}</p>}
+      </div>
+    );
+  };
 
   const renderTextarea = (name: string, label: string, placeholder: string, required: boolean) => (
     <div key={name}>
@@ -1101,6 +1236,26 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
 
   return (
     <div className="px-4 pt-4 pb-8 space-y-3">
+      {bindIdb && (
+        <div className="flex items-start gap-2.5 p-3 bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-300 dark:border-blue-700/50 rounded-xl shadow-sm">
+          <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-blue-500 flex items-center justify-center">
+            <UserPlus size={14} className="text-white" strokeWidth={2.5} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+              Mode Tambah Jamaah ke Grup
+            </p>
+            {bindFromNama && (
+              <p className="text-xs font-semibold text-blue-900 dark:text-blue-200 mt-0.5 truncate">
+                Grup {bindFromNama}
+              </p>
+            )}
+            <p className="text-[11px] text-blue-700 dark:text-blue-300 mt-0.5">
+              ID Umroh: <span className="font-bold font-mono">{bindIdb}</span>
+            </p>
+          </div>
+        </div>
+      )}
       {ocrResult && (
         <div className="flex items-start gap-2 p-3 bg-emerald-50 dark:bg-emerald-900/15 border border-emerald-100 dark:border-emerald-800/30 rounded-xl">
           <Sparkles size={14} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
@@ -1298,6 +1453,20 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
                       </h3>
                     </div>
                     <div className="p-4 space-y-4">
+                      {sec === 'pendaftaran' && bindIdb && (
+                        <div>
+                          <label className={LABEL_CLASS_INLINE.replace('gap-1.5', 'gap-1.5 mb-1.5')}>
+                            ID Umroh (Grup)
+                          </label>
+                          <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/40 rounded-xl">
+                            <UserPlus size={14} className="text-blue-500 flex-shrink-0" strokeWidth={2.5} />
+                            <span className="font-mono text-sm font-bold text-blue-900 dark:text-blue-200 flex-1 truncate">{bindIdb}</span>
+                            {bindFromNama && (
+                              <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 truncate">{bindFromNama}</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {entries.map(renderField)}
                     </div>
                   </div>

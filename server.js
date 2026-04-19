@@ -2809,10 +2809,14 @@ function buildRows(items, agentId, now) {
     // Skip old year data (< 1447 H); default null to current year
     const year = getHijriahYear(item.tgl_berangkat) || DEFAULT_YEAR;
     if (Number(year) < MIN_HIJRIAH_YEAR) continue;
-    const key = `${agentId}_${item.id_umroh || ''}_${item.nama || ''}`.trim().toLowerCase();
+    // jm_id uniquely identifies a row per legacy booking. Synthesize from nama
+    // as a fallback for older data where jm_id wasn't captured.
+    const jmId = item.jm_id || (item.raw_data && item.raw_data.jm_id) || `__name_${item.nama}`;
+    const key = `${agentId}_${item.id_umroh || ''}_${jmId}`.trim().toLowerCase();
     map.set(key, {
       agent_id: agentId,
       id_umroh: item.id_umroh,
+      jm_id: jmId,
       nama: item.nama,
       jk: item.jk || null,
       wa: item.wa || null,
@@ -2962,9 +2966,13 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
             const itemYear = computedYear || existingYear || '1447';
             if (Number(itemYear) < 1447) continue;
             item.paket = item.paket || bookingPaketMap.get(idUmroh) || null;
+            // jm_id is the per-row unique identifier in legacy. Fall back to a
+            // nama-based synthetic if missing so the NOT NULL constraint holds.
+            const jmId = item.jm_id || `__name_${item.nama}`;
             rowsToUpsert.push({
               agent_id: agentId,
               id_umroh: item.id_umroh,
+              jm_id: jmId,
               nama: item.nama,
               jk: item.jk || null,
               wa: null,                // Phase 2 fills this
@@ -2990,7 +2998,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         if (rowsToUpsert.length > 0) {
           const deduped = new Map();
           for (const row of rowsToUpsert) {
-            const key = `${row.agent_id}_${row.id_umroh}_${row.nama}`.toLowerCase();
+            const key = `${row.agent_id}_${row.id_umroh}_${row.jm_id}`.toLowerCase();
             deduped.set(key, row);
             globalKeys.add(key); // Track globally for accurate counter
           }
@@ -2999,7 +3007,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           const BATCH = 50;
           for (let b = 0; b < dedupedRows.length; b += BATCH) {
             const upsertBatch = dedupedRows.slice(b, b + BATCH);
-            const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,nama' });
+            const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
             if (error) console.error(`[Sync] ${slug} Phase 1 upsert error:`, error.message);
           }
           syncingAgents.set(agentId, { isSyncing: true, scope: 'umroh-manual', totalSynced: globalKeys.size, phase: 1, completedYears: [], lastSync: now });
@@ -3186,18 +3194,30 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 
         const rows = buildRows(items, agentId, now);
 
-        // Fetch existing bayar to prevent Phase 2 from regressing payment data
-        // (laporan page can show stale/different bayar than umrah detail page)
+        // Fetch existing rows to (a) prevent bayar regression and (b) resolve jm_id
+        // for Phase 2 items whose source (<small>) was CSS-truncated. We look up the
+        // real jm_id from Phase 1's canonical data so we UPDATE the right row instead
+        // of inserting a duplicate with a synthetic name-based key.
         const rowNames = rows.map(r => r.nama);
-        const { data: existingPayments, error: paymentLookupErr } = await supabase
+        const rowIduIds = [...new Set(rows.map(r => r.id_umroh).filter(Boolean))];
+        const { data: existingPhase1, error: paymentLookupErr } = await supabase
           .from('jamaah')
-          .select('id_umroh, nama, bayar')
+          .select('id_umroh, nama, jm_id, bayar')
           .eq('agent_id', agentId)
-          .in('nama', rowNames);
+          .in('nama', rowNames)
+          .in('id_umroh', rowIduIds);
         if (paymentLookupErr) console.warn(`[Sync] ${slug} bayar lookup error:`, paymentLookupErr.message);
-        const existingBayarLookup = {};
-        (existingPayments || []).forEach(r => {
-          existingBayarLookup[`${r.id_umroh}_${r.nama}`.toLowerCase()] = r.bayar || 0;
+        // Per-jm_id bayar lookup: within a group where multiple members share the
+        // same nama (e.g. MARNI with 10 rows), each jm_id tracks its own payment.
+        const existingBayarByJmId = new Map();
+        // Map (id_umroh, nama) → list of known jm_ids (used to resolve truncated/synth jm_ids)
+        const existingJmIdLookup = new Map();
+        (existingPhase1 || []).forEach(r => {
+          existingBayarByJmId.set(`${r.id_umroh}_${r.jm_id}`.toLowerCase(), r.bayar || 0);
+          const namaKey = `${r.id_umroh}_${r.nama}`.toLowerCase();
+          const list = existingJmIdLookup.get(namaKey) || [];
+          list.push(r.jm_id);
+          existingJmIdLookup.set(namaKey, list);
         });
 
         // Preserve Phase 1 data that Phase 2 might not have
@@ -3209,16 +3229,38 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           if (!row.tgl_daftar) {
             row.tgl_daftar = bookingTglDaftarMap.get(row.id_umroh) || null;
           }
-          // bayar: never regress — payment can only increase
-          const existingBayar = existingBayarLookup[`${row.id_umroh}_${row.nama}`.toLowerCase()];
+          // bayar: never regress — payment can only increase. Keyed by jm_id so
+          // sibling jamaah sharing nama (e.g. MARNI) don't contaminate each other.
+          const jmIdKey = `${row.id_umroh}_${row.jm_id}`.toLowerCase();
+          const existingBayar = existingBayarByJmId.get(jmIdKey);
           if (existingBayar !== undefined && existingBayar > (row.bayar || 0)) {
             row.bayar = existingBayar;
           }
+          // Resolve jm_id: if Phase 2 synthesized from nama OR produced nothing,
+          // reuse an existing Phase 1 jm_id keyed by (id_umroh, nama). Only
+          // unambiguous matches (1 existing row for this pair) — skip otherwise.
+          if (!row.jm_id || row.jm_id.startsWith('__name_')) {
+            const match = existingJmIdLookup.get(`${row.id_umroh}_${row.nama}`.toLowerCase());
+            if (match && match.length === 1) {
+              row.jm_id = match[0];
+            }
+          }
         }
+        // Drop rows whose jm_id is still synthetic AND whose (id_umroh, nama)
+        // already exists in DB — they'd be ghost inserts (same person twice).
+        const safeRows = rows.filter((row) => {
+          if (!row.jm_id || !row.jm_id.startsWith('__name_')) return true;
+          const match = existingJmIdLookup.get(`${row.id_umroh}_${row.nama}`.toLowerCase());
+          if (match && match.length >= 1) {
+            console.warn(`[Sync] ${slug} Phase 2 skipped ghost row — ${row.id_umroh}/${row.nama} has ${match.length} real rows already`);
+            return false;
+          }
+          return true;
+        });
         const BATCH = 50;
-        for (let b = 0; b < rows.length; b += BATCH) {
-          const upsertBatch = rows.slice(b, b + BATCH);
-          const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,nama' });
+        for (let b = 0; b < safeRows.length; b += BATCH) {
+          const upsertBatch = safeRows.slice(b, b + BATCH);
+          const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
           if (error) console.error(`[Sync] ${slug} Phase 2 range ${job.tglAwal} error:`, error.message);
         }
         // Phase 2: no counter update — just keep syncing state alive
@@ -4963,14 +5005,20 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   // Default sort depends on filter
   const effectiveSort = sort || (status === 'belum' || status === 'berangkat' ? 'berangkat' : 'terbaru');
 
-  // Build query
+  // Build query — fetch ALL matching rows (no range) so we can do group-aware
+  // pagination in-process: each belum-DP id_umroh counts as 1 unit regardless
+  // of member count. Sorting still happens in Supabase.
+  const MIN_HIJRIAH_YEAR = '1447';
+  const berangkatCutoff = new Date();
+  berangkatCutoff.setDate(berangkatCutoff.getDate() + 10);
+  const cutoffStr = berangkatCutoff.toISOString().split('T')[0];
+  const todayStr = new Date().toISOString().split('T')[0];
+
   let query = supabase
     .from('jamaah')
-    .select('*', { count: 'exact' })
-    .eq('agent_id', req.user.id)
-    .range(offset, offset + limitNum - 1);
+    .select('*')
+    .eq('agent_id', req.user.id);
 
-  // Sorting
   if (effectiveSort === 'sisa_desc') {
     query = query.order('sisa', { ascending: false });
   } else if (effectiveSort === 'berangkat') {
@@ -4981,20 +5029,14 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   } else {
     query = query.order('nama', { ascending: true });
   }
+  // Secondary sort keeps group members adjacent in the result set.
+  query = query.order('id_umroh', { ascending: true }).order('jm_id', { ascending: true });
 
-  // Year filter: specific year or floor at 1447 (UI dropdown only shows ≥ 1447)
-  const MIN_HIJRIAH_YEAR = '1447';
   if (hijriahYear) {
     query = query.eq('hijriah_year', hijriahYear);
   } else {
     query = query.gte('hijriah_year', MIN_HIJRIAH_YEAR);
   }
-
-  // Berangkat ≤ 10 days from today
-  const berangkatCutoff = new Date();
-  berangkatCutoff.setDate(berangkatCutoff.getDate() + 10);
-  const cutoffStr = berangkatCutoff.toISOString().split('T')[0];
-  const todayStr = new Date().toISOString().split('T')[0];
 
   if (status === 'belum') {
     query = query.gt('sisa', 0);
@@ -5003,14 +5045,47 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   }
 
   if (search) {
-    query = query.or(`nama.ilike.%${search}%,id_umroh.ilike.%${search}%,wa.ilike.%${search}%`);
+    // Escape PostgREST .or() filter metacharacters to prevent filter injection.
+    // Attackers could otherwise break out via commas, parens, or `%`/`*` wildcards.
+    const safeSearch = String(search)
+      .replace(/[,()*%]/g, (c) => '\\' + c)  // escape PostgREST syntax chars
+      .slice(0, 100);                         // cap length defensively
+    query = query.or(`nama.ilike.%${safeSearch}%,id_umroh.ilike.%${safeSearch}%,wa.ilike.%${safeSearch}%`);
   }
 
-  const { data, count, error } = await query;
+  // Supabase default row cap is 1000 — raise ceiling to 5000 for large agents.
+  query = query.range(0, 4999);
+  const { data: allRows, error } = await query;
 
   if (error) {
     return res.status(500).json({ error: error.message });
   }
+
+  // Collapse belum-DP rows with the same id_umroh into a single "unit" for
+  // pagination purposes. Other rows remain 1-unit each.
+  const isBelumDP = (r) => (r.sisa || 0) > 0 && (r.bayar || 0) === 0;
+  const groupFirstIdx = new Map();
+  const groupMembers = new Map();
+  const units = []; // each unit = { kind: 'group'|'solo', members: Row[] }
+  (allRows || []).forEach((r) => {
+    if (isBelumDP(r) && r.id_umroh) {
+      if (!groupFirstIdx.has(r.id_umroh)) {
+        groupFirstIdx.set(r.id_umroh, units.length);
+        const members = [r];
+        groupMembers.set(r.id_umroh, members);
+        units.push({ kind: 'group', members });
+      } else {
+        groupMembers.get(r.id_umroh).push(r);
+      }
+    } else {
+      units.push({ kind: 'solo', members: [r] });
+    }
+  });
+
+  const totalUnits = units.length;
+  const pageUnits = units.slice(offset, offset + limitNum);
+  const data = pageUnits.flatMap(u => u.members);
+  const count = totalUnits;
 
   // Get last sync time
   const { data: syncData } = await supabase
@@ -5179,7 +5254,8 @@ app.get('/api/umrah/form-options', authMiddleware, adminOnly, async (req, res) =
       return res.status(400).json({ error: sess.error });
     }
 
-    const result = await fetchUmrahFormOptions(agent.jamaah_username);
+    const idb = typeof req.query.idb === 'string' ? req.query.idb : '';
+    const result = await fetchUmrahFormOptions(agent.jamaah_username, { idb });
     if (!result.success) {
       return res.status(502).json({ error: result.error });
     }
@@ -5202,7 +5278,7 @@ app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit:
       return res.status(400).json({ error: sess.error });
     }
 
-    const { formAction, fields, hiddenFields, file, fileFieldName } = req.body;
+    const { formAction, fields, hiddenFields, file, fileFieldName, idb } = req.body;
 
     if (!formAction || !fields) {
       return res.status(400).json({ error: 'Data form tidak lengkap' });
@@ -5213,16 +5289,22 @@ app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit:
     let fileName = null;
     if (file?.data && file?.name) {
       fileBuffer = Buffer.from(file.data, 'base64');
-      // Lowercase extension — legacy PHP rejects uppercase (.JPG, .JPEG, .PNG).
-      fileName = file.name.replace(/\.([A-Z]+)$/, (_m, ext) => '.' + ext.toLowerCase());
+      // Lowercase extension — legacy PHP rejects any mixed/upper case (e.g. .JPG, .Jpeg).
+      // Case-insensitive so ".JPEG", ".JPeG", ".Png" all normalise to lowercase.
+      fileName = file.name.replace(/\.([a-zA-Z]+)$/, (_m, ext) => '.' + ext.toLowerCase());
     }
 
     // ── Auto-fetch paket details (harga_paket, npaket, harga_perlengkapan) ──
     // The legacy form's JS calls _pkt.php on paket change to populate these fields.
     // Without this, submission results in harga=0/sisa=0 → status LUNAS bug.
     const enrichedFields = { ...fields };
-    const jadwalValue = fields.jadwal || fields.berangkat || fields.tgl_berangkat;
+    // Field name may be `vjadwal` in idb-bound mode — fall back to that as well.
+    const jadwalValue = fields.jadwal || fields.vjadwal || fields.berangkat || fields.tgl_berangkat;
     const paketValue = fields.paket || fields.paket_umroh;
+    // Legacy PHP reads $_POST['jadwal'] on line 77; mirror vjadwal to jadwal so it resolves.
+    if (jadwalValue && !enrichedFields.jadwal) {
+      enrichedFields.jadwal = jadwalValue;
+    }
     if (jadwalValue && paketValue) {
       const paketDetails = await fetchUmrahPaketDetails(agent.jamaah_username, jadwalValue, paketValue);
       if (paketDetails.success && paketDetails.fields) {
@@ -5353,6 +5435,7 @@ app.post('/api/umrah/register', authMiddleware, adminOnly, express.json({ limit:
       fileBuffer,
       fileName,
       fileFieldName,
+      idb,
     });
 
     if (!result.success) {
@@ -8534,9 +8617,11 @@ async function syncOneAgent(agent) {
               const itemYear = computedYear || null;
               if (itemYear && Number(itemYear) < 1447) continue;
               item.paket = item.paket || bookingPaketMap.get(idUmroh) || null;
+              const jmId = item.jm_id || `__name_${item.nama}`;
               rowsToUpsert.push({
                 agent_id: agentId,
                 id_umroh: item.id_umroh,
+                jm_id: jmId,
                 nama: item.nama,
                 jk: item.jk || null,
                 paket: item.paket || null,
@@ -8555,27 +8640,30 @@ async function syncOneAgent(agent) {
           if (rowsToUpsert.length > 0) {
             const deduped = new Map();
             for (const row of rowsToUpsert) {
-              const key = `${row.agent_id}_${row.id_umroh}_${row.nama}`.toLowerCase();
+              const key = `${row.agent_id}_${row.id_umroh}_${row.jm_id}`.toLowerCase();
               bgGlobalKeys.add(key);
               deduped.set(key, row);
             }
             const dedupedRows = Array.from(deduped.values());
 
-            // Fetch existing records to preserve Phase 2 enrichment data
-            const existingNames = dedupedRows.map(r => r.nama);
+            // Fetch existing records to preserve Phase 2 enrichment data.
+            // Match on (id_umroh, jm_id) — the canonical per-row identity.
+            const existingIduIds = dedupedRows.map(r => r.id_umroh);
+            const existingJmIds = dedupedRows.map(r => r.jm_id);
             const { data: existingRows } = await supabase
               .from('jamaah')
-              .select('id_umroh, nama, wa, tgl_lahir, perlengkapan, dokumen, no_paspor, paspor_expired, hijriah_year')
+              .select('id_umroh, jm_id, wa, tgl_lahir, perlengkapan, dokumen, no_paspor, paspor_expired, hijriah_year')
               .eq('agent_id', agentId)
-              .in('nama', existingNames);
+              .in('id_umroh', existingIduIds)
+              .in('jm_id', existingJmIds);
             const existingLookup = {};
             (existingRows || []).forEach(r => {
-              existingLookup[`${r.id_umroh}_${r.nama}`.toLowerCase()] = r;
+              existingLookup[`${r.id_umroh}_${r.jm_id}`.toLowerCase()] = r;
             });
 
             // Merge: preserve enrichment fields from existing records
             for (const row of dedupedRows) {
-              const existing = existingLookup[`${row.id_umroh}_${row.nama}`.toLowerCase()];
+              const existing = existingLookup[`${row.id_umroh}_${row.jm_id}`.toLowerCase()];
               if (existing) {
                 // Preserve Phase 2 enrichment — don't overwrite with null/empty
                 row.wa = existing.wa || null;
@@ -8606,7 +8694,7 @@ async function syncOneAgent(agent) {
             const BATCH = 50;
             for (let b = 0; b < dedupedRows.length; b += BATCH) {
               const upsertBatch = dedupedRows.slice(b, b + BATCH);
-              const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,nama' });
+              const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
               if (error) console.error(`[SYNC] ${slug} Phase 1 upsert error:`, error.message);
             }
           }
@@ -8761,13 +8849,14 @@ async function syncOneAgent(agent) {
         const laporanNames = items.map(it => it.nama).filter(Boolean);
         const { data: bgExistingPayments, error: bgPaymentLookupErr } = await supabase
           .from('jamaah')
-          .select('id_umroh, nama, bayar')
+          .select('id_umroh, nama, jm_id, bayar')
           .eq('agent_id', agentId)
           .in('nama', laporanNames);
         if (bgPaymentLookupErr) console.warn(`[SYNC] ${slug} bayar lookup error:`, bgPaymentLookupErr.message);
-        const bgExistingBayarLookup = {};
+        // Key by jm_id so same-nama siblings don't pollute each other's bayar.
+        const bgExistingBayarByJmId = new Map();
         (bgExistingPayments || []).forEach(r => {
-          bgExistingBayarLookup[`${r.id_umroh}_${r.nama}`.toLowerCase()] = r.bayar || 0;
+          bgExistingBayarByJmId.set(`${r.id_umroh}_${r.jm_id}`.toLowerCase(), r.bayar || 0);
         });
 
         const allNewRows = [];
@@ -8782,8 +8871,8 @@ async function syncOneAgent(agent) {
             if (!row.tgl_daftar) {
               row.tgl_daftar = bookingTglDaftarMap?.get(row.id_umroh) || null;
             }
-            // bayar: never regress — payment can only increase
-            const bgExistingBayar = bgExistingBayarLookup[`${row.id_umroh}_${row.nama}`.toLowerCase()];
+            // bayar: never regress — payment can only increase. Keyed per-jm_id.
+            const bgExistingBayar = bgExistingBayarByJmId.get(`${row.id_umroh}_${row.jm_id}`.toLowerCase());
             if (bgExistingBayar !== undefined && bgExistingBayar > (row.bayar || 0)) {
               row.bayar = bgExistingBayar;
             }
@@ -8791,7 +8880,7 @@ async function syncOneAgent(agent) {
           allNewRows.push(...rows);
           const { error } = await supabase
             .from('jamaah')
-            .upsert(rows, { onConflict: 'agent_id,id_umroh,nama' });
+            .upsert(rows, { onConflict: 'agent_id,id_umroh,jm_id' });
           if (error) console.error(`[SYNC] ${slug} range ${job.tglAwal} batch error:`, error.message);
           // Phase 2 is enrichment, not new-jamaah-count. Don't re-count — same jamaah
           // appears across multiple 7-day chunks which would inflate the counter.

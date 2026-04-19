@@ -4,7 +4,7 @@ import {
   Eye, EyeOff, LogIn, Loader2, User, Users, Lock, Search,
   Calendar, Building2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, RefreshCw,
-  ArrowUpDown, SlidersHorizontal, X, Check, Plane, Landmark, PenLine,
+  ArrowUpDown, SlidersHorizontal, X, Check, Plane, Landmark, PenLine, UserPlus, Plus,
 } from 'lucide-react';
 import { getAuthHeaders, getStoredSession } from './LoginPage';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
@@ -88,9 +88,10 @@ interface JamaahPageProps {
   jamaahUser?: string;
   initialSubTab?: 'umroh' | 'haji';
   onConnectionChange?: (connected: boolean, user: string) => void;
+  onHeaderRight?: (node: React.ReactNode) => void;
 }
 
-export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab = 'umroh', onConnectionChange }: JamaahPageProps) {
+export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab = 'umroh', onConnectionChange, onHeaderRight }: JamaahPageProps) {
   // Compute current Hijriah year dynamically
   const currentHijriYear = (() => {
     const now = new Date();
@@ -129,6 +130,8 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
   const [syncDone, setSyncDone] = useState(false);
   const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  // Modal state for "Lihat Semua" on a Belum DP group card
+  const [expandedGroupModal, setExpandedGroupModal] = useState<{ idu: string; members: JamaahItem[] } | null>(null);
 
   // Notes
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -148,6 +151,27 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
     window.history.replaceState(null, '', `/dashboard/jamaah/${tab}`);
     document.title = tab === 'haji' ? 'Jamaah - Haji' : 'Jamaah';
   }, []);
+
+  // Register a compact hijriah year selector into the dashboard header
+  // (rendered by DashboardLayout next to the dark-mode toggle).
+  useEffect(() => {
+    if (!onHeaderRight) return;
+    const selector = (
+      <select
+        value={hijriahYear}
+        onChange={e => { setHijriahYear(e.target.value); setPage(1); }}
+        className="h-9 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 px-2 rounded-xl border border-emerald-200 dark:border-emerald-800/40 outline-none cursor-pointer shrink-0"
+        title="Filter tahun Hijriah"
+      >
+        <option value="">Semua</option>
+        {hijriahOptions.map(y => (
+          <option key={y} value={String(y)}>{y} H</option>
+        ))}
+      </select>
+    );
+    onHeaderRight(selector);
+    return () => onHeaderRight(null);
+  }, [onHeaderRight, hijriahYear, hijriahOptions]);
 
   const formatNoteDate = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -629,6 +653,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
           jamaahConnected={jamaahConnected}
           jamaahUser={jamaahUser}
           onConnectionChange={onConnectionChange}
+          onHeaderRight={onHeaderRight}
         />
       </div>
     );
@@ -664,20 +689,6 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
           </button>
         </div>
 
-        {/* Daftar Jamaah button (admin only) — goes straight to form (OCR integrated at top) */}
-        {getStoredSession()?.user?.role === 'admin' && (
-          <button
-            onClick={() => {
-              window.history.pushState({}, '', '/dashboard/jamaah/daftar');
-              window.location.reload();
-            }}
-            className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 transition-all active:scale-[0.98]"
-          >
-            <PenLine size={14} />
-            Daftar Jamaah Baru
-          </button>
-        )}
-
         {/* Command bar */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
           {/* Top bar — always visible */}
@@ -690,16 +701,19 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
               placeholder="Cari jamaah..."
               className="flex-1 h-9 bg-transparent text-xs text-gray-800 dark:text-white placeholder:text-gray-400 outline-none min-w-0"
             />
-            <select
-              value={hijriahYear}
-              onChange={e => { setHijriahYear(e.target.value); setPage(1); }}
-              className="h-9 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0 rounded-lg border border-emerald-200 dark:border-emerald-800/40 outline-none cursor-pointer shrink-0"
-            >
-              <option value="">Semua</option>
-              {hijriahOptions.map(y => (
-                <option key={y} value={String(y)}>{y} H</option>
-              ))}
-            </select>
+            {getStoredSession()?.user?.role === 'admin' && (
+              <button
+                onClick={() => {
+                  window.history.pushState({}, '', '/dashboard/jamaah/daftar');
+                  window.location.reload();
+                }}
+                className="h-9 px-2.5 flex items-center gap-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold shadow-sm shadow-emerald-500/20 transition-all active:scale-95 shrink-0"
+                title="Jamaah Baru"
+              >
+                <Plus size={14} strokeWidth={3} />
+                Jamaah Baru
+              </button>
+            )}
             <button
               onClick={() => setFilterOpen(!filterOpen)}
               className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all active:scale-95 shrink-0 ${
@@ -874,7 +888,131 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
           </div>
         ) : (
           <div className="space-y-1.5">
-            {data?.items.map(item => {
+            {(() => {
+              if (!data?.items) return null;
+              // Re-order items so jamaah sharing an id_umroh sit adjacent.
+              // Group key = first occurrence index of that id_umroh in the page.
+              const firstIdxByIdu = new Map<string, number>();
+              data.items.forEach((it, i) => {
+                const key = it.id_umroh || `__solo_${it.id}`;
+                if (!firstIdxByIdu.has(key)) firstIdxByIdu.set(key, i);
+              });
+              const sortedItems = [...data.items].sort((a, b) => {
+                const ka = a.id_umroh || `__solo_${a.id}`;
+                const kb = b.id_umroh || `__solo_${b.id}`;
+                if (ka === kb) return 0;
+                return (firstIdxByIdu.get(ka) ?? 0) - (firstIdxByIdu.get(kb) ?? 0);
+              });
+              // Count members per id_umroh for group header rendering
+              const groupSize = new Map<string, number>();
+              sortedItems.forEach(it => {
+                if (!it.id_umroh) return;
+                groupSize.set(it.id_umroh, (groupSize.get(it.id_umroh) || 0) + 1);
+              });
+              const isBelumDP = (it: JamaahItem) => it.sisa > 0 && it.bayar === 0;
+              // Collapse consecutive same-id_umroh Belum DP entries into a single table card.
+              type Entry =
+                | { kind: 'card'; item: JamaahItem; grpSize: number; memberIndex: number }
+                | { kind: 'belum-table'; idu: string; members: JamaahItem[] };
+              const queue: Entry[] = [];
+              {
+                let i = 0;
+                while (i < sortedItems.length) {
+                  const it = sortedItems[i];
+                  if (isBelumDP(it) && it.id_umroh) {
+                    const members: JamaahItem[] = [];
+                    let j = i;
+                    while (j < sortedItems.length
+                           && sortedItems[j].id_umroh === it.id_umroh
+                           && isBelumDP(sortedItems[j])) {
+                      members.push(sortedItems[j]);
+                      j++;
+                    }
+                    queue.push({ kind: 'belum-table', idu: it.id_umroh, members });
+                    i = j;
+                    continue;
+                  }
+                  const sz = it.id_umroh ? (groupSize.get(it.id_umroh) || 1) : 1;
+                  const mi = sz > 1
+                    ? sortedItems.slice(0, i + 1).filter(x => x.id_umroh === it.id_umroh).length
+                    : 0;
+                  queue.push({ kind: 'card', item: it, grpSize: sz, memberIndex: mi });
+                  i++;
+                }
+              }
+              return queue.map((entry, qIdx) => {
+              if (entry.kind === 'belum-table') {
+                const members = entry.members;
+                const first = members[0];
+                return (
+                  <div key={`bdp-${entry.idu}-${qIdx}`} className="rounded-2xl border border-amber-200 dark:border-amber-800/40 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 bg-amber-50/60 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-800/40">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800/40 rounded-full px-2 py-0.5">
+                          Belum DP
+                        </span>
+                        <span className="text-[11px] font-semibold text-gray-600 dark:text-slate-300 truncate">
+                          {members.length} jamaah
+                        </span>
+                        <span className="text-[10px] font-mono text-gray-400 dark:text-slate-500 truncate">· {entry.idu}</span>
+                      </div>
+                      {getStoredSession()?.user?.role === 'admin' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const paramsObj: Record<string, string> = { idb: entry.idu, from: first.nama };
+                            if (first.tgl_berangkat) paramsObj.date = first.tgl_berangkat;
+                            const params = new URLSearchParams(paramsObj);
+                            window.history.pushState({}, '', `/dashboard/jamaah/daftar?${params}`);
+                            window.location.reload();
+                          }}
+                          className="shrink-0 flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors rounded-lg px-2 py-1 active:scale-95"
+                          title={`Tambah jamaah ke ID Umroh ${entry.idu}`}
+                        >
+                          <UserPlus size={11} strokeWidth={2.5} />
+                          Tambah
+                        </button>
+                      )}
+                    </div>
+                    <div className="divide-y divide-gray-100 dark:divide-slate-700/50">
+                      {members.slice(0, 2).map(m => {
+                        const mInitials = (m.nama || '?').split(' ').slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
+                        const mRing = m.jk === 'P' ? 'ring-2 ring-pink-300' : 'ring-2 ring-blue-300';
+                        return (
+                          <div key={m.id} className="flex items-center gap-2.5 px-3 py-2">
+                            <div className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-[10px] font-bold bg-gray-50 dark:bg-slate-700 text-gray-600 dark:text-slate-300 ${mRing}`}>
+                              {mInitials}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-gray-800 dark:text-white truncate">{m.nama}</p>
+                              {m.paket && (
+                                <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{m.paket}</p>
+                              )}
+                            </div>
+                            {m.tgl_berangkat && (
+                              <span className="shrink-0 text-[10px] text-gray-400 dark:text-slate-500">
+                                {formatDate(m.tgl_berangkat)}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {members.length > 2 && (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedGroupModal({ idu: entry.idu, members })}
+                          className="group w-full flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-semibold text-gray-500 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-emerald-50/40 dark:hover:bg-emerald-900/10 transition-colors"
+                        >
+                          Lihat {members.length - 2} jamaah lainnya
+                          <ChevronRight size={12} strokeWidth={2.5} className="transition-transform group-hover:translate-x-0.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+              const { item, grpSize, memberIndex } = entry;
+              const isGrouped = grpSize > 1;
               const isExpanded = expandedId === item.id;
               const paymentStatus: 'belum' | 'dp' | 'lunas' = item.sisa <= 0 ? 'lunas' : item.bayar > 0 ? 'dp' : 'belum';
               const initials = (item.nama || '?').split(' ').slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
@@ -935,7 +1073,18 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
 
                     {/* Info center */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{item.nama}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{item.nama}</p>
+                        {isGrouped && (
+                          <span
+                            title={`Grup ${item.id_umroh} — anggota ${memberIndex} dari ${grpSize}`}
+                            className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/25 border border-emerald-200 dark:border-emerald-800/40 px-1.5 py-[1px] rounded"
+                          >
+                            <Users size={9} strokeWidth={2.5} />
+                            {memberIndex}/{grpSize}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         {item.paket && (
                           <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{item.paket}</p>
@@ -1307,6 +1456,23 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
 
                       {/* ─── Section 4: Action Buttons ─── */}
                       <div className="px-3 py-2.5 flex gap-2">
+                        {getStoredSession()?.user?.role === 'admin' && item.id_umroh && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const paramsObj: Record<string, string> = { idb: item.id_umroh, from: item.nama };
+                              if (item.tgl_berangkat) paramsObj.date = item.tgl_berangkat;
+                              const params = new URLSearchParams(paramsObj);
+                              window.history.pushState({}, '', `/dashboard/jamaah/daftar?${params}`);
+                              window.location.reload();
+                            }}
+                            className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all active:scale-95"
+                            title={`Tambah jamaah ke ID Umroh ${item.id_umroh}`}
+                          >
+                            <UserPlus size={14} strokeWidth={2.2} />
+                            Tambah
+                          </button>
+                        )}
                         {item.wa && (
                           <a
                             href={`https://wa.me/${item.wa.replace(/^0/, '62').replace(/[^0-9]/g, '')}`}
@@ -1336,7 +1502,8 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                   </AnimatePresence>
                 </div>
               );
-            })}
+            });
+            })()}
           </div>
         )}
 
@@ -1389,6 +1556,80 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
             </span>
           </div>
         )}
+
+        {/* Belum DP group — Lihat Semua modal */}
+        <AnimatePresence>
+        {expandedGroupModal && (
+          <motion.div
+            key="group-modal"
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => setExpandedGroupModal(null)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+          >
+            <motion.div
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-lg max-h-[85vh] bg-white dark:bg-slate-800 rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+              initial={{ y: '100%', opacity: 0, scale: 0.98 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: '100%', opacity: 0, scale: 0.98 }}
+              transition={{
+                y: { duration: 0.28, ease: [0.16, 1, 0.3, 1] },
+                opacity: { duration: 0.18 },
+                scale: { duration: 0.22, ease: 'easeOut' },
+              }}
+            >
+              <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-gray-100 dark:border-slate-700">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800/40 rounded-full px-2 py-0.5">
+                      Belum DP
+                    </span>
+                    <span className="text-xs font-bold text-gray-800 dark:text-white">
+                      {expandedGroupModal.members.length} jamaah
+                    </span>
+                  </div>
+                  <p className="text-[10px] font-mono text-gray-400 dark:text-slate-500 mt-0.5 truncate">{expandedGroupModal.idu}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setExpandedGroupModal(null)}
+                  className="w-8 h-8 shrink-0 flex items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                  title="Tutup"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="overflow-y-auto divide-y divide-gray-100 dark:divide-slate-700/50">
+                {expandedGroupModal.members.map(m => {
+                  const mInitials = (m.nama || '?').split(' ').slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
+                  const mRing = m.jk === 'P' ? 'ring-2 ring-pink-300' : 'ring-2 ring-blue-300';
+                  return (
+                    <div key={m.id} className="flex items-center gap-2.5 px-4 py-2.5">
+                      <div className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-[11px] font-bold bg-gray-50 dark:bg-slate-700 text-gray-600 dark:text-slate-300 ${mRing}`}>
+                        {mInitials}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{m.nama}</p>
+                        {m.paket && (
+                          <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">{m.paket}</p>
+                        )}
+                      </div>
+                      {m.tgl_berangkat && (
+                        <span className="shrink-0 text-[10px] text-gray-400 dark:text-slate-500">
+                          {formatDate(m.tgl_berangkat)}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        </AnimatePresence>
 
       </div>
     );

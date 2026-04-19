@@ -191,10 +191,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // Jamaah session persistence across tab switches
   const [jamaahConnected, setJamaahConnected] = useState(false);
   const [jamaahUser, setJamaahUser] = useState('');
+  const [jamaahRefreshKey, setJamaahRefreshKey] = useState(0);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [disconnectClosing, setDisconnectClosing] = useState(false);
   // Statistik header slot for year dropdown
   const [statistikHeaderRight, setStatistikHeaderRight] = useState<React.ReactNode>(null);
+  const [jamaahHeaderRight, setJamaahHeaderRight] = useState<React.ReactNode>(null);
   // Jamaah status: lazy check on Statistik click
   const [checkingStatistik, setCheckingStatistik] = useState(false);
   const [showStatAlert, setShowStatAlert] = useState(false);
@@ -289,7 +291,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
   // Set initial history state on mount
   useEffect(() => {
-    window.history.replaceState({ tab: activeTab }, '', window.location.pathname);
+    window.history.replaceState({ tab: activeTab }, '', window.location.pathname + window.location.search + window.location.hash);
     const aiSub = getAIToolsSubFromPath();
     document.title = (activeTab === 'ai-tools' && aiSub === 'voice-over')
       ? 'Voice Over'
@@ -358,6 +360,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
             <button
               onClick={() => {
+                // Jamaah daftar (registration form) → back to /dashboard/jamaah list
+                if (activeTab === 'jamaah' && getSubTabFromPath() === 'daftar') {
+                  window.history.pushState({}, '', '/dashboard/jamaah');
+                  setJamaahRefreshKey(k => k + 1);
+                  return;
+                }
                 // If on AI Tools sub-page, go back appropriately
                 if (activeTab === 'ai-tools' && getAIToolsSubFromPath()) {
                   const aiSub = getAIToolsSubFromPath();
@@ -418,6 +426,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 );
               })()}
             </div>
+            {/* Per-tab selectors render to the LEFT of the dark-mode toggle */}
+            {activeTab === 'statistik' && statistikHeaderRight}
+            {activeTab === 'analytics' && analyticsHeaderRight}
+            {activeTab === 'jamaah' && jamaahHeaderRight}
+
             {/* Dark mode toggle */}
             <button
               onClick={() => setIsDarkMode(p => !p)}
@@ -425,11 +438,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             >
               {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
             </button>
-
-            {/* Statistik year selector in header */}
-            {activeTab === 'statistik' && statistikHeaderRight}
-            {/* Analytics month selector in header */}
-            {activeTab === 'analytics' && analyticsHeaderRight}
           </div>
         </header>
 
@@ -500,13 +508,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           {activeTab === 'jamaah' && (
             getSubTabFromPath() === 'daftar' && isAdmin ? (
               <UmrahRegisterPage onBack={() => {
+                // Land on /dashboard/jamaah (the jamaah list), not the dashboard home.
+                // Route is driven by pathname → we just replace URL then nudge a re-render.
                 window.history.pushState({}, '', '/dashboard/jamaah');
-                // Force re-render by toggling tab
-                setActiveTab('home');
-                setTimeout(() => setActiveTab('jamaah'), 0);
+                setJamaahRefreshKey(k => k + 1);
               }} />
             ) : (
               <JamaahPage
+                key={jamaahRefreshKey}
                 jamaahConnected={jamaahConnected}
                 jamaahUser={jamaahUser}
                 initialSubTab={getSubTabFromPath() === 'haji' ? 'haji' : 'umroh'}
@@ -514,6 +523,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   setJamaahConnected(connected);
                   setJamaahUser(user);
                 }}
+                onHeaderRight={setJamaahHeaderRight}
               />
             )
           )}

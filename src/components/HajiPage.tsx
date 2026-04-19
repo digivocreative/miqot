@@ -232,9 +232,10 @@ interface HajiPageProps {
   jamaahConnected?: boolean;
   jamaahUser?: string;
   onConnectionChange?: (connected: boolean, user: string) => void;
+  onHeaderRight?: (node: React.ReactNode) => void;
 }
 
-export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChange }: HajiPageProps) {
+export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChange, onHeaderRight }: HajiPageProps) {
   const mountTracked = useRef(false);
   useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_jamaah_haji'); mountTracked.current = true; } }, []);
 
@@ -284,6 +285,28 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
   const hasAutoSynced = useRef(false);
 
   const tahunOptions = stats ? Object.keys(stats.byTahun).sort((a, b) => b.localeCompare(a)) : [];
+
+  // Register compact year selector into dashboard header (parent controls placement
+  // next to the dark-mode toggle). Matches the Umroh tab for visual consistency.
+  useEffect(() => {
+    if (!onHeaderRight) return;
+    const selector = (
+      <select
+        value={thnMasehi}
+        onChange={e => { setThnMasehi(e.target.value); setPage(1); }}
+        className="h-9 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 px-2 rounded-xl border border-emerald-200 dark:border-emerald-800/40 outline-none cursor-pointer shrink-0"
+        title="Filter tahun"
+      >
+        <option value="">Semua</option>
+        {tahunOptions.map(y => (
+          <option key={y} value={y}>{y}</option>
+        ))}
+      </select>
+    );
+    onHeaderRight(selector);
+    return () => onHeaderRight(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onHeaderRight, thnMasehi, tahunOptions.join(',')]);
 
   const formatNoteDate = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -650,16 +673,6 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
               placeholder="Cari jamaah..."
               className="flex-1 h-9 bg-transparent text-xs text-gray-800 dark:text-white placeholder:text-gray-400 outline-none min-w-0"
             />
-            <select
-              value={thnMasehi}
-              onChange={e => { setThnMasehi(e.target.value); setPage(1); }}
-              className="h-9 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0 rounded-lg border border-emerald-200 dark:border-emerald-800/40 outline-none cursor-pointer shrink-0"
-            >
-              <option value="">Tahun</option>
-              {tahunOptions.map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all active:scale-95 shrink-0 ${

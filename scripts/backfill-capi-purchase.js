@@ -1,0 +1,217 @@
+/**
+ * One-off backfill: Fire CAPI Purchase events for existing jamaah.
+ *
+ * Usage: node scripts/backfill-capi-purchase.js
+ *
+ * Config: edit SLUGS + LIMIT below.
+ *
+ * What it does:
+ * - For each slug, loads CAPI config (pixel + decrypted token)
+ * - Fetches up to LIMIT jamaah ordered by synced_at DESC
+ * - Filters jamaah with bayar > 0
+ * - Fires Purchase event to Meta with value = bayar + sisa (total harga paket)
+ * - User data hashed: fn, ln, ph, country
+ * - Updates capi_purchase_status = 'lunas' after successful send
+ * - Rate limit: 120ms delay between events (~8/sec, safe under 10/sec limit)
+ */
+
+import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
+import dotenv from 'dotenv';
+dotenv.config();
+
+// ── Config ──
+const SLUGS = ['isti', 'zakia', 'yenitaofficial', 'linda', 'sari', 'dianwahyuni', 'nila', 'andra', 'aisyah'];
+const LIMIT = 200;
+const DELAY_MS = 120; // ~8 req/sec per agent
+
+// ── Setup ──
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const CAPI_ENCRYPTION_KEY = process.env.CAPI_ENCRYPTION_KEY || '';
+
+function capiDecrypt(data) {
+  if (!CAPI_ENCRYPTION_KEY || !data || !data.includes(':')) return data;
+  try {
+    const [ivHex, tagHex, encrypted] = data.split(':');
+    const key = Buffer.from(CAPI_ENCRYPTION_KEY, 'base64').slice(0, 32);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch { return data; }
+}
+
+const sha256 = (v) => v ? crypto.createHash('sha256').update(v.trim().toLowerCase()).digest('hex') : undefined;
+
+async function fireCapiPurchase(config, accessToken, slug, jamaah) {
+  const userName = jamaah.nama || '';
+  const userPhone = jamaah.wa || '';
+  const value = (jamaah.bayar || 0) + (jamaah.sisa || 0);
+  const id = jamaah.id_umroh;
+
+  const userData = { client_user_agent: 'Miqot Server Backfill' };
+  if (userName) userData.fn = sha256(userName.split(' ')[0]);
+  if (userName && userName.includes(' ')) userData.ln = sha256(userName.split(' ').slice(1).join(' '));
+  if (userPhone) userData.ph = sha256(userPhone.replace(/\D/g, ''));
+  userData.country = sha256('id');
+
+  const payload = {
+    data: [{
+      event_name: 'Purchase',
+      event_id: `backfill-${slug}-${id}-${Date.now()}`,
+      event_time: Math.floor(Date.now() / 1000),
+      event_source_url: `https://alhijaz.co/${slug}`,
+      action_source: 'system_generated',
+      user_data: userData,
+      custom_data: {
+        currency: 'IDR',
+        value,
+        content_name: jamaah.paket || 'Paket Umroh',
+        content_ids: [id],
+        content_type: 'product',
+      },
+    }],
+    ...(config.test_mode && config.test_event_code ? { test_event_code: config.test_event_code } : {}),
+  };
+
+  try {
+    const resp = await fetch(
+      `https://graph.facebook.com/v21.0/${config.pixel_id}/events?access_token=${encodeURIComponent(accessToken)}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
+    );
+    const respData = await resp.json();
+
+    if (!resp.ok || respData?.error) {
+      return { ok: false, error: respData?.error?.message || `HTTP ${resp.status}`, response: respData };
+    }
+    if (respData?.events_received === 0) {
+      return { ok: false, error: 'Meta received 0 events', response: respData };
+    }
+    return { ok: true, events_received: respData.events_received, value };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+async function processAgent(slug) {
+  console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`🔄 Processing agent: ${slug}`);
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+  // 1. Load agent
+  const { data: agent } = await supabase.from('agents').select('id, slug').eq('slug', slug).single();
+  if (!agent) {
+    console.log(`  ❌ Agent not found: ${slug}`);
+    return { slug, success: 0, failed: 0, skipped: 0 };
+  }
+
+  // 2. Load CAPI config
+  const { data: config } = await supabase.from('capi_configs').select('*').eq('agent_id', agent.id).single();
+  if (!config?.pixel_id || !config?.access_token) {
+    console.log(`  ⚠️  No CAPI config for ${slug}, skipping`);
+    return { slug, success: 0, failed: 0, skipped: 0 };
+  }
+  const accessToken = capiDecrypt(config.access_token);
+  if (!accessToken) {
+    console.log(`  ❌ Failed to decrypt token for ${slug}`);
+    return { slug, success: 0, failed: 0, skipped: 0 };
+  }
+
+  // 3. Fetch jamaah with payment
+  const { data: jamaahList } = await supabase
+    .from('jamaah')
+    .select('id_umroh, nama, wa, paket, bayar, sisa, capi_purchase_status, synced_at')
+    .eq('agent_id', agent.id)
+    .gt('bayar', 0)
+    .order('synced_at', { ascending: false })
+    .limit(LIMIT);
+
+  if (!jamaahList || jamaahList.length === 0) {
+    console.log(`  ℹ️  No jamaah with payment for ${slug}`);
+    return { slug, success: 0, failed: 0, skipped: 0 };
+  }
+
+  console.log(`  📋 Found ${jamaahList.length} jamaah to process`);
+  console.log(`  🎯 Pixel: ${config.pixel_id} | Test mode: ${config.test_mode || false}`);
+
+  let success = 0, failed = 0;
+  const errorSamples = [];
+
+  for (let i = 0; i < jamaahList.length; i++) {
+    const j = jamaahList[i];
+    const result = await fireCapiPurchase(config, accessToken, slug, j);
+
+    if (result.ok) {
+      success++;
+      // Update capi_purchase_status to 'lunas'
+      await supabase.from('jamaah')
+        .update({ capi_purchase_status: 'lunas' })
+        .eq('agent_id', agent.id).eq('id_umroh', j.id_umroh).eq('nama', j.nama);
+
+      // Log to capi_event_logs
+      await supabase.from('capi_event_logs').insert({
+        agent_id: agent.id,
+        event_name: 'Purchase',
+        status: 'success',
+        value: result.value,
+        source: 'sync',
+      });
+
+      if (i % 10 === 0 || i === jamaahList.length - 1) {
+        process.stdout.write(`  ✓ ${i + 1}/${jamaahList.length}\r`);
+      }
+    } else {
+      failed++;
+      if (errorSamples.length < 3) errorSamples.push({ id: j.id_umroh, error: result.error });
+      await supabase.from('capi_event_logs').insert({
+        agent_id: agent.id,
+        event_name: 'Purchase',
+        status: 'error',
+        value: (j.bayar || 0) + (j.sisa || 0),
+        error_message: (result.error || '').slice(0, 500),
+        source: 'sync',
+      });
+    }
+
+    await new Promise(r => setTimeout(r, DELAY_MS));
+  }
+
+  console.log(`\n  ✅ ${slug}: ${success} success, ${failed} failed`);
+  if (errorSamples.length > 0) {
+    console.log(`  ❌ Error samples:`);
+    errorSamples.forEach(e => console.log(`     - ${e.id}: ${e.error}`));
+  }
+  return { slug, success, failed, skipped: 0 };
+}
+
+async function main() {
+  console.log(`\n🚀 CAPI Purchase Backfill`);
+  console.log(`   Agents: ${SLUGS.join(', ')}`);
+  console.log(`   Limit per agent: ${LIMIT}`);
+  console.log(`   Rate limit: ${1000 / DELAY_MS} req/sec`);
+
+  const results = [];
+  for (const slug of SLUGS) {
+    const result = await processAgent(slug);
+    results.push(result);
+  }
+
+  console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`📊 SUMMARY`);
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  let totalSuccess = 0, totalFailed = 0;
+  for (const r of results) {
+    totalSuccess += r.success;
+    totalFailed += r.failed;
+    const status = r.skipped ? '⏭️  skipped' : r.success + r.failed === 0 ? '➖ no data' : `✓ ${r.success} / ✗ ${r.failed}`;
+    console.log(`  ${r.slug.padEnd(30)} ${status}`);
+  }
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`  TOTAL: ${totalSuccess} success, ${totalFailed} failed`);
+}
+
+main().catch(err => {
+  console.error('Fatal error:', err);
+  process.exit(1);
+});

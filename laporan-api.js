@@ -375,6 +375,7 @@ export async function fetchUmrahDetail(username, idUmroh) {
 
       jamaahItems.push({
         id_umroh: idUmroh,
+        jm_id: jmId || null,
         nama,
         jk: jk || null,
         bayar: bayar > 0 ? bayar : 0,
@@ -431,7 +432,11 @@ export function parseLaporanHtml(html) {
 
     // col2: NAMA — parse HTML to separate JM ID from actual name
     const namaCell = $(tds[2]);
-    const jmIdSmall = namaCell.find('small').text().trim(); // "JM...50706"
+    // The <small> tag often contains a CSS-truncated display like "JM...50706".
+    // If that happens, treat it as missing — the detail page (Phase 1) has the
+    // full jm_id and the sync logic will back-fill from (id_umroh, nama) lookup.
+    const jmIdRawSmall = namaCell.find('small').text().trim();
+    const jmIdSmall = /^JM[^.]+$/i.test(jmIdRawSmall) ? jmIdRawSmall : '';
     // Get the actual name: text after <br>, or all text minus the small tag content
     let nama = '';
     const namaCellHtml = namaCell.html() || '';
@@ -440,9 +445,9 @@ export function parseLaporanHtml(html) {
       // Text after the <br> is the actual name
       nama = cheerio.load(brParts.slice(1).join(' ')).text().trim();
     } else {
-      // Fallback: get full text and remove the JM... prefix
+      // Fallback: get full text and remove the JM... prefix (raw, possibly truncated)
       const fullText = namaCell.text().trim();
-      nama = fullText.replace(jmIdSmall, '').trim();
+      nama = fullText.replace(jmIdRawSmall, '').trim();
     }
     if (!nama) nama = namaCell.text().trim();
 
@@ -524,6 +529,7 @@ export function parseLaporanHtml(html) {
     if (id_umroh && nama) {
       items.push({
         id_umroh,
+        jm_id: jmIdSmall || null,
         nama,
         jk: jk || null,
         wa: wa || null,
@@ -724,18 +730,41 @@ function extractJsHandlers($, html) {
     }
   }
 
+  // 5b. PRIORITY 2: Look for the legacy `otb(val)` function by name. When idb binding
+  //     strips the jadwal select's onchange attribute, Priority 1 fails — but otb()
+  //     is still defined in the script, and it holds the correct jadwal→paket AJAX call.
+  if (!result.paketAjaxUrl && result.scriptFunctions.otb) {
+    const funcBody = result.scriptFunctions.otb;
+    const postMatch = funcBody.match(/\$\.post\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*\{([^}]*)\})?/);
+    const getMatch = funcBody.match(/\$\.get\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*\{([^}]*)\})?/);
+    let url = null, method = null, dataHint = null;
+    if (postMatch) { url = postMatch[1]; method = 'POST'; dataHint = postMatch[2]; }
+    else if (getMatch) { url = getMatch[1]; method = 'GET'; dataHint = getMatch[2]; }
+    if (url) {
+      result.paketAjaxUrl = url;
+      result.paketAjaxMethod = method;
+      const paramMatch = (dataHint || '').match(/(\w+)\s*:/);
+      result.paketAjaxParam = paramMatch?.[1] || 'jadwal';
+      result.paketAjaxSource = 'otb() function body';
+    }
+  }
+
   // 6. FALLBACK: Identify AJAX call whose URL/context mentions "paket" (less reliable;
   //    may pick a different paket-related handler like `_pkt.php` which is for price lookup)
   if (!result.paketAjaxUrl) {
     const paketCandidates = result.ajaxCalls.filter(c => {
       const urlLower = (c.url || '').toLowerCase();
       const contextLower = (c.contextHint || '').toLowerCase();
+      // Exclude _pkt.php — that's for price lookup, not paket options
+      if (urlLower.includes('_pkt.php')) return false;
       return urlLower.includes('paket') ||
+             urlLower.includes('_otb.php') ||
              contextLower.includes('paket') ||
              (c.dataHint || '').toLowerCase().includes('paket');
     });
 
-    const best = paketCandidates.find(c => (c.url || '').toLowerCase().includes('paket'))
+    const best = paketCandidates.find(c => (c.url || '').toLowerCase().includes('_otb.php'))
+              || paketCandidates.find(c => (c.url || '').toLowerCase().includes('paket'))
               || paketCandidates[0];
 
     if (best) {
@@ -752,7 +781,7 @@ function extractJsHandlers($, html) {
 
 // ── Fetch Umrah Registration Form: Extract dropdown options & form structure ──
 // Optional: pass tglBerangkat to get paket options filtered by departure schedule
-export async function fetchUmrahFormOptions(username, { tglBerangkat } = {}) {
+export async function fetchUmrahFormOptions(username, { tglBerangkat, idb } = {}) {
   const session = sessions.get(username);
   if (!session) return { success: false, error: 'Belum login' };
 
@@ -766,6 +795,11 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat } = {}) {
   let url = `${BASE}/pages/main.php?route=umrah&act=tdaftar`;
   if (tglBerangkat) {
     url += `&tgl_berangkat=${encodeURIComponent(tglBerangkat)}&berangkat=${encodeURIComponent(tglBerangkat)}&jadwal=${encodeURIComponent(tglBerangkat)}`;
+  }
+  // Bind to existing ID Umroh (group/family registration). Legacy uses dot-prefixed `.idb`.
+  if (idb) {
+    url += `&.idb=${encodeURIComponent(idb)}`;
+    console.log(`[UmrahForm] Binding to existing ID Umroh via idb=${idb}, URL:`, url);
   }
 
   try {
@@ -804,12 +838,36 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat } = {}) {
     const formAction = formEl.attr('action') || '';
     console.log('[UmrahForm] Form found with', maxFields, 'fields, action:', formAction);
 
-    // Extract hidden fields
+    // Strip PHP warnings/notices that legacy code sometimes prepends to values
+    // (e.g. "Warning: Undefined variable $b in ... on line 836 >JBU1530.2026-06-13.17").
+    // Defined here because both hiddenFields and select options use it.
+    const stripPhpNoise = (label) => {
+      if (!label) return label;
+      let s = label;
+      const lastOnLine = s.search(/on line \d+(?!.*on line \d+)/s);
+      if (lastOnLine >= 0) {
+        const tail = s.slice(lastOnLine).replace(/^on line \d+\s*>?\s*/, '');
+        if (tail.length > 0) s = tail;
+      }
+      s = s.replace(/^(Warning|Notice|Fatal error|Deprecated)\s*:.*$/i, '');
+      return s.trim();
+    };
+
+    // Extract hidden fields. Legacy PHP may echo warnings directly into a hidden
+    // input's value; when that happens, try to salvage the real tail (e.g. the JBU
+    // kode that PHP printed after the warning), otherwise drop the field.
     const hiddenFields = {};
     formEl.find('input[type="hidden"]').each((_, el) => {
       const name = $(el).attr('name');
-      const value = $(el).attr('value') || '';
-      if (name) hiddenFields[name] = value;
+      const rawValue = $(el).attr('value') || '';
+      if (!name) return;
+      const hasNoise = /<\s*b\s*>|<br|warning|notice|fatal/i.test(rawValue);
+      const cleaned = hasNoise ? stripPhpNoise(rawValue) : rawValue;
+      if (hasNoise && (!cleaned || /<\s*b\s*>|<br/i.test(cleaned))) {
+        console.warn(`[UmrahForm] Skipping hidden field "${name}" — contains PHP error noise:`, rawValue.slice(0, 80));
+        return;
+      }
+      hiddenFields[name] = cleaned;
     });
 
     // Helper to extract select options
@@ -834,34 +892,41 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat } = {}) {
       return false;
     };
     const allSelects = {};
+    // Tracks `<option selected>` values so the frontend can pre-fill locked dropdowns
+    // (e.g. when .idb binds a parent jadwal, vjadwal comes back with selected=...)
+    const selectedValues = {};
     const extractSelectOptions = (el) => {
       const opts = [];
+      let selected = null;
       $(el).find('option').each((_, opt) => {
-        const value = $(opt).attr('value') || '';
-        const label = $(opt).text().trim();
+        const rawValue = $(opt).attr('value') || '';
+        const value = stripPhpNoise(rawValue);
+        const label = stripPhpNoise($(opt).text().trim());
+        const isSelected = $(opt).attr('selected') !== undefined;
         if (isPlaceholderOption(value, label)) return;
+        if (isSelected && !selected) selected = value;
         opts.push({ value, label });
       });
-      return opts;
+      return { opts, selected };
+    };
+    const recordSelect = (name, el) => {
+      const { opts, selected } = extractSelectOptions(el);
+      if (!allSelects[name] || allSelects[name].length === 0 || opts.length > allSelects[name].length) {
+        allSelects[name] = opts;
+      }
+      if (selected && !selectedValues[name]) selectedValues[name] = selected;
     };
 
     // First: form-scoped selects
     formEl.find('select').each((_, el) => {
       const name = $(el).attr('name');
-      if (name) allSelects[name] = extractSelectOptions(el);
+      if (name) recordSelect(name, el);
     });
 
     // Then: any select outside the form (fill in missing ones, or replace if form had empty)
     $('select').each((_, el) => {
       const name = $(el).attr('name');
-      if (!name) return;
-      const opts = extractSelectOptions(el);
-      if (!allSelects[name] || allSelects[name].length === 0) {
-        allSelects[name] = opts;
-      } else if (opts.length > allSelects[name].length) {
-        // Prefer the select with MORE options (more likely the real dropdown)
-        allSelects[name] = opts;
-      }
+      if (name) recordSelect(name, el);
     });
 
     // Log for debugging
@@ -869,9 +934,15 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat } = {}) {
       Object.entries(allSelects).map(([k, v]) => [k, v.length])
     );
     console.log('[UmrahForm] Selects found:', selectSummary);
+    if (Object.keys(selectedValues).length > 0) {
+      console.log('[UmrahForm] Pre-selected values:', selectedValues);
+    }
 
-    // Extract all input fields — search globally
+    // Extract all input fields — search globally. Also capture pre-filled values
+    // (legacy form may pre-populate inputs like `vidu` with the parent's ID when
+    // .idb binds an existing registration).
     const allInputs = {};
+    const inputDefaults = {};
     const collectInput = (el) => {
       const name = $(el).attr('name');
       const type = $(el).attr('type') || 'text';
@@ -881,10 +952,38 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat } = {}) {
           placeholder: $(el).attr('placeholder') || '',
           required: $(el).attr('required') !== undefined,
         };
+        const rawValue = $(el).attr('value');
+        if (rawValue !== undefined && rawValue !== '') {
+          const cleaned = stripPhpNoise(String(rawValue));
+          if (cleaned) inputDefaults[name] = cleaned;
+        }
       }
     };
     formEl.find('input').each((_, el) => collectInput(el));
     $('input').each((_, el) => { if (!allInputs[$(el).attr('name')]) collectInput(el); });
+
+    // Sniff for a JBU jadwal pattern across hidden + input defaults. When .idb binds
+    // a parent jadwal, the kode shows up somewhere in the pre-filled form data —
+    // we fall back to this if no <option selected> was detected on vjadwal.
+    if (!selectedValues.vjadwal && !selectedValues.jadwal) {
+      const jbuPattern = /JBU\d+\.\d{4}-\d{2}-\d{2}\.\d+/;
+      const scanPool = [...Object.values(hiddenFields), ...Object.values(inputDefaults)];
+      for (const raw of scanPool) {
+        const m = String(raw || '').match(jbuPattern);
+        if (m) {
+          const target = allSelects.vjadwal ? 'vjadwal' : allSelects.jadwal ? 'jadwal' : null;
+          if (target) {
+            // Confirm the match exists as an option — otherwise the lock would render an empty label
+            const exists = allSelects[target].some(o => o.value === m[0]);
+            if (exists) {
+              selectedValues[target] = m[0];
+              console.log(`[UmrahForm] Inferred ${target} from JBU pattern:`, m[0]);
+              break;
+            }
+          }
+        }
+      }
+    }
 
     // Extract textarea fields — search globally
     const allTextareas = {};
@@ -961,6 +1060,7 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat } = {}) {
       formAction,
       hiddenFields,
       selects: allSelects,
+      selectedValues,
       inputs: allInputs,
       textareas: allTextareas,
       jsHandlers,
@@ -1598,7 +1698,7 @@ export async function fetchUmrahPaketDetails(username, jadwal, paketValue) {
 // Uses manual multipart body construction — proved reliable against legacy PHP.
 // Field names with brackets (e.g. "nama[0]") are preserved literally so PHP
 // parses them as array elements.
-export async function submitUmrahRegistration(username, { formAction, fields, hiddenFields, fileBuffer, fileName, fileFieldName }) {
+export async function submitUmrahRegistration(username, { formAction, fields, hiddenFields, fileBuffer, fileName, fileFieldName, idb }) {
   const session = sessions.get(username);
   if (!session) return { success: false, error: 'Belum login' };
 
@@ -1615,6 +1715,11 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
     actionUrl = `${BASE}${formAction}`;
   } else {
     actionUrl = `${BASE}/pages/${formAction}`;
+  }
+  // Bind to existing ID Umroh so the new jamaah is grouped with the prior registration.
+  if (idb) {
+    actionUrl += (actionUrl.includes('?') ? '&' : '?') + `.idb=${encodeURIComponent(idb)}`;
+    console.log(`[UmrahSubmit] Binding to ID Umroh ${idb}, submit URL:`, actionUrl);
   }
 
   try {
