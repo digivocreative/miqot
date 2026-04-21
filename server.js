@@ -673,6 +673,68 @@ function maskAskAiPhone(phone) {
   return `${s.slice(0, 3)}****${s.slice(-3)}`;
 }
 
+// Derive human-readable itinerary order from flight routes.
+// Examples:
+//   "CGK - JED" / "MED - CGK"                    → Mekkah dulu, lalu Madinah
+//   "CGK - MED" / "JED - CGK"                    → Madinah dulu, lalu Mekkah
+//   "CGK-DXB/DXB-MED" / "JED-DXB/DXB-CGK"        → Transit Dubai, lalu Madinah-Mekkah
+//   "CGK-JED/JED-CAI/CAI-MED" / "JED-CGK"        → Mekkah, Kairo, Madinah
+const ASK_AI_CITY_NAMES = {
+  CGK: 'Jakarta', JKT: 'Jakarta', SUB: 'Surabaya', KNO: 'Medan',
+  DPS: 'Denpasar', BPN: 'Balikpapan', PDG: 'Padang', PKU: 'Pekanbaru',
+  JED: 'Jeddah (Mekkah)', MED: 'Madinah',
+  CAI: 'Kairo', ALY: 'Alexandria',
+  DXB: 'Dubai', AUH: 'Abu Dhabi', DOH: 'Doha',
+  IST: 'Istanbul', SAW: 'Istanbul', BTS: 'Bursa', NAV: 'Cappadocia',
+  KAY: 'Cappadocia', ANK: 'Ankara',
+  HAK: 'Haikou', PEK: 'Beijing', SHA: 'Shanghai', CAN: 'Guangzhou',
+  KUL: 'Kuala Lumpur', SIN: 'Singapura', BKK: 'Bangkok',
+};
+
+function inferItineraryOrder(pkg) {
+  const parseLegs = (rute) => {
+    if (!rute) return [];
+    return String(rute).split('/').map(s => {
+      const parts = s.split('-').map(p => p.trim().toUpperCase());
+      return parts.length === 2 && parts[0] && parts[1] ? { from: parts[0], to: parts[1] } : null;
+    }).filter(Boolean);
+  };
+  const label = c => ASK_AI_CITY_NAMES[c] || c;
+
+  const depart = parseLegs(pkg.berangkat_rute);
+  const ret = parseLegs(pkg.pulang_rute);
+  if (!depart.length) return null;
+
+  const chain = [];
+  depart.forEach((l, i) => {
+    if (i === 0) chain.push(l.from);
+    chain.push(l.to);
+  });
+  ret.forEach(l => {
+    if (chain[chain.length - 1] !== l.from) chain.push(l.from);
+    chain.push(l.to);
+  });
+
+  const firstArrival = depart[0].to;
+  let urutanUmroh;
+  if (firstArrival === 'JED') {
+    urutanUmroh = 'Mekkah dulu (landing Jeddah → langsung ke Mekkah untuk Umroh), lalu Madinah';
+  } else if (firstArrival === 'MED') {
+    urutanUmroh = 'Madinah dulu (landing Madinah → ziarah Madinah), lalu ke Mekkah untuk Umroh';
+  } else {
+    const nextArrival = depart[1]?.to;
+    const nextLabel = nextArrival === 'JED' ? 'Mekkah' : nextArrival === 'MED' ? 'Madinah' : label(nextArrival || '');
+    urutanUmroh = `Transit ${label(firstArrival)} dulu, baru lanjut ke ${nextLabel || 'Saudi'} untuk rangkaian Umroh`;
+  }
+
+  return {
+    urutan_umroh: urutanUmroh,
+    rute_pesawat_lengkap: chain.map(label).join(' → '),
+    rute_berangkat_raw: pkg.berangkat_rute || '',
+    rute_pulang_raw: pkg.pulang_rute || '',
+  };
+}
+
 function parseHotelString(s) {
   // e.g. "PRESTIGE EX ELAF AL MASHAER/SETARAF (★4)" → { name: "PRESTIGE EX ELAF AL MASHAER", star: "4" }
   if (!s || typeof s !== 'string') return { name: '', star: '' };
@@ -731,6 +793,7 @@ function buildPackageContext(pkg) {
     perlengkapan_harga: pkg.perlengkapan_harga || '',
     brosur_tersedia: Boolean(pkg.brosur_cdn || pkg.brosur),
     itinerary_tersedia: Boolean(pkg.itinerary_cdn || pkg.itinerary),
+    urutan_perjalanan: inferItineraryOrder(pkg),
   };
 }
 
@@ -958,6 +1021,7 @@ ATURAN WAJIB:
 8. Jangan sebut nama kompetitor atau konsultan lain.
 9. Jika user tanya brosur / itinerary: cek flag "brosur_tersedia" dan "itinerary_tersedia" di konteks paket. Jika TRUE, arahkan user klik tombol "Brosur" atau "Itinerary" di card paket ini (JANGAN bilang "tidak tersedia"). Jika FALSE, baru arahkan ke ${agent.name}.
 10. Markdown yang boleh dipakai: **bold**, *italic*, __underline__, dan "- " untuk list. Hindari heading (#), tabel, kode, atau blockquote.
+11. Untuk pertanyaan tentang URUTAN PERJALANAN ("umroh dulu apa Madinah dulu", "mampir ke mana dulu", "landing di mana", "rute pesawatnya gimana"): JANGAN jawab generic/sales — baca field "urutan_perjalanan" di konteks paket. Ambil info dari "urutan_umroh" (quick summary) dan "rute_pesawat_lengkap" (chain kota lengkap). Sebutkan kota-kotanya secara spesifik sesuai data, jangan ngarang urutan.
 
 JANGAN pakai kata "agen" — pakai "konsultan" aja. Kalau sebut nama, pakai "${agent.name}" langsung.
 
