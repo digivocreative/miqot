@@ -617,10 +617,9 @@ app.options('/api/ai-copy', (req, res) => {
 // ──────────────────────────────────────────────
 // API: Tanya AI — conversational AI per paket (public)
 // ──────────────────────────────────────────────
-const ASK_AI_CHIP_KEYS = new Set([
-  'jarak-hotel', 'lansia', 'compare', 'itinerary',
-  'harga', 'fasilitas', 'pembayaran', 'dokumen', 'free',
-]);
+// Accept any chipKey of shape [a-z0-9-]{1,30} or "free". Whitelist previously
+// required backend changes for every new chip — format validation is enough.
+const ASK_AI_CHIP_KEY_PATTERN = /^[a-z0-9-]{1,30}$/;
 const askAiRateLimitMap = new Map(); // ip → { count, resetAt }
 const ASK_AI_RATE_LIMIT_MAX = 10;
 const ASK_AI_RATE_LIMIT_WINDOW = 60 * 1000; // 60s
@@ -915,7 +914,7 @@ app.post('/api/ask-ai/:slug/:jadwalId', async (req, res) => {
   if (!yearCode || !/^\d{4}$/.test(String(yearCode))) {
     return res.json(getAskAiFallback(agent.name));
   }
-  if (chipKey && !ASK_AI_CHIP_KEYS.has(chipKey)) {
+  if (chipKey && !ASK_AI_CHIP_KEY_PATTERN.test(chipKey)) {
     return res.json(getAskAiFallback(agent.name));
   }
 

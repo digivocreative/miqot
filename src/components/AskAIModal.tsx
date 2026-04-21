@@ -7,6 +7,9 @@ import {
   ChevronLeft, ChevronDown, Info, Package, Sparkles, Zap,
   MapPin, Users, ArrowLeftRight, Map, Tag, BedDouble, CreditCard, FileCheck,
   Send, Square, FileText, Maximize2, Image as ImageIcon,
+  Route, Clock, Plane, PlaneTakeoff, Luggage, BookOpen, UserCheck,
+  Baby, HelpCircle, Globe, PlusCircle, Stamp, Heart, Thermometer, Utensils,
+  Wifi, Gift, ShieldCheck, Camera,
 } from 'lucide-react';
 import { trackPublicEvent } from '../utils/analytics';
 
@@ -59,21 +62,57 @@ interface ChipDef {
 // Constants
 // ============================================
 
-const PRESET_CHIPS_DEFAULT: ChipDef[] = [
+// ~24 question variants across major topics. Each modal open reshuffles
+// and picks 4 default + 4 extras, so users don't see the same suggestions
+// every time they reopen.
+const CHIP_POOL: ChipDef[] = [
+  // Hotel & kamar
   { key: 'jarak-hotel', icon: MapPin, label: 'Jarak hotel ke Masjid berapa?' },
-  { key: 'lansia', icon: Users, label: 'Cocok buat lansia ga?' },
-  { key: 'compare', icon: ArrowLeftRight, label: 'Bandingkan sama paket lain' },
+  { key: 'fasilitas', icon: BedDouble, label: 'Fasilitas hotelnya apa aja?' },
+  { key: 'kamar', icon: Users, label: 'Kamar berdua/bertiga gimana?' },
+  { key: 'makanan', icon: Utensils, label: 'Menu makanan di hotel?' },
+  { key: 'wifi', icon: Wifi, label: 'Ada Wi-Fi di hotel?' },
+  // Penerbangan & logistik
+  { key: 'urutan-perjalanan', icon: Route, label: 'Umroh dulu atau Madinah dulu?' },
+  { key: 'durasi', icon: Clock, label: 'Berapa hari totalnya?' },
+  { key: 'maskapai', icon: Plane, label: 'Pakai maskapai apa?' },
+  { key: 'transit', icon: PlaneTakeoff, label: 'Transit di kota mana?' },
+  { key: 'bagasi', icon: Luggage, label: 'Bagasi berapa kilo?' },
+  // Ibadah
   { key: 'itinerary', icon: Map, label: 'Detail itinerary & aktivitas' },
-];
-
-const PRESET_CHIPS_EXTRA: ChipDef[] = [
+  { key: 'manasik', icon: BookOpen, label: 'Ada manasik sebelum berangkat?' },
+  { key: 'pembimbing', icon: UserCheck, label: 'Siapa pembimbing rombongan?' },
+  { key: 'kota-tambahan', icon: Globe, label: 'Mampir ke kota mana aja?' },
+  // Cocok untuk
+  { key: 'lansia', icon: Users, label: 'Cocok buat lansia ga?' },
+  { key: 'anak', icon: Baby, label: 'Bisa bawa anak kecil?' },
+  { key: 'pemula', icon: HelpCircle, label: 'Cocok buat yang pertama kali?' },
+  // Harga & pembayaran
   { key: 'harga', icon: Tag, label: 'Kenapa harga segini?' },
-  { key: 'fasilitas', icon: BedDouble, label: 'Fasilitas hotelnya apa?' },
   { key: 'pembayaran', icon: CreditCard, label: 'Cara pembayaran & cicilan' },
+  { key: 'biaya-tambahan', icon: PlusCircle, label: 'Ada biaya tambahan?' },
+  { key: 'promo', icon: Gift, label: 'Ada promo atau diskon?' },
+  // Admin
   { key: 'dokumen', icon: FileCheck, label: 'Dokumen yang disiapkan' },
+  { key: 'visa', icon: Stamp, label: 'Visa urus sendiri atau dibantu?' },
+  // Kenyamanan & info
+  { key: 'kesehatan', icon: Heart, label: 'Persiapan kesehatan apa?' },
+  { key: 'cuaca', icon: Thermometer, label: 'Cuacanya gimana saat trip?' },
+  { key: 'asuransi', icon: ShieldCheck, label: 'Ada asuransi perjalanan?' },
+  { key: 'foto', icon: Camera, label: 'Dokumentasi/foto disediakan?' },
+  // Compare
+  { key: 'compare', icon: ArrowLeftRight, label: 'Bandingkan sama paket lain' },
 ];
 
-const ALL_CHIPS: ChipDef[] = [...PRESET_CHIPS_DEFAULT, ...PRESET_CHIPS_EXTRA];
+// Fisher-Yates shuffle (non-mutating)
+function shuffleArray<T>(arr: T[]): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
 
 const CLIENT_QUERY_LIMIT = 8;          // max queries per modal session
 const FETCH_TIMEOUT_MS = 15000;        // 15s
@@ -325,15 +364,25 @@ export default function AskAIModal({
   const [aiMsgCount, setAiMsgCount] = useState(0);
   const [askedKeys, setAskedKeys] = useState<Set<string>>(() => new Set());
   const [activeAttachment, setActiveAttachment] = useState<Attachment | null>(null);
+  // Reshuffle chip suggestions every time the modal opens, so users don't
+  // see the same 4+4 questions across different packages.
+  const [chipShuffle, setChipShuffle] = useState<ChipDef[]>(() => shuffleArray(CHIP_POOL));
   const chatRef = useRef<HTMLDivElement>(null);
   const idRef = useRef(0);
   const lastSendAtRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Follow-up suggestions: chips not yet asked, max 3
+  // Default / extra chips derived from the current session's shuffle.
+  const defaultChips = useMemo(() => chipShuffle.slice(0, 4), [chipShuffle]);
+  const extraChips = useMemo(() => chipShuffle.slice(4, 8), [chipShuffle]);
+
+  // Follow-up suggestions under the latest AI reply: prefer unasked chips
+  // from the remaining shuffle pool, max 3.
   const followUps = useMemo(() => {
-    return ALL_CHIPS.filter(c => !askedKeys.has(c.key)).slice(0, 3);
-  }, [askedKeys]);
+    return chipShuffle
+      .filter(c => !askedKeys.has(c.key))
+      .slice(0, 3);
+  }, [chipShuffle, askedKeys]);
 
   const agentFirstName = useMemo(() => (agentName || '').trim().split(/\s+/)[0] || 'Konsultan', [agentName]);
   const agentInitials = useMemo(() => initialsOf(agentName), [agentName]);
@@ -349,10 +398,11 @@ export default function AskAIModal({
 
   const nextId = () => ++idRef.current;
 
-  // ── Track modal open ──
+  // ── Track modal open + reshuffle chip suggestions ──
   useEffect(() => {
     if (isOpen) {
       trackPublicEvent(agentSlug, 'ask_ai_opened', { jadwalId });
+      setChipShuffle(shuffleArray(CHIP_POOL));
     }
   }, [isOpen, agentSlug, jadwalId]);
 
@@ -633,7 +683,7 @@ export default function AskAIModal({
                   Pertanyaan populer
                 </div>
                 <div className="grid grid-cols-2 gap-1.5">
-                  {PRESET_CHIPS_DEFAULT.map(chip => {
+                  {defaultChips.map(chip => {
                     const Icon = chip.icon;
                     return (
                       <button
@@ -662,7 +712,7 @@ export default function AskAIModal({
                       transition={{ duration: 0.2 }}
                       className="grid grid-cols-2 gap-1.5 overflow-hidden"
                     >
-                      {PRESET_CHIPS_EXTRA.map(chip => {
+                      {extraChips.map(chip => {
                         const Icon = chip.icon;
                         return (
                           <button
