@@ -590,6 +590,18 @@ data          JSONB                -- { rates: { USD: number, SAR: number, ... }
 synced_at     TIMESTAMPTZ          -- terakhir sync
 ```
 
+### Tabel `ask_ai_cache`
+```
+jadwal_id       TEXT NOT NULL     -- ID paket jadwal
+question_hash   TEXT NOT NULL     -- SHA-256 hash dari pertanyaan (lowercase, trim)
+question        TEXT NOT NULL     -- pertanyaan original user
+answer          TEXT NOT NULL     -- jawaban AI
+note            TEXT              -- WA nudge text
+created_at      TIMESTAMPTZ DEFAULT NOW()
+-- UNIQUE(jadwal_id, question_hash)
+-- TTL: 7 hari (cleanup manual via cron atau expire query-time)
+```
+
 ### Data Paket Umroh (External API)
 Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhijaz.co/jadwal/api-get/{yearCode}` dan di-cache di browser (localStorage). Lihat `UmrohPackage` type di `src/types/umroh-package.ts`.
 **Lama Perjalanan / Duration Calculation:** Khusus untuk paket Extended/Plus (mis. Turki, Kairo), kalkulasi durasi tidak bisa mengandalkan selisih `keberangkatan.tgl` dan `kepulangan.tgl` (karena tanggal tersebut hanya mencakup leg penerbangan ke/dari Saudi). Referensi durasi paling akurat adalah nama paket itu sendiri (e.g., "PLUS TURKEY 15HR"), dan `calculateDuration()` di `data-service.ts` memprioritaskan regex extract dari `pkg.nama`.

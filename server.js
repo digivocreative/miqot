@@ -615,6 +615,390 @@ app.options('/api/ai-copy', (req, res) => {
 });
 
 // ──────────────────────────────────────────────
+// API: Tanya AI — conversational AI per paket (public)
+// ──────────────────────────────────────────────
+const ASK_AI_CHIP_KEYS = new Set([
+  'jarak-hotel', 'lansia', 'compare', 'itinerary',
+  'harga', 'fasilitas', 'pembayaran', 'dokumen', 'free',
+]);
+const askAiRateLimitMap = new Map(); // ip → { count, resetAt }
+const ASK_AI_RATE_LIMIT_MAX = 10;
+const ASK_AI_RATE_LIMIT_WINDOW = 60 * 1000; // 60s
+const ASK_AI_CACHE_TTL_DAYS = 7;
+const ASK_AI_FALLBACK_NOTE = 'Nikita biasanya respon cepat di WhatsApp.';
+
+// Hotel distance lookup — duplicated from src/data/hotelService.ts (client-side only).
+// Keys: uppercase hotel name without "/SETARAF" suffix. Values: jarak ke masjid terdekat.
+const ASK_AI_HOTEL_DISTANCES = {
+  // Mekkah
+  'PULLMAN ZAMZAM': '±50m',
+  'MOVENPICK': '±100m',
+  'PRESTIGE EX ELAF AL MASHAER': '±300m',
+  'AL MASSA GRAND': '±400m',
+  'AL MASSA DAR AL FAYZEEN': '±1.8km',
+  'ROYAL MAJESTIC': '±300m',
+  'RAYYANA AJYAD': '±300m',
+  'SOFWAH ROYAL ORCHID': '±50m',
+  'SAJA MAKKAH EX LE MERIDIEN TOWERS MAKKAH': '±2.5km',
+  // Madinah
+  'AL HARAM': '±50m',
+  'DEYAR AL EIMAN': '±50m',
+  'AL RITZ AL MADINAH': '±150m',
+  'GRAND PLAZA': '±150m',
+  'ODST ALMADINAH': '±200m',
+  'ARTAL INTERNATIONAL': '±700m',
+  'ANWAR ALMADINAH MOVENPICK': '±200m',
+};
+
+function hashQuestion(question) {
+  return crypto.createHash('sha256')
+    .update(question.toLowerCase().trim())
+    .digest('hex');
+}
+
+function getAskAiFallback(agentName) {
+  const name = agentName || 'agen';
+  return {
+    success: false,
+    answer: `Maaf, asisten lagi sibuk. Coba chat ${name} langsung aja ya untuk info paket ini.`,
+    note: agentName ? `${agentName} biasanya respon cepat di WhatsApp.` : ASK_AI_FALLBACK_NOTE,
+    fallback: true,
+  };
+}
+
+function maskAskAiPhone(phone) {
+  if (!phone) return '';
+  const s = String(phone).replace(/\D/g, '');
+  if (s.length < 6) return '***';
+  return `${s.slice(0, 3)}****${s.slice(-3)}`;
+}
+
+function parseHotelString(s) {
+  // e.g. "PRESTIGE EX ELAF AL MASHAER/SETARAF (★4)" → { name: "PRESTIGE EX ELAF AL MASHAER", star: "4" }
+  if (!s || typeof s !== 'string') return { name: '', star: '' };
+  const starMatch = s.match(/★\s*(\d+)/);
+  const star = starMatch ? starMatch[1] : '';
+  const name = s
+    .replace(/\(★\s*\d+\)/g, '')
+    .replace(/\/SETARAF.*$/i, '')
+    .trim();
+  return { name, star };
+}
+
+function lookupHotelDistance(hotelName) {
+  if (!hotelName) return '';
+  const key = hotelName.toUpperCase().replace(/\s+/g, ' ').trim();
+  if (ASK_AI_HOTEL_DISTANCES[key]) return ASK_AI_HOTEL_DISTANCES[key];
+  for (const [dbKey, dist] of Object.entries(ASK_AI_HOTEL_DISTANCES)) {
+    if (key.includes(dbKey) || dbKey.includes(key)) return dist;
+  }
+  return '';
+}
+
+function buildPackageContext(pkg) {
+  if (!pkg) return null;
+  const tiers = {};
+  const hargaObj = pkg.paket_harga || {};
+  for (const [tierName, pricing] of Object.entries(hargaObj)) {
+    if (!pricing || typeof pricing !== 'object') continue;
+    tiers[tierName] = {
+      Quard: pricing.Quard ? Number(pricing.Quard) : null,
+      Triple: pricing.Triple ? Number(pricing.Triple) : null,
+      Double: pricing.Double ? Number(pricing.Double) : null,
+      Infant: pricing.Infant ? Number(pricing.Infant) : null,
+    };
+  }
+  return {
+    nama: pkg.jadwal_nama || pkg.nama || '',
+    maskapai: pkg.maskapai || '',
+    berangkat: {
+      tgl: pkg.berangkat_tgl || '',
+      jam: pkg.berangkat_jam || '',
+      rute: pkg.berangkat_rute || '',
+      kode_penerbangan: pkg.berangkat_kode_penerbangan || '',
+    },
+    pulang: {
+      tgl: pkg.pulang_tgl || '',
+      jam: pkg.pulang_jam || '',
+      rute: pkg.pulang_rute || '',
+      kode_penerbangan: pkg.pulang_kode_penerbangan || '',
+    },
+    seat: {
+      total: pkg.seat_total || '',
+      sisa: pkg.seat_sisa || '',
+    },
+    harga_per_tier_dan_kamar: tiers,
+    perlengkapan_harga: pkg.perlengkapan_harga || '',
+  };
+}
+
+function buildHotelContext(pkg) {
+  const hotelObj = pkg?.paket_hotel || {};
+  const out = {};
+  for (const [tierName, info] of Object.entries(hotelObj)) {
+    if (!info || typeof info !== 'object') continue;
+    const tierOut = {};
+    if (info.mekkah) {
+      const parsed = parseHotelString(info.mekkah);
+      tierOut.mekkah = {
+        hotel: parsed.name,
+        bintang: parsed.star,
+        jarak_ke_masjidil_haram: lookupHotelDistance(parsed.name),
+      };
+    }
+    if (info.madinah) {
+      const parsed = parseHotelString(info.madinah);
+      tierOut.madinah = {
+        hotel: parsed.name,
+        bintang: parsed.star,
+        jarak_ke_masjid_nabawi: lookupHotelDistance(parsed.name),
+      };
+    }
+    for (const city of ['cairo', 'bursa', 'istanbul', 'cappadocia', 'ankara', 'dubai']) {
+      if (info[city]) {
+        const parsed = parseHotelString(info[city]);
+        tierOut[city] = { hotel: parsed.name, bintang: parsed.star };
+      }
+    }
+    if (Object.keys(tierOut).length > 0) out[tierName] = tierOut;
+  }
+  return out;
+}
+
+async function getItineraryContext(jadwalId) {
+  try {
+    const { data } = await supabase
+      .from('itineraries')
+      .select('content')
+      .eq('jadwal_id', jadwalId)
+      .maybeSingle();
+    return data?.content || null;
+  } catch { return null; }
+}
+
+async function fetchAskAiPackage(jadwalId, yearCode) {
+  try {
+    const { data } = await supabase
+      .from('umroh_schedules')
+      .select('*')
+      .eq('jadwal_id', jadwalId)
+      .eq('year_code', yearCode)
+      .maybeSingle();
+    if (data) return data;
+  } catch (err) {
+    console.warn('[AskAI] Supabase fetch failed:', err.message);
+  }
+  try {
+    const res = await fetch(`https://jadwal.alhijaz.co/jadwal/api-get/${yearCode}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return (json.aaData || []).find(p => p.jadwal_id === jadwalId) || null;
+    }
+  } catch (err) {
+    console.warn('[AskAI] External API fetch failed:', err.message);
+  }
+  return null;
+}
+
+app.options('/api/ask-ai/:slug/:jadwalId', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  }).sendStatus(204);
+});
+
+app.post('/api/ask-ai/:slug/:jadwalId', async (req, res) => {
+  const { slug, jadwalId } = req.params;
+  const { question, chipKey, yearCode } = req.body || {};
+
+  const agent = await getAgentBySlug((slug || '').toLowerCase());
+  if (!agent) {
+    return res.status(404).json(getAskAiFallback(''));
+  }
+
+  if (!question || typeof question !== 'string') {
+    return res.json(getAskAiFallback(agent.name));
+  }
+  const trimmed = question.trim();
+  if (!trimmed || trimmed.length > 500) {
+    return res.json(getAskAiFallback(agent.name));
+  }
+  if (!yearCode || !/^\d{4}$/.test(String(yearCode))) {
+    return res.json(getAskAiFallback(agent.name));
+  }
+  if (chipKey && !ASK_AI_CHIP_KEYS.has(chipKey)) {
+    return res.json(getAskAiFallback(agent.name));
+  }
+
+  // Rate limit per IP: 10 req / 60s
+  const ip = req.headers['x-forwarded-for'] || req.ip || 'unknown';
+  const nowMs = Date.now();
+  const rl = askAiRateLimitMap.get(ip);
+  if (rl && nowMs < rl.resetAt) {
+    if (rl.count >= ASK_AI_RATE_LIMIT_MAX) {
+      return res.json(getAskAiFallback(agent.name));
+    }
+    rl.count++;
+  } else {
+    askAiRateLimitMap.set(ip, { count: 1, resetAt: nowMs + ASK_AI_RATE_LIMIT_WINDOW });
+  }
+
+  const questionHash = hashQuestion(trimmed);
+
+  // Cache check — 7-day TTL enforced at query time
+  let cached = null;
+  try {
+    const cutoff = new Date(nowMs - ASK_AI_CACHE_TTL_DAYS * 86400000).toISOString();
+    const { data } = await supabase
+      .from('ask_ai_cache')
+      .select('answer, note')
+      .eq('jadwal_id', jadwalId)
+      .eq('question_hash', questionHash)
+      .gte('created_at', cutoff)
+      .maybeSingle();
+    if (data) cached = data;
+  } catch (err) {
+    console.warn('[AskAI] Cache lookup failed:', err.message);
+  }
+
+  if (cached) {
+    logAnalyticsEvent(agent.id, 'public', 'ask_ai_query', {
+      chipKey: chipKey || null,
+      jadwalId,
+      cached: true,
+      question_preview: trimmed.substring(0, 100),
+    });
+    return res.json({
+      success: true,
+      answer: cached.answer,
+      note: cached.note || '',
+      cached: true,
+    });
+  }
+
+  const pkg = await fetchAskAiPackage(jadwalId, yearCode);
+  if (!pkg) {
+    return res.json(getAskAiFallback(agent.name));
+  }
+  const packageCtx = buildPackageContext(pkg);
+  const hotelCtx = buildHotelContext(pkg);
+  const itineraryCtx = await getItineraryContext(jadwalId);
+
+  const OPENAI_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_KEY) {
+    console.error('[AskAI] OPENAI_API_KEY not configured');
+    return res.json(getAskAiFallback(agent.name));
+  }
+
+  const systemPrompt = `Kamu adalah "Asisten ${agent.name}" — asisten AI untuk agen Umroh Alhijaz Indowisata. Target pengguna: calon jamaah umroh usia 40-70 tahun, mayoritas ibu-ibu. Gunakan Bahasa Indonesia yang hangat, santai, dan mudah dipahami — hindari jargon teknis.
+
+KONTEKS PAKET:
+${JSON.stringify(packageCtx)}
+
+DATA HOTEL:
+${JSON.stringify(hotelCtx)}
+
+ITINERARY (jika tersedia):
+${itineraryCtx ? JSON.stringify(itineraryCtx) : 'tidak tersedia'}
+
+AGEN: ${agent.name} (${maskAskAiPhone(agent.phone)})
+
+ATURAN WAJIB:
+1. Jawab HANYA berdasarkan data konteks di atas. Jangan berspekulasi atau buat info yang tidak ada di data.
+2. Untuk pertanyaan tentang kebijakan pembayaran, cicilan, promo, diskon, atau harga khusus — KATAKAN TERUS TERANG bahwa setiap agen punya skema berbeda dan arahkan user untuk chat langsung ke agen. Jangan berikan angka atau persentase.
+3. Untuk pertanyaan yang butuh pengalaman personal agen (rekomendasi cocok/tidak, pengalaman trip sebelumnya, foto aktual), akui bahwa info personal paling baik dari agen langsung.
+4. Untuk pertanyaan di luar topik Umroh/paket/perjalanan, arahkan kembali ke topik paket dengan sopan.
+5. JANGAN pernah memberi jaminan (guarantee) soal keamanan, kenyamanan, atau outcome perjalanan.
+6. Maksimal 150 kata untuk field "answer". Gunakan newline (\\n) dan emoji SECUKUPNYA (🕌 ✈️ 🏨 🕋 untuk kategori, tidak spam).
+7. "note" harus mengarahkan ke WA agen dengan framing SOFT — seperti "Untuk detail lebih personal, ${agent.name} bisa bantu langsung." Bukan hard sell.
+8. Jangan sebut nama kompetitor atau agen lain.
+
+FORMAT OUTPUT (JSON):
+{
+  "answer": "jawaban detail dengan emoji dan newline",
+  "note": "single-line soft nudge ke agen (max 120 chars)"
+}`;
+
+  let aiResult;
+  try {
+    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: trimmed },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.5,
+        max_tokens: 500,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!openaiRes.ok) {
+      const errBody = await openaiRes.text();
+      console.error('[AskAI] OpenAI error:', errBody.substring(0, 300));
+      try { Sentry.captureMessage(`AskAI OpenAI ${openaiRes.status}: ${errBody.substring(0, 200)}`); } catch { /* noop */ }
+      return res.json(getAskAiFallback(agent.name));
+    }
+    const body = await openaiRes.json();
+    const raw = body.choices?.[0]?.message?.content || '';
+    aiResult = JSON.parse(raw);
+  } catch (err) {
+    console.error('[AskAI] OpenAI call failed:', err.message);
+    try { Sentry.captureException(err); } catch { /* noop */ }
+    return res.json(getAskAiFallback(agent.name));
+  }
+
+  if (!aiResult || typeof aiResult.answer !== 'string' || !aiResult.answer.trim()) {
+    console.warn('[AskAI] Invalid AI response schema');
+    try { Sentry.captureMessage('AskAI invalid response schema'); } catch { /* noop */ }
+    return res.json(getAskAiFallback(agent.name));
+  }
+  const answer = aiResult.answer.trim();
+  const note = typeof aiResult.note === 'string' ? aiResult.note.trim().substring(0, 200) : '';
+
+  // Cache (ignore duplicate conflicts)
+  try {
+    const { error: insertError } = await supabase.from('ask_ai_cache').insert({
+      jadwal_id: jadwalId,
+      question_hash: questionHash,
+      question: trimmed,
+      answer,
+      note,
+    });
+    if (insertError && !String(insertError.code || '').startsWith('23505')
+        && !(insertError.message || '').toLowerCase().includes('duplicate')) {
+      console.warn('[AskAI] Cache insert warn:', insertError.message);
+    }
+  } catch (err) {
+    console.warn('[AskAI] Cache insert failed:', err.message);
+  }
+
+  logAnalyticsEvent(agent.id, 'public', 'ask_ai_query', {
+    chipKey: chipKey || null,
+    jadwalId,
+    cached: false,
+    question_preview: trimmed.substring(0, 100),
+  });
+
+  return res.json({
+    success: true,
+    answer,
+    note,
+    cached: false,
+  });
+});
+
+// ──────────────────────────────────────────────
 // Itinerary: shared PDF→OpenAI extraction logic
 // ──────────────────────────────────────────────
 
