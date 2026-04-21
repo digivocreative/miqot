@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -69,6 +69,7 @@ const FETCH_TIMEOUT_MS = 15000;        // 15s
 const SEND_DEBOUNCE_MS = 500;          // prevent double-submit
 const WA_NUDGE_INTERVAL = 3;           // show WA nudge on 1st & every 3rd AI msg
 const COUNTER_SHOW_THRESHOLD = 250;    // show char counter when >= this many chars
+const TYPEWRITER_WORD_MS = 22;         // interval between word reveals
 
 // ============================================
 // Helpers
@@ -88,24 +89,49 @@ function initialsOf(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-// Render inline **bold** within a line. Safe — emits JSX, no dangerouslySetInnerHTML.
+// Render inline **bold** / *italic* / __underline__. Safe — emits JSX, no dangerouslySetInnerHTML.
 function renderInline(text: string): ReactNode[] {
   const out: ReactNode[] = [];
-  const re = /\*\*([^*\n]+)\*\*/g;
+  // Order matters: match ** before * so "**bold**" isn't mis-read as "*italic italic*".
+  const re = /\*\*([^*\n]+?)\*\*|__([^_\n]+?)__|\*([^*\n]+?)\*/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let k = 0;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(<strong key={k++}>{m[1]}</strong>);
+    if (m[1] !== undefined) {
+      out.push(<strong key={k++}>{m[1]}</strong>);
+    } else if (m[2] !== undefined) {
+      out.push(
+        <span
+          key={k++}
+          className="underline decoration-emerald-500 decoration-2 underline-offset-[3px] font-medium"
+        >
+          {m[2]}
+        </span>
+      );
+    } else if (m[3] !== undefined) {
+      out.push(<em key={k++}>{m[3]}</em>);
+    }
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));
   return out.length > 0 ? out : [text];
 }
 
-// Render message content with support for **bold**, "- " bullets, and newlines.
-// Emits divs, not <p>/<br/>, so must be placed inside a <div> (not <p>).
+// Strip trailing unmatched markdown tokens so partial reveal doesn't show stray
+// "**" or "*" characters while the typewriter is still revealing the closing pair.
+function stripUnmatchedMarkdown(s: string): string {
+  let out = s;
+  // Remove trailing "__" or "_" that has no partner later (we're partial-streaming)
+  out = out.replace(/__[^_\n]*$/g, m => m.slice(2));
+  out = out.replace(/\*\*[^*\n]*$/g, m => m.slice(2));
+  out = out.replace(/\*[^*\n]*$/g, m => m.slice(1));
+  return out;
+}
+
+// Rich rendering: bullets as block rows, blank lines as spacer. For finished messages.
+// Emits divs, so must be placed inside a <div> (not <p>).
 function renderMessage(text: string): ReactNode {
   const lines = text.split('\n');
   return lines.map((line, i) => {
@@ -123,6 +149,75 @@ function renderMessage(text: string): ReactNode {
     }
     return <div key={i}>{renderInline(line)}</div>;
   });
+}
+
+// Inline-only rendering (no block-level divs) for partial/typewriter state so the
+// cursor can sit immediately after the last word without layout jumping.
+function renderMessageInline(text: string): ReactNode[] {
+  const lines = text.split('\n');
+  const out: ReactNode[] = [];
+  lines.forEach((line, i) => {
+    if (i > 0) out.push(<br key={`br-${i}`} />);
+    if (line.trim() === '') return;
+    // For list items during typing: show bullet inline, keeps flow simple.
+    const listMatch = /^\s*[-*•]\s+(.+)$/.exec(line);
+    if (listMatch) {
+      out.push(
+        <Fragment key={i}>
+          <span className="text-emerald-600 dark:text-emerald-400">• </span>
+          {renderInline(listMatch[1])}
+        </Fragment>
+      );
+      return;
+    }
+    out.push(<Fragment key={i}>{renderInline(line)}</Fragment>);
+  });
+  return out;
+}
+
+// Progressive word-by-word reveal for AI messages. Auto-scrolls self into view
+// on each tick so the user follows the typing. Strips unmatched markdown during
+// the partial state to avoid flashing stray "**".
+function TypewriterMessage({ text }: { text: string }) {
+  const tokens = useMemo(() => text.split(/(\s+)/), [text]);
+  const [idx, setIdx] = useState(0);
+  const selfRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setIdx(0);
+    const total = tokens.length;
+    if (total === 0) return;
+    let current = 0;
+    const interval = setInterval(() => {
+      current += 1;
+      if (current >= total) {
+        setIdx(total);
+        clearInterval(interval);
+      } else {
+        setIdx(current);
+      }
+    }, TYPEWRITER_WORD_MS);
+    return () => clearInterval(interval);
+  }, [tokens]);
+
+  useEffect(() => {
+    selfRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' });
+  }, [idx]);
+
+  const done = idx >= tokens.length;
+  if (done) {
+    return <div ref={selfRef}>{renderMessage(text)}</div>;
+  }
+  const partial = stripUnmatchedMarkdown(tokens.slice(0, idx).join(''));
+  return (
+    <div ref={selfRef}>
+      {renderMessageInline(partial)}
+      <span
+        aria-hidden="true"
+        className="inline-block w-[2px] h-3.5 bg-emerald-500 ml-0.5 align-middle animate-pulse"
+      />
+    </div>
+  );
 }
 
 // ============================================
@@ -551,7 +646,7 @@ export default function AskAIModal({
                     <div>
                       <div className="inline-block bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-3.5 py-3 max-w-full">
                         <div className="text-[13px] leading-relaxed text-gray-800 dark:text-slate-100 break-words space-y-1">
-                          {renderMessage(msg.content)}
+                          <TypewriterMessage text={msg.content} />
                         </div>
                       </div>
                       <div className="text-[9px] text-gray-400 dark:text-slate-500 mt-1 ml-1">
