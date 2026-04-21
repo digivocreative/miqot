@@ -1,14 +1,18 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronLeft, ChevronDown, Info, Package, Sparkles, Zap,
   MapPin, Users, ArrowLeftRight, Map, Tag, BedDouble, CreditCard, FileCheck,
-  Send, Square,
+  Send, Square, FileText, Maximize2, Image as ImageIcon,
 } from 'lucide-react';
 import { trackPublicEvent } from '../utils/analytics';
+
+// Lazy-load the fullscreen viewers only when the user opens an attachment.
+const BrochureModal = lazy(() => import('./BrochureModal').then(m => ({ default: m.BrochureModal })));
+const ItineraryModal = lazy(() => import('./ItineraryModal').then(m => ({ default: m.ItineraryModal })));
 
 // ============================================
 // Props & Types
@@ -26,6 +30,12 @@ interface AskAIModalProps {
   agentPhoto?: string | null;
 }
 
+interface Attachment {
+  type: 'brosur' | 'itinerary';
+  url: string;
+  title: string;
+}
+
 type Message =
   | { type: 'user'; content: string; id: number }
   | { type: 'typing'; id: number }
@@ -35,6 +45,7 @@ type Message =
       note: string;
       questionKey?: string;
       showWaNudge: boolean;
+      attachment: Attachment | null;
       id: number;
     };
 
@@ -175,6 +186,77 @@ function renderMessageInline(text: string): ReactNode[] {
   return out;
 }
 
+// Match BrochureModal/ItineraryModal URL handling: keep CDN URLs as-is,
+// rewrite legacy alhijaz/miqot paths to the current proxy path.
+function normalizeAssetUrl(url: string): string {
+  if (!url) return '';
+  const clean = url.replace(/^http:\/\//i, 'https://');
+  const isCdn = clean.includes('.b-cdn.net') || clean.includes('bunnycdn');
+  if (isCdn) return clean;
+  return clean.replace(/^https?:\/\/(?:jadwal\.(?:miqot\.com|alhijaz\.co)|115\.124\.86\.220)/i, '');
+}
+
+function AttachmentCard({ attachment, onOpen }: { attachment: Attachment; onOpen: () => void }) {
+  const [imgErr, setImgErr] = useState(false);
+  const displayUrl = useMemo(() => normalizeAssetUrl(attachment.url), [attachment.url]);
+
+  if (attachment.type === 'brosur') {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        className="block w-full max-w-[260px] rounded-2xl overflow-hidden border border-emerald-200 dark:border-emerald-800/40 bg-white dark:bg-slate-800 shadow-sm active:scale-[0.98] transition-all"
+      >
+        <div className="relative aspect-[3/4] bg-gray-100 dark:bg-slate-900 overflow-hidden">
+          {!imgErr ? (
+            <img
+              src={displayUrl}
+              alt={attachment.title}
+              className="w-full h-full object-cover"
+              onError={() => setImgErr(true)}
+              loading="lazy"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <ImageIcon size={32} className="text-gray-300 dark:text-slate-600" />
+            </div>
+          )}
+          <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+            <Maximize2 size={12} className="text-white" />
+          </div>
+        </div>
+        <div className="px-3 py-2 flex items-center gap-1.5 border-t border-gray-100 dark:border-slate-700/60">
+          <ImageIcon size={12} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+          <span className="flex-1 text-[11px] font-semibold text-gray-700 dark:text-slate-200 truncate text-left">
+            Brosur Paket
+          </span>
+          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+            Lihat
+          </span>
+        </div>
+      </button>
+    );
+  }
+
+  // itinerary
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex items-center gap-3 w-full max-w-[260px] px-3 py-3 rounded-2xl border border-emerald-200 dark:border-emerald-800/40 bg-white dark:bg-slate-800 shadow-sm active:scale-[0.98] transition-all"
+    >
+      <div className="w-11 h-12 rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800/40 flex items-center justify-center flex-shrink-0">
+        <FileText size={22} className="text-red-500 dark:text-red-400" />
+      </div>
+      <div className="flex-1 min-w-0 text-left">
+        <div className="text-[12px] font-bold text-gray-900 dark:text-white truncate">Itinerary</div>
+        <div className="text-[10px] text-gray-500 dark:text-slate-400 truncate">PDF · Tap untuk full screen</div>
+      </div>
+      <Maximize2 size={14} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+    </button>
+  );
+}
+
 // Progressive word-by-word reveal for AI messages. Auto-scrolls self into view
 // on each tick so the user follows the typing. Strips unmatched markdown during
 // the partial state to avoid flashing stray "**".
@@ -242,6 +324,7 @@ export default function AskAIModal({
   const [queryCount, setQueryCount] = useState(0);
   const [aiMsgCount, setAiMsgCount] = useState(0);
   const [askedKeys, setAskedKeys] = useState<Set<string>>(() => new Set());
+  const [activeAttachment, setActiveAttachment] = useState<Attachment | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const idRef = useRef(0);
   const lastSendAtRef = useRef(0);
@@ -286,6 +369,7 @@ export default function AskAIModal({
       setQueryCount(0);
       setAiMsgCount(0);
       setAskedKeys(new Set());
+      setActiveAttachment(null);
       idRef.current = 0;
     }, 250);
     return () => clearTimeout(t);
@@ -328,6 +412,7 @@ export default function AskAIModal({
 
     let aiContent = '';
     let aiNote = '';
+    let aiAttachment: Attachment | null = null;
     let isFallback = false;
     try {
       const res = await fetch(`/api/ask-ai/${encodeURIComponent(agentSlug)}/${encodeURIComponent(jadwalId)}`, {
@@ -341,9 +426,16 @@ export default function AskAIModal({
         aiContent = data.answer;
         aiNote = typeof data.note === 'string' ? data.note : '';
         isFallback = Boolean(data.fallback);
+        if (data.attachment && (data.attachment.type === 'brosur' || data.attachment.type === 'itinerary') && typeof data.attachment.url === 'string') {
+          aiAttachment = {
+            type: data.attachment.type,
+            url: data.attachment.url,
+            title: typeof data.attachment.title === 'string' ? data.attachment.title : '',
+          };
+        }
       } else {
-        aiContent = `Waduh, koneksinya lagi lambat nih, Kak 😅 Coba chat ${agentFirstName} langsung aja ya.`;
-        aiNote = `${agentFirstName} cepet kok balesnya di WhatsApp 🙂`;
+        aiContent = `Waduh, koneksinya lagi lambat, Kak 😅 Coba chat **${agentFirstName}** langsung aja ya.`;
+        aiNote = `**${agentFirstName}** cepet kok balesnya di WhatsApp 🙂`;
         isFallback = true;
       }
     } catch (err) {
@@ -354,8 +446,8 @@ export default function AskAIModal({
         setIsTyping(false);
         return;
       }
-      aiContent = `Waduh, koneksinya lagi lambat nih, Kak 😅 Coba chat ${agentFirstName} langsung aja ya.`;
-      aiNote = `${agentFirstName} cepet kok balesnya di WhatsApp 🙂`;
+      aiContent = `Waduh, koneksinya lagi lambat, Kak 😅 Coba chat **${agentFirstName}** langsung aja ya.`;
+      aiNote = `**${agentFirstName}** cepet kok balesnya di WhatsApp 🙂`;
       isFallback = true;
     }
     clearTimeout(timeoutId);
@@ -372,6 +464,7 @@ export default function AskAIModal({
       note: aiNote,
       questionKey: chipKey,
       showWaNudge,
+      attachment: aiAttachment,
       id: nextId(),
     };
     setMessages(prev => prev.filter(m => m.id !== typingMsg.id).concat(aiMsg));
@@ -421,9 +514,10 @@ export default function AskAIModal({
   function showRateLimitWarning() {
     const warnMsg: Message = {
       type: 'ai',
-      content: `Udah banyak nih yang ditanyain, Kak 🙂 Enaknya sekarang lanjut ngobrol langsung sama ${agentName || agentFirstName} aja yuk di WhatsApp — biar info-nya lebih pas buat Kakak.`,
-      note: `${agentFirstName} siap bantu lebih detail di WhatsApp 🙂`,
+      content: `Udah banyak yang ditanyain, Kak 🙂 Enaknya sekarang lanjut ngobrol langsung sama **${agentFirstName}** aja yuk di WhatsApp — biar info-nya lebih pas buat Kakak.`,
+      note: `**${agentFirstName}** siap bantu lebih detail di WhatsApp 🙂`,
       showWaNudge: true,
+      attachment: null,
       id: nextId(),
     };
     setMessages(prev => [...prev, warnMsg]);
@@ -523,7 +617,7 @@ export default function AskAIModal({
                 <div className="inline-block bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-3.5 py-2.5 max-w-full">
                   <div className="text-[13px] leading-relaxed text-gray-800 dark:text-slate-100 space-y-0.5">
                     <div>Assalamualaikum 👋</div>
-                    <div>Saya asisten AI-nya {agentFirstName}, nih. Ada yang mau ditanyain soal paket ini, Kak? 🙂</div>
+                    <div>Saya asisten AI-nya <strong>{agentFirstName}</strong>. Ada yang mau ditanyain soal paket ini, Kak? 🙂</div>
                   </div>
                 </div>
                 <div className="text-[9px] text-gray-400 dark:text-slate-500 mt-1 ml-1">
@@ -654,6 +748,14 @@ export default function AskAIModal({
                       </div>
                     </div>
 
+                    {/* Inline attachment preview (brosur image / itinerary PDF) */}
+                    {msg.attachment && (
+                      <AttachmentCard
+                        attachment={msg.attachment}
+                        onOpen={() => setActiveAttachment(msg.attachment)}
+                      />
+                    )}
+
                     {/* WA Nudge Card — only on 1st AI / fallback / every Nth */}
                     {msg.showWaNudge && (
                       <div className="rounded-2xl border border-emerald-200 dark:border-emerald-800/40 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/30 dark:to-slate-800/60 p-3">
@@ -671,7 +773,7 @@ export default function AskAIModal({
                             </div>
                           )}
                           <p className="flex-1 text-[11px] font-semibold text-gray-800 dark:text-white leading-snug">
-                            💬 {msg.note || `Untuk detail lebih personal, ${agentFirstName} bisa bantu langsung.`}
+                            💬 {renderInline(msg.note || `Untuk detail lebih personal, **${agentFirstName}** bisa bantu langsung.`)}
                           </p>
                         </div>
                         <button
@@ -768,6 +870,31 @@ export default function AskAIModal({
             </div>
           </div>
         </motion.div>
+      )}
+      {/* Fullscreen viewers — mounted outside the Ask AI sheet so they overlay it */}
+      {activeAttachment?.type === 'brosur' && (
+        <Suspense fallback={null}>
+          <BrochureModal
+            isOpen={true}
+            onClose={() => setActiveAttachment(null)}
+            imageUrl={activeAttachment.url}
+            title={activeAttachment.title}
+          />
+        </Suspense>
+      )}
+      {activeAttachment?.type === 'itinerary' && (
+        <Suspense fallback={null}>
+          <ItineraryModal
+            isOpen={true}
+            onClose={() => setActiveAttachment(null)}
+            fileUrl={activeAttachment.url}
+            title={activeAttachment.title}
+            agentSlug={agentSlug}
+            agentName={agentName}
+            agentPhone={agentPhone}
+            agentPhoto={agentPhoto || null}
+          />
+        </Suspense>
       )}
     </AnimatePresence>,
     document.body

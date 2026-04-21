@@ -656,14 +656,34 @@ function hashQuestion(question) {
     .digest('hex');
 }
 
+function getAskAiFirstName(agentName) {
+  return (agentName || '').trim().split(/\s+/)[0] || 'konsultan';
+}
+
 function getAskAiFallback(agentName) {
-  const name = agentName || 'konsultan';
+  const first = getAskAiFirstName(agentName);
   return {
     success: false,
-    answer: `Waduh, asistennya lagi sibuk nih, Kak 😅 Coba chat ${name} langsung aja ya — biasanya lebih cepet kalau lagi butuh info.`,
-    note: agentName ? `${agentName} cepet kok balesnya di WhatsApp 🙂` : ASK_AI_FALLBACK_NOTE,
+    answer: `Waduh, asistennya lagi sibuk, Kak 😅 Coba chat **${first}** langsung aja ya — biasanya lebih cepet kalau lagi butuh info.`,
+    note: agentName ? `**${first}** cepet kok balesnya di WhatsApp 🙂` : ASK_AI_FALLBACK_NOTE,
     fallback: true,
+    attachment: null,
   };
+}
+
+function resolveAskAiAttachment(pkg, attachmentType) {
+  if (!pkg || !attachmentType) return null;
+  if (attachmentType === 'brosur') {
+    const url = pkg.brosur_cdn || pkg.brosur;
+    if (!url) return null;
+    return { type: 'brosur', url: String(url), title: pkg.jadwal_nama || pkg.nama || 'Brosur' };
+  }
+  if (attachmentType === 'itinerary') {
+    const url = pkg.itinerary_cdn || pkg.itinerary;
+    if (!url) return null;
+    return { type: 'itinerary', url: String(url), title: pkg.jadwal_nama || pkg.nama || 'Itinerary' };
+  }
+  return null;
 }
 
 function maskAskAiPhone(phone) {
@@ -920,7 +940,7 @@ app.post('/api/ask-ai/:slug/:jadwalId', async (req, res) => {
     const cutoff = new Date(nowMs - ASK_AI_CACHE_TTL_DAYS * 86400000).toISOString();
     const { data } = await supabase
       .from('ask_ai_cache')
-      .select('answer, note')
+      .select('answer, note, attachment_type')
       .eq('jadwal_id', jadwalId)
       .eq('question_hash', questionHash)
       .gte('created_at', cutoff)
@@ -937,11 +957,18 @@ app.post('/api/ask-ai/:slug/:jadwalId', async (req, res) => {
       cached: true,
       question_preview: trimmed.substring(0, 100),
     });
+    // Need pkg only if cache has an attachment type — avoid fetching otherwise.
+    let cachedAttachment = null;
+    if (cached.attachment_type) {
+      const pkgForAttachment = await fetchAskAiPackage(jadwalId, yearCode);
+      cachedAttachment = resolveAskAiAttachment(pkgForAttachment, cached.attachment_type);
+    }
     return res.json({
       success: true,
       answer: cached.answer,
       note: cached.note || '',
       cached: true,
+      attachment: cachedAttachment,
     });
   }
 
@@ -959,7 +986,8 @@ app.post('/api/ask-ai/:slug/:jadwalId', async (req, res) => {
     return res.json(getAskAiFallback(agent.name));
   }
 
-  const systemPrompt = `Kamu adalah "Asisten ${agent.name}" — asisten AI yang ramah di Alhijaz Indowisata, bantu jamaah yang lagi pertimbangin paket Umroh. Target pengguna: calon jamaah usia 40-70 tahun, mayoritas ibu-ibu.
+  const agentFirstName = getAskAiFirstName(agent.name);
+  const systemPrompt = `Kamu adalah "Asisten ${agentFirstName}" — asisten AI yang ramah di Alhijaz Indowisata, bantu jamaah yang lagi pertimbangin paket Umroh. Target pengguna: calon jamaah usia 40-70 tahun, mayoritas ibu-ibu.
 
 CARA NGOBROL (PENTING):
 - Bahasa Indonesia hangat & santai, kayak ngobrol sama saudara sendiri — bukan customer service kaku.
@@ -997,7 +1025,12 @@ CONTOH TONE:
 
 ❌ "Untuk informasi mengenai DP dan cicilan, setiap agen memiliki skema yang berbeda."
 ❌ "Tiap konsultan skemanya beda-beda" (ambigu & ga profesional — JANGAN pakai frasa ini)
-✅ "Kalau soal DP sama cicilan, *paling pas* langsung diskusi sama ${agent.name} ya, Kak — biar infonya lebih jelas dan sesuai kebutuhan Kakak 🙂"
+✅ "Kalau soal DP sama cicilan, *paling pas* langsung diskusi sama **${agentFirstName}** ya, Kak — biar infonya lebih jelas dan sesuai kebutuhan Kakak 🙂"
+
+PENYEBUTAN NAMA KONSULTAN (PENTING):
+- Sebut nama konsultan dengan NAMA DEPAN SAJA — cukup "${agentFirstName}", JANGAN pakai nama lengkap "${agent.name}".
+- SETIAP kali sebut nama konsultan, WAJIB di-**bold**. Contoh: "chat **${agentFirstName}** aja", "tanya **${agentFirstName}** langsung", "**${agentFirstName}** bisa bantu".
+- JANGAN pakai "Beliau", "Kak ${agentFirstName}", atau "Bu/Pak ${agentFirstName}" — cukup "**${agentFirstName}**" aja.
 
 KONTEKS PAKET:
 ${JSON.stringify(packageCtx)}
@@ -1008,27 +1041,31 @@ ${JSON.stringify(hotelCtx)}
 ITINERARY (jika tersedia):
 ${itineraryCtx ? JSON.stringify(itineraryCtx) : 'tidak tersedia'}
 
-KONSULTAN: ${agent.name} (${maskAskAiPhone(agent.phone)})
+KONSULTAN: **${agentFirstName}** (nama depan aja, nama lengkap tersimpan di sistem — ${maskAskAiPhone(agent.phone)})
 
 ATURAN WAJIB:
 1. Jawab HANYA berdasarkan data konteks di atas. Jangan ngarang info yang ga ada di data.
-2. Soal pembayaran, cicilan, promo, diskon, atau harga khusus — JANGAN kasih angka atau persentase sama sekali. Langsung arahkan user buat diskusi dengan ${agent.name} di WhatsApp. JANGAN pakai frasa ambigu seperti "tiap konsultan skemanya beda", "setiap agen punya skema berbeda", atau "kebijakan tiap konsultan beda-beda" — ini terkesan ga profesional. Langsung bilang info detail paling pas didiskusikan sama ${agent.name} aja.
-3. Soal yang butuh pengalaman personal konsultan (cocok/ga cocok buat X, foto asli, cerita trip sebelumnya) — akui info kayak gitu paling pas dari ${agent.name} langsung.
+2. Soal pembayaran, cicilan, promo, diskon, atau harga khusus — JANGAN kasih angka atau persentase sama sekali. Langsung arahkan user buat diskusi dengan **${agentFirstName}** di WhatsApp. JANGAN pakai frasa ambigu seperti "tiap konsultan skemanya beda", "setiap agen punya skema berbeda", atau "kebijakan tiap konsultan beda-beda" — ini terkesan ga profesional. Langsung bilang info detail paling pas didiskusikan sama **${agentFirstName}** aja.
+3. Soal yang butuh pengalaman personal konsultan (cocok/ga cocok buat X, foto asli, cerita trip sebelumnya) — akui info kayak gitu paling pas dari **${agentFirstName}** langsung.
 4. Pertanyaan di luar topik Umroh/paket/perjalanan — arahkan balik ke topik paket dengan sopan tapi santai.
 5. JANGAN PERNAH kasih jaminan/garansi soal keamanan, kenyamanan, atau hasil perjalanan.
 6. Maksimal 120 kata untuk field "answer". Jangan bertele-tele — straight to the point tapi ramah.
-7. "note" arahkan ke WA ${agent.name} dengan framing SOFT dan santai. Contoh: "Kalau butuh detail lebih personal, ${agent.name} siap bantu ya 🙂". BUKAN hard sell.
+7. "note" arahkan ke WA **${agentFirstName}** dengan framing SOFT dan santai. Contoh: "Kalau butuh detail lebih personal, **${agentFirstName}** siap bantu ya 🙂". BUKAN hard sell. Pakai **bold** untuk nama juga di note.
 8. Jangan sebut nama kompetitor atau konsultan lain.
-9. Jika user tanya brosur / itinerary: cek flag "brosur_tersedia" dan "itinerary_tersedia" di konteks paket. Jika TRUE, arahkan user klik tombol "Brosur" atau "Itinerary" di card paket ini (JANGAN bilang "tidak tersedia"). Jika FALSE, baru arahkan ke ${agent.name}.
+9. Jika user tanya BROSUR / ITINERARY: cek flag "brosur_tersedia" dan "itinerary_tersedia" di konteks paket.
+   - Jika TRUE: SET field "attachment" di output JSON = "brosur" atau "itinerary" (pilih yang sesuai). Di field "answer", bilang santai bahwa brosur/itinerary-nya ditampilkan di bawah, dan bisa diklik buat lihat full screen. JANGAN bilang "tidak tersedia".
+   - Jika FALSE: set "attachment": null, arahkan ke **${agentFirstName}**.
+   - Untuk pertanyaan lain selain brosur/itinerary: set "attachment": null.
 10. Markdown yang boleh dipakai: **bold**, *italic*, __underline__, dan "- " untuk list. Hindari heading (#), tabel, kode, atau blockquote.
 11. Untuk pertanyaan tentang URUTAN PERJALANAN ("umroh dulu apa Madinah dulu", "mampir ke mana dulu", "landing di mana", "rute pesawatnya gimana"): JANGAN jawab generic/sales — baca field "urutan_perjalanan" di konteks paket. Ambil info dari "urutan_umroh" (quick summary) dan "rute_pesawat_lengkap" (chain kota lengkap). Sebutkan kota-kotanya secara spesifik sesuai data, jangan ngarang urutan.
 
-JANGAN pakai kata "agen" — pakai "konsultan" aja. Kalau sebut nama, pakai "${agent.name}" langsung.
+JANGAN pakai kata "agen" — pakai "konsultan" aja. Sebut nama selalu dengan **${agentFirstName}** (nama depan + bold).
 
 FORMAT OUTPUT (JSON):
 {
-  "answer": "jawaban santai dengan emoji dan newline",
-  "note": "single-line soft nudge ke konsultan (max 120 chars)"
+  "answer": "jawaban santai dengan emoji dan newline, nama konsultan di-bold",
+  "note": "single-line soft nudge ke konsultan (max 120 chars, nama di-bold)",
+  "attachment": "brosur" | "itinerary" | null
 }`;
 
   let aiResult;
@@ -1074,6 +1111,16 @@ FORMAT OUTPUT (JSON):
   const answer = aiResult.answer.trim();
   const note = typeof aiResult.note === 'string' ? aiResult.note.trim().substring(0, 200) : '';
 
+  // Validate and resolve attachment, if AI requested one.
+  let attachmentType = null;
+  if (aiResult.attachment === 'brosur' || aiResult.attachment === 'itinerary') {
+    const hasAsset = aiResult.attachment === 'brosur'
+      ? Boolean(pkg.brosur_cdn || pkg.brosur)
+      : Boolean(pkg.itinerary_cdn || pkg.itinerary);
+    if (hasAsset) attachmentType = aiResult.attachment;
+  }
+  const attachment = resolveAskAiAttachment(pkg, attachmentType);
+
   // Cache (ignore duplicate conflicts)
   try {
     const { error: insertError } = await supabase.from('ask_ai_cache').insert({
@@ -1082,6 +1129,7 @@ FORMAT OUTPUT (JSON):
       question: trimmed,
       answer,
       note,
+      attachment_type: attachmentType,
     });
     if (insertError && !String(insertError.code || '').startsWith('23505')
         && !(insertError.message || '').toLowerCase().includes('duplicate')) {
@@ -1096,6 +1144,7 @@ FORMAT OUTPUT (JSON):
     jadwalId,
     cached: false,
     question_preview: trimmed.substring(0, 100),
+    attachment: attachmentType || null,
   });
 
   return res.json({
@@ -1103,6 +1152,7 @@ FORMAT OUTPUT (JSON):
     answer,
     note,
     cached: false,
+    attachment,
   });
 });
 

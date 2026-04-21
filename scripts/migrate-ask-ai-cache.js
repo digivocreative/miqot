@@ -20,9 +20,12 @@ CREATE TABLE IF NOT EXISTS ask_ai_cache (
   question TEXT NOT NULL,
   answer TEXT NOT NULL,
   note TEXT,
+  attachment_type TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(jadwal_id, question_hash)
 );
+
+ALTER TABLE ask_ai_cache ADD COLUMN IF NOT EXISTS attachment_type TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_ask_ai_cache_lookup
   ON ask_ai_cache(jadwal_id, question_hash);
