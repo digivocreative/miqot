@@ -78,8 +78,9 @@ const CHIP_POOL: ChipDef[] = [
   { key: 'maskapai', icon: Plane, label: 'Pakai maskapai apa?' },
   { key: 'transit', icon: PlaneTakeoff, label: 'Transit di kota mana?' },
   { key: 'bagasi', icon: Luggage, label: 'Bagasi berapa kilo?' },
-  // Ibadah
+  // Ibadah & materi paket
   { key: 'itinerary', icon: Map, label: 'Detail itinerary & aktivitas' },
+  { key: 'brosur', icon: FileText, label: 'Minta brosur paket dong' },
   { key: 'manasik', icon: BookOpen, label: 'Ada manasik sebelum berangkat?' },
   { key: 'pembimbing', icon: UserCheck, label: 'Siapa pembimbing rombongan?' },
   { key: 'kota-tambahan', icon: Globe, label: 'Mampir ke kota mana aja?' },
