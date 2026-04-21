@@ -646,7 +646,7 @@ export default function AskAIModal({
 
             <div className="px-4 pb-3 flex items-center gap-1.5 text-[10px]">
               <Package size={12} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
-              <span className="font-medium text-gray-500 dark:text-slate-400">Bertanya tentang:</span>
+              <span className="font-medium text-gray-500 dark:text-slate-400">Paket:</span>
               <span className="font-semibold text-gray-700 dark:text-slate-300 truncate">
                 {packageName}
               </span>
@@ -682,7 +682,7 @@ export default function AskAIModal({
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
                   Pertanyaan populer
                 </div>
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="flex flex-col gap-1.5">
                   {defaultChips.map(chip => {
                     const Icon = chip.icon;
                     return (
@@ -710,7 +710,7 @@ export default function AskAIModal({
                       animate={{ opacity: 1, height: 'auto' }}
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ duration: 0.2 }}
-                      className="grid grid-cols-2 gap-1.5 overflow-hidden"
+                      className="flex flex-col gap-1.5 overflow-hidden"
                     >
                       {extraChips.map(chip => {
                         const Icon = chip.icon;
