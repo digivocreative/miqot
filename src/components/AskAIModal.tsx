@@ -793,7 +793,7 @@ export default function AskAIModal({
                   onClick={() => setExpanded(e => !e)}
                   className="w-full flex items-center justify-center gap-1 py-2 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400"
                 >
-                  <span>{expanded ? 'Tutup' : 'Lihat semua pertanyaan'}</span>
+                  <span>{expanded ? 'Tutup' : 'Lihat pertanyaan lain'}</span>
                   <ChevronDown
                     size={14}
                     className={`transition-transform ${expanded ? 'rotate-180' : ''}`}

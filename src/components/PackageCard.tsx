@@ -11,7 +11,7 @@ import { BrochureModal } from './BrochureModal';
 const ItineraryModal = lazy(() => import('./ItineraryModal').then(m => ({ default: m.ItineraryModal })));
 const AskAIModal = lazy(() => import('./AskAIModal'));
 import type { AgentData } from '@/data/agents';
-import { AGENTS_DATA } from '@/data/agents';
+import { AGENTS_DATA, isDiskusiEnabled } from '@/data/agents';
 import AgentProfile from './AgentProfile';
 import { SplitLayout, SpotlightLayout, TicketLayout, TiledLayout, MagazineLayout } from './CardVariants';
 import logoAlhijaz from '@/logo-alhijaz.webp';
@@ -1892,19 +1892,29 @@ _________________________
               </span>
             </button>
 
-            {/* Diskusi (Tanya AI) — same geometry as sibling buttons; ::before paints a 2px rotating emerald ring */}
+            {/* Diskusi (Tanya AI) — aktif untuk admin + whitelist slug; selainnya disabled. */}
             {!isSingleView && currentAgent && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setAskAIOpen(true);
-                }}
-                className="diskusi-ai-border flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 border-transparent transition-transform active:scale-95"
-              >
-                <Sparkles size={20} className="text-emerald-500 dark:text-emerald-400 mb-1 animate-icon-twinkle" />
-                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Diskusi</span>
-              </button>
+              isDiskusiEnabled(agentSlug, currentAgent) ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setAskAIOpen(true);
+                  }}
+                  className="diskusi-ai-border flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 border-transparent transition-transform active:scale-95"
+                >
+                  <Sparkles size={20} className="text-emerald-500 dark:text-emerald-400 mb-1 animate-icon-twinkle" />
+                  <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Diskusi</span>
+                </button>
+              ) : (
+                <div
+                  aria-disabled="true"
+                  className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-100 opacity-50 cursor-not-allowed dark:border-slate-800"
+                >
+                  <Sparkles size={20} className="text-gray-500 dark:text-slate-500 mb-1" />
+                  <span className="text-xs font-medium text-gray-600 dark:text-slate-300">Diskusi</span>
+                </div>
+              )
             )}
 
             {/* Bagikan (WhatsApp) — shown here (row 1) when no agent slug */}
