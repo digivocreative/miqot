@@ -89,7 +89,10 @@ const CHIP_POOL: ChipDef[] = [
   { key: 'pemula', icon: HelpCircle, label: 'Cocok buat yang pertama kali?' },
   // Harga & pembayaran
   { key: 'harga', icon: Tag, label: 'Kenapa harga segini?' },
-  { key: 'pembayaran', icon: CreditCard, label: 'Cara pembayaran & cicilan' },
+  { key: 'pembayaran', icon: CreditCard, label: 'Cara pembayaran gimana?' },
+  { key: 'dp-booking', icon: CreditCard, label: 'DP berapa buat booking?' },
+  { key: 'pelunasan', icon: CreditCard, label: 'Kapan harus lunas?' },
+  { key: 'cicilan', icon: CreditCard, label: 'Bisa cicilan syariah ga?' },
   { key: 'biaya-tambahan', icon: PlusCircle, label: 'Ada biaya tambahan?' },
   { key: 'promo', icon: Gift, label: 'Ada promo atau diskon?' },
   // Admin
