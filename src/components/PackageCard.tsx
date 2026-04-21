@@ -1944,11 +1944,10 @@ _________________________
                   e.stopPropagation();
                   setAskAIOpen(true);
                 }}
-                className="relative flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-emerald-200 dark:border-emerald-800/40 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/30 dark:to-slate-800/60 active:scale-95 overflow-hidden"
+                className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:border-slate-700 dark:hover:border-emerald-500"
               >
-                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <Sparkles size={20} className="text-emerald-600 dark:text-emerald-400 mb-1" />
-                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Tanya AI</span>
+                <Sparkles size={20} className="text-emerald-500 dark:text-emerald-400 mb-1" />
+                <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Diskusi</span>
               </button>}
 
               {/* Hitung (agent only) */}

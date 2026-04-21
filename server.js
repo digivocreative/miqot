@@ -729,6 +729,8 @@ function buildPackageContext(pkg) {
     },
     harga_per_tier_dan_kamar: tiers,
     perlengkapan_harga: pkg.perlengkapan_harga || '',
+    brosur_tersedia: Boolean(pkg.brosur_cdn || pkg.brosur),
+    itinerary_tersedia: Boolean(pkg.itinerary_cdn || pkg.itinerary),
   };
 }
 
@@ -916,6 +918,8 @@ ATURAN WAJIB:
 6. Maksimal 150 kata untuk field "answer". Gunakan newline (\\n) dan emoji SECUKUPNYA (🕌 ✈️ 🏨 🕋 untuk kategori, tidak spam).
 7. "note" harus mengarahkan ke WA agen dengan framing SOFT — seperti "Untuk detail lebih personal, ${agent.name} bisa bantu langsung." Bukan hard sell.
 8. Jangan sebut nama kompetitor atau agen lain.
+9. Jika user tanya brosur / itinerary: cek flag "brosur_tersedia" dan "itinerary_tersedia" di konteks paket. Jika TRUE, arahkan user untuk klik tombol "Brosur" atau "Itinerary" di card paket ini (bukan bilang "tidak tersedia"). Jika FALSE, baru arahkan ke agen.
+10. Jangan gunakan markdown selain **bold**. Untuk list, pakai "- " di awal baris. Hindari heading (#), tabel, atau kode.
 
 FORMAT OUTPUT (JSON):
 {
@@ -7245,7 +7249,7 @@ app.get('/api/haji/doc-proxy', authMiddleware, async (req, res) => {
 // Analytics API
 // ──────────────────────────────────────────────
 const VALID_EVENT_TYPES = ['login', 'feature', 'action', 'public'];
-const VALID_PUBLIC_EVENTS = ['page_view', 'wa_click_public', 'quiz_started', 'quiz_completed', 'inquiry_submitted'];
+const VALID_PUBLIC_EVENTS = ['page_view', 'wa_click_public', 'quiz_started', 'quiz_completed', 'inquiry_submitted', 'ask_ai_opened', 'ask_ai_chip_tapped', 'ask_ai_free_query', 'ask_ai_wa_clicked'];
 const publicEventRateLimits = new Map(); // ip → { count, resetAt }
 
 app.options('/api/analytics/:path', (req, res) => {

@@ -1,12 +1,12 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronLeft, ChevronDown, Info, Package, Sparkles, Zap,
   MapPin, Users, ArrowLeftRight, Map, Tag, BedDouble, CreditCard, FileCheck,
-  Send,
+  Send, Square,
 } from 'lucide-react';
 import { trackPublicEvent } from '../utils/analytics';
 
@@ -29,7 +29,14 @@ interface AskAIModalProps {
 type Message =
   | { type: 'user'; content: string; id: number }
   | { type: 'typing'; id: number }
-  | { type: 'ai'; content: string; note: string; questionKey?: string; id: number };
+  | {
+      type: 'ai';
+      content: string;
+      note: string;
+      questionKey?: string;
+      showWaNudge: boolean;
+      id: number;
+    };
 
 interface ChipDef {
   key: string;
@@ -55,9 +62,13 @@ const PRESET_CHIPS_EXTRA: ChipDef[] = [
   { key: 'dokumen', icon: FileCheck, label: 'Dokumen yang disiapkan' },
 ];
 
+const ALL_CHIPS: ChipDef[] = [...PRESET_CHIPS_DEFAULT, ...PRESET_CHIPS_EXTRA];
+
 const CLIENT_QUERY_LIMIT = 8;          // max queries per modal session
 const FETCH_TIMEOUT_MS = 15000;        // 15s
 const SEND_DEBOUNCE_MS = 500;          // prevent double-submit
+const WA_NUDGE_INTERVAL = 3;           // show WA nudge on 1st & every 3rd AI msg
+const COUNTER_SHOW_THRESHOLD = 250;    // show char counter when >= this many chars
 
 // ============================================
 // Helpers
@@ -69,11 +80,6 @@ const WaIcon = ({ size = 14, className = '' }: { size?: number; className?: stri
   </svg>
 );
 
-function truncate(s: string, max: number): string {
-  if (!s) return '';
-  return s.length > max ? `${s.slice(0, max)}…` : s;
-}
-
 function initialsOf(name: string): string {
   if (!name) return '??';
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -82,14 +88,41 @@ function initialsOf(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function renderMultiline(text: string) {
+// Render inline **bold** within a line. Safe — emits JSX, no dangerouslySetInnerHTML.
+function renderInline(text: string): ReactNode[] {
+  const out: ReactNode[] = [];
+  const re = /\*\*([^*\n]+)\*\*/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let k = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(<strong key={k++}>{m[1]}</strong>);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out.length > 0 ? out : [text];
+}
+
+// Render message content with support for **bold**, "- " bullets, and newlines.
+// Emits divs, not <p>/<br/>, so must be placed inside a <div> (not <p>).
+function renderMessage(text: string): ReactNode {
   const lines = text.split('\n');
-  return lines.map((line, i) => (
-    <Fragment key={i}>
-      {i > 0 && <br />}
-      {line}
-    </Fragment>
-  ));
+  return lines.map((line, i) => {
+    const listMatch = /^\s*[-*•]\s+(.+)$/.exec(line);
+    if (listMatch) {
+      return (
+        <div key={i} className="flex gap-1.5">
+          <span className="text-emerald-600 dark:text-emerald-400 flex-shrink-0">•</span>
+          <span className="flex-1">{renderInline(listMatch[1])}</span>
+        </div>
+      );
+    }
+    if (line.trim() === '') {
+      return <div key={i} className="h-1.5" />;
+    }
+    return <div key={i}>{renderInline(line)}</div>;
+  });
 }
 
 // ============================================
@@ -112,12 +145,19 @@ export default function AskAIModal({
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [queryCount, setQueryCount] = useState(0);
+  const [aiMsgCount, setAiMsgCount] = useState(0);
+  const [askedKeys, setAskedKeys] = useState<Set<string>>(() => new Set());
   const chatRef = useRef<HTMLDivElement>(null);
   const idRef = useRef(0);
   const lastSendAtRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Follow-up suggestions: chips not yet asked, max 3
+  const followUps = useMemo(() => {
+    return ALL_CHIPS.filter(c => !askedKeys.has(c.key)).slice(0, 3);
+  }, [askedKeys]);
 
   const agentFirstName = useMemo(() => (agentName || '').trim().split(/\s+/)[0] || 'Agen', [agentName]);
-  const packageNameShort = useMemo(() => truncate(packageName || '', 40), [packageName]);
   const agentInitials = useMemo(() => initialsOf(agentName), [agentName]);
 
   const waMessage = useMemo(
@@ -141,12 +181,16 @@ export default function AskAIModal({
   // ── Reset state on close (delayed to let close animation finish) ──
   useEffect(() => {
     if (isOpen) return;
+    abortRef.current?.abort();
+    abortRef.current = null;
     const t = setTimeout(() => {
       setMessages([]);
       setExpanded(false);
       setInputText('');
       setIsTyping(false);
       setQueryCount(0);
+      setAiMsgCount(0);
+      setAskedKeys(new Set());
       idRef.current = 0;
     }, 250);
     return () => clearTimeout(t);
@@ -168,43 +212,83 @@ export default function AskAIModal({
     if (now - lastSendAtRef.current < SEND_DEBOUNCE_MS) return;
     lastSendAtRef.current = now;
 
+    if (chipKey && chipKey !== 'free') {
+      setAskedKeys(prev => {
+        const next = new Set(prev);
+        next.add(chipKey);
+        return next;
+      });
+    }
+
     const userMsg: Message = { type: 'user', content: q, id: nextId() };
     const typingMsg: Message = { type: 'typing', id: nextId() };
     setMessages(prev => [...prev, userMsg, typingMsg]);
     setIsTyping(true);
     setQueryCount(c => c + 1);
 
+    const controller = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     let aiContent = '';
     let aiNote = '';
+    let isFallback = false;
     try {
       const res = await fetch(`/api/ask-ai/${encodeURIComponent(agentSlug)}/${encodeURIComponent(jadwalId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: q, chipKey: chipKey || 'free', yearCode }),
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        signal: controller.signal,
       });
       const data = await res.json().catch(() => null);
       if (data && typeof data.answer === 'string' && data.answer.trim()) {
         aiContent = data.answer;
         aiNote = typeof data.note === 'string' ? data.note : '';
+        isFallback = Boolean(data.fallback);
       } else {
         aiContent = `Maaf, koneksi lagi lambat. Coba chat ${agentFirstName} langsung ya.`;
         aiNote = `${agentFirstName} biasanya respon cepat di WhatsApp.`;
+        isFallback = true;
       }
-    } catch {
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (controller.signal.aborted && abortRef.current !== controller) {
+        // user clicked stop or closed modal
+        setMessages(prev => prev.filter(m => m.id !== typingMsg.id));
+        setIsTyping(false);
+        return;
+      }
       aiContent = `Maaf, koneksi lagi lambat. Coba chat ${agentFirstName} langsung ya.`;
       aiNote = `${agentFirstName} biasanya respon cepat di WhatsApp.`;
+      isFallback = true;
     }
+    clearTimeout(timeoutId);
+    if (abortRef.current === controller) abortRef.current = null;
+
+    // WA nudge shown on: 1st AI msg, fallback, or every Nth (WA_NUDGE_INTERVAL)
+    const nextAiCount = aiMsgCount + 1;
+    const showWaNudge = isFallback || nextAiCount === 1 || nextAiCount % WA_NUDGE_INTERVAL === 0;
+    setAiMsgCount(nextAiCount);
 
     const aiMsg: Message = {
       type: 'ai',
       content: aiContent,
       note: aiNote,
       questionKey: chipKey,
+      showWaNudge,
       id: nextId(),
     };
     setMessages(prev => prev.filter(m => m.id !== typingMsg.id).concat(aiMsg));
     setIsTyping(false);
+  }
+
+  // ── Stop current AI request ──
+  function handleStop() {
+    const ctrl = abortRef.current;
+    if (!ctrl) return;
+    abortRef.current = null; // marks "user-requested abort"
+    ctrl.abort();
   }
 
   // ── Chip tap ──
@@ -244,6 +328,7 @@ export default function AskAIModal({
       type: 'ai',
       content: `Kamu sudah tanya banyak 🙂 Chat ${agentName || agentFirstName} langsung yuk untuk info lebih lanjut.`,
       note: `${agentFirstName} bisa bantu lebih detail via WhatsApp.`,
+      showWaNudge: true,
       id: nextId(),
     };
     setMessages(prev => [...prev, warnMsg]);
@@ -257,10 +342,6 @@ export default function AskAIModal({
       afterQuestionKey: afterQuestionKey || null,
     });
     window.open(waUrl, '_blank', 'noopener,noreferrer');
-  }
-
-  if (!isOpen && messages.length === 0 && !inputText && queryCount === 0) {
-    // Still render portal for animation; AnimatePresence handles mount/unmount.
   }
 
   return createPortal(
@@ -345,10 +426,10 @@ export default function AskAIModal({
               </div>
               <div className="flex-1 min-w-0">
                 <div className="inline-block bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-3.5 py-2.5 max-w-full">
-                  <p className="text-[13px] leading-relaxed text-gray-800 dark:text-slate-100">
-                    Assalamualaikum 👋<br />
-                    Saya asisten AI-nya {agentFirstName}. Ada yang mau ditanyakan soal paket {packageNameShort}?
-                  </p>
+                  <div className="text-[13px] leading-relaxed text-gray-800 dark:text-slate-100 space-y-0.5">
+                    <div>Assalamualaikum 👋</div>
+                    <div>Saya asisten AI-nya {agentFirstName}. Ada yang mau ditanyakan tentang paket ini?</div>
+                  </div>
                 </div>
                 <div className="text-[9px] text-gray-400 dark:text-slate-500 mt-1 ml-1">
                   Asisten AI · baru saja
@@ -429,7 +510,7 @@ export default function AskAIModal({
             )}
 
             {/* Dynamic messages */}
-            {messages.map(msg => {
+            {messages.map((msg, idx) => {
               if (msg.type === 'user') {
                 return (
                   <div key={msg.id} className="flex justify-end">
@@ -457,6 +538,7 @@ export default function AskAIModal({
                 );
               }
               // ai
+              const isLastAi = idx === messages.length - 1;
               return (
                 <div key={msg.id} className="flex gap-2">
                   <div
@@ -466,40 +548,67 @@ export default function AskAIModal({
                     <Sparkles size={14} className="text-white" />
                   </div>
                   <div className="flex-1 min-w-0 space-y-2">
-                    <div className="inline-block bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-3.5 py-3 max-w-full">
-                      <p className="text-[13px] leading-relaxed text-gray-800 dark:text-slate-100 whitespace-pre-wrap break-words">
-                        {renderMultiline(msg.content)}
-                      </p>
+                    <div>
+                      <div className="inline-block bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-3.5 py-3 max-w-full">
+                        <div className="text-[13px] leading-relaxed text-gray-800 dark:text-slate-100 break-words space-y-1">
+                          {renderMessage(msg.content)}
+                        </div>
+                      </div>
+                      <div className="text-[9px] text-gray-400 dark:text-slate-500 mt-1 ml-1">
+                        Asisten AI · baru saja
+                      </div>
                     </div>
 
-                    {/* WA Nudge Card */}
-                    <div className="rounded-2xl border border-emerald-200 dark:border-emerald-800/40 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/30 dark:to-slate-800/60 p-3">
-                      <div className="flex items-center gap-2.5">
-                        {agentPhoto ? (
-                          <img
-                            src={agentPhoto}
-                            alt={agentName}
-                            className="w-9 h-9 rounded-full object-cover border-2 border-white dark:border-slate-700 flex-shrink-0"
-                            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                          />
-                        ) : (
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-300 to-emerald-500 flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0">
-                            {agentInitials}
-                          </div>
-                        )}
-                        <p className="flex-1 text-[11px] font-semibold text-gray-800 dark:text-white leading-snug">
-                          💬 {msg.note || `Untuk detail lebih personal, ${agentFirstName} bisa bantu langsung.`}
-                        </p>
+                    {/* WA Nudge Card — only on 1st AI / fallback / every Nth */}
+                    {msg.showWaNudge && (
+                      <div className="rounded-2xl border border-emerald-200 dark:border-emerald-800/40 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/30 dark:to-slate-800/60 p-3">
+                        <div className="flex items-center gap-2.5">
+                          {agentPhoto ? (
+                            <img
+                              src={agentPhoto}
+                              alt={agentName}
+                              className="w-9 h-9 rounded-full object-cover border-2 border-white dark:border-slate-700 flex-shrink-0"
+                              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-300 to-emerald-500 flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0">
+                              {agentInitials}
+                            </div>
+                          )}
+                          <p className="flex-1 text-[11px] font-semibold text-gray-800 dark:text-white leading-snug">
+                            💬 {msg.note || `Untuk detail lebih personal, ${agentFirstName} bisa bantu langsung.`}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleWaClick(msg.questionKey)}
+                          className="mt-2.5 w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-[12px] font-bold shadow-md shadow-emerald-500/30 active:scale-[0.96] transition-all"
+                        >
+                          <WaIcon size={14} className="fill-white" />
+                          <span>Chat {agentFirstName} di WhatsApp</span>
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleWaClick(msg.questionKey)}
-                        className="mt-2.5 w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-[12px] font-bold shadow-md shadow-emerald-500/30 active:scale-[0.96] transition-all"
-                      >
-                        <WaIcon size={14} className="fill-white" />
-                        <span>Chat {agentFirstName} di WhatsApp</span>
-                      </button>
-                    </div>
+                    )}
+
+                    {/* Follow-up suggestions — only on LAST AI msg, not during typing */}
+                    {isLastAi && !isTyping && followUps.length > 0 && queryCount < CLIENT_QUERY_LIMIT && (
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        {followUps.map(chip => {
+                          const Icon = chip.icon;
+                          return (
+                            <button
+                              key={chip.key}
+                              type="button"
+                              onClick={() => handleChipTap(chip)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/70 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium active:scale-[0.96] transition-all"
+                            >
+                              <Icon size={11} />
+                              <span>{chip.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -524,20 +633,44 @@ export default function AskAIModal({
                 maxLength={500}
                 className="flex-1 min-w-0 px-3.5 py-2.5 bg-gray-100 dark:bg-slate-800 border-0 rounded-full text-[13px] text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none disabled:opacity-60"
               />
-              <button
-                type="button"
-                onClick={handleFreeSubmit}
-                disabled={!inputText.trim() || isTyping}
-                className="w-10 h-10 rounded-full flex items-center justify-center shadow-md shadow-emerald-500/30 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-transform"
-                style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)' }}
-                aria-label="Kirim"
-              >
-                <Send size={15} className="text-white" />
-              </button>
+              {isTyping ? (
+                <button
+                  type="button"
+                  onClick={handleStop}
+                  className="w-10 h-10 rounded-full flex items-center justify-center bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 active:scale-95 transition-all"
+                  aria-label="Stop"
+                >
+                  <Square size={13} className="text-gray-700 dark:text-slate-200 fill-gray-700 dark:fill-slate-200" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleFreeSubmit}
+                  disabled={!inputText.trim()}
+                  className="w-10 h-10 rounded-full flex items-center justify-center shadow-md shadow-emerald-500/30 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-transform"
+                  style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)' }}
+                  aria-label="Kirim"
+                >
+                  <Send size={15} className="text-white" />
+                </button>
+              )}
             </div>
-            <p className="text-center mt-1.5 text-[9px] text-gray-400 dark:text-slate-500">
-              Jawaban AI bersifat informatif. Keputusan akhir selalu konfirmasi ke {agentFirstName}.
-            </p>
+            <div className="flex items-center justify-between mt-1.5 px-1">
+              <p className="text-[9px] text-gray-400 dark:text-slate-500 flex-1">
+                Jawaban AI bersifat informatif. Keputusan akhir selalu konfirmasi ke {agentFirstName}.
+              </p>
+              {inputText.length >= COUNTER_SHOW_THRESHOLD && (
+                <span
+                  className={`text-[9px] font-medium ml-2 flex-shrink-0 ${
+                    inputText.length >= 480
+                      ? 'text-red-500 dark:text-red-400'
+                      : 'text-gray-400 dark:text-slate-500'
+                  }`}
+                >
+                  {inputText.length}/500
+                </span>
+              )}
+            </div>
           </div>
         </motion.div>
       )}
