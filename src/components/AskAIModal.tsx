@@ -157,7 +157,7 @@ export default function AskAIModal({
     return ALL_CHIPS.filter(c => !askedKeys.has(c.key)).slice(0, 3);
   }, [askedKeys]);
 
-  const agentFirstName = useMemo(() => (agentName || '').trim().split(/\s+/)[0] || 'Agen', [agentName]);
+  const agentFirstName = useMemo(() => (agentName || '').trim().split(/\s+/)[0] || 'Konsultan', [agentName]);
   const agentInitials = useMemo(() => initialsOf(agentName), [agentName]);
 
   const waMessage = useMemo(
@@ -247,8 +247,8 @@ export default function AskAIModal({
         aiNote = typeof data.note === 'string' ? data.note : '';
         isFallback = Boolean(data.fallback);
       } else {
-        aiContent = `Maaf, koneksi lagi lambat. Coba chat ${agentFirstName} langsung ya.`;
-        aiNote = `${agentFirstName} biasanya respon cepat di WhatsApp.`;
+        aiContent = `Waduh, koneksinya lagi lambat nih, Kak 😅 Coba chat ${agentFirstName} langsung aja ya.`;
+        aiNote = `${agentFirstName} cepet kok balesnya di WhatsApp 🙂`;
         isFallback = true;
       }
     } catch (err) {
@@ -259,8 +259,8 @@ export default function AskAIModal({
         setIsTyping(false);
         return;
       }
-      aiContent = `Maaf, koneksi lagi lambat. Coba chat ${agentFirstName} langsung ya.`;
-      aiNote = `${agentFirstName} biasanya respon cepat di WhatsApp.`;
+      aiContent = `Waduh, koneksinya lagi lambat nih, Kak 😅 Coba chat ${agentFirstName} langsung aja ya.`;
+      aiNote = `${agentFirstName} cepet kok balesnya di WhatsApp 🙂`;
       isFallback = true;
     }
     clearTimeout(timeoutId);
@@ -326,8 +326,8 @@ export default function AskAIModal({
   function showRateLimitWarning() {
     const warnMsg: Message = {
       type: 'ai',
-      content: `Kamu sudah tanya banyak 🙂 Chat ${agentName || agentFirstName} langsung yuk untuk info lebih lanjut.`,
-      note: `${agentFirstName} bisa bantu lebih detail via WhatsApp.`,
+      content: `Udah banyak nih yang ditanyain, Kak 🙂 Enaknya sekarang lanjut ngobrol langsung sama ${agentName || agentFirstName} aja yuk di WhatsApp — biar info-nya lebih pas buat Kakak.`,
+      note: `${agentFirstName} siap bantu lebih detail di WhatsApp 🙂`,
       showWaNudge: true,
       id: nextId(),
     };
@@ -428,7 +428,7 @@ export default function AskAIModal({
                 <div className="inline-block bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-3.5 py-2.5 max-w-full">
                   <div className="text-[13px] leading-relaxed text-gray-800 dark:text-slate-100 space-y-0.5">
                     <div>Assalamualaikum 👋</div>
-                    <div>Saya asisten AI-nya {agentFirstName}. Ada yang mau ditanyakan tentang paket ini?</div>
+                    <div>Saya asisten AI-nya {agentFirstName}, nih. Ada yang mau ditanyain soal paket ini, Kak? 🙂</div>
                   </div>
                 </div>
                 <div className="text-[9px] text-gray-400 dark:text-slate-500 mt-1 ml-1">
@@ -657,7 +657,7 @@ export default function AskAIModal({
             </div>
             <div className="flex items-center justify-between mt-1.5 px-1">
               <p className="text-[9px] text-gray-400 dark:text-slate-500 flex-1">
-                Jawaban AI bersifat informatif. Keputusan akhir selalu konfirmasi ke {agentFirstName}.
+                Jawaban AI sifatnya informasi aja, Kak. Konfirmasi akhir ke {agentFirstName} ya 🙂
               </p>
               {inputText.length >= COUNTER_SHOW_THRESHOLD && (
                 <span
