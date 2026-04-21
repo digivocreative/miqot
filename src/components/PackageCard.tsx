@@ -1892,7 +1892,7 @@ _________________________
               </span>
             </button>
 
-            {/* Diskusi (Tanya AI) — animated border + twinkling icon, agent-only */}
+            {/* Diskusi (Tanya AI) — same 2px border thickness as others, animated emerald gradient + twinkling icon */}
             {!isSingleView && currentAgent && (
               <button
                 type="button"
@@ -1900,13 +1900,10 @@ _________________________
                   e.stopPropagation();
                   setAskAIOpen(true);
                 }}
-                className="relative isolate rounded-xl overflow-hidden"
+                className="diskusi-ai-border flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 border-transparent transition-transform active:scale-95"
               >
-                <span aria-hidden className="absolute inset-0 ai-border-glow-emerald rounded-xl" />
-                <span className="relative z-10 m-[2px] rounded-[10px] bg-white dark:bg-slate-800 flex flex-col items-center justify-center py-[10px] px-2">
-                  <Sparkles size={20} className="text-emerald-500 dark:text-emerald-400 mb-1 animate-icon-twinkle" />
-                  <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Diskusi</span>
-                </span>
+                <Sparkles size={20} className="text-emerald-500 dark:text-emerald-400 mb-1 animate-icon-twinkle" />
+                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Diskusi</span>
               </button>
             )}
 
