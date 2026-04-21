@@ -11,7 +11,7 @@ import { BrochureModal } from './BrochureModal';
 const ItineraryModal = lazy(() => import('./ItineraryModal').then(m => ({ default: m.ItineraryModal })));
 const AskAIModal = lazy(() => import('./AskAIModal'));
 import type { AgentData } from '@/data/agents';
-import { AGENTS_DATA, isDiskusiEnabled } from '@/data/agents';
+import { AGENTS_DATA } from '@/data/agents';
 import AgentProfile from './AgentProfile';
 import { SplitLayout, SpotlightLayout, TicketLayout, TiledLayout, MagazineLayout } from './CardVariants';
 import logoAlhijaz from '@/logo-alhijaz.webp';
@@ -1892,29 +1892,19 @@ _________________________
               </span>
             </button>
 
-            {/* Diskusi (Tanya AI) — aktif untuk admin + whitelist slug; selainnya disabled. */}
+            {/* Diskusi (Tanya AI) — same geometry as sibling buttons; ::before paints a 2px rotating emerald ring */}
             {!isSingleView && currentAgent && (
-              isDiskusiEnabled(agentSlug, currentAgent) ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setAskAIOpen(true);
-                  }}
-                  className="diskusi-ai-border flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 border-transparent transition-transform active:scale-95"
-                >
-                  <Sparkles size={20} className="text-emerald-500 dark:text-emerald-400 mb-1 animate-icon-twinkle" />
-                  <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Diskusi</span>
-                </button>
-              ) : (
-                <div
-                  aria-disabled="true"
-                  className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-100 opacity-50 cursor-not-allowed dark:border-slate-800"
-                >
-                  <Sparkles size={20} className="text-gray-500 dark:text-slate-500 mb-1" />
-                  <span className="text-xs font-medium text-gray-600 dark:text-slate-300">Diskusi</span>
-                </div>
-              )
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setAskAIOpen(true);
+                }}
+                className="diskusi-ai-border flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 border-transparent transition-transform active:scale-95"
+              >
+                <Sparkles size={20} className="text-emerald-500 dark:text-emerald-400 mb-1 animate-icon-twinkle" />
+                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Diskusi</span>
+              </button>
             )}
 
             {/* Bagikan (WhatsApp) — shown here (row 1) when no agent slug */}
@@ -1931,6 +1921,21 @@ _________________________
               </button>
             )}
           </div>
+
+          {/* ---- Tanya AI Button (Single View Only) — full-width, label panjang ---- */}
+          {isSingleView && currentAgent && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setAskAIOpen(true);
+              }}
+              className="diskusi-ai-border w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-transparent mb-2 transition-transform active:scale-[0.98]"
+            >
+              <Sparkles size={18} className="text-emerald-500 dark:text-emerald-400 animate-icon-twinkle" />
+              <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Tanya AI Tentang Paket Ini</span>
+            </button>
+          )}
 
           {/* ---- Action Buttons Row 2 (agent-only) ---- */}
           {!isSingleView && currentAgent && (

@@ -6,33 +6,11 @@ export interface AgentData {
   phone: string; // Format: 628...
   photo: string; // Path ke folder public
   card_variant?: string;
-  role?: string;
-}
-
-// Whitelist landing-page slug yang boleh pakai fitur Diskusi (Tanya AI).
-// Admin otomatis dapat akses via check role === 'admin'.
-export const DISKUSI_ENABLED_SLUGS: ReadonlySet<string> = new Set([
-  'harga',                    // Yeyen
-  'ninanasution',             // Nina Nasution
-  'nila',                     // Nila Novita
-  'indowisata',               // Hj. Linda
-  'isti',                     // Isti
-  'nani',                     // Nani Rohani
-  'indonesia',                // Siska
-  'selfiahalhijazindowisata', // Selfiah Handayani
-  'dianwahyuni',              // Dian
-  'travel',                   // Hj. Merry Susanty
-]);
-
-export function isDiskusiEnabled(slug: string, agent?: AgentData | null): boolean {
-  if (!slug) return false;
-  if (agent?.role === 'admin') return true;
-  return DISKUSI_ENABLED_SLUGS.has(slug);
 }
 
 // Fallback data — digunakan saat Supabase belum ter-load atau offline
 const FALLBACK_AGENTS: Record<string, AgentData> = {
-  'nikita': { name: 'Nikita', website: 'alhijazindonesia.com', phone: '62822900020', photo: '/agents/nikita.jpg', role: 'admin' },
+  'nikita': { name: 'Nikita', website: 'alhijazindonesia.com', phone: '62822900020', photo: '/agents/nikita.jpg' },
   'nila': { name: 'Nila', website: 'alhijaztourtravels.com', phone: '6285211209049', photo: '/agents/nila.jpg' },
   'andra': { name: 'Andra', website: 'travelalhijazwisata.com', phone: '628129909795', photo: '/agents/andra.jpg' },
   'dyah': { name: 'Dyah', website: 'alhijaztraveltours.com', phone: '6281385975678', photo: '/agents/dyah.jpg' },
@@ -89,7 +67,7 @@ export async function loadAgentsFromSupabase(): Promise<Record<string, AgentData
   try {
     const { data, error } = await supabase
       .from('agents')
-      .select('slug, name, website, phone, photo, card_variant, role')
+      .select('slug, name, website, phone, photo, card_variant')
       .or('status.eq.active,status.is.null');
 
     if (error) throw error;
@@ -102,7 +80,6 @@ export async function loadAgentsFromSupabase(): Promise<Record<string, AgentData
           phone: row.phone,
           photo: row.photo,
           card_variant: row.card_variant || 'default',
-          role: row.role,
         };
       }
       // Update the exported object in-place so all imports see new data
