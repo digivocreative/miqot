@@ -946,7 +946,7 @@ export default function AskAIModal({
               )}
             </div>
             <div className="flex items-center justify-between mt-1.5 px-1">
-              <p className="text-[9px] text-gray-400 dark:text-slate-500 flex-1">
+              <p className="text-[9px] text-gray-500 dark:text-slate-400 flex-1 text-center">
                 Jawaban bisa saja keliru. Konfirmasi akhir ke {agentFirstName} ya 🙂
               </p>
               {inputText.length >= COUNTER_SHOW_THRESHOLD && (
