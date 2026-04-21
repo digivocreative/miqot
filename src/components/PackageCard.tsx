@@ -9,6 +9,7 @@ import { BrochureModal } from './BrochureModal';
 
 // Lazy-load heavy components (react-pdf ~500kB loaded on-demand)
 const ItineraryModal = lazy(() => import('./ItineraryModal').then(m => ({ default: m.ItineraryModal })));
+const AskAIModal = lazy(() => import('./AskAIModal'));
 import type { AgentData } from '@/data/agents';
 import { AGENTS_DATA } from '@/data/agents';
 import AgentProfile from './AgentProfile';
@@ -132,6 +133,7 @@ export function PackageCard({
   const [aiCopyText, setAiCopyText] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [askAIOpen, setAskAIOpen] = useState(false);
   const [brosurError, setBrosurError] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const brosurSectionRef = useRef<HTMLDivElement>(null);
@@ -1935,21 +1937,18 @@ _________________________
           {/* ---- Action Buttons Row 2 (agent-only) ---- */}
           {!isSingleView && currentAgent && (
             <div data-screenshot-ignore className={`grid ${currentAgent ? 'grid-cols-4' : 'grid-cols-2'} gap-2 mb-4`}>
-              {/* AI Caption Button (agent only) */}
+              {/* Tanya AI Button (agent only) — replaces Caption */}
               {currentAgent && <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setIsAiCopyOpen(true);
-                  setAiCopied(false);
-                  setAiCopyText('');
-                  setAiError(null);
-                  setTimeout(() => generateAiCopy(), 100);
+                  setAskAIOpen(true);
                 }}
-                className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 dark:border-slate-700 dark:hover:border-indigo-500"
+                className="relative flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-emerald-200 dark:border-emerald-800/40 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/30 dark:to-slate-800/60 active:scale-95 overflow-hidden"
               >
-                <Sparkles size={20} className="text-indigo-500 dark:text-indigo-400 mb-1" />
-                <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Caption</span>
+                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <Sparkles size={20} className="text-emerald-600 dark:text-emerald-400 mb-1" />
+                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Tanya AI</span>
               </button>}
 
               {/* Hitung (agent only) */}
@@ -2193,6 +2192,23 @@ _________________________
             agentName={currentAgent?.name || null}
             agentPhone={currentAgent?.phone || null}
             agentPhoto={currentAgent?.photo || null}
+          />
+        </Suspense>
+      )}
+
+      {/* Tanya AI Modal (agent-mode only) */}
+      {currentAgent && agentSlug && (
+        <Suspense fallback={null}>
+          <AskAIModal
+            isOpen={askAIOpen}
+            onClose={() => setAskAIOpen(false)}
+            packageName={pkg.nama}
+            jadwalId={pkg.jadwalId}
+            yearCode="1448"
+            agentSlug={agentSlug}
+            agentName={currentAgent.name}
+            agentPhone={currentAgent.phone}
+            agentPhoto={currentAgent.photo}
           />
         </Suspense>
       )}
