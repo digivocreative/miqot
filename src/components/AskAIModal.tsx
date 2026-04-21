@@ -228,6 +228,67 @@ function renderMessageInline(text: string): ReactNode[] {
   return out;
 }
 
+// Agent photo with an "AI" sparkle badge overlaid in the bottom-right.
+// Used in the header (size 40) and next to each AI bubble (size 28).
+// Falls back to a Sparkles-in-emerald-gradient circle when the agent has
+// no photo or the image fails to load.
+function AiAvatar({
+  size,
+  agentPhoto,
+  agentName,
+  showOnline = false,
+}: {
+  size: number;
+  agentPhoto?: string | null;
+  agentName: string;
+  /** Ornament expands slightly and adds an outer ring — used for header. */
+  showOnline?: boolean;
+}) {
+  const [imgErr, setImgErr] = useState(false);
+  const hasPhoto = Boolean(agentPhoto) && !imgErr;
+  const badgeSize = Math.max(14, Math.round(size * 0.42));
+  const sparkleInside = Math.max(8, Math.round(badgeSize * 0.55));
+  const fallbackIconSize = Math.max(12, Math.round(size * 0.5));
+
+  return (
+    <div
+      className="relative flex-shrink-0 rounded-full"
+      style={{ width: size, height: size }}
+    >
+      {hasPhoto ? (
+        <img
+          src={agentPhoto!}
+          alt={agentName}
+          onError={() => setImgErr(true)}
+          className="w-full h-full rounded-full object-cover border-2 border-white dark:border-slate-700 shadow-sm"
+        />
+      ) : (
+        <div
+          className="w-full h-full rounded-full flex items-center justify-center shadow-md shadow-emerald-500/30"
+          style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)' }}
+        >
+          <Sparkles size={fallbackIconSize} className="text-white" />
+        </div>
+      )}
+      {/* AI ornament badge */}
+      <span
+        className="absolute -bottom-0.5 -right-0.5 rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm"
+        style={{
+          width: badgeSize,
+          height: badgeSize,
+          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+          boxShadow: showOnline
+            ? '0 0 0 2px rgba(16, 185, 129, 0.25), 0 0 8px rgba(16, 185, 129, 0.35)'
+            : undefined,
+        }}
+        aria-label="AI assistant"
+      >
+        <Sparkles size={sparkleInside} className="text-white" strokeWidth={2.5} />
+      </span>
+    </div>
+  );
+}
+
 // Match BrochureModal/ItineraryModal URL handling: keep CDN URLs as-is,
 // rewrite legacy alhijaz/miqot paths to the current proxy path.
 function normalizeAssetUrl(url: string): string {
@@ -620,13 +681,7 @@ export default function AskAIModal({
               </button>
 
               <div className="flex-1 flex items-center gap-2.5 min-w-0">
-                <div
-                  className="relative w-10 h-10 rounded-full flex items-center justify-center shadow-md shadow-emerald-500/30 flex-shrink-0"
-                  style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)' }}
-                >
-                  <Sparkles size={20} className="text-white" />
-                  <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-white dark:border-slate-900" />
-                </div>
+                <AiAvatar size={40} agentPhoto={agentPhoto} agentName={agentName} showOnline />
                 <div className="min-w-0">
                   <div className="text-sm font-bold text-gray-900 dark:text-white truncate">
                     Asisten {agentFirstName}
@@ -660,12 +715,7 @@ export default function AskAIModal({
           <div ref={chatRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
             {/* Greeting */}
             <div className="flex gap-2">
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm"
-                style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)' }}
-              >
-                <Sparkles size={14} className="text-white" />
-              </div>
+              <AiAvatar size={28} agentPhoto={agentPhoto} agentName={agentName} />
               <div className="flex-1 min-w-0">
                 <div className="inline-block bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-3.5 py-2.5 max-w-full">
                   <div className="text-[13px] leading-relaxed text-gray-800 dark:text-slate-100 space-y-0.5">
@@ -765,12 +815,7 @@ export default function AskAIModal({
               if (msg.type === 'typing') {
                 return (
                   <div key={msg.id} className="flex gap-2">
-                    <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm"
-                      style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)' }}
-                    >
-                      <Sparkles size={14} className="text-white" />
-                    </div>
+                    <AiAvatar size={28} agentPhoto={agentPhoto} agentName={agentName} />
                     <div className="inline-flex gap-1 bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 items-center self-start">
                       <span className="askai-dot w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-slate-500" />
                       <span className="askai-dot askai-dot-2 w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-slate-500" />
@@ -783,12 +828,7 @@ export default function AskAIModal({
               const isLastAi = idx === messages.length - 1;
               return (
                 <div key={msg.id} className="flex gap-2">
-                  <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm"
-                    style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)' }}
-                  >
-                    <Sparkles size={14} className="text-white" />
-                  </div>
+                  <AiAvatar size={28} agentPhoto={agentPhoto} agentName={agentName} />
                   <div className="flex-1 min-w-0 space-y-2">
                     <div>
                       <div className="inline-block bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-3.5 py-3 max-w-full">
@@ -907,7 +947,7 @@ export default function AskAIModal({
             </div>
             <div className="flex items-center justify-between mt-1.5 px-1">
               <p className="text-[9px] text-gray-400 dark:text-slate-500 flex-1">
-                Jawaban AI sifatnya informasi aja, Kak. Konfirmasi akhir ke {agentFirstName} ya 🙂
+                Jawaban bisa saja keliru. Konfirmasi akhir ke {agentFirstName} ya 🙂
               </p>
               {inputText.length >= COUNTER_SHOW_THRESHOLD && (
                 <span
