@@ -701,7 +701,7 @@ function maskAskAiPhone(phone) {
 const ASK_AI_CITY_NAMES = {
   CGK: 'Jakarta', JKT: 'Jakarta', SUB: 'Surabaya', KNO: 'Medan',
   DPS: 'Denpasar', BPN: 'Balikpapan', PDG: 'Padang', PKU: 'Pekanbaru',
-  JED: 'Jeddah (Mekkah)', MED: 'Madinah',
+  JED: 'Jeddah', MED: 'Madinah',
   CAI: 'Kairo', ALY: 'Alexandria',
   DXB: 'Dubai', AUH: 'Abu Dhabi', DOH: 'Doha',
   IST: 'Istanbul', SAW: 'Istanbul', BTS: 'Bursa', NAV: 'Cappadocia',
@@ -734,20 +734,39 @@ function inferItineraryOrder(pkg) {
     chain.push(l.to);
   });
 
+  // The LAST arrival in the depart chain is where the ibadah route actually
+  // begins. Intermediate landings (e.g. JED before CAI, DXB before MED) are
+  // TRANSIT or Plus-tour side-trips — NOT the Umroh start.
   const firstArrival = depart[0].to;
+  const lastDepartArrival = depart[depart.length - 1].to;
+
   let urutanUmroh;
-  if (firstArrival === 'JED') {
+  if (lastDepartArrival === 'JED') {
     urutanUmroh = 'Mekkah dulu (landing Jeddah → langsung ke Mekkah untuk Umroh), lalu Madinah';
-  } else if (firstArrival === 'MED') {
-    urutanUmroh = 'Madinah dulu (landing Madinah → ziarah Madinah), lalu ke Mekkah untuk Umroh';
+  } else if (lastDepartArrival === 'MED') {
+    urutanUmroh = 'Madinah dulu (ziarah Madinah → lanjut ke Mekkah untuk Umroh lewat jalur darat)';
   } else {
-    const nextArrival = depart[1]?.to;
-    const nextLabel = nextArrival === 'JED' ? 'Mekkah' : nextArrival === 'MED' ? 'Madinah' : label(nextArrival || '');
-    urutanUmroh = `Transit ${label(firstArrival)} dulu, baru lanjut ke ${nextLabel || 'Saudi'} untuk rangkaian Umroh`;
+    urutanUmroh = `Rangkaian Umroh dimulai setelah tiba di ${label(lastDepartArrival)}`;
+  }
+
+  // Transit / Plus-tour side-trip note: when depart has >1 leg and the
+  // first landing differs from the last, the intermediate cities are not
+  // the ibadah destination.
+  let catatanRute = '';
+  if (depart.length > 1 && firstArrival !== lastDepartArrival) {
+    if (firstArrival === 'JED') {
+      const side = depart.slice(1, -1).map(l => label(l.to)).join(' → ');
+      catatanRute = `PENTING: landing di Jeddah cuma transit sebentar (bukan langsung ke Mekkah). Setelah transit, jamaah terbang lagi ke ${side ? side + ' → ' : ''}${label(lastDepartArrival)} untuk rangkaian ibadah. Umroh baru dilakukan dari ${lastDepartArrival === 'MED' ? 'Madinah → Mekkah via jalur darat' : 'kota arrival terakhir'}.`;
+    } else if (['CAI','DXB','IST','HAK','ALY','BTS','NAV','KAY','ANK'].includes(firstArrival)) {
+      catatanRute = `Paket Plus: mampir ke ${label(firstArrival)} dulu buat tur wisata, sebelum lanjut ke ${label(lastDepartArrival)} untuk ibadah.`;
+    } else {
+      catatanRute = `Transit di ${label(firstArrival)}, lalu lanjut ke ${label(lastDepartArrival)}.`;
+    }
   }
 
   return {
     urutan_umroh: urutanUmroh,
+    catatan_rute: catatanRute,
     rute_pesawat_lengkap: chain.map(label).join(' → '),
     rute_berangkat_raw: pkg.berangkat_rute || '',
     rute_pulang_raw: pkg.pulang_rute || '',
@@ -1059,7 +1078,11 @@ ATURAN WAJIB:
    - Jika flag FALSE: set "attachment": null, arahkan ke **${agentFirstName}**.
    - Untuk pertanyaan lain yang ga terkait brosur/itinerary: set "attachment": null.
 10. Markdown yang boleh dipakai: **bold**, *italic*, __underline__, dan "- " untuk list. Hindari heading (#), tabel, kode, atau blockquote.
-11. Untuk pertanyaan tentang URUTAN PERJALANAN ("umroh dulu apa Madinah dulu", "mampir ke mana dulu", "landing di mana", "rute pesawatnya gimana"): JANGAN jawab generic/sales — baca field "urutan_perjalanan" di konteks paket. Ambil info dari "urutan_umroh" (quick summary) dan "rute_pesawat_lengkap" (chain kota lengkap). Sebutkan kota-kotanya secara spesifik sesuai data, jangan ngarang urutan.
+11. URUTAN PERJALANAN ("umroh dulu apa Madinah dulu", "mampir ke mana dulu", "landing di mana", "rute pesawatnya gimana"): JANGAN jawab generic. Baca field "urutan_perjalanan":
+    - "urutan_umroh" = quick summary (Mekkah dulu / Madinah dulu / mulai di kota X).
+    - "catatan_rute" = info penting tentang transit atau Plus side-trip (Kairo/Dubai/Istanbul wisata sebelum ibadah). WAJIB baca dan sertakan di jawaban jika field ini terisi.
+    - "rute_pesawat_lengkap" = chain kota penuh.
+    Jangan bilang "langsung Umroh dari Jeddah" kalau catatan_rute menunjukkan Jeddah cuma transit — baca catatan dulu. Sebutkan urutan yang akurat sesuai data.
 12. BAGASI: cek field "maskapai" di konteks paket dan jawab spesifik, JANGAN redirect generic.
     - Maskapai "SAUDIA" → bagasi bagasi pesawat **2 × 23kg** (dua koper masing-masing 23kg), plus cabin ~7kg.
     - Maskapai selain Saudia (Garuda, Emirates, Qatar, Etihad, Oman, dll) → umumnya **30kg** untuk bagasi pesawat, plus cabin ~7kg.
