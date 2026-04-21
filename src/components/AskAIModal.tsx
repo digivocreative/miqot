@@ -494,18 +494,27 @@ export default function AskAIModal({
   }, [isOpen, agentSlug, jadwalId]);
 
   // ── Body scroll lock + visual-viewport tracking ──
-  // iOS Safari keeps `fixed inset-0` sized to the layout viewport when the
-  // on-screen keyboard opens, so the modal extends behind the keyboard and
-  // the underlying jadwal list bleeds through. Worse, focusing the input
-  // triggers Safari's auto-scroll which shifts `visualViewport.offsetTop`
-  // up. We track BOTH height and offsetTop and pin the modal to the actual
-  // visible area via inline `top` + `height`.
+  // iOS Safari auto-scrolls the page up when an input gains focus to
+  // "reveal" it, which makes the layout viewport slide above the visible
+  // area and lets the underlying jadwal list bleed through below the
+  // shrunken visual viewport. We neutralise this by:
+  //   1. Locking html/body with position:fixed so auto-scroll can't
+  //      actually move the page contents (scrollTop stays 0).
+  //   2. Restoring window.scrollTo(0,0) on every visualViewport event
+  //      as a belt-and-suspenders.
+  //   3. Pinning the modal to vv.offsetTop / vv.height so it always
+  //      tracks the visible rectangle.
   useEffect(() => {
     if (!isOpen) return;
     const html = document.documentElement;
     const body = document.body;
-    const prevBodyOverflow = body.style.overflow;
-    const prevHtmlOverflow = html.style.overflow;
+    const prevBody = { position: body.style.position, top: body.style.top, width: body.style.width, overflow: body.style.overflow };
+    const prevHtml = { overflow: html.style.overflow };
+    const scrollY = window.scrollY;
+
+    body.style.position = 'fixed';
+    body.style.top = `-${scrollY}px`;
+    body.style.width = '100%';
     body.style.overflow = 'hidden';
     html.style.overflow = 'hidden';
 
@@ -518,6 +527,8 @@ export default function AskAIModal({
         setViewportHeight(window.innerHeight);
         setViewportTop(0);
       }
+      // Undo any Safari auto-scroll on input focus.
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
     };
     update();
     vv?.addEventListener('resize', update);
@@ -525,11 +536,16 @@ export default function AskAIModal({
     window.addEventListener('resize', update);
 
     return () => {
-      body.style.overflow = prevBodyOverflow;
-      html.style.overflow = prevHtmlOverflow;
       vv?.removeEventListener('resize', update);
       vv?.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
+      body.style.position = prevBody.position;
+      body.style.top = prevBody.top;
+      body.style.width = prevBody.width;
+      body.style.overflow = prevBody.overflow;
+      html.style.overflow = prevHtml.overflow;
+      // Restore original scroll position
+      window.scrollTo(0, scrollY);
       setViewportHeight(null);
       setViewportTop(0);
     };
