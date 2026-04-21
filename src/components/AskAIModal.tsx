@@ -437,6 +437,12 @@ export default function AskAIModal({
   const lastSendAtRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Track visual viewport height so the modal shrinks to fit the visible area
+  // when the iOS keyboard opens — otherwise `fixed inset-0` uses layout viewport
+  // height, extending behind the keyboard and letting the underlying page bleed
+  // through at the bottom (see screenshot from bug report).
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+
   // Default / extra chips derived from the current session's shuffle.
   const defaultChips = useMemo(() => chipShuffle.slice(0, 4), [chipShuffle]);
   const extraChips = useMemo(() => chipShuffle.slice(4, 8), [chipShuffle]);
@@ -470,6 +476,34 @@ export default function AskAIModal({
       setChipShuffle(shuffleArray(CHIP_POOL));
     }
   }, [isOpen, agentSlug, jadwalId]);
+
+  // ── Body scroll lock + visual-viewport height tracking ──
+  // iOS Safari keeps `fixed inset-0` sized to the layout viewport when the
+  // on-screen keyboard opens, so the modal extends behind the keyboard and
+  // the underlying jadwal list bleeds through. Tie the modal height to
+  // `visualViewport.height` so it always matches the actually-visible area.
+  useEffect(() => {
+    if (!isOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    const update = () => {
+      setViewportHeight(vv ? vv.height : window.innerHeight);
+    };
+    update();
+    vv?.addEventListener('resize', update);
+    vv?.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      vv?.removeEventListener('resize', update);
+      vv?.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+      setViewportHeight(null);
+    };
+  }, [isOpen]);
 
   // ── Reset state on close (delayed to let close animation finish) ──
   useEffect(() => {
@@ -652,7 +686,8 @@ export default function AskAIModal({
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
+          className="fixed top-0 left-0 right-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
+          style={{ height: viewportHeight != null ? `${viewportHeight}px` : '100dvh' }}
           initial={{ y: '100%' }}
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
