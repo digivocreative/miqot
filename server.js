@@ -941,6 +941,7 @@ app.post('/api/ask-ai/:slug/:jadwalId', async (req, res) => {
       .from('ask_ai_cache')
       .select('answer, note, attachment_type')
       .eq('jadwal_id', jadwalId)
+      .eq('agent_id', agent.id)
       .eq('question_hash', questionHash)
       .gte('created_at', cutoff)
       .maybeSingle();
@@ -1146,6 +1147,7 @@ FORMAT OUTPUT (JSON):
   try {
     const { error: insertError } = await supabase.from('ask_ai_cache').insert({
       jadwal_id: jadwalId,
+      agent_id: agent.id,
       question_hash: questionHash,
       question: trimmed,
       answer,
