@@ -108,6 +108,10 @@ const CHIP_POOL: ChipDef[] = [
   { key: 'compare', icon: ArrowLeftRight, label: 'Bandingkan sama paket lain' },
 ];
 
+// Chips yang selalu ditampilkan di baris default (tidak ikut di-shuffle),
+// karena relevansinya tinggi untuk hampir semua calon jamaah.
+const PINNED_CHIP_KEYS = ['brosur'] as const;
+
 // Fisher-Yates shuffle (non-mutating)
 function shuffleArray<T>(arr: T[]): T[] {
   const out = [...arr];
@@ -116,6 +120,17 @@ function shuffleArray<T>(arr: T[]): T[] {
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
+}
+
+// Shuffle pool sambil menjamin pinned chips tetap di posisi paling depan,
+// supaya "pertanyaan populer" (mis. brosur) selalu kelihatan di default row.
+function shuffleWithPinned(pool: ChipDef[]): ChipDef[] {
+  const pinned = PINNED_CHIP_KEYS
+    .map(k => pool.find(c => c.key === k))
+    .filter((c): c is ChipDef => Boolean(c));
+  const pinnedKeys = new Set(pinned.map(c => c.key));
+  const rest = shuffleArray(pool.filter(c => !pinnedKeys.has(c.key)));
+  return [...pinned, ...rest];
 }
 
 const CLIENT_QUERY_LIMIT = 8;          // max queries per modal session
@@ -431,7 +446,7 @@ export default function AskAIModal({
   const [activeAttachment, setActiveAttachment] = useState<Attachment | null>(null);
   // Reshuffle chip suggestions every time the modal opens, so users don't
   // see the same 4+4 questions across different packages.
-  const [chipShuffle, setChipShuffle] = useState<ChipDef[]>(() => shuffleArray(CHIP_POOL));
+  const [chipShuffle, setChipShuffle] = useState<ChipDef[]>(() => shuffleWithPinned(CHIP_POOL));
   const chatRef = useRef<HTMLDivElement>(null);
   const idRef = useRef(0);
   const lastSendAtRef = useRef(0);
@@ -473,7 +488,7 @@ export default function AskAIModal({
   useEffect(() => {
     if (isOpen) {
       trackPublicEvent(agentSlug, 'ask_ai_opened', { jadwalId });
-      setChipShuffle(shuffleArray(CHIP_POOL));
+      setChipShuffle(shuffleWithPinned(CHIP_POOL));
     }
   }, [isOpen, agentSlug, jadwalId]);
 
