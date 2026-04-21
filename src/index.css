@@ -152,33 +152,49 @@ body {
     0 0 20px rgba(139, 92, 246, 0.15);
 }
 
-/* Diskusi (Tanya AI) button — 2px animated emerald border only.
-   Two-layer bg trick: transparent padding-box on top of a rotating
-   conic gradient clipped to border-box. Same 2px thickness as sibling
-   buttons (border-2) — only color + animation differ. */
+/* Diskusi (Tanya AI) button — 2px animated emerald border only,
+   drawn by an ::before ring using the mask-composite "cut out center"
+   technique. Button itself stays transparent (like its siblings),
+   so only the 2px border area shows the rotating conic gradient. */
 .diskusi-ai-border {
-  background:
-    linear-gradient(transparent, transparent) padding-box,
-    conic-gradient(
-      from var(--ai-angle),
-      #10b981,
-      #34d399,
-      #6ee7b7,
-      #059669,
-      #10b981
-    ) border-box;
+  position: relative;
+  isolation: isolate;
+}
+.diskusi-ai-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;                 /* ring thickness — matches sibling border-2 */
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--ai-angle),
+    #10b981,
+    #34d399,
+    #6ee7b7,
+    #059669,
+    #10b981
+  );
+  /* Cut out the inner content-box, leaving only the 2px padding ring. */
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+          mask-composite: exclude;
   animation: ai-rotate 2.8s linear infinite;
+  pointer-events: none;
 }
 
-/* Fallback for browsers that don't support @property */
+/* Fallback for browsers that don't support @property (animation won't
+   rotate — hold a static emerald gradient instead). */
 @supports not (background: conic-gradient(from 0deg, red, blue)) {
   .ai-border-glow {
     background: linear-gradient(135deg, #818cf8, #c084fc);
   }
-  .diskusi-ai-border {
-    background:
-      linear-gradient(transparent, transparent) padding-box,
-      linear-gradient(135deg, #10b981, #34d399) border-box;
+  .diskusi-ai-border::before {
+    background: linear-gradient(135deg, #10b981, #34d399);
     animation: none;
   }
 }

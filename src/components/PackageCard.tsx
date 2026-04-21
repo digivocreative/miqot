@@ -1892,7 +1892,7 @@ _________________________
               </span>
             </button>
 
-            {/* Diskusi (Tanya AI) — same 2px border thickness as others, animated emerald gradient + twinkling icon */}
+            {/* Diskusi (Tanya AI) — same geometry as sibling buttons; ::before paints a 2px rotating emerald ring */}
             {!isSingleView && currentAgent && (
               <button
                 type="button"
