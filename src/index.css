@@ -152,10 +152,29 @@ body {
     0 0 20px rgba(139, 92, 246, 0.15);
 }
 
+/* Emerald variant — Tanya AI / Diskusi button */
+.ai-border-glow-emerald {
+  background: conic-gradient(
+    from var(--ai-angle),
+    #10b981,
+    #34d399,
+    #6ee7b7,
+    #059669,
+    #10b981
+  );
+  animation: ai-rotate 2.8s linear infinite;
+  box-shadow:
+    0 0 6px rgba(16, 185, 129, 0.35),
+    0 0 16px rgba(16, 185, 129, 0.12);
+}
+
 /* Fallback for browsers that don't support @property */
 @supports not (background: conic-gradient(from 0deg, red, blue)) {
   .ai-border-glow {
     background: linear-gradient(135deg, #818cf8, #c084fc);
+  }
+  .ai-border-glow-emerald {
+    background: linear-gradient(135deg, #10b981, #34d399);
   }
 }
 

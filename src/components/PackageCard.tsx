@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
-import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, ClipboardCheck, Copy, RefreshCw, FileText, Maximize2, Download } from 'lucide-react';
+import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, ClipboardCheck, Copy, RefreshCw, FileText, Maximize2, Download, Link as LinkIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UmrohPackage, RoomPricing, HotelInfo } from '@/types';
 import { BrochureModal } from './BrochureModal';
@@ -1892,32 +1892,23 @@ _________________________
               </span>
             </button>
 
-            {/* Link (Share URL) Button — only with agent slug, hidden in single-package view */}
-            {!isSingleView && (() => {
-              const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0] || '';
-              if (!seg) return null;
-              const shareUrl = `${window.location.origin}/${seg}/${pkg.jadwalId}`;
-              const shareText = `${shareUrl}\n\n*${pkg.nama}*`;
-              return (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (navigator.share) {
-                      navigator.share({ text: shareText }).catch(() => {});
-                    } else {
-                      navigator.clipboard.writeText(shareUrl).then(() => {
-                        alert('Link berhasil disalin!');
-                      });
-                    }
-                  }}
-                  className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:border-slate-700 dark:hover:border-emerald-500"
-                >
-                  <Share2 size={20} className="text-emerald-600 dark:text-emerald-400 mb-1" />
-                  <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Bagikan</span>
-                </button>
-              );
-            })()}
+            {/* Diskusi (Tanya AI) — animated border + twinkling icon, agent-only */}
+            {!isSingleView && currentAgent && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setAskAIOpen(true);
+                }}
+                className="relative isolate rounded-xl overflow-hidden"
+              >
+                <span aria-hidden className="absolute inset-0 ai-border-glow-emerald rounded-xl" />
+                <span className="relative z-10 m-[2px] rounded-[10px] bg-white dark:bg-slate-800 flex flex-col items-center justify-center py-[10px] px-2">
+                  <Sparkles size={20} className="text-emerald-500 dark:text-emerald-400 mb-1 animate-icon-twinkle" />
+                  <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Diskusi</span>
+                </span>
+              </button>
+            )}
 
             {/* Bagikan (WhatsApp) — shown here (row 1) when no agent slug */}
             {(!currentAgent || isSingleView) && (
@@ -1937,18 +1928,32 @@ _________________________
           {/* ---- Action Buttons Row 2 (agent-only) ---- */}
           {!isSingleView && currentAgent && (
             <div data-screenshot-ignore className={`grid ${currentAgent ? 'grid-cols-4' : 'grid-cols-2'} gap-2 mb-4`}>
-              {/* Tanya AI Button (agent only) — replaces Caption */}
-              {currentAgent && <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setAskAIOpen(true);
-                }}
-                className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:border-slate-700 dark:hover:border-emerald-500"
-              >
-                <Sparkles size={20} className="text-emerald-500 dark:text-emerald-400 mb-1" />
-                <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Diskusi</span>
-              </button>}
+              {/* Link (Copy / Share URL) — moved here from row 1 */}
+              {currentAgent && (() => {
+                const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0] || '';
+                if (!seg) return null;
+                const shareUrl = `${window.location.origin}/${seg}/${pkg.jadwalId}`;
+                const shareText = `${shareUrl}\n\n*${pkg.nama}*`;
+                return (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (navigator.share) {
+                        navigator.share({ text: shareText }).catch(() => {});
+                      } else {
+                        navigator.clipboard.writeText(shareUrl).then(() => {
+                          alert('Link berhasil disalin!');
+                        });
+                      }
+                    }}
+                    className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:border-slate-700 dark:hover:border-emerald-500"
+                  >
+                    <LinkIcon size={20} className="text-emerald-600 dark:text-emerald-400 mb-1" />
+                    <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Link</span>
+                  </button>
+                );
+              })()}
 
               {/* Hitung (agent only) */}
               {currentAgent && <button
