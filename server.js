@@ -8368,6 +8368,21 @@ app.get('/api/weather/cities', authMiddleware, async (req, res) => {
 // ──────────────────────────────────────────────
 const SCHEDULE_YEAR_CODES = ['1448', '1449'];
 
+// Upstream occasionally returns placeholder/draft paket with no real pricing
+// (e.g. { "UHUD": { "": "N/A" } } or []). These must not reach the public UI.
+function hasValidPricing(paket_harga) {
+  if (!paket_harga || typeof paket_harga !== 'object') return false;
+  for (const hotelTier of Object.values(paket_harga)) {
+    if (!hotelTier || typeof hotelTier !== 'object') continue;
+    for (const [roomType, price] of Object.entries(hotelTier)) {
+      if (!roomType) continue;
+      const n = Number(price);
+      if (Number.isFinite(n) && n > 0) return true;
+    }
+  }
+  return false;
+}
+
 async function syncUmrohSchedules() {
   console.log('[ScheduleSync] Starting...');
   const startTime = Date.now();
@@ -8393,7 +8408,21 @@ async function syncUmrohSchedules() {
         continue;
       }
 
-      const rows = packages.map(p => ({
+      const validPackages = [];
+      const rejectedPackages = [];
+      for (const p of packages) {
+        if (hasValidPricing(p.paket_harga)) {
+          validPackages.push(p);
+        } else {
+          rejectedPackages.push({ jadwal_id: p.jadwal_id, jadwal_nama: p.jadwal_nama });
+        }
+      }
+      if (rejectedPackages.length) {
+        const sample = rejectedPackages.slice(0, 5).map(r => `${r.jadwal_id}(${r.jadwal_nama})`).join(', ');
+        console.log(`[ScheduleSync] Year ${year}: filtered ${rejectedPackages.length} paket tanpa harga valid: ${sample}${rejectedPackages.length > 5 ? ', ...' : ''}`);
+      }
+
+      const rows = validPackages.map(p => ({
         jadwal_id: p.jadwal_id,
         year_code: year,
         jadwal_nama: p.jadwal_nama,
