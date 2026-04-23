@@ -46,13 +46,6 @@ export function CompactCard({ package: pkg, onToggle, agent: _agent }: CompactCa
     return parseFloat(millions.toFixed(1)).toString();
   };
 
-  const isNextDay = (start: string, end: string): boolean => {
-    if (!start || !end) return false;
-    const s = parseFloat(start.replace(':', '.').replace('.', '.'));
-    const e = parseFloat(end.replace(':', '.').replace('.', '.'));
-    return e < s;
-  };
-
   const fmtTime = (t: string) => t.replace('.', ':');
 
   return (
@@ -104,12 +97,7 @@ export function CompactCard({ package: pkg, onToggle, agent: _agent }: CompactCa
               <PlaneTakeoff size={12} className="text-emerald-500 shrink-0" />
               {pkg.keberangkatan.kodePenerbangan}
             </p>
-            <p className="text-gray-600 dark:text-slate-300">
-              {fmtTime(pkg.keberangkatan.jam)} - {fmtTime(pkg.kepulangan.jam)}
-              {isNextDay(pkg.keberangkatan.jam, pkg.kepulangan.jam) && (
-                <span className="ml-1 font-bold text-orange-500 text-[10px]">(+1)</span>
-              )}
-            </p>
+            <p className="text-gray-600 dark:text-slate-300">{fmtTime(pkg.keberangkatan.jam)} WIB</p>
           </div>
 
           {/* Right: Return */}
@@ -131,12 +119,7 @@ export function CompactCard({ package: pkg, onToggle, agent: _agent }: CompactCa
               `}>
                 {takenSeats}/{pkg.seatTotal}
               </span>
-              <span className="whitespace-nowrap">
-                {fmtTime(pkg.kepulangan.jam)} - {fmtTime(pkg.keberangkatan.jam)}
-                {isNextDay(pkg.kepulangan.jam, pkg.keberangkatan.jam) && (
-                  <span className="ml-1 font-bold text-orange-500 text-[11px]">(+1)</span>
-                )}
-              </span>
+              <span className="whitespace-nowrap">{fmtTime(pkg.kepulangan.jam)} WIB</span>
             </p>
           </div>
         </div>

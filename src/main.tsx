@@ -170,7 +170,7 @@ const renderPage = () => {
     window.location.replace('/dashboard/settings/capi')
     return null
   }
-  if (isKalkulasi) return <KalkulasiPage agent={agentSlugForKalkulasi} />
+  if (isKalkulasi) return <KalkulasiPage agent={agentSlugForKalkulasi} hideDiscount />
   if (isCompare) return <ComparePage agent={agentSlugForCompare} />
   return <App singlePackageId={singlePackageId} />
 }

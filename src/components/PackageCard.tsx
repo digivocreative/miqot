@@ -274,17 +274,6 @@ export function PackageCard({
     });
   };
 
-  /**
-   * Helper to check if arrival time is next day
-   * Returns true if arrival (end) is numerically smaller than departure (start)
-   */
-  const isNextDay = (start: string, end: string): boolean => {
-    if (!start || !end) return false;
-    const startTime = parseFloat(start.replace(':', '.'));
-    const endTime = parseFloat(end.replace(':', '.'));
-    return endTime < startTime;
-  };
-
   // ============================================
   // Derived State
   // ============================================
@@ -1510,7 +1499,7 @@ _________________________
   // ── Card variant ──
   // Force default layout during screenshot capture so brosur output tetap rapih
   const cardVariant = isCapturing ? 'default' : (currentAgent?.card_variant || 'default');
-  const variantProps = { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, isNextDay, formatDate };
+  const variantProps = { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, formatDate };
 
   return (
     <>
@@ -1602,12 +1591,7 @@ _________________________
                 <span>/</span>
                 <span>{formatDate(pkg.keberangkatan.tgl)}</span>
               </p>
-              <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">
-                {pkg.keberangkatan.jam.replace('.', ':')} - {pkg.kepulangan.jam.replace('.', ':')}
-                {isNextDay(pkg.keberangkatan.jam, pkg.kepulangan.jam) && (
-                  <span className="ml-1 font-bold text-orange-600 text-[10px]">(+1)</span>
-                )}
-              </p>
+              <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">{pkg.keberangkatan.jam.replace('.', ':')} WIB</p>
             </div>
           </div>
 
@@ -1622,12 +1606,7 @@ _________________________
                 <span>/</span>
                 <span>{formatDate(pkg.kepulangan.tgl)}</span>
               </p>
-              <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">
-                {pkg.kepulangan.jam.replace('.', ':')} - {pkg.keberangkatan.jam.replace('.', ':')}
-                {isNextDay(pkg.kepulangan.jam, pkg.keberangkatan.jam) && (
-                  <span className="ml-1 font-bold text-orange-600 text-[10px]">(+1)</span>
-                )}
-              </p>
+              <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">{pkg.kepulangan.jam.replace('.', ':')} WIB</p>
             </div>
           </div>
         </div>

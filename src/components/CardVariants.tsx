@@ -10,7 +10,6 @@ export interface VariantProps {
   formatHeaderPrice: (price: number | null) => string;
   isExpanded: boolean;
   SeatAndDateSection: React.ComponentType<{ isFooter?: boolean }>;
-  isNextDay: (start: string, end: string) => boolean;
   formatDate: (dateStr: string) => string;
 }
 
@@ -36,8 +35,8 @@ function Stars({ count, distance }: { count: string; distance?: string | null })
   );
 }
 
-function FlightRow({ icon, code, date, timeStart, timeEnd, isNext, formatDate: fd }: {
-  icon: React.ReactNode; code: string; date: string; timeStart: string; timeEnd: string; isNext: boolean; formatDate: (d: string) => string;
+function FlightRow({ icon, code, date, time, formatDate: fd }: {
+  icon: React.ReactNode; code: string; date: string; time: string; formatDate: (d: string) => string;
 }) {
   return (
     <div className="flex items-start gap-2">
@@ -48,10 +47,7 @@ function FlightRow({ icon, code, date, timeStart, timeEnd, isNext, formatDate: f
           <span>/</span>
           <span>{fd(date)}</span>
         </p>
-        <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">
-          {timeStart} - {timeEnd}
-          {isNext && <span className="ml-1 font-bold text-orange-600 text-[10px]">(+1)</span>}
-        </p>
+        <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">{time} WIB</p>
       </div>
     </div>
   );
@@ -89,16 +85,16 @@ function PackageName({ pkg }: { pkg: UmrohPackage }) {
 }
 
 // ── Helpers ──
+// Upstream only provides ONE time per leg (the departure/takeoff time).
+// Landing times must never be fabricated from other legs' times.
 function getFlightData(pkg: UmrohPackage) {
   return {
     depCode: (pkg.keberangkatan.kodePenerbangan || '').split('/')[0].trim(),
     depDate: pkg.keberangkatan.tgl,
     depTime: pkg.keberangkatan.jam.replace('.', ':'),
-    arrTime: pkg.kepulangan.jam.replace('.', ':'),
     retCode: (pkg.kepulangan.kodePenerbangan || '').split('/')[0].trim(),
     retDate: pkg.kepulangan.tgl,
-    retDepTime: pkg.kepulangan.jam.replace('.', ':'),
-    retArrTime: pkg.keberangkatan.jam.replace('.', ':'),
+    retTime: pkg.kepulangan.jam.replace('.', ':'),
   };
 }
 
@@ -118,7 +114,7 @@ function getHotelData(hotelInfo: HotelInfo | undefined) {
 // ════════════════════════════════════════════════
 
 export function SplitLayout(props: VariantProps) {
-  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, isNextDay } = props;
+  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection } = props;
   const f = getFlightData(pkg);
   const h = getHotelData(hotelInfo);
   const depDate = new Date(pkg.keberangkatan.tgl);
@@ -156,15 +152,13 @@ export function SplitLayout(props: VariantProps) {
               <PlaneTakeoff size={13} className="text-emerald-600 shrink-0" />
               <span className="font-medium text-gray-700 dark:text-slate-200 shrink-0">{f.depCode}</span>
               <span className="text-gray-300 dark:text-slate-600 shrink-0">&middot;</span>
-              <span className="text-gray-500 dark:text-slate-400 whitespace-nowrap">{f.depTime} - {f.arrTime}</span>
-              {isNextDay(pkg.keberangkatan.jam, pkg.kepulangan.jam) && <span className="font-bold text-orange-600 text-[10px] shrink-0">(+1)</span>}
+              <span className="text-gray-500 dark:text-slate-400 whitespace-nowrap">{f.depTime} WIB</span>
             </div>
             <div className="flex items-center gap-1.5 text-xs">
               <PlaneLanding size={13} className="text-emerald-600 shrink-0" />
               <span className="font-medium text-gray-700 dark:text-slate-200 shrink-0">{f.retCode}</span>
               <span className="text-gray-300 dark:text-slate-600 shrink-0">&middot;</span>
-              <span className="text-gray-500 dark:text-slate-400 whitespace-nowrap">{f.retDepTime} - {f.retArrTime}</span>
-              {isNextDay(pkg.kepulangan.jam, pkg.keberangkatan.jam) && <span className="font-bold text-orange-600 text-[10px] shrink-0">(+1)</span>}
+              <span className="text-gray-500 dark:text-slate-400 whitespace-nowrap">{f.retTime} WIB</span>
             </div>
           </div>
 
@@ -199,7 +193,7 @@ export function SplitLayout(props: VariantProps) {
 // ════════════════════════════════════════════════
 
 export function SpotlightLayout(props: VariantProps) {
-  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, isNextDay, formatDate } = props;
+  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, formatDate } = props;
   const f = getFlightData(pkg);
   const h = getHotelData(hotelInfo);
 
@@ -222,8 +216,8 @@ export function SpotlightLayout(props: VariantProps) {
       {/* White body */}
       <div className="p-4">
         <div className="grid grid-cols-2 gap-3 mb-3">
-          <FlightRow icon={<PlaneTakeoff size={16} />} code={f.depCode} date={f.depDate} timeStart={f.depTime} timeEnd={f.arrTime} isNext={isNextDay(pkg.keberangkatan.jam, pkg.kepulangan.jam)} formatDate={formatDate} />
-          <FlightRow icon={<PlaneLanding size={16} />} code={f.retCode} date={f.retDate} timeStart={f.retDepTime} timeEnd={f.retArrTime} isNext={isNextDay(pkg.kepulangan.jam, pkg.keberangkatan.jam)} formatDate={formatDate} />
+          <FlightRow icon={<PlaneTakeoff size={16} />} code={f.depCode} date={f.depDate} time={f.depTime} formatDate={formatDate} />
+          <FlightRow icon={<PlaneLanding size={16} />} code={f.retCode} date={f.retDate} time={f.retTime} formatDate={formatDate} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <HotelCell label="Mekkah" name={h.mekkahName} stars={h.mekkahStars} distance={h.mekkahDist} />
@@ -240,7 +234,7 @@ export function SpotlightLayout(props: VariantProps) {
 // ════════════════════════════════════════════════
 
 export function TicketLayout(props: VariantProps) {
-  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, isNextDay, formatDate } = props;
+  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, formatDate } = props;
   const f = getFlightData(pkg);
   const h = getHotelData(hotelInfo);
 
@@ -267,10 +261,7 @@ export function TicketLayout(props: VariantProps) {
           </div>
           <div className="text-center">
             <p className="text-[10px] text-gray-400 dark:text-slate-500 font-medium">{dest}</p>
-            <p className="text-xl font-black text-gray-800 dark:text-white leading-none">
-              {f.arrTime}
-              {isNextDay(pkg.keberangkatan.jam, pkg.kepulangan.jam) && <span className="text-[10px] text-orange-600 font-bold ml-0.5">(+1)</span>}
-            </p>
+            <p className="text-xl font-black text-gray-300 dark:text-slate-600 leading-none">&mdash;</p>
           </div>
         </div>
         <p className="text-center text-[10px] text-gray-400 dark:text-slate-500 mt-1.5">{f.depCode} / {formatDate(f.depDate)}</p>
@@ -294,7 +285,7 @@ export function TicketLayout(props: VariantProps) {
         <div className="flex items-center gap-2 mb-3 text-xs text-gray-500 dark:text-slate-400">
           <PlaneLanding size={14} className="text-emerald-600 shrink-0" />
           <span className="font-medium text-gray-600 dark:text-slate-300">Pulang</span>
-          <span>{f.retCode} / {formatDate(f.retDate)} &middot; {f.retDepTime}&ndash;{f.retArrTime}{isNextDay(pkg.kepulangan.jam, pkg.keberangkatan.jam) ? ' (+1)' : ''}</span>
+          <span>{f.retCode} / {formatDate(f.retDate)} &middot; {f.retTime} WIB</span>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -312,7 +303,7 @@ export function TicketLayout(props: VariantProps) {
 // ════════════════════════════════════════════════
 
 export function TiledLayout(props: VariantProps) {
-  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, isNextDay, formatDate } = props;
+  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, formatDate } = props;
   const f = getFlightData(pkg);
   const h = getHotelData(hotelInfo);
 
@@ -332,8 +323,8 @@ export function TiledLayout(props: VariantProps) {
       </div>
 
       <div className="grid grid-cols-2 gap-3 mb-3">
-        <FlightRow icon={<PlaneTakeoff size={16} />} code={f.depCode} date={f.depDate} timeStart={f.depTime} timeEnd={f.arrTime} isNext={isNextDay(pkg.keberangkatan.jam, pkg.kepulangan.jam)} formatDate={formatDate} />
-        <FlightRow icon={<PlaneLanding size={16} />} code={f.retCode} date={f.retDate} timeStart={f.retDepTime} timeEnd={f.retArrTime} isNext={isNextDay(pkg.kepulangan.jam, pkg.keberangkatan.jam)} formatDate={formatDate} />
+        <FlightRow icon={<PlaneTakeoff size={16} />} code={f.depCode} date={f.depDate} time={f.depTime} formatDate={formatDate} />
+        <FlightRow icon={<PlaneLanding size={16} />} code={f.retCode} date={f.retDate} time={f.retTime} formatDate={formatDate} />
       </div>
 
       {/* Hotels as colored tiles */}
@@ -370,7 +361,7 @@ export function TiledLayout(props: VariantProps) {
 // ════════════════════════════════════════════════
 
 export function MagazineLayout(props: VariantProps) {
-  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, isNextDay, formatDate } = props;
+  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, formatDate } = props;
   const f = getFlightData(pkg);
   const h = getHotelData(hotelInfo);
 
@@ -398,8 +389,8 @@ export function MagazineLayout(props: VariantProps) {
       {/* White body overlapping hero */}
       <div className="bg-white dark:bg-slate-800 -mt-6 rounded-t-2xl relative z-10 p-4 pt-5">
         <div className="grid grid-cols-2 gap-3 mb-3">
-          <FlightRow icon={<PlaneTakeoff size={16} />} code={f.depCode} date={f.depDate} timeStart={f.depTime} timeEnd={f.arrTime} isNext={isNextDay(pkg.keberangkatan.jam, pkg.kepulangan.jam)} formatDate={formatDate} />
-          <FlightRow icon={<PlaneLanding size={16} />} code={f.retCode} date={f.retDate} timeStart={f.retDepTime} timeEnd={f.retArrTime} isNext={isNextDay(pkg.kepulangan.jam, pkg.keberangkatan.jam)} formatDate={formatDate} />
+          <FlightRow icon={<PlaneTakeoff size={16} />} code={f.depCode} date={f.depDate} time={f.depTime} formatDate={formatDate} />
+          <FlightRow icon={<PlaneLanding size={16} />} code={f.retCode} date={f.retDate} time={f.retTime} formatDate={formatDate} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <HotelCell label="Mekkah" name={h.mekkahName} stars={h.mekkahStars} distance={h.mekkahDist} />

@@ -717,7 +717,7 @@ function ResultModal({
 // ============================================
 // Main Page Component
 // ============================================
-export default function KalkulasiPage({ agent, hideHeader = false }: { agent?: AgentData | null; hideHeader?: boolean }) {
+export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount = false }: { agent?: AgentData | null; hideHeader?: boolean; hideDiscount?: boolean }) {
   // --- API Data ---
   const [packages, setPackages] = useState<UmrohPackage[]>([]);
   const [loadingPackages, setLoadingPackages] = useState(true);
@@ -1244,6 +1244,7 @@ export default function KalkulasiPage({ agent, hideHeader = false }: { agent?: A
             {/* ══════════════════════════════ */}
             {/* SECTION: Diskon & Catatan     */}
             {/* ══════════════════════════════ */}
+            {!hideDiscount && (
             <motion.div
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1378,6 +1379,7 @@ export default function KalkulasiPage({ agent, hideHeader = false }: { agent?: A
             </div>
           </div>
             </motion.div>
+            )}
             </>
           )}
           </AnimatePresence>
