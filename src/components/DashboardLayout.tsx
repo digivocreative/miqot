@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Calculator, ArrowLeftRight, Settings,
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
   BarChart3, Loader2, Sparkles,
   CalendarRange, ExternalLink, TrendingUp, Mic, CreditCard,
-  DollarSign, ChevronRight, Globe,
+  DollarSign, ChevronRight, Globe, Share2,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
@@ -28,6 +28,8 @@ import KursPage from './KursPage';
 import UmrahRegisterPage from './UmrahRegisterPage';
 import CuacaWidget from './CuacaWidget';
 import { trackEvent } from '../utils/analytics';
+
+const ShareKursModal = lazy(() => import('./ShareKursModal'));
 
 type TabId = 'home' | 'settings' | 'kalkulasi' | 'caption' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools';
 
@@ -268,6 +270,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     sar: number | null;
     updatedAt: string;
   } | null>(null);
+  const [showShareKurs, setShowShareKurs] = useState(false);
 
   useEffect(() => {
     fetch('/api/kurs')
@@ -773,18 +776,27 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    window.history.pushState({}, '', '/dashboard/ai-tools/kurs');
-                    document.title = 'Kurs Hari Ini';
-                    setActiveTab('home');
-                    setTimeout(() => setActiveTab('ai-tools'), 0);
-                  }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
-                >
-                  Hitung Kurs
-                  <ChevronRight size={10} strokeWidth={2.5} />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setShowShareKurs(true)}
+                    aria-label="Bagikan kurs"
+                    className="w-7 h-7 rounded-lg border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
+                  >
+                    <Share2 size={12} strokeWidth={2.5} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      window.history.pushState({}, '', '/dashboard/ai-tools/kurs');
+                      document.title = 'Kurs Hari Ini';
+                      setActiveTab('home');
+                      setTimeout(() => setActiveTab('ai-tools'), 0);
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
+                  >
+                    Hitung Kurs
+                    <ChevronRight size={10} strokeWidth={2.5} />
+                  </button>
+                </div>
               </div>
 
               {/* Rate Pills */}
@@ -822,6 +834,23 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           <div className="grid grid-cols-3 gap-3 mt-4">
             {adminCards.map(renderMenuCard)}
           </div>
+        )}
+
+        {/* ── Share Kurs Modal ── */}
+        {kursData && kursData.usd !== null && (
+          <Suspense fallback={null}>
+            <ShareKursModal
+              open={showShareKurs}
+              onClose={() => setShowShareKurs(false)}
+              kurs={{ usd: kursData.usd, sar: kursData.sar ?? 0, updatedAt: kursData.updatedAt }}
+              agent={{
+                name: agentData.name,
+                phone: agentData.phone,
+                photo: agentData.photo,
+                slug: agentData.slug,
+              }}
+            />
+          </Suspense>
         )}
 
         {/* ── Statistik Not Ready Alert ── */}
