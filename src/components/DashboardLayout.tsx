@@ -777,13 +777,15 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setShowShareKurs(true)}
-                    aria-label="Bagikan kurs"
-                    className="w-7 h-7 rounded-lg border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
-                  >
-                    <Share2 size={12} strokeWidth={2.5} />
-                  </button>
+                  {kursData.sar != null && (
+                    <button
+                      onClick={() => setShowShareKurs(true)}
+                      aria-label="Bagikan kurs"
+                      className="w-7 h-7 rounded-lg border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
+                    >
+                      <Share2 size={12} strokeWidth={2.5} />
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       window.history.pushState({}, '', '/dashboard/ai-tools/kurs');
@@ -837,12 +839,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         )}
 
         {/* ── Share Kurs Modal ── */}
-        {kursData && kursData.usd !== null && (
+        {kursData && kursData.usd !== null && kursData.sar != null && (
           <Suspense fallback={null}>
             <ShareKursModal
               open={showShareKurs}
               onClose={() => setShowShareKurs(false)}
-              kurs={{ usd: kursData.usd, sar: kursData.sar ?? 0, updatedAt: kursData.updatedAt }}
+              kurs={{ usd: kursData.usd, sar: kursData.sar, updatedAt: kursData.updatedAt }}
               agent={{
                 name: agentData.name,
                 phone: agentData.phone,

@@ -34,6 +34,31 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
     if (open) trackEvent('feature', 'open_share_kurs');
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    // Prime font loading untuk semua template
+    const fonts = ['DM Serif Display', 'Amiri'];
+    fonts.forEach(f => {
+      try { (document as any).fonts?.load?.(`16px "${f}"`); } catch {}
+    });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
   const templateProps: KursTemplateProps = useMemo(() => ({ kurs, agent }), [kurs, agent]);
   const current = KURS_TEMPLATES.find(t => t.id === selectedId) || KURS_TEMPLATES[0];
   const Renderer = current.Renderer;
