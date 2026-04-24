@@ -781,9 +781,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     <button
                       onClick={() => setShowShareKurs(true)}
                       aria-label="Bagikan kurs"
-                      className="flex items-center justify-center px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-emerald-600 dark:text-emerald-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
                     >
-                      <Share2 size={12} strokeWidth={2.5} />
+                      <Share2 size={10} strokeWidth={2.5} />
+                      Share
                     </button>
                   )}
                   <button
@@ -795,7 +796,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     }}
                     className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
                   >
-                    Hitung Kurs
+                    Kurs
                     <ChevronRight size={10} strokeWidth={2.5} />
                   </button>
                 </div>
