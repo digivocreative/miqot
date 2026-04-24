@@ -5,3 +5,4 @@ dist
 .env
 functions/umroh-landing.mjs
 data/*.json
+.superpowers/

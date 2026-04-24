@@ -417,6 +417,283 @@ text-[10px] font-semibold text-emerald-600 animate-pulse  // syncing
 
 ---
 
+## Tanya AI ("Diskusi")
+
+### Diskusi Button (PackageCard, Action Row 1)
+
+Compact 3-col grid button yang memicu Tanya AI modal. Geometry **persis sama** dengan sibling button (Brosur, Simpan), bedanya border 2px di-render sebagai animated conic-gradient ring (bukan static border-color).
+
+```html
+<button className="diskusi-ai-border flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 border-transparent transition-transform active:scale-95">
+  <Sparkles size={20} className="text-emerald-500 dark:text-emerald-400 mb-1 animate-icon-twinkle" />
+  <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Diskusi</span>
+</button>
+```
+
+### Tanya AI Full-Width Button (Single Package View)
+
+Muncul hanya di `isSingleView` (deep-link ke 1 paket), label panjang, full-width:
+
+```html
+<button className="diskusi-ai-border w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-transparent mb-2 transition-transform active:scale-[0.98]">
+  <Sparkles size={18} className="text-emerald-500 dark:text-emerald-400 animate-icon-twinkle" />
+  <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Tanya AI Tentang Paket Ini</span>
+</button>
+```
+
+### `.diskusi-ai-border` — Animated Ring (index.css)
+
+Rotating 2px conic emerald ring via `mask-composite` "cut-out center":
+
+```css
+.diskusi-ai-border {
+  position: relative;
+  isolation: isolate;
+}
+.diskusi-ai-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;                 /* ring thickness — matches sibling border-2 */
+  border-radius: inherit;
+  background: conic-gradient(from var(--ai-angle),
+    #10b981, #34d399, #6ee7b7, #059669, #10b981);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  animation: ai-rotate 2.8s linear infinite;
+  pointer-events: none;
+}
+```
+
+Fallback (no `@property` support): static linear gradient, no animation.
+
+### Tanya AI Modal (`AskAIModal.tsx`)
+
+Fullscreen bottom sheet dengan Framer Motion slide-up. Tracked via `visualViewport` untuk iOS Safari keyboard fix.
+
+#### Container
+
+```
+fixed left-0 right-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col
+top: viewportTop (vv.offsetTop)
+height: viewportHeight (vv.height) || 100dvh
+initial: y='100%' → animate: y=0, exit: y='100%'
+transition: duration 0.32s, ease [0.32, 0.72, 0, 1]
+```
+
+Body-lock: `position:fixed` + `overflow:hidden` pada html & body + restore `scrollY` saat close.
+
+#### Header
+
+```
+flex-shrink-0 border-b border-gray-100 dark:border-slate-800
+Inner: px-4 py-3 flex items-center gap-3
+  - Back: w-9 h-9 rounded-xl bg-gray-100 dark:bg-slate-800 (ChevronLeft 20)
+  - AiAvatar size=40, showOnline
+  - Title: text-sm font-bold "Asisten {FirstName}"
+  - Subtitle: text-[10px] text-gray-500 flex gap-1 (Zap fill-emerald 10 + "AI · siap bantu jawab")
+  - Info: w-9 h-9 rounded-xl (Info 16)
+Package strip: px-4 pb-3 flex gap-1.5 text-[10px] (Package 12 + "Paket:" + package name truncate)
+```
+
+#### AiAvatar Component
+
+Agent photo dengan Sparkles "AI" badge overlay di bottom-right. Ukuran 28 (inline bubble) atau 40 (header `showOnline`).
+
+```
+Wrapper: relative rounded-full w=h={size}
+Photo (if available): w-full h-full rounded-full object-cover border-2 border-white dark:border-slate-700 shadow-sm
+Fallback: gradient `linear-gradient(135deg, #10b981, #059669, #047857)` dengan Sparkles icon (white)
+Badge: absolute -bottom-0.5 -right-0.5 rounded-full border-2 border-white dark:border-slate-900
+  width/height: max(14, round(size × 0.42))
+  background: linear-gradient(135deg, #10b981, #059669)
+  boxShadow (jika showOnline): 0 0 0 2px rgba(16,185,129,.25), 0 0 8px rgba(16,185,129,.35)
+  Inner: Sparkles size=max(8, round(badgeSize × 0.55)) strokeWidth=2.5, white
+```
+
+#### Chat Area
+
+```
+flex-1 overflow-y-auto px-4 py-4 space-y-3
+auto-scroll ke bottom tiap messages change (scrollTo { top: scrollHeight, behavior: smooth })
+```
+
+#### Greeting Bubble (first render)
+
+```
+Flex gap-2:
+  - AiAvatar size=28
+  - Bubble:
+    inline-block bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-3.5 py-2.5
+    text-[13px] leading-relaxed text-gray-800 dark:text-slate-100 space-y-0.5
+    "Assalamualaikum 👋"
+    "Saya asisten AI-nya <strong>{firstName}</strong>. Ada yang mau ditanyain soal paket ini, Kak? 🙂"
+  - Timestamp: text-[9px] text-gray-400 dark:text-slate-500 mt-1 ml-1 "Asisten AI · baru saja"
+```
+
+#### Preset Chips (shown only when messages.length === 0)
+
+Label section: `text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500` "Pertanyaan populer"
+
+```
+flex flex-col gap-1.5 (stack 1-column, not 2-col grid)
+Chip (default + expanded extras):
+  text-left p-2.5 rounded-xl
+  border border-emerald-100 dark:border-emerald-800/40
+  bg-emerald-50/50 dark:bg-emerald-900/15
+  active:scale-[0.96] transition-all
+  Inner: flex items-start gap-1.5 → Icon (13, emerald-600, mt-0.5) + text-[11px] font-medium text-gray-700
+```
+
+Expand toggle: `w-full flex justify-center gap-1 py-2 text-[11px] font-semibold text-emerald-600` — "Lihat pertanyaan lain" / "Tutup" + rotating ChevronDown.
+
+Chip pool: 24 questions yang di-shuffle tiap modal open. Pinned key: `'brosur'` (selalu di posisi default row).
+
+#### User Bubble
+
+```
+flex justify-end
+Inner: bg-emerald-500 text-white rounded-2xl rounded-tr-sm px-3.5 py-2.5
+max-w-[85%] text-[13px] leading-relaxed
+```
+
+#### Typing Indicator
+
+```
+Flex gap-2:
+  - AiAvatar size=28
+  - Bubble: inline-flex gap-1 bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3
+    items-center self-start
+    3× <span className="askai-dot w-1.5 h-1.5 rounded-full bg-gray-400"> (askai-dot-2, askai-dot-3 = stagger)
+```
+
+Animation `@keyframes askAiTyping` (scoped `<style>` inside modal):
+```css
+0%, 60%, 100% { opacity: .3; transform: translateY(0); }
+30% { opacity: 1; transform: translateY(-3px); }
+```
+Interval 1.2s infinite ease-in-out, delays 0/0.15s/0.3s.
+
+#### AI Bubble + Typewriter
+
+```
+Flex gap-2:
+  - AiAvatar size=28
+  - Right column (flex-1 space-y-2):
+    - Bubble:
+      inline-block bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-3.5 py-3
+      text-[13px] leading-relaxed text-gray-800 dark:text-slate-100 break-words space-y-1
+      TypewriterMessage (word-by-word reveal @ 22ms/word, strip unmatched **/*/__ during partial state)
+      Cursor (saat partial): <span className="inline-block w-[2px] h-3.5 bg-emerald-500 ml-0.5 align-middle animate-pulse">
+    - Timestamp: text-[9px] text-gray-400 mt-1 ml-1 "Asisten AI · baru saja"
+```
+
+Inline rich text rendering:
+- `**bold**` → `<strong>`
+- `*italic*` → `<em>`
+- `__underline__` → `<span className="underline decoration-emerald-500 decoration-2 underline-offset-[3px] font-medium">`
+- `- item` / `* item` / `• item` → bullet rows (emerald `•` + content)
+
+#### Attachment Card (inline, below AI bubble)
+
+**Brosur** (3:4 image card):
+```
+button block w-full max-w-[260px] rounded-2xl overflow-hidden
+border border-emerald-200 dark:border-emerald-800/40 bg-white
+shadow-sm active:scale-[0.98]
+  Image area: aspect-[3/4] bg-gray-100
+    <img object-cover loading="lazy">
+    Maximize overlay: absolute top-2 right-2 w-7 h-7 rounded-full bg-black/40 backdrop-blur-sm
+  Footer: px-3 py-2 border-t border-gray-100
+    ImageIcon 12 emerald + text-[11px] font-semibold "Brosur Paket" + text-[10px] emerald "Lihat"
+```
+
+**Itinerary** (icon row, PDF-style):
+```
+button flex items-center gap-3 w-full max-w-[260px] px-3 py-3 rounded-2xl
+border border-emerald-200 dark:border-emerald-800/40 bg-white shadow-sm active:scale-[0.98]
+  Icon box: w-11 h-12 rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-200
+    FileText 22 text-red-500
+  Label: text-[12px] font-bold "Itinerary" + text-[10px] text-gray-500 "PDF · Tap untuk full screen"
+  Maximize2 14 emerald
+```
+
+Fullscreen viewers (BrochureModal / ItineraryModal) mounted di luar sheet supaya overlay di atas modal.
+
+#### WA Nudge Card (every Nth AI msg, 1st, & on fallback)
+
+```
+rounded-2xl border border-emerald-200 dark:border-emerald-800/40
+bg-gradient-to-br from-emerald-50 to-white
+dark:from-emerald-900/30 dark:to-slate-800/60
+p-3
+  Top row (flex items-center gap-2.5):
+    - Agent photo: w-9 h-9 rounded-full object-cover border-2 border-white
+      (fallback: w-9 h-9 rounded-full bg-gradient-to-br from-emerald-300 to-emerald-500 + initials white text-[11px] font-bold)
+    - Note: flex-1 text-[11px] font-semibold text-gray-800 dark:text-white leading-snug
+      "💬 {renderInline(msg.note)}" — with **bold** name
+  CTA (mt-2.5):
+    w-full flex justify-center gap-1.5 py-2 rounded-xl
+    bg-emerald-500 hover:bg-emerald-600 text-white
+    text-[12px] font-bold shadow-md shadow-emerald-500/30
+    active:scale-[0.96]
+    → WaIcon 14 fill-white + "Chat {firstName} di WhatsApp"
+```
+
+#### Follow-up Pills (below last AI bubble, max 3 unasked chips)
+
+```
+flex flex-wrap gap-1.5 pt-0.5
+Pill: inline-flex items-center gap-1 px-2.5 py-1 rounded-full
+  border border-emerald-200 dark:border-emerald-800/40
+  bg-emerald-50/70 dark:bg-emerald-900/20
+  text-emerald-700 dark:text-emerald-300
+  text-[11px] font-medium active:scale-[0.96]
+  Icon 11 + label
+```
+
+#### Footer Input
+
+```
+flex-shrink-0 border-t border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5
+  Flex items-center gap-2:
+    - Input: flex-1 px-3.5 py-2.5 bg-gray-100 dark:bg-slate-800 border-0 rounded-full
+      text-[13px] placeholder:text-gray-400
+      focus:ring-2 focus:ring-emerald-500 outline-none disabled:opacity-60
+      maxLength 500
+    - Send (not typing): w-10 h-10 rounded-full
+      background: linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)
+      shadow-md shadow-emerald-500/30 active:scale-95 disabled:opacity-50
+      Send 15 white
+    - Stop (typing): w-10 h-10 rounded-full bg-gray-200 dark:bg-slate-700 hover:bg-gray-300
+      Square 13 text-gray-700 fill-gray-700
+  Disclaimer row (mt-1.5 px-1):
+    text-[9px] text-gray-500 dark:text-slate-400 flex-1 text-center
+    "Jawaban bisa saja keliru. Konfirmasi akhir ke {firstName} ya 🙂"
+  Char counter (if >= 250 chars):
+    text-[9px] font-medium ml-2 (red-500 jika >= 480, else gray-400) — "{length}/500"
+```
+
+#### Session Limits & Rate Limits
+
+- **Client-side**: `CLIENT_QUERY_LIMIT = 8` queries per modal session. Saat hit limit, show warning AI msg dengan WA nudge.
+- **Client-side debounce**: `SEND_DEBOUNCE_MS = 500` prevent double-submit.
+- **Fetch timeout**: `FETCH_TIMEOUT_MS = 15000` (15s).
+- **Server-side**: 10 req / 60s / IP (`askAiRateLimitMap`).
+- **Cache**: 7 hari di `ask_ai_cache` (Supabase), unique `(jadwal_id, question_hash)` scoped per `agent_id`.
+
+#### WA Nudge Frequency
+
+```ts
+const WA_NUDGE_INTERVAL = 3;
+const showWaNudge = isFallback || nextAiCount === 1 || nextAiCount % WA_NUDGE_INTERVAL === 0;
+```
+
+---
+
 ## Charts (Recharts)
 
 Digunakan di `StatistikPage.tsx` dan `HajiPlusPage.tsx` untuk menampilkan tren data.
@@ -562,19 +839,49 @@ flex flex-col
 
 ### AI Tools Hub (`AIToolsPage.tsx`)
 
-Hub page for AI tools — grid of tool cards:
+Hub page for AI tools & utilities — vertical stack of tool cards. Card urutan: **Landing Page**, **Bandingkan Paket**, **Voice Over**, **Kurs Hari Ini**, **Infografis Haji Plus**, **Kartu Nama** (disabled), **Brosur Generator** (disabled).
 
 ```
-w-full text-left bg-white dark:bg-slate-800 rounded-2xl
+relative w-full text-left bg-white dark:bg-slate-800 rounded-2xl
 border border-gray-100 dark:border-slate-700 shadow-sm p-4
-hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] transition-all
+hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] transition-all cursor-pointer
 ```
 
-- Icon box: `w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-900/20`
-- Icon: `text-purple-600 dark:text-purple-400` (Lucide `Mic`, `Sparkles`)
+- Icon box: `w-10 h-10 rounded-xl {color-50 dark:color-900/20} flex items-center justify-center`
+- Icon: `text-{color}-600 dark:text-{color}-400` (Lucide — see per-tool)
 - Title: `text-sm font-bold mt-3`
-- Desc: `text-xs text-gray-400 mt-0.5`
-- Disabled card: `opacity-50 cursor-default` (no hover effects)
+- Desc: `text-xs text-gray-400 dark:text-slate-500 mt-0.5`
+- Disabled card: `opacity-60 cursor-default` (no hover effects) + badge `"Segera Hadir"` top-right
+
+#### Per-Tool Icon & Color
+
+| Tool | Icon | Color accent |
+|------|------|--------------|
+| Landing Page | `Globe` | purple |
+| Bandingkan Paket (Compare) | `ArrowLeftRight` | violet |
+| Voice Over Generator | `Mic` | purple |
+| Kurs Hari Ini | `Banknote` | amber |
+| Infografis Haji Plus | `BarChart3` | emerald |
+| Kartu Nama Digital *(disabled)* | `CreditCard` | teal |
+| Brosur Generator *(disabled)* | `Image` | pink |
+
+#### "Segera Hadir" Badge
+
+```
+absolute top-3 right-3 text-[8px] font-bold uppercase tracking-wide
+bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500
+px-2 py-0.5 rounded-full
+```
+
+#### Sub-Page Header Override (DashboardLayout)
+
+Ketika navigasi ke AI Tools sub-page, header icon + label di-override sesuai sub-page (dari `AI_SUB_STYLES` map di `DashboardLayout.tsx`):
+- `landing-page`: Globe icon, purple bg/border
+- `voice-over`: Mic, purple
+- `business-card`: CreditCard, teal
+- `haji-plus` / `haji-plus/export` / `haji-plus/simulasi`: BarChart3, emerald
+- `kurs`: TrendingUp, emerald
+- `compare`: ArrowLeftRight, violet
 
 ### Voice Over Generator (`VoiceOverPage.tsx`)
 
@@ -632,6 +939,249 @@ animation: voResultIn 0.3s ease-out (translateY 8px→0, opacity 0→1)
 - Time display: `text-xs text-gray-400 font-mono`
 - Download MP3: solid purple CTA `bg-purple-500 text-white rounded-xl`
 - Download WAV: outline purple `text-purple-600 bg-purple-50 border border-purple-200 rounded-xl`
+
+### Landing Page Config (`LandingPagePage.tsx`)
+
+Editor SEO & link preview untuk `/:slug/umroh` dan `/:slug/haji` landing pages. 2 tab segmented control dengan akses warna berbeda (emerald untuk Umroh, amber untuk Haji).
+
+#### Segmented Tab (`SegmentedTab` component)
+
+```
+Container: bg-gray-100 dark:bg-slate-800 rounded-xl p-1 flex gap-1 (same as Settings)
+Tab:
+  flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg
+  active: bg-white dark:bg-slate-700 shadow-sm font-semibold {emerald|amber accent}
+  inactive: bg-transparent text-gray-400 dark:text-slate-500 font-medium active:opacity-70
+  Icon size=14 strokeWidth={active ? 2.4 : 2}
+  Label: text-[13px]
+  Custom-indicator dot: w-1.5 h-1.5 rounded-full (accent warna saat active, gray-300 saat inactive)
+  → dot shown only when hasCustom (agent sudah override title/desc/OG)
+```
+
+#### Accent Tokens
+
+| Landing | dot | focus border | focus ring | OG gradient |
+|---------|-----|--------------|------------|-------------|
+| Umroh | `bg-emerald-500` | `focus:border-emerald-500` | `focus:ring-emerald-500/20` | `bg-gradient-to-br from-emerald-700 via-emerald-600 to-teal-800` |
+| Haji | `bg-amber-500` | `focus:border-amber-500` | `focus:ring-amber-500/20` | `bg-gradient-to-br from-amber-600 via-orange-600 to-rose-700` |
+
+#### Landing Card (per type)
+
+```
+rounded-2xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm
+Inner padding: p-4
+```
+
+URL bar (top):
+```
+flex items-center gap-1 mb-4 rounded-xl border border-gray-100 dark:border-slate-700/70
+bg-gray-50/70 dark:bg-slate-900/40 pl-3 pr-1 py-1
+  URL text: text-[12px] font-mono text-gray-600 flex-1 truncate
+  Copy button: w-7 h-7 rounded-lg hover:bg-white
+  Open (ExternalLink) button: w-7 h-7 rounded-lg
+```
+
+OG image uploader:
+```
+Header row: label (uppercase xs font-semibold + accent dot) + "1200 × 630 px" (text-[10px] gray)
+Clickable dropzone:
+  relative w-full aspect-[1200/630] rounded-xl overflow-hidden
+  border-2 border-dashed border-gray-300 (or gray-200 jika sudah ada image)
+  hover:border-gray-400 cursor-pointer
+  uploading: border-gray-200 cursor-wait
+Image: w-full h-full object-cover (jika draft.og_image_url)
+Default fallback: DefaultOgPreview component (accent gradient + agent photo w-16 h-16 rounded-full border-[3px] border-white/80 + badge "JADWAL UMROH"/"HAJI PLUS RAHMAH & UHUD" + agent name)
+Hover overlay: absolute inset-0 bg-black/0 group-hover:bg-black/35 → "Upload 18 + Ganti Gambar" text-xs font-semibold
+Uploading state: bg-black/50 + "Loader2 animate-spin + Mengunggah…"
+Reset OG button (shown when custom image): absolute top-2 right-2
+  px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 dark:bg-slate-900/95 shadow-sm
+  RotateCcw 11 + "Default"
+```
+
+Title/Description fields:
+```
+Header row: label (uppercase xs + accent dot) + char counter (text-[10px] font-mono)
+  Counter color: gray-400 → amber-500 (≥ 90% max) → red-500 (> max)
+Input / Textarea:
+  w-full px-3 py-2.5 text-sm rounded-xl bg-white dark:bg-slate-900 border
+  border-gray-200 dark:border-slate-700 {accent focus:border} focus:ring-2 {accent ring}
+  over-limit: border-red-400 focus:ring-red-500/20
+Textarea: rows=3, resize-none min-h-[72px]
+Placeholder: default title / currentDescription (raw HTML meta description)
+Hint (saat field kosong): text-[10px] text-gray-400 mt-1 pl-0.5
+  "Kosong → pakai default" (title)
+  "Kosong → pakai deskripsi Alhijaz default" (description)
+```
+
+Char limits:
+- Title: 60 chars
+- Description: 160 chars
+
+#### WhatsApp Preview (compact confirmation card)
+
+```
+mt-4 pt-4 border-t border-gray-100 dark:border-slate-700/50
+Label: text-[10px] font-bold uppercase tracking-wide text-gray-400 "Pratinjau WhatsApp"
+Card:
+  rounded-xl bg-gray-50 dark:bg-slate-900/40 border border-gray-100 p-2 flex gap-2.5
+  Image: w-[72px] h-[72px] rounded-lg overflow-hidden (OG image atau accent gradient + agent photo w-8 h-8)
+  Right column:
+    text-[9px] text-gray-400 uppercase tracking-wide "alhijaz.co"
+    text-[13px] font-semibold line-clamp-2 → effectiveTitle (draft.title.trim() || defaults.title)
+    text-[11px] text-gray-500 line-clamp-2 → effectiveDesc
+```
+
+Reset-all button (footer, shown if any custom exists):
+```
+flex justify-end mt-3
+Button: text-[11px] font-medium text-gray-400 hover:text-red-500 transition-colors
+"Reset semua ke default"
+```
+
+#### Sticky Save Bar (bottom)
+
+Muncul saat `textDirty` true:
+- Primary CTA: `w-full py-3 rounded-xl bg-emerald-500 text-white font-bold` + Save 16 icon
+- Loading state: Loader2 animate-spin + "Menyimpan…"
+
+#### Crop Modal (OG Upload)
+
+Pakai `PhotoCropModal` dengan:
+- `aspect = 1200/630`
+- `cropShape="rect"`, `outputWidth=1200`, `outputHeight=630`
+- `title="Crop Gambar Pratinjau"`
+- `hint="Disarankan 1200 × 630 px"`
+- `confirmLabel="Gunakan Gambar"`
+- `quality=0.9`
+
+#### Toast Notifications
+
+```
+fixed left-1/2 -translate-x-1/2 bottom-24 z-50
+flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-md
+text-[11.5px] font-medium max-w-[90vw] whitespace-nowrap
+animation: fadeIn 150ms ease-out
+Success: bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 text-emerald-800 + CheckCircle2 13
+Error: bg-red-50 dark:bg-red-900/30 border border-red-200 text-red-700 + AlertCircle 13
+Auto-dismiss 3500ms
+```
+
+---
+
+## Umrah Self-Registration (`UmrahRegisterPage.tsx`)
+
+Form pendaftaran jamaah umroh ke sistem internal legacy. Form structure di-scrape dari HTML (`GET /api/umrah/form-options`), rendered sebagai sections.
+
+### Section Order & Titles
+
+```
+pendaftaran   → "Info Pendaftaran"
+jamaah        → "Data Jamaah"
+alamat        → "Alamat"
+paket         → "Paket"
+pendaftar     → "Info Pendaftar"
+auto          → "Info Otomatis" (LOCKED fields: Jenis Daftar, Marketing, Koordinator)
+lainnya       → "Lainnya"
+```
+
+### Input Styling (matches existing `Form Inputs`)
+
+```
+INPUT_CLASS =
+  'w-full px-3 py-2.5 bg-white dark:bg-slate-900
+   border border-gray-200 dark:border-slate-700 rounded-xl text-sm
+   focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none
+   transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50'
+
+INPUT_ERROR_CLASS (sama struktur, warna red-300/red-500/red-500)
+```
+
+Label (inline + right-aligned hint):
+```
+LABEL_CLASS_INLINE = 'flex items-center gap-1.5 text-xs font-semibold
+                      text-gray-600 dark:text-slate-300 uppercase tracking-wide'
+```
+
+### Dummy-Fill Button (dev/testing nicety)
+
+Emerald micro-button di sebelah label untuk isi otomatis:
+```
+DUMMY_BTN_CLASS = 'flex items-center gap-1 text-[10px] font-semibold
+                   text-emerald-600 dark:text-emerald-400
+                   hover:text-emerald-700 dark:hover:text-emerald-300
+                   uppercase tracking-wide px-2 py-0.5 rounded-md
+                   hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors'
+```
+
+Hidden untuk labels: `Jenis Kelamin`, `Tanggal Berangkat`, `Paket Umroh` (need real data, not dummy).
+
+### SearchableSelect Component
+
+Custom dropdown dengan built-in search (muncul jika options ≥ 8). Lock state saat field locked (`LOCKED_FIELD_LABELS`).
+
+```
+Trigger button:
+  w-full px-3 py-2.5 bg-white dark:bg-slate-900 border rounded-xl
+  text-sm text-left outline-none transition-all
+  flex items-center justify-between gap-2 focus:ring-2
+  Border: gray-200 (default) / red-300 (error) — focus-within accents
+  Content: truncated display label + ChevronDown 16 (rotate-180 saat open)
+
+Disabled (locked) state:
+  bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700
+  text-gray-500 dark:text-slate-400 cursor-not-allowed
+  ChevronDown opacity-50
+
+Dropdown panel (always mounted for animation):
+  absolute left-0 right-0 top-full mt-1 z-40
+  bg-white dark:bg-slate-800 rounded-xl border shadow-lg overflow-hidden
+  origin-top transition-all duration-150 ease-out
+  open: opacity-100 scale-100 translate-y-0
+  closed: opacity-0 scale-95 -translate-y-1 pointer-events-none
+
+Search input (shown when options.length >= 8):
+  p-2 border-b border-gray-100
+  Pill: flex items-center gap-2 px-2.5 py-1.5 bg-gray-50 dark:bg-slate-900 rounded-lg
+  Search 14 gray + input (bg-transparent text-xs) + clear X 12
+
+Options list:
+  max-h-60 overflow-y-auto
+  Row: w-full flex items-start gap-2 px-3 py-2 text-xs
+    selected: bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 font-semibold
+    unselected: text-gray-700 hover:bg-gray-50 dark:hover:bg-slate-700/50
+    Check mark: 3.5×3.5 slot, Check 14 emerald strokeWidth=3
+  Empty state: px-3 py-4 text-center text-[11px] text-gray-400 "Tidak ada hasil"
+```
+
+### KTP OCR Inline (Top of Form)
+
+Integrated di atas section pertama. Upload KTP image → OpenAI Vision extract → auto-fill fields.
+
+States:
+- `form` — default
+- `ocr-processing` — loading spinner + message
+
+### Preview Modal (Pre-Submit)
+
+```
+Fullscreen modal (fixed inset-0 z-50 bg-black/50 backdrop-blur-sm)
+Card: w-full max-w-md bg-white rounded-2xl border border-gray-100 shadow-2xl p-5
+```
+
+Digunakan untuk konfirmasi data sebelum submit ke legacy.
+
+### Default Values (Auto-Fill)
+
+- **Jenis Daftar** → "Jamaah Baru"
+- **Jenis Kelamin** → "Laki-laki"
+- **Pendamping (Keberangkatan)** → "Berangkat Sendiri"
+- **Pengalaman Umrah** → "Belum Pernah"
+- **tgl_daftar** → today (DD/MM/YYYY)
+- Hidden: `mahram="X"`, `kondisi_jamaah="X"`, `keterangan="X"`, `tlp_pendaftar="1111111111"`
+
+### Binding via `?idb=<id_umroh>` Query Param
+
+Family/group registration — auto-select parent's jadwal, fetch dependent options, match parent's paket. Supporting params: `&from=<parent_nama>`, `&date=<parent_tgl_berangkat YYYY-MM-DD>`, `&paket=<parent_paket_label>`.
 
 ---
 
@@ -1190,8 +1740,12 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 | Modal fade-in | `fadeIn 150ms ease-out` |
 | Modal slide-up | `slideUp 200ms ease-out` |
 | Bottom sheet slide-up | Framer Motion `y: '100%' → 0`, 250ms, ease `[0.4, 0, 0.2, 1]` |
+| Tanya AI modal slide-up | Framer Motion `y: '100%' → 0`, 320ms, ease `[0.32, 0.72, 0, 1]` |
 | Disconnect modal | `dcModalIn/Out` — `scale(0.92→1)` 250ms `cubic-bezier(0.16,1,0.3,1)` |
 | Chart bar transition | `transition-all duration-500` |
+| Diskusi border glow | `.diskusi-ai-border::before` — rotating conic emerald ring via mask-composite, `ai-rotate 2.8s linear infinite` |
+| Tanya AI typing dots | `askAiTyping 1.2s infinite ease-in-out` (3 dots, delays 0/0.15/0.3s) |
+| Tanya AI typewriter | 22ms per word, cursor `w-[2px] h-3.5 bg-emerald-500 animate-pulse` |
 
 ---
 
@@ -1208,6 +1762,9 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 | Disconnect modal anims | `dcOverlayIn/Out`, `dcModalIn/Out` (inline `<style>` in component) |
 | Telegram badge anims | `tgFloat` (icon bob), `tgPulseGlow` (green dot pulse) (inline `<style>`) |
 | Register form anims | `fadeSlideIn` (form entry), `errorSlideIn` (error msg) (inline `<style>`) |
+| Diskusi button ring | `.diskusi-ai-border`, `@keyframes ai-rotate`, `@property --ai-angle` (rotating conic gradient, mask-composite xor to cut center) |
+| Tanya AI typing dots | `@keyframes askAiTyping` (scoped inline `<style>` inside `AskAIModal`) |
+| Icon animations | `animate-icon-twinkle`, `animate-icon-float`, `animate-icon-breathe`, `animate-icon-rise`, `animate-icon-wiggle`, `animate-icon-spin-slow` (Dashboard menu cards & Sparkles icon on Diskusi) |
 
 ---
 

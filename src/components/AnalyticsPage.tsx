@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { TrendingUp, Users, Activity, Eye, RefreshCw, ChevronDown } from 'lucide-react';
+import { TrendingUp, Users, Activity, Eye, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { getAuthHeaders } from './LoginPage';
+import AgentDrillDownModal from './AgentDrillDownModal';
 
 interface AnalyticsData {
   period: string;
@@ -23,6 +24,7 @@ interface AnalyticsData {
     pageViews: number;
     waClicks: number;
     status: 'active' | 'inactive' | 'dormant' | 'never';
+    health: 'excellent' | 'good' | 'fair' | 'dormant';
   }[];
   featureUsage: { feature: string; label: string; count: number }[];
   actionTracking: { action: string; label: string; count: number }[];
@@ -97,6 +99,7 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const [drillDownSlug, setDrillDownSlug] = useState<string | null>(null);
 
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
@@ -411,6 +414,8 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
               ))}
             </div>
 
+            <p className="px-4 pb-2 text-[9px] text-gray-400 dark:text-slate-500">Tap agent untuk lihat detail 7 hari</p>
+
             <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
               {agentActivity.map(agent => {
                 const statusColors: Record<string, string> = {
@@ -431,9 +436,20 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
                   dormant: 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20',
                   never: 'text-gray-400 dark:text-slate-500 bg-gray-50 dark:bg-slate-900',
                 };
+                const healthBadge: Record<string, { label: string; emoji: string; cls: string }> = {
+                  excellent: { label: 'Power User', emoji: '🔥', cls: 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20' },
+                  good:      { label: 'Sehat', emoji: '✓', cls: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20' },
+                  fair:      { label: 'Rendah', emoji: '⚠️', cls: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20' },
+                  dormant:   { label: 'Dormant', emoji: '💤', cls: 'text-gray-400 dark:text-slate-500 bg-gray-50 dark:bg-slate-900' },
+                };
+                const hb = healthBadge[agent.health] || healthBadge.dormant;
 
                 return (
-                  <div key={agent.slug} className="px-4 py-3">
+                  <button
+                    key={agent.slug}
+                    onClick={() => setDrillDownSlug(agent.slug)}
+                    className="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700/40 active:bg-gray-100 dark:active:bg-slate-700/60 transition-colors"
+                  >
                     {/* Row 1: Avatar + name + status */}
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2 min-w-0">
@@ -453,15 +469,23 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
                           <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-800 ${statusColors[agent.status]}`} />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-[11px] font-bold text-gray-800 dark:text-white truncate">{agent.name}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-[11px] font-bold text-gray-800 dark:text-white truncate">{agent.name}</p>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${hb.cls} inline-flex items-center gap-0.5`}>
+                              <span>{hb.emoji}</span>{hb.label}
+                            </span>
+                          </div>
                           <p className="text-[9px] text-gray-400 dark:text-slate-500">
                             {agent.lastActive ? `Terakhir: ${getRelativeTime(agent.lastActive)}` : 'Belum pernah login'}
                           </p>
                         </div>
                       </div>
-                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${statusTextColors[agent.status]}`}>
-                        {statusLabels[agent.status]}
-                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${statusTextColors[agent.status]}`}>
+                          {statusLabels[agent.status]}
+                        </span>
+                        <ChevronRight size={14} className="text-gray-300 dark:text-slate-600" />
+                      </div>
                     </div>
 
                     {/* Row 2: Mini stat boxes */}
@@ -478,7 +502,7 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -568,17 +592,24 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
       )}
 
       {/* Empty state for no data */}
-      {data && !loading && !error && 
-        overview.totalLogins === 0 && 
-        overview.totalPageViews === 0 && 
-        overview.totalWAClicks === 0 && 
-        featureUsage.length === 0 && 
+      {data && !loading && !error &&
+        overview.totalLogins === 0 &&
+        overview.totalPageViews === 0 &&
+        overview.totalWAClicks === 0 &&
+        featureUsage.length === 0 &&
         actionTracking.length === 0 && (
         <div className="text-center py-8 mt-4">
           <TrendingUp size={32} className="mx-auto text-gray-300 dark:text-slate-600 mb-3" />
           <p className="text-sm font-semibold text-gray-500 dark:text-slate-400">Belum ada data analytics untuk bulan ini</p>
           <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-1">Data akan muncul saat agent mulai menggunakan app</p>
         </div>
+      )}
+
+      {drillDownSlug && (
+        <AgentDrillDownModal
+          slug={drillDownSlug}
+          onClose={() => setDrillDownSlug(null)}
+        />
       )}
     </div>
   );

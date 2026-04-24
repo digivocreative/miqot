@@ -15,7 +15,7 @@
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
-| **Database** | Supabase (PostgreSQL) — 16 tabel: `agents`, `capi_configs`, `capi_event_logs`, `jamaah`, `jamaah_haji`, `calendar_events`, `calendar_insights`, `ai_credits`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events`, `analytics_events_daily`, `umroh_schedules`, `kurs_cache` |
+| **Database** | Supabase (PostgreSQL) — 18 tabel: `agents`, `agent_slug_history`, `capi_configs`, `capi_event_logs`, `jamaah`, `jamaah_haji`, `calendar_events`, `calendar_insights`, `ai_credits`, `ask_ai_cache`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events`, `analytics_events_daily`, `umroh_schedules`, `kurs_cache` |
 | **Telegram** | Telegram Bot API — group alerts (node-cron) + per-agent DM (deep link connect, departure reminders, pembayaran masuk) |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
@@ -68,13 +68,13 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~8090 lines) — API, proxy, auth, register, sync, stats, AI insight, AI tools, flight tracking, analytics, CAPI event logs, PIN auth, SPA serve
+├── server.js              # Express backend (~10161 lines) — API, proxy, auth, register, sync, stats, AI insight, AI tools, Tanya AI (public), flight tracking, analytics (+ daily aggregation), CAPI event logs, PIN auth, landing-config, umrah register (form-scrape + OCR KTP), SPA serve
 ├── instrument.mjs         # Sentry initialization (must be imported before everything else)
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
 ├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
 ├── haji-api.js             # Haji data scraper (HTTP session + Cheerio, parallel batch sync to `jamaah_haji` table)
 ├── jamaah-api.js           # Legacy: Playwright-based jamaah scraping (deprecated, replaced by laporan-api.js)
-├── telegram-notifier.js    # Telegram alerts (~2449 lines) — seat, price, weekly, AI insights, per-agent departure reminders, pembayaran masuk
+├── telegram-notifier.js    # Telegram alerts (~2458 lines) — seat, price, weekly, AI insights, per-agent departure reminders, pembayaran masuk
 ├── deploy-webhook.js       # GitHub webhook listener (port 9000) → auto deploy
 ├── deploy.sh               # Deploy script: pull, install, build, restart systemd
 ├── Dockerfile              # Docker multi-stage build
@@ -86,19 +86,22 @@ alhijaz/
 │   ├── main.tsx            # Entry point — routing, PWA registration, page resolution
 │   ├── App.tsx             # Main SPA component — package list, filters, layout
 │   ├── index.css           # Global CSS (TailwindCSS + custom animations)
-│   ├── components/         # 43 React components
-│   │   ├── PackageCard.tsx        # Card paket umroh (komponen terbesar, ~2452 lines) — flag overlay per negara tujuan
+│   ├── components/         # 46 React components
+│   │   ├── PackageCard.tsx        # Card paket umroh (komponen terbesar, ~2450+ lines) — flag overlay, "Diskusi" button (Tanya AI), share link row
 │   │   ├── DashboardProfile.tsx   # Edit profile + photo crop + Telegram + AIW internal system + PIN management (~2334 lines)
 │   │   ├── CapiPage.tsx           # Meta Conversion API config UI + event log (~1876 lines)
+│   │   ├── UmrahRegisterPage.tsx  # Pendaftaran jamaah umroh ke sistem legacy (~1584 lines) — form-options scrape, KTP OCR (OpenAI Vision), searchable select, idb binding (family/group), preview modal, dummy-fill buttons
 │   │   ├── KalkulasiPage.tsx      # Hitung harga + generate quotation PDF (~1498 lines)
-│   │   ├── JamaahPage.tsx         # View jamaah umroh data, sync & filter (~1435 lines)
+│   │   ├── JamaahPage.tsx         # View jamaah umroh data, sync & filter + "Jamaah Baru" entry ke UmrahRegisterPage (~1435 lines)
 │   │   ├── HajiPage.tsx           # View jamaah haji data, login to legacy, sync, document viewer popup (~1171 lines)
 │   │   ├── FlightStatusCard.tsx   # Real-time flight tracking with AirLabs API, grouped kloter cards, share link (~1159 lines)
 │   │   ├── ComparePage.tsx        # Bandingkan 2 paket side-by-side (~1101 lines)
+│   │   ├── AskAIModal.tsx         # Tanya AI fullscreen modal (~1080 lines) — chip pool 24 soalan (reshuffle + pinned "brosur"), typewriter reveal, WA nudge, brosur/itinerary inline attachments, iOS Safari keyboard handling, AiAvatar (agent photo + Sparkles badge)
 │   │   ├── StatistikPage.tsx      # Dashboard statistik: ringkasan jamaah, komisi, chart tren, PIN-gated (~1070 lines)
 │   │   ├── AgentManagementPage.tsx # Admin: manage all agents CRUD + approval (~851 lines)
 │   │   ├── FlightSharePage.tsx    # Public flight share page /f/:code — hero card, map, boarding pass, weather, agent CTA (~830 lines)
-│   │   ├── DashboardLayout.tsx    # Dashboard home + navigation + tab routing (~796 lines)
+│   │   ├── DashboardLayout.tsx    # Dashboard home + navigation + tab routing (~796 lines) — AI Tools sub-page override icon/color (landing-page, voice-over, kartu-nama, haji-plus, kurs, compare)
+│   │   ├── LandingPagePage.tsx    # Landing page SEO config (~775 lines) — per-agent custom title (60 char), description (160 char), OG image (1200×630) untuk /:slug/umroh & /:slug/haji, WhatsApp preview card, DefaultOgPreview fallback
 │   │   ├── SimulasiHajiPlus.tsx   # Haji Plus simulation calculator — package pricing, USD→IDR, inflation projection, export PNG (~676 lines)
 │   │   ├── LoginPage.tsx          # Login + JWT session management (~673 lines)
 │   │   ├── AnalyticsPage.tsx      # Analytics dashboard with event tracking charts (~584 lines)
@@ -107,7 +110,7 @@ alhijaz/
 │   │   ├── RegisterPage.tsx       # Agent self-registration form — slug auto-gen, validation, pending approval workflow (~529 lines)
 │   │   ├── TrenDaftarSection.tsx   # Registration trend section for Statistik (~510 lines)
 │   │   ├── VoiceOverPage.tsx      # Voice Over Generator (3-step: script → voice → audio player) (~505 lines)
-│   │   ├── FilterHeader.tsx       # Header filter (search, sort, filter mode) (~501 lines)
+│   │   ├── FilterHeader.tsx       # Header filter (search, sort, filter mode) (~501 lines) — includes `UMROH CUTI 5 HARI` + `UMROH BINTANG 5`
 │   │   ├── QuotationDocument.tsx  # react-pdf quotation template (~498 lines)
 │   │   ├── UpcomingSchedule.tsx   # Calendar widget — mini grid with colored dots + bottom sheet detail (~470 lines)
 │   │   ├── ResetPasswordPage.tsx  # Reset password page (from email link) (~465 lines)
@@ -125,7 +128,7 @@ alhijaz/
 │   │   ├── CapiEventLog.tsx       # CAPI event log viewer — pagination, filtering, auto-refresh 30s (~194 lines)
 │   │   ├── CompactCard.tsx        # Compact card variant (~148 lines)
 │   │   ├── PhotoCropModal.tsx     # Reusable photo crop modal (react-easy-crop) (~143 lines)
-│   │   ├── AIToolsPage.tsx        # AI Tools hub page (tool cards grid) (~129 lines)
+│   │   ├── AIToolsPage.tsx        # AI Tools hub page (tool cards grid — Landing Page, Compare, Voice Over, Kurs, Haji Plus, Kartu Nama, Brosur) (~138 lines)
 │   │   ├── SettingsPage.tsx       # Unified settings: iOS segmented control (3 tabs: Profil, Telegram, CAPI) (~114 lines)
 │   │   ├── FloatingAgentBar.tsx   # Floating WhatsApp CTA bar (~107 lines)
 │   │   ├── AgentProfile.tsx       # Agent info card on package page (~85 lines)
@@ -190,6 +193,13 @@ alhijaz/
 │   ├── migrate-capi-purchase-status.js # Add capi_purchase_status to jamaah tables
 │   ├── migrate-umroh-schedules-table.js # Create umroh_schedules table
 │   ├── migrate-ai-credits.js        # Create ai_credits table
+│   ├── migrate-ask-ai-cache.js      # Create ask_ai_cache table (Tanya AI cache)
+│   ├── migrate-landing-config.js    # Add landing_config JSONB column to agents
+│   ├── migrate-analytics-daily.js   # Create analytics_events_daily aggregate table
+│   ├── backfill-analytics-daily.js  # One-shot backfill for historical analytics aggregation
+│   ├── backfill-capi-crossagent.js  # Backfill CAPI events across agents
+│   ├── backfill-capi-purchase.js    # Backfill CAPI Purchase status
+│   ├── test-cleanup-guard.mjs       # Test harness for cleanup guard logic
 │   └── check-ai-credits.js          # Debug script for AI credit status
 │
 ├── public/                 # Static assets
@@ -223,12 +233,24 @@ alhijaz/
 
 ### Fitur Public (Calon Jamaah)
 - Daftar paket umroh dengan filter (maskapai, hotel, harga, tanggal, waktu penerbangan)
+- **Filter mode spesifik**: `AVAILABLE`, `PROMO`, `LIBURAN_SEKOLAH`, `UMROH REGULER`, `UMROH MUSIM DINGIN`, `UMROH CUTI 5 HARI` (berangkat Jumat malam/Sabtu, pulang Sabtu/Minggu/Senin dini hari), `BINTANG 5` (label UI: "UMROH BINTANG 5", semua hotel bintang 5)
 - View card detail paket (harga per room type, info hotel, seat tersisa)
 - Compact view mode (toggle antara card lengkap dan card ringkas)
 - Download/share brosur (image) dan itinerary (PDF/image)
 - Agent profile card + WhatsApp CTA
-- Landing page per agent (`/:slug/umroh`) dengan OG tags untuk social sharing
-- Single package view (`/:agent/:jadwalId`) — deep link ke 1 paket tertentu
+- **Tanya AI** (`Diskusi` button pada PackageCard) — fullscreen modal asisten AI per paket:
+  - Header: back button + `AiAvatar` (foto agent + Sparkles "AI" badge overlay) + title "Asisten [FirstName]" + subtitle "AI · siap bantu jawab"
+  - Chip pool 24 pertanyaan (shuffled tiap open; "Minta brosur paket dong" pinned)
+  - 4 default chips + 4 extras under "Lihat pertanyaan lain" + follow-up pills dibawah AI bubble
+  - Typewriter word-by-word reveal (22ms/word), strip unmatched markdown saat partial state
+  - Inline **brosur** / **itinerary** attachment card (auto-trigger dari AI; lazy-load `BrochureModal` / `ItineraryModal`)
+  - **WA Nudge card** setiap 3 pesan AI + saat fallback (agent photo + soft CTA ke WhatsApp)
+  - Client-side rate limit: 8 query/session; server rate limit 10 req/60s/IP
+  - 7-day cache (hash-based, per `jadwal_id` + `agent_id` + `question_hash`)
+  - Fallback responses: "Waduh, koneksinya lagi lambat, Kak 😅 Coba chat [agent] langsung aja ya."
+  - iOS Safari keyboard handling (body-lock `position:fixed`, `visualViewport.offsetTop` tracking, auto-scroll undo)
+- Landing page per agent (`/:slug/umroh`) dengan OG tags untuk social sharing (custom title/description/OG image per agent via Landing Page config)
+- Single package view (`/:agent/:jadwalId`) — deep link ke 1 paket tertentu, OG meta injection untuk bot/crawler
 - Dark mode, PWA install, offline support
 - AI-powered caption generator (OpenAI) untuk promosi WhatsApp
 - Country flag overlays on package cards (Saudi, Turki, Mesir, China, UAE)
@@ -262,7 +284,7 @@ alhijaz/
   - **CAPI Event Log** — real-time event log viewer (pagination 20/page, filter by event type, auto-refresh 30s, status OK/Error, value in Rp format)
   - **CAPI Purchase Status** tracking — deduplication untuk Purchase events (dp/lunas status per jamaah)
 - Admin: manage all agents (CRUD + agent approval pending/active/rejected)
-- Jamaah management — 2 tab: **Umroh** (`/dashboard/jamaah/umroh`) dan **Haji** (`/dashboard/jamaah/haji`)
+- Jamaah management — 2 tab: **Umroh** (`/dashboard/jamaah/umroh`) dan **Haji** (`/dashboard/jamaah/haji`), plus sub-route `/dashboard/jamaah/daftar` untuk form pendaftaran
   - Tab Umroh: sync dari sistem internal legacy, filter, sort, pagination
     - Progressive sync: first 10 jamaah shown immediately, rest synced in background
     - Fetch range diperlebar 6 bulan sebelum awal tahun Hijriah untuk capture jamaah yang didaftarkan lebih awal
@@ -274,6 +296,19 @@ alhijaz/
       - **Sudah DP** (bayar>0, sisa>0): avatar blue clock, amount blue, card normal
       - **Lunas** (sisa≤0): avatar green checkmark, "✓ Lunas" emerald, card normal
     - Expanded detail: progress bar + bayar/sisa warna mengikuti status (emerald/blue/amber)
+    - **Defensive guard**: `filterSafeJamaahRows` — blokir ghost rows (`__name_` prefix) saat upsert ke Supabase
+  - **Jamaah Baru / Umrah Self-Registration** (`/dashboard/jamaah/daftar`, via `UmrahRegisterPage.tsx`):
+    - Scrape form HTML dari sistem internal (`GET /api/umrah/form-options`) — selects, inputs, textareas, hidden fields
+    - **KTP OCR** inline (OpenAI Vision via `POST /api/umrah/ocr-ktp`) → auto-fill NIK, nama (split first/middle/last), tgl lahir, alamat
+    - Auto-default: Jenis Daftar = "Jamaah Baru", Jenis Kelamin = Laki-laki, Pendamping = "Berangkat Sendiri", Pengalaman = "Belum Pernah", tgl_daftar = hari ini
+    - Hidden fields auto-submit: `mahram=X`, `kondisi_jamaah=X`, `keterangan=X`, `tlp_pendaftar=1111111111`
+    - **SearchableSelect** untuk options banyak (tgl berangkat, paket, marketing, koordinator) — built-in search + keyboard nav
+    - **Dependent options**: pilih tgl berangkat → fetch `GET /api/umrah/dependent-options` → load paket, marketing, koordinator terkait
+    - **`?idb=<id_umroh>` binding**: untuk family/group registration — auto-select parent's jadwal, pilih candidate jadwal yang sesuai dengan `paket` parent
+    - Section layout: Info Pendaftaran → Data Jamaah → Alamat → Paket → Info Pendaftar → **Info Otomatis** (locked fields: Jenis Daftar, Marketing, Koordinator) → Lainnya
+    - Dummy-fill buttons (emerald micro-buttons "Insert data dummy" untuk dev/testing)
+    - File upload: file_ktp preview + preview modal sebelum submit
+    - `POST /api/umrah/register` → submit ke legacy system dengan multipart form
   - Tab Haji (`HajiPage.tsx`): login ke legacy system, sync, list jamaah haji
     - Card collapsed: avatar (gender ring, lunas checkmark), nama, `{id_haji} • {paket}`, tahun masehi keberangkatan (orange bold)
     - Card expanded: detail grid (Thn Hijriyah, Jenis, Perwakilan, Marketing, Staff, Status Bayar), telp, alamat
@@ -305,7 +340,17 @@ alhijaz/
   - Auto-generate via cron setiap hari jam 06:15 WIB + setelah calendar sync pertama
   - In-memory cache + Supabase fallback
   - Bold markdown parsing (`**text**` → `<strong>`)
-- **AI Tools** — Hub page (`/dashboard/ai-tools`) untuk fitur-fitur AI:
+- **AI Tools** — Hub page (`/dashboard/ai-tools`) untuk fitur-fitur AI & tools lainnya:
+  - **Landing Page** (`/dashboard/ai-tools/landing-page`, tool pertama di hub):
+    - Segmented tab: **Umroh** (emerald accent) | **Haji** (amber accent) dengan indicator dot jika ada customization
+    - Kustomisasi per landing type: **Judul** (max 60 char + counter), **Deskripsi** (max 160 char + counter), **Gambar Pratinjau / OG Image** (1200×630 px, upload via PhotoCropModal, aspect rect)
+    - **Pratinjau WhatsApp** card real-time (72×72 thumb + alhijaz.co + title + desc)
+    - **DefaultOgPreview** synthetic fallback (gradient + agent photo + badge "JADWAL UMROH" / "HAJI PLUS RAHMAH & UHUD") jika `/og/{slug}.png` belum ada
+    - URL bar dengan Copy + Open icon
+    - Reset OG button (kembali ke `/og/{slug}.png` default) + Reset semua button
+    - Toast notifications (fadeIn 150ms, success/error)
+    - Auto-trigger OG regen (`triggerOgRegen`) + invalidate landing caches saat upload
+  - **Bandingkan Paket / Compare** (`/dashboard/ai-tools/compare`) — dipindahkan dari header publik ke AI Tools hub
   - **Voice Over Generator** (`/dashboard/ai-tools/voice-over`):
     - Step 1: Script — pilih paket (drop-down dari data-service) atau tulis manual, pilih durasi (10/20/30 detik), AI generate script via OpenAI GPT-4o-mini (bahasa santai/gaul, karakter dibatasi per durasi)
     - Step 2: Voice — pilih gender (Wanita/Pria) → pilih suara dari 8 voice Chirp3-HD (4 wanita: Dwi, Afaf, Misko, Nissa + 4 pria: Achmad, Sofyan, Rizky, Miko), 2-column grid layout
@@ -313,11 +358,20 @@ alhijaz/
     - Uses Google Cloud TTS API v1 (Chirp3-HD voices, `id-ID` language, speakingRate 1.1, headphone audio profile)
     - Credit system: 25K karakter/agent/bulan, stored in `ai_credits` table, auto-reset setiap 30 hari
     - Char limit: 1000 karakter per script
-  - **Kartu Nama Digital** (`/dashboard/ai-tools/business-card`): Generate digital business cards dengan opsi desain premium (gradient, glassmorphism) dan QR code profile.
-  - **Haji Plus** (`/dashboard/ai-tools/haji-plus`): Visualisasi data jamaah Haji Plus per tahun, grafik Recharts (multi-color bar chart), stat cards ber-icon, dan fitur export infografis PNG.
+  - **Kurs Hari Ini** (`/dashboard/ai-tools/kurs`): Cek & hitung kurs valas USD/SAR
+  - **Infografis Haji Plus** (`/dashboard/ai-tools/haji-plus`): Visualisasi data jamaah Haji Plus per tahun, grafik Recharts (multi-color bar chart), stat cards ber-icon, dan fitur export infografis PNG.
   - **Simulasi Haji Plus** (`/dashboard/ai-tools/haji-plus/simulasi`): Kalkulator harga Haji Plus — pilih paket RAHMAH ($15,700/5-star) atau UHUD ($12,500/4-star), DP $4,500/orang, pelunasan 6 bulan sebelum berangkat, proyeksi inflasi 1.5%/tahun, export PNG + share via native share.
-  - **Brosur Generator** (`/dashboard/ai-tools/brosur`): Segera hadir (disabled) untuk fitur mendatang.
+  - **Kartu Nama Digital** (`/dashboard/ai-tools/business-card`): **Disabled / "Segera Hadir"** — digital business cards dengan opsi desain premium (gradient, glassmorphism) dan QR code profile.
+  - **Brosur Generator**: **Disabled / "Segera Hadir"** — generate brosur dengan watermark agent.
 ### Fitur Infrastruktur
+- **Tanya AI (public)** — `POST /api/ask-ai/:slug/:jadwalId` (no auth, CORS-enabled):
+  - OpenAI GPT-4o-mini dengan system prompt khusus (~4KB): tone hangat (sapa "Kak"), ban filler starters ("Nih,", "Nah," "Oke,"), konsultan terminology, markdown `**bold**` / `*italic*` / `__underline__`
+  - Hard-coded product knowledge: DP Rp 5 juta, pelunasan max 30 hari, AMITRA cicilan syariah, Saudia bagasi 2×23kg (lain 30kg), Zurich Syariah asuransi, visa diurus tim, manasik 2-3 minggu sebelum
+  - Per-IP rate limit 10 req/60s (in-memory `askAiRateLimitMap`)
+  - Cache 7-hari (Supabase `ask_ai_cache` table, unique `jadwal_id` + `agent_id` + `question_hash`)
+  - Builds context dari package data (`fetchAskAiPackage`), hotel proximity, cached itinerary (`getItineraryContext`)
+  - Attachment auto-trigger: "brosur" / "itinerary" jika ada `pkg.brosur_cdn` / `pkg.itinerary_cdn`
+  - Analytics: `trackPublicEvent` (`ask_ai_opened`, `ask_ai_chip_tapped`, `ask_ai_free_query`, `ask_ai_wa_clicked`)
 - AI Copywriting (OpenAI proxy — generate caption WhatsApp)
 - Telegram Notifier (node-cron based, runs inside Express process):
   - **Group chat** (TELEGRAM_CHAT_ID): real-time alerts (seat/price), daily briefing, weekly summary, hot deals, AI insights
@@ -351,7 +405,8 @@ alhijaz/
 
 ### Tabel `agents`
 ```
-slug              TEXT PRIMARY KEY    -- "nikita", "andra", dll (lowercase)
+id                UUID PRIMARY KEY    -- migrated from slug (commit 9c614a6); canonical agent identity
+slug              TEXT UNIQUE NOT NULL -- "nikita", "andra", dll (lowercase); used in URLs/JWT
 name              TEXT NOT NULL       -- "Nikita"
 website           TEXT                -- "alhijazindonesia.com"
 phone             TEXT                -- "62822900020"
@@ -366,14 +421,24 @@ telegram_chat_id  TEXT                -- Telegram chat ID (diisi otomatis via de
 telegram_link_token TEXT              -- Token sementara untuk deep link connect
 notification_prefs JSONB              -- Per-agent notification preferences (10 toggles, default semua true)
 pin_hash          TEXT                -- bcrypt-hashed 6-digit PIN (optional, untuk gate Statistik/komisi)
+landing_config    JSONB DEFAULT '{}'  -- Per-agent landing page customization: { umroh: {title, description, og_image_url}, haji: {...} }
 status            TEXT DEFAULT 'active' -- "pending" | "active" | "rejected" (CHECK constraint)
 registered_at     TIMESTAMPTZ        -- timestamp pendaftaran (self-registration)
 -- UNIQUE INDEX on email (WHERE email IS NOT NULL AND email != '')
 ```
 
+### Tabel `agent_slug_history`
+Tracks past slugs untuk backward-compat JWT resolution setelah agent rename slug.
+```
+agent_id      UUID NOT NULL        -- FK to agents.id
+old_slug      TEXT NOT NULL        -- slug sebelum diubah
+changed_at    TIMESTAMPTZ DEFAULT NOW()
+-- Digunakan di authMiddleware: jika decoded.slug tidak ditemukan di agents, cek history → resolve ke agent_id
+```
+
 ### Tabel `capi_configs`
 ```
-slug              TEXT PRIMARY KEY    -- FK to agents.slug
+agent_id          UUID PRIMARY KEY    -- FK to agents.id (migrated from slug FK)
 pixel_id          TEXT               -- Meta Pixel ID
 access_token      TEXT               -- AES-256-GCM encrypted
 test_event_code   TEXT               -- Meta test event code
@@ -591,15 +656,21 @@ synced_at     TIMESTAMPTZ          -- terakhir sync
 ```
 
 ### Tabel `ask_ai_cache`
+Cache untuk fitur **Tanya AI** (Diskusi button pada PackageCard public).
 ```
+id              BIGSERIAL PRIMARY KEY
 jadwal_id       TEXT NOT NULL     -- ID paket jadwal
+agent_id        UUID NOT NULL     -- FK to agents.id (scope cache per agent)
 question_hash   TEXT NOT NULL     -- SHA-256 hash dari pertanyaan (lowercase, trim)
-question        TEXT NOT NULL     -- pertanyaan original user
-answer          TEXT NOT NULL     -- jawaban AI
-note            TEXT              -- WA nudge text
+question        TEXT NOT NULL     -- pertanyaan original user (<=500 char)
+answer          TEXT NOT NULL     -- jawaban AI (max 120 words, markdown styling)
+note            TEXT              -- WA nudge text (<=200 char)
+attachment_type TEXT              -- "brosur" | "itinerary" | null
 created_at      TIMESTAMPTZ DEFAULT NOW()
 -- UNIQUE(jadwal_id, question_hash)
--- TTL: 7 hari (cleanup manual via cron atau expire query-time)
+-- Index: idx_ask_ai_cache_lookup ON (jadwal_id, question_hash)
+-- Index: idx_ask_ai_cache_created ON (created_at)
+-- TTL: 7 hari (enforced at query time via `created_at >= now() - 7 days` filter)
 ```
 
 ### Data Paket Umroh (External API)
@@ -674,6 +745,30 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | GET | `/api/ai-tools/credits` | Bearer | Get credit usage (quota 25K/agent/bulan, remaining, reset info) |
 | POST | `/api/ai-tools/generate-script` | Bearer | Generate script voice over dari data paket (OpenAI GPT-4o-mini, bahasa santai) |
 | POST | `/api/ai-tools/generate-voice` | Bearer | Convert script ke audio MP3/WAV (Google Cloud TTS Chirp3-HD, credit deduction) |
+
+### Tanya AI (Public)
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| OPTIONS | `/api/ask-ai/:slug/:jadwalId` | — | CORS preflight (explicit for public embed-ability) |
+| POST | `/api/ask-ai/:slug/:jadwalId` | — | Tanya AI — OpenAI GPT-4o-mini dengan package context. Rate limit 10 req/60s/IP, 7-day cache. Body: `{ question, chipKey, yearCode }`. Response: `{ success, answer, note, cached, attachment: { type, url, title } | null }` |
+
+### Landing Page Config
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| GET | `/api/landing-config` | Bearer | Get `{ data: agent.landing_config, defaults, currentMeta }` — currentMeta = raw description from HTML untuk placeholder |
+| PUT | `/api/landing-config` | Bearer | Update title & description untuk umroh/haji (JSONB merge). Trigger OG regen + invalidate landing caches |
+| POST | `/api/landing-config/og-image` | Bearer | Upload custom OG image (JSON base64, max 6MB). Validates MIME (jpeg/png/webp), upload ke Supabase Storage `og-images` bucket, delete previous URL jika ada |
+| DELETE | `/api/landing-config/og-image` | Bearer | Reset OG image ke default (null = fallback ke `/og/{slug}.png`) |
+
+### Umrah Self-Registration
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| GET | `/api/umrah/form-options` | Bearer | Scrape form registrasi dari legacy system: selects, inputs, textareas, hidden fields, selectedValues, formAction. Query `?idb=<id_umroh>` untuk family/group binding |
+| GET | `/api/umrah/dependent-options` | Bearer | Refetch dependent dropdowns (e.g. paket per jadwal) setelah user pilih tgl berangkat |
+| GET | `/api/umrah/paket-options` | Bearer+Admin | Get all paket options untuk referensi admin |
+| POST | `/api/umrah/register` | Bearer | Submit multipart form ke legacy system + upload file_ktp. Response `{ success, message }` |
+| POST | `/api/umrah/ocr-ktp` | Bearer | OCR KTP image via OpenAI Vision → extract { nik, nama, tempat_lahir, tgl_lahir, jenis_kelamin, alamat, rt_rw, kelurahan, kecamatan, agama, status_perkawinan, pekerjaan, kewarganegaraan } |
+| GET | `/api/umrah/form-debug` | Bearer | Debug dump raw HTML form structure dari legacy system |
 
 ### Flight Status
 | Method | Path | Auth | Deskripsi |
@@ -794,7 +889,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 ## 9. Status & Roadmap
 
 - **Fase**: Production (live di alhijaz.co)
-- **Versi**: 0.2.2
+- **Versi**: 0.2.2+ (active development; major milestones: Tanya AI public, Landing Page config, Umrah self-register, agents UUID migration)
 
 ### Yang Sudah Selesai
 - Core SPA (paket list, filters, dark mode, PWA, compact view)
@@ -869,6 +964,15 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Kurs cache table (kurs_cache — Bank Mandiri rates, daily update)
 - Telegram notifier concurrency protection (isCheckRunning flag)
 - BrochureModal enhanced (CDN URL detection, pinch-to-zoom for touch devices)
+- **Agents PK migrated from slug to UUID id** (commit 9c614a6) — slug kini `UNIQUE NOT NULL`, bukan PK. FK di `capi_configs`, `jamaah`, `analytics_events_daily`, `capi_event_logs`, `ask_ai_cache` semuanya migrated ke `agent_id` UUID. `agent_slug_history` table menjaga JWT backward-compat (token lama pakai slug → resolve via history jika slug berubah)
+- **Tanya AI fitur publik** (Diskusi button di PackageCard) — OpenAI GPT-4o-mini dengan system prompt hangat, chip pool 24 soalan (reshuffle + pinned), typewriter reveal, inline brosur/itinerary attachments, WA nudge, markdown rendering, iOS Safari keyboard fix
+- **Landing Page Config tool** (`/dashboard/ai-tools/landing-page`) — per-agent custom title/description/OG image untuk `/:slug/umroh` dan `/:slug/haji` landing pages. Segmented tab Umroh (emerald) / Haji (amber), WhatsApp preview real-time
+- **Umrah self-registration** (`/dashboard/jamaah/daftar` via UmrahRegisterPage) — scrape legacy form, KTP OCR via OpenAI Vision, searchable select, dependent dropdowns, `?idb=` family/group binding, auto-defaults (Jamaah Baru, L, Berangkat Sendiri, Belum Pernah, hidden mahram/kondisi/keterangan=X)
+- **Filter baru `UMROH CUTI 5 HARI`** — berangkat Jumat malam/Sabtu, pulang Sabtu/Minggu/Senin dini hari; plus rename label `BINTANG 5` → UI label "UMROH BINTANG 5"
+- **Analytics daily aggregation** — `analytics_events_daily` table + cron 02:00 WIB (`runAnalyticsMaintenance`): aggregate yesterday's raw events ke agregat harian, delete raw events > 30 hari (UTC midnight cutoff), backfill script tersedia
+- **PackageCard button revamp** — Diskusi (Tanya AI) di row 1 dengan animated emerald ring border (`.diskusi-ai-border` conic gradient + mask-composite), Link dipindahkan ke row 2
+- Public analytics events diperluas: `ask_ai_opened`, `ask_ai_chip_tapped`, `ask_ai_free_query`, `ask_ai_wa_clicked` (plus existing `page_view`, `wa_click_public`, `quiz_started`, `quiz_completed`, `inquiry_submitted`)
+- Tanya AI hardcoded product knowledge (di system prompt): DP Rp 5jt, pelunasan 30 hari, AMITRA syariah, Saudia 2×23kg (lain 30kg), Zurich Syariah asuransi, visa diurus tim Alhijaz, manasik 2-3 minggu sebelum, Wi-Fi hotel (redirect SSID/password ke tour leader)
 
 ### Rencana / Backlog
 - [TODO] Testing suite
@@ -893,20 +997,29 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 | **node-cron in-process** | Tidak perlu external cron/scheduler — cron jobs jalan di dalam Express process yang sama |
 | **Single-kantor sync** | Fetch hanya dari kantor agent yang terdaftar (jamaah_kantor), tidak fetch kantor lain |
 | **Widened fetch range** | `HIJRIAH_YEARS.tglAwal` dimundurkan 6 bulan dari awal tahun Hijriah untuk capture jamaah yang didaftarkan lebih awal tapi berangkat di tahun Hijriah tersebut. `HIJRIAH_RANGES` (penentuan hijriah_year berdasarkan tgl_berangkat) tetap akurat |
+| **Agents PK = UUID, slug = UNIQUE** | Slug bisa berubah (agent rename), dan kita butuh stable FK untuk `jamaah`, `capi_configs`, `analytics_events_daily`, `ask_ai_cache`. `agent_slug_history` jadi lookup table untuk JWT backward-compat. |
+| **Tanya AI public, no auth** | Agar dapat dipanggil langsung dari SPA publik (calon jamaah belum login). Dilindungi rate limit per IP + client-side query limit per session + cache 7-hari. |
+| **Tanya AI product knowledge di system prompt** | Fakta standar Alhijaz (DP 5jt, AMITRA, Zurich, visa diurus) dihardcode di prompt, bukan di context data — supaya AI selalu konsisten meski data paket tidak punya field ini. Setiap perubahan fakta produk = update system prompt di `server.js`. |
+| **UmrahRegisterPage scrape HTML** | Sistem internal legacy tidak punya API. Kita scrape form options + submit multipart, plus OCR KTP via OpenAI Vision untuk auto-fill. Rawan breakage kalau legacy form berubah. |
+| **Landing config OG image 1200×630** | Standard OG size untuk Facebook/WhatsApp preview. Crop enforced via `PhotoCropModal` aspect=`1200/630`, output langsung ke ukuran tersebut (bukan resize post-upload). |
 
 ### Known Issues / Technical Debt
-- **PackageCard.tsx terlalu besar** (~2452 baris) — perlu di-split ke sub-components
+- **PackageCard.tsx terlalu besar** (~2450+ baris) — perlu di-split ke sub-components
 - **DashboardProfile.tsx terlalu besar** (~2334 baris) — profile + telegram + PIN management, bisa di-split
 - **CapiPage.tsx terlalu besar** (~1876 baris) — bisa di-modularisasi
-- **server.js monolith** (~8090 baris) — perlu di-split ke route modules
+- **server.js monolith** (~10161 baris) — perlu di-split ke route modules (ask-ai, landing-config, umrah-register bisa jadi kandidat pertama)
+- **UmrahRegisterPage.tsx sangat besar** (~1584 baris) — form config + OCR + SearchableSelect + preview modal bisa dipecah
+- **AskAIModal.tsx besar** (~1080 baris) — bisa di-split ke sub-komponen (header, chat area, input, attachment card)
 - **Tidak ada test suite** — risiko regresi saat refactor
 - **No error boundary** — React errors bisa crash seluruh app
 - **modern-screenshot alignment** — Export image (ComparePage, Haji Plus Export) rawan mengalami vertical overlap jika grid dicampur dengan flexbox; gunakan block layout standar untuk export elements.
 - **CAPI endpoints tidak pakai auth** — hanya dilindungi oleh agent slug (not secret)
-- **telegram-notifier.js besar** (~2449 baris) — bisa di-modularisasi
+- **telegram-notifier.js besar** (~2458 baris) — bisa di-modularisasi
 - **jamaah-api.js masih ada** — file Playwright-based yang deprecated, bisa dihapus
 - **AirLabs API quota** — 1000 calls/bulan di free tier, tracked di `flight_status` table
 - **Flight share `flight_status` column** — harus di-add manual via SQL jika belum ada
+- **Umrah register legacy form fragile** — HTML scrape dari sistem internal; perubahan form di legacy = breakage
+- **Tanya AI cost budget** — setiap query un-cached = 1 call OpenAI GPT-4o-mini; cache 7-hari membantu, tapi viral traffic dari share link bisa spike biaya
 
 ### Do's and Don'ts
 - ✅ **DO**: Selalu tambahkan `onError` fallback untuk semua `<img>` tag agent photo
@@ -920,3 +1033,11 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - ✅ **DO**: Selalu panggil `clearSession()` sebelum menyimpan sesi baru di login flow — cegah data leak
 - ❌ **DON'T**: Jangan cek JWT expiry di client-side — biarkan server yang handle validasi token
 - ❌ **DON'T**: Jangan clear session saat `/api/auth/me` gagal (bisa karena network error) — cegah auto-logout
+- ✅ **DO**: Gunakan `agent.id` (UUID) sebagai FK di tabel baru — bukan `agent.slug`. Slug bisa berubah (tracked di `agent_slug_history`)
+- ✅ **DO**: `authMiddleware` otomatis resolve legacy token (slug-only → id via `agent_slug_history` jika slug sudah berubah). `req.user` selalu punya `{ id, slug, name, role }` setelah middleware.
+- ✅ **DO**: Saat bikin form SPA-side yang submit ke `/api/umrah/register`, gunakan `SearchableSelect` untuk dropdown >8 options — native select sulit discroll di mobile
+- ✅ **DO**: Saat upload OG image lewat `/api/landing-config/og-image`, send JSON base64 (bukan multipart) — endpoint expect `{ landing_type, mime, data }`
+- ❌ **DON'T**: Jangan hardcode OG path `/og/{slug}.png` langsung — selalu cek `agent.landing_config?.[type]?.og_image_url` dulu, fallback ke `/og/{slug}.png` jika null
+- ❌ **DON'T**: Jangan skip `triggerOgRegen(slug)` setelah update profile (nama/foto) — OG image per agent di-regenerate from fresh agent data
+- ❌ **DON'T**: Jangan kirim `text`, `title`, atau `url` bersama `files` saat `navigator.share()` — trigger "double image" bug di WhatsApp mobile (lihat Design System section "Native Share Format")
+- ❌ **DON'T**: Jangan ubah fakta produk Alhijaz (DP, pelunasan, AMITRA, visa, asuransi Zurich, bagasi per maskapai, manasik timing) tanpa update system prompt di endpoint `POST /api/ask-ai/:slug/:jadwalId` — itu hardcoded sebagai rule di prompt

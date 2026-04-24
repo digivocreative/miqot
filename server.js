@@ -85,8 +85,6 @@ async function logAnalyticsEvent(agentId, eventType, eventName, metadata = {}) {
   }
 }
 
-// ── Quiz Lead Submit (public — no auth) ──
-
 // ============ KURS BANK MANDIRI ============
 let kursCache = null; // { rates: { USD: number, ... }, updatedAt: string, fetchedAt: number }
 const KURS_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
@@ -2744,13 +2742,13 @@ app.put('/api/admin/agents/:slug/approve', authMiddleware, adminOnly, async (req
   res.json({ success: true });
 });
 
-// Reject pending agent (admin only)
+// Reject pending agent (admin only) — deletes the row so data isn't retained
 app.put('/api/admin/agents/:slug/reject', authMiddleware, adminOnly, async (req, res) => {
   const targetAgent = await getAgentBySlug(req.params.slug.toLowerCase());
   if (!targetAgent) return res.status(404).json({ error: 'Agent not found' });
   const { data, error } = await supabase
     .from('agents')
-    .update({ status: 'rejected' })
+    .delete()
     .eq('id', targetAgent.id)
     .eq('status', 'pending')
     .select('slug')
@@ -5527,14 +5525,11 @@ async function handleTelegramCallbackQuery(cbq) {
     return;
   }
 
-  const newStatus = action === 'approve' ? 'active' : 'rejected';
-  const { data: updated, error: updateErr } = await supabase
-    .from('agents')
-    .update({ status: newStatus })
-    .eq('id', target.id)
-    .eq('status', 'pending')
-    .select('slug')
-    .single();
+  // Approve → update to active; reject → delete row so data isn't retained.
+  const query = action === 'approve'
+    ? supabase.from('agents').update({ status: 'active' }).eq('id', target.id).eq('status', 'pending').select('slug').single()
+    : supabase.from('agents').delete().eq('id', target.id).eq('status', 'pending').select('slug').single();
+  const { data: updated, error: updateErr } = await query;
 
   if (updateErr || !updated) {
     await answerTelegramCallbackQuery(cbqId, 'Sudah diproses admin lain.');
@@ -7449,7 +7444,45 @@ app.get('/api/haji/doc-proxy', authMiddleware, async (req, res) => {
 // Analytics API
 // ──────────────────────────────────────────────
 const VALID_EVENT_TYPES = ['login', 'feature', 'action', 'public'];
-const VALID_PUBLIC_EVENTS = ['page_view', 'wa_click_public', 'quiz_started', 'quiz_completed', 'inquiry_submitted', 'ask_ai_opened', 'ask_ai_chip_tapped', 'ask_ai_free_query', 'ask_ai_wa_clicked'];
+const VALID_PUBLIC_EVENTS = ['page_view', 'wa_click_public', 'inquiry_submitted', 'ask_ai_opened', 'ask_ai_chip_tapped', 'ask_ai_free_query', 'ask_ai_wa_clicked'];
+
+// Shared label dictionaries (used by /summary + /agent/:slug drill-down)
+const FEATURE_LABELS = {
+  open_jamaah: 'Jamaah', open_statistik: 'Statistik', open_kalkulasi: 'Kalkulasi',
+  open_compare: 'Compare', open_capi: 'Meta CAPI', open_profil: 'Profil',
+  open_jadwal: 'Jadwal', open_analytics: 'Analytics',
+  open_ai_tools: 'AI Tools', open_voice_over: 'Voice Over', open_business_card: 'Kartu Nama',
+  open_haji_plus: 'Haji Plus', open_jamaah_haji: 'Jamaah Haji',
+  open_settings: 'Settings', open_tren_daftar: 'Tren Daftar',
+  open_kurs: 'Kurs',
+};
+const ACTION_LABELS = {
+  sync_jamaah: 'Sync Jamaah', generate_pdf: 'Generate PDF Quotation',
+  share_screenshot: 'Share Screenshot', download_brosur: 'Download Brosur',
+  download_itinerary: 'Download Itinerary', wa_click_jamaah: 'WA Click Jamaah',
+  save_capi_config: 'Simpan Config CAPI', update_profil: 'Update Profil',
+  change_password: 'Ganti Password',
+  generate_script: 'Generate Script VO', generate_voice: 'Generate Voice VO',
+  download_mp3: 'Download MP3', download_wav: 'Download WAV',
+  generate_business_card: 'Generate Kartu Nama', download_business_card: 'Download Kartu Nama',
+  export_haji_infographic: 'Export Infografis Haji',
+  update_lead_status: 'Update Status Lead', delete_lead: 'Hapus Lead', wa_click_lead: 'WA Lead',
+  sync_jamaah_haji: 'Sync Jamaah Haji', view_bpih_doc: 'Lihat BPIH',
+  view_pernyataan_doc: 'Lihat Srt Pernyataan', wa_click_haji: 'WA Jamaah Haji',
+  connect_telegram: 'Hubungkan Telegram', disconnect_telegram: 'Putuskan Telegram',
+  update_notif_prefs: 'Update Notif Prefs',
+  forgot_password: 'Lupa Password', reset_password: 'Reset Password',
+  view_web_itinerary: 'Web Itinerary', view_flight_status: 'Flight Status',
+  share_flight: 'Share Flight Status',
+};
+const ALL_EVENT_LABELS = {
+  ...FEATURE_LABELS, ...ACTION_LABELS,
+  login: 'Login', login_failed: 'Login Gagal',
+  inquiry_submitted: 'Inquiry Masuk',
+  page_view: 'Page View', wa_click_public: 'WA Click Public',
+  ask_ai_opened: 'Ask AI Dibuka', ask_ai_chip_tapped: 'Ask AI Chip',
+  ask_ai_free_query: 'Ask AI Query', ask_ai_wa_clicked: 'Ask AI WA',
+};
 const publicEventRateLimits = new Map(); // ip → { count, resetAt }
 
 app.options('/api/analytics/:path', (req, res) => {
@@ -7598,59 +7631,65 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
         lastActive, logins, featureClicks, pageViews, waClicks, status,
       };
     });
-    // Sort: active first, then by logins DESC
-    const statusOrder = { active: 0, inactive: 1, dormant: 2, never: 3 };
-    agentActivity.sort((a, b) => (statusOrder[a.status] - statusOrder[b.status]) || (b.logins - a.logins));
+    // Sort: most recent activity first. Agents with no activity at all go to the end.
+    agentActivity.sort((a, b) => {
+      if (!a.lastActive && !b.lastActive) return 0;
+      if (!a.lastActive) return 1;
+      if (!b.lastActive) return -1;
+      return b.lastActive.localeCompare(a.lastActive);
+    });
 
     // Feature Usage — merge raw + agg via tallyBy
-    const featureLabels = {
-      open_jamaah: 'Jamaah', open_statistik: 'Statistik', open_kalkulasi: 'Kalkulasi',
-      open_compare: 'Compare', open_capi: 'Meta CAPI', open_profil: 'Profil',
-      open_jadwal: 'Jadwal', open_analytics: 'Analytics',
-      open_ai_tools: 'AI Tools', open_voice_over: 'Voice Over', open_business_card: 'Kartu Nama',
-      open_haji_plus: 'Haji Plus', open_jamaah_haji: 'Jamaah Haji',
-      open_settings: 'Settings', open_tren_daftar: 'Tren Daftar',
-      open_kurs: 'Kurs',
-    };
     const featureMap = tallyBy(rawEvents, aggEvents, e => e.event_name, e => e.event_type === 'feature');
     const featureUsage = Object.entries(featureMap)
-      .map(([feature, count]) => ({ feature, label: featureLabels[feature] || feature, count }))
+      .map(([feature, count]) => ({ feature, label: FEATURE_LABELS[feature] || feature, count }))
       .sort((a, b) => b.count - a.count);
 
     // Action Tracking — merge raw + agg via tallyBy
-    const actionLabels = {
-      sync_jamaah: 'Sync Jamaah', generate_pdf: 'Generate PDF Quotation',
-      share_screenshot: 'Share Screenshot', download_brosur: 'Download Brosur',
-      download_itinerary: 'Download Itinerary', wa_click_jamaah: 'WA Click Jamaah',
-      save_capi_config: 'Simpan Config CAPI', update_profil: 'Update Profil',
-      change_password: 'Ganti Password',
-      generate_script: 'Generate Script VO', generate_voice: 'Generate Voice VO',
-      download_mp3: 'Download MP3', download_wav: 'Download WAV',
-      generate_business_card: 'Generate Kartu Nama', download_business_card: 'Download Kartu Nama',
-      export_haji_infographic: 'Export Infografis Haji',
-      update_lead_status: 'Update Status Lead', delete_lead: 'Hapus Lead', wa_click_lead: 'WA Lead',
-      sync_jamaah_haji: 'Sync Jamaah Haji', view_bpih_doc: 'Lihat BPIH',
-      view_pernyataan_doc: 'Lihat Srt Pernyataan', wa_click_haji: 'WA Jamaah Haji',
-      connect_telegram: 'Hubungkan Telegram', disconnect_telegram: 'Putuskan Telegram',
-      update_notif_prefs: 'Update Notif Prefs',
-      forgot_password: 'Lupa Password', reset_password: 'Reset Password',
-      view_web_itinerary: 'Web Itinerary', view_flight_status: 'Flight Status',
-      share_flight: 'Share Flight Status',
-    };
     const actionMap = tallyBy(rawEvents, aggEvents, e => e.event_name, e => e.event_type === 'action');
     const actionTracking = Object.entries(actionMap)
-      .map(([action, count]) => ({ action, label: actionLabels[action] || action, count }))
+      .map(([action, count]) => ({ action, label: ACTION_LABELS[action] || action, count }))
       .sort((a, b) => b.count - a.count);
+
+    // Health badge — always based on last 7 days from TODAY (independent of selected month).
+    // Fetches a separate 7d window so past-month views still show current health.
+    const sevenDaysAgoISO = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: last7dEvents } = await supabase
+      .from('analytics_events')
+      .select('agent_id, event_type, event_name, created_at')
+      .gte('created_at', sevenDaysAgoISO);
+    const last7dByAgent = new Map();
+    for (const e of (last7dEvents || [])) {
+      if (!e.agent_id) continue;
+      const arr = last7dByAgent.get(e.agent_id);
+      if (arr) arr.push(e); else last7dByAgent.set(e.agent_id, [e]);
+    }
+    const healthByAgent = new Map();
+    for (const agent of agentList) {
+      const events = last7dByAgent.get(agent.id) || [];
+      if (events.length === 0) { healthByAgent.set(agent.id, 'dormant'); continue; }
+      const days = new Set();
+      const features = new Set();
+      for (const e of events) {
+        days.add(e.created_at.slice(0, 10));
+        if (e.event_type === 'feature') features.add(e.event_name);
+      }
+      let h;
+      if (days.size >= 4 && features.size >= 3) h = 'excellent';
+      else if (days.size >= 2 && features.size >= 1) h = 'good';
+      else h = 'fair';
+      healthByAgent.set(agent.id, h);
+    }
+    for (const a of agentActivity) {
+      // Lookup by agent.id via the agentList mapping (agentActivity has slug, not id)
+      const id = agentList.find(g => g.slug === a.slug)?.id;
+      a.health = id ? (healthByAgent.get(id) || 'dormant') : 'dormant';
+    }
 
     // Recent Activity (today, exclude page_view, max 10). Today is always in raw.
     const todayStr = now.toISOString().slice(0, 10);
     const agentNameMap = Object.fromEntries(agentList.map(a => [a.id, a.name]));
     const agentSlugMap = Object.fromEntries(agentList.map(a => [a.id, a.slug]));
-    const allLabels = {
-      ...featureLabels, ...actionLabels, login: 'Login', login_failed: 'Login Gagal',
-      quiz_started: 'Quiz Dimulai', quiz_completed: 'Quiz Selesai', inquiry_submitted: 'Inquiry Masuk',
-      page_view: 'Page View', wa_click_public: 'WA Click Public',
-    };
     const recentActivity = rawEvents
       .filter(e => e.agent_id && e.created_at.slice(0, 10) === todayStr && e.event_name !== 'page_view')
       .slice(0, 10)
@@ -7658,7 +7697,7 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
         agentSlug: agentSlugMap[e.agent_id] || e.agent_id,
         agentName: agentNameMap[e.agent_id] || e.agent_id,
         eventName: e.event_name,
-        label: allLabels[e.event_name] || e.event_name,
+        label: ALL_EVENT_LABELS[e.event_name] || e.event_name,
         createdAt: e.created_at,
       }));
 
@@ -7680,6 +7719,116 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
   } catch (err) {
     console.error('[Analytics] Summary error:', err);
     res.status(500).json({ error: 'Failed to load analytics' });
+  }
+});
+
+// Per-agent drill-down (admin only). Last 7 days. Raw events only — 7d ⊂ 14d retention.
+app.get('/api/analytics/agent/:slug', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const slug = req.params.slug.toLowerCase();
+    const agent = await getAgentBySlug(slug);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const now = Date.now();
+    const startISO = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: events, error } = await supabase
+      .from('analytics_events')
+      .select('event_type, event_name, metadata, created_at')
+      .eq('agent_id', agent.id)
+      .gte('created_at', startISO)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    const evList = events || [];
+
+    // Jakarta (UTC+7, no DST) for user-facing day/hour labels
+    const TZ_SHIFT = 7 * 60 * 60 * 1000;
+    const toJakarta = (utcISO) => new Date(new Date(utcISO).getTime() + TZ_SHIFT);
+    const DAY_NAMES = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+
+    // Build 7-day timeline + heatmap. Day keyed by Jakarta date.
+    const jakartaNow = new Date(now + TZ_SHIFT);
+    const todayJakartaMid = new Date(Date.UTC(jakartaNow.getUTCFullYear(), jakartaNow.getUTCMonth(), jakartaNow.getUTCDate()));
+    const timeline = [];
+    const heatmap = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(todayJakartaMid.getTime() - i * 24 * 60 * 60 * 1000);
+      const dateStr = d.toISOString().slice(0, 10);
+      const dayLabel = DAY_NAMES[d.getUTCDay()];
+      const dayEvents = evList.filter(e => toJakarta(e.created_at).toISOString().slice(0, 10) === dateStr);
+      timeline.push({
+        date: dateStr, day: dayLabel,
+        total: dayEvents.length,
+        logins: dayEvents.filter(e => e.event_name === 'login').length,
+        features: dayEvents.filter(e => e.event_type === 'feature').length,
+        actions: dayEvents.filter(e => e.event_type === 'action').length,
+        publicEvents: dayEvents.filter(e => e.event_type === 'public').length,
+      });
+      const hourCounts = new Array(24).fill(0);
+      for (const e of dayEvents) hourCounts[toJakarta(e.created_at).getUTCHours()]++;
+      heatmap.push({ date: dateStr, day: dayLabel, hourCounts });
+    }
+
+    // Summary counts over full 7d window
+    const summary = {
+      totalEvents: evList.length,
+      logins: evList.filter(e => e.event_name === 'login').length,
+      featureClicks: evList.filter(e => e.event_type === 'feature').length,
+      actionClicks: evList.filter(e => e.event_type === 'action').length,
+      pageViews: evList.filter(e => e.event_name === 'page_view').length,
+      waClicks: evList.filter(e => e.event_name === 'wa_click_public' || e.event_name === 'wa_click_jamaah').length,
+      activeDays: new Set(evList.map(e => toJakarta(e.created_at).toISOString().slice(0, 10))).size,
+      uniqueFeatures: new Set(evList.filter(e => e.event_type === 'feature').map(e => e.event_name)).size,
+    };
+
+    // Feature/action breakdowns with labels
+    const tally = (predicate) => {
+      const m = {};
+      for (const e of evList) if (predicate(e)) m[e.event_name] = (m[e.event_name] || 0) + 1;
+      return m;
+    };
+    const featureBreakdown = Object.entries(tally(e => e.event_type === 'feature'))
+      .map(([name, count]) => ({ name, label: FEATURE_LABELS[name] || name, count }))
+      .sort((a, b) => b.count - a.count);
+    const actionBreakdown = Object.entries(tally(e => e.event_type === 'action'))
+      .map(([name, count]) => ({ name, label: ACTION_LABELS[name] || name, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // Funnel: public traffic → engagement → conversion
+    const sevenDaysAgoDate = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const { count: newJamaahCount } = await supabase
+      .from('jamaah')
+      .select('*', { count: 'exact', head: true })
+      .eq('agent_id', agent.id)
+      .gte('tgl_daftar', sevenDaysAgoDate);
+    const funnel = {
+      pageViews: summary.pageViews,
+      inquirySubmitted: evList.filter(e => e.event_name === 'inquiry_submitted').length,
+      waClickPublic: evList.filter(e => e.event_name === 'wa_click_public').length,
+      newJamaah: newJamaahCount || 0,
+    };
+
+    // Recent events (newest 30, exclude page_view to surface meaningful actions)
+    const recentEvents = evList
+      .filter(e => e.event_name !== 'page_view')
+      .slice(0, 30)
+      .map(e => ({
+        eventType: e.event_type,
+        eventName: e.event_name,
+        label: ALL_EVENT_LABELS[e.event_name] || e.event_name,
+        createdAt: e.created_at,
+      }));
+
+    res.json({
+      success: true,
+      data: {
+        agent: { slug: agent.slug, name: agent.name, photo: agent.photo },
+        summary, timeline, heatmap, featureBreakdown, actionBreakdown, funnel, recentEvents,
+      },
+    });
+  } catch (err) {
+    console.error('[Analytics] Agent drill-down error:', err);
+    res.status(500).json({ error: 'Failed to load agent analytics' });
   }
 });
 
