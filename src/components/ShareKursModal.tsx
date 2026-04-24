@@ -173,14 +173,9 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
 
   return (
     <div
-      onClick={startClose}
-      className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center ${closing ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
-      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+      className={`fixed inset-0 z-50 bg-white dark:bg-slate-900 flex flex-col overflow-y-auto ${closing ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
     >
-      <div
-        onClick={e => e.stopPropagation()}
-        className={`w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[95vh] overflow-y-auto ${closing ? 'dc-card-exit' : 'dc-card-enter'}`}
-      >
+      <div className="w-full max-w-md mx-auto flex flex-col flex-1">
         {/* Header */}
         <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-slate-700">
           <button onClick={startClose} className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-slate-800 active:scale-95 transition">
