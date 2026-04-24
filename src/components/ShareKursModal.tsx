@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { X, Download, Share2, Copy } from 'lucide-react';
 import {
   KURS_TEMPLATES,
@@ -26,17 +28,7 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
   const [selectedId, setSelectedId] = useState<KursTemplateId>('minimalist');
   const [isExporting, setIsExporting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [closing, setClosing] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
-
-  const startClose = () => {
-    if (closing) return;
-    setClosing(true);
-    setTimeout(() => {
-      setClosing(false);
-      onClose();
-    }, 200);
-  };
 
   const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
@@ -46,7 +38,6 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
 
   useEffect(() => {
     if (!open) return;
-    // Prime font loading untuk semua template
     const fonts = ['DM Serif Display', 'Amiri'];
     fonts.forEach(f => {
       try { document.fonts?.load(`16px "${f}"`); } catch {}
@@ -56,12 +47,11 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') startClose();
+      if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -118,7 +108,6 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
         await navigator.share({ files: [file] });
         trackEvent('action', 'share_kurs', { template: selectedId });
       } else {
-        // Fallback — trigger download
         await result.download({ type: 'png', filename: `kurs-${selectedId}-${yyyymmdd()}` });
         showToast('Share tidak didukung, gambar diunduh');
       }
@@ -151,7 +140,6 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(caption);
       } else {
-        // Legacy fallback
         const ta = document.createElement('textarea');
         ta.value = caption;
         ta.style.position = 'fixed';
@@ -169,97 +157,112 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
     }
   };
 
-  if (!open) return null;
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
+          initial={{ opacity: 0, y: '100%' }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: '100%' }}
+          transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+        >
+          {/* ─── STICKY HEADER ─── */}
+          <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white truncate pr-4">
+              Bagikan Kurs
+            </h2>
+            <button
+              onClick={onClose}
+              aria-label="Tutup"
+              className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
 
-  return (
-    <div
-      className={`fixed inset-0 z-50 bg-white dark:bg-slate-900 flex flex-col overflow-y-auto ${closing ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
-    >
-      <div className="w-full max-w-md mx-auto flex flex-col flex-1">
-        {/* Header */}
-        <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-slate-700">
-          <button onClick={startClose} className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-slate-800 active:scale-95 transition">
-            <X size={20} className="text-gray-700 dark:text-slate-300" />
-          </button>
-          <div className="text-sm font-bold text-gray-800 dark:text-white">Bagikan Kurs</div>
-          <div className="w-9" />
-        </div>
+          {/* ─── SCROLLABLE CONTENT ─── */}
+          <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 px-5 py-5">
+            <div className="max-w-md mx-auto space-y-5">
+              {/* Preview card */}
+              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4 flex justify-center">
+                <div style={{ width: PREVIEW_WIDTH, height: PREVIEW_WIDTH, position: 'relative', borderRadius: 16, overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
+                  <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: 'top left', position: 'absolute', top: 0, left: 0 }}>
+                    <div ref={exportRef}>
+                      <Renderer {...templateProps} />
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-        {/* Preview */}
-        <div className="px-5 pt-5 pb-4 flex justify-center">
-          <div style={{ width: PREVIEW_WIDTH, height: PREVIEW_WIDTH, position: 'relative', borderRadius: 16, overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
-            {/* Scaler wrapper — apply transform only for visuals */}
-            <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: 'top left', position: 'absolute', top: 0, left: 0 }}>
-              {/* exportRef on unscaled 1080×1080 element so snapdom captures full size */}
-              <div ref={exportRef}>
-                <Renderer {...templateProps} />
+              {/* Thumbnail picker card */}
+              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-3">Pilih Desain</div>
+                <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+                  {KURS_TEMPLATES.map(t => {
+                    const T = t.Renderer;
+                    const active = t.id === selectedId;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => setSelectedId(t.id)}
+                        className={`flex-shrink-0 rounded-xl overflow-hidden transition-all active:scale-95 ${active ? 'ring-2 ring-emerald-500' : 'ring-1 ring-gray-200 dark:ring-slate-700'}`}
+                        style={{ width: THUMB_WIDTH, height: THUMB_WIDTH, position: 'relative' }}
+                        aria-label={t.name}
+                      >
+                        <div style={{ transform: `scale(${THUMB_SCALE})`, transformOrigin: 'top left', position: 'absolute', top: 0, left: 0 }}>
+                          <T {...templateProps} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Thumbnail picker */}
-        <div className="px-5 pb-4">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-2">Pilih Desain</div>
-          <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
-            {KURS_TEMPLATES.map(t => {
-              const T = t.Renderer;
-              const active = t.id === selectedId;
-              return (
+          {/* ─── STICKY FOOTER ─── */}
+          <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            <div className="max-w-md mx-auto space-y-2">
+              <div className={`grid ${canShare ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
                 <button
-                  key={t.id}
-                  onClick={() => setSelectedId(t.id)}
-                  className={`flex-shrink-0 rounded-xl overflow-hidden transition-all active:scale-95 ${active ? 'ring-2 ring-emerald-500' : 'ring-1 ring-gray-200 dark:ring-slate-700'}`}
-                  style={{ width: THUMB_WIDTH, height: THUMB_WIDTH, position: 'relative' }}
-                  aria-label={t.name}
+                  onClick={handleDownload}
+                  disabled={isExporting}
+                  className="flex items-center justify-center gap-2 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-bold shadow-lg shadow-emerald-500/20 active:scale-95 transition"
                 >
-                  <div style={{ transform: `scale(${THUMB_SCALE})`, transformOrigin: 'top left', position: 'absolute', top: 0, left: 0 }}>
-                    <T {...templateProps} />
-                  </div>
+                  <Download size={16} strokeWidth={2.5} />
+                  {isExporting ? 'Menyimpan...' : 'Download'}
                 </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="px-5 pb-6 space-y-2">
-          <div className={`grid ${canShare ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
-            <button
-              onClick={handleDownload}
-              disabled={isExporting}
-              className="flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white text-sm font-bold shadow-md shadow-emerald-500/20 active:scale-95 transition"
-            >
-              <Download size={16} strokeWidth={2.5} />
-              {isExporting ? 'Menyimpan...' : 'Download'}
-            </button>
-            {canShare && (
+                {canShare && (
+                  <button
+                    onClick={handleShare}
+                    disabled={isExporting}
+                    className="flex items-center justify-center gap-2 py-3.5 rounded-xl border border-emerald-500 text-emerald-600 dark:text-emerald-400 text-sm font-bold hover:bg-emerald-50 dark:hover:bg-emerald-900/20 disabled:opacity-50 active:scale-95 transition"
+                  >
+                    <Share2 size={16} strokeWidth={2.5} />
+                    Bagikan
+                  </button>
+                )}
+              </div>
               <button
-                onClick={handleShare}
-                disabled={isExporting}
-                className="flex items-center justify-center gap-2 py-3 rounded-xl border border-emerald-500 text-emerald-600 dark:text-emerald-400 text-sm font-bold hover:bg-emerald-50 dark:hover:bg-emerald-900/20 disabled:opacity-50 active:scale-95 transition"
+                onClick={handleCopyCaption}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-slate-800 active:scale-95 transition"
               >
-                <Share2 size={16} strokeWidth={2.5} />
-                Bagikan
+                <Copy size={16} strokeWidth={2.5} />
+                Salin Caption
               </button>
-            )}
+            </div>
           </div>
-          <button
-            onClick={handleCopyCaption}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-slate-800 active:scale-95 transition"
-          >
-            <Copy size={16} strokeWidth={2.5} />
-            Salin Caption
-          </button>
-        </div>
 
-        {/* Toast */}
-        {toast && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-xl">
-            {toast}
-          </div>
-        )}
-      </div>
-    </div>
+          {/* Toast */}
+          {toast && (
+            <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[10000] bg-gray-900 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-xl">
+              {toast}
+            </div>
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body
   );
 }
