@@ -777,7 +777,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  {kursData.sar != null && (
+                  {isAdmin && kursData.sar != null && (
                     <button
                       onClick={() => setShowShareKurs(true)}
                       aria-label="Bagikan kurs"
@@ -839,8 +839,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           </div>
         )}
 
-        {/* ── Share Kurs Modal ── */}
-        {kursData && kursData.usd !== null && kursData.sar != null && (
+        {/* ── Share Kurs Modal — admin only ── */}
+        {isAdmin && kursData && kursData.usd !== null && kursData.sar != null && (
           <Suspense fallback={null}>
             <ShareKursModal
               open={showShareKurs}
