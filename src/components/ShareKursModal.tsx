@@ -69,13 +69,69 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
     }
   };
 
-  // Stub — diisi di Task 6
-  const handleShare = async () => {};
-  const handleCopyCaption = async () => {};
+  const handleShare = async () => {
+    if (!exportRef.current || isExporting) return;
+    setIsExporting(true);
+    try {
+      await waitForFonts();
+      const { snapdom } = await import('@zumer/snapdom');
+      const result = await snapdom(exportRef.current, { scale: 2 });
+      const blob = await result.toBlob({ type: 'png' });
+      const file = new File([blob], `kurs-${selectedId}-${yyyymmdd()}.png`, { type: 'image/png' });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file] });
+        trackEvent('action', 'share_kurs', { template: selectedId });
+      } else {
+        // Fallback — trigger download
+        await result.download({ type: 'png', filename: `kurs-${selectedId}-${yyyymmdd()}` });
+        showToast('Share tidak didukung, gambar diunduh');
+      }
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') {
+        console.error('[ShareKurs] Share gagal:', e);
+        showToast('Share gagal, coba lagi');
+      }
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
-  // formatKurs + normalizePhone di-import agar tidak unused — akan dipakai di Task 6 (handleCopyCaption)
-  void formatKurs;
-  void normalizePhone;
+  const handleCopyCaption = async () => {
+    const wa = normalizePhone(agent.phone);
+    const web = `${agent.slug || 'agent'}.alhijaz.co`;
+    const caption = [
+      `📊 Update Kurs Bank Mandiri — ${kurs.updatedAt}`,
+      '',
+      `💵 USD: Rp ${formatKurs(kurs.usd)}`,
+      `🇸🇦 SAR: Rp ${formatKurs(kurs.sar)}`,
+      '',
+      'Info paket Umroh & Haji:',
+      agent.name,
+      `wa.me/${wa}`,
+      web,
+    ].join('\n');
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(caption);
+      } else {
+        // Legacy fallback
+        const ta = document.createElement('textarea');
+        ta.value = caption;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      showToast('Caption tersalin');
+      trackEvent('action', 'copy_kurs_caption');
+    } catch (e) {
+      console.error('[ShareKurs] Copy gagal:', e);
+      showToast('Gagal menyalin caption');
+    }
+  };
 
   if (!open) return null;
 
