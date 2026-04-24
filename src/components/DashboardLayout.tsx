@@ -772,7 +772,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   <div>
                     <div className="text-xs font-bold text-gray-800 dark:text-white">Kurs Hari Ini</div>
                     <div className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">
-                      Bank Mandiri{kursData.updatedAt ? ` • ${kursData.updatedAt}` : ''}
+                      {kursData.updatedAt}
                     </div>
                   </div>
                 </div>
