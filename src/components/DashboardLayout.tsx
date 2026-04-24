@@ -781,7 +781,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     <button
                       onClick={() => setShowShareKurs(true)}
                       aria-label="Bagikan kurs"
-                      className="w-7 h-7 rounded-lg border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
+                      className="flex items-center justify-center px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-emerald-600 dark:text-emerald-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
                     >
                       <Share2 size={12} strokeWidth={2.5} />
                     </button>
