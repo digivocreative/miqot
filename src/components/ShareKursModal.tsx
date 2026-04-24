@@ -26,7 +26,17 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
   const [selectedId, setSelectedId] = useState<KursTemplateId>('minimalist');
   const [isExporting, setIsExporting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [closing, setClosing] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
+
+  const startClose = () => {
+    if (closing) return;
+    setClosing(true);
+    setTimeout(() => {
+      setClosing(false);
+      onClose();
+    }, 200);
+  };
 
   const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
@@ -46,11 +56,12 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') startClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -161,11 +172,18 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
-      <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[95vh] overflow-y-auto">
+    <div
+      onClick={startClose}
+      className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center ${closing ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
+      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        className={`w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[95vh] overflow-y-auto ${closing ? 'dc-card-exit' : 'dc-card-enter'}`}
+      >
         {/* Header */}
         <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-slate-700">
-          <button onClick={onClose} className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-slate-800 active:scale-95 transition">
+          <button onClick={startClose} className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-slate-800 active:scale-95 transition">
             <X size={20} className="text-gray-700 dark:text-slate-300" />
           </button>
           <div className="text-sm font-bold text-gray-800 dark:text-white">Bagikan Kurs</div>
