@@ -39,7 +39,7 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
     // Prime font loading untuk semua template
     const fonts = ['DM Serif Display', 'Amiri'];
     fonts.forEach(f => {
-      try { (document as any).fonts?.load?.(`16px "${f}"`); } catch {}
+      try { document.fonts?.load(`16px "${f}"`); } catch {}
     });
   }, [open]);
 
@@ -69,7 +69,7 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
   };
 
   const waitForFonts = async () => {
-    try { await (document as any).fonts?.ready; } catch {}
+    try { await document.fonts?.ready; } catch {}
   };
 
   const yyyymmdd = () => {
