@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Plane, Compass, Copy, ExternalLink, Save, Upload, RotateCcw,
-  Loader2, AlertCircle, CheckCircle2, ImageIcon,
+  Loader2, AlertCircle, CheckCircle2, ImageIcon, UserCircle,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import PhotoCropModal from './PhotoCropModal';
+import BioEditorPage from './bio-editor/BioEditorPage';
 
 const TITLE_LIMIT = 60;
 const DESC_LIMIT = 160;
@@ -14,6 +15,18 @@ const OG_IDEAL_W = 1200;
 const OG_IDEAL_H = 630;
 
 type LandingType = 'umroh' | 'haji';
+type ActiveTab = LandingType | 'bio';
+
+/** Parse `/dashboard/ai-tools/landing-page/{tab}` → ActiveTab. Defaults to 'umroh'. */
+function getLandingTabFromPath(): ActiveTab {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  // expected shape: ['dashboard', 'ai-tools', 'landing-page', '<tab>']
+  if (segments.length >= 4 && segments[2] === 'landing-page') {
+    const sub = segments[3];
+    if (sub === 'umroh' || sub === 'haji' || sub === 'bio') return sub;
+  }
+  return 'umroh';
+}
 
 interface FieldDraft {
   title: string;
@@ -65,7 +78,7 @@ function counterColor(len: number, max: number): string {
 }
 
 interface Props {
-  agent: { slug: string; name: string; photo: string };
+  agent: { slug: string; name: string; photo: string; phone?: string; role?: string };
 }
 
 export default function LandingPagePage({ agent }: Props) {
@@ -78,7 +91,49 @@ export default function LandingPagePage({ agent }: Props) {
   const [draft, setDraft] = useState<ConfigState | null>(null);
   const [defaults, setDefaults] = useState<DefaultsState | null>(null);
   const [currentMeta, setCurrentMeta] = useState<CurrentMetaState | null>(null);
-  const [activeType, setActiveType] = useState<LandingType>('umroh');
+  const [activeType, setActiveType] = useState<ActiveTab>(getLandingTabFromPath);
+  const [bioComingSoon, setBioComingSoon] = useState(false);
+  const isAdmin = agent.role === 'admin';
+
+  // Push state on tab change so reload/back keeps the user on the active tab
+  const switchTab = useCallback((tab: ActiveTab) => {
+    if (tab === 'bio' && !isAdmin) {
+      setBioComingSoon(true);
+      setTimeout(() => setBioComingSoon(false), 2400);
+      return;
+    }
+    setActiveType(tab);
+    const newPath = `/dashboard/ai-tools/landing-page/${tab}`;
+    if (typeof window !== 'undefined' && window.location.pathname !== newPath) {
+      window.history.pushState({}, '', newPath);
+    }
+  }, [isAdmin]);
+
+  // Sync activeType when user navigates with browser back/forward
+  useEffect(() => {
+    const onPopState = () => setActiveType(getLandingTabFromPath());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  // If non-admin somehow lands on /landing-page/bio (typed URL), bounce to umroh
+  useEffect(() => {
+    if (activeType === 'bio' && !isAdmin) {
+      setActiveType('umroh');
+      window.history.replaceState({}, '', '/dashboard/ai-tools/landing-page/umroh');
+    }
+  }, [activeType, isAdmin]);
+
+  // Backfill URL on first mount when path doesn't yet have an explicit tab segment
+  useEffect(() => {
+    const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+    const hasTabSegment = segments.length >= 4 && segments[2] === 'landing-page';
+    if (!hasTabSegment) {
+      window.history.replaceState({}, '', `/dashboard/ai-tools/landing-page/${activeType}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState<LandingType | null>(null);
   const [cropTarget, setCropTarget] = useState<{ type: LandingType; dataUrl: string } | null>(null);
@@ -300,73 +355,90 @@ export default function LandingPagePage({ agent }: Props) {
   const hajiHasCustom = !!(loaded.haji.title || loaded.haji.description || loaded.haji.og_image_url);
 
   return (
-    <div className="max-w-lg mx-auto px-4 pt-4 pb-28">
-      {/* Segmented control: Umroh / Haji Plus */}
-      <div className="bg-gray-100 dark:bg-slate-800 rounded-xl p-1 flex gap-1 w-full mb-4">
-        <SegmentedTab
-          active={activeType === 'umroh'}
-          accent="emerald"
-          icon={Plane}
-          label="Umroh"
-          hasCustom={umrohHasCustom}
-          onClick={() => setActiveType('umroh')}
-        />
-        <SegmentedTab
-          active={activeType === 'haji'}
-          accent="amber"
-          icon={Compass}
-          label="Haji Plus"
-          hasCustom={hajiHasCustom}
-          onClick={() => setActiveType('haji')}
-        />
+    <div className="max-w-lg mx-auto pt-4">
+      {/* Segmented control: Umroh / Haji Plus / Bio — same px-4 inset for all tabs */}
+      <div className="px-4 mb-4">
+        <div className="bg-gray-100 dark:bg-slate-800 rounded-xl p-1 flex gap-1 w-full">
+          <SegmentedTab
+            active={activeType === 'umroh'}
+            accent="emerald"
+            icon={Plane}
+            label="Umroh"
+            hasCustom={umrohHasCustom}
+            onClick={() => switchTab('umroh')}
+          />
+          <SegmentedTab
+            active={activeType === 'haji'}
+            accent="amber"
+            icon={Compass}
+            label="Haji"
+            hasCustom={hajiHasCustom}
+            onClick={() => switchTab('haji')}
+          />
+          <SegmentedTab
+            active={activeType === 'bio'}
+            accent="teal"
+            icon={UserCircle}
+            label="Bio"
+            hasCustom={false}
+            disabled={!isAdmin}
+            onClick={() => switchTab('bio')}
+          />
+        </div>
       </div>
 
-      {activeType === 'umroh' ? (
-        <LandingCard
-          type="umroh"
-          accent="emerald"
-          url={`alhijaz.co/${agent.slug}/umroh`}
-          fullUrl={`https://alhijaz.co/${agent.slug}/umroh`}
-          draft={draft.umroh}
-          loaded={loaded.umroh}
-          defaults={defaults.umroh}
-          currentDescription={currentMeta.umroh.currentDescription}
-          uploading={uploading === 'umroh'}
-          onChangeTitle={(v) => updateField('umroh', 'title', v)}
-          onChangeDesc={(v) => updateField('umroh', 'description', v)}
-          onUploadOg={(file) => handleOgFilePick('umroh', file)}
-          onResetOg={() => handleOgReset('umroh')}
-          onResetAll={() => handleCardReset('umroh')}
-          onCopy={() => handleCopy(`https://alhijaz.co/${agent.slug}/umroh`)}
-          agentPhoto={agent.photo}
-          agentName={agent.name}
-          agentSlug={agent.slug}
-        />
+      {activeType === 'bio' ? (
+        <BioEditorPage agent={{ slug: agent.slug, name: agent.name, photo: agent.photo, phone: agent.phone }} />
+      ) : activeType === 'umroh' ? (
+        <div className="px-4 pb-28">
+          <LandingCard
+            type="umroh"
+            accent="emerald"
+            url={`alhijaz.co/${agent.slug}/umroh`}
+            fullUrl={`https://alhijaz.co/${agent.slug}/umroh`}
+            draft={draft.umroh}
+            loaded={loaded.umroh}
+            defaults={defaults.umroh}
+            currentDescription={currentMeta.umroh.currentDescription}
+            uploading={uploading === 'umroh'}
+            onChangeTitle={(v) => updateField('umroh', 'title', v)}
+            onChangeDesc={(v) => updateField('umroh', 'description', v)}
+            onUploadOg={(file) => handleOgFilePick('umroh', file)}
+            onResetOg={() => handleOgReset('umroh')}
+            onResetAll={() => handleCardReset('umroh')}
+            onCopy={() => handleCopy(`https://alhijaz.co/${agent.slug}/umroh`)}
+            agentPhoto={agent.photo}
+            agentName={agent.name}
+            agentSlug={agent.slug}
+          />
+        </div>
       ) : (
-        <LandingCard
-          type="haji"
-          accent="amber"
-          url={`alhijaz.co/${agent.slug}/haji`}
-          fullUrl={`https://alhijaz.co/${agent.slug}/haji`}
-          draft={draft.haji}
-          loaded={loaded.haji}
-          defaults={defaults.haji}
-          currentDescription={currentMeta.haji.currentDescription}
-          uploading={uploading === 'haji'}
-          onChangeTitle={(v) => updateField('haji', 'title', v)}
-          onChangeDesc={(v) => updateField('haji', 'description', v)}
-          onUploadOg={(file) => handleOgFilePick('haji', file)}
-          onResetOg={() => handleOgReset('haji')}
-          onResetAll={() => handleCardReset('haji')}
-          onCopy={() => handleCopy(`https://alhijaz.co/${agent.slug}/haji`)}
-          agentPhoto={agent.photo}
-          agentName={agent.name}
-          agentSlug={agent.slug}
-        />
+        <div className="px-4 pb-28">
+          <LandingCard
+            type="haji"
+            accent="amber"
+            url={`alhijaz.co/${agent.slug}/haji`}
+            fullUrl={`https://alhijaz.co/${agent.slug}/haji`}
+            draft={draft.haji}
+            loaded={loaded.haji}
+            defaults={defaults.haji}
+            currentDescription={currentMeta.haji.currentDescription}
+            uploading={uploading === 'haji'}
+            onChangeTitle={(v) => updateField('haji', 'title', v)}
+            onChangeDesc={(v) => updateField('haji', 'description', v)}
+            onUploadOg={(file) => handleOgFilePick('haji', file)}
+            onResetOg={() => handleOgReset('haji')}
+            onResetAll={() => handleCardReset('haji')}
+            onCopy={() => handleCopy(`https://alhijaz.co/${agent.slug}/haji`)}
+            agentPhoto={agent.photo}
+            agentName={agent.name}
+            agentSlug={agent.slug}
+          />
+        </div>
       )}
 
-      {/* Sticky save bar */}
-      {textDirty && (
+      {/* Sticky save bar — hidden on Bio tab (Bio has its own auto-save) */}
+      {textDirty && activeType !== 'bio' && (
         <div className="fixed inset-x-0 bottom-0 z-40 pointer-events-none">
           <div className="max-w-lg mx-auto px-4 pb-4 pointer-events-auto">
             <div className="backdrop-blur-md bg-white/80 dark:bg-slate-900/80 border border-gray-100 dark:border-slate-700 rounded-2xl shadow-lg p-2">
@@ -403,6 +475,16 @@ export default function LandingPagePage({ agent }: Props) {
         quality={0.9}
       />
 
+      {/* Coming-soon toast — shown when non-admin agents tap the Bio tab */}
+      {bioComingSoon && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 bottom-8 z-50 px-5 py-3 bg-gray-900/95 dark:bg-slate-700 text-white rounded-2xl shadow-xl text-sm font-semibold flex items-center gap-2"
+          style={{ animation: 'fadeIn 200ms ease-out' }}
+        >
+          <span>Segera hadir 🚀</span>
+        </div>
+      )}
+
       {/* Toast */}
       {toast && (
         <div
@@ -428,27 +510,40 @@ export default function LandingPagePage({ agent }: Props) {
 
 interface SegmentedTabProps {
   active: boolean;
-  accent: 'emerald' | 'amber';
+  accent: 'emerald' | 'amber' | 'teal';
   icon: React.ElementType;
   label: string;
   hasCustom: boolean;
   onClick: () => void;
+  disabled?: boolean;
 }
 
-function SegmentedTab({ active, accent, icon: Icon, label, hasCustom, onClick }: SegmentedTabProps) {
+function SegmentedTab({ active, accent, icon: Icon, label, hasCustom, onClick, disabled }: SegmentedTabProps) {
   const activeText = accent === 'emerald'
     ? 'text-emerald-500 dark:text-emerald-400'
-    : 'text-amber-500 dark:text-amber-400';
-  const dotColor = accent === 'emerald' ? 'bg-emerald-500' : 'bg-amber-500';
+    : accent === 'amber'
+    ? 'text-amber-500 dark:text-amber-400'
+    : 'text-teal-500 dark:text-teal-400';
+  const dotColor = accent === 'emerald'
+    ? 'bg-emerald-500'
+    : accent === 'amber'
+    ? 'bg-amber-500'
+    : 'bg-teal-500';
 
+  // Disabled tabs are still clickable so the parent can show a "coming soon" toast,
+  // but visually look muted and don't take the active background.
+  const visualState = active
+    ? `bg-white dark:bg-slate-700 shadow-sm font-semibold ${activeText}`
+    : disabled
+    ? 'bg-transparent text-gray-300 dark:text-slate-600 font-medium opacity-70'
+    : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium active:opacity-70';
+
+  // We don't use `disabled` or `aria-disabled` because the tab is intentionally still
+  // clickable for non-admins — it triggers a "coming soon" toast instead of switching.
   return (
     <button
       onClick={onClick}
-      className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 ${
-        active
-          ? `bg-white dark:bg-slate-700 shadow-sm font-semibold ${activeText}`
-          : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium active:opacity-70'
-      }`}
+      className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 ${visualState}`}
     >
       <Icon size={14} strokeWidth={active ? 2.4 : 2} />
       <span className="text-[13px]">{label}</span>

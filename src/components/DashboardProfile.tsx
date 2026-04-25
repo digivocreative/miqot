@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle, Unlink, LogIn, LogOut, Check, ShieldOff } from 'lucide-react';
+import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle, Unlink, LogIn, LogOut, Check, ShieldOff, UserCircle, Copy } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PhotoCropModal from './PhotoCropModal';
 import PinInput from './PinInput';
@@ -1200,6 +1200,49 @@ function PreviewCard({ variant }: { variant: string }) {
   );
 }
 
+// ── Bio Page Link Card (public Linktree URL with one-tap copy) ──
+function BioLinkCard({ slug }: { slug: string }) {
+  const [copied, setCopied] = useState(false);
+  const host = typeof window !== 'undefined' && /alhijaz\.co$/i.test(window.location.host)
+    ? window.location.host
+    : 'alhijaz.co';
+  const url = `https://${host}/${slug}/bio`;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch { /* best-effort */ }
+  };
+
+  return (
+    <div className="mb-4 bg-white dark:bg-slate-800 rounded-xl border border-emerald-100 dark:border-emerald-800/30 p-3">
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center shrink-0">
+          <UserCircle size={16} className="text-emerald-600 dark:text-emerald-400" strokeWidth={2.2} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider">Link Bio Publik</p>
+          <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{host}/{slug}/bio</p>
+        </div>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className={`shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
+            copied
+              ? 'bg-emerald-500 text-white'
+              : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:hover:bg-emerald-900/30'
+          }`}
+        >
+          {copied ? <Check size={11} strokeWidth={3} /> : <Copy size={11} strokeWidth={2.5} />}
+          {copied ? 'Tersalin' : 'Salin'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Profile Component ──
 export default function DashboardProfile({ agent, onUpdated, mode = 'standalone' }: { agent: AgentProfile; onUpdated: () => void; mode?: 'standalone' | 'embedded' }) {
   const [name, setName] = useState(agent.name);
@@ -1527,6 +1570,9 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
           </div>
         </div>
 
+
+        {/* ── Bio Page Link (public Linktree URL) ── */}
+        <BioLinkCard slug={agent.slug} />
 
         {/* ── Card Variant Picker ── */}
         <div className="mb-4">

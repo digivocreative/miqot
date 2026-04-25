@@ -1,0 +1,631 @@
+/* Bio Page theme tokens — scoped to [data-bio-theme] so the dashboard's
+   Inter/slate palette is never affected. Fonts are injected via BioPage on mount. */
+
+.bio-root {
+  /* shared tokens (do not vary per theme) */
+  --radius-card: 20px;
+  --radius-pill: 999px;
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --wa-green: #25D366;
+  --wa-green-dark: #1ea952;
+
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Emerald (default — clean, traveler, trustworthy) ── */
+.bio-root[data-bio-theme="emerald"] {
+  --bg: #f6faf7;
+  --card: #ffffff;
+  --card-border: #e6efe9;
+  --text: #0f2822;
+  --text-muted: #53756c;
+  --accent: #0f766e;
+  --accent-light: #d1fae5;
+  --accent-ring: rgba(15, 118, 110, 0.22);
+  --shadow: 0 1px 2px rgba(15, 40, 34, 0.04), 0 2px 8px rgba(15, 40, 34, 0.05);
+  --shadow-lg: 0 4px 14px rgba(15, 40, 34, 0.08), 0 12px 32px rgba(15, 40, 34, 0.08);
+  --chip-bg: #ecfdf5;
+  --chip-border: #c7ead7;
+  --divider: #e6efe9;
+}
+
+/* ── Desert (warm sandstone — klasik haji/umroh feel) ── */
+.bio-root[data-bio-theme="desert"] {
+  --bg: #faf5ec;
+  --card: #ffffff;
+  --card-border: #efe5d2;
+  --text: #2b1f10;
+  --text-muted: #7a6647;
+  --accent: #9a6d2d;
+  --accent-light: #fbefd6;
+  --accent-ring: rgba(154, 109, 45, 0.24);
+  --shadow: 0 1px 2px rgba(60, 40, 10, 0.05), 0 2px 8px rgba(60, 40, 10, 0.06);
+  --shadow-lg: 0 4px 14px rgba(60, 40, 10, 0.1), 0 12px 32px rgba(60, 40, 10, 0.1);
+  --chip-bg: #fdf4e0;
+  --chip-border: #ecdcbc;
+  --divider: #efe5d2;
+}
+
+/* ── Midnight (premium, dark — like the Kaaba at night) ── */
+.bio-root[data-bio-theme="midnight"] {
+  --bg: #0b1220;
+  --card: #121b2e;
+  --card-border: #1e293f;
+  --text: #f2f5fb;
+  --text-muted: #94a3be;
+  --accent: #facc15;
+  --accent-light: rgba(250, 204, 21, 0.14);
+  --accent-ring: rgba(250, 204, 21, 0.4);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 4px 14px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.45);
+  --chip-bg: rgba(250, 204, 21, 0.08);
+  --chip-border: rgba(250, 204, 21, 0.22);
+  --divider: #1e293f;
+}
+
+/* ── Rose Gold (feminine, elegant — for ibu-ibu consultants) ── */
+.bio-root[data-bio-theme="rosegold"] {
+  --bg: #fbf4f1;
+  --card: #ffffff;
+  --card-border: #f0dcd3;
+  --text: #3b1e1a;
+  --text-muted: #8a6b65;
+  --accent: #b76a5b;
+  --accent-light: #fbe1d9;
+  --accent-ring: rgba(183, 106, 91, 0.24);
+  --shadow: 0 1px 2px rgba(59, 30, 26, 0.05), 0 2px 8px rgba(59, 30, 26, 0.06);
+  --shadow-lg: 0 4px 14px rgba(59, 30, 26, 0.09), 0 12px 32px rgba(59, 30, 26, 0.09);
+  --chip-bg: #fceae2;
+  --chip-border: #f2d1c3;
+  --divider: #f0dcd3;
+}
+
+/* ── Sunset (warm gradient — dramatic share feel) ── */
+.bio-root[data-bio-theme="sunset"] {
+  --bg: linear-gradient(180deg, #fff3e3 0%, #ffe6da 100%);
+  --card: #ffffff;
+  --card-border: #f5d8c2;
+  --text: #3a1d08;
+  --text-muted: #8a6047;
+  --accent: #dd6b20;
+  --accent-light: #feead6;
+  --accent-ring: rgba(221, 107, 32, 0.25);
+  --shadow: 0 1px 2px rgba(58, 29, 8, 0.05), 0 2px 8px rgba(58, 29, 8, 0.07);
+  --shadow-lg: 0 4px 14px rgba(58, 29, 8, 0.1), 0 12px 32px rgba(58, 29, 8, 0.1);
+  --chip-bg: #feecd9;
+  --chip-border: #f5d2b1;
+  --divider: #f5d8c2;
+}
+
+/* ── Mono (quiet, minimalist — for serious professional bios) ── */
+.bio-root[data-bio-theme="mono"] {
+  --bg: #f7f7f7;
+  --card: #ffffff;
+  --card-border: #e5e5e5;
+  --text: #151515;
+  --text-muted: #6b6b6b;
+  --accent: #151515;
+  --accent-light: #efefef;
+  --accent-ring: rgba(21, 21, 21, 0.18);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 4px 14px rgba(0, 0, 0, 0.07), 0 12px 32px rgba(0, 0, 0, 0.08);
+  --chip-bg: #f1f1f1;
+  --chip-border: #e1e1e1;
+  --divider: #e5e5e5;
+}
+
+/* ── Layout & typography (theme-agnostic) ── */
+.bio-root {
+  padding: 28px 20px 56px;
+}
+
+.bio-shell {
+  max-width: 430px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+@media (min-width: 560px) {
+  .bio-root {
+    padding: 48px 24px 72px;
+  }
+  .bio-shell {
+    background: var(--bg);
+    padding: 24px;
+    border-radius: 32px;
+    box-shadow: var(--shadow-lg);
+    max-width: 460px;
+  }
+  /* On midnight the shell shouldn't double-stack its own shadow on dark bg */
+  .bio-root[data-bio-theme="midnight"] .bio-shell {
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Heading reset so Fraunces reads well at mobile weight */
+.bio-root h1,
+.bio-root h2,
+.bio-root h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.bio-root button {
+  font-family: var(--font-body);
+}
+
+.bio-root a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ── Hero ── */
+.bio-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 8px 0 2px;
+}
+
+.bio-avatar {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, #fde68a, #f59e0b);
+  color: #3b2200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 36px;
+  letter-spacing: -0.02em;
+  box-shadow: var(--shadow-lg);
+  border: 3px solid var(--card);
+}
+
+.bio-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bio-verified {
+  position: absolute;
+  right: -2px;
+  bottom: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  border: 2px solid var(--card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+.bio-hero-name {
+  font-size: 24px;
+  line-height: 1.15;
+  margin-top: 12px;
+}
+
+.bio-hero-tagline {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.45;
+  max-width: 320px;
+  margin: 2px auto 0;
+}
+
+.bio-hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.bio-hero-badge {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--chip-bg);
+  color: var(--text);
+  border: 1px solid var(--chip-border);
+}
+
+/* ── Social row ── */
+.bio-social-row {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.bio-social-link {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: var(--shadow);
+}
+
+.bio-social-link:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 10px var(--accent-ring);
+}
+
+/* ── Tiles (shared) ── */
+.bio-tile {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  display: block;
+  color: inherit;
+}
+
+.bio-tile--button:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
+}
+
+.bio-tile--button:active {
+  transform: translateY(0);
+}
+
+/* Button-ish tile with icon + title + chevron */
+.bio-tile-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.bio-tile-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--accent-light);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bio-tile-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.bio-tile-title {
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.25;
+  color: var(--text);
+  margin: 0;
+}
+
+.bio-tile-subtitle {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.bio-tile-chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ── WA tile (fixed brand green regardless of theme) ── */
+.bio-tile-wa {
+  background: linear-gradient(135deg, var(--wa-green) 0%, var(--wa-green-dark) 100%);
+  color: #fff;
+  border: none;
+  box-shadow: 0 4px 14px rgba(37, 211, 102, 0.32);
+}
+
+.bio-tile-wa:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(37, 211, 102, 0.42);
+}
+
+.bio-tile-wa .bio-tile-icon {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.bio-tile-wa .bio-tile-title,
+.bio-tile-wa .bio-tile-subtitle,
+.bio-tile-wa .bio-tile-chevron {
+  color: #fff;
+}
+
+.bio-tile-wa .bio-tile-subtitle {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+/* ── Featured tile ── */
+.bio-tile-featured {
+  padding: 0;
+  overflow: hidden;
+}
+
+.bio-featured-image {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, var(--accent-light), var(--accent));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--card);
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  overflow: hidden;
+}
+
+.bio-featured-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bio-featured-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  backdrop-filter: blur(6px);
+}
+
+.bio-featured-body {
+  padding: 14px 18px 16px;
+}
+
+.bio-featured-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 17px;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.bio-featured-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.bio-featured-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--divider);
+  gap: 10px;
+}
+
+.bio-featured-price {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--accent);
+}
+
+.bio-featured-seat {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.bio-featured-button {
+  background: var(--accent);
+  color: var(--card);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 9px 14px;
+  border-radius: var(--radius-pill);
+  border: none;
+  cursor: pointer;
+}
+
+/* ── Photo tile ── */
+.bio-tile-photo {
+  padding: 0;
+  overflow: hidden;
+}
+
+.bio-photo-frame {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background: var(--accent-light);
+  overflow: hidden;
+}
+
+.bio-photo-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bio-photo-caption {
+  padding: 10px 16px 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ── Text tile ── */
+.bio-tile-text {
+  text-align: center;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 6px 10px;
+}
+
+.bio-tile-text-content {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
+/* ── Testimonial ── */
+.bio-tile-testi {
+  position: relative;
+  padding: 18px 20px 16px;
+}
+
+.bio-testi-mark {
+  position: absolute;
+  top: 8px;
+  left: 14px;
+  font-family: var(--font-display);
+  font-size: 46px;
+  line-height: 1;
+  color: var(--accent);
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.bio-testi-quote {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: var(--text);
+  padding-left: 4px;
+}
+
+.bio-testi-author {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.bio-testi-meta {
+  color: var(--text-muted);
+  opacity: 0.8;
+  font-weight: 400;
+  margin-left: 2px;
+}
+
+/* ── Footer ── */
+.bio-footer {
+  margin-top: 12px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.bio-footer a {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.bio-footer-sep {
+  margin: 0 6px;
+  opacity: 0.6;
+}
+
+/* ── Skeleton (loading) ── */
+.bio-skeleton-avatar,
+.bio-skeleton-pill,
+.bio-skeleton-line,
+.bio-skeleton-tile {
+  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
+  background-size: 200% 100%;
+  animation: bio-shimmer 1.3s ease-in-out infinite;
+  border-radius: 12px;
+}
+
+.bio-skeleton-avatar {
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  margin: 12px auto;
+}
+
+.bio-skeleton-line {
+  height: 14px;
+  border-radius: 6px;
+  margin: 8px auto;
+}
+
+.bio-skeleton-pill {
+  height: 22px;
+  width: 110px;
+  border-radius: var(--radius-pill);
+  display: inline-block;
+  margin: 4px;
+}
+
+.bio-skeleton-tile {
+  height: 68px;
+  width: 100%;
+  border-radius: var(--radius-card);
+  margin-top: 12px;
+}
+
+@keyframes bio-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.bio-empty {
+  text-align: center;
+  padding: 64px 20px;
+  color: var(--text-muted);
+}
+
+.bio-empty-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  color: var(--text);
+  margin-bottom: 6px;
+}

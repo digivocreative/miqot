@@ -599,7 +599,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             if (sub === 'kurs') return <KursPage />;
             if (sub === 'voice-over') return <VoiceOverPage />;
             if (sub === 'business-card') return <BusinessCardPage agent={agentData} />;
-            if (sub === 'landing-page') return <LandingPagePage agent={{ slug: agentData.slug, name: agentData.name, photo: agentData.photo }} />;
+            if (sub === 'landing-page') return <LandingPagePage agent={{ slug: agentData.slug, name: agentData.name, photo: agentData.photo, phone: agentData.phone, role: agentData.role }} />;
             if (sub === 'haji-plus/export') return <HajiPlusExportPage agent={agentData} />;
             if (sub === 'haji-plus/simulasi') return <HajiPlusPage agent={agentData} initialTab="simulasi" onExport={() => {
               window.history.pushState({}, '', '/dashboard/ai-tools/haji-plus/export');

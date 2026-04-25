@@ -2645,6 +2645,463 @@ app.delete('/api/landing-config/og-image', authMiddleware, express.json({ limit:
   }
 });
 
+// ──────────────────────────────────────────────
+// Bio Page Config API (/:slug/bio — Linktree-style)
+// ──────────────────────────────────────────────
+
+const BIO_VALID_THEMES = ['emerald', 'desert', 'midnight', 'rosegold', 'sunset', 'mono'];
+const BIO_VALID_TILE_TYPES = ['umroh', 'haji', 'wa', 'featured', 'link', 'text', 'photo', 'testi'];
+const BIO_SINGLETON_TILE_TYPES = new Set(['umroh', 'haji', 'wa', 'featured']);
+const BIO_MAX_TILES = 50;
+
+function bioNewId() {
+  // crypto imported at top of CAPI section; ESM hoists so it's available here.
+  return crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+}
+
+function buildDefaultBioConfig(_agent) {
+  return {
+    theme: 'emerald',
+    enabled: true,
+    hero: {
+      tagline: null,
+      badges: ['📍 Indonesia', '🛡 PPIU Resmi'],
+      socials: { instagram: null, tiktok: null, youtube: null },
+    },
+    seo: { title: null, description: null, og_image_url: null },
+    tiles: [
+      { id: bioNewId(), type: 'wa',    visible: true, order: 0, config: {} },
+      { id: bioNewId(), type: 'umroh', visible: true, order: 1, config: {} },
+      { id: bioNewId(), type: 'haji',  visible: true, order: 2, config: {} },
+    ],
+  };
+}
+
+// Fetch umroh_schedules row by jadwal_id (pick most recent year_code).
+// jadwal_id is not globally unique (composite key with year_code), so we sort desc.
+async function getJadwalById(jadwalId) {
+  if (!jadwalId) return null;
+  try {
+    const { data } = await supabase
+      .from('umroh_schedules')
+      .select('*')
+      .eq('jadwal_id', jadwalId)
+      .order('year_code', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return data || null;
+  } catch (err) {
+    console.warn('[bio] getJadwalById error:', err.message);
+    return null;
+  }
+}
+
+async function buildWaLink(agent, bioConfig) {
+  const tiles = Array.isArray(bioConfig?.tiles) ? bioConfig.tiles : [];
+  const waTile = tiles.find(t => t.type === 'wa' && t.visible);
+  if (!waTile) return null;
+  if (!agent?.phone) return null;
+
+  const featuredTile = tiles.find(t => t.type === 'featured' && t.visible);
+  let paketName = '';
+  if (featuredTile?.config?.jadwal_id) {
+    const paket = await getJadwalById(featuredTile.config.jadwal_id);
+    paketName = paket?.jadwal_nama || paket?.nama || '';
+  }
+
+  const template = waTile.config?.message_template
+    || 'Assalamualaikum Kak {name}, saya tertarik dengan paket yang ditawarkan{paket}';
+  const message = template
+    .replace(/\{name\}/g, agent.name || '')
+    .replace(/\{paket\}/g, paketName ? ` "${paketName}"` : '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const cleanPhone = String(agent.phone).replace(/\D/g, '');
+  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+}
+
+function validateTileConfig(tile) {
+  const { type, config } = tile;
+  const cfg = config && typeof config === 'object' ? config : {};
+  switch (type) {
+    case 'umroh':
+    case 'haji':
+      return { ok: true, config: { cta: typeof cfg.cta === 'string' ? cfg.cta.slice(0, 80) : undefined } };
+    case 'wa': {
+      const out = {};
+      if (typeof cfg.title === 'string') out.title = cfg.title.slice(0, 80);
+      if (typeof cfg.subtitle === 'string') out.subtitle = cfg.subtitle.slice(0, 120);
+      if (typeof cfg.message_template === 'string') out.message_template = cfg.message_template.slice(0, 500);
+      return { ok: true, config: out };
+    }
+    case 'featured': {
+      if (!cfg.jadwal_id || typeof cfg.jadwal_id !== 'string') {
+        return { ok: false, error: 'featured.jadwal_id wajib diisi' };
+      }
+      const out = { jadwal_id: cfg.jadwal_id };
+      if (typeof cfg.badge === 'string') out.badge = cfg.badge.slice(0, 40);
+      if (typeof cfg.cta === 'string') out.cta = cfg.cta.slice(0, 80);
+      return { ok: true, config: out };
+    }
+    case 'link': {
+      if (typeof cfg.title !== 'string' || !cfg.title.trim()) {
+        return { ok: false, error: 'link.title wajib diisi' };
+      }
+      if (typeof cfg.url !== 'string' || !/^https:\/\//i.test(cfg.url)) {
+        return { ok: false, error: 'link.url harus URL valid (https://…)' };
+      }
+      const out = { title: cfg.title.trim().slice(0, 80), url: cfg.url.trim() };
+      if (typeof cfg.icon === 'string') out.icon = cfg.icon.slice(0, 40);
+      return { ok: true, config: out };
+    }
+    case 'text': {
+      if (typeof cfg.content !== 'string' || !cfg.content.trim()) {
+        return { ok: false, error: 'text.content wajib diisi' };
+      }
+      if (cfg.content.length > 200) {
+        return { ok: false, error: 'text.content maksimal 200 karakter' };
+      }
+      return { ok: true, config: { content: cfg.content } };
+    }
+    case 'photo': {
+      if (typeof cfg.image_url !== 'string' || !/^https:\/\//i.test(cfg.image_url)) {
+        return { ok: false, error: 'photo.image_url harus URL valid (upload via /api/bio/:slug/photo-upload)' };
+      }
+      const out = { image_url: cfg.image_url };
+      if (typeof cfg.caption === 'string') out.caption = cfg.caption.slice(0, 160);
+      return { ok: true, config: out };
+    }
+    case 'testi': {
+      if (typeof cfg.quote !== 'string' || !cfg.quote.trim()) {
+        return { ok: false, error: 'testi.quote wajib diisi' };
+      }
+      if (typeof cfg.author_name !== 'string' || !cfg.author_name.trim()) {
+        return { ok: false, error: 'testi.author_name wajib diisi' };
+      }
+      const out = {
+        quote: cfg.quote.trim().slice(0, 300),
+        author_name: cfg.author_name.trim().slice(0, 80),
+      };
+      if (typeof cfg.author_meta === 'string') out.author_meta = cfg.author_meta.slice(0, 80);
+      return { ok: true, config: out };
+    }
+    default:
+      return { ok: false, error: `Tile type tidak dikenal: ${type}` };
+  }
+}
+
+function normalizeBioConfig(raw, existing) {
+  const base = existing && typeof existing === 'object' ? existing : {};
+  const input = raw && typeof raw === 'object' ? raw : {};
+
+  // Theme
+  let theme = typeof input.theme === 'string' ? input.theme : base.theme;
+  if (!BIO_VALID_THEMES.includes(theme)) theme = 'emerald';
+
+  // Enabled flag
+  const enabled = typeof input.enabled === 'boolean' ? input.enabled : (base.enabled !== false);
+
+  // Hero
+  const heroIn = input.hero && typeof input.hero === 'object' ? input.hero : {};
+  const heroBase = base.hero && typeof base.hero === 'object' ? base.hero : {};
+  const tagline = heroIn.tagline === null
+    ? null
+    : (typeof heroIn.tagline === 'string' ? heroIn.tagline.trim().slice(0, 120) || null : (heroBase.tagline ?? null));
+  let badgesSrc = Array.isArray(heroIn.badges) ? heroIn.badges : heroBase.badges;
+  if (!Array.isArray(badgesSrc)) badgesSrc = [];
+  const badges = badgesSrc
+    .filter(b => typeof b === 'string' && b.trim())
+    .slice(0, 3)
+    .map(b => b.trim().slice(0, 40));
+  const socialsIn = heroIn.socials && typeof heroIn.socials === 'object' ? heroIn.socials : {};
+  const socialsBase = heroBase.socials && typeof heroBase.socials === 'object' ? heroBase.socials : {};
+  const normalizeHandle = (val, fallback) => {
+    if (val === null) return null;
+    if (typeof val === 'string') {
+      const trimmed = val.trim().replace(/^@+/, '').slice(0, 60);
+      return trimmed || null;
+    }
+    return fallback ?? null;
+  };
+  const socials = {
+    instagram: normalizeHandle(socialsIn.instagram, socialsBase.instagram),
+    tiktok: normalizeHandle(socialsIn.tiktok, socialsBase.tiktok),
+    youtube: normalizeHandle(socialsIn.youtube, socialsBase.youtube),
+  };
+
+  // SEO
+  const seoIn = input.seo && typeof input.seo === 'object' ? input.seo : {};
+  const seoBase = base.seo && typeof base.seo === 'object' ? base.seo : {};
+  const normSeoField = (val, baseVal, max) => {
+    if (val === null) return null;
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      return trimmed ? trimmed.slice(0, max) : null;
+    }
+    return baseVal ?? null;
+  };
+  const seo = {
+    title: normSeoField(seoIn.title, seoBase.title, 120),
+    description: normSeoField(seoIn.description, seoBase.description, 200),
+    og_image_url: (seoIn.og_image_url === null
+      ? null
+      : (typeof seoIn.og_image_url === 'string' ? seoIn.og_image_url.trim() || null : (seoBase.og_image_url ?? null))),
+  };
+
+  // Tiles
+  const tilesIn = Array.isArray(input.tiles) ? input.tiles : [];
+  if (tilesIn.length > BIO_MAX_TILES) {
+    throw Object.assign(new Error(`Maksimal ${BIO_MAX_TILES} tile`), { status: 400 });
+  }
+  const typeCounts = new Map();
+  const cleanedTiles = [];
+  for (const t of tilesIn) {
+    if (!t || typeof t !== 'object') continue;
+    const type = t.type;
+    if (!BIO_VALID_TILE_TYPES.includes(type)) {
+      throw Object.assign(new Error(`Tile type tidak valid: ${type}`), { status: 400 });
+    }
+    if (BIO_SINGLETON_TILE_TYPES.has(type)) {
+      const n = (typeCounts.get(type) || 0) + 1;
+      typeCounts.set(type, n);
+      if (n > 1) {
+        throw Object.assign(new Error(`Tile type "${type}" hanya boleh 1×`), { status: 400 });
+      }
+    }
+    const validated = validateTileConfig(t);
+    if (!validated.ok) {
+      throw Object.assign(new Error(validated.error), { status: 400 });
+    }
+    cleanedTiles.push({
+      id: typeof t.id === 'string' && t.id.trim() ? t.id.trim().slice(0, 32) : bioNewId(),
+      type,
+      visible: t.visible !== false,
+      order: 0, // re-assigned below
+      config: validated.config,
+    });
+  }
+  // Sort by incoming order (if present) then re-normalize to 0-indexed sequential
+  const withOrder = tilesIn.map((t, idx) => ({ idx, order: Number.isFinite(t?.order) ? t.order : idx }));
+  withOrder.sort((a, b) => a.order - b.order || a.idx - b.idx);
+  const finalTiles = withOrder
+    .map(({ idx }) => cleanedTiles[idx])
+    .filter(Boolean)
+    .map((tile, i) => ({ ...tile, order: i }));
+
+  return { theme, enabled, hero: { tagline, badges, socials }, seo, tiles: finalTiles };
+}
+
+// Decorate stored config with runtime-computed fields (orphan flag, WA link preview)
+async function decorateBioConfigForRead(agent, bioConfig) {
+  const cfg = JSON.parse(JSON.stringify(bioConfig || {}));
+  const tiles = Array.isArray(cfg.tiles) ? cfg.tiles : [];
+
+  // Check featured paket orphan
+  const featured = tiles.find(t => t.type === 'featured');
+  if (featured?.config?.jadwal_id) {
+    const paket = await getJadwalById(featured.config.jadwal_id);
+    featured.orphaned = !paket;
+  }
+
+  const waLinkPreview = await buildWaLink(agent, cfg);
+
+  return { ...cfg, _wa_link_preview: waLinkPreview };
+}
+
+function bioResolveAgentForRequest(req) {
+  return {
+    async resolve(slug) {
+      const normalized = String(slug || '').toLowerCase();
+      const agent = await getAgentBySlug(normalized);
+      if (!agent) return { error: { status: 404, msg: 'Agent not found' } };
+      const isAdmin = req.user?.role === 'admin';
+      const ownsSlug = req.user?.slug === normalized || req.user?.id === agent.id;
+      if (!isAdmin && !ownsSlug) {
+        return { error: { status: 403, msg: 'Forbidden' } };
+      }
+      return { agent };
+    },
+  };
+}
+
+// GET /api/bio/:slug/config — auto-populate default on first access, else return persisted config.
+// GET is public — the bio page is public, so the config that drives it must be readable
+// without auth. The editor endpoints (PUT/upload) still require JWT.
+app.get('/api/bio/:slug/config', async (req, res) => {
+  try {
+    const slug = String(req.params.slug || '').toLowerCase();
+    const agent = await getAgentBySlug(slug);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const existing = agent.bio_config;
+    const isEmpty = !existing || (typeof existing === 'object' && Object.keys(existing).length === 0);
+
+    let config;
+    if (isEmpty) {
+      config = buildDefaultBioConfig(agent);
+      const { error: dbErr } = await supabase
+        .from('agents')
+        .update({ bio_config: config })
+        .eq('id', agent.id);
+      if (dbErr) {
+        console.error('[bio-config] auto-populate persist error:', dbErr);
+      } else {
+        invalidateAgentCache();
+      }
+    } else {
+      config = existing;
+    }
+
+    // Disabled bios still return 404 at the API layer so scrapers don't surface them
+    if (config?.enabled === false) {
+      return res.status(404).json({ error: 'Bio disabled' });
+    }
+
+    const decorated = await decorateBioConfigForRead(agent, config);
+    res.json({ success: true, data: decorated });
+  } catch (err) {
+    console.error('[bio-config] GET error:', err);
+    res.status(500).json({ error: 'Gagal memuat konfigurasi bio' });
+  }
+});
+
+// PUT /api/bio/:slug/config — save validated bio config.
+app.put('/api/bio/:slug/config', authMiddleware, express.json({ limit: '200kb' }), async (req, res) => {
+  try {
+    const { resolve: resolveAgent } = bioResolveAgentForRequest(req);
+    const { agent, error } = await resolveAgent(req.params.slug);
+    if (error) return res.status(error.status).json({ error: error.msg });
+
+    const normalized = normalizeBioConfig(req.body, agent.bio_config || {});
+
+    const { error: dbErr } = await supabase
+      .from('agents')
+      .update({ bio_config: normalized })
+      .eq('id', agent.id);
+    if (dbErr) throw dbErr;
+
+    invalidateAgentCache();
+    const decorated = await decorateBioConfigForRead(agent, normalized);
+    res.json({ success: true, data: decorated });
+  } catch (err) {
+    const status = err.status || 500;
+    if (status >= 500) console.error('[bio-config] PUT error:', err);
+    res.status(status).json({ error: err.message || 'Gagal menyimpan konfigurasi bio' });
+  }
+});
+
+// POST /api/bio/:slug/og-image — upload custom OG image, return public URL (client persists URL via PUT).
+app.post('/api/bio/:slug/og-image', authMiddleware, express.json({ limit: '6mb' }), async (req, res) => {
+  try {
+    const { resolve: resolveAgent } = bioResolveAgentForRequest(req);
+    const { agent, error } = await resolveAgent(req.params.slug);
+    if (error) return res.status(error.status).json({ error: error.msg });
+
+    const { mime, data } = req.body || {};
+    if (!['image/png', 'image/jpeg'].includes(mime)) {
+      return res.status(400).json({ error: 'mime harus image/png atau image/jpeg' });
+    }
+    if (typeof data !== 'string' || !data) {
+      return res.status(400).json({ error: 'data base64 kosong' });
+    }
+    const base64 = data.startsWith('data:') ? data.slice(data.indexOf(',') + 1) : data;
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Ukuran file maksimal 5MB' });
+    }
+
+    const ext = mime === 'image/png' ? 'png' : 'jpg';
+    const fileName = `bio/${agent.slug}-${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('agent-photos')
+      .upload(fileName, buffer, { contentType: mime, upsert: true });
+    if (uploadError) {
+      console.error('[bio-config] OG upload error:', uploadError);
+      return res.status(500).json({ error: 'Gagal mengunggah gambar' });
+    }
+
+    const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(fileName);
+    res.json({ success: true, url: urlData.publicUrl });
+  } catch (err) {
+    console.error('[bio-config] og-image error:', err);
+    res.status(500).json({ error: 'Gagal mengunggah gambar' });
+  }
+});
+
+// POST /api/bio/:slug/photo-upload — upload a photo for a `photo` tile.
+app.post('/api/bio/:slug/photo-upload', authMiddleware, express.json({ limit: '8mb' }), async (req, res) => {
+  try {
+    const { resolve: resolveAgent } = bioResolveAgentForRequest(req);
+    const { agent, error } = await resolveAgent(req.params.slug);
+    if (error) return res.status(error.status).json({ error: error.msg });
+
+    const { mime, data } = req.body || {};
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(mime)) {
+      return res.status(400).json({ error: 'mime harus image/png, image/jpeg, atau image/webp' });
+    }
+    if (typeof data !== 'string' || !data) {
+      return res.status(400).json({ error: 'data base64 kosong' });
+    }
+    const base64 = data.startsWith('data:') ? data.slice(data.indexOf(',') + 1) : data;
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 6 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Ukuran file maksimal 6MB' });
+    }
+
+    const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+    const fileName = `bio/photo-${agent.slug}-${bioNewId()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('agent-photos')
+      .upload(fileName, buffer, { contentType: mime, upsert: false });
+    if (uploadError) {
+      console.error('[bio-config] photo upload error:', uploadError);
+      return res.status(500).json({ error: 'Gagal mengunggah foto' });
+    }
+
+    const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(fileName);
+    res.json({ success: true, url: urlData.publicUrl });
+  } catch (err) {
+    console.error('[bio-config] photo-upload error:', err);
+    res.status(500).json({ error: 'Gagal mengunggah foto' });
+  }
+});
+
+// GET /api/bio/:slug/featured-paket-preview?jadwal_id=XXX — public picker preview.
+app.get('/api/bio/:slug/featured-paket-preview', async (req, res) => {
+  const jadwalId = String(req.query.jadwal_id || '').trim();
+  if (!jadwalId) {
+    return res.status(400).json({ success: false, error: 'jadwal_id wajib diisi' });
+  }
+  const paket = await getJadwalById(jadwalId);
+  if (!paket) {
+    return res.status(400).json({ success: false, error: 'Paket tidak ditemukan' });
+  }
+
+  // Build a compact preview: first-tier pricing as a quick anchor price.
+  const hargaObj = paket.paket_harga || {};
+  const firstTier = Object.values(hargaObj)[0] || {};
+  const anchorPrice = firstTier.Quard || firstTier.Triple || firstTier.Double || null;
+
+  res.json({
+    success: true,
+    data: {
+      jadwal_id: paket.jadwal_id,
+      year_code: paket.year_code,
+      name: paket.jadwal_nama || paket.nama || '',
+      berangkat_tgl: paket.berangkat_tgl || '',
+      pulang_tgl: paket.pulang_tgl || '',
+      maskapai: paket.maskapai || '',
+      seat_total: paket.seat_total ?? null,
+      seat_sisa: paket.seat_sisa ?? null,
+      image_url: paket.brosur_cdn || paket.brosur || null,
+      anchor_price: anchorPrice ? Number(anchorPrice) : null,
+    },
+  });
+});
+
 // List all agents (admin only)
 app.get('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
   const { data, error } = await supabase
@@ -3352,16 +3809,15 @@ app.get('/api/laporan/status', authMiddleware, async (req, res) => {
   const hasCredentials = !!(agent.jamaah_username && agent.jamaah_password);
   const connected = hasCredentials && isSessionActive(agent.jamaah_username);
 
-  // Get last sync time
+  // Get last sync time (read from agents table — survives skip_noop_update trigger)
   let lastSync = null;
   if (hasCredentials) {
     const { data } = await supabase
-      .from('jamaah')
-      .select('synced_at')
-      .eq('agent_id', req.user.id)
-      .order('synced_at', { ascending: false })
-      .limit(1);
-    if (data?.[0]) lastSync = data[0].synced_at;
+      .from('agents')
+      .select('last_jamaah_sync_at')
+      .eq('id', req.user.id)
+      .maybeSingle();
+    if (data?.last_jamaah_sync_at) lastSync = data.last_jamaah_sync_at;
   }
 
   res.json({
@@ -3480,7 +3936,7 @@ async function enrichJamaahFromLaporanItems(agentId, items, context) {
 
   const { data: existing, error: existErr } = await supabase
     .from('jamaah')
-    .select('id, id_umroh, jm_id, nama, wa, tgl_lahir, no_paspor, paspor_expired, perlengkapan, dokumen')
+    .select('id, id_umroh, jm_id, nama, wa, tgl_lahir, no_paspor, paspor_expired, tgl_daftar, perlengkapan, dokumen')
     .eq('agent_id', agentId)
     .in('id_umroh', idumrohSet);
   if (existErr) {
@@ -3519,7 +3975,7 @@ async function enrichJamaahFromLaporanItems(agentId, items, context) {
     if (item.tgl_lahir && item.tgl_lahir !== target.tgl_lahir) patch.tgl_lahir = item.tgl_lahir;
     if (item.no_paspor && item.no_paspor !== target.no_paspor) patch.no_paspor = item.no_paspor;
     if (item.paspor_expired && item.paspor_expired !== target.paspor_expired) patch.paspor_expired = item.paspor_expired;
-    if (item.tgl_daftar) patch.tgl_daftar = item.tgl_daftar;
+    if (item.tgl_daftar && item.tgl_daftar !== target.tgl_daftar) patch.tgl_daftar = item.tgl_daftar;
     if (item.perlengkapan && Object.keys(item.perlengkapan).length > 0) {
       const existingP = target.perlengkapan || {};
       const changed = Object.keys(item.perlengkapan).some(k => item.perlengkapan[k] !== existingP[k]);
@@ -4063,6 +4519,10 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   } finally {
     console.log(`[Sync] ${slug}: sync complete — ${totalItems} total items`);
     syncingAgents.set(agentId, { isSyncing: false, totalSynced: totalItems, lastSync: now });
+    // Persist sync timestamp at agent level — skip_noop_update trigger blocks
+    // jamaah.synced_at advancement on cycles where no row content changed.
+    const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_sync_at: now }).eq('id', agentId);
+    if (bumpErr) console.warn(`[Sync] ${slug} bump last_jamaah_sync_at failed:`, bumpErr.message);
   }
 
   // If we never sent response (all phases empty)
@@ -4076,16 +4536,16 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 app.get('/api/laporan/sync-status', authMiddleware, async (req, res) => {
   const state = syncingAgents.get(req.user.id);
   if (!state) {
-    // No sync state — check last sync from Supabase
+    // No sync state — check last sync from agents table (skip_noop_update trigger
+    // means jamaah.synced_at no longer reflects "last sync attempt" reliably).
     const { data } = await supabase
-      .from('jamaah')
-      .select('synced_at')
-      .eq('agent_id', req.user.id)
-      .order('synced_at', { ascending: false })
-      .limit(1);
+      .from('agents')
+      .select('last_jamaah_sync_at')
+      .eq('id', req.user.id)
+      .maybeSingle();
     return res.json({
       success: true,
-      data: { isSyncing: false, totalSynced: 0, lastSync: data?.[0]?.synced_at || null },
+      data: { isSyncing: false, totalSynced: 0, lastSync: data?.last_jamaah_sync_at || null },
     });
   }
   res.json({ success: true, data: state });
@@ -5856,13 +6316,12 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   const data = pageUnits.flatMap(u => u.members);
   const count = totalUnits;
 
-  // Get last sync time
+  // Get last sync time (from agents table — see skip_noop_update trigger note)
   const { data: syncData } = await supabase
-    .from('jamaah')
-    .select('synced_at')
-    .eq('agent_id', req.user.id)
-    .order('synced_at', { ascending: false })
-    .limit(1);
+    .from('agents')
+    .select('last_jamaah_sync_at')
+    .eq('id', req.user.id)
+    .maybeSingle();
 
   // Helper: apply year filter to count queries
   const applyYearFilter = (q) => hijriahYear ? q.eq('hijriah_year', hijriahYear) : q.gte('hijriah_year', MIN_HIJRIAH_YEAR);
@@ -5901,7 +6360,7 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
       total: count || 0,
       page: pageNum,
       totalPages: Math.ceil((count || 0) / limitNum),
-      lastSync: syncData?.[0]?.synced_at || null,
+      lastSync: syncData?.last_jamaah_sync_at || null,
       counts: {
         semua: totalCount || 0,
         belumLunas: belumCount || 0,
@@ -6876,12 +7335,11 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
 
     // ── lastSync ──
     const { data: syncData } = await supabase
-      .from('jamaah')
-      .select('synced_at')
-      .eq('agent_id', agentId)
-      .order('synced_at', { ascending: false })
-      .limit(1);
-    const lastSync = syncData?.[0]?.synced_at || null;
+      .from('agents')
+      .select('last_jamaah_sync_at')
+      .eq('id', agentId)
+      .maybeSingle();
+    const lastSync = syncData?.last_jamaah_sync_at || null;
 
     res.json({
       success: true,
@@ -6958,7 +7416,10 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
       if (!listComplete) {
         // Truncated response with empty list — refuse to wipe DB on untrusted signal.
         console.warn(`[haji-sync] ${slug}: list empty BUT response incomplete — skipping cleanup`);
-        syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: new Date().toISOString() });
+        const truncatedNow = new Date().toISOString();
+        syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: truncatedNow });
+        const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: truncatedNow }).eq('id', agentId);
+        if (bumpErr) console.warn(`[haji-sync] ${slug} bump last_jamaah_haji_sync_at (truncated) failed:`, bumpErr.message);
         return res.json({ success: true, data: { initialCount: 0, syncing: false, message: 'Respons list tidak lengkap — cleanup dilewati' } });
       }
       // Legitimate empty — but go through cleanup guard which also percent-guards.
@@ -6980,7 +7441,10 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
         await executeHajiDeletions(slug, agentId, plan.toDelete);
         console.log(`[haji-sync] ${slug}: removed ${plan.toDelete.length} haji (internal system empty)`);
       }
-      syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: new Date().toISOString() });
+      const emptyNow = new Date().toISOString();
+      syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: emptyNow });
+      const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: emptyNow }).eq('id', agentId);
+      if (bumpErr) console.warn(`[haji-sync] ${slug} bump last_jamaah_haji_sync_at (empty) failed:`, bumpErr.message);
       return res.json({ success: true, data: { initialCount: 0, syncing: false } });
     }
 
@@ -7163,6 +7627,8 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
           await runCleanup();
           console.log(`[haji-sync] ${slug}: background sync complete`);
           syncingAgents.set(agentId, { isSyncing: false, totalSynced: firstRows.length, lastSync: now });
+          const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: now }).eq('id', agentId);
+          if (bumpErr) console.warn(`[haji-sync] ${slug} bump last_jamaah_haji_sync_at failed:`, bumpErr.message);
         } catch (err) {
           console.error('[haji-sync] BG sync error:', err.message);
           syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
@@ -7171,6 +7637,8 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     } else {
       await runCleanup();
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: firstRows.length, lastSync: now });
+      const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: now }).eq('id', agentId);
+      if (bumpErr) console.warn(`[haji-sync] ${slug} bump last_jamaah_haji_sync_at failed:`, bumpErr.message);
     }
   } catch (err) {
     console.error('[haji] Sync error:', err);
@@ -7232,14 +7700,13 @@ app.get('/api/haji/sync-status', authMiddleware, async (req, res) => {
   const state = syncingAgents.get(req.user.id);
   if (!state) {
     const { data } = await supabase
-      .from('jamaah_haji')
-      .select('synced_at')
-      .eq('agent_id', req.user.id)
-      .order('synced_at', { ascending: false })
-      .limit(1);
+      .from('agents')
+      .select('last_jamaah_haji_sync_at')
+      .eq('id', req.user.id)
+      .maybeSingle();
     return res.json({
       success: true,
-      data: { isSyncing: false, totalSynced: 0, lastSync: data?.[0]?.synced_at || null },
+      data: { isSyncing: false, totalSynced: 0, lastSync: data?.last_jamaah_haji_sync_at || null },
     });
   }
   res.json({ success: true, data: state });
@@ -7444,7 +7911,7 @@ app.get('/api/haji/doc-proxy', authMiddleware, async (req, res) => {
 // Analytics API
 // ──────────────────────────────────────────────
 const VALID_EVENT_TYPES = ['login', 'feature', 'action', 'public'];
-const VALID_PUBLIC_EVENTS = ['page_view', 'wa_click_public', 'inquiry_submitted', 'ask_ai_opened', 'ask_ai_chip_tapped', 'ask_ai_free_query', 'ask_ai_wa_clicked'];
+const VALID_PUBLIC_EVENTS = ['page_view', 'wa_click_public', 'inquiry_submitted', 'ask_ai_opened', 'ask_ai_chip_tapped', 'ask_ai_free_query', 'ask_ai_wa_clicked', 'bio_view'];
 
 // Shared label dictionaries (used by /summary + /agent/:slug drill-down)
 const FEATURE_LABELS = {
@@ -9199,6 +9666,83 @@ app.get('/:slug/haji', async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
+// Bio Page: /:slug/bio — SSR OG meta injection (React SPA handles body)
+// ──────────────────────────────────────────────
+
+function escapeHtmlAttr(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+app.get('/:slug/bio', async (req, res, next) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+  try {
+    const resolved = await resolveSlug(slug);
+    if (!resolved) return next(); // unknown slug → SPA fallback (React 404)
+    if (resolved.redirect) {
+      return res.redirect(301, `/${resolved.redirect}/bio`);
+    }
+
+    const agent = resolved.agent;
+    const bioConfig = agent.bio_config || {};
+    if (bioConfig.enabled === false) return next(); // explicitly disabled → SPA 404
+
+    const title = bioConfig.seo?.title
+      || `${agent.name} — Konsultan Umroh & Haji Plus`;
+    const description = bioConfig.seo?.description
+      || `Halaman resmi ${agent.name}, mitra travel Umroh dan Haji Plus Alhijaz Indowisata.`;
+    const origin = `${req.protocol}://${req.get('host')}`;
+    const ogImage = bioConfig.seo?.og_image_url || `${origin}/og/${slug}.png`;
+    const pageUrl = `${origin}/${slug}/bio`;
+
+    const indexPath = resolve(distPath, 'index.html');
+    let html = readFileSync(indexPath, 'utf-8');
+
+    const t = escapeHtmlAttr(title);
+    const d = escapeHtmlAttr(description);
+    const img = escapeHtmlAttr(ogImage);
+    const url = escapeHtmlAttr(pageUrl);
+
+    html = html.replace(/<title>[^<]*<\/title>/i, `<title>${t}</title>`);
+    html = html.replace(
+      /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i,
+      `<meta name="description" content="${d}" />`
+    );
+    // Strip any inherited OG tags so bio's canonical tags win
+    html = html.replace(/<meta\s+property="og:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+    html = html.replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '');
+
+    const metaTags = `
+    <link rel="canonical" href="${url}" />
+    <meta property="og:title" content="${t}" />
+    <meta property="og:description" content="${d}" />
+    <meta property="og:type" content="profile" />
+    <meta property="og:url" content="${url}" />
+    <meta property="og:site_name" content="Alhijaz Indowisata" />
+    <meta property="og:image" content="${img}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${t}" />
+    <meta name="twitter:description" content="${d}" />
+    <meta name="twitter:image" content="${img}" />
+    `;
+    html = html.replace('</head>', `${metaTags}</head>`);
+
+    res.set({
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=300',
+    }).send(html);
+  } catch (err) {
+    console.error('[bio] SSR error for', slug, ':', err.message);
+    next();
+  }
+});
+
+// ──────────────────────────────────────────────
 // Haji Plus: Scrape + Sync + API
 // ──────────────────────────────────────────────
 
@@ -9912,6 +10456,10 @@ async function syncOneAgent(agent) {
     }
 
     console.log(`[SYNC] ${slug}: total ${totalSynced} umroh synced`);
+    {
+      const { error: umrohBumpErr } = await supabase.from('agents').update({ last_jamaah_sync_at: syncTime }).eq('id', agentId);
+      if (umrohBumpErr) console.warn(`[SYNC] ${slug} bump last_jamaah_sync_at failed:`, umrohBumpErr.message);
+    }
 
     // ── Haji sync (reuse same session) ──
     try {
@@ -10014,6 +10562,8 @@ async function syncOneAgent(agent) {
           const deletedCount = await executeHajiDeletions(slug, agentId, plan.toDelete);
           console.log(`[SYNC] ${slug}: removed ${deletedCount} stale haji (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
         }
+        const { error: hajiBumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: syncTime }).eq('id', agentId);
+        if (hajiBumpErr) console.warn(`[SYNC] ${slug} bump last_jamaah_haji_sync_at failed:`, hajiBumpErr.message);
       }
     } catch (hajiErr) {
       console.error(`[SYNC] ${slug} haji error:`, hajiErr.message);

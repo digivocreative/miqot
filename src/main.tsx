@@ -17,6 +17,7 @@ console.log(
 import KalkulasiPage from './components/KalkulasiPage.tsx'
 import ComparePage from './components/ComparePage.tsx'
 import FlightSharePage from './components/FlightSharePage.tsx'
+import BioPage from './components/bio/BioPage.tsx'
 import { AGENTS_DATA } from '@/data/agents'
 
 // Register Service Worker for PWA
@@ -42,11 +43,13 @@ const flightShareCode = isFlightShare ? segments[1] : null
 const isKalkulasi = segments.length >= 2 && segments[1] === 'kalkulasi'
 const isCompare = (segments.length >= 2 && segments[1] === 'compare') || (segments.length === 1 && segments[0] === 'compare')
 const isCapi = segments.length >= 2 && segments[1] === 'capi'
+const isBio = segments.length >= 2 && segments[1] === 'bio'
+const bioSlug = isBio ? segments[0]?.toLowerCase() : null
 
 // Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
 import { getFilterModeFromSlug } from '@/utils'
 const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f']
-const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi']
+const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'bio']
 
 const agentSlugForKalkulasi = isKalkulasi
   ? AGENTS_DATA[segments[0]?.toLowerCase()] || null
@@ -172,6 +175,7 @@ const renderPage = () => {
   }
   if (isKalkulasi) return <KalkulasiPage agent={agentSlugForKalkulasi} hideDiscount />
   if (isCompare) return <ComparePage agent={agentSlugForCompare} />
+  if (isBio && bioSlug) return <BioPage slug={bioSlug} />
   return <App singlePackageId={singlePackageId} />
 }
 
