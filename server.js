@@ -2917,14 +2917,25 @@ function normalizeBioConfig(raw, existing) {
         throw Object.assign(new Error(`Tile type "${type}" hanya boleh 1×`), { status: 400 });
       }
     }
-    const validated = validateTileConfig(t);
+    // Be graceful with incomplete-but-visible tiles: instead of rejecting the
+    // whole save (which would block auto-save while the agent is still typing),
+    // auto-flip the tile to hidden and keep going. The render-time guard on the
+    // public bio already hides incomplete tiles, so the user-facing effect is
+    // identical — but the editor stays unblocked.
+    let validated = validateTileConfig(t);
+    let resolvedVisible = t.visible !== false;
     if (!validated.ok) {
-      throw Object.assign(new Error(validated.error), { status: 400 });
+      const fallback = validateTileConfig({ ...t, visible: false });
+      if (!fallback.ok) {
+        throw Object.assign(new Error(validated.error), { status: 400 });
+      }
+      validated = fallback;
+      resolvedVisible = false;
     }
     cleanedTiles.push({
       id: typeof t.id === 'string' && t.id.trim() ? t.id.trim().slice(0, 32) : bioNewId(),
       type,
-      visible: t.visible !== false,
+      visible: resolvedVisible,
       order: 0, // re-assigned below
       config: validated.config,
     });

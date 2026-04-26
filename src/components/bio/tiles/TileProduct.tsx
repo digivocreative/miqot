@@ -1,5 +1,6 @@
-import { Package, Star, Compass, ChevronRight } from 'lucide-react';
+import { Package, ChevronRight } from 'lucide-react';
 import type { BioAgentPublic } from '../types';
+import KaabaIcon from '../KaabaIcon';
 
 interface Props {
   variant: 'umroh' | 'umroh_landing' | 'haji';
@@ -13,21 +14,21 @@ const VARIANT_META = {
   umroh: {
     href: (slug: string) => `/${slug}`,
     icon: Package,
-    title: 'Lihat Jadwal Umroh',
-    subtitle: 'Jadwal Umroh terbaru · Semua paket tersedia',
+    title: 'Cek Paket Umroh',
+    subtitle: 'Lihat Jadwal Umroh Terbaru',
   },
   // "Landing Page Umroh" → /:slug/umroh, the curated landing experience.
   umroh_landing: {
     href: (slug: string) => `/${slug}/umroh`,
-    icon: Compass,
-    title: 'Landing Page Umroh',
-    subtitle: 'Halaman promosi Umroh untuk dibagikan',
+    icon: KaabaIcon,
+    title: 'Umroh',
+    subtitle: 'Lihat Penawaran Menarik',
   },
   haji: {
     href: (slug: string) => `/${slug}/haji`,
-    icon: Star,
-    title: 'Haji Plus Alhijaz',
-    subtitle: 'Kuota Haji Plus Alhijaz Indowisata',
+    icon: KaabaIcon,
+    title: 'Haji Plus',
+    subtitle: 'Masa Tunggu Singkat',
   },
 } as const;
 

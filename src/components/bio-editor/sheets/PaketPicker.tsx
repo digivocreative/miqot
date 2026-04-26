@@ -61,8 +61,23 @@ export default function PaketPicker({ open, onClose, onPick }: Props) {
   }, [open, year]);
 
   const filtered = useMemo(() => {
+    // "Available" = seat sisa > 0 AND keberangkatan belum lewat. Featured Paket
+    // is meant to be a currently-sellable headline, so already-departed or
+    // sold-out paket should never even appear in the picker.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const available = packages.filter(p => {
+      const seatSisa = typeof p.seatSisa === 'number' ? p.seatSisa : null;
+      if (seatSisa !== null && seatSisa <= 0) return false;
+      const tgl = p.keberangkatan?.tgl;
+      if (tgl) {
+        const d = new Date(tgl);
+        if (!Number.isNaN(d.getTime()) && d.getTime() < today.getTime()) return false;
+      }
+      return true;
+    });
     const t = q.trim().toLowerCase();
-    const sorted = [...packages].sort((a, b) =>
+    const sorted = [...available].sort((a, b) =>
       new Date(a.keberangkatan?.tgl || 0).getTime() - new Date(b.keberangkatan?.tgl || 0).getTime()
     );
     if (!t) return sorted;

@@ -19,6 +19,20 @@ interface Props {
 
 const FONT_HREF = 'https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500;1,9..144,600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
 
+// Format an Indonesian phone like "6285211209049" → "0852-1120-9049". Used in
+// the footer credit line so visitors see a familiar local format.
+function formatBioFooterPhone(raw?: string): string {
+  if (!raw) return '';
+  const digits = String(raw).replace(/\D/g, '');
+  if (!digits) return '';
+  let local = digits;
+  if (local.startsWith('62')) local = '0' + local.slice(2);
+  if (local.length >= 10) {
+    return `${local.slice(0, 4)}-${local.slice(4, 8)}-${local.slice(8)}`;
+  }
+  return local;
+}
+
 function useBioFonts() {
   useEffect(() => {
     const links: HTMLLinkElement[] = [];
@@ -264,10 +278,30 @@ export default function BioPage({ slug }: Props) {
           }
         })}
         <footer className="bio-footer">
-          Dibuat dengan{' '}
-          <a href="https://alhijaz.co" target="_blank" rel="noopener noreferrer">Miqot</a>
-          <span className="bio-footer-sep">·</span>
-          alhijaz.co/{slug}/bio
+          <p className="bio-footer-name">{publicAgent.name}</p>
+          <p className="bio-footer-meta">
+            {publicAgent.phone && (
+              <a
+                href={`https://wa.me/${String(publicAgent.phone).replace(/\D/g, '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {formatBioFooterPhone(publicAgent.phone)}
+              </a>
+            )}
+            {publicAgent.phone && agent?.website && (
+              <span className="bio-footer-sep">·</span>
+            )}
+            {agent?.website && (
+              <a
+                href={`https://${agent.website.replace(/^https?:\/\//, '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {agent.website.replace(/^https?:\/\//, '').replace(/\/+$/, '')}
+              </a>
+            )}
+          </p>
         </footer>
       </div>
     );

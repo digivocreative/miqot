@@ -561,11 +561,24 @@
 
 /* ── Footer ── */
 .bio-footer {
-  margin-top: 12px;
+  margin-top: 16px;
   text-align: center;
-  font-size: 11.5px;
   color: var(--text-muted);
-  opacity: 0.75;
+}
+
+.bio-footer-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.bio-footer-meta {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  opacity: 0.85;
 }
 
 .bio-footer a {

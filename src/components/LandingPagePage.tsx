@@ -93,22 +93,15 @@ export default function LandingPagePage({ agent }: Props) {
   const [defaults, setDefaults] = useState<DefaultsState | null>(null);
   const [currentMeta, setCurrentMeta] = useState<CurrentMetaState | null>(null);
   const [activeType, setActiveType] = useState<ActiveTab>(getLandingTabFromPath);
-  const [bioComingSoon, setBioComingSoon] = useState(false);
-  const isAdmin = agent.role === 'admin';
 
   // Push state on tab change so reload/back keeps the user on the active tab
   const switchTab = useCallback((tab: ActiveTab) => {
-    if (tab === 'bio' && !isAdmin) {
-      setBioComingSoon(true);
-      setTimeout(() => setBioComingSoon(false), 2400);
-      return;
-    }
     setActiveType(tab);
     const newPath = `/dashboard/ai-tools/landing-page/${tab}`;
     if (typeof window !== 'undefined' && window.location.pathname !== newPath) {
       window.history.pushState({}, '', newPath);
     }
-  }, [isAdmin]);
+  }, []);
 
   // Sync activeType when user navigates with browser back/forward
   useEffect(() => {
@@ -116,14 +109,6 @@ export default function LandingPagePage({ agent }: Props) {
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
-
-  // If non-admin somehow lands on /landing-page/bio (typed URL), bounce to umroh
-  useEffect(() => {
-    if (activeType === 'bio' && !isAdmin) {
-      setActiveType('umroh');
-      window.history.replaceState({}, '', '/dashboard/ai-tools/landing-page/umroh');
-    }
-  }, [activeType, isAdmin]);
 
   // Backfill URL on first mount when path doesn't yet have an explicit tab segment
   useEffect(() => {
@@ -367,7 +352,6 @@ export default function LandingPagePage({ agent }: Props) {
             icon={UserCircle}
             label="Bio"
             hasCustom={false}
-            disabled={!isAdmin}
             onClick={() => switchTab('bio')}
           />
         </div>
@@ -464,16 +448,6 @@ export default function LandingPagePage({ agent }: Props) {
         confirmLabel="Gunakan Gambar"
         quality={0.9}
       />
-
-      {/* Coming-soon toast — shown when non-admin agents tap the Bio tab */}
-      {bioComingSoon && (
-        <div
-          className="fixed left-1/2 -translate-x-1/2 bottom-8 z-50 px-5 py-3 bg-gray-900/95 dark:bg-slate-700 text-white rounded-2xl shadow-xl text-sm font-semibold flex items-center gap-2"
-          style={{ animation: 'fadeIn 200ms ease-out' }}
-        >
-          <span>Segera hadir 🚀</span>
-        </div>
-      )}
 
       {/* Toast */}
       {toast && (

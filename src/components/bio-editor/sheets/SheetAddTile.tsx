@@ -1,7 +1,8 @@
-import { Package, Compass, Star, Sparkles, Link2, Type, Image as ImageIcon, Quote } from 'lucide-react';
+import { Package, Sparkles, Link2, Type, Image as ImageIcon, Quote } from 'lucide-react';
 import SheetBase from './SheetBase';
 import type { BioTileType } from '../../bio/types';
 import WhatsAppIcon from '../../bio/WhatsAppIcon';
+import KaabaIcon from '../../bio/KaabaIcon';
 
 interface Props {
   open: boolean;
@@ -12,8 +13,8 @@ interface Props {
 
 const SYSTEM_OPTIONS: { type: BioTileType; label: string; desc: string; icon: any }[] = [
   { type: 'umroh',         label: 'Jadwal Umroh',         desc: 'Link ke jadwal paket',  icon: Package },
-  { type: 'umroh_landing', label: 'Umroh',   desc: 'Link ke halaman umroh', icon: Compass },
-  { type: 'haji',          label: 'Haji Plus',            desc: 'Link ke halaman haji',          icon: Star },
+  { type: 'umroh_landing', label: 'Umroh',                desc: 'Link ke halaman umroh',         icon: KaabaIcon },
+  { type: 'haji',          label: 'Haji Plus',            desc: 'Link ke halaman haji',          icon: KaabaIcon },
   { type: 'wa',            label: 'WhatsApp',             desc: 'Tombol chat langsung',          icon: WhatsAppIcon },
   { type: 'featured',      label: 'Paket Favorit',       desc: 'Paket dengan CTA',      icon: Sparkles },
 ];
@@ -30,7 +31,7 @@ export default function SheetAddTile({ open, onClose, usedSingletonTypes, onAdd 
     <SheetBase open={open} onClose={onClose} title="Tambah Bagian">
       <section>
         <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-          Integrasi Miqot
+          BAWAAN SISTEM
         </p>
         <div className="grid grid-cols-2 gap-2">
           {SYSTEM_OPTIONS.map(opt => {

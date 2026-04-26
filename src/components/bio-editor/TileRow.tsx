@@ -2,11 +2,12 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
   GripVertical, Eye, EyeOff, ChevronRight,
-  Package, Compass, Star, Sparkles, Link2, Type, Image as ImageIcon, Quote, AlertTriangle,
+  Package, Sparkles, Link2, Type, Image as ImageIcon, Quote,
 } from 'lucide-react';
 import type { BioTile } from '../bio/types';
 import { validateBioTile } from './bioEditorValidation';
 import WhatsAppIcon from '../bio/WhatsAppIcon';
+import KaabaIcon from '../bio/KaabaIcon';
 
 interface Props {
   tile: BioTile;
@@ -17,8 +18,8 @@ interface Props {
 
 const TYPE_META: Record<BioTile['type'], { icon: any; label: string; badge: string; badgeClass: string }> = {
   umroh:           { icon: Package,        label: 'Jadwal',         badge: 'SISTEM',   badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
-  umroh_landing:   { icon: Compass,        label: 'Umroh',   badge: 'SISTEM',   badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
-  haji:            { icon: Star,           label: 'Haji',                 badge: 'SISTEM',   badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  umroh_landing:   { icon: KaabaIcon,      label: 'Umroh',                badge: 'SISTEM',   badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  haji:            { icon: KaabaIcon,      label: 'Haji',                 badge: 'SISTEM',   badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
   wa:       { icon: WhatsAppIcon,   label: 'WhatsApp',       badge: 'SISTEM',   badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
   featured: { icon: Sparkles,       label: 'Featured Paket', badge: 'FEATURED', badgeClass: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
   link:     { icon: Link2,          label: 'Custom Link',    badge: 'LINK',     badgeClass: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' },
@@ -66,11 +67,6 @@ export default function TileRow({ tile, onTap, onToggleVisible, agentPhone }: Pr
   const meta = TYPE_META[tile.type];
   const Icon = meta.icon;
   const validation = validateBioTile(tile, agentPhone);
-  const status = !validation.complete
-    ? { label: 'PERLU DILENGKAPI', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' }
-    : tile.visible
-    ? { label: 'SIAP', className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' }
-    : { label: 'TERSEMBUNYI', className: 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300' };
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
