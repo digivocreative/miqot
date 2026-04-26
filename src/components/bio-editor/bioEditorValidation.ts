@@ -19,6 +19,7 @@ export function validateBioTile(tile: BioTile, agentPhone?: string): BioTileVali
 
   switch (tile.type) {
     case 'umroh':
+    case 'umroh_landing':
     case 'haji':
       break;
     case 'wa':

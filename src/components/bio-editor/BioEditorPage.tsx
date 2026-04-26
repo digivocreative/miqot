@@ -40,7 +40,7 @@ export default function BioEditorPage({ agent }: Props) {
   const usedSingletonTypes = useMemo(() => {
     const set = new Set<BioTileType>();
     for (const t of (config?.tiles || [])) {
-      if (t.type === 'umroh' || t.type === 'haji' || t.type === 'wa' || t.type === 'featured') {
+      if (t.type === 'umroh' || t.type === 'umroh_landing' || t.type === 'haji' || t.type === 'wa' || t.type === 'featured') {
         set.add(t.type);
       }
     }
@@ -54,9 +54,12 @@ export default function BioEditorPage({ agent }: Props) {
 
   const handleAddTile = (type: BioTileType) => {
     const id = bioEditorNewId();
-    const tileDraft: Omit<BioTile, 'order'> = { id, type, visible: false, config: {} };
-    const visible = canShowBioTile({ ...tileDraft, order: 0 }, agent.phone);
-    bio.addTile({ ...tileDraft, visible });
+    // Default new tiles to visible — agents expect a freshly-added section to
+    // show up on their bio. The render-time `canShowBioTile` guard still hides
+    // it publicly until required fields are filled, but the user's intent flag
+    // stays "on" so once they complete the form it appears immediately.
+    const tileDraft: Omit<BioTile, 'order'> = { id, type, visible: true, config: {} };
+    bio.addTile(tileDraft);
     setAddOpen(false);
     // Open edit sheet for the new tile — OOBE flow
     setTimeout(() => setEditingTileId(id), 100);

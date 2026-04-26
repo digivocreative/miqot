@@ -18,7 +18,7 @@ import KalkulasiPage from './components/KalkulasiPage.tsx'
 import ComparePage from './components/ComparePage.tsx'
 import FlightSharePage from './components/FlightSharePage.tsx'
 import BioPage from './components/bio/BioPage.tsx'
-import { AGENTS_DATA } from '@/data/agents'
+import { AGENTS_DATA, loadAgentsFromSupabase } from '@/data/agents'
 
 // Register Service Worker for PWA
 const updateSW = registerSW({
@@ -50,31 +50,6 @@ const bioSlug = isBio ? segments[0]?.toLowerCase() : null
 import { getFilterModeFromSlug } from '@/utils'
 const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f']
 const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'bio']
-
-const agentSlugForKalkulasi = isKalkulasi
-  ? AGENTS_DATA[segments[0]?.toLowerCase()] || null
-  : null
-const agentSlugForCompare = isCompare && segments.length >= 2
-  ? AGENTS_DATA[segments[0]?.toLowerCase()] || null
-  : null
-
-// Case 1: /:agent/:jadwalId (2 segments, first is agent)
-const isSinglePackageWithAgent = !isKalkulasi && !isCompare
-  && segments.length >= 2
-  && !!AGENTS_DATA[segments[0]?.toLowerCase()]
-  && !knownSecondSegments.includes(segments[1]?.toLowerCase())
-  && !getFilterModeFromSlug(segments[1]?.toLowerCase())
-
-// Case 2: bare /:jadwalId (1 segment, not a known route/agent/filter)
-const isBarePackageId = segments.length === 1
-  && !knownFirstSegments.includes(segments[0]?.toLowerCase())
-  && !AGENTS_DATA[segments[0]?.toLowerCase()]
-  && !getFilterModeFromSlug(segments[0]?.toLowerCase())
-
-const isSinglePackage = isSinglePackageWithAgent || isBarePackageId
-const singlePackageId = isSinglePackageWithAgent ? segments[1]
-  : isBarePackageId ? segments[0]
-  : null
 
 // ── Auto-redirect: logged-in agents go straight to dashboard ──
 import { isSessionValid } from './utils/authUtils'
@@ -159,30 +134,65 @@ function DashboardRouter() {
   }} />
 }
 
-// Determine which page to render
-const renderPage = () => {
-  if (isLogin) return <LoginRouter />
-  if (isRegister) return <RegisterPage />
-  if (isResetPassword) return <ResetPasswordPage />
-  if (isFlightShare && flightShareCode) {
-    return <FlightSharePage code={flightShareCode} />
-  }
-  if (isDashboard) return <DashboardRouter />
-  if (isCapi) {
-    // Redirect /:slug/capi to /dashboard/settings/capi
-    window.location.replace('/dashboard/settings/capi')
-    return null
-  }
-  if (isKalkulasi) return <KalkulasiPage agent={agentSlugForKalkulasi} hideDiscount />
-  if (isCompare) return <ComparePage agent={agentSlugForCompare} />
-  if (isBio && bioSlug) return <BioPage slug={bioSlug} />
-  return <App singlePackageId={singlePackageId} />
-}
-
-// Only render if not auto-redirecting
 if (!shouldAutoRedirect) {
-  createRoot(document.getElementById('root')!).render(
-    renderPage()
-  )
+  void (async () => {
+    // Routing for /:slug paths depends on AGENTS_DATA. If the cache doesn't
+    // know this slug (cold start or stale cache after a new agent was added),
+    // fetch fresh agent list from Supabase before deciding the route — otherwise
+    // an unknown agent slug gets misclassified as a bare jadwalId and shows
+    // "Paket tidak ditemukan" until the user refreshes.
+    const firstSlug = segments[0]?.toLowerCase()
+    const slugMaybeAgent = !!firstSlug
+      && !knownFirstSegments.includes(firstSlug)
+      && !AGENTS_DATA[firstSlug]
+    if (slugMaybeAgent) {
+      await loadAgentsFromSupabase()
+    }
+
+    const agentSlugForKalkulasi = isKalkulasi
+      ? AGENTS_DATA[firstSlug] || null
+      : null
+    const agentSlugForCompare = isCompare && segments.length >= 2
+      ? AGENTS_DATA[firstSlug] || null
+      : null
+
+    // Case 1: /:agent/:jadwalId (2 segments, first is agent)
+    const isSinglePackageWithAgent = !isKalkulasi && !isCompare
+      && segments.length >= 2
+      && !!AGENTS_DATA[firstSlug]
+      && !knownSecondSegments.includes(segments[1]?.toLowerCase())
+      && !getFilterModeFromSlug(segments[1]?.toLowerCase())
+
+    // Case 2: bare /:jadwalId (1 segment, not a known route/agent/filter)
+    const isBarePackageId = segments.length === 1
+      && !knownFirstSegments.includes(firstSlug)
+      && !AGENTS_DATA[firstSlug]
+      && !getFilterModeFromSlug(firstSlug)
+
+    const singlePackageId = isSinglePackageWithAgent ? segments[1]
+      : isBarePackageId ? segments[0]
+      : null
+
+    const page = (() => {
+      if (isLogin) return <LoginRouter />
+      if (isRegister) return <RegisterPage />
+      if (isResetPassword) return <ResetPasswordPage />
+      if (isFlightShare && flightShareCode) {
+        return <FlightSharePage code={flightShareCode} />
+      }
+      if (isDashboard) return <DashboardRouter />
+      if (isCapi) {
+        // Redirect /:slug/capi to /dashboard/settings/capi
+        window.location.replace('/dashboard/settings/capi')
+        return null
+      }
+      if (isKalkulasi) return <KalkulasiPage agent={agentSlugForKalkulasi} hideDiscount />
+      if (isCompare) return <ComparePage agent={agentSlugForCompare} />
+      if (isBio && bioSlug) return <BioPage slug={bioSlug} />
+      return <App singlePackageId={singlePackageId} />
+    })()
+
+    createRoot(document.getElementById('root')!).render(page)
+  })()
 }
 

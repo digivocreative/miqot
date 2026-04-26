@@ -215,6 +215,15 @@ export default function BioPage({ slug }: Props) {
                   cta={c.cta as string}
                 />
               );
+            case 'umroh_landing':
+              return (
+                <TileProduct
+                  key={tile.id}
+                  variant="umroh_landing"
+                  agent={publicAgent}
+                  cta={c.cta as string}
+                />
+              );
             case 'haji':
               return (
                 <TileProduct

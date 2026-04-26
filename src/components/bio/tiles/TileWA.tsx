@@ -1,4 +1,5 @@
-import { MessageCircle, ChevronRight } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
+import WhatsAppIcon from '../WhatsAppIcon';
 
 interface Props {
   waLink: string | null;
@@ -17,7 +18,7 @@ export default function TileWA({ waLink, title, subtitle }: Props) {
     >
       <div className="bio-tile-row">
         <div className="bio-tile-icon">
-          <MessageCircle size={20} strokeWidth={2.2} />
+          <WhatsAppIcon size={22} />
         </div>
         <div className="bio-tile-text">
           <p className="bio-tile-title">{title?.trim() || 'Chat via WhatsApp'}</p>

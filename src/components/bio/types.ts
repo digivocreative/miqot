@@ -1,6 +1,6 @@
 export type BioTheme = 'emerald' | 'desert' | 'midnight' | 'rosegold' | 'sunset' | 'mono';
 
-export type BioTileType = 'umroh' | 'haji' | 'wa' | 'featured' | 'link' | 'text' | 'photo' | 'testi';
+export type BioTileType = 'umroh' | 'umroh_landing' | 'haji' | 'wa' | 'featured' | 'link' | 'text' | 'photo' | 'testi';
 
 export interface BioTile {
   id: string;

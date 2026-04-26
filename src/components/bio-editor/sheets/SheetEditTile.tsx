@@ -27,10 +27,11 @@ export default function SheetEditTile(props: Props) {
   }
 
   const c = tile.config as Record<string, any>;
-  const isSystem = tile.type === 'umroh' || tile.type === 'haji';
+  const isSystem = tile.type === 'umroh' || tile.type === 'umroh_landing' || tile.type === 'haji';
 
   const titleByType: Record<BioTile['type'], string> = {
     umroh: 'Jadwal Umroh',
+    umroh_landing: 'Umroh',
     haji: 'Haji Plus',
     wa: 'Tombol WhatsApp',
     featured: 'Featured Paket',
@@ -119,6 +120,7 @@ function TileFields({
     case 'featured':
       return <FeaturedFields c={c} onUpdate={onUpdateConfig} agent={agent} orphaned={!!tile.orphaned} />;
     case 'umroh':
+    case 'umroh_landing':
     case 'haji':
       return <ProductFields c={c} onUpdate={onUpdateConfig} variant={tile.type} />;
     case 'photo':
@@ -350,21 +352,28 @@ function FeaturedFields({
   );
 }
 
-// ── Product (umroh / haji) ───────────────────────
+// ── Product (umroh / umroh_landing / haji) ───────
+const PRODUCT_VARIANT_COPY: Record<'umroh' | 'umroh_landing' | 'haji', { destLabel: string; ctaPlaceholder: string }> = {
+  umroh:         { destLabel: 'Jadwal Paket Umroh', ctaPlaceholder: 'Lihat Jadwal Umroh' },
+  umroh_landing: { destLabel: 'Umroh', ctaPlaceholder: 'Landing Page Umroh' },
+  haji:          { destLabel: 'Haji Plus',          ctaPlaceholder: 'Landing Page Haji' },
+};
+
 function ProductFields({
   c, onUpdate, variant,
 }: {
   c: Record<string, any>;
   onUpdate: (p: Record<string, unknown>) => void;
-  variant: 'umroh' | 'haji';
+  variant: 'umroh' | 'umroh_landing' | 'haji';
 }) {
   const cta = typeof c.cta === 'string' ? c.cta : '';
+  const copy = PRODUCT_VARIANT_COPY[variant];
   return (
     <div className="space-y-4">
       <div className="bg-emerald-50 dark:bg-emerald-900/15 border border-emerald-200 dark:border-emerald-800/40 rounded-xl p-3">
         <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider mb-1">Bagian Sistem</p>
         <p className="text-xs text-emerald-800 dark:text-emerald-200">
-          Bagian ini otomatis link ke halaman {variant === 'umroh' ? 'Umroh' : 'Haji'} Anda dengan data paket terbaru. Tidak bisa dihapus — matikan visibility kalau mau sembunyikan.
+          Bagian ini otomatis link ke {copy.destLabel} Anda. Tidak bisa dihapus — matikan visibility kalau mau sembunyikan.
         </p>
       </div>
       <section>
@@ -373,7 +382,7 @@ function ProductFields({
           type="text"
           value={cta}
           onChange={(e) => onUpdate({ cta: e.target.value })}
-          placeholder={variant === 'umroh' ? 'Lihat Jadwal Umroh' : 'Haji Plus Alhijaz'}
+          placeholder={copy.ctaPlaceholder}
           maxLength={80}
           className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-gray-800 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
         />

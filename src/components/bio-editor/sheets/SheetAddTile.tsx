@@ -1,6 +1,7 @@
-import { Package, Star, MessageCircle, Sparkles, Link2, Type, Image as ImageIcon, Quote } from 'lucide-react';
+import { Package, Compass, Star, Sparkles, Link2, Type, Image as ImageIcon, Quote } from 'lucide-react';
 import SheetBase from './SheetBase';
 import type { BioTileType } from '../../bio/types';
+import WhatsAppIcon from '../../bio/WhatsAppIcon';
 
 interface Props {
   open: boolean;
@@ -10,10 +11,11 @@ interface Props {
 }
 
 const SYSTEM_OPTIONS: { type: BioTileType; label: string; desc: string; icon: any }[] = [
-  { type: 'umroh',    label: 'Jadwal Umroh',   desc: 'Link ke halaman umroh',     icon: Package },
-  { type: 'haji',     label: 'Haji Plus',      desc: 'Link ke halaman haji',      icon: Star },
-  { type: 'wa',       label: 'WhatsApp',       desc: 'Tombol chat langsung',      icon: MessageCircle },
-  { type: 'featured', label: 'Featured Paket', desc: 'Paket pilihan dengan CTA',  icon: Sparkles },
+  { type: 'umroh',         label: 'Jadwal Umroh',         desc: 'Link ke jadwal paket',  icon: Package },
+  { type: 'umroh_landing', label: 'Umroh',   desc: 'Link ke halaman umroh', icon: Compass },
+  { type: 'haji',          label: 'Haji Plus',            desc: 'Link ke halaman haji',          icon: Star },
+  { type: 'wa',            label: 'WhatsApp',             desc: 'Tombol chat langsung',          icon: WhatsAppIcon },
+  { type: 'featured',      label: 'Paket Favorit',       desc: 'Paket dengan CTA',      icon: Sparkles },
 ];
 
 const CUSTOM_OPTIONS: { type: BioTileType; label: string; desc: string; icon: any }[] = [

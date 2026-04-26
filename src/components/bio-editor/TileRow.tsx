@@ -2,10 +2,11 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
   GripVertical, Eye, EyeOff, ChevronRight,
-  Package, Star, MessageCircle, Sparkles, Link2, Type, Image as ImageIcon, Quote, AlertTriangle,
+  Package, Compass, Star, Sparkles, Link2, Type, Image as ImageIcon, Quote, AlertTriangle,
 } from 'lucide-react';
 import type { BioTile } from '../bio/types';
 import { validateBioTile } from './bioEditorValidation';
+import WhatsAppIcon from '../bio/WhatsAppIcon';
 
 interface Props {
   tile: BioTile;
@@ -15,9 +16,10 @@ interface Props {
 }
 
 const TYPE_META: Record<BioTile['type'], { icon: any; label: string; badge: string; badgeClass: string }> = {
-  umroh:    { icon: Package,        label: 'Jadwal Umroh',   badge: 'SISTEM',   badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
-  haji:     { icon: Star,           label: 'Haji',           badge: 'SISTEM',   badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
-  wa:       { icon: MessageCircle,  label: 'WhatsApp',       badge: 'SISTEM',   badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  umroh:           { icon: Package,        label: 'Jadwal',         badge: 'SISTEM',   badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  umroh_landing:   { icon: Compass,        label: 'Umroh',   badge: 'SISTEM',   badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  haji:            { icon: Star,           label: 'Haji',                 badge: 'SISTEM',   badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  wa:       { icon: WhatsAppIcon,   label: 'WhatsApp',       badge: 'SISTEM',   badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
   featured: { icon: Sparkles,       label: 'Featured Paket', badge: 'FEATURED', badgeClass: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
   link:     { icon: Link2,          label: 'Custom Link',    badge: 'LINK',     badgeClass: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' },
   text:     { icon: Type,           label: 'Teks',           badge: 'TEKS',     badgeClass: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
@@ -42,8 +44,9 @@ function formatIdPhone(raw?: string): string {
 function tileSubtitle(tile: BioTile, agentPhone?: string): string {
   const c = tile.config as Record<string, any>;
   switch (tile.type) {
-    case 'umroh': return typeof c.cta === 'string' && c.cta ? c.cta : 'Jadwal Umroh Alhijaz';
-    case 'haji':  return typeof c.cta === 'string' && c.cta ? c.cta : 'Haji Plus Alhijaz';
+    case 'umroh':         return typeof c.cta === 'string' && c.cta ? c.cta : 'Jadwal Paket Terbaru';
+    case 'umroh_landing': return typeof c.cta === 'string' && c.cta ? c.cta : 'Landing Page Umroh';
+    case 'haji':          return typeof c.cta === 'string' && c.cta ? c.cta : 'Landing Page Haji';
     case 'wa': {
       // Prefer the formatted phone — confirms the agent's WA number at a glance
       const formatted = formatIdPhone(agentPhone);
@@ -88,7 +91,7 @@ export default function TileRow({ tile, onTap, onToggleVisible, agentPhone }: Pr
       <div className="flex items-center">
         <button
           type="button"
-          className="px-2 py-4 cursor-grab active:cursor-grabbing touch-none text-gray-500 dark:text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-gray-50 dark:hover:bg-slate-700/50 rounded-l-2xl transition-colors"
+          className="px-2 py-4 cursor-grab active:cursor-grabbing touch-none text-gray-500 dark:text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400 rounded-l-2xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
           {...attributes}
           {...listeners}
           aria-label="Geser untuk mengubah urutan"
@@ -105,20 +108,7 @@ export default function TileRow({ tile, onTap, onToggleVisible, agentPhone }: Pr
             <Icon size={16} className="text-gray-700 dark:text-slate-300" strokeWidth={2.2} />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
-              <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{meta.label}</p>
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${meta.badgeClass}`}>
-                {meta.badge}
-              </span>
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${status.className}`}>
-                {status.label}
-              </span>
-              {tile.orphaned && (
-                <span className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 rounded">
-                  <AlertTriangle size={9} /> ORPHAN
-                </span>
-              )}
-            </div>
+            <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{meta.label}</p>
             <p className="text-[11px] text-gray-500 dark:text-slate-400 truncate mt-0.5">
               {validation.complete ? tileSubtitle(tile, agentPhone) : validation.issues[0]}
             </p>

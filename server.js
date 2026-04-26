@@ -2653,8 +2653,8 @@ app.delete('/api/landing-config/og-image', authMiddleware, express.json({ limit:
 // ──────────────────────────────────────────────
 
 const BIO_VALID_THEMES = ['emerald', 'desert', 'midnight', 'rosegold', 'sunset', 'mono'];
-const BIO_VALID_TILE_TYPES = ['umroh', 'haji', 'wa', 'featured', 'link', 'text', 'photo', 'testi'];
-const BIO_SINGLETON_TILE_TYPES = new Set(['umroh', 'haji', 'wa', 'featured']);
+const BIO_VALID_TILE_TYPES = ['umroh', 'umroh_landing', 'haji', 'wa', 'featured', 'link', 'text', 'photo', 'testi'];
+const BIO_SINGLETON_TILE_TYPES = new Set(['umroh', 'umroh_landing', 'haji', 'wa', 'featured']);
 const BIO_MAX_TILES = 50;
 
 function bioNewId() {
@@ -2673,9 +2673,10 @@ function buildDefaultBioConfig(_agent) {
     },
     seo: { title: null, description: null, og_image_url: null },
     tiles: [
-      { id: bioNewId(), type: 'wa',    visible: true, order: 0, config: {} },
-      { id: bioNewId(), type: 'umroh', visible: true, order: 1, config: {} },
-      { id: bioNewId(), type: 'haji',  visible: true, order: 2, config: {} },
+      { id: bioNewId(), type: 'wa',             visible: true, order: 0, config: {} },
+      { id: bioNewId(), type: 'umroh',          visible: true, order: 1, config: {} },
+      { id: bioNewId(), type: 'umroh_landing',  visible: true, order: 2, config: {} },
+      { id: bioNewId(), type: 'haji',           visible: true, order: 3, config: {} },
     ],
   };
 }
@@ -2729,6 +2730,7 @@ function sanitizeDraftTileConfig(type, cfg) {
   if (!cfg || typeof cfg !== 'object') return out;
   switch (type) {
     case 'umroh':
+    case 'umroh_landing':
     case 'haji':
       if (typeof cfg.cta === 'string') out.cta = cfg.cta.slice(0, 80);
       break;
@@ -2771,6 +2773,7 @@ function validateTileConfig(tile) {
   }
   switch (type) {
     case 'umroh':
+    case 'umroh_landing':
     case 'haji':
       return { ok: true, config: { cta: typeof cfg.cta === 'string' ? cfg.cta.slice(0, 80) : undefined } };
     case 'wa': {
