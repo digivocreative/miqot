@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, Plus, Loader2, Inbox } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertCircle, CheckCircle2, Plus, Inbox } from 'lucide-react';
 import type { BioAgentPublic, BioTile, BioTileType } from '../bio/types';
-import { useBioConfig, bioEditorNewId } from './useBioConfig';
+import { useBioConfig, bioEditorNewId, buildBioLink } from './useBioConfig';
 import { canShowBioTile, validateBioTile } from './bioEditorValidation';
 import SaveToast from './SaveToast';
 import UrlCard from './UrlCard';
-import PublicStatusCard from './PublicStatusCard';
+import SeoCard from './SeoCard';
 import ThemePicker from './ThemePicker';
 import HeroCard from './HeroCard';
 import TileList from './TileList';
@@ -69,7 +69,7 @@ export default function BioEditorPage({ agent }: Props) {
     }
     const validation = validateBioTile(tile, agent.phone);
     if (!validation.complete) {
-      showNotice(validation.issues[0] || 'Lengkapi tile dulu', 'error');
+      showNotice(validation.issues[0] || 'Lengkapi bagian dulu', 'error');
       setEditingTileId(tile.id);
       return;
     }
@@ -88,7 +88,7 @@ export default function BioEditorPage({ agent }: Props) {
         return shouldHide ? { ...next, visible: false } : next;
       }),
     }));
-    if (shouldHide) showNotice('Tile disembunyikan sampai lengkap', 'error');
+    if (shouldHide) showNotice('Bagian disembunyikan sampai lengkap', 'error');
   };
 
   const showCompleteHiddenTiles = () => {
@@ -106,12 +106,7 @@ export default function BioEditorPage({ agent }: Props) {
   };
 
   if (loading) {
-    return (
-      <div className="px-4 py-6 flex flex-col items-center gap-3">
-        <Loader2 size={22} className="animate-spin text-emerald-500" />
-        <p className="text-sm text-gray-500 dark:text-slate-400">Memuat editor…</p>
-      </div>
-    );
+    return <BioEditorSkeleton />;
   }
 
   if (!config) {
@@ -135,33 +130,27 @@ export default function BioEditorPage({ agent }: Props) {
   const allHidden = hasTiles && tiles.every(t => !t.visible);
 
   return (
-    <div className="pb-24">
-      <div className="px-4 pt-4 pb-4 flex flex-col gap-3">
-        <UrlCard slug={agent.slug} />
-        <PublicStatusCard
-          config={config}
-          agentPhone={agent.phone}
-          onToggleEnabled={() => bio.updateConfig(prev => ({ ...prev, enabled: !prev.enabled }))}
-          onOpenSeo={() => setSeoOpen(true)}
-          onShowHidden={showCompleteHiddenTiles}
-        />
+    <div className="pb-28">
+      <div className="px-4 pb-4 flex flex-col gap-3">
+        <UrlCard label="LINK BIO PUBLIK" url={buildBioLink(agent.slug)} copyAriaLabel="Salin link bio" />
         <HintBanner />
         <ThemePicker value={config.theme} onChange={bio.setTheme} />
         <HeroCard agent={agent} hero={config.hero} onTap={() => setHeroOpen(true)} />
+        <SeoCard seo={config.seo} onTap={() => setSeoOpen(true)} />
 
         <section>
           <div className="flex items-center justify-between mb-2 px-1">
             <p className="text-[11px] text-gray-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
-              TILES
+              BAGIAN
             </p>
             <span className="text-[11px] text-gray-400 dark:text-slate-500">
-              {tiles.length} tile · tahan ⋮⋮ untuk mengurutkan
+              {tiles.length} bagian · tahan ⋮⋮ untuk mengurutkan
             </span>
           </div>
 
           {allHidden && (
             <div className="mb-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 p-2.5 text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-2">
-              <span className="flex-1">Semua tile sedang tersembunyi. Aktifkan minimal satu tile agar bio tidak terlihat kosong.</span>
+              <span className="flex-1">Semua bagian sedang tersembunyi. Aktifkan minimal satu bagian agar bio tidak terlihat kosong.</span>
               <button
                 type="button"
                 onClick={showCompleteHiddenTiles}
@@ -183,9 +172,9 @@ export default function BioEditorPage({ agent }: Props) {
           ) : (
             <div className="bg-white dark:bg-slate-800 rounded-2xl border border-dashed border-gray-200 dark:border-slate-700 px-4 py-8 flex flex-col items-center gap-2 text-center">
               <Inbox size={22} className="text-gray-400 dark:text-slate-500" />
-              <p className="text-sm font-semibold text-gray-800 dark:text-white">Belum ada tile</p>
+              <p className="text-sm font-semibold text-gray-800 dark:text-white">Belum ada bagian</p>
               <p className="text-xs text-gray-500 dark:text-slate-400">
-                Tambahkan tile pertama untuk mulai isi bio Anda.
+                Tambahkan bagian pertama untuk mulai isi bio Anda.
               </p>
             </div>
           )}
@@ -196,25 +185,24 @@ export default function BioEditorPage({ agent }: Props) {
             className="mt-2 w-full flex items-center justify-center gap-1.5 py-3 rounded-2xl border-2 border-dashed border-emerald-300 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-900/10 text-emerald-600 dark:text-emerald-400 text-sm font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-900/20 active:scale-[0.99] transition-all"
           >
             <Plus size={14} strokeWidth={2.5} />
-            Tambah Tile
+            Tambah Bagian
           </button>
         </section>
       </div>
 
       <BottomBar
         slug={agent.slug}
-        agentName={agent.name}
         onPreview={() => setPreviewOpen(true)}
-        onNotice={showNotice}
       />
       <SaveToast saveStatus={saveStatus} />
-      {notice && <NoticeToast message={notice.message} type={notice.type} />}
+      <NoticeToast notice={notice} />
 
       <SheetHero
         open={heroOpen}
         onClose={() => setHeroOpen(false)}
         config={config}
         onUpdate={bio.updateConfig}
+        onSave={async () => { await bio.flush(); setHeroOpen(false); }}
       />
       <SheetSeo
         open={seoOpen}
@@ -222,6 +210,7 @@ export default function BioEditorPage({ agent }: Props) {
         slug={agent.slug}
         config={config}
         onUpdate={bio.updateConfig}
+        onSave={async () => { await bio.flush(); setSeoOpen(false); }}
       />
       <SheetPreview
         open={previewOpen}
@@ -236,6 +225,7 @@ export default function BioEditorPage({ agent }: Props) {
         waLinkPreview={config._wa_link_preview}
         onUpdateConfig={updateTileConfigSafely}
         onDelete={bio.deleteTile}
+        onSave={async () => { await bio.flush(); setEditingTileId(null); }}
       />
       <SheetAddTile
         open={addOpen}
@@ -247,13 +237,99 @@ export default function BioEditorPage({ agent }: Props) {
   );
 }
 
-function NoticeToast({ message, type }: { message: string; type: 'success' | 'error' }) {
+function BioSkeletonBlock({ className }: { className: string }) {
+  return <div className={`bg-gray-200 dark:bg-slate-700 animate-pulse ${className}`} />;
+}
+
+function BioEditorSkeleton() {
   return (
-    <div className="fixed left-1/2 -translate-x-1/2 bottom-[8.5rem] z-40 px-3 py-1.5 rounded-full shadow-lg text-[11.5px] font-semibold flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 text-gray-800 dark:text-white">
-      {type === 'success'
+    <div className="pb-28">
+      <div className="px-4 pb-4 flex flex-col gap-3">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3">
+          <div className="flex items-center gap-2">
+            <BioSkeletonBlock className="w-8 h-8 rounded-lg shrink-0" />
+            <div className="flex-1 space-y-2">
+              <BioSkeletonBlock className="h-3 w-28 rounded-full" />
+              <BioSkeletonBlock className="h-4 w-48 max-w-full rounded-full" />
+            </div>
+            <BioSkeletonBlock className="h-8 w-20 rounded-lg shrink-0" />
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3 space-y-3">
+          <div className="flex items-center gap-3">
+            <BioSkeletonBlock className="w-9 h-9 rounded-xl shrink-0" />
+            <div className="flex-1 space-y-2">
+              <BioSkeletonBlock className="h-4 w-24 rounded-full" />
+              <BioSkeletonBlock className="h-3 w-44 max-w-full rounded-full" />
+            </div>
+            <BioSkeletonBlock className="w-12 h-7 rounded-full shrink-0" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <BioSkeletonBlock className="h-10 rounded-xl" />
+            <BioSkeletonBlock className="h-10 rounded-xl" />
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3">
+          <BioSkeletonBlock className="h-3 w-16 rounded-full mb-3" />
+          <div className="flex gap-2 overflow-hidden">
+            {[0, 1, 2, 3].map(i => <BioSkeletonBlock key={i} className="w-16 h-24 rounded-xl shrink-0" />)}
+          </div>
+        </div>
+
+        <BioSkeletonBlock className="h-16 rounded-2xl" />
+
+        <section className="space-y-2">
+          <div className="flex items-center justify-between px-1">
+            <BioSkeletonBlock className="h-3 w-12 rounded-full" />
+            <BioSkeletonBlock className="h-3 w-32 rounded-full" />
+          </div>
+          {[0, 1, 2].map(i => <BioSkeletonBlock key={i} className="h-16 rounded-2xl" />)}
+          <BioSkeletonBlock className="h-12 rounded-2xl" />
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function NoticeToast({ notice }: { notice: { message: string; type: 'success' | 'error' } | null }) {
+  // Hold onto the last shown notice for one render cycle after dismissal so we
+  // can transition opacity/translate out before unmounting the DOM node.
+  const [rendered, setRendered] = useState(notice);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (notice) {
+      setRendered(notice);
+      // Double rAF so the initial opacity-0 state actually paints before the
+      // class flips, otherwise the transition is collapsed into one frame.
+      let r2 = 0;
+      const r1 = requestAnimationFrame(() => {
+        r2 = requestAnimationFrame(() => setVisible(true));
+      });
+      return () => {
+        cancelAnimationFrame(r1);
+        if (r2) cancelAnimationFrame(r2);
+      };
+    }
+    setVisible(false);
+    const t = setTimeout(() => setRendered(null), 200);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  if (!rendered) return null;
+
+  return (
+    <div
+      className={`pointer-events-none fixed left-1/2 -translate-x-1/2 bottom-[8.5rem] z-40 px-3 py-1.5 rounded-full shadow-lg text-[11.5px] font-semibold flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 text-gray-800 dark:text-white transition-all duration-200 ease-out ${
+        visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'
+      }`}
+    >
+      {rendered.type === 'success'
         ? <CheckCircle2 size={13} className="text-emerald-500" strokeWidth={2.5} />
         : <AlertCircle size={13} className="text-red-500" strokeWidth={2.5} />}
-      {message}
+      {rendered.message}
     </div>
   );
 }

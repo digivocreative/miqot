@@ -22,14 +22,28 @@ export default function SheetBase({ open, onClose, title, children, footer }: Pr
   useEffect(() => {
     if (open) {
       setMounted(true);
-      // Next frame → slide in
-      requestAnimationFrame(() => setVisible(true));
     } else if (mounted) {
       setVisible(false);
       const t = setTimeout(() => setMounted(false), 220);
       return () => clearTimeout(t);
     }
   }, [open, mounted]);
+
+  // Trigger the slide-in only AFTER the panel has actually been painted in its
+  // closed state. A single rAF can fire in the same frame as the initial mount
+  // commit, which collapses both states into one paint and skips the transition
+  // — double rAF guarantees a real paint frame in between.
+  useEffect(() => {
+    if (!mounted || !open) return;
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => setVisible(true));
+    });
+    return () => {
+      cancelAnimationFrame(r1);
+      if (r2) cancelAnimationFrame(r2);
+    };
+  }, [mounted, open]);
 
   // Lock body scroll while a sheet is open
   useEffect(() => {

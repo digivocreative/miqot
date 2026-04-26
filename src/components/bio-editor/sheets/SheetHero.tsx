@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Plus } from 'lucide-react';
+import { X, Plus, Save } from 'lucide-react';
 import SheetBase from './SheetBase';
 import type { BioConfig } from '../../bio/types';
 
@@ -8,9 +8,10 @@ interface Props {
   onClose: () => void;
   config: BioConfig;
   onUpdate: (updater: (prev: BioConfig) => BioConfig) => void;
+  onSave: () => void | Promise<void>;
 }
 
-export default function SheetHero({ open, onClose, config, onUpdate }: Props) {
+export default function SheetHero({ open, onClose, config, onUpdate, onSave }: Props) {
   const { hero } = config;
   const [newBadge, setNewBadge] = useState('');
 
@@ -37,8 +38,18 @@ export default function SheetHero({ open, onClose, config, onUpdate }: Props) {
     updateHero({ badges: hero.badges.filter((_, idx) => idx !== i) });
   };
 
+  const footer = (
+    <button
+      type="button"
+      onClick={() => { void onSave(); }}
+      className="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+    >
+      <Save size={15} strokeWidth={2.4} /> Simpan
+    </button>
+  );
+
   return (
-    <SheetBase open={open} onClose={onClose} title="Edit Hero">
+    <SheetBase open={open} onClose={onClose} title="Edit Hero" footer={footer}>
       <div className="space-y-4">
         <section>
           <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Tagline</label>

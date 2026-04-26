@@ -84,6 +84,19 @@ export function useBioConfig(slug: string) {
     }, debounceMs);
   }, [flushSave]);
 
+  // Force-flush any pending debounced save right away. Used by sheet "Simpan"
+  // buttons so the explicit confirmation surfaces immediately instead of waiting
+  // out the debounce window.
+  const flushNow = useCallback(async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    if (pendingBodyRef.current) {
+      await flushSave();
+    }
+  }, [flushSave]);
+
   // Cleanup: flush pending save on unmount so debounced edits aren't lost.
   useEffect(() => {
     return () => {
@@ -173,6 +186,7 @@ export function useBioConfig(slug: string) {
     lastSaved,
     error,
     reload: doLoad,
+    flush: flushNow,
     updateConfig,
     addTile,
     updateTile,
@@ -186,7 +200,10 @@ export function useBioConfig(slug: string) {
 function ensureBioEditorConfig(config: BioConfig): BioConfig {
   return {
     ...config,
-    enabled: config.enabled !== false,
+    // Bio publik selalu aktif — tidak ada lagi UI untuk menonaktifkan.
+    // Hard-code true di setiap load/save sehingga existing rows yang
+    // pernah disimpan dengan enabled:false ikut auto-flip kembali aktif.
+    enabled: true,
     seo: config.seo || { title: null, description: null, og_image_url: null },
     hero: {
       tagline: config.hero?.tagline ?? null,

@@ -128,7 +128,7 @@ export default function TileRow({ tile, onTap, onToggleVisible, agentPhone }: Pr
           type="button"
           onClick={onToggleVisible}
           className="px-2 py-4 text-gray-400 dark:text-slate-500 hover:text-emerald-500 transition-colors"
-          aria-label={tile.visible ? 'Sembunyikan tile' : 'Tampilkan tile'}
+          aria-label={tile.visible ? 'Sembunyikan bagian' : 'Tampilkan bagian'}
           title={tile.visible ? 'Sembunyikan' : 'Tampilkan'}
         >
           {tile.visible ? <Eye size={16} /> : <EyeOff size={16} />}
@@ -137,7 +137,7 @@ export default function TileRow({ tile, onTap, onToggleVisible, agentPhone }: Pr
           type="button"
           onClick={onTap}
           className="pr-3 pl-1 py-4 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300"
-          aria-label="Edit tile"
+          aria-label="Edit bagian"
         >
           <ChevronRight size={16} />
         </button>

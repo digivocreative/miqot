@@ -55,11 +55,14 @@ Client (Browser)
               ├── /api/kurs          ← Currency exchange rates (USD, SAR)
               ├── /api/analytics/*   ← Event tracking & analytics
               ├── /api/haji-plus/*   ← Haji Plus statistics
+              ├── /api/bio/:slug/*   ← Link Bio config, SEO image, photo upload, featured package preview
               ├── /api/api-get/*     ← Proxy to jadwal.alhijaz.co (package data)
               ├── /itinerary/*       ← Proxy PDF/images from jadwal.alhijaz.co
               ├── /brosur/*          ← Proxy brochure images
               ├── /f/:code           ← Public flight share page (OG injection)
               ├── /:slug/umroh       ← SSR landing page (OG tags for social sharing)
+              ├── /:slug/haji        ← SSR Haji Plus landing page (OG tags for social sharing)
+              ├── /:slug/bio         ← Public Link Bio page with SSR OG injection
               └── /*                 ← SPA fallback (dist/index.html with OG injection)
                                           └── Supabase (PostgreSQL)
 ```
@@ -68,7 +71,7 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~10161 lines) — API, proxy, auth, register, sync, stats, AI insight, AI tools, Tanya AI (public), flight tracking, analytics (+ daily aggregation), CAPI event logs, PIN auth, landing-config, umrah register (form-scrape + OCR KTP), SPA serve
+├── server.js              # Express backend (~10938 lines) — API, proxy, auth, register, sync, stats, AI insight, AI tools, Tanya AI (public), flight tracking, analytics (+ daily aggregation), CAPI event logs, PIN auth, landing-config, bio-config, umrah register (form-scrape + OCR KTP), SPA serve
 ├── instrument.mjs         # Sentry initialization (must be imported before everything else)
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
 ├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
@@ -86,7 +89,7 @@ alhijaz/
 │   ├── main.tsx            # Entry point — routing, PWA registration, page resolution
 │   ├── App.tsx             # Main SPA component — package list, filters, layout
 │   ├── index.css           # Global CSS (TailwindCSS + custom animations)
-│   ├── components/         # 46 React components
+│   ├── components/         # 49 top-level React components + feature folders
 │   │   ├── PackageCard.tsx        # Card paket umroh (komponen terbesar, ~2450+ lines) — flag overlay, "Diskusi" button (Tanya AI), share link row
 │   │   ├── DashboardProfile.tsx   # Edit profile + photo crop + Telegram + AIW internal system + PIN management (~2334 lines)
 │   │   ├── CapiPage.tsx           # Meta Conversion API config UI + event log (~1876 lines)
@@ -101,7 +104,7 @@ alhijaz/
 │   │   ├── AgentManagementPage.tsx # Admin: manage all agents CRUD + approval (~851 lines)
 │   │   ├── FlightSharePage.tsx    # Public flight share page /f/:code — hero card, map, boarding pass, weather, agent CTA (~830 lines)
 │   │   ├── DashboardLayout.tsx    # Dashboard home + navigation + tab routing (~796 lines) — AI Tools sub-page override icon/color (landing-page, voice-over, kartu-nama, haji-plus, kurs, compare)
-│   │   ├── LandingPagePage.tsx    # Landing page SEO config (~775 lines) — per-agent custom title (60 char), description (160 char), OG image (1200×630) untuk /:slug/umroh & /:slug/haji, WhatsApp preview card, DefaultOgPreview fallback
+│   │   ├── LandingPagePage.tsx    # Landing page config — 3 tab Umroh/Haji/Bio; SEO title/description/OG image untuk /:slug/umroh & /:slug/haji, plus entry point Bio editor
 │   │   ├── SimulasiHajiPlus.tsx   # Haji Plus simulation calculator — package pricing, USD→IDR, inflation projection, export PNG (~676 lines)
 │   │   ├── LoginPage.tsx          # Login + JWT session management (~673 lines)
 │   │   ├── AnalyticsPage.tsx      # Analytics dashboard with event tracking charts (~584 lines)
@@ -133,6 +136,8 @@ alhijaz/
 │   │   ├── FloatingAgentBar.tsx   # Floating WhatsApp CTA bar (~107 lines)
 │   │   ├── AgentProfile.tsx       # Agent info card on package page (~85 lines)
 │   │   ├── PinInput.tsx           # 6-digit PIN input component (visual boxes, error state) (~59 lines)
+│   │   ├── bio/                   # Public Link Bio page (`/:slug/bio`) — themed hero, socials, system/custom tiles, client-side meta refresh
+│   │   ├── bio-editor/            # Dashboard Bio editor — autosave, theme picker, hero/SEO sheets, tile validation, drag reorder, fullscreen preview
 │   │   └── index.ts               # Barrel re-exports
 │   ├── data/
 │   │   ├── agents.ts           # Agent data + Supabase fetch + fallback
@@ -195,6 +200,7 @@ alhijaz/
 │   ├── migrate-ai-credits.js        # Create ai_credits table
 │   ├── migrate-ask-ai-cache.js      # Create ask_ai_cache table (Tanya AI cache)
 │   ├── migrate-landing-config.js    # Add landing_config JSONB column to agents
+│   ├── migrate-bio-config.js        # Add bio_config JSONB column to agents
 │   ├── migrate-analytics-daily.js   # Create analytics_events_daily aggregate table
 │   ├── backfill-analytics-daily.js  # One-shot backfill for historical analytics aggregation
 │   ├── backfill-capi-crossagent.js  # Backfill CAPI events across agents
@@ -249,7 +255,8 @@ alhijaz/
   - 7-day cache (hash-based, per `jadwal_id` + `agent_id` + `question_hash`)
   - Fallback responses: "Waduh, koneksinya lagi lambat, Kak 😅 Coba chat [agent] langsung aja ya."
   - iOS Safari keyboard handling (body-lock `position:fixed`, `visualViewport.offsetTop` tracking, auto-scroll undo)
-- Landing page per agent (`/:slug/umroh`) dengan OG tags untuk social sharing (custom title/description/OG image per agent via Landing Page config)
+- Landing page per agent (`/:slug/umroh`, `/:slug/haji`) dengan OG tags untuk social sharing (custom title/description/OG image per agent via Landing Page config)
+- Link Bio publik (`/:slug/bio`) — halaman personal Linktree-style untuk agent dengan hero profile, badge, social links, tile WhatsApp, jadwal Umroh, Haji Plus, featured paket, custom link, teks, foto, dan testimoni. Public page hanya merender bagian `visible && !orphaned`.
 - Single package view (`/:agent/:jadwalId`) — deep link ke 1 paket tertentu, OG meta injection untuk bot/crawler
 - Dark mode, PWA install, offline support
 - AI-powered caption generator (OpenAI) untuk promosi WhatsApp
@@ -342,7 +349,7 @@ alhijaz/
   - Bold markdown parsing (`**text**` → `<strong>`)
 - **AI Tools** — Hub page (`/dashboard/ai-tools`) untuk fitur-fitur AI & tools lainnya:
   - **Landing Page** (`/dashboard/ai-tools/landing-page`, tool pertama di hub):
-    - Segmented tab: **Umroh** (emerald accent) | **Haji** (amber accent) dengan indicator dot jika ada customization
+    - Segmented tab: **Umroh** (emerald accent) | **Haji** (amber accent) | **Bio** (teal accent, admin-gated dari UI)
     - Kustomisasi per landing type: **Judul** (max 60 char + counter), **Deskripsi** (max 160 char + counter), **Gambar Pratinjau / OG Image** (1200×630 px, upload via PhotoCropModal, aspect rect)
     - **Pratinjau WhatsApp** card real-time (72×72 thumb + alhijaz.co + title + desc)
     - **DefaultOgPreview** synthetic fallback (gradient + agent photo + badge "JADWAL UMROH" / "HAJI PLUS RAHMAH & UHUD") jika `/og/{slug}.png` belum ada
@@ -350,6 +357,9 @@ alhijaz/
     - Reset OG button (kembali ke `/og/{slug}.png` default) + Reset semua button
     - Toast notifications (fadeIn 150ms, success/error)
     - Auto-trigger OG regen (`triggerOgRegen`) + invalidate landing caches saat upload
+    - **Bio editor** (`/dashboard/ai-tools/landing-page/bio`) — Link Bio editor dengan link publik `alhijaz.co/{slug}/bio`, one-time hint banner, 6 theme picker, Hero editor, SEO editor (`seo.title`, `seo.description`, `seo.og_image_url`), drag reorder, visibility toggle per tile, dan bottom bar fixed 2 tombol: Preview + Lihat Bio. Editor tidak menampilkan toggle Bio aktif/nonaktif; UI menormalkan Bio tetap aktif.
+    - Bio tile types: `wa`, `umroh`, `haji`, `featured`, `link`, `text`, `photo`, `testi`. Tile yang belum lengkap boleh autosave sebagai draft tersembunyi; tile hanya bisa tampil jika field wajib lengkap. Row menampilkan status `SIAP`, `TERSEMBUNYI`, `PERLU DILENGKAPI`, atau `ORPHAN`.
+    - Bio preview: modal fullscreen dengan iframe public page di phone frame, di-scale 90% agar lebih banyak konten terlihat.
   - **Bandingkan Paket / Compare** (`/dashboard/ai-tools/compare`) — dipindahkan dari header publik ke AI Tools hub
   - **Voice Over Generator** (`/dashboard/ai-tools/voice-over`):
     - Step 1: Script — pilih paket (drop-down dari data-service) atau tulis manual, pilih durasi (10/20/30 detik), AI generate script via OpenAI GPT-4o-mini (bahasa santai/gaul, karakter dibatasi per durasi)
@@ -422,10 +432,28 @@ telegram_link_token TEXT              -- Token sementara untuk deep link connect
 notification_prefs JSONB              -- Per-agent notification preferences (10 toggles, default semua true)
 pin_hash          TEXT                -- bcrypt-hashed 6-digit PIN (optional, untuk gate Statistik/komisi)
 landing_config    JSONB DEFAULT '{}'  -- Per-agent landing page customization: { umroh: {title, description, og_image_url}, haji: {...} }
+bio_config        JSONB DEFAULT '{}'  -- Per-agent Link Bio config: { theme, enabled, hero, seo, tiles[] }
 status            TEXT DEFAULT 'active' -- "pending" | "active" | "rejected" (CHECK constraint)
 registered_at     TIMESTAMPTZ        -- timestamp pendaftaran (self-registration)
 -- UNIQUE INDEX on email (WHERE email IS NOT NULL AND email != '')
 ```
+
+### JSONB `agents.bio_config`
+Konfigurasi Link Bio publik untuk `/:slug/bio`. Disimpan di kolom agent agar tidak perlu tabel baru.
+```
+theme       string       -- emerald | desert | midnight | rosegold | sunset | mono
+enabled     boolean      -- public API returns 404 jika false untuk non-owner/non-admin
+hero        object       -- { tagline, badges[0..3], socials: { instagram, tiktok, youtube } }
+seo         object       -- { title, description, og_image_url }
+tiles       array        -- ordered tile list: { id, type, visible, order, config, orphaned? runtime only }
+```
+
+Tile types:
+- `wa`, `umroh`, `haji` are system tiles.
+- `featured` links to one `umroh_schedules.jadwal_id` preview.
+- `link`, `text`, `photo`, `testi` are custom content tiles.
+
+Backend allows incomplete tiles only when `visible: false`; visible custom tiles are validated before save. Public Bio filters to `visible && !orphaned`.
 
 ### Tabel `agent_slug_history`
 Tracks past slugs untuk backward-compat JWT resolution setelah agent rename slug.
@@ -760,6 +788,15 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | POST | `/api/landing-config/og-image` | Bearer | Upload custom OG image (JSON base64, max 6MB). Validates MIME (jpeg/png/webp), upload ke Supabase Storage `og-images` bucket, delete previous URL jika ada |
 | DELETE | `/api/landing-config/og-image` | Bearer | Reset OG image ke default (null = fallback ke `/og/{slug}.png`) |
 
+### Bio Page Config
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| GET | `/api/bio/:slug/config` | — | Public read config for `/:slug/bio`; auto-populates default config on first access. If `enabled=false`, returns 404 unless optional Bearer owner/admin is provided |
+| PUT | `/api/bio/:slug/config` | Bearer | Save validated `bio_config` for owner/admin. Allows incomplete draft tiles only when `visible:false`; visible tiles must pass required-field validation |
+| POST | `/api/bio/:slug/og-image` | Bearer | Upload Bio SEO OG image as JSON base64 (`image/png` or `image/jpeg`, max 5MB) to Supabase Storage `agent-photos/bio/*`; returns `{ url }` for client to persist in `seo.og_image_url` |
+| POST | `/api/bio/:slug/photo-upload` | Bearer | Upload image for `photo` tile as JSON base64 (`image/png`, `image/jpeg`, `image/webp`, max 6MB); returns public URL |
+| GET | `/api/bio/:slug/featured-paket-preview?jadwal_id=...` | — | Public package preview for `featured` tile, sourced from `umroh_schedules` by latest `year_code` |
+
 ### Umrah Self-Registration
 | Method | Path | Auth | Deskripsi |
 |--------|------|------|-----------|
@@ -830,6 +867,7 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | GET | `/f/:code` | Public flight share page dengan server-side OG injection (title, image, description) |
 | GET | `/:slug/umroh` | SSR landing page Umroh dengan OG meta tags |
 | GET | `/:slug/haji` | SSR landing page Haji Plus dengan OG meta tags |
+| GET | `/:slug/bio` | Public Link Bio page dengan SSR OG meta injection dari `bio_config.seo` |
 | GET | `/:slug/:packageId` | Single package page dengan OG meta injection untuk bot/crawler |
 
 ### Auth Format
@@ -966,12 +1004,12 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - BrochureModal enhanced (CDN URL detection, pinch-to-zoom for touch devices)
 - **Agents PK migrated from slug to UUID id** (commit 9c614a6) — slug kini `UNIQUE NOT NULL`, bukan PK. FK di `capi_configs`, `jamaah`, `analytics_events_daily`, `capi_event_logs`, `ask_ai_cache` semuanya migrated ke `agent_id` UUID. `agent_slug_history` table menjaga JWT backward-compat (token lama pakai slug → resolve via history jika slug berubah)
 - **Tanya AI fitur publik** (Diskusi button di PackageCard) — OpenAI GPT-4o-mini dengan system prompt hangat, chip pool 24 soalan (reshuffle + pinned), typewriter reveal, inline brosur/itinerary attachments, WA nudge, markdown rendering, iOS Safari keyboard fix
-- **Landing Page Config tool** (`/dashboard/ai-tools/landing-page`) — per-agent custom title/description/OG image untuk `/:slug/umroh` dan `/:slug/haji` landing pages. Segmented tab Umroh (emerald) / Haji (amber), WhatsApp preview real-time
+- **Landing Page Config tool** (`/dashboard/ai-tools/landing-page`) — 3 tab Umroh/Haji/Bio. Umroh & Haji mengatur custom title/description/OG image untuk `/:slug/umroh` dan `/:slug/haji`; Bio mengatur Link Bio publik `/:slug/bio` dengan theme picker, hero/socials, SEO/OG image, tile validation, drag reorder, autosave draft tersembunyi, dan fullscreen preview 90%.
 - **Umrah self-registration** (`/dashboard/jamaah/daftar` via UmrahRegisterPage) — scrape legacy form, KTP OCR via OpenAI Vision, searchable select, dependent dropdowns, `?idb=` family/group binding, auto-defaults (Jamaah Baru, L, Berangkat Sendiri, Belum Pernah, hidden mahram/kondisi/keterangan=X)
 - **Filter baru `UMROH CUTI 5 HARI`** — berangkat Jumat malam/Sabtu, pulang Sabtu/Minggu/Senin dini hari; plus rename label `BINTANG 5` → UI label "UMROH BINTANG 5"
 - **Analytics daily aggregation** — `analytics_events_daily` table + cron 02:00 WIB (`runAnalyticsMaintenance`): aggregate yesterday's raw events ke agregat harian, delete raw events > 30 hari (UTC midnight cutoff), backfill script tersedia
 - **PackageCard button revamp** — Diskusi (Tanya AI) di row 1 dengan animated emerald ring border (`.diskusi-ai-border` conic gradient + mask-composite), Link dipindahkan ke row 2
-- Public analytics events diperluas: `ask_ai_opened`, `ask_ai_chip_tapped`, `ask_ai_free_query`, `ask_ai_wa_clicked` (plus existing `page_view`, `wa_click_public`, `quiz_started`, `quiz_completed`, `inquiry_submitted`)
+- Public analytics events diperluas: `ask_ai_opened`, `ask_ai_chip_tapped`, `ask_ai_free_query`, `ask_ai_wa_clicked`, `bio_view` (plus existing `page_view`, `wa_click_public`, `quiz_started`, `quiz_completed`, `inquiry_submitted`)
 - Tanya AI hardcoded product knowledge (di system prompt): DP Rp 5jt, pelunasan 30 hari, AMITRA syariah, Saudia 2×23kg (lain 30kg), Zurich Syariah asuransi, visa diurus tim Alhijaz, manasik 2-3 minggu sebelum, Wi-Fi hotel (redirect SSID/password ke tour leader)
 
 ### Rencana / Backlog
@@ -1002,12 +1040,14 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 | **Tanya AI product knowledge di system prompt** | Fakta standar Alhijaz (DP 5jt, AMITRA, Zurich, visa diurus) dihardcode di prompt, bukan di context data — supaya AI selalu konsisten meski data paket tidak punya field ini. Setiap perubahan fakta produk = update system prompt di `server.js`. |
 | **UmrahRegisterPage scrape HTML** | Sistem internal legacy tidak punya API. Kita scrape form options + submit multipart, plus OCR KTP via OpenAI Vision untuk auto-fill. Rawan breakage kalau legacy form berubah. |
 | **Landing config OG image 1200×630** | Standard OG size untuk Facebook/WhatsApp preview. Crop enforced via `PhotoCropModal` aspect=`1200/630`, output langsung ke ukuran tersebut (bukan resize post-upload). |
+| **Bio config disimpan di `agents.bio_config`** | Link Bio bersifat per-agent dan volume datanya kecil. JSONB cukup untuk theme, hero, SEO, dan ordered tiles tanpa menambah tabel baru. |
+| **Bio draft tile boleh incomplete hanya saat hidden** | Autosave tidak boleh gagal saat user baru membuat tile kosong, tetapi public page harus tetap bersih. Backend mengizinkan draft `visible:false`, frontend mencegah tile incomplete dibuat visible, dan public renderer hanya memakai `visible && !orphaned`. |
 
 ### Known Issues / Technical Debt
 - **PackageCard.tsx terlalu besar** (~2450+ baris) — perlu di-split ke sub-components
 - **DashboardProfile.tsx terlalu besar** (~2334 baris) — profile + telegram + PIN management, bisa di-split
 - **CapiPage.tsx terlalu besar** (~1876 baris) — bisa di-modularisasi
-- **server.js monolith** (~10161 baris) — perlu di-split ke route modules (ask-ai, landing-config, umrah-register bisa jadi kandidat pertama)
+- **server.js monolith** (~10938 baris) — perlu di-split ke route modules (ask-ai, landing-config, bio-config, umrah-register bisa jadi kandidat pertama)
 - **UmrahRegisterPage.tsx sangat besar** (~1584 baris) — form config + OCR + SearchableSelect + preview modal bisa dipecah
 - **AskAIModal.tsx besar** (~1080 baris) — bisa di-split ke sub-komponen (header, chat area, input, attachment card)
 - **Tidak ada test suite** — risiko regresi saat refactor
@@ -1038,6 +1078,9 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - ✅ **DO**: Saat bikin form SPA-side yang submit ke `/api/umrah/register`, gunakan `SearchableSelect` untuk dropdown >8 options — native select sulit discroll di mobile
 - ✅ **DO**: Saat upload OG image lewat `/api/landing-config/og-image`, send JSON base64 (bukan multipart) — endpoint expect `{ landing_type, mime, data }`
 - ❌ **DON'T**: Jangan hardcode OG path `/og/{slug}.png` langsung — selalu cek `agent.landing_config?.[type]?.og_image_url` dulu, fallback ke `/og/{slug}.png` jika null
+- ✅ **DO**: Untuk Bio editor, simpan tile baru/incomplete sebagai `visible:false`; jangan paksa data dummy hanya agar autosave lolos validasi.
+- ✅ **DO**: Public Bio harus tetap memfilter tiles dengan `visible && !orphaned`; validasi backend tidak menggantikan filter render publik.
+- ✅ **DO**: Upload gambar Bio melalui endpoint JSON base64 (`/api/bio/:slug/og-image` atau `/api/bio/:slug/photo-upload`) dan persist URL-nya lewat `PUT /api/bio/:slug/config`.
 - ❌ **DON'T**: Jangan skip `triggerOgRegen(slug)` setelah update profile (nama/foto) — OG image per agent di-regenerate from fresh agent data
 - ❌ **DON'T**: Jangan kirim `text`, `title`, atau `url` bersama `files` saat `navigator.share()` — trigger "double image" bug di WhatsApp mobile (lihat Design System section "Native Share Format")
 - ❌ **DON'T**: Jangan ubah fakta produk Alhijaz (DP, pelunasan, AMITRA, visa, asuransi Zurich, bagasi per maskapai, manasik timing) tanpa update system prompt di endpoint `POST /api/ask-ai/:slug/:jadwalId` — itu hardcoded sebagai rule di prompt

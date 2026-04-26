@@ -25,7 +25,7 @@ const CUSTOM_OPTIONS: { type: BioTileType; label: string; desc: string; icon: an
 
 export default function SheetAddTile({ open, onClose, usedSingletonTypes, onAdd }: Props) {
   return (
-    <SheetBase open={open} onClose={onClose} title="Tambah Tile">
+    <SheetBase open={open} onClose={onClose} title="Tambah Bagian">
       <section>
         <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
           Integrasi Miqot

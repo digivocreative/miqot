@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { ImagePlus, Loader2, X } from 'lucide-react';
+import { ImagePlus, Loader2, X, Save } from 'lucide-react';
 import SheetBase from './SheetBase';
 import type { BioConfig } from '../../bio/types';
 import { getAuthHeaders } from '../../LoginPage';
@@ -10,9 +10,10 @@ interface Props {
   slug: string;
   config: BioConfig;
   onUpdate: (updater: (prev: BioConfig) => BioConfig) => void;
+  onSave: () => void | Promise<void>;
 }
 
-export default function SheetSeo({ open, onClose, slug, config, onUpdate }: Props) {
+export default function SheetSeo({ open, onClose, slug, config, onUpdate, onSave }: Props) {
   const seo = config.seo || { title: null, description: null, og_image_url: null };
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -50,8 +51,19 @@ export default function SheetSeo({ open, onClose, slug, config, onUpdate }: Prop
     }
   };
 
+  const footer = (
+    <button
+      type="button"
+      onClick={() => { void onSave(); }}
+      disabled={uploading}
+      className="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+    >
+      <Save size={15} strokeWidth={2.4} /> Simpan
+    </button>
+  );
+
   return (
-    <SheetBase open={open} onClose={onClose} title="SEO & Share Preview">
+    <SheetBase open={open} onClose={onClose} title="SEO & Share Preview" footer={footer}>
       <div className="space-y-4">
         <section>
           <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Judul Share</label>

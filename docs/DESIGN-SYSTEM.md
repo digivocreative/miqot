@@ -942,113 +942,210 @@ animation: voResultIn 0.3s ease-out (translateY 8px→0, opacity 0→1)
 
 ### Landing Page Config (`LandingPagePage.tsx`)
 
-Editor SEO & link preview untuk `/:slug/umroh` dan `/:slug/haji` landing pages. 2 tab segmented control dengan akses warna berbeda (emerald untuk Umroh, amber untuk Haji).
+Mobile-first editor untuk `/dashboard/ai-tools/landing-page` dengan lebar `max-w-lg`. Halaman ini punya 3 tab: SEO landing Umroh, SEO landing Haji, dan editor Link Bio. Semua state awal memakai skeleton, bukan spinner, agar perpindahan tab terasa halus.
 
 #### Segmented Tab (`SegmentedTab` component)
 
 ```
-Container: bg-gray-100 dark:bg-slate-800 rounded-xl p-1 flex gap-1 (same as Settings)
+Wrapper: max-w-lg mx-auto pt-4
+Tabs inset: px-4 mb-4
+Container: bg-gray-100 dark:bg-slate-800 rounded-xl p-1 flex gap-1
 Tab:
   flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg
-  active: bg-white dark:bg-slate-700 shadow-sm font-semibold {emerald|amber accent}
+  active: bg-white dark:bg-slate-700 shadow-sm font-semibold {accent color}
   inactive: bg-transparent text-gray-400 dark:text-slate-500 font-medium active:opacity-70
+  disabled-like: bg-transparent text-gray-300 dark:text-slate-600 opacity-70
   Icon size=14 strokeWidth={active ? 2.4 : 2}
   Label: text-[13px]
-  Custom-indicator dot: w-1.5 h-1.5 rounded-full (accent warna saat active, gray-300 saat inactive)
-  → dot shown only when hasCustom (agent sudah override title/desc/OG)
+  Custom-indicator dot: w-1.5 h-1.5 rounded-full (accent saat active, gray-300 saat inactive)
 ```
+
+Tab Bio memakai accent teal dan saat ini dibuka untuk admin dari `LandingPagePage.tsx`. Untuk non-admin, tab tetap clickable untuk menampilkan toast, tetapi tidak berpindah halaman.
 
 #### Accent Tokens
 
-| Landing | dot | focus border | focus ring | OG gradient |
-|---------|-----|--------------|------------|-------------|
-| Umroh | `bg-emerald-500` | `focus:border-emerald-500` | `focus:ring-emerald-500/20` | `bg-gradient-to-br from-emerald-700 via-emerald-600 to-teal-800` |
-| Haji | `bg-amber-500` | `focus:border-amber-500` | `focus:ring-amber-500/20` | `bg-gradient-to-br from-amber-600 via-orange-600 to-rose-700` |
+| Tab | Accent | Focus border | Focus ring | Preview gradient |
+|-----|--------|--------------|------------|------------------|
+| Umroh | `emerald` | `focus:border-emerald-500` | `focus:ring-emerald-500/20` | `bg-gradient-to-br from-emerald-700 via-emerald-600 to-teal-800` |
+| Haji | `amber` | `focus:border-amber-500` | `focus:ring-amber-500/20` | `bg-gradient-to-br from-amber-600 via-orange-600 to-rose-700` |
+| Bio | `teal` | `focus:border-teal-500` | `focus:ring-teal-500/20` | Public page theme token from `bio/themes.css` |
 
-#### Landing Card (per type)
+#### Shared Link Card (`UrlCard`)
+
+Dipakai oleh tab Umroh, Haji, dan Bio sebagai kartu paling atas tepat di bawah segmented tab.
 
 ```
-rounded-2xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm
-Inner padding: p-4
+rounded-2xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm p-3
+Row: flex items-center gap-2
+Icon tile: w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600
+Label: text-[10px] uppercase tracking-wider font-semibold text-gray-500
+URL: text-sm font-bold text-gray-800 dark:text-white truncate
+Copy button: px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-600
 ```
 
-URL bar (top):
+#### Umroh/Haji SEO Card
+
 ```
-flex items-center gap-1 mb-4 rounded-xl border border-gray-100 dark:border-slate-700/70
-bg-gray-50/70 dark:bg-slate-900/40 pl-3 pr-1 py-1
-  URL text: text-[12px] font-mono text-gray-600 flex-1 truncate
-  Copy button: w-7 h-7 rounded-lg hover:bg-white
-  Open (ExternalLink) button: w-7 h-7 rounded-lg
+Content stack: px-4 pb-28 flex flex-col gap-3
+Card: rounded-2xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm p-4
 ```
 
 OG image uploader:
 ```
-Header row: label (uppercase xs font-semibold + accent dot) + "1200 × 630 px" (text-[10px] gray)
-Clickable dropzone:
-  relative w-full aspect-[1200/630] rounded-xl overflow-hidden
-  border-2 border-dashed border-gray-300 (or gray-200 jika sudah ada image)
-  hover:border-gray-400 cursor-pointer
-  uploading: border-gray-200 cursor-wait
-Image: w-full h-full object-cover (jika draft.og_image_url)
-Default fallback: DefaultOgPreview component (accent gradient + agent photo w-16 h-16 rounded-full border-[3px] border-white/80 + badge "JADWAL UMROH"/"HAJI PLUS RAHMAH & UHUD" + agent name)
-Hover overlay: absolute inset-0 bg-black/0 group-hover:bg-black/35 → "Upload 18 + Ganti Gambar" text-xs font-semibold
-Uploading state: bg-black/50 + "Loader2 animate-spin + Mengunggah…"
-Reset OG button (shown when custom image): absolute top-2 right-2
-  px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 dark:bg-slate-900/95 shadow-sm
-  RotateCcw 11 + "Default"
+Header row: label uppercase xs font-semibold + accent dot + "1200 × 630 px"
+Dropzone: relative w-full aspect-[1200/630] rounded-xl overflow-hidden border-2 border-dashed
+Image: w-full h-full object-cover
+Default fallback: DefaultOgPreview with accent gradient + agent photo + badge
+Hover overlay: bg-black/35 + Upload/Ganti Gambar label
+Reset OG: absolute top-2 right-2 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 shadow-sm
 ```
 
 Title/Description fields:
 ```
-Header row: label (uppercase xs + accent dot) + char counter (text-[10px] font-mono)
-  Counter color: gray-400 → amber-500 (≥ 90% max) → red-500 (> max)
-Input / Textarea:
+Input/Textarea:
   w-full px-3 py-2.5 text-sm rounded-xl bg-white dark:bg-slate-900 border
   border-gray-200 dark:border-slate-700 {accent focus:border} focus:ring-2 {accent ring}
-  over-limit: border-red-400 focus:ring-red-500/20
-Textarea: rows=3, resize-none min-h-[72px]
-Placeholder: default title / currentDescription (raw HTML meta description)
-Hint (saat field kosong): text-[10px] text-gray-400 mt-1 pl-0.5
-  "Kosong → pakai default" (title)
-  "Kosong → pakai deskripsi Alhijaz default" (description)
+Textarea: rows=3 resize-none min-h-[72px]
+Counter: text-[10px] font-mono gray → amber at 90% → red when over limit
 ```
 
 Char limits:
 - Title: 60 chars
 - Description: 160 chars
 
-#### WhatsApp Preview (compact confirmation card)
-
+WhatsApp preview:
 ```
 mt-4 pt-4 border-t border-gray-100 dark:border-slate-700/50
-Label: text-[10px] font-bold uppercase tracking-wide text-gray-400 "Pratinjau WhatsApp"
-Card:
-  rounded-xl bg-gray-50 dark:bg-slate-900/40 border border-gray-100 p-2 flex gap-2.5
-  Image: w-[72px] h-[72px] rounded-lg overflow-hidden (OG image atau accent gradient + agent photo w-8 h-8)
-  Right column:
-    text-[9px] text-gray-400 uppercase tracking-wide "alhijaz.co"
-    text-[13px] font-semibold line-clamp-2 → effectiveTitle (draft.title.trim() || defaults.title)
-    text-[11px] text-gray-500 line-clamp-2 → effectiveDesc
+Card: rounded-xl bg-gray-50 dark:bg-slate-900/40 border border-gray-100 p-2 flex gap-2.5
+Image: w-[72px] h-[72px] rounded-lg
+Title: text-[13px] font-semibold line-clamp-2
+Description: text-[11px] text-gray-500 line-clamp-2
 ```
 
-Reset-all button (footer, shown if any custom exists):
+Sticky save bar untuk Umroh/Haji hanya muncul saat `textDirty`:
 ```
-flex justify-end mt-3
-Button: text-[11px] font-medium text-gray-400 hover:text-red-500 transition-colors
-"Reset semua ke default"
+fixed inset-x-0 bottom-0 z-40 bg-white/95 dark:bg-slate-900/95 border-t
+Button: w-full py-3 rounded-xl bg-emerald-500 text-white font-bold + Save icon
 ```
 
-#### Sticky Save Bar (bottom)
+#### Bio Editor Tab (`bio-editor/*`)
 
-Muncul saat `textDirty` true:
-- Primary CTA: `w-full py-3 rounded-xl bg-emerald-500 text-white font-bold` + Save 16 icon
-- Loading state: Loader2 animate-spin + "Menyimpan…"
+Bio editor memakai autosave debounce dan explicit `Simpan` pada sheet. Bagian yang belum lengkap boleh tersimpan sebagai draft tersembunyi, tetapi tidak boleh dibuat visible sampai field wajib valid.
 
-#### Crop Modal (OG Upload)
+Editor tidak menampilkan kartu/toggle status publik. Di UI saat ini Bio dinormalisasi aktif; server tetap menghormati `enabled:false` jika konfigurasi lama/manual menyimpannya.
 
-Pakai `PhotoCropModal` dengan:
+Main stack:
+```
+Root: pb-28
+Content: px-4 pb-4 flex flex-col gap-3
+Card radius: rounded-2xl
+Card border: border-gray-100 dark:border-slate-700
+Card shadow: shadow-sm
+```
+
+Hint banner:
+```
+One-time banner stored in localStorage key bio-editor-hint-dismissed-v1
+rounded-2xl border border-emerald-200/70 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-3
+Dismiss button: w-6 h-6 rounded-md
+Transition: opacity + max-height + scale, 200ms
+```
+
+Theme picker:
+```
+Card: p-3
+Header: "TEMA" + "{6} tema · geser"
+Scroller: flex gap-2 overflow-x-auto -mx-1 px-1 pb-1 scrollbar-thin
+Theme tile: w-16 h-20 rounded-lg + sample accent dot/lines
+Active: border-emerald-500 shadow-md shadow-emerald-500/20 + check badge
+Right-edge fade: absolute right-0 w-10 gradient to signal horizontal scroll
+```
+
+Public Bio themes:
+- `emerald`
+- `desert`
+- `midnight`
+- `rosegold`
+- `sunset`
+- `mono`
+
+Hero and SEO entry cards:
+```
+HeroCard: agent photo/name/tagline/badges/social summary, opens SheetHero
+SeoCard: "Atur SEO" row with Search icon, optional "KUSTOM" badge, opens SheetSeo
+Seo subtitle default: "Title, deskripsi & gambar pratinjau saat link dibagikan"
+Seo custom subtitle: "{n}/3 field dikustomisasi · tap untuk edit"
+```
+
+Tile section:
+```
+Section label: BAGIAN
+Right hint: "{n} bagian · tahan ⋮⋮ untuk mengurutkan"
+List gap: flex flex-col gap-2
+Row: bg-white rounded-2xl border shadow-sm
+Drag handle: GripVertical, px-2 py-4, touch-none
+Icon tile: w-9 h-9 rounded-lg bg-gray-100
+Visibility action: Eye / EyeOff button
+Edit action: ChevronRight
+```
+
+Tile badges:
+```
+Type badge:
+  SISTEM      → umroh, haji, wa
+  FEATURED   → featured
+  LINK        → custom link
+  TEKS        → text
+  FOTO        → photo
+  TESTI       → testimonial
+Status badge:
+  SIAP              → complete + visible
+  TERSEMBUNYI       → complete + hidden
+  PERLU DILENGKAPI  → missing required field
+  ORPHAN            → featured package no longer available
+```
+
+Validation rules:
+- `wa`: agent phone is required.
+- `featured`: `jadwal_id` is required.
+- `link`: `title` and `https://` URL are required.
+- `text`: `content` is required.
+- `photo`: uploaded `https://` image URL is required.
+- `testi`: `quote` and `author_name` are required.
+
+Empty/hidden states:
+```
+Empty: dashed rounded-2xl card with Inbox icon + "Belum ada bagian"
+All hidden: amber notice + inline "Tampilkan" action for ready hidden drafts
+Add button: mt-2 w-full py-3 rounded-2xl border-2 border-dashed border-emerald-300 bg-emerald-50/50 text-emerald-600 font-semibold
+```
+
+Bio bottom bar:
+```
+fixed inset-x-0 bottom-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t
+px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]
+Inner: max-w-lg mx-auto grid grid-cols-[0.92fr_1.08fr] gap-2.5
+Preview: white/emerald outline, Eye icon, text "Preview"
+Lihat Bio: solid emerald, ExternalLink icon, text "Lihat Bio"
+```
+
+Tidak ada tombol Share di bottom bar Bio. Share/copy link tetap tersedia lewat `UrlCard`.
+
+Full-screen Bio preview:
+```
+Portal: fixed inset-0 z-[9000] bg-gray-50 dark:bg-slate-950 flex flex-col
+Header: safe-area top padding, title "Bio Publik", close button X
+Phone frame: max-w-[390px], rounded-[2rem], border-[10px] gray-900
+Iframe: width/height 111.111%, transform scale(0.9), origin-top-left
+Footer CTA: full-width solid emerald "Buka Halaman Publik"
+```
+
+#### Crop Modal
+
+Landing OG upload memakai `PhotoCropModal`:
 - `aspect = 1200/630`
-- `cropShape="rect"`, `outputWidth=1200`, `outputHeight=630`
+- `cropShape="rect"`
+- `outputWidth=1200`, `outputHeight=630`
 - `title="Crop Gambar Pratinjau"`
 - `hint="Disarankan 1200 × 630 px"`
 - `confirmLabel="Gunakan Gambar"`
@@ -1063,7 +1160,7 @@ text-[11.5px] font-medium max-w-[90vw] whitespace-nowrap
 animation: fadeIn 150ms ease-out
 Success: bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 text-emerald-800 + CheckCircle2 13
 Error: bg-red-50 dark:bg-red-900/30 border border-red-200 text-red-700 + AlertCircle 13
-Auto-dismiss 3500ms
+Auto-dismiss 2200ms for Bio notices, 3500ms for landing config toasts
 ```
 
 ---

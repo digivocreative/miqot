@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  Plane, Compass, Copy, ExternalLink, Save, Upload, RotateCcw,
+  Plane, Compass, Save, Upload, RotateCcw,
   Loader2, AlertCircle, CheckCircle2, ImageIcon, UserCircle,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import PhotoCropModal from './PhotoCropModal';
 import BioEditorPage from './bio-editor/BioEditorPage';
+import UrlCard from './bio-editor/UrlCard';
 
 const TITLE_LIMIT = 60;
 const DESC_LIMIT = 160;
@@ -315,23 +316,8 @@ export default function LandingPagePage({ agent }: Props) {
     }
   };
 
-  const handleCopy = async (url: string) => {
-    try {
-      await navigator.clipboard.writeText(url);
-      showToast('URL disalin', 'success');
-    } catch {
-      showToast('Gagal menyalin URL', 'error');
-    }
-  };
-
   if (loading) {
-    return (
-      <div className="max-w-lg mx-auto px-4 pt-4 pb-8 space-y-4">
-        <div className="h-10 w-full rounded-xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
-        <div className="h-[480px] w-full rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
-        <div className="h-[480px] w-full rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
-      </div>
-    );
+    return <LandingPageSkeleton activeType={activeType} />;
   }
 
   if (loadError) {
@@ -390,12 +376,15 @@ export default function LandingPagePage({ agent }: Props) {
       {activeType === 'bio' ? (
         <BioEditorPage agent={{ slug: agent.slug, name: agent.name, photo: agent.photo, phone: agent.phone }} />
       ) : activeType === 'umroh' ? (
-        <div className="px-4 pb-28">
+        <div className="px-4 pb-28 flex flex-col gap-3">
+          <UrlCard
+            label="LANDING PAGE UMROH"
+            url={`https://alhijaz.co/${agent.slug}/umroh`}
+            copyAriaLabel="Salin link umroh"
+          />
           <LandingCard
             type="umroh"
             accent="emerald"
-            url={`alhijaz.co/${agent.slug}/umroh`}
-            fullUrl={`https://alhijaz.co/${agent.slug}/umroh`}
             draft={draft.umroh}
             loaded={loaded.umroh}
             defaults={defaults.umroh}
@@ -406,19 +395,21 @@ export default function LandingPagePage({ agent }: Props) {
             onUploadOg={(file) => handleOgFilePick('umroh', file)}
             onResetOg={() => handleOgReset('umroh')}
             onResetAll={() => handleCardReset('umroh')}
-            onCopy={() => handleCopy(`https://alhijaz.co/${agent.slug}/umroh`)}
             agentPhoto={agent.photo}
             agentName={agent.name}
             agentSlug={agent.slug}
           />
         </div>
       ) : (
-        <div className="px-4 pb-28">
+        <div className="px-4 pb-28 flex flex-col gap-3">
+          <UrlCard
+            label="LANDING PAGE HAJI"
+            url={`https://alhijaz.co/${agent.slug}/haji`}
+            copyAriaLabel="Salin link haji"
+          />
           <LandingCard
             type="haji"
             accent="amber"
-            url={`alhijaz.co/${agent.slug}/haji`}
-            fullUrl={`https://alhijaz.co/${agent.slug}/haji`}
             draft={draft.haji}
             loaded={loaded.haji}
             defaults={defaults.haji}
@@ -429,7 +420,6 @@ export default function LandingPagePage({ agent }: Props) {
             onUploadOg={(file) => handleOgFilePick('haji', file)}
             onResetOg={() => handleOgReset('haji')}
             onResetAll={() => handleCardReset('haji')}
-            onCopy={() => handleCopy(`https://alhijaz.co/${agent.slug}/haji`)}
             agentPhoto={agent.photo}
             agentName={agent.name}
             agentSlug={agent.slug}
@@ -504,6 +494,105 @@ export default function LandingPagePage({ agent }: Props) {
   );
 }
 
+function SkeletonBlock({ className }: { className: string }) {
+  return <div className={`bg-gray-200 dark:bg-slate-700 animate-pulse ${className}`} />;
+}
+
+function LandingPageSkeleton({ activeType }: { activeType: ActiveTab }) {
+  return (
+    <div className="max-w-lg mx-auto pt-4">
+      <div className="px-4 mb-4">
+        <div className="bg-gray-100 dark:bg-slate-800 rounded-xl p-1 flex gap-1 w-full">
+          <SkeletonBlock className="h-9 flex-1 rounded-lg" />
+          <SkeletonBlock className="h-9 flex-1 rounded-lg" />
+          <SkeletonBlock className="h-9 flex-1 rounded-lg" />
+        </div>
+      </div>
+
+      {activeType === 'bio' ? (
+        <BioTabSkeleton />
+      ) : (
+        <LandingTabSkeleton />
+      )}
+    </div>
+  );
+}
+
+function LandingTabSkeleton() {
+  return (
+    <div className="px-4 pb-28 space-y-4">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4">
+        <div className="flex items-center justify-between gap-3 mb-5">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <SkeletonBlock className="w-10 h-10 rounded-xl shrink-0" />
+            <div className="flex-1 space-y-2">
+              <SkeletonBlock className="h-3 w-24 rounded-full" />
+              <SkeletonBlock className="h-4 w-3/4 rounded-full" />
+            </div>
+          </div>
+          <SkeletonBlock className="h-8 w-20 rounded-xl shrink-0" />
+        </div>
+        <SkeletonBlock className="aspect-[1.91/1] w-full rounded-xl mb-5" />
+        <div className="space-y-3">
+          <SkeletonBlock className="h-11 w-full rounded-xl" />
+          <SkeletonBlock className="h-24 w-full rounded-xl" />
+          <SkeletonBlock className="h-10 w-full rounded-xl" />
+        </div>
+      </div>
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4 space-y-3">
+        <SkeletonBlock className="h-4 w-32 rounded-full" />
+        <SkeletonBlock className="h-10 w-full rounded-xl" />
+        <SkeletonBlock className="h-10 w-full rounded-xl" />
+      </div>
+    </div>
+  );
+}
+
+function BioTabSkeleton() {
+  return (
+    <div className="px-4 pb-24 flex flex-col gap-3">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3">
+        <div className="flex items-center gap-2">
+          <SkeletonBlock className="w-8 h-8 rounded-lg shrink-0" />
+          <div className="flex-1 space-y-2">
+            <SkeletonBlock className="h-3 w-28 rounded-full" />
+            <SkeletonBlock className="h-4 w-48 rounded-full" />
+          </div>
+          <SkeletonBlock className="h-8 w-20 rounded-lg shrink-0" />
+        </div>
+      </div>
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3 space-y-3">
+        <div className="flex items-center gap-3">
+          <SkeletonBlock className="w-9 h-9 rounded-xl shrink-0" />
+          <div className="flex-1 space-y-2">
+            <SkeletonBlock className="h-4 w-24 rounded-full" />
+            <SkeletonBlock className="h-3 w-44 rounded-full" />
+          </div>
+          <SkeletonBlock className="w-12 h-7 rounded-full shrink-0" />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <SkeletonBlock className="h-10 rounded-xl" />
+          <SkeletonBlock className="h-10 rounded-xl" />
+        </div>
+      </div>
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3">
+        <SkeletonBlock className="h-3 w-16 rounded-full mb-3" />
+        <div className="flex gap-2 overflow-hidden">
+          {[0, 1, 2, 3].map(i => <SkeletonBlock key={i} className="w-16 h-24 rounded-xl shrink-0" />)}
+        </div>
+      </div>
+      <SkeletonBlock className="h-16 rounded-2xl" />
+      <div className="space-y-2">
+        <div className="flex justify-between px-1">
+          <SkeletonBlock className="h-3 w-12 rounded-full" />
+          <SkeletonBlock className="h-3 w-28 rounded-full" />
+        </div>
+        {[0, 1, 2].map(i => <SkeletonBlock key={i} className="h-16 rounded-2xl" />)}
+      </div>
+    </div>
+  );
+}
+
 // ──────────────────────────────────────────────
 // Segmented tab
 // ──────────────────────────────────────────────
@@ -561,8 +650,6 @@ function SegmentedTab({ active, accent, icon: Icon, label, hasCustom, onClick, d
 interface CardProps {
   type: LandingType;
   accent: 'emerald' | 'amber';
-  url: string;
-  fullUrl: string;
   draft: FieldDraft;
   loaded: FieldDraft;
   defaults: Defaults;
@@ -573,7 +660,6 @@ interface CardProps {
   onUploadOg: (file: File) => void;
   onResetOg: () => void;
   onResetAll: () => void;
-  onCopy: () => void;
   agentPhoto: string;
   agentName: string;
   agentSlug: string;
@@ -597,9 +683,9 @@ const ACCENTS: Record<'emerald' | 'amber', {
 };
 
 function LandingCard({
-  type, accent, url, fullUrl,
+  type, accent,
   draft, loaded, defaults, currentDescription, uploading,
-  onChangeTitle, onChangeDesc, onUploadOg, onResetOg, onResetAll, onCopy,
+  onChangeTitle, onChangeDesc, onUploadOg, onResetOg, onResetAll,
   agentPhoto, agentName, agentSlug,
 }: CardProps) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -619,29 +705,6 @@ function LandingCard({
   return (
     <div className="rounded-2xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm">
       <div className="p-4">
-        {/* URL bar */}
-        <div className="flex items-center gap-1 mb-4 rounded-xl border border-gray-100 dark:border-slate-700/70 bg-gray-50/70 dark:bg-slate-900/40 pl-3 pr-1 py-1">
-          <span className="text-[12px] font-mono text-gray-600 dark:text-slate-300 flex-1 truncate">{url}</span>
-          <button
-            onClick={onCopy}
-            className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 active:scale-95 transition-all"
-            aria-label="Salin URL"
-            title="Salin URL"
-          >
-            <Copy size={13} />
-          </button>
-          <a
-            href={fullUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 active:scale-95 transition-all"
-            aria-label="Buka URL"
-            title="Buka URL"
-          >
-            <ExternalLink size={13} />
-          </a>
-        </div>
-
         {/* OG Image — primary visual, clickable upload */}
         <div className="mb-4">
           <div className="flex items-center justify-between mb-1.5">

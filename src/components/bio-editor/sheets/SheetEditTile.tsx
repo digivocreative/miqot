@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Trash2, AlertTriangle } from 'lucide-react';
+import { Trash2, AlertTriangle, Save } from 'lucide-react';
 import SheetBase from './SheetBase';
 import type { BioAgentPublic, BioTile, FeaturedPaketPreview } from '../../bio/types';
 import { getAuthHeaders } from '../../LoginPage';
@@ -15,14 +15,15 @@ interface Props {
   waLinkPreview: string | null;
   onUpdateConfig: (id: string, patch: Record<string, unknown>) => void;
   onDelete: (id: string) => void;
+  onSave: () => void | Promise<void>;
 }
 
 export default function SheetEditTile(props: Props) {
-  const { open, onClose, tile, agent, onUpdateConfig, onDelete, waLinkPreview } = props;
+  const { open, onClose, tile, agent, onUpdateConfig, onDelete, onSave, waLinkPreview } = props;
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (!tile) {
-    return <SheetBase open={open} onClose={onClose} title="Edit Tile"><div /></SheetBase>;
+    return <SheetBase open={open} onClose={onClose} title="Edit Bagian"><div /></SheetBase>;
   }
 
   const c = tile.config as Record<string, any>;
@@ -45,33 +46,47 @@ export default function SheetEditTile(props: Props) {
     onClose();
   };
 
-  const footer = isSystem ? null : (
-    confirmDelete ? (
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => setConfirmDelete(false)}
-          className="flex-1 py-2 rounded-xl text-sm font-semibold text-gray-600 dark:text-slate-300 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-600 transition-colors"
-        >
-          Batal
-        </button>
-        <button
-          type="button"
-          onClick={handleDelete}
-          className="flex-1 py-2 rounded-xl text-sm font-bold text-white bg-red-500 hover:bg-red-600 transition-colors active:scale-95"
-        >
-          Ya, Hapus Tile
-        </button>
-      </div>
-    ) : (
+  const saveButton = (
+    <button
+      type="button"
+      onClick={() => { void onSave(); }}
+      className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+    >
+      <Save size={15} strokeWidth={2.4} /> Simpan
+    </button>
+  );
+
+  const footer = confirmDelete ? (
+    <div className="flex gap-2">
+      <button
+        type="button"
+        onClick={() => setConfirmDelete(false)}
+        className="flex-1 py-2 rounded-xl text-sm font-semibold text-gray-600 dark:text-slate-300 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-600 transition-colors"
+      >
+        Batal
+      </button>
+      <button
+        type="button"
+        onClick={handleDelete}
+        className="flex-1 py-2 rounded-xl text-sm font-bold text-white bg-red-500 hover:bg-red-600 transition-colors active:scale-95"
+      >
+        Ya, Hapus Bagian
+      </button>
+    </div>
+  ) : isSystem ? (
+    saveButton
+  ) : (
+    <div className="flex gap-2">
       <button
         type="button"
         onClick={() => setConfirmDelete(true)}
-        className="w-full py-2 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+        aria-label="Hapus bagian"
+        className="shrink-0 px-3.5 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 active:scale-95 transition-colors"
       >
-        <Trash2 size={14} /> Hapus Tile
+        <Trash2 size={14} />
       </button>
-    )
+      {saveButton}
+    </div>
   );
 
   return (
@@ -263,7 +278,7 @@ function FeaturedFields({
           <div>
             <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Paket tidak tersedia</p>
             <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
-              Paket yang dipilih sudah tidak ada di sistem. Pilih paket lain atau hapus tile ini.
+              Paket yang dipilih sudah tidak ada di sistem. Pilih paket lain atau hapus bagian ini.
             </p>
           </div>
         </div>
@@ -347,9 +362,9 @@ function ProductFields({
   return (
     <div className="space-y-4">
       <div className="bg-emerald-50 dark:bg-emerald-900/15 border border-emerald-200 dark:border-emerald-800/40 rounded-xl p-3">
-        <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider mb-1">Tile Sistem</p>
+        <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider mb-1">Bagian Sistem</p>
         <p className="text-xs text-emerald-800 dark:text-emerald-200">
-          Tile ini otomatis link ke halaman {variant === 'umroh' ? 'Umroh' : 'Haji'} Anda dengan data paket terbaru. Tidak bisa dihapus — matikan visibility kalau mau sembunyikan.
+          Bagian ini otomatis link ke halaman {variant === 'umroh' ? 'Umroh' : 'Haji'} Anda dengan data paket terbaru. Tidak bisa dihapus — matikan visibility kalau mau sembunyikan.
         </p>
       </div>
       <section>
