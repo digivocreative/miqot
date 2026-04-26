@@ -5003,8 +5003,14 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 
 // ── Refresh single jamaah by ID via Alhijaz Official API ──
 // Uses /awapi/gu/{kode}/jamaah/{IDJamaah} — single-row update without a full
-// sync. Agent must have awapi_key set (auto-discovered via login flow).
+// sync. Gated by AWAPI_SYNC_ENABLED because the upstream API doesn't scope
+// per-agent (every kode returns global data) — refreshing while disabled is
+// pointless and risks pulling foreign data.
 app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res) => {
+  if (process.env.AWAPI_SYNC_ENABLED !== 'true') {
+    return res.status(503).json({ error: 'API resmi sedang dinonaktifkan' });
+  }
+
   const agentId = req.user.id;
   const slug = req.user.slug;
   const idJamaah = String(req.params.idJamaah || '').trim();
@@ -5053,7 +5059,12 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
 });
 
 // ── Refresh single umrah booking (and all its jamaah) by ID ──
+// Gated by AWAPI_SYNC_ENABLED — see note on /jamaah/:id/refresh above.
 app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) => {
+  if (process.env.AWAPI_SYNC_ENABLED !== 'true') {
+    return res.status(503).json({ error: 'API resmi sedang dinonaktifkan' });
+  }
+
   const agentId = req.user.id;
   const slug = req.user.slug;
   const idUmrah = String(req.params.idUmrah || '').trim();
