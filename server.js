@@ -2721,9 +2721,51 @@ async function buildWaLink(agent, bioConfig) {
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
 }
 
+function sanitizeDraftTileConfig(type, cfg) {
+  const out = {};
+  if (!cfg || typeof cfg !== 'object') return out;
+  switch (type) {
+    case 'umroh':
+    case 'haji':
+      if (typeof cfg.cta === 'string') out.cta = cfg.cta.slice(0, 80);
+      break;
+    case 'wa':
+      if (typeof cfg.title === 'string') out.title = cfg.title.slice(0, 80);
+      if (typeof cfg.subtitle === 'string') out.subtitle = cfg.subtitle.slice(0, 120);
+      if (typeof cfg.message_template === 'string') out.message_template = cfg.message_template.slice(0, 500);
+      break;
+    case 'featured':
+      if (typeof cfg.jadwal_id === 'string') out.jadwal_id = cfg.jadwal_id.slice(0, 80);
+      if (typeof cfg.badge === 'string') out.badge = cfg.badge.slice(0, 40);
+      if (typeof cfg.cta === 'string') out.cta = cfg.cta.slice(0, 80);
+      break;
+    case 'link':
+      if (typeof cfg.title === 'string') out.title = cfg.title.slice(0, 80);
+      if (typeof cfg.url === 'string') out.url = cfg.url.trim().slice(0, 500);
+      if (typeof cfg.icon === 'string') out.icon = cfg.icon.slice(0, 40);
+      break;
+    case 'text':
+      if (typeof cfg.content === 'string') out.content = cfg.content.slice(0, 200);
+      break;
+    case 'photo':
+      if (typeof cfg.image_url === 'string') out.image_url = cfg.image_url.trim();
+      if (typeof cfg.caption === 'string') out.caption = cfg.caption.slice(0, 160);
+      break;
+    case 'testi':
+      if (typeof cfg.quote === 'string') out.quote = cfg.quote.slice(0, 300);
+      if (typeof cfg.author_name === 'string') out.author_name = cfg.author_name.slice(0, 80);
+      if (typeof cfg.author_meta === 'string') out.author_meta = cfg.author_meta.slice(0, 80);
+      break;
+  }
+  return out;
+}
+
 function validateTileConfig(tile) {
   const { type, config } = tile;
   const cfg = config && typeof config === 'object' ? config : {};
+  if (tile.visible === false) {
+    return { ok: true, config: sanitizeDraftTileConfig(type, cfg) };
+  }
   switch (type) {
     case 'umroh':
     case 'haji':
@@ -2895,7 +2937,13 @@ function normalizeBioConfig(raw, existing) {
 // Decorate stored config with runtime-computed fields (orphan flag, WA link preview)
 async function decorateBioConfigForRead(agent, bioConfig) {
   const cfg = JSON.parse(JSON.stringify(bioConfig || {}));
+  cfg.enabled = cfg.enabled !== false;
+  cfg.seo = cfg.seo || { title: null, description: null, og_image_url: null };
+  cfg.hero = cfg.hero || { tagline: null, badges: [], socials: {} };
+  cfg.hero.badges = Array.isArray(cfg.hero.badges) ? cfg.hero.badges : [];
+  cfg.hero.socials = cfg.hero.socials || { instagram: null, tiktok: null, youtube: null };
   const tiles = Array.isArray(cfg.tiles) ? cfg.tiles : [];
+  cfg.tiles = tiles;
 
   // Check featured paket orphan
   const featured = tiles.find(t => t.type === 'featured');
@@ -2923,6 +2971,35 @@ function bioResolveAgentForRequest(req) {
       return { agent };
     },
   };
+}
+
+async function getOptionalAuthUser(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (!decoded.id && decoded.slug) {
+      let agent = await getAgentBySlug(decoded.slug);
+      if (!agent) {
+        const { data: history } = await supabase
+          .from('agent_slug_history')
+          .select('agent_id')
+          .eq('old_slug', decoded.slug)
+          .order('changed_at', { ascending: false })
+          .limit(1)
+          .single();
+        if (history) agent = await getAgentById(history.agent_id);
+      }
+      if (agent) {
+        decoded.id = agent.id;
+        decoded.slug = agent.slug;
+      }
+    }
+    return decoded.id ? decoded : null;
+  } catch {
+    return null;
+  }
 }
 
 // GET /api/bio/:slug/config — auto-populate default on first access, else return persisted config.
@@ -2954,7 +3031,9 @@ app.get('/api/bio/:slug/config', async (req, res) => {
     }
 
     // Disabled bios still return 404 at the API layer so scrapers don't surface them
-    if (config?.enabled === false) {
+    const authUser = await getOptionalAuthUser(req);
+    const canReadDisabled = authUser && (authUser.role === 'admin' || authUser.slug === slug || authUser.id === agent.id);
+    if (config?.enabled === false && !canReadDisabled) {
       return res.status(404).json({ error: 'Bio disabled' });
     }
 
@@ -10857,4 +10936,3 @@ function scheduleFlightCleanup() {
   }, msUntil);
 }
 scheduleFlightCleanup();
-

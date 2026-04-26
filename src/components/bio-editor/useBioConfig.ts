@@ -33,7 +33,7 @@ export function useBioConfig(slug: string) {
       });
       if (!res.ok) throw new Error('failed');
       const d = await res.json();
-      setConfig(d.data as BioConfig);
+      setConfig(ensureBioEditorConfig(d.data as BioConfig));
       setError(null);
     } catch (e) {
       setError('Gagal memuat konfigurasi');
@@ -57,7 +57,7 @@ export function useBioConfig(slug: string) {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d?.error || 'save failed');
-      setConfig(d.data as BioConfig);
+      setConfig(ensureBioEditorConfig(d.data as BioConfig));
       setLastSaved(new Date());
       setSaveStatus('saved');
       setError(null);
@@ -66,6 +66,14 @@ export function useBioConfig(slug: string) {
       setError(e?.message || 'Gagal menyimpan');
     }
   }, [slug]);
+
+  // Auto-clear 'saved' status back to 'idle' so the toast fades after a beat.
+  // 'error' stays sticky until next save attempt — users should see failures.
+  useEffect(() => {
+    if (saveStatus !== 'saved') return;
+    const t = setTimeout(() => setSaveStatus('idle'), 1800);
+    return () => clearTimeout(t);
+  }, [saveStatus]);
 
   const scheduleSave = useCallback((body: BioConfig, debounceMs = DEFAULT_DEBOUNCE_MS) => {
     pendingBodyRef.current = body;
@@ -172,6 +180,25 @@ export function useBioConfig(slug: string) {
     deleteTile,
     reorderTiles,
     setTheme,
+  };
+}
+
+function ensureBioEditorConfig(config: BioConfig): BioConfig {
+  return {
+    ...config,
+    enabled: config.enabled !== false,
+    seo: config.seo || { title: null, description: null, og_image_url: null },
+    hero: {
+      tagline: config.hero?.tagline ?? null,
+      badges: Array.isArray(config.hero?.badges) ? config.hero.badges : [],
+      socials: {
+        instagram: config.hero?.socials?.instagram ?? null,
+        tiktok: config.hero?.socials?.tiktok ?? null,
+        youtube: config.hero?.socials?.youtube ?? null,
+      },
+    },
+    tiles: Array.isArray(config.tiles) ? config.tiles : [],
+    _wa_link_preview: config._wa_link_preview ?? null,
   };
 }
 

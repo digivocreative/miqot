@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Plus, Loader2, Inbox } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Plus, Loader2, Inbox } from 'lucide-react';
 import type { BioAgentPublic, BioTile, BioTileType } from '../bio/types';
 import { useBioConfig, bioEditorNewId } from './useBioConfig';
-import EditorHeader from './EditorHeader';
+import { canShowBioTile, validateBioTile } from './bioEditorValidation';
+import SaveToast from './SaveToast';
 import UrlCard from './UrlCard';
+import PublicStatusCard from './PublicStatusCard';
 import ThemePicker from './ThemePicker';
 import HeroCard from './HeroCard';
 import TileList from './TileList';
@@ -11,6 +13,8 @@ import BottomBar from './BottomBar';
 import SheetHero from './sheets/SheetHero';
 import SheetEditTile from './sheets/SheetEditTile';
 import SheetAddTile from './sheets/SheetAddTile';
+import SheetSeo from './sheets/SheetSeo';
+import SheetPreview from './sheets/SheetPreview';
 import HintBanner from './HintBanner';
 
 interface Props {
@@ -19,11 +23,14 @@ interface Props {
 
 export default function BioEditorPage({ agent }: Props) {
   const bio = useBioConfig(agent.slug);
-  const { config, loading, saveStatus, lastSaved, error, reload } = bio;
+  const { config, loading, saveStatus, error, reload } = bio;
 
   const [heroOpen, setHeroOpen] = useState(false);
+  const [seoOpen, setSeoOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editingTileId, setEditingTileId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const editingTile = useMemo(() => {
     if (!config || !editingTileId) return null;
@@ -40,16 +47,63 @@ export default function BioEditorPage({ agent }: Props) {
     return set;
   }, [config]);
 
+  const showNotice = (message: string, type: 'success' | 'error') => {
+    setNotice({ message, type });
+    setTimeout(() => setNotice(null), 2200);
+  };
+
   const handleAddTile = (type: BioTileType) => {
     const id = bioEditorNewId();
-    bio.addTile({ id, type, visible: true, config: {} });
+    const tileDraft: Omit<BioTile, 'order'> = { id, type, visible: false, config: {} };
+    const visible = canShowBioTile({ ...tileDraft, order: 0 }, agent.phone);
+    bio.addTile({ ...tileDraft, visible });
     setAddOpen(false);
     // Open edit sheet for the new tile — OOBE flow
     setTimeout(() => setEditingTileId(id), 100);
   };
 
-  // Save status renders inline in the URL card (no longer floating)
-  const saveIndicator = <EditorHeader saveStatus={saveStatus} lastSaved={lastSaved} />;
+  const handleToggleVisible = (tile: BioTile) => {
+    if (tile.visible) {
+      bio.updateTile(tile.id, { visible: false });
+      return;
+    }
+    const validation = validateBioTile(tile, agent.phone);
+    if (!validation.complete) {
+      showNotice(validation.issues[0] || 'Lengkapi tile dulu', 'error');
+      setEditingTileId(tile.id);
+      return;
+    }
+    bio.updateTile(tile.id, { visible: true });
+  };
+
+  const updateTileConfigSafely = (id: string, patch: Record<string, unknown>) => {
+    const current = config?.tiles.find(t => t.id === id);
+    const nextCurrent = current ? { ...current, config: { ...current.config, ...patch } } : null;
+    const shouldHide = !!(nextCurrent?.visible && !canShowBioTile(nextCurrent, agent.phone));
+    bio.updateConfig(prev => ({
+      ...prev,
+      tiles: prev.tiles.map(t => {
+        if (t.id !== id) return t;
+        const next = { ...t, config: { ...t.config, ...patch } };
+        return shouldHide ? { ...next, visible: false } : next;
+      }),
+    }));
+    if (shouldHide) showNotice('Tile disembunyikan sampai lengkap', 'error');
+  };
+
+  const showCompleteHiddenTiles = () => {
+    if (!config) return;
+    const readyHidden = config.tiles.filter(t => !t.visible && canShowBioTile(t, agent.phone));
+    if (readyHidden.length === 0) {
+      showNotice('Tidak ada draft yang siap tampil', 'error');
+      return;
+    }
+    bio.updateConfig(prev => ({
+      ...prev,
+      tiles: prev.tiles.map(t => readyHidden.some(r => r.id === t.id) ? { ...t, visible: true } : t),
+    }));
+    showNotice(`${readyHidden.length} draft ditampilkan`, 'success');
+  };
 
   if (loading) {
     return (
@@ -83,7 +137,14 @@ export default function BioEditorPage({ agent }: Props) {
   return (
     <div className="pb-24">
       <div className="px-4 pt-4 pb-4 flex flex-col gap-3">
-        <UrlCard slug={agent.slug} status={saveIndicator} />
+        <UrlCard slug={agent.slug} />
+        <PublicStatusCard
+          config={config}
+          agentPhone={agent.phone}
+          onToggleEnabled={() => bio.updateConfig(prev => ({ ...prev, enabled: !prev.enabled }))}
+          onOpenSeo={() => setSeoOpen(true)}
+          onShowHidden={showCompleteHiddenTiles}
+        />
         <HintBanner />
         <ThemePicker value={config.theme} onChange={bio.setTheme} />
         <HeroCard agent={agent} hero={config.hero} onTap={() => setHeroOpen(true)} />
@@ -99,8 +160,15 @@ export default function BioEditorPage({ agent }: Props) {
           </div>
 
           {allHidden && (
-            <div className="mb-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 p-2.5 text-[11px] text-amber-700 dark:text-amber-300">
-              Semua tile sedang tersembunyi. Aktifkan minimal satu tile agar bio tidak terlihat kosong.
+            <div className="mb-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 p-2.5 text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-2">
+              <span className="flex-1">Semua tile sedang tersembunyi. Aktifkan minimal satu tile agar bio tidak terlihat kosong.</span>
+              <button
+                type="button"
+                onClick={showCompleteHiddenTiles}
+                className="shrink-0 px-2 py-1 rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 font-semibold active:scale-95"
+              >
+                Tampilkan
+              </button>
             </div>
           )}
 
@@ -110,7 +178,7 @@ export default function BioEditorPage({ agent }: Props) {
               agentPhone={agent.phone}
               onReorder={bio.reorderTiles}
               onTapTile={(t) => setEditingTileId(t.id)}
-              onToggleVisible={(t) => bio.updateTile(t.id, { visible: !t.visible })}
+              onToggleVisible={handleToggleVisible}
             />
           ) : (
             <div className="bg-white dark:bg-slate-800 rounded-2xl border border-dashed border-gray-200 dark:border-slate-700 px-4 py-8 flex flex-col items-center gap-2 text-center">
@@ -133,7 +201,14 @@ export default function BioEditorPage({ agent }: Props) {
         </section>
       </div>
 
-      <BottomBar slug={agent.slug} agentName={agent.name} />
+      <BottomBar
+        slug={agent.slug}
+        agentName={agent.name}
+        onPreview={() => setPreviewOpen(true)}
+        onNotice={showNotice}
+      />
+      <SaveToast saveStatus={saveStatus} />
+      {notice && <NoticeToast message={notice.message} type={notice.type} />}
 
       <SheetHero
         open={heroOpen}
@@ -141,13 +216,25 @@ export default function BioEditorPage({ agent }: Props) {
         config={config}
         onUpdate={bio.updateConfig}
       />
+      <SheetSeo
+        open={seoOpen}
+        onClose={() => setSeoOpen(false)}
+        slug={agent.slug}
+        config={config}
+        onUpdate={bio.updateConfig}
+      />
+      <SheetPreview
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        slug={agent.slug}
+      />
       <SheetEditTile
         open={!!editingTile}
         onClose={() => setEditingTileId(null)}
         tile={editingTile}
         agent={agent}
         waLinkPreview={config._wa_link_preview}
-        onUpdateConfig={bio.updateTileConfig}
+        onUpdateConfig={updateTileConfigSafely}
         onDelete={bio.deleteTile}
       />
       <SheetAddTile
@@ -156,6 +243,17 @@ export default function BioEditorPage({ agent }: Props) {
         usedSingletonTypes={usedSingletonTypes}
         onAdd={handleAddTile}
       />
+    </div>
+  );
+}
+
+function NoticeToast({ message, type }: { message: string; type: 'success' | 'error' }) {
+  return (
+    <div className="fixed left-1/2 -translate-x-1/2 bottom-[8.5rem] z-40 px-3 py-1.5 rounded-full shadow-lg text-[11.5px] font-semibold flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 text-gray-800 dark:text-white">
+      {type === 'success'
+        ? <CheckCircle2 size={13} className="text-emerald-500" strokeWidth={2.5} />
+        : <AlertCircle size={13} className="text-red-500" strokeWidth={2.5} />}
+      {message}
     </div>
   );
 }

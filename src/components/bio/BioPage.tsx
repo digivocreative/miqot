@@ -138,6 +138,33 @@ export default function BioPage({ slug }: Props) {
     };
   }, [agent, slug]);
 
+  useEffect(() => {
+    if (!config?.enabled || !publicAgent) return;
+    const title = config.seo?.title?.trim() || `${publicAgent.name} - Bio Alhijaz`;
+    const description = config.seo?.description?.trim() || `Jadwal, paket unggulan, dan kontak ${publicAgent.name}.`;
+    const image = config.seo?.og_image_url?.trim() || publicAgent.photo || '';
+    const url = typeof window !== 'undefined' ? window.location.href : `https://alhijaz.co/${slug}/bio`;
+
+    document.title = title;
+    const touched = [
+      setMeta('name', 'description', description),
+      setMeta('property', 'og:title', title),
+      setMeta('property', 'og:description', description),
+      setMeta('property', 'og:url', url),
+      setMeta('property', 'og:type', 'profile'),
+      setMeta('name', 'twitter:card', image ? 'summary_large_image' : 'summary'),
+    ];
+    if (image) {
+      touched.push(setMeta('property', 'og:image', image));
+      touched.push(setMeta('name', 'twitter:image', image));
+    }
+    return () => {
+      touched.forEach(el => {
+        if (el.getAttribute('data-bio-owned') === '1') el.remove();
+      });
+    };
+  }, [config?.enabled, config?.seo, publicAgent, slug]);
+
   let body: React.ReactNode;
   if (loading) {
     body = <Skeleton />;
@@ -242,4 +269,16 @@ export default function BioPage({ slug }: Props) {
       {body}
     </div>
   );
+}
+
+function setMeta(attr: 'name' | 'property', key: string, content: string): HTMLMetaElement {
+  let el = document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${key}"]`);
+  if (!el) {
+    el = document.createElement('meta');
+    el.setAttribute(attr, key);
+    el.setAttribute('data-bio-owned', '1');
+    document.head.appendChild(el);
+  }
+  el.setAttribute('content', content);
+  return el;
 }

@@ -5,6 +5,7 @@ import {
   Package, Star, MessageCircle, Sparkles, Link2, Type, Image as ImageIcon, Quote, AlertTriangle,
 } from 'lucide-react';
 import type { BioTile } from '../bio/types';
+import { validateBioTile } from './bioEditorValidation';
 
 interface Props {
   tile: BioTile;
@@ -61,6 +62,12 @@ export default function TileRow({ tile, onTap, onToggleVisible, agentPhone }: Pr
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tile.id });
   const meta = TYPE_META[tile.type];
   const Icon = meta.icon;
+  const validation = validateBioTile(tile, agentPhone);
+  const status = !validation.complete
+    ? { label: 'PERLU DILENGKAPI', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' }
+    : tile.visible
+    ? { label: 'SIAP', className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' }
+    : { label: 'TERSEMBUNYI', className: 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300' };
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -103,13 +110,18 @@ export default function TileRow({ tile, onTap, onToggleVisible, agentPhone }: Pr
               <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${meta.badgeClass}`}>
                 {meta.badge}
               </span>
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${status.className}`}>
+                {status.label}
+              </span>
               {tile.orphaned && (
                 <span className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 rounded">
                   <AlertTriangle size={9} /> ORPHAN
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-gray-500 dark:text-slate-400 truncate mt-0.5">{tileSubtitle(tile, agentPhone)}</p>
+            <p className="text-[11px] text-gray-500 dark:text-slate-400 truncate mt-0.5">
+              {validation.complete ? tileSubtitle(tile, agentPhone) : validation.issues[0]}
+            </p>
           </div>
         </button>
         <button

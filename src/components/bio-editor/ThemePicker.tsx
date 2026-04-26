@@ -18,7 +18,10 @@ const THEMES: { id: BioTheme; label: string; bg: string; accent: string }[] = [
 export default function ThemePicker({ value, onChange }: Props) {
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3">
-      <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider font-semibold mb-2">TEMA</p>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider font-semibold">TEMA</p>
+        <p className="text-[10px] text-gray-400 dark:text-slate-500 font-medium">{THEMES.length} tema · geser</p>
+      </div>
       <div className="relative">
         <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1 scrollbar-thin">
           {THEMES.map(t => {

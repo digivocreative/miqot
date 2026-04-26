@@ -1905,6 +1905,7 @@ _________________________
           {isSingleView && currentAgent && (
             <button
               type="button"
+              data-screenshot-ignore
               onClick={(e) => {
                 e.stopPropagation();
                 setAskAIOpen(true);

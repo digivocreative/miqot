@@ -1,14 +1,12 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { Copy, Check, Link } from 'lucide-react';
 import { buildBioLink, copyBioLink } from './useBioConfig';
 
 interface Props {
   slug: string;
-  /** Right-aligned status slot rendered next to the "LINK BIO PUBLIK" label (e.g. save indicator) */
-  status?: ReactNode;
 }
 
-export default function UrlCard({ slug, status }: Props) {
+export default function UrlCard({ slug }: Props) {
   const [copied, setCopied] = useState(false);
   const url = buildBioLink(slug);
   const displayUrl = url.replace(/^https?:\/\//, '');
@@ -20,10 +18,7 @@ export default function UrlCard({ slug, status }: Props) {
           <Link size={14} className="text-emerald-600 dark:text-emerald-400" strokeWidth={2.2} />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider font-semibold">LINK BIO PUBLIK</p>
-            {status && <div className="shrink-0">{status}</div>}
-          </div>
+          <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider font-semibold">LINK BIO PUBLIK</p>
           <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{displayUrl}</p>
         </div>
         <button
