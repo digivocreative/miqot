@@ -23,11 +23,26 @@ import { AGENTS_DATA, loadAgentsFromSupabase } from '@/data/agents'
 // Register Service Worker for PWA
 const updateSW = registerSW({
   onNeedRefresh() {
-    // Auto update when new content is available
+    // Auto update when new content is available — reloads the page after the
+    // new service worker takes control so users don't have to hard-refresh.
     updateSW(true)
   },
   onOfflineReady() {
     console.log('App ready to work offline')
+  },
+  // Poll the registered SW for an updated bundle every 60s and whenever the
+  // tab regains focus. Without this, a user can sit on a stale bundle for
+  // hours after we deploy a server-side data shape change (e.g. new tile
+  // type), causing rendering mismatches that only a hard refresh fixes.
+  onRegisteredSW(_swUrl: string, registration: ServiceWorkerRegistration | undefined) {
+    if (!registration) return
+    const checkForUpdate = () => {
+      registration.update().catch(() => { /* offline — ignore */ })
+    }
+    setInterval(checkForUpdate, 60_000)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') checkForUpdate()
+    })
   },
   immediate: true
 })

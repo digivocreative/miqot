@@ -62,9 +62,19 @@ function tileSubtitle(tile: BioTile, agentPhone?: string): string {
   }
 }
 
+// Fallback meta — used when the server sends a tile type that this build of
+// the client doesn't know about yet (e.g. cached old bundle after a deploy).
+// Without this guard `TYPE_META[tile.type]` is undefined and the row crashes.
+const UNKNOWN_TILE_META = {
+  icon: Sparkles,
+  label: 'Bagian',
+  badge: '—',
+  badgeClass: 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400',
+};
+
 export default function TileRow({ tile, onTap, onToggleVisible, agentPhone }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tile.id });
-  const meta = TYPE_META[tile.type];
+  const meta = TYPE_META[tile.type] || UNKNOWN_TILE_META;
   const Icon = meta.icon;
   const validation = validateBioTile(tile, agentPhone);
 
