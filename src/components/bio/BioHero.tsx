@@ -16,7 +16,7 @@ function initialsFromName(name: string): string {
 
 export default function BioHero({ agent, hero }: Props) {
   const [imgFailed, setImgFailed] = useState(false);
-  const defaultTagline = 'Konsultan Umroh & Haji Plus · Mitra Resmi Alhijaz';
+  const defaultTagline = 'Bersama Alhijaz, nikmati perjalanan suci yang penuh berkah · Konsultasi mudah dan nyaman untuk Umroh & Haji Anda ✨';
   const tagline = hero.tagline || defaultTagline;
   const badges = Array.isArray(hero.badges) ? hero.badges.filter(Boolean) : [];
   const showPhoto = agent.photo && !imgFailed;

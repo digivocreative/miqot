@@ -16,12 +16,13 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
-import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration } from './laporan-api.js';
+import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration, fetchAwapiCredentials } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
 import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
+import { awapiFetchUmrahByKeberangkatan, awapiFetchUmrahById, awapiFetchJamaahById, normalizeAwapiRow, AwapiError } from './awapi-client.js';
 import {
   runAnalyticsMaintenance,
   fetchEventsForRange,
@@ -1617,6 +1618,8 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     email: agent.email || '',
     telegram_chat_id: agent.telegram_chat_id || '',
     card_variant: agent.card_variant || 'default',
+    awapi_code: agent.awapi_code || '',
+    has_awapi_key: !!agent.awapi_key,
   });
 });
 
@@ -2884,8 +2887,8 @@ function normalizeBioConfig(raw, existing) {
     return baseVal ?? null;
   };
   const seo = {
-    title: normSeoField(seoIn.title, seoBase.title, 120),
-    description: normSeoField(seoIn.description, seoBase.description, 200),
+    title: normSeoField(seoIn.title, seoBase.title, 60),
+    description: normSeoField(seoIn.description, seoBase.description, 160),
     og_image_url: (seoIn.og_image_url === null
       ? null
       : (typeof seoIn.og_image_url === 'string' ? seoIn.og_image_url.trim() || null : (seoBase.og_image_url ?? null))),
@@ -3106,6 +3109,90 @@ app.post('/api/bio/:slug/og-image', authMiddleware, express.json({ limit: '6mb' 
   } catch (err) {
     console.error('[bio-config] og-image error:', err);
     res.status(500).json({ error: 'Gagal mengunggah gambar' });
+  }
+});
+
+// POST /api/bio/:slug/tagline-generate — generate a 1-line tagline via OpenAI.
+app.post('/api/bio/:slug/tagline-generate', authMiddleware, express.json({ limit: '4kb' }), async (req, res) => {
+  const OPENAI_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_KEY) {
+    return res.status(500).json({ error: 'OPENAI_API_KEY belum dikonfigurasi' });
+  }
+  try {
+    const { resolve: resolveAgent } = bioResolveAgentForRequest(req);
+    const { agent, error } = await resolveAgent(req.params.slug);
+    if (error) return res.status(error.status).json({ error: error.msg });
+
+    const TAGLINE_MIN = 100;
+    const TAGLINE_MAX = 115;
+
+    const systemPrompt = `Kamu copywriter untuk konsultan travel umroh & haji Alhijaz Indowisata.
+Tulis SATU baris tagline untuk halaman bio link konsultan, dalam Bahasa Indonesia.
+Panjang WAJIB antara ${TAGLINE_MIN} sampai ${TAGLINE_MAX} karakter (hitung huruf, spasi, dan simbol; emoji = 2 karakter). Jangan kurang dari ${TAGLINE_MIN} dan jangan lebih dari ${TAGLINE_MAX}.
+Gaya: hangat, islami secukupnya, percaya diri, tidak berlebihan, tanpa hashtag.
+Boleh pakai 1 emoji halus seperti 🌙, 🕋, ✨, ✈️ — tapi tidak wajib.
+Pakai pemisah " · " (bullet) untuk menggabungkan 2 frasa singkat agar pas panjangnya. Jangan akhiri dengan tanda titik.
+Hanya keluarkan teks tagline-nya saja, tanpa tanda kutip, tanpa penjelasan, tanpa hitungan karakter.`;
+
+    const userPrompt = `Konsultan: ${agent.name || 'Konsultan Alhijaz'}
+Tugas: konsultan paket Umroh & Haji Plus Alhijaz.
+Buatkan satu tagline yang membuat calon jamaah merasa nyaman menghubungi. Pastikan panjangnya ${TAGLINE_MIN}-${TAGLINE_MAX} karakter.`;
+
+    const callOpenAI = async (extraNote = '') => {
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt + (extraNote ? `\n\n${extraNote}` : '') },
+      ];
+      const r = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages,
+          temperature: 0.85,
+          max_tokens: 90,
+        }),
+      });
+      if (!r.ok) {
+        const errBody = await r.text();
+        throw new Error(`OpenAI ${r.status}: ${errBody.slice(0, 200)}`);
+      }
+      const j = await r.json();
+      let t = (j.choices?.[0]?.message?.content || '').trim();
+      t = t.replace(/^["'`]+|["'`]+$/g, '').trim();
+      // Drop trailing period — the prompt forbids it but the model sometimes ignores
+      t = t.replace(/[.\s]+$/, '').trim();
+      return t;
+    };
+
+    let tagline = '';
+    let lastLen = 0;
+    // Up to 3 attempts to land inside the target window. Each retry tells the
+    // model exactly what went wrong with its last try so it adjusts.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const note = attempt === 0
+        ? ''
+        : lastLen < TAGLINE_MIN
+          ? `Percobaan sebelumnya ${lastLen} karakter — terlalu pendek. Tambahkan 1 frasa pendukung lalu hitung ulang sampai ${TAGLINE_MIN}-${TAGLINE_MAX} karakter.`
+          : `Percobaan sebelumnya ${lastLen} karakter — terlalu panjang. Padatkan menjadi ${TAGLINE_MIN}-${TAGLINE_MAX} karakter.`;
+      const t = await callOpenAI(note);
+      if (!t) continue;
+      tagline = t;
+      lastLen = t.length;
+      if (lastLen >= TAGLINE_MIN && lastLen <= TAGLINE_MAX) break;
+    }
+
+    if (!tagline) return res.status(502).json({ error: 'Tagline kosong, coba lagi' });
+    // Final hard guard: trim if still over max — never return >115 chars to the client
+    if (tagline.length > TAGLINE_MAX) tagline = tagline.slice(0, TAGLINE_MAX).trim();
+
+    res.json({ success: true, tagline });
+  } catch (err) {
+    console.error('[bio-tagline] error:', err);
+    res.status(500).json({ error: err.message || 'Gagal generate tagline' });
   }
 });
 
@@ -3877,6 +3964,74 @@ app.get('/api/capi/:slug/logs', async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
+// API: Alhijaz Official API (awapi) — validation
+// ──────────────────────────────────────────────
+
+// Test an x-api-key against the official Alhijaz endpoint.
+// Body: { awapi_key?, awapi_code? } — if omitted, falls back to values saved on the agent.
+// awapi_code can be derived from key (everything before the first dash).
+// Note: as of 2026-04, the upstream API does not validate the x-api-key header itself —
+// only the {code} in the URL is effective. We still send the header for forward-compat.
+app.post('/api/awapi/test', authMiddleware, async (req, res) => {
+  const bodyKey = (req.body?.awapi_key || '').trim();
+  const bodyCode = (req.body?.awapi_code || '').trim();
+
+  let key = bodyKey;
+  let code = bodyCode;
+
+  if (!key) {
+    const agent = await getAgentById(req.user.id);
+    key = agent?.awapi_key || '';
+    if (!code) code = agent?.awapi_code || '';
+  }
+  if (!code && key) code = key.split('-')[0];
+
+  if (!key || !code) {
+    return res.status(400).json({ error: 'API key dan kode agent wajib (atau simpan dulu di profil)' });
+  }
+
+  const year = new Date().getFullYear();
+  const url = `http://115.124.86.220/awapi/gu/${encodeURIComponent(code)}/bm/${year}`;
+
+  const started = Date.now();
+  try {
+    const upstream = await fetch(url, {
+      headers: { 'x-api-key': key, Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
+    const elapsed = Date.now() - started;
+    const text = await upstream.text();
+
+    if (!upstream.ok) {
+      return res.status(502).json({
+        error: 'Upstream tidak OK',
+        status: upstream.status,
+        durationMs: elapsed,
+      });
+    }
+
+    let payload;
+    try { payload = JSON.parse(text); } catch {
+      return res.status(502).json({ error: 'Response upstream bukan JSON', durationMs: elapsed });
+    }
+
+    const rows = Array.isArray(payload?.aaData) ? payload.aaData : [];
+    res.json({
+      success: true,
+      durationMs: elapsed,
+      year,
+      code,
+      count: rows.length,
+      sample: rows[0]
+        ? { id_umrah: rows[0].id_umrah, nama: rows[0].nama, paket: rows[0].paket }
+        : null,
+    });
+  } catch (err) {
+    res.status(502).json({ error: err.message || 'Network error', durationMs: Date.now() - started });
+  }
+});
+
+// ──────────────────────────────────────────────
 // API: Laporan / Jamaah Management
 // ──────────────────────────────────────────────
 
@@ -3926,17 +4081,31 @@ app.post('/api/laporan/login', authMiddleware, async (req, res) => {
 
   // Auto-save credentials (encrypt password)
   const encryptedPassword = capiEncrypt(password);
-  await supabase
-    .from('agents')
-    .update({
-      jamaah_username: username,
-      jamaah_password: encryptedPassword,
-      jamaah_kantor: k,
-    })
-    .eq('id', req.user.id);
+  const updates = {
+    jamaah_username: username,
+    jamaah_password: encryptedPassword,
+    jamaah_kantor: k,
+  };
+
+  // Auto-discover Alhijaz official API credentials by scraping the /api page in
+  // the same logged-in session. Best-effort: failure does not block login.
+  try {
+    const awapi = await fetchAwapiCredentials(username);
+    if (awapi.success) {
+      updates.awapi_key = awapi.awapi_key;
+      updates.awapi_code = awapi.awapi_code;
+      console.log(`[awapi] discovered for ${username}: ${awapi.awapi_code}`);
+    } else {
+      console.warn(`[awapi] discovery failed for ${username}: ${awapi.reason || awapi.error}`);
+    }
+  } catch (err) {
+    console.warn(`[awapi] discovery threw for ${username}: ${err.message}`);
+  }
+
+  await supabase.from('agents').update(updates).eq('id', req.user.id);
   invalidateAgentCache();
 
-  res.json({ ...result, username, kantor: k });
+  res.json({ ...result, username, kantor: k, awapi_discovered: !!updates.awapi_key });
 });
 
 // Hijriah year → Gregorian date range mapping (for FETCHING from legacy system)
@@ -4134,13 +4303,214 @@ function buildRows(items, agentId, now) {
   return Array.from(map.values());
 }
 
+// Lazy-discover Alhijaz Official API credentials for an agent that already
+// has jamaah_username + jamaah_password but no awapi_key yet (typical for
+// agents who logged in before Phase 1 was deployed).
+//
+// Reuses the existing login session if active; otherwise spends ~1-2s logging
+// in with the saved (encrypted) password, scrapes the `?route=api` page, and
+// persists the discovered key. Returns the (possibly mutated) agent object so
+// the caller can use the fresh awapi_key/awapi_code without a re-fetch.
+//
+// Failures are non-blocking — they just leave awapi_key empty so the caller
+// can decide to fall back (e.g. legacy scrape path).
+async function ensureAwapiCredentials(agent) {
+  if (agent?.awapi_key) return agent;
+  if (!agent?.jamaah_username || !agent?.jamaah_password) return agent;
+
+  try {
+    if (!isSessionActive(agent.jamaah_username)) {
+      const decrypted = capiDecrypt(agent.jamaah_password);
+      const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
+      if (!loginResult.success) {
+        console.warn(`[awapi/lazy] ${agent.slug}: login failed — ${loginResult.error || loginResult.reason}`);
+        return agent;
+      }
+    }
+    const awapi = await fetchAwapiCredentials(agent.jamaah_username);
+    if (!awapi.success) {
+      console.warn(`[awapi/lazy] ${agent.slug}: discovery failed — ${awapi.reason || awapi.error}`);
+      return agent;
+    }
+    const { error } = await supabase
+      .from('agents')
+      .update({ awapi_key: awapi.awapi_key, awapi_code: awapi.awapi_code })
+      .eq('id', agent.id);
+    if (error) {
+      console.warn(`[awapi/lazy] ${agent.slug}: persist failed — ${error.message}`);
+      return agent;
+    }
+    invalidateAgentCache();
+    console.log(`[awapi/lazy] ${agent.slug}: discovered ${awapi.awapi_code}`);
+    return { ...agent, awapi_key: awapi.awapi_key, awapi_code: awapi.awapi_code };
+  } catch (err) {
+    console.warn(`[awapi/lazy] ${agent.slug}: error — ${err.message}`);
+    return agent;
+  }
+}
+
+// Sync via Alhijaz Official API — pure helper used by both manual & background
+// paths. Returns { ok, count, error?, yearsCompleted, yearsAttempted }.
+// Caller is responsible for the syncingAgents lifecycle and analytics logging
+// (so the manual path can attribute the action to a user role).
+async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } = {}) {
+  const apiKey = agent.awapi_key;
+  const code = agent.awapi_code || apiKey.split('-')[0];
+  const now = new Date().toISOString();
+  const yearsToSync = getActiveHijriahYears();
+  const MIN_HIJRIAH_YEAR = 1447;
+
+  // Aggregate normalized rows from all hijriah years; dedup by (id_umroh, jm_id)
+  // since /bh and /bm responses can overlap when a booking spans the year edge.
+  const rowsByKey = new Map();
+  const fetchedBookingIds = new Set();
+  const successfulBookingIds = new Set();
+  const successfulJamaahPerBooking = new Map();
+  let listComplete = true;
+  let yearErrors = 0;
+
+  for (const yearH of yearsToSync) {
+    try {
+      const { rows } = await awapiFetchUmrahByKeberangkatan(apiKey, code, {
+        tahun: yearH,
+        hijriah: true,
+      });
+      for (const raw of rows) {
+        const norm = normalizeAwapiRow(raw, { agentId, agentSlug: slug });
+        if (!norm) continue;
+        const yr = getHijriahYear(norm.tgl_berangkat) || yearH;
+        if (Number(yr) < MIN_HIJRIAH_YEAR) continue;
+        norm.hijriah_year = yr;
+
+        const key = `${norm.id_umroh}_${norm.jm_id}`.toLowerCase();
+        if (!rowsByKey.has(key)) rowsByKey.set(key, norm);
+
+        fetchedBookingIds.add(norm.id_umroh);
+        successfulBookingIds.add(norm.id_umroh);
+        const jset = successfulJamaahPerBooking.get(norm.id_umroh) || new Set();
+        jset.add(String(norm.nama || '').trim().toLowerCase());
+        successfulJamaahPerBooking.set(norm.id_umroh, jset);
+      }
+      console.log(`[Sync/api/${context}] ${slug} year ${yearH}: ${rows.length} rows`);
+    } catch (err) {
+      yearErrors++;
+      listComplete = false;
+      console.warn(`[Sync/api/${context}] ${slug} year ${yearH} failed: ${err.message}`);
+    }
+  }
+
+  const allRows = Array.from(rowsByKey.values());
+  console.log(`[Sync/api/${context}] ${slug}: ${allRows.length} unique rows from ${yearsToSync.length - yearErrors}/${yearsToSync.length} years`);
+
+  // Upsert in batches with the same conflict target as legacy.
+  const BATCH = 50;
+  let upserted = 0;
+  for (let i = 0; i < allRows.length; i += BATCH) {
+    const batch = filterSafeJamaahRows(allRows.slice(i, i + BATCH), `api-${context}`);
+    if (batch.length === 0) continue;
+    const { error } = await supabase
+      .from('jamaah')
+      .upsert(batch, { onConflict: 'agent_id,id_umroh,jm_id' });
+    if (error) {
+      console.error(`[Sync/api/${context}] ${slug} upsert batch error:`, error.message);
+    } else {
+      upserted += batch.length;
+    }
+  }
+
+  // Cleanup: only run if all years fetched successfully.
+  if (listComplete && !syncingAgents.get(agentId)?.cancelled) {
+    const { data: existingDbRows } = await supabase
+      .from('jamaah')
+      .select('id_umroh, nama')
+      .eq('agent_id', agentId);
+    const existingForCleanup = (existingDbRows || []).map((r) => ({
+      bookingId: r.id_umroh,
+      jamaahKey: String(r.nama || '').trim().toLowerCase(),
+      nama: r.nama,
+    }));
+    const plan = computeSafeDeletions({
+      listComplete,
+      fetchedBookingIds,
+      successfulBookingIds,
+      successfulJamaahPerBooking,
+      existingRows: existingForCleanup,
+      maxDeletePercent: 0.3,
+    });
+    if (plan.decision === 'skip') {
+      console.warn(`[Sync/api/${context}] ${slug} cleanup skipped: ${plan.reason} (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+    } else if (plan.toDelete.length > 0) {
+      const deletedCount = await executeUmrohDeletions(slug, agentId, plan.toDelete);
+      console.log(`[Sync/api/${context}] ${slug}: removed ${deletedCount} stale jamaah (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+    }
+  }
+
+  // Fire CAPI Purchase events (DP & Lunas) — fire-and-forget.
+  const upsertedIds = allRows.map((r) => ({ id_umroh: r.id_umroh, nama: r.nama }));
+  processCapiPurchases(agentId, slug, 'umroh', upsertedIds).catch((e) =>
+    console.error(`[CAPI/api/${context}] sync error:`, e.message)
+  );
+
+  // Persist last sync timestamp at agent level (skip_noop_update trigger).
+  const { error: bumpErr } = await supabase
+    .from('agents')
+    .update({ last_jamaah_sync_at: now })
+    .eq('id', agentId);
+  if (bumpErr) console.warn(`[Sync/api/${context}] ${slug} bump last_jamaah_sync_at failed:`, bumpErr.message);
+
+  return {
+    ok: yearErrors === 0,
+    count: upserted,
+    yearsCompleted: yearsToSync.length - yearErrors,
+    yearsAttempted: yearsToSync.length,
+    syncedAt: now,
+  };
+}
+
+// HTTP wrapper for manual sync — called from /api/laporan/sync when env+key.
+async function syncUmrahViaApi(req, res, agent) {
+  const agentId = req.user.id;
+  const slug = req.user.slug;
+
+  syncingAgents.set(agentId, {
+    isSyncing: true,
+    scope: 'umroh-api',
+    totalSynced: 0,
+    completedYears: [],
+    lastSync: null,
+  });
+  if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'sync_jamaah_api');
+
+  try {
+    const result = await syncUmrahViaApiCore(agentId, slug, agent, { context: 'manual' });
+    return res.json({
+      success: true,
+      data: {
+        initialCount: result.count,
+        total: result.count,
+        syncing: false,
+        source: 'awapi',
+        yearsCompleted: result.yearsCompleted,
+        yearsAttempted: result.yearsAttempted,
+      },
+    });
+  } finally {
+    syncingAgents.set(agentId, {
+      isSyncing: false,
+      totalSynced: 0,
+      lastSync: new Date().toISOString(),
+    });
+  }
+}
+
+
 // Sync: fetch from legacy → parse → progressive upsert to Supabase
 // If hijriahYear is provided, sync only that year. Otherwise sync all years.
 app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   const agentId = req.user.id;
   const slug = req.user.slug;
 
-  const agent = await getAgentById(agentId);
+  let agent = await getAgentById(agentId);
   if (!agent?.jamaah_username || !agent?.jamaah_password) {
     return res.status(400).json({ error: 'Belum ada credentials tersimpan' });
   }
@@ -4149,6 +4519,26 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   const state = syncingAgents.get(agentId);
   if (state?.isSyncing) {
     return res.json({ success: true, data: { initialCount: 0, syncing: true, message: 'Sync sudah berjalan' } });
+  }
+
+  // ── Optional: route through Alhijaz Official API (single-pass JSON) ──
+  // Opt-in via env. Falls through to legacy if disabled, lazy-discovery
+  // can't get a key, or new path errors out before sending any response.
+  if (process.env.AWAPI_SYNC_ENABLED === 'true') {
+    // Lazy-discover credentials for agents who logged in before Phase 1.
+    // Skips network call if awapi_key already present.
+    agent = await ensureAwapiCredentials(agent);
+    if (agent.awapi_key) {
+      try {
+        return await syncUmrahViaApi(req, res, agent);
+      } catch (err) {
+        console.error(`[Sync/api] ${slug} aborted, falling back to legacy:`, err.message);
+        syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null });
+        if (res.headersSent) return; // can't fall back if response already started
+      }
+    } else {
+      console.log(`[Sync/api] ${slug}: no awapi_key after lazy discover, falling back to legacy`);
+    }
   }
 
   syncingAgents.set(agentId, { isSyncing: true, scope: 'umroh-manual', totalSynced: 0, completedYears: [], lastSync: null });
@@ -4608,6 +4998,117 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   if (!firstBatchSent) {
     syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: now });
     return res.json({ success: true, data: { initialCount: 0, syncing: false } });
+  }
+});
+
+// ── Refresh single jamaah by ID via Alhijaz Official API ──
+// Uses /awapi/gu/{kode}/jamaah/{IDJamaah} — single-row update without a full
+// sync. Agent must have awapi_key set (auto-discovered via login flow).
+app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res) => {
+  const agentId = req.user.id;
+  const slug = req.user.slug;
+  const idJamaah = String(req.params.idJamaah || '').trim();
+  if (!idJamaah || !/^JM/i.test(idJamaah)) {
+    return res.status(400).json({ error: 'idJamaah tidak valid' });
+  }
+
+  const agent = await getAgentById(agentId);
+  if (!agent?.awapi_key) {
+    return res.status(400).json({ error: 'API key Alhijaz belum tersedia. Login ulang via JamaahPage agar key ter-discover otomatis.' });
+  }
+  const code = agent.awapi_code || agent.awapi_key.split('-')[0];
+
+  try {
+    const { rows } = await awapiFetchJamaahById(agent.awapi_key, code, idJamaah);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Jamaah tidak ditemukan di sistem Alhijaz' });
+    }
+    const norm = normalizeAwapiRow(rows[0], { agentId, agentSlug: slug });
+    if (!norm) {
+      return res.status(422).json({ error: 'Data jamaah tidak lengkap untuk dinormalisasi' });
+    }
+    norm.hijriah_year = getHijriahYear(norm.tgl_berangkat) || null;
+
+    const { error } = await supabase
+      .from('jamaah')
+      .upsert([norm], { onConflict: 'agent_id,id_umroh,jm_id' });
+    if (error) {
+      console.error(`[Sync/api] ${slug} jamaah/${idJamaah} upsert error:`, error.message);
+      return res.status(500).json({ error: 'Gagal menyimpan data refreshed' });
+    }
+
+    // Best-effort CAPI Purchase event for this single jamaah.
+    processCapiPurchases(agentId, slug, 'umroh', [{ id_umroh: norm.id_umroh, nama: norm.nama }]).catch((e) =>
+      console.error('[CAPI/api] refresh jamaah error:', e.message)
+    );
+
+    res.json({ success: true, data: { row: norm, source: 'awapi' } });
+  } catch (err) {
+    if (err instanceof AwapiError) {
+      return res.status(502).json({ error: `Upstream API: ${err.message}`, status: err.status });
+    }
+    console.error(`[Sync/api] ${slug} jamaah/${idJamaah} error:`, err.message);
+    res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+// ── Refresh single umrah booking (and all its jamaah) by ID ──
+app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) => {
+  const agentId = req.user.id;
+  const slug = req.user.slug;
+  const idUmrah = String(req.params.idUmrah || '').trim();
+  if (!idUmrah) {
+    return res.status(400).json({ error: 'idUmrah wajib diisi' });
+  }
+
+  const agent = await getAgentById(agentId);
+  if (!agent?.awapi_key) {
+    return res.status(400).json({ error: 'API key Alhijaz belum tersedia. Login ulang via JamaahPage agar key ter-discover otomatis.' });
+  }
+  const code = agent.awapi_code || agent.awapi_key.split('-')[0];
+
+  try {
+    const { rows } = await awapiFetchUmrahById(agent.awapi_key, code, idUmrah);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Booking tidak ditemukan di sistem Alhijaz' });
+    }
+
+    const normalized = [];
+    for (const raw of rows) {
+      const norm = normalizeAwapiRow(raw, { agentId, agentSlug: slug });
+      if (!norm) continue;
+      norm.hijriah_year = getHijriahYear(norm.tgl_berangkat) || null;
+      normalized.push(norm);
+    }
+    if (normalized.length === 0) {
+      return res.status(422).json({ error: 'Tidak ada baris jamaah valid pada booking ini' });
+    }
+
+    const safeRows = filterSafeJamaahRows(normalized, 'api-refresh-umrah');
+    if (safeRows.length > 0) {
+      const { error } = await supabase
+        .from('jamaah')
+        .upsert(safeRows, { onConflict: 'agent_id,id_umroh,jm_id' });
+      if (error) {
+        console.error(`[Sync/api] ${slug} umrah/${idUmrah} upsert error:`, error.message);
+        return res.status(500).json({ error: 'Gagal menyimpan data refreshed' });
+      }
+    }
+
+    processCapiPurchases(
+      agentId,
+      slug,
+      'umroh',
+      safeRows.map((r) => ({ id_umroh: r.id_umroh, nama: r.nama }))
+    ).catch((e) => console.error('[CAPI/api] refresh umrah error:', e.message));
+
+    res.json({ success: true, data: { count: safeRows.length, rows: safeRows, source: 'awapi' } });
+  } catch (err) {
+    if (err instanceof AwapiError) {
+      return res.status(502).json({ error: `Upstream API: ${err.message}`, status: err.status });
+    }
+    console.error(`[Sync/api] ${slug} umrah/${idUmrah} error:`, err.message);
+    res.status(500).json({ error: err.message || 'Internal error' });
   }
 });
 
@@ -10136,6 +10637,33 @@ async function syncOneAgent(agent) {
 
   syncingAgents.set(agentId, { isSyncing: true, background: true, scope: 'umroh-bg', totalSynced: 0, lastSync: null, startedAt: Date.now(), username: agent.jamaah_username });
 
+  // ── Route to Alhijaz Official API path when enabled ──
+  // This bypasses the entire legacy scrape pipeline so background and manual
+  // syncs stay aligned (otherwise the hourly bg sync would re-write data with
+  // the legacy field formats and undo the API-fresh values).
+  // Lazy-discover key for agents who logged in before Phase 1 — silent best-
+  // effort, falls through to legacy if it can't get a key.
+  if (process.env.AWAPI_SYNC_ENABLED === 'true') {
+    agent = await ensureAwapiCredentials(agent);
+  }
+  if (process.env.AWAPI_SYNC_ENABLED === 'true' && agent.awapi_key) {
+    try {
+      const result = await syncUmrahViaApiCore(agentId, slug, agent, { context: 'bg' });
+      syncingAgents.set(agentId, {
+        isSyncing: false,
+        totalSynced: result.count,
+        lastSync: result.syncedAt,
+        completedYears: [],
+      });
+      console.log(`[SYNC/api/bg] ${slug}: complete — ${result.count} rows in ${result.yearsCompleted}/${result.yearsAttempted} years`);
+      return;
+    } catch (err) {
+      console.error(`[SYNC/api/bg] ${slug} aborted, falling back to legacy:`, err.message);
+      syncingAgents.set(agentId, { isSyncing: true, background: true, scope: 'umroh-bg', totalSynced: 0, lastSync: null, startedAt: Date.now(), username: agent.jamaah_username });
+      // fall through to legacy
+    }
+  }
+
   try {
     // Force fresh session for each background sync (skip remote logout to avoid rate-limiting)
     await laporanDisconnect(agent.jamaah_username, { skipRemoteLogout: true });
@@ -10696,22 +11224,30 @@ async function syncAllAgents() {
     return;
   }
 
-  // Run agents sequentially — legacy server can't handle parallel sessions well
+  // When the official API path is enabled, agents can be processed in
+  // parallel — there's no Apache session/rate-limit to throttle around.
+  // Falls back to sequential + 5s gap for legacy behavior.
+  const apiEnabled = process.env.AWAPI_SYNC_ENABLED === 'true';
+  const PARALLEL = apiEnabled ? 5 : 1;
+  const INTER_AGENT_GAP_MS = apiEnabled ? 0 : 5000;
+
   let ok = 0, fail = 0, skipped = 0, loginFail = 0;
-  for (const agent of agents) {
+  let abort = false;
+
+  const processOne = async (agent) => {
+    if (abort) { skipped++; return; }
     try {
       const prevState = syncingAgents.get(agent.id);
-      if (prevState?.isSyncing) { skipped++; continue; }
+      if (prevState?.isSyncing) { skipped++; return; }
       await syncOneAgent(agent);
-      // Check if login failed (syncOneAgent returns normally but sets loginFailed flag)
       const afterState = syncingAgents.get(agent.id);
       if (afterState?.loginFailed) {
         loginFail++;
-        // If rate-limited, abort remaining agents — no point hammering the server
+        // Rate-limit only matters for legacy login path (Apache). API path
+        // never triggers this flag — so the abort logic remains legacy-only.
         if (afterState.rateLimited) {
-          console.warn(`[SYNC] Aborting cycle — server rate-limiting detected at ${agent.slug}`);
-          skipped += agents.length - (ok + fail + skipped + loginFail);
-          break;
+          console.warn(`[SYNC] Aborting cycle — Apache rate-limiting detected at ${agent.slug}`);
+          abort = true;
         }
       } else {
         ok++;
@@ -10720,12 +11256,22 @@ async function syncAllAgents() {
       console.error(`[SYNC] ${agent.slug} uncaught:`, err.message);
       fail++;
     }
-    // Gap between agents — 5s to avoid Apache rate-limiting on Alhijaz server
-    if (ok + fail + skipped + loginFail < agents.length) await new Promise(r => setTimeout(r, 5000));
+  };
+
+  for (let i = 0; i < agents.length; i += PARALLEL) {
+    if (abort) {
+      skipped += agents.length - i;
+      break;
+    }
+    const batch = agents.slice(i, i + PARALLEL);
+    await Promise.all(batch.map(processOne));
+    if (INTER_AGENT_GAP_MS > 0 && i + PARALLEL < agents.length) {
+      await new Promise((r) => setTimeout(r, INTER_AGENT_GAP_MS));
+    }
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[SYNC] Cycle complete: ${ok} OK, ${loginFail} login failed, ${fail} error, ${skipped} skipped in ${elapsed}s`);
+  console.log(`[SYNC] Cycle complete: ${ok} OK, ${loginFail} login failed, ${fail} error, ${skipped} skipped in ${elapsed}s (parallel=${PARALLEL})`);
 }
 
 // Clean up old 1446 H data (one-time, 15s after startup)
@@ -10745,9 +11291,12 @@ setTimeout(async () => {
 }, 15 * 1000);
 
 // Chain-scheduled sync: next cycle starts a fixed cooldown AFTER the previous
-// finishes. Prevents cycle-overlap regardless of how long a single cycle takes
-// (cycle duration grew when Phase 2 enrichment window expanded 2→6 months).
-const SYNC_COOLDOWN_MS = 30 * 60 * 1000;
+// finishes. Prevents cycle-overlap regardless of how long a single cycle takes.
+// API path: 10min cooldown (cycle ~1.5min, refresh per agent ~12min).
+// Legacy path: longer cooldown still appropriate due to slower scrape pipeline.
+const SYNC_COOLDOWN_MS = process.env.AWAPI_SYNC_ENABLED === 'true'
+  ? 10 * 60 * 1000   // 10 minutes
+  : 30 * 60 * 1000;  // 30 minutes (legacy)
 async function runSyncCycleLoop() {
   while (true) {
     try {

@@ -200,6 +200,7 @@ export default function BioEditorPage({ agent }: Props) {
       <SheetHero
         open={heroOpen}
         onClose={() => setHeroOpen(false)}
+        slug={agent.slug}
         config={config}
         onUpdate={bio.updateConfig}
         onSave={async () => { await bio.flush(); setHeroOpen(false); }}
@@ -207,7 +208,7 @@ export default function BioEditorPage({ agent }: Props) {
       <SheetSeo
         open={seoOpen}
         onClose={() => setSeoOpen(false)}
-        slug={agent.slug}
+        agent={agent}
         config={config}
         onUpdate={bio.updateConfig}
         onSave={async () => { await bio.flush(); setSeoOpen(false); }}

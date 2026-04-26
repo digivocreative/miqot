@@ -48,6 +48,7 @@ function AnimatedCounter({ value, duration = 600 }: { value: number; duration?: 
 interface JamaahItem {
   id: number;
   id_umroh: string;
+  jm_id: string;
   nama: string;
   jk: string | null;
   wa: string | null;
@@ -136,6 +137,11 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
   // Modal state for "Lihat Semua" on a Belum DP group card
   const [expandedGroupModal, setExpandedGroupModal] = useState<{ idu: string; members: JamaahItem[] } | null>(null);
 
+  // Per-row refresh (Phase 4 — single-jamaah pull from API resmi)
+  const [refreshingJmId, setRefreshingJmId] = useState<string | null>(null);
+  const [refreshedJmId, setRefreshedJmId] = useState<string | null>(null);
+  const [refreshErrorJmId, setRefreshErrorJmId] = useState<string | null>(null);
+
   // Notes
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
@@ -179,6 +185,44 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
   const formatNoteDate = (dateStr: string) => {
     const d = new Date(dateStr);
     return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  // Refresh a single jamaah from Alhijaz Official API. Updates the row
+  // in-place — much faster than a full sync when you just want fresh
+  // payment/paspor/perlengkapan for one person.
+  const handleRefreshRow = async (item: JamaahItem) => {
+    if (!item.jm_id) return;
+    setRefreshingJmId(item.jm_id);
+    setRefreshErrorJmId(null);
+    setRefreshedJmId(null);
+    try {
+      const res = await fetch(`/api/laporan/jamaah/${encodeURIComponent(item.jm_id)}/refresh`, {
+        headers: { ...getAuthHeaders() },
+      });
+      const result = await res.json();
+      if (res.ok && result.success && result.data?.row) {
+        const fresh = result.data.row as Partial<JamaahItem>;
+        setData(prev => prev ? {
+          ...prev,
+          items: prev.items.map(j =>
+            j.jm_id === item.jm_id && j.id_umroh === item.id_umroh
+              ? { ...j, ...fresh, notes: j.notes, notes_updated_at: j.notes_updated_at }
+              : j
+          ),
+        } : prev);
+        setRefreshedJmId(item.jm_id);
+        setTimeout(() => setRefreshedJmId(prev => prev === item.jm_id ? null : prev), 1800);
+      } else {
+        setRefreshErrorJmId(item.jm_id);
+        setTimeout(() => setRefreshErrorJmId(prev => prev === item.jm_id ? null : prev), 2400);
+      }
+    } catch (err) {
+      console.error('Failed to refresh jamaah:', err);
+      setRefreshErrorJmId(item.jm_id);
+      setTimeout(() => setRefreshErrorJmId(prev => prev === item.jm_id ? null : prev), 2400);
+    } finally {
+      setRefreshingJmId(prev => prev === item.jm_id ? null : prev);
+    }
   };
 
   const handleSaveNote = async (item: JamaahItem) => {
@@ -1366,25 +1410,52 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
 
                       {/* ─── Section 3: Perlengkapan & Paspor (tinted block) ─── */}
                       {(() => {
-                        // Filter perlengkapan by gender
-                        const hasPerlengkapan = item.perlengkapan && Object.keys(item.perlengkapan).length > 0;
-                        let genderItems: [string, boolean][] = [];
-                        let done = 0;
-                        const labels: Record<string, string> = { batik: 'Batik', buku_doa: 'Buku Doa', ikhram: 'Ikhram', koper: 'Koper', mukena: 'Mukena', sabuk: 'Sabuk', tas_paspor: 'Tas Paspor' };
-                        if (hasPerlengkapan) {
-                          genderItems = Object.entries(item.perlengkapan!).filter(([key]) => {
-                            if (key === 'syal' || key === 'bergo' || key === 'sabuk') return false;
-                            if (key === 'ikhram' && item.jk !== 'L') return false;
-                            if ((key === 'mukena' || key === 'sabuk') && item.jk !== 'P') return false;
-                            return true;
-                          }) as [string, boolean][];
-                          done = genderItems.filter(([, v]) => v).length;
-                        }
+                        // Normalize perlengkapan key for cross-format compatibility:
+                        // legacy scrape uses snake_case ("tas_paspor"); official API
+                        // uses lowercase with spaces ("tas paspor"). Treat both as
+                        // the same logical item.
+                        const normalizeKey = (k: string) => k.toLowerCase().replace(/[\s_]+/g, '_');
+                        const titleCase = (k: string) => k.replace(/[_\s]+/g, ' ').trim()
+                          .split(' ')
+                          .map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w)
+                          .join(' ');
 
-                        return (hasPerlengkapan || item.no_paspor !== null || item.no_paspor === null) ? (
+                        // Custom labels for items that need specific casing/spelling
+                        // (everything else falls through to titleCase auto-formatter).
+                        const labels: Record<string, string> = {
+                          buku_doa: 'Buku Doa',
+                          tas_paspor: 'Tas Paspor',
+                          ikhram: 'Ihram',
+                        };
+
+                        // Default item set used when API returns null perlengkapan
+                        // (Alhijaz hasn't filled the checklist yet). We still want
+                        // the section visible so user sees what's pending.
+                        const DEFAULT_PERLENGKAPAN: Record<string, number> = {
+                          'tas paspor': 0, 'koper': 0, 'batik': 0, 'sajadah': 0,
+                          'buku doa': 0, 'madu': 0, 'tasbih': 0,
+                          ...(item.jk === 'L' ? { 'ikhram': 0 } : {}),
+                          ...(item.jk === 'P' ? { 'mukena': 0, 'kerudung': 0 } : {}),
+                        };
+                        const sourcePerlengkapan = (item.perlengkapan && Object.keys(item.perlengkapan).length > 0)
+                          ? item.perlengkapan as Record<string, boolean | number>
+                          : DEFAULT_PERLENGKAPAN;
+
+                        const genderItems: [string, boolean][] = Object.entries(sourcePerlengkapan)
+                          .filter(([key]) => {
+                            const nk = normalizeKey(key);
+                            if (nk === 'syal' || nk === 'bergo' || nk === 'sabuk') return false;
+                            if (nk === 'ikhram' && item.jk !== 'L') return false;
+                            if ((nk === 'mukena' || nk === 'kerudung') && item.jk !== 'P') return false;
+                            return true;
+                          })
+                          .map(([k, v]) => [k, Boolean(v)] as [string, boolean]);
+                        const done = genderItems.filter(([, v]) => v).length;
+
+                        return (
                           <div className="bg-gray-50/80 dark:bg-slate-900/40 px-3 py-2.5">
                             {/* Perlengkapan */}
-                            {hasPerlengkapan && genderItems.length > 0 && (
+                            {genderItems.length > 0 && (
                               <>
                                 <div className="flex items-center gap-2 mb-1.5">
                                   <span className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Perlengkapan</span>
@@ -1397,20 +1468,24 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                                   <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 ml-auto">{done}/{genderItems.length}</span>
                                 </div>
                                 <div className="flex flex-wrap gap-1">
-                                  {genderItems.map(([key, val]) => (
-                                    <span key={key} className={`text-[11px] font-semibold px-2 py-1 rounded-lg inline-flex items-center gap-0.5 border ${
-                                      val
-                                        ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800/40 shadow-sm shadow-emerald-500/10'
-                                        : 'bg-white dark:bg-slate-800 text-gray-300 dark:text-slate-600 border-gray-100 dark:border-slate-700'
-                                    }`}>
-                                      {val ? (
-                                        <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-                                      ) : (
-                                        <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                                      )}
-                                      {labels[key] || key}
-                                    </span>
-                                  ))}
+                                  {genderItems.map(([key, val]) => {
+                                    const nk = normalizeKey(key);
+                                    const display = labels[nk] || titleCase(key);
+                                    return (
+                                      <span key={key} className={`text-[11px] font-semibold px-2 py-1 rounded-lg inline-flex items-center gap-0.5 border ${
+                                        val
+                                          ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800/40 shadow-sm shadow-emerald-500/10'
+                                          : 'bg-white dark:bg-slate-800 text-gray-300 dark:text-slate-600 border-gray-100 dark:border-slate-700'
+                                      }`}>
+                                        {val ? (
+                                          <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                                        ) : (
+                                          <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                        )}
+                                        {display}
+                                      </span>
+                                    );
+                                  })}
                                 </div>
                               </>
                             )}
@@ -1451,11 +1526,40 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                               return null;
                             })()}
                           </div>
-                        ) : null;
+                        );
                       })()}
 
                       {/* ─── Section 4: Action Buttons ─── */}
                       <div className="px-3 py-2.5 flex gap-2">
+                        {/* Refresh single row from Alhijaz Official API */}
+                        {item.jm_id && (() => {
+                          const isRefreshing = refreshingJmId === item.jm_id;
+                          const justRefreshed = refreshedJmId === item.jm_id;
+                          const hasError = refreshErrorJmId === item.jm_id;
+                          const baseClass = 'w-10 h-10 shrink-0 flex items-center justify-center rounded-xl transition-all active:scale-95 border disabled:opacity-60';
+                          const stateClass = hasError
+                            ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800/40'
+                            : justRefreshed
+                              ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40'
+                              : 'bg-gray-50 dark:bg-slate-800 text-gray-500 dark:text-slate-400 border-gray-200 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-700';
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleRefreshRow(item)}
+                              disabled={isRefreshing}
+                              className={`${baseClass} ${stateClass}`}
+                              title={hasError ? 'Refresh gagal — coba lagi' : justRefreshed ? 'Berhasil di-refresh' : 'Refresh data jamaah dari Alhijaz'}
+                            >
+                              {hasError ? (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                              ) : justRefreshed ? (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                              ) : (
+                                <RefreshCw size={14} strokeWidth={2.2} className={isRefreshing ? 'animate-spin' : ''} />
+                              )}
+                            </button>
+                          );
+                        })()}
                         {item.id_umroh && (
                           <button
                             type="button"
@@ -1484,16 +1588,6 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                           >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
                             WhatsApp
-                          </a>
-                        )}
-                        {item.sisa > 0 && item.wa && (
-                          <a
-                            href={`https://wa.me/${item.wa.replace(/^0/, '62').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Assalamualaikum, mengingatkan sisa pembayaran umroh sebesar ${formatRupiah(item.sisa)}. Terima kasih.`)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-all active:scale-95"
-                          >
-                            Tagih
                           </a>
                         )}
                       </div>

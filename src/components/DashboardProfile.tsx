@@ -16,6 +16,8 @@ interface AgentProfile {
   photo: string;
   role: string;
   card_variant?: string;
+  awapi_code?: string;
+  has_awapi_key?: boolean;
 }
 
 // ── Notification preference groups ──

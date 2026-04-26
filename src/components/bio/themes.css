@@ -181,10 +181,12 @@
 
 .bio-avatar {
   position: relative;
-  width: 104px;
-  height: 104px;
+  width: 88px;
+  height: 88px;
   border-radius: 50%;
-  overflow: hidden;
+  /* No overflow:hidden — the verified badge sits partly outside the circle and
+     gets clipped if we hide overflow here. The img/initials below carry their
+     own rounding instead. */
   background: linear-gradient(135deg, #fde68a, #f59e0b);
   color: #3b2200;
   display: flex;
@@ -192,7 +194,7 @@
   justify-content: center;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 36px;
+  font-size: 30px;
   letter-spacing: -0.02em;
   box-shadow: var(--shadow-lg);
   border: 3px solid var(--card);
@@ -202,16 +204,19 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  border-radius: 50%;
 }
 
+/* Verified badge — fixed Twitter-style blue across all themes so it reads as
+   a recognized "official mitra" mark, not a theme accent. */
 .bio-verified {
   position: absolute;
-  right: -2px;
-  bottom: 4px;
-  width: 26px;
-  height: 26px;
+  right: -3px;
+  bottom: 2px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  background: var(--accent);
+  background: #1d9bf0;
   color: #fff;
   border: 2px solid var(--card);
   display: flex;
@@ -221,16 +226,16 @@
 }
 
 .bio-hero-name {
-  font-size: 24px;
-  line-height: 1.15;
-  margin-top: 12px;
+  font-size: 20px;
+  line-height: 1.2;
+  margin-top: 10px;
 }
 
 .bio-hero-tagline {
   color: var(--text-muted);
-  font-size: 14px;
-  line-height: 1.45;
-  max-width: 320px;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 300px;
   margin: 2px auto 0;
 }
 
@@ -495,8 +500,8 @@
   text-align: center;
 }
 
-/* ── Text tile ── */
-.bio-tile-text {
+/* ── Text tile (standalone block — distinct from .bio-tile-text flex wrapper above) ── */
+.bio-tile-text-block {
   text-align: center;
   background: transparent;
   border: none;

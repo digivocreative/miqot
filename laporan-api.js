@@ -295,6 +295,73 @@ export async function fetchUmrahBookings(username) {
   }
 }
 
+// ── Fetch Alhijaz Official API credentials ──
+// Scrape the `/aiw/staff/pages/main.php?route=api` page using the active session
+// to discover the agent's x-api-key and code. Used to auto-populate
+// agents.awapi_key and agents.awapi_code without requiring manual input.
+//
+// The API key on that page has the shape "{code}-{secret}", e.g. "SM01078-kDUFDznksE4EC".
+// Code is uppercase letters + digits; secret is alphanumeric (>=8 chars).
+export async function fetchAwapiCredentials(username) {
+  const session = sessions.get(username);
+  if (!session) return { success: false, error: 'Belum login', reason: 'no_session' };
+
+  if (Date.now() - session.createdAt > SESSION_TTL) {
+    sessions.delete(username);
+    return { success: false, error: 'Session kedaluwarsa', reason: 'session_expired' };
+  }
+
+  const url = `${BASE}/pages/main.php?route=api`;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Cookie: session.cookie,
+        'User-Agent': 'Mozilla/5.0',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    const html = await res.text();
+    if (html.includes('cek_login.php') || html.includes('Sign in to start your session')) {
+      sessions.delete(username);
+      return { success: false, error: 'Session kedaluwarsa di sistem internal', reason: 'session_expired' };
+    }
+
+    // Match api key pattern: 2-4 uppercase letters + digits, dash, alphanumeric secret.
+    // Defensive: find all matches and pick the most common (in case the page lists
+    // multiple agent codes — the agent's own key should appear repeatedly in code samples).
+    const KEY_RE = /\b([A-Z]{2,4}\d{3,8})-([A-Za-z0-9]{8,})\b/g;
+    const counts = new Map();
+    let match;
+    while ((match = KEY_RE.exec(html)) !== null) {
+      const full = `${match[1]}-${match[2]}`;
+      counts.set(full, (counts.get(full) || 0) + 1);
+    }
+
+    if (counts.size === 0) {
+      return { success: false, error: 'API key tidak ditemukan di halaman', reason: 'not_found' };
+    }
+
+    // Pick the key with highest occurrence count (most repeated → likely the active one).
+    let bestKey = '';
+    let bestCount = 0;
+    for (const [k, c] of counts) {
+      if (c > bestCount) { bestKey = k; bestCount = c; }
+    }
+
+    const code = bestKey.split('-')[0];
+    return { success: true, awapi_key: bestKey, awapi_code: code };
+  } catch (err) {
+    return { success: false, error: err.message || 'Gagal mengambil API credentials', reason: 'fetch_error' };
+  }
+}
+
 // ── Fetch Umrah Detail: Extract per-jamaah data from a single booking ──
 // URL: route=umrah&act=edit&id=AIW... → returns HTML with server-rendered jamaah table
 // Much lighter than laporan (3.6KB vs 100KB+), zero timeout risk
