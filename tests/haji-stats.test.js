@@ -57,14 +57,16 @@ test('computeKomisi: BELUM BAYAR is potensi $500', () => {
   assert.equal(k.potensiCount, 1);
 });
 
-test('computeKomisi: null/unknown status_bayar treated as BELUM BAYAR', () => {
+test('computeKomisi: null/undefined/missing/unknown status_bayar all treated as BELUM BAYAR', () => {
   const k = computeKomisi([
     { status_bayar: null },
+    { status_bayar: undefined },
     { status_bayar: '' },
     { status_bayar: 'WEIRD_VALUE' },
+    {}, // missing key entirely (Supabase projection edge case)
   ]);
-  assert.equal(k.potensi, 1500);
-  assert.equal(k.potensiCount, 3);
+  assert.equal(k.potensi, 2500);
+  assert.equal(k.potensiCount, 5);
   assert.equal(k.sudahCair, 0);
 });
 
