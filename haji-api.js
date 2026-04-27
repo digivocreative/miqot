@@ -243,3 +243,56 @@ export async function syncHajiData(sessionCookies, agentId, supabase, agentSlug 
   console.log(`[haji-sync] Synced ${allRows.length} jamaah haji for ${agentSlug || agentId}`);
   return { total: allRows.length, uniqueHaji: uniqueIds.length };
 }
+
+/**
+ * Extract UHUD/RAHMAH (or other tier) from Surat Pernyataan response text.
+ * The page contains a row like "PAKET HAJI: Non Arbain ~ UHUD Quard" — we
+ * match the text after the tilde, taking the first 1–2 capitalized words.
+ *
+ * Returns the matched fragment (e.g. "UHUD Quard"), or null if not found.
+ */
+export function extractPaketDetail(html) {
+  if (!html || typeof html !== 'string') return null;
+  // Try most specific pattern first: "Non Arbain ~ UHUD Quard" or "Arbain ~ RAHMAH ..."
+  const tildeMatch = html.match(/(?:Non\s+)?Arbain\s*[~≈]\s*([A-Za-z][A-Za-z0-9\s]{0,40})/i);
+  if (tildeMatch) {
+    return tildeMatch[1].replace(/\s+/g, ' ').trim().split(/\s*<|\s*[\n\r]/)[0].trim();
+  }
+  // Fallback: bare UHUD or RAHMAH word
+  const fallback = html.match(/\b(UHUD|RAHMAH)\b[A-Za-z\s]{0,20}/i);
+  if (fallback) return fallback[0].trim();
+  return null;
+}
+
+/**
+ * Fetch a Surat Pernyataan page and extract the paket detail string.
+ * Accepts either an absolute URL or relative path.
+ *
+ * @param {string} sessionCookies - PHPSESSID cookie string
+ * @param {string} urlPath - surat_pernyataan_url from jamaah_haji row
+ * @returns {Promise<string|null>}
+ */
+export async function fetchSuratPernyataanPaketDetail(sessionCookies, urlPath) {
+  if (!urlPath) return null;
+
+  let target = urlPath;
+  if (target.startsWith('/')) {
+    target = `${BASE_URL}${target}`;
+  } else if (!target.startsWith('http')) {
+    target = `${BASE_URL}/aiw/staff/pages/${target}`;
+  }
+
+  try {
+    const res = await fetch(target, {
+      headers: { 'Cookie': sessionCookies, 'User-Agent': 'Mozilla/5.0' },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    return extractPaketDetail(html);
+  } catch (err) {
+    console.warn(`[pernyataan] fetch failed for ${urlPath}:`, err.message);
+    return null;
+  }
+}

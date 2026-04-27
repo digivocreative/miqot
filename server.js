@@ -17,7 +17,7 @@ import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration, fetchAwapiCredentials } from './laporan-api.js';
-import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
+import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
 import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
@@ -8283,6 +8283,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
             if (i + BATCH_SIZE < restIds.length) await new Promise(r => setTimeout(r, 100));
           }
           await runCleanup();
+          await backfillHajiPaketDetail(agentId, slug, sessionCookies);
           console.log(`[haji-sync] ${slug}: background sync complete`);
           syncingAgents.set(agentId, { isSyncing: false, totalSynced: firstRows.length, lastSync: now });
           const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: now }).eq('id', agentId);
@@ -8294,6 +8295,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
       })();
     } else {
       await runCleanup();
+      await backfillHajiPaketDetail(agentId, slug, sessionCookies);
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: firstRows.length, lastSync: now });
       const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: now }).eq('id', agentId);
       if (bumpErr) console.warn(`[haji-sync] ${slug} bump last_jamaah_haji_sync_at failed:`, bumpErr.message);
@@ -8329,6 +8331,58 @@ async function executeHajiDeletions(slug, agentId, toDelete) {
     else count += idJamaahList.length;
   }
   return count;
+}
+
+// Backfill paket_detail for jamaah_haji rows that have it null but have a
+// surat_pernyataan_url. Runs at end of haji sync. Best-effort: failures
+// don't break sync.
+async function backfillHajiPaketDetail(agentId, slug, sessionCookies) {
+  try {
+    const { data: nullRows, error } = await supabase
+      .from('jamaah_haji')
+      .select('id_haji, id_jamaah, surat_pernyataan_url')
+      .eq('agent_id', agentId)
+      .is('paket_detail', null)
+      .not('surat_pernyataan_url', 'is', null)
+      .neq('surat_pernyataan_url', '');
+    if (error) {
+      console.warn(`[haji-sync] ${slug} paket_detail backfill query error:`, error.message);
+      return;
+    }
+    if (!nullRows || nullRows.length === 0) return;
+
+    console.log(`[haji-sync] ${slug}: backfilling paket_detail for ${nullRows.length} jamaah`);
+
+    const BATCH_SIZE = 5;
+    let updated = 0;
+    for (let i = 0; i < nullRows.length; i += BATCH_SIZE) {
+      const batch = nullRows.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(row =>
+          fetchSuratPernyataanPaketDetail(sessionCookies, row.surat_pernyataan_url)
+            .then(detail => ({ row, detail }))
+        )
+      );
+      const updates = results
+        .filter(r => r.status === 'fulfilled' && r.value.detail)
+        .map(r => r.value);
+      for (const { row, detail } of updates) {
+        const { error: updErr } = await supabase
+          .from('jamaah_haji')
+          .update({ paket_detail: detail })
+          .eq('agent_id', agentId)
+          .eq('id_haji', row.id_haji)
+          .eq('id_jamaah', row.id_jamaah);
+        if (updErr) console.warn(`[haji-sync] ${slug} paket_detail update error for ${row.id_jamaah}:`, updErr.message);
+        else updated++;
+      }
+      // Rate-limit politeness
+      if (i + BATCH_SIZE < nullRows.length) await new Promise(r => setTimeout(r, 100));
+    }
+    console.log(`[haji-sync] ${slug}: paket_detail backfilled ${updated}/${nullRows.length}`);
+  } catch (err) {
+    console.warn(`[haji-sync] ${slug} paket_detail backfill failed:`, err.message);
+  }
 }
 
 // Delete umroh rows grouped by id_umroh. toDelete rows carry the original DB `nama`
