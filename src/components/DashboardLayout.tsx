@@ -82,11 +82,13 @@ function getSettingsTabFromPath(): 'profil' | 'telegram' | 'capi' {
   return 'profil';
 }
 
-function getStatistikTabFromPath(): 'ringkasan' | 'tren' {
+function getStatistikTabFromPath(): 'umroh' | 'haji' | 'tren' {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
-  // /dashboard/statistik/tren-daftar
-  if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'statistik' && segments[2] === 'tren-daftar') return 'tren';
-  return 'ringkasan';
+  if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'statistik') {
+    if (segments[2] === 'haji') return 'haji';
+    if (segments[2] === 'tren-daftar') return 'tren';
+  }
+  return 'umroh';
 }
 
 function getAIToolsSubFromPath(): string | null {
