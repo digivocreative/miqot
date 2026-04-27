@@ -378,23 +378,26 @@ test('computeBreakdownTahun: mixed UHUD+RAHMAH all departed', () => {
 });
 
 test('computeByPaket: empty returns zeros', () => {
-  assert.deepEqual(computeByPaket([]), { uhud: 0, rahmah: 0, unknown: 0 });
+  assert.deepEqual(computeByPaket([]), { uhud: 0, rahmah: 0, standar: 0, unknown: 0 });
 });
 
-test('computeByPaket: counts uhud, rahmah, and unknown', () => {
+test('computeByPaket: counts uhud, rahmah, standar, and unknown', () => {
   const rows = [
-    { paket_detail: 'UHUD' },
+    { paket_detail: 'UHUD Quard' },
     { paket_detail: 'Haji Plus UHUD' },     // contains "uhud" → uhud
-    { paket_detail: 'RAHMAH' },
+    { paket_detail: 'RAHMAH Double' },
     { paket_detail: 'rahmah lower' },
-    { paket_detail: 'Lainnya' },             // unknown text → uhud (default rate)
+    { paket_detail: 'STANDAR Double' },      // standar bucket
+    { paket_detail: 'standar' },             // standar bucket (case-insensitive)
+    { paket_detail: 'Lainnya' },             // unrecognized → uhud (matches default rate)
     { paket_detail: null },                  // unknown
     { paket_detail: '' },                    // unknown
     {},                                       // missing key → unknown
   ];
   const r = computeByPaket(rows);
-  assert.equal(r.uhud, 3);     // 2 explicit + Lainnya
+  assert.equal(r.uhud, 3);     // 2 UHUD + Lainnya (default bucket)
   assert.equal(r.rahmah, 2);
+  assert.equal(r.standar, 2);
   assert.equal(r.unknown, 3);  // null + '' + missing
 });
 
