@@ -64,6 +64,7 @@ interface HajiJamaah {
   perwakilan: string | null;
   marketing: string | null;
   paket: string | null;
+  paket_detail: string | null;
   staff: string | null;
   jenis: string | null;
   status_bayar: string | null;
@@ -143,7 +144,20 @@ function DocViewerPopup({ url, title, onClose }: { url: string; title: string; o
       try {
         const res = await fetch(url, { headers: { ...getAuthHeaders() } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
+        const contentType = res.headers.get('content-type') || '';
+        let blob: Blob;
+        if (contentType.includes('text/html')) {
+          // Force light scheme + white bg so surat pernyataan stays readable when
+          // user OS/app is in dark mode (PHP page itself ships no color-scheme meta).
+          const html = await res.text();
+          const inject = '<meta name="color-scheme" content="light"><style>html,body{background:#fff !important;color:#000;color-scheme:light;}</style>';
+          const patched = /<head[^>]*>/i.test(html)
+            ? html.replace(/<head[^>]*>/i, (m) => m + inject)
+            : inject + html;
+          blob = new Blob([patched], { type: 'text/html; charset=utf-8' });
+        } else {
+          blob = await res.blob();
+        }
         if (!cancelled) {
           setBlobUrl(URL.createObjectURL(blob));
           setDocLoading(false);
@@ -854,7 +868,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                       <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{item.nama || '-'}</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
-                          {item.id_haji} • {item.paket || '-'}
+                          {item.id_haji} • {item.paket_detail || item.paket || '-'}
                         </p>
                         {item.notes && (
                           <span className="shrink-0 text-[8px] font-bold uppercase tracking-wide text-amber-500 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-[1px] rounded">Note</span>
