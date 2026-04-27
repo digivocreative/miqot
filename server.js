@@ -11360,6 +11360,8 @@ async function syncOneAgent(agent) {
         }
         const { error: hajiBumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: syncTime }).eq('id', agentId);
         if (hajiBumpErr) console.warn(`[SYNC] ${slug} bump last_jamaah_haji_sync_at failed:`, hajiBumpErr.message);
+
+        await backfillHajiPaketDetail(agentId, slug, sessionCookies);
       }
     } catch (hajiErr) {
       console.error(`[SYNC] ${slug} haji error:`, hajiErr.message);
@@ -11643,6 +11645,8 @@ async function syncHajiOneAgent(agent) {
 
     const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: syncTime }).eq('id', agentId);
     if (bumpErr) console.warn(`[HAJI-BG] ${slug} bump last_jamaah_haji_sync_at failed:`, bumpErr.message);
+
+    await backfillHajiPaketDetail(agentId, slug, sessionCookies);
 
     return { ok: true };
   } catch (err) {
