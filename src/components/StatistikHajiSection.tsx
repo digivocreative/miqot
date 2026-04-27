@@ -258,7 +258,7 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
               <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtUSDFull(data.komisi.sudahCair)}</p>
               <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Komisi Cair (USD)</p>
               {kursUSD && data.komisi.sudahCair > 0 && (
-                <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">{fmtIDRFromUSD(data.komisi.sudahCair, kursUSD)}</p>
+                <p className="text-[10px] font-semibold text-gray-600 dark:text-slate-300 mt-0.5">{fmtIDRFromUSD(data.komisi.sudahCair, kursUSD)}</p>
               )}
             </div>
 
@@ -292,7 +292,7 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
               <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtUSDFull(data.komisi.totalKomisi)}</p>
               <p className="text-[10px] text-gray-400 dark:text-slate-400 mt-0.5">Total estimasi komisi (USD)</p>
               {kursUSD && data.komisi.totalKomisi > 0 && (
-                <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">{fmtIDRFromUSD(data.komisi.totalKomisi, kursUSD)} · kurs ${kursUSD.toLocaleString('id-ID')}</p>
+                <p className="text-[11px] font-semibold text-gray-600 dark:text-slate-300 mt-0.5">{fmtIDRFromUSD(data.komisi.totalKomisi, kursUSD)} <span className="font-normal text-gray-400 dark:text-slate-500">· kurs Rp {kursUSD.toLocaleString('id-ID')}</span></p>
               )}
             </div>
 
@@ -328,7 +328,7 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
                 <div className="text-right">
                   <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtUSDFull(data.komisi.sudahCair)}</span>
                   {kursUSD && data.komisi.sudahCair > 0 && (
-                    <p className="text-[9px] text-emerald-500/70 dark:text-emerald-400/50">{fmtIDRFromUSD(data.komisi.sudahCair, kursUSD)}</p>
+                    <p className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 mt-0.5">{fmtIDRFromUSD(data.komisi.sudahCair, kursUSD)}</p>
                   )}
                 </div>
               </div>
@@ -342,7 +342,7 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
                 <div className="text-right">
                   <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{fmtUSDFull(data.komisi.belumCair)}</span>
                   {kursUSD && data.komisi.belumCair > 0 && (
-                    <p className="text-[9px] text-blue-500/70 dark:text-blue-400/50">{fmtIDRFromUSD(data.komisi.belumCair, kursUSD)}</p>
+                    <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 mt-0.5">{fmtIDRFromUSD(data.komisi.belumCair, kursUSD)}</p>
                   )}
                 </div>
               </div>
@@ -356,7 +356,7 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
                 <div className="text-right">
                   <span className="text-sm font-bold text-amber-600 dark:text-amber-400">{fmtUSDFull(data.komisi.potensi)}</span>
                   {kursUSD && data.komisi.potensi > 0 && (
-                    <p className="text-[9px] text-amber-500/70 dark:text-amber-400/50">{fmtIDRFromUSD(data.komisi.potensi, kursUSD)}</p>
+                    <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 mt-0.5">{fmtIDRFromUSD(data.komisi.potensi, kursUSD)}</p>
                   )}
                 </div>
               </div>
