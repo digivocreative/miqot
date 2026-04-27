@@ -379,7 +379,9 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   initialStatTab?: 'umroh' | 'haji' | 'tren';
 }) {
   const isAdmin = role === 'admin';
-  const [statTab, setStatTab] = useState<'umroh' | 'haji' | 'tren'>(initialStatTab || 'umroh');
+  // Coerce non-admin landing on 'tren' (admin-only) to 'umroh'
+  const safeInitialTab = initialStatTab === 'tren' && role !== 'admin' ? 'umroh' : (initialStatTab || 'umroh');
+  const [statTab, setStatTab] = useState<'umroh' | 'haji' | 'tren'>(safeInitialTab);
   // Year state split: hijriah for Umroh+Tren, masehi for Haji
   const [selectedYearMasehi, setSelectedYearMasehi] = useState('');
   const [hajiAvailableYears, setHajiAvailableYears] = useState<string[]>([]);
@@ -577,13 +579,14 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
     return () => clearInterval(autoRef);
   }, [syncing, loading, fetchStats, selectedYear]);
 
-  // ── Auto-sync on first load if no data ──
+  // ── Auto-sync on first load if no data (umroh tab only) ──
   useEffect(() => {
+    if (statTab !== 'umroh') return;
     if (!loading && !syncing && !hasAutoSynced.current && data && data.totalJamaah === 0) {
       hasAutoSynced.current = true;
       handleSync();
     }
-  }, [loading, data]);
+  }, [loading, data, statTab]);
 
   // Hijriah years (Umroh + Tren tabs)
   const hijriahDropdownYears = useMemo(() => {
@@ -684,7 +687,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   const isEmpty = !!(data && data.totalJamaah === 0 && !data.lastSync && !syncing && !backgroundSyncing);
   const showSkeleton = loading && !data;
   const showError = !!(error && !data);
-  const showData = !!(data && !showSkeleton && !showError && !isEmpty);
+  const showData = !!(data && !showSkeleton && !showError);
 
   const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
   const gridStroke = isDark ? '#1e293b' : '#f1f5f9';
@@ -754,17 +757,6 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
 
 
 
-      {/* ── Empty (no sync ever) ── */}
-      {isEmpty && (
-        <div className="px-4 pt-10 text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center">
-            <Users size={28} className="text-gray-300 dark:text-slate-600" />
-          </div>
-          <p className="text-sm font-semibold text-gray-600 dark:text-slate-300">Belum ada data jamaah</p>
-          <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Sync di halaman Jamaah dulu.</p>
-        </div>
-      )}
-
       {/* ── Data view ── */}
       {showData && data && (
       <>
@@ -804,6 +796,15 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
 
       {/* ── Ringkasan Tab (existing content) ── */}
       {statTab === 'umroh' && (
+        isEmpty ? (
+          <div className="px-4 pt-10 text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center">
+              <Users size={28} className="text-gray-300 dark:text-slate-600" />
+            </div>
+            <p className="text-sm font-semibold text-gray-600 dark:text-slate-300">Belum ada data jamaah</p>
+            <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Sync di halaman Jamaah dulu.</p>
+          </div>
+        ) : (
       <div className={`px-4 pt-4 pb-8 space-y-3 transition-opacity ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
 
       {/* ── 1. Headline Stats ── */}
@@ -1065,6 +1066,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         </div>
       </StatListModal>
       </div>
+        )
       )}
 
       {/* ── Haji Tab ── */}
