@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 
 const TrenDaftarSection = lazy(() => import('./TrenDaftarSection'));
+const StatistikHajiSection = lazy(() => import('./StatistikHajiSection'));
 
 // ── Types ──
 interface BerangkatItem {
@@ -375,10 +376,13 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   agentSlug: string;
   role?: string;
   onHeaderRight?: (node: React.ReactNode) => void;
-  initialStatTab?: 'ringkasan' | 'tren';
+  initialStatTab?: 'umroh' | 'haji' | 'tren';
 }) {
   const isAdmin = role === 'admin';
-  const [statTab, setStatTab] = useState<'ringkasan' | 'tren'>(initialStatTab || 'ringkasan');
+  const [statTab, setStatTab] = useState<'umroh' | 'haji' | 'tren'>(initialStatTab || 'umroh');
+  // Year state split: hijriah for Umroh+Tren, masehi for Haji
+  const [selectedYearMasehi, setSelectedYearMasehi] = useState('');
+  const [hajiAvailableYears, setHajiAvailableYears] = useState<string[]>([]);
   const [data, setData] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -581,9 +585,8 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
     }
   }, [loading, data]);
 
-  // Push year dropdown into header
-  // For admin: merge per-agent years with company-wide years
-  const dropdownYears = useMemo(() => {
+  // Hijriah years (Umroh + Tren tabs)
+  const hijriahDropdownYears = useMemo(() => {
     if (!data) return [];
     const merged = [...new Set([...data.availableYears, ...allYears])];
     return merged.filter(y => Number(y) >= 1447).sort((a, b) => b.localeCompare(a));
@@ -591,7 +594,24 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
 
   useEffect(() => {
     if (!onHeaderRight) return;
-    if (!data || dropdownYears.length === 0) return;
+
+    if (statTab === 'haji') {
+      if (hajiAvailableYears.length === 0) { onHeaderRight(null); return; }
+      onHeaderRight(
+        <select
+          value={selectedYearMasehi}
+          onChange={e => setSelectedYearMasehi(e.target.value)}
+          className="h-8 text-[10px] font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2 pr-6 outline-none appearance-none cursor-pointer shrink-0"
+          style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
+        >
+          {hajiAvailableYears.map(y => <option key={y} value={y}>{y} M</option>)}
+        </select>
+      );
+      return;
+    }
+
+    // Umroh + Tren tabs use hijriah dropdown
+    if (!data || hijriahDropdownYears.length === 0) { onHeaderRight(null); return; }
     onHeaderRight(
       <select
         value={selectedYear}
@@ -599,10 +619,10 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         className="h-8 text-[10px] font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2 pr-6 outline-none appearance-none cursor-pointer shrink-0"
         style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
       >
-        {dropdownYears.map(y => <option key={y} value={y}>{y} H</option>)}
+        {hijriahDropdownYears.map(y => <option key={y} value={y}>{y} H</option>)}
       </select>
     );
-  }, [data, selectedYear, onHeaderRight, dropdownYears, syncing, backgroundSyncing]);
+  }, [statTab, data, selectedYear, selectedYearMasehi, hijriahDropdownYears, hajiAvailableYears, onHeaderRight, syncing, backgroundSyncing]);
 
   // Sync handler
   const handleSync = async () => {
@@ -749,41 +769,41 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
       {showData && data && (
       <>
 
-      {/* ── Admin Tab Bar ── */}
-      {isAdmin && (
-        <div className="sticky top-[53px] z-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-700">
-          <div className="px-4 py-2">
-            <div className="flex gap-1 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl w-full">
-              {([
-                { id: 'ringkasan' as const, label: 'Ringkasan', Icon: BarChart3 },
-                { id: 'tren' as const, label: 'Tren Daftar', Icon: TrendingUp },
-              ]).map(tab => {
-                const active = statTab === tab.id;
-                return (
-                  <button key={tab.id} onClick={() => {
-                    setStatTab(tab.id);
-                    window.scrollTo({ top: 0 });
-                    // Update URL slug
-                    const slug = tab.id === 'tren' ? '/dashboard/statistik/tren-daftar' : '/dashboard/statistik';
-                    window.history.replaceState({ tab: 'statistik' }, '', slug);
-                  }}
-                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 active:opacity-70 ${
-                      active ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-500 dark:text-emerald-400 font-semibold' : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium'
-                    }`}
-                    style={active ? { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } : undefined}
-                  >
-                    <tab.Icon size={13} strokeWidth={2.2} />
-                    <span className="text-[11px]">{tab.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+      {/* ── Tab Bar (Umroh + Haji always; Tren admin-only) ── */}
+      <div className="sticky top-[53px] z-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-700">
+        <div className="px-4 py-2">
+          <div className="flex gap-1 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl w-full">
+            {([
+              { id: 'umroh' as const, label: 'Umroh', Icon: BarChart3 },
+              { id: 'haji' as const, label: 'Haji', Icon: Plane },
+              ...(isAdmin ? [{ id: 'tren' as const, label: 'Tren Daftar', Icon: TrendingUp }] : []),
+            ]).map(tab => {
+              const active = statTab === tab.id;
+              return (
+                <button key={tab.id} onClick={() => {
+                  setStatTab(tab.id);
+                  window.scrollTo({ top: 0 });
+                  const slug = tab.id === 'tren' ? '/dashboard/statistik/tren-daftar'
+                    : tab.id === 'haji' ? '/dashboard/statistik/haji'
+                    : '/dashboard/statistik';
+                  window.history.replaceState({ tab: 'statistik' }, '', slug);
+                }}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 active:opacity-70 ${
+                    active ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-500 dark:text-emerald-400 font-semibold' : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium'
+                  }`}
+                  style={active ? { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } : undefined}
+                >
+                  <tab.Icon size={13} strokeWidth={2.2} />
+                  <span className="text-[11px]">{tab.label}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
-      )}
+      </div>
 
       {/* ── Ringkasan Tab (existing content) ── */}
-      {(!isAdmin || statTab === 'ringkasan') && (
+      {statTab === 'umroh' && (
       <div className={`px-4 pt-4 pb-8 space-y-3 transition-opacity ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
 
       {/* ── 1. Headline Stats ── */}
@@ -1045,6 +1065,29 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         </div>
       </StatListModal>
       </div>
+      )}
+
+      {/* ── Haji Tab ── */}
+      {statTab === 'haji' && (
+        <Suspense fallback={
+          <div className="px-4 pt-4 pb-8 space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              {[1,2,3,4].map(i => <div key={i} className="h-24 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />)}
+            </div>
+            <div className="h-52 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
+            <div className="h-40 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
+          </div>
+        }>
+          <StatistikHajiSection
+            selectedYear={selectedYearMasehi}
+            onYearsLoaded={(years) => {
+              setHajiAvailableYears(years);
+              if (!selectedYearMasehi && years.length > 0) {
+                setSelectedYearMasehi(years[0]);
+              }
+            }}
+          />
+        </Suspense>
       )}
 
       {/* ── Tren Daftar Tab ── */}
