@@ -54,6 +54,7 @@ interface JamaahItem {
   wa: string | null;
   tgl_lahir: string | null;
   paket: string | null;
+  jadwal_nama: string | null;
   bayar: number;
   sisa: number;
   tgl_berangkat: string | null;
@@ -1031,8 +1032,8 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-xs font-bold text-gray-800 dark:text-white truncate">{m.nama}</p>
-                              {m.paket && (
-                                <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{m.paket}</p>
+                              {(m.jadwal_nama || m.paket) && (
+                                <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{m.jadwal_nama || m.paket}</p>
                               )}
                             </div>
                             {m.tgl_berangkat && (
@@ -1132,8 +1133,8 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                         )}
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        {item.paket && (
-                          <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{item.paket}</p>
+                        {(item.jadwal_nama || item.paket) && (
+                          <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{item.jadwal_nama || item.paket}</p>
                         )}
                         {item.notes && (
                           <span className="shrink-0 text-[8px] font-bold uppercase tracking-wide text-amber-500 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-[1px] rounded">Note</span>
@@ -1726,8 +1727,8 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{m.nama}</p>
-                        {m.paket && (
-                          <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">{m.paket}</p>
+                        {(m.jadwal_nama || m.paket) && (
+                          <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">{m.jadwal_nama || m.paket}</p>
                         )}
                       </div>
                       {m.tgl_berangkat && (

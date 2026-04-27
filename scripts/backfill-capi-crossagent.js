@@ -4,12 +4,19 @@
  *
  * Purpose: Warm up Meta pixel for target agents with diverse volume data.
  *
- * Usage: node scripts/backfill-capi-crossagent.js
+ * Usage:
+ *   node scripts/backfill-capi-crossagent.js                       # dry-run (default)
+ *   BACKFILL_CONFIRM=yes node scripts/backfill-capi-crossagent.js
+ *
+ * ⚠️ NON-IDEMPOTENT: this script uses RANDOM sampling and DOES NOT track which
+ * jamaah were fired. Each run sends NEW events to Meta. Re-running multiplies
+ * volume. The 2026-04-26 incident (~20k duplicate events across 18 agents in
+ * one hour) was caused by re-running this script.
  *
  * What it does:
  * - Fetches all jamaah with bayar > 0 across all agents (pool)
  * - For each target slug:
- *   - Pick a random 200 jamaah from the pool (different per agent)
+ *   - Pick a random PER_AGENT jamaah from the pool (different per agent)
  *   - Fire Purchase event to that agent's pixel using borrowed jamaah data
  *   - Log to capi_event_logs for visibility
  * - Does NOT update capi_purchase_status (jamaah belong to other agents)
@@ -25,6 +32,8 @@ dotenv.config();
 const SLUGS = ['ninanasution'];
 const PER_AGENT = 200;
 const DELAY_MS = 120; // ~8 req/sec per agent
+const DRY_RUN = process.env.BACKFILL_CONFIRM !== 'yes';
+const MAX_AGENTS_WITHOUT_OVERRIDE = 3; // Refuse multi-agent runs without explicit opt-in
 
 // ── Setup ──
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -128,8 +137,12 @@ async function processAgent(slug, pool) {
 
   // Random sample from pool
   const picked = shuffle(pool).slice(0, PER_AGENT);
-  console.log(`  📋 Sending ${picked.length} Purchase events (randomly sampled from pool of ${pool.length})`);
+  console.log(`  📋 ${DRY_RUN ? 'Would send' : 'Sending'} ${picked.length} Purchase events (randomly sampled from pool of ${pool.length})`);
   console.log(`  🎯 Pixel: ${config.pixel_id} | Test mode: ${config.test_mode || false}`);
+
+  if (DRY_RUN) {
+    return { slug, success: 0, failed: 0, skipped: false, dryRun: true, plannedCount: picked.length };
+  }
 
   let success = 0, failed = 0;
   const errorSamples = [];
@@ -175,10 +188,21 @@ async function processAgent(slug, pool) {
 }
 
 async function main() {
-  console.log(`\n🚀 CAPI Purchase Cross-Agent Backfill`);
+  console.log(`\n🚀 CAPI Purchase Cross-Agent Backfill${DRY_RUN ? ' [DRY-RUN]' : ''}`);
   console.log(`   Target agents: ${SLUGS.join(', ')}`);
   console.log(`   Events per agent: ${PER_AGENT}`);
   console.log(`   Rate limit: ${1000 / DELAY_MS} req/sec`);
+  console.log(`   Total events to fire: ${SLUGS.length * PER_AGENT}`);
+
+  if (DRY_RUN) {
+    console.log(`\n⚠️  DRY-RUN MODE — no events will be sent to Meta.`);
+    console.log(`    Set BACKFILL_CONFIRM=yes to actually send.`);
+  } else if (SLUGS.length > MAX_AGENTS_WITHOUT_OVERRIDE && process.env.BACKFILL_ALLOW_MULTI !== 'yes') {
+    console.error(`\n❌ Refusing to run on ${SLUGS.length} agents (>${MAX_AGENTS_WITHOUT_OVERRIDE}).`);
+    console.error(`   The 2026-04-26 incident was caused by running this on 18 agents.`);
+    console.error(`   If you really mean it, set BACKFILL_ALLOW_MULTI=yes.`);
+    process.exit(2);
+  }
 
   // Fetch pool (all jamaah with payment) — paginate to bypass 1000-row default limit
   console.log(`\n📦 Loading jamaah pool...`);
@@ -217,7 +241,9 @@ async function main() {
   for (const r of results) {
     totalSuccess += r.success;
     totalFailed += r.failed;
-    const status = r.skipped ? '⏭️  skipped (no config)' : `✓ ${r.success} / ✗ ${r.failed}`;
+    const status = r.skipped ? '⏭️  skipped (no config)'
+      : r.dryRun ? `📝 dry-run (would fire ${r.plannedCount})`
+      : `✓ ${r.success} / ✗ ${r.failed}`;
     console.log(`  ${r.slug.padEnd(30)} ${status}`);
   }
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

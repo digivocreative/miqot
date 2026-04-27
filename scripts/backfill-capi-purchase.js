@@ -1,18 +1,18 @@
 /**
  * One-off backfill: Fire CAPI Purchase events for existing jamaah.
  *
- * Usage: node scripts/backfill-capi-purchase.js
+ * Usage:
+ *   node scripts/backfill-capi-purchase.js                  # dry-run (default)
+ *   BACKFILL_CONFIRM=yes node scripts/backfill-capi-purchase.js
  *
  * Config: edit SLUGS + LIMIT below.
  *
- * What it does:
- * - For each slug, loads CAPI config (pixel + decrypted token)
- * - Fetches up to LIMIT jamaah ordered by synced_at DESC
- * - Filters jamaah with bayar > 0
- * - Fires Purchase event to Meta with value = bayar + sisa (total harga paket)
- * - User data hashed: fn, ln, ph, country
- * - Updates capi_purchase_status = 'lunas' after successful send
- * - Rate limit: 120ms delay between events (~8/sec, safe under 10/sec limit)
+ * Idempotency: only fires for jamaah with capi_purchase_status IS NULL.
+ * Already-fired jamaah ('dp' or 'lunas') are skipped automatically. Sets
+ * status='lunas' after successful fire so re-runs no-op.
+ *
+ * Dry-run: prints what WOULD be fired without sending. Set BACKFILL_CONFIRM=yes
+ * to actually send. Required because this script ships traffic to Meta.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -24,6 +24,7 @@ dotenv.config();
 const SLUGS = ['ninanasution'];
 const LIMIT = 1000;
 const DELAY_MS = 120; // ~8 req/sec per agent
+const DRY_RUN = process.env.BACKFILL_CONFIRM !== 'yes';
 
 // ── Setup ──
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -119,22 +120,30 @@ async function processAgent(slug) {
     return { slug, success: 0, failed: 0, skipped: 0 };
   }
 
-  // 3. Fetch jamaah with payment
+  // 3. Fetch jamaah with payment AND status NULL (never fired before).
+  // Idempotency guard: skips jamaah with status 'dp' or 'lunas' so re-runs
+  // don't duplicate Purchase events. processCapiPurchases in server.js handles
+  // re-fires after legitimate payment transitions.
   const { data: jamaahList } = await supabase
     .from('jamaah')
     .select('id_umroh, nama, wa, paket, bayar, sisa, capi_purchase_status, synced_at')
     .eq('agent_id', agent.id)
     .gt('bayar', 0)
+    .is('capi_purchase_status', null)
     .order('synced_at', { ascending: false })
     .limit(LIMIT);
 
   if (!jamaahList || jamaahList.length === 0) {
-    console.log(`  ℹ️  No jamaah with payment for ${slug}`);
+    console.log(`  ℹ️  No unprocessed jamaah for ${slug} (all already fired or no payment)`);
     return { slug, success: 0, failed: 0, skipped: 0 };
   }
 
-  console.log(`  📋 Found ${jamaahList.length} jamaah to process`);
+  console.log(`  📋 Found ${jamaahList.length} unprocessed jamaah${DRY_RUN ? ' (DRY-RUN — no events will be sent)' : ''}`);
   console.log(`  🎯 Pixel: ${config.pixel_id} | Test mode: ${config.test_mode || false}`);
+
+  if (DRY_RUN) {
+    return { slug, success: 0, failed: 0, skipped: jamaahList.length, dryRun: true };
+  }
 
   let success = 0, failed = 0;
   const errorSamples = [];
@@ -187,10 +196,13 @@ async function processAgent(slug) {
 }
 
 async function main() {
-  console.log(`\n🚀 CAPI Purchase Backfill`);
+  console.log(`\n🚀 CAPI Purchase Backfill${DRY_RUN ? ' [DRY-RUN]' : ''}`);
   console.log(`   Agents: ${SLUGS.join(', ')}`);
   console.log(`   Limit per agent: ${LIMIT}`);
   console.log(`   Rate limit: ${1000 / DELAY_MS} req/sec`);
+  if (DRY_RUN) {
+    console.log(`   ⚠️  Dry-run mode — set BACKFILL_CONFIRM=yes to actually send events to Meta`);
+  }
 
   const results = [];
   for (const slug of SLUGS) {
@@ -205,7 +217,10 @@ async function main() {
   for (const r of results) {
     totalSuccess += r.success;
     totalFailed += r.failed;
-    const status = r.skipped ? '⏭️  skipped' : r.success + r.failed === 0 ? '➖ no data' : `✓ ${r.success} / ✗ ${r.failed}`;
+    const status = r.dryRun ? `📝 dry-run (would fire ${r.skipped})`
+      : r.skipped ? '⏭️  skipped'
+      : r.success + r.failed === 0 ? '➖ no data'
+      : `✓ ${r.success} / ✗ ${r.failed}`;
     console.log(`  ${r.slug.padEnd(30)} ${status}`);
   }
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

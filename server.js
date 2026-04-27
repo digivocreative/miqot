@@ -468,6 +468,28 @@ function invalidateAgentCache() {
   agentCacheTime = 0;
 }
 
+// ── umroh_schedules in-memory cache ──
+// Used by /api/laporan/jamaah to enrich rows with jadwal_nama without hitting DB
+// each request. Schedules table is small (<200 rows total) and rarely changes
+// (sync runs ~daily), so a simple full-table cache with TTL is plenty.
+let scheduleMapCache = { map: null, expiresAt: 0 };
+const SCHEDULE_CACHE_TTL_MS = 5 * 60 * 1000;
+async function getScheduleMap() {
+  if (scheduleMapCache.map && Date.now() < scheduleMapCache.expiresAt) {
+    return scheduleMapCache.map;
+  }
+  const { data: schedules, error } = await supabase
+    .from('umroh_schedules')
+    .select('jadwal_id, jadwal_nama');
+  if (error) {
+    console.warn('[scheduleMap] fetch failed, returning empty map:', error.message);
+    return new Map();
+  }
+  const map = new Map((schedules || []).map(s => [s.jadwal_id, s.jadwal_nama]));
+  scheduleMapCache = { map, expiresAt: Date.now() + SCHEDULE_CACHE_TTL_MS };
+  return map;
+}
+
 // ── Landing config helpers ──
 // Raw description from /public/{umroh,haji-plus}.html — read once at boot.
 // Shown to agents as placeholder text so they see the literal fallback the public page serves.
@@ -3559,16 +3581,19 @@ async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, v
     const errMsg = respData?.error?.message || `HTTP ${resp.status}`;
     console.error(`[CAPI] Purchase failed ${slug}/${id}:`, errMsg);
     logCapiEvent(agentId, 'Purchase', 'error', { value, errorMessage: errMsg.slice(0, 500), source: 'sync' });
+    capiCircuitRecordResult(agentId, false, errMsg);
     return false;
   }
   if (respData?.events_received === 0) {
     const msg = 'Meta received 0 events: ' + JSON.stringify(respData.messages || []);
     console.error(`[CAPI] Purchase ${slug}/${id}:`, msg);
     logCapiEvent(agentId, 'Purchase', 'error', { value, errorMessage: msg.slice(0, 500), source: 'sync' });
+    capiCircuitRecordResult(agentId, false, msg);
     return false;
   }
   console.log(`[CAPI] Purchase sent: ${slug}/${id} (${contentType}/${phase}) = Rp${value.toLocaleString('id-ID')}`);
   logCapiEvent(agentId, 'Purchase', 'success', { value, source: 'sync' });
+  capiCircuitRecordResult(agentId, true);
   return true;
 }
 
@@ -3577,6 +3602,40 @@ const HAJI_PURCHASE_VALUE = 60000000;
 // In-memory mutex: serialize processCapiPurchases per agent.
 // Prevents race conditions when multiple sync batches fire in parallel.
 const capiPurchaseLocks = new Map(); // agentId -> Promise
+
+// In-memory circuit breaker: pauses CAPI fires per agent after consecutive
+// failures. Prevents retry-storms when an agent's access token is permanently
+// broken at Meta's side (e.g., token revoked, wrong app, code 190 OAuthException).
+// State per agent: { failures, openedAt, lastError } — purely transient, resets on restart.
+const CAPI_CIRCUIT_THRESHOLD = 10;          // consecutive failures to open circuit
+const CAPI_CIRCUIT_COOLDOWN_MS = 30 * 60 * 1000; // 30 min pause once opened
+const capiCircuit = new Map();
+
+function capiCircuitIsOpen(agentId) {
+  const state = capiCircuit.get(agentId);
+  if (!state?.openedAt) return false;
+  if (Date.now() - state.openedAt >= CAPI_CIRCUIT_COOLDOWN_MS) {
+    // Cooldown elapsed — half-open: clear state so next fire is allowed to test recovery.
+    capiCircuit.delete(agentId);
+    return false;
+  }
+  return true;
+}
+
+function capiCircuitRecordResult(agentId, ok, errorMessage) {
+  if (ok) {
+    if (capiCircuit.has(agentId)) capiCircuit.delete(agentId);
+    return;
+  }
+  const state = capiCircuit.get(agentId) || { failures: 0, openedAt: null, lastError: null };
+  state.failures += 1;
+  state.lastError = errorMessage || null;
+  if (state.failures >= CAPI_CIRCUIT_THRESHOLD && !state.openedAt) {
+    state.openedAt = Date.now();
+    console.warn(`[CAPI] Circuit OPEN for agent ${agentId} after ${state.failures} consecutive failures (last: ${(errorMessage || '').slice(0, 120)}). Pausing for ${CAPI_CIRCUIT_COOLDOWN_MS / 60000} min.`);
+  }
+  capiCircuit.set(agentId, state);
+}
 
 /**
  * Process CAPI Purchase events for Umroh or Haji jamaah after sync upsert.
@@ -3646,6 +3705,7 @@ async function _rollbackCapiStatus(table, agentId, matchKey, fromStatus, toStatu
 async function _doProcessCapiPurchases(agentId, slug, type, upsertedIdentifiers) {
   try {
     if (!upsertedIdentifiers?.length) return;
+    if (capiCircuitIsOpen(agentId)) return; // skip while circuit breaker is paused
 
     const config = await readCapiConfig(agentId);
     if (!config?.pixelId || !config?.accessToken) return;
@@ -3728,8 +3788,14 @@ async function _doProcessCapiPurchases(agentId, slug, type, upsertedIdentifiers)
 
     let firedDp = 0, firedLunas = 0, skippedByClaim = 0;
 
+    let circuitBailed = 0;
+
     // DP phase: claim NULL → 'dp', fire, rollback to NULL on failure
     for (const row of dpRows) {
+      // Mid-loop circuit check: if previous fires tripped the breaker, stop wasting
+      // attempts on the rest of this batch — they'll retry next sync cycle.
+      if (capiCircuitIsOpen(agentId)) { circuitBailed = dpRows.length - dpRows.indexOf(row); break; }
+
       const claimed = await _claimCapiStatus(table, agentId, row.matchKey, [null], 'dp');
       if (!claimed) { skippedByClaim++; continue; } // another worker got it
 
@@ -3740,6 +3806,8 @@ async function _doProcessCapiPurchases(agentId, slug, type, upsertedIdentifiers)
 
     // Lunas phase: claim (NULL or 'dp') → 'lunas', fire, rollback on failure
     for (const row of lunasRows) {
+      if (capiCircuitIsOpen(agentId)) { circuitBailed += lunasRows.length - lunasRows.indexOf(row); break; }
+
       const claimed = await _claimCapiStatus(table, agentId, row.matchKey, [null, 'dp'], 'lunas');
       if (!claimed) { skippedByClaim++; continue; }
 
@@ -3748,8 +3816,9 @@ async function _doProcessCapiPurchases(agentId, slug, type, upsertedIdentifiers)
       else await _rollbackCapiStatus(table, agentId, row.matchKey, 'lunas', row.fromStatus); // retry next sync
     }
 
-    if (firedDp + firedLunas + skippedByClaim > 0) {
-      console.log(`[CAPI] ${slug}: fired ${firedDp} DP + ${firedLunas} Lunas, skipped ${skippedByClaim} (already claimed) — ${type}`);
+    if (firedDp + firedLunas + skippedByClaim + circuitBailed > 0) {
+      const bailMsg = circuitBailed > 0 ? `, bailed ${circuitBailed} (circuit open)` : '';
+      console.log(`[CAPI] ${slug}: fired ${firedDp} DP + ${firedLunas} Lunas, skipped ${skippedByClaim} (already claimed)${bailMsg} — ${type}`);
     }
   } catch (err) {
     console.error(`[CAPI] processCapiPurchases error (${type}) ${slug}:`, err.message);
@@ -3844,6 +3913,7 @@ app.post('/api/capi/:slug/event', async (req, res) => {
   const agent = await getAgentBySlug(slug);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
   if (!checkCapiRateLimit(slug)) return res.status(429).json({ error: 'Rate limited' });
+  if (capiCircuitIsOpen(agent.id)) return res.json({ sent: false, reason: 'Temporarily paused (CAPI errors — admin must verify token)' });
   const config = await readCapiConfig(agent.id);
   if (!config?.pixelId || !config?.accessToken) return res.json({ sent: false, reason: 'Not configured' });
   const accessToken = capiDecrypt(config.accessToken);
@@ -3894,19 +3964,23 @@ app.post('/api/capi/:slug/event', async (req, res) => {
     if (!metaRes.ok || metaData?.error) {
       const errMsg = metaData?.error?.message || `HTTP ${metaRes.status}`;
       logCapiEvent(agent.id, resolvedEventName, 'error', { errorMessage: errMsg, source: 'browser' });
+      capiCircuitRecordResult(agent.id, false, errMsg);
       return res.json({ sent: false, reason: errMsg });
     }
     if (metaData?.events_received === 0) {
       const msg = 'Meta received 0 events: ' + JSON.stringify(metaData.messages || []);
       console.error(`[CAPI] ${slug}/${resolvedEventName}:`, msg);
       logCapiEvent(agent.id, resolvedEventName, 'error', { errorMessage: msg, source: 'browser' });
+      capiCircuitRecordResult(agent.id, false, msg);
       return res.json({ sent: false, reason: msg });
     }
     logCapiEvent(agent.id, resolvedEventName, 'success', { source: 'browser' });
+    capiCircuitRecordResult(agent.id, true);
     res.json({ sent: true, response: metaData });
   } catch (err) {
     console.error('[CAPI] Meta API error:', err);
     logCapiEvent(agent.id, resolvedEventName, 'error', { errorMessage: err.message, source: 'browser' });
+    capiCircuitRecordResult(agent.id, false, err.message);
     res.json({ sent: false, reason: err.message });
   }
 });
@@ -4004,7 +4078,24 @@ app.get('/api/capi/:slug/logs', async (req, res) => {
   const { data: logs, count, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
+  // Call isOpen() first so half-open cleanup runs (cooldown-elapsed state is purged
+  // before we read it — otherwise we'd report a stale "open" with resumesAt in the past).
+  const circuitOpen = capiCircuitIsOpen(agent.id);
+  const circuitState = capiCircuit.get(agent.id);
+  const circuit = circuitOpen && circuitState?.openedAt
+    ? {
+        open: true,
+        openedAt: new Date(circuitState.openedAt).toISOString(),
+        resumesAt: new Date(circuitState.openedAt + CAPI_CIRCUIT_COOLDOWN_MS).toISOString(),
+        lastError: circuitState.lastError,
+        consecutiveFailures: circuitState.failures,
+      }
+    : circuitState
+      ? { open: false, consecutiveFailures: circuitState.failures, lastError: circuitState.lastError }
+      : { open: false, consecutiveFailures: 0, lastError: null };
+
   res.json({
+    circuit,
     logs: logs || [],
     total: count || 0,
     page,
@@ -6970,47 +7061,43 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   const data = pageUnits.flatMap(u => u.members);
   const count = totalUnits;
 
-  // Get last sync time (from agents table — see skip_noop_update trigger note)
-  const { data: syncData } = await supabase
-    .from('agents')
-    .select('last_jamaah_sync_at')
-    .eq('id', req.user.id)
-    .maybeSingle();
-
   // Helper: apply year filter to count queries
   const applyYearFilter = (q) => hijriahYear ? q.eq('hijriah_year', hijriahYear) : q.gte('hijriah_year', MIN_HIJRIAH_YEAR);
 
-  let totalQ = supabase
-    .from('jamaah')
-    .select('*', { count: 'exact', head: true })
-    .eq('agent_id', req.user.id);
-  const { count: totalCount } = await applyYearFilter(totalQ);
+  // Run 6 independent reads in parallel: 1×RTT instead of 6×RTT.
+  // - schedules: cached in memory (TTL 5min), so usually free after first request
+  // - the others hit Supabase but don't depend on each other
+  const [
+    scheduleMap,
+    syncRes,
+    totalRes,
+    belumRes,
+    berangkatRes,
+    piutangRes,
+  ] = await Promise.all([
+    getScheduleMap(),
+    supabase.from('agents').select('last_jamaah_sync_at').eq('id', req.user.id).maybeSingle(),
+    applyYearFilter(supabase.from('jamaah').select('*', { count: 'exact', head: true }).eq('agent_id', req.user.id)),
+    applyYearFilter(supabase.from('jamaah').select('*', { count: 'exact', head: true }).eq('agent_id', req.user.id).gt('sisa', 0)),
+    applyYearFilter(supabase.from('jamaah').select('*', { count: 'exact', head: true }).eq('agent_id', req.user.id).gte('tgl_berangkat', todayStr).lte('tgl_berangkat', cutoffStr)),
+    applyYearFilter(supabase.from('jamaah').select('sisa').eq('agent_id', req.user.id).gt('sisa', 0)),
+  ]);
 
-  let belumQ = supabase
-    .from('jamaah')
-    .select('*', { count: 'exact', head: true })
-    .eq('agent_id', req.user.id)
-    .gt('sisa', 0);
-  const { count: belumCount } = await applyYearFilter(belumQ);
+  const enrichedItems = data.map(r => ({
+    ...r,
+    jadwal_nama: scheduleMap.get(r.raw_data?.id_jadwal) || null,
+  }));
 
-  let berangkatQ = supabase
-    .from('jamaah')
-    .select('*', { count: 'exact', head: true })
-    .eq('agent_id', req.user.id)
-    .gte('tgl_berangkat', todayStr)
-    .lte('tgl_berangkat', cutoffStr);
-  const { count: berangkatCount } = await applyYearFilter(berangkatQ);
-
-  let piutang = 0;
-  let pQ = supabase.from('jamaah').select('sisa').eq('agent_id', req.user.id).gt('sisa', 0);
-  pQ = applyYearFilter(pQ);
-  const { data: pData } = await pQ;
-  if (pData) piutang = pData.reduce((s, r) => s + (r.sisa || 0), 0);
+  const syncData = syncRes.data;
+  const totalCount = totalRes.count;
+  const belumCount = belumRes.count;
+  const berangkatCount = berangkatRes.count;
+  const piutang = (piutangRes.data || []).reduce((s, r) => s + (r.sisa || 0), 0);
 
   res.json({
     success: true,
     data: {
-      items: data || [],
+      items: enrichedItems,
       total: count || 0,
       page: pageNum,
       totalPages: Math.ceil((count || 0) / limitNum),
@@ -8009,7 +8096,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       const ym = r.tgl_berangkat.substring(0, 7);
       if (chartMap.has(ym)) {
         const entry = chartMap.get(ym);
-        entry.total += getRate(r.paket);
+        entry.total += getNetKomisi(r);
         entry.count++;
       }
     }
@@ -8673,6 +8760,10 @@ app.get('/api/haji/doc-proxy', authMiddleware, async (req, res) => {
 
     // Security: only allow proxying to the known internal server
     const BASE_INTERNAL = process.env.INTERNAL_API_BASE || 'http://115.124.86.220';
+    // Legacy hosts: bpih_url/surat_pernyataan_url scraped before INTERNAL_API_BASE
+    // was repointed (e.g. via tunnel/proxy) are stored as absolute URLs to the old
+    // host. Rewrite them to the current BASE_INTERNAL so old DB rows still resolve.
+    const LEGACY_INTERNAL_HOSTS = ['http://115.124.86.220', 'https://115.124.86.220'];
     let targetUrl = url;
 
     // Resolve relative paths
@@ -8680,6 +8771,13 @@ app.get('/api/haji/doc-proxy', authMiddleware, async (req, res) => {
       targetUrl = `${BASE_INTERNAL}${targetUrl}`;
     } else if (!targetUrl.startsWith('http')) {
       targetUrl = `${BASE_INTERNAL}/aiw/staff/pages/${targetUrl}`;
+    } else {
+      for (const legacy of LEGACY_INTERNAL_HOSTS) {
+        if (targetUrl.startsWith(legacy)) {
+          targetUrl = BASE_INTERNAL + targetUrl.slice(legacy.length);
+          break;
+        }
+      }
     }
 
     // Block requests to anything outside the internal server
@@ -9792,7 +9890,7 @@ app.get('/api/weather/cities', authMiddleware, async (req, res) => {
 // ──────────────────────────────────────────────
 // Umroh Schedules: Sync from external API → Supabase
 // ──────────────────────────────────────────────
-const SCHEDULE_YEAR_CODES = ['1448', '1449'];
+const SCHEDULE_YEAR_CODES = ['1447', '1448', '1449'];
 
 // Upstream occasionally returns placeholder/draft paket with no real pricing
 // (e.g. { "UHUD": { "": "N/A" } } or []). These must not reach the public UI.
