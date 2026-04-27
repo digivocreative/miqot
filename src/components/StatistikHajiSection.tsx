@@ -48,6 +48,11 @@ function fmtUSDFull(n: number): string {
   return `$${(n || 0).toLocaleString('en-US')}`;
 }
 
+function fmtIDRFromUSD(usd: number, kurs: number | null): string {
+  if (!kurs || !usd) return '';
+  return `≈ Rp ${Math.round(usd * kurs).toLocaleString('id-ID')}`;
+}
+
 function fmtSync(d: string | null): string {
   if (!d) return '-';
   try {
@@ -103,9 +108,17 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [syncing, setSyncing] = useState(false);
+  const [kursUSD, setKursUSD] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onYearsLoadedRef = useRef(onYearsLoaded);
   onYearsLoadedRef.current = onYearsLoaded;
+
+  useEffect(() => {
+    fetch('/api/kurs')
+      .then(r => r.json())
+      .then(j => { if (j.success && j.data?.rates?.USD) setKursUSD(Number(j.data.rates.USD)); })
+      .catch(() => {});
+  }, []);
 
   const fetchStats = useCallback(async (year?: string) => {
     setLoading(true);
@@ -244,6 +257,9 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
               </div>
               <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtUSDFull(data.komisi.sudahCair)}</p>
               <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Komisi Cair (USD)</p>
+              {kursUSD && data.komisi.sudahCair > 0 && (
+                <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">{fmtIDRFromUSD(data.komisi.sudahCair, kursUSD)}</p>
+              )}
             </div>
 
             {/* Belum Lunas */}
@@ -271,11 +287,13 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
             <div className="px-4 pt-4 pb-2 flex items-center justify-between">
               <span className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Estimasi Komisi (USD)</span>
-              <span className="text-[10px] text-gray-400 dark:text-slate-400">{data.total} jamaah · ${data.komisi.rateUhud}–${data.komisi.rateRahmah}/jamaah</span>
             </div>
             <div className="px-4 pb-3">
               <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtUSDFull(data.komisi.totalKomisi)}</p>
               <p className="text-[10px] text-gray-400 dark:text-slate-400 mt-0.5">Total estimasi komisi (USD)</p>
+              {kursUSD && data.komisi.totalKomisi > 0 && (
+                <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">{fmtIDRFromUSD(data.komisi.totalKomisi, kursUSD)} · kurs ${kursUSD.toLocaleString('id-ID')}</p>
+              )}
             </div>
 
             {/* 3-segment bar */}
@@ -305,18 +323,28 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
                   <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
                     Sudah Cair <span className="text-[10px] font-normal text-emerald-600/70 dark:text-emerald-400/60 ml-1">({data.komisi.sudahCairCount} jamaah)</span>
                   </span>
-                  <p className="text-[9px] text-emerald-500/70 dark:text-emerald-400/50">${data.komisi.stage1} saat CICILAN + sisa cair saat SUDAH BERANGKAT</p>
+                  <p className="text-[9px] text-emerald-500/70 dark:text-emerald-400/50">${data.komisi.stage1} saat CICILAN</p>
                 </div>
-                <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtUSDFull(data.komisi.sudahCair)}</span>
+                <div className="text-right">
+                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtUSDFull(data.komisi.sudahCair)}</span>
+                  {kursUSD && data.komisi.sudahCair > 0 && (
+                    <p className="text-[9px] text-emerald-500/70 dark:text-emerald-400/50">{fmtIDRFromUSD(data.komisi.sudahCair, kursUSD)}</p>
+                  )}
+                </div>
               </div>
               <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/40 px-3 py-2.5 flex items-center justify-between">
                 <div>
                   <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">
                     Belum Cair <span className="text-[10px] font-normal text-blue-600/70 dark:text-blue-400/60 ml-1">({data.komisi.belumCairCount} jamaah)</span>
                   </span>
-                  <p className="text-[9px] text-blue-500/70 dark:text-blue-400/50">${data.komisi.rateUhud - data.komisi.stage1} (UHUD)/${data.komisi.rateRahmah - data.komisi.stage1} (RAHMAH) — cair saat SUDAH BERANGKAT</p>
+                  <p className="text-[9px] text-blue-500/70 dark:text-blue-400/50">Cair saat SUDAH BERANGKAT</p>
                 </div>
-                <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{fmtUSDFull(data.komisi.belumCair)}</span>
+                <div className="text-right">
+                  <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{fmtUSDFull(data.komisi.belumCair)}</span>
+                  {kursUSD && data.komisi.belumCair > 0 && (
+                    <p className="text-[9px] text-blue-500/70 dark:text-blue-400/50">{fmtIDRFromUSD(data.komisi.belumCair, kursUSD)}</p>
+                  )}
+                </div>
               </div>
               <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/40 px-3 py-2.5 flex items-center justify-between">
                 <div>
@@ -325,7 +353,12 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
                   </span>
                   <p className="text-[9px] text-amber-500/70 dark:text-amber-400/50">Jika BELUM BAYAR melunasi pembayaran</p>
                 </div>
-                <span className="text-sm font-bold text-amber-600 dark:text-amber-400">{fmtUSDFull(data.komisi.potensi)}</span>
+                <div className="text-right">
+                  <span className="text-sm font-bold text-amber-600 dark:text-amber-400">{fmtUSDFull(data.komisi.potensi)}</span>
+                  {kursUSD && data.komisi.potensi > 0 && (
+                    <p className="text-[9px] text-amber-500/70 dark:text-amber-400/50">{fmtIDRFromUSD(data.komisi.potensi, kursUSD)}</p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
