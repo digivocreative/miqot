@@ -52,6 +52,7 @@ function fmtSync(d: string | null): string {
   if (!d) return '-';
   try {
     const date = new Date(d);
+    if (isNaN(date.getTime())) return d;
     return date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) +
       ', ' + date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }) + ' WIB';
   } catch { return d; }
@@ -132,6 +133,7 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
 
       if (pollRef.current) clearInterval(pollRef.current);
       const pollStart = Date.now();
+      let errorCount = 0;
       pollRef.current = setInterval(async () => {
         if (Date.now() - pollStart > 5 * 60 * 1000) {
           if (pollRef.current) clearInterval(pollRef.current);
@@ -146,13 +148,22 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
             signal: AbortSignal.timeout(10000),
           });
           const st = await sr.json();
+          errorCount = 0;
           if (st.success && !st.data.isSyncing) {
             if (pollRef.current) clearInterval(pollRef.current);
             pollRef.current = null;
             setSyncing(false);
             fetchStats(selectedYear);
           }
-        } catch { /* ignore single failure, keep polling */ }
+        } catch {
+          errorCount++;
+          if (errorCount >= 5) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+            setSyncing(false);
+            fetchStats(selectedYear);
+          }
+        }
       }, 3000);
     } catch { setSyncing(false); }
   };
