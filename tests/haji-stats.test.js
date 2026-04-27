@@ -7,6 +7,7 @@ import {
   computeKomisi,
   computeBreakdownTahun,
   computeAvailableYears,
+  pickDefaultYear,
 } from '../lib/haji-stats.js';
 
 test('constants: rate=500, stage1=200, stage2=300', () => {
@@ -180,4 +181,43 @@ test('computeAvailableYears: dedupe + sort DESC + filter invalid', () => {
 
 test('computeAvailableYears: empty returns empty array', () => {
   assert.deepEqual(computeAvailableYears([]), []);
+});
+
+test('pickDefaultYear: empty/null returns null', () => {
+  assert.equal(pickDefaultYear([], 2026), null);
+  assert.equal(pickDefaultYear(null, 2026), null);
+  assert.equal(pickDefaultYear(undefined, 2026), null);
+});
+
+test('pickDefaultYear: current year present → returns current year', () => {
+  assert.equal(pickDefaultYear(['2030', '2027', '2026', '2025'], 2026), '2026');
+});
+
+test('pickDefaultYear: current year absent, only past years → closest past', () => {
+  assert.equal(pickDefaultYear(['2024', '2025'], 2026), '2025');
+});
+
+test('pickDefaultYear: current year absent, only future years → closest future', () => {
+  assert.equal(pickDefaultYear(['2027', '2028'], 2026), '2027');
+});
+
+test('pickDefaultYear: tie (past vs future at same distance) → prefer future', () => {
+  assert.equal(pickDefaultYear(['2025', '2027'], 2026), '2027');
+});
+
+test('pickDefaultYear: distance wins over future-preference', () => {
+  // 2024 is distance 2, 2030 is distance 4 → 2024 wins despite 2030 being future
+  assert.equal(pickDefaultYear(['2024', '2030'], 2026), '2024');
+});
+
+test('pickDefaultYear: numeric currentYear works', () => {
+  assert.equal(pickDefaultYear(['2026', '2027'], 2026), '2026');
+});
+
+test('pickDefaultYear: string currentYear works', () => {
+  assert.equal(pickDefaultYear(['2026', '2027'], '2026'), '2026');
+});
+
+test('pickDefaultYear: single available year returned', () => {
+  assert.equal(pickDefaultYear(['2030'], 2026), '2030');
 });

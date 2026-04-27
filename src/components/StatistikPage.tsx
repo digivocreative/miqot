@@ -1082,10 +1082,10 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         }>
           <StatistikHajiSection
             selectedYear={selectedYearMasehi}
-            onYearsLoaded={(years) => {
+            onYearsLoaded={(years, defaultYear) => {
               setHajiAvailableYears(years);
-              if (!selectedYearMasehi && years.length > 0) {
-                setSelectedYearMasehi(years[0]);
+              if (!selectedYearMasehi && defaultYear) {
+                setSelectedYearMasehi(defaultYear);
               }
             }}
           />

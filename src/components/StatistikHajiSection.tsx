@@ -98,7 +98,7 @@ function HajiSkeleton() {
 // ── Component ──
 interface Props {
   selectedYear: string;
-  onYearsLoaded?: (years: string[]) => void;
+  onYearsLoaded?: (years: string[], defaultYear: string | null) => void;
 }
 
 export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Props) {
@@ -121,7 +121,7 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
       const json = await res.json();
       if (json.success) {
         setData(json.data);
-        onYearsLoadedRef.current?.(json.data.availableYears || []);
+        onYearsLoadedRef.current?.(json.data.availableYears || [], json.data.masehiYear || null);
       } else {
         setError(json.error || 'Gagal memuat statistik haji');
       }

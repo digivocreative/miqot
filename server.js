@@ -18,7 +18,7 @@ import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration, fetchAwapiCredentials } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
-import { computeKomisi, computeBreakdownTahun, computeAvailableYears, KOMISI_RATE, KOMISI_STAGE1, KOMISI_STAGE2 } from './lib/haji-stats.js';
+import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, KOMISI_RATE, KOMISI_STAGE1, KOMISI_STAGE2 } from './lib/haji-stats.js';
 import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent } from './lib/og-generator.mjs';
@@ -8489,10 +8489,10 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
 
     const availableYears = computeAvailableYears(yearsData || []);
 
-    // Default to latest masehi year if no year query param.
+    // Default: current year if present, else closest year (ties prefer future).
     let year = typeof req.query.year === 'string' ? req.query.year : null;
-    if (!year && availableYears.length > 0) {
-      year = availableYears[0];
+    if (!year) {
+      year = pickDefaultYear(availableYears, new Date().getFullYear());
     }
 
     // Filtered fetch for all aggregates.
