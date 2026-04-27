@@ -622,7 +622,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         {hijriahDropdownYears.map(y => <option key={y} value={y}>{y} H</option>)}
       </select>
     );
-  }, [statTab, data, selectedYear, selectedYearMasehi, hijriahDropdownYears, hajiAvailableYears, onHeaderRight, syncing, backgroundSyncing]);
+  }, [statTab, data, selectedYear, selectedYearMasehi, hijriahDropdownYears, hajiAvailableYears, onHeaderRight]);
 
   // Sync handler
   const handleSync = async () => {
