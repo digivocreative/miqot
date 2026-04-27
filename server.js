@@ -8498,7 +8498,7 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
     // Filtered fetch for all aggregates.
     let q = supabase
       .from('jamaah_haji')
-      .select('id_haji, thn_hijriyah, thn_masehi, status_bayar, status_berangkat, jenis, paket')
+      .select('id_haji, thn_hijriyah, thn_masehi, status_bayar, status_berangkat, jenis, paket, paket_detail')
       .eq('agent_id', agentId);
     if (year) q = q.eq('thn_masehi', year);
 

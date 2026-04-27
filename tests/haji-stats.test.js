@@ -48,7 +48,7 @@ test('computeKomisi: empty array returns zeros', () => {
 });
 
 test('computeKomisi: LUNAS UHUD without SUDAH BERANGKAT pays only $200 stage1', () => {
-  const k = computeKomisi([{ status_bayar: 'LUNAS', paket: 'UHUD' }]);
+  const k = computeKomisi([{ status_bayar: 'LUNAS', paket_detail: 'UHUD' }]);
   assert.equal(k.sudahCair, 200);
   assert.equal(k.sudahCairCount, 1);
   assert.equal(k.belumCair, 300);
@@ -56,7 +56,7 @@ test('computeKomisi: LUNAS UHUD without SUDAH BERANGKAT pays only $200 stage1', 
 });
 
 test('computeKomisi: LUNAS UHUD + SUDAH BERANGKAT → full $500 cair', () => {
-  const k = computeKomisi([{ status_bayar: 'LUNAS', paket: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' }]);
+  const k = computeKomisi([{ status_bayar: 'LUNAS', paket_detail: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' }]);
   assert.equal(k.sudahCair, 500);
   assert.equal(k.sudahCairCount, 1);
   assert.equal(k.belumCair, 0);
@@ -64,26 +64,26 @@ test('computeKomisi: LUNAS UHUD + SUDAH BERANGKAT → full $500 cair', () => {
 });
 
 test('computeKomisi: LUNAS RAHMAH without SUDAH BERANGKAT pays only $200 stage1', () => {
-  const k = computeKomisi([{ status_bayar: 'LUNAS', paket: 'RAHMAH' }]);
+  const k = computeKomisi([{ status_bayar: 'LUNAS', paket_detail: 'RAHMAH' }]);
   assert.equal(k.sudahCair, 200);
   assert.equal(k.belumCair, 550);
   assert.equal(k.belumCairCount, 1);
 });
 
 test('computeKomisi: LUNAS RAHMAH + SUDAH BERANGKAT → full $750 cair', () => {
-  const k = computeKomisi([{ status_bayar: 'LUNAS', paket: 'RAHMAH', status_berangkat: 'SUDAH BERANGKAT' }]);
+  const k = computeKomisi([{ status_bayar: 'LUNAS', paket_detail: 'RAHMAH', status_berangkat: 'SUDAH BERANGKAT' }]);
   assert.equal(k.sudahCair, 750);
   assert.equal(k.belumCair, 0);
 });
 
 test('computeKomisi: LEBIH BAYAR + SUDAH BERANGKAT (RAHMAH) → full $750 cair', () => {
-  const k = computeKomisi([{ status_bayar: 'LEBIH BAYAR', paket: 'RAHMAH', status_berangkat: 'SUDAH BERANGKAT' }]);
+  const k = computeKomisi([{ status_bayar: 'LEBIH BAYAR', paket_detail: 'RAHMAH', status_berangkat: 'SUDAH BERANGKAT' }]);
   assert.equal(k.sudahCair, 750);
   assert.equal(k.sudahCairCount, 1);
 });
 
 test('computeKomisi: CICILAN UHUD (not departed) pays $200 cair, $300 belum cair', () => {
-  const k = computeKomisi([{ status_bayar: 'CICILAN', paket: 'UHUD' }]);
+  const k = computeKomisi([{ status_bayar: 'CICILAN', paket_detail: 'UHUD' }]);
   assert.equal(k.sudahCair, 200);
   assert.equal(k.sudahCairCount, 1);
   assert.equal(k.belumCair, 300);
@@ -92,31 +92,31 @@ test('computeKomisi: CICILAN UHUD (not departed) pays $200 cair, $300 belum cair
 });
 
 test('computeKomisi: CICILAN UHUD + SUDAH BERANGKAT → full $500 cair', () => {
-  const k = computeKomisi([{ status_bayar: 'CICILAN', paket: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' }]);
+  const k = computeKomisi([{ status_bayar: 'CICILAN', paket_detail: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' }]);
   assert.equal(k.sudahCair, 500);
   assert.equal(k.belumCair, 0);
   assert.equal(k.belumCairCount, 0);
 });
 
 test('computeKomisi: CICILAN RAHMAH (not departed) pays $200 cair, $550 belum cair', () => {
-  const k = computeKomisi([{ status_bayar: 'CICILAN', paket: 'RAHMAH' }]);
+  const k = computeKomisi([{ status_bayar: 'CICILAN', paket_detail: 'RAHMAH' }]);
   assert.equal(k.sudahCair, 200);
   assert.equal(k.belumCair, 550);
   assert.equal(k.belumCairCount, 1);
 });
 
 test('computeKomisi: BELUM BAYAR UHUD is potensi $500 regardless of berangkat', () => {
-  const k = computeKomisi([{ status_bayar: 'BELUM BAYAR', paket: 'UHUD' }]);
+  const k = computeKomisi([{ status_bayar: 'BELUM BAYAR', paket_detail: 'UHUD' }]);
   assert.equal(k.potensi, 500);
   assert.equal(k.potensiCount, 1);
 
-  const k2 = computeKomisi([{ status_bayar: 'BELUM BAYAR', paket: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' }]);
+  const k2 = computeKomisi([{ status_bayar: 'BELUM BAYAR', paket_detail: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' }]);
   assert.equal(k2.potensi, 500);
   assert.equal(k2.sudahCair, 0);
 });
 
 test('computeKomisi: BELUM BAYAR RAHMAH is potensi $750', () => {
-  const k = computeKomisi([{ status_bayar: 'BELUM BAYAR', paket: 'RAHMAH' }]);
+  const k = computeKomisi([{ status_bayar: 'BELUM BAYAR', paket_detail: 'RAHMAH' }]);
   assert.equal(k.potensi, 750);
   assert.equal(k.potensiCount, 1);
 });
@@ -151,10 +151,10 @@ test('computeKomisi: case-insensitive matching of all status fields', () => {
 
 test('computeKomisi: mixed UHUD scenario, none departed', () => {
   const rows = [
-    ...Array(5).fill({ status_bayar: 'LUNAS', paket: 'UHUD' }),
-    ...Array(3).fill({ status_bayar: 'CICILAN', paket: 'UHUD' }),
-    ...Array(2).fill({ status_bayar: 'BELUM BAYAR', paket: 'UHUD' }),
-    { status_bayar: 'LEBIH BAYAR', paket: 'UHUD' },
+    ...Array(5).fill({ status_bayar: 'LUNAS', paket_detail: 'UHUD' }),
+    ...Array(3).fill({ status_bayar: 'CICILAN', paket_detail: 'UHUD' }),
+    ...Array(2).fill({ status_bayar: 'BELUM BAYAR', paket_detail: 'UHUD' }),
+    { status_bayar: 'LEBIH BAYAR', paket_detail: 'UHUD' },
   ];
   const k = computeKomisi(rows);
   // Paid (5+3+1=9) × stage1 $200 = 1800
@@ -172,10 +172,10 @@ test('computeKomisi: mixed UHUD scenario, none departed', () => {
 
 test('computeKomisi: mixed UHUD scenario, all paid jamaah departed', () => {
   const rows = [
-    ...Array(5).fill({ status_bayar: 'LUNAS', paket: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' }),
-    ...Array(3).fill({ status_bayar: 'CICILAN', paket: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' }),
-    ...Array(2).fill({ status_bayar: 'BELUM BAYAR', paket: 'UHUD' }),
-    { status_bayar: 'LEBIH BAYAR', paket: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' },
+    ...Array(5).fill({ status_bayar: 'LUNAS', paket_detail: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' }),
+    ...Array(3).fill({ status_bayar: 'CICILAN', paket_detail: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' }),
+    ...Array(2).fill({ status_bayar: 'BELUM BAYAR', paket_detail: 'UHUD' }),
+    { status_bayar: 'LEBIH BAYAR', paket_detail: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' },
   ];
   const k = computeKomisi(rows);
   // 9 paid × full $500 = 4500
@@ -190,9 +190,9 @@ test('computeKomisi: mixed UHUD scenario, all paid jamaah departed', () => {
 
 test('computeKomisi: mixed paket none departed', () => {
   const rows = [
-    ...Array(3).fill({ status_bayar: 'LUNAS', paket: 'UHUD' }),
-    ...Array(2).fill({ status_bayar: 'LUNAS', paket: 'RAHMAH' }),
-    { status_bayar: 'CICILAN', paket: 'RAHMAH' },
+    ...Array(3).fill({ status_bayar: 'LUNAS', paket_detail: 'UHUD' }),
+    ...Array(2).fill({ status_bayar: 'LUNAS', paket_detail: 'RAHMAH' }),
+    { status_bayar: 'CICILAN', paket_detail: 'RAHMAH' },
   ];
   const k = computeKomisi(rows);
   // 6 paid × $200 = 1200
@@ -208,10 +208,10 @@ test('computeKomisi: mixed paket none departed', () => {
 
 test('computeKomisi: mixed paket, partial departure', () => {
   const rows = [
-    { status_bayar: 'LUNAS', paket: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' },
-    { status_bayar: 'LUNAS', paket: 'RAHMAH', status_berangkat: 'SUDAH BERANGKAT' },
-    { status_bayar: 'LUNAS', paket: 'UHUD' },                                       // not departed
-    { status_bayar: 'CICILAN', paket: 'RAHMAH' },                                    // not departed
+    { status_bayar: 'LUNAS', paket_detail: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' },
+    { status_bayar: 'LUNAS', paket_detail: 'RAHMAH', status_berangkat: 'SUDAH BERANGKAT' },
+    { status_bayar: 'LUNAS', paket_detail: 'UHUD' },                                       // not departed
+    { status_bayar: 'CICILAN', paket_detail: 'RAHMAH' },                                    // not departed
   ];
   const k = computeKomisi(rows);
   // sudahCair: 1×500 (UHUD departed) + 1×750 (RAHMAH departed) + 1×200 (UHUD stage1) + 1×200 (RAHMAH stage1) = 500+750+200+200 = 1650
@@ -355,7 +355,7 @@ test('pickDefaultYear: single available year returned', () => {
 
 test('computeBreakdownTahun: RAHMAH paket departed gets $750 cair', () => {
   const rows = [
-    { thn_masehi: '2027', status_bayar: 'LUNAS', paket: 'RAHMAH', status_berangkat: 'SUDAH BERANGKAT' },
+    { thn_masehi: '2027', status_bayar: 'LUNAS', paket_detail: 'RAHMAH', status_berangkat: 'SUDAH BERANGKAT' },
   ];
   const b = computeBreakdownTahun(rows);
   assert.equal(b[0].lunas, 1);
@@ -366,8 +366,8 @@ test('computeBreakdownTahun: RAHMAH paket departed gets $750 cair', () => {
 
 test('computeBreakdownTahun: mixed UHUD+RAHMAH all departed', () => {
   const rows = [
-    { thn_masehi: '2027', status_bayar: 'LUNAS', paket: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' },
-    { thn_masehi: '2027', status_bayar: 'LUNAS', paket: 'RAHMAH', status_berangkat: 'SUDAH BERANGKAT' },
+    { thn_masehi: '2027', status_bayar: 'LUNAS', paket_detail: 'UHUD', status_berangkat: 'SUDAH BERANGKAT' },
+    { thn_masehi: '2027', status_bayar: 'LUNAS', paket_detail: 'RAHMAH', status_berangkat: 'SUDAH BERANGKAT' },
   ];
   const b = computeBreakdownTahun(rows);
   assert.equal(b[0].total, 2);
@@ -377,23 +377,25 @@ test('computeBreakdownTahun: mixed UHUD+RAHMAH all departed', () => {
   assert.equal(b[0].komisiTotal, 500 + 750);
 });
 
-test('computeByPaket: empty returns 0/0', () => {
-  assert.deepEqual(computeByPaket([]), { uhud: 0, rahmah: 0 });
+test('computeByPaket: empty returns zeros', () => {
+  assert.deepEqual(computeByPaket([]), { uhud: 0, rahmah: 0, unknown: 0 });
 });
 
-test('computeByPaket: counts uhud and rahmah, others fall to uhud', () => {
+test('computeByPaket: counts uhud, rahmah, and unknown', () => {
   const rows = [
-    { paket: 'UHUD' },
-    { paket: 'Haji Plus UHUD' },
-    { paket: 'RAHMAH' },
-    { paket: 'rahmah lower' },
-    { paket: 'Lainnya' },     // counts as uhud (default rate)
-    { paket: null },           // counts as uhud
-    {},                        // counts as uhud
+    { paket_detail: 'UHUD' },
+    { paket_detail: 'Haji Plus UHUD' },     // contains "uhud" → uhud
+    { paket_detail: 'RAHMAH' },
+    { paket_detail: 'rahmah lower' },
+    { paket_detail: 'Lainnya' },             // unknown text → uhud (default rate)
+    { paket_detail: null },                  // unknown
+    { paket_detail: '' },                    // unknown
+    {},                                       // missing key → unknown
   ];
   const r = computeByPaket(rows);
-  assert.equal(r.uhud, 5);
+  assert.equal(r.uhud, 3);     // 2 explicit + Lainnya
   assert.equal(r.rahmah, 2);
+  assert.equal(r.unknown, 3);  // null + '' + missing
 });
 
 test('computeBerangkatStats: empty returns 0/0', () => {

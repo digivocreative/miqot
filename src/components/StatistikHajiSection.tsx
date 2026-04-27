@@ -21,7 +21,7 @@ export interface HajiStatsData {
     stage1: number;
     rateUhud: number;
     rateRahmah: number;
-    byPaket: { uhud: number; rahmah: number };
+    byPaket: { uhud: number; rahmah: number; unknown: number };
     berangkat: { sudahBerangkat: number; belumBerangkat: number };
     totalKomisi: number;
     sudahCair: number;
@@ -313,7 +313,11 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
               </div>
             </div>
             <div className="px-4 pb-2 -mt-0.5">
-              <p className="text-[10px] text-gray-400 dark:text-slate-500">{data.komisi.byPaket.uhud} UHUD · {data.komisi.byPaket.rahmah} RAHMAH · {data.komisi.berangkat.sudahBerangkat} sudah berangkat</p>
+              <p className="text-[10px] text-gray-400 dark:text-slate-500">
+                {data.komisi.byPaket.uhud} UHUD · {data.komisi.byPaket.rahmah} RAHMAH
+                {data.komisi.byPaket.unknown > 0 && <span className="text-amber-500 dark:text-amber-400"> · {data.komisi.byPaket.unknown} belum diketahui</span>}
+                {' · '}{data.komisi.berangkat.sudahBerangkat} sudah berangkat
+              </p>
             </div>
 
             {/* Detail rows */}
