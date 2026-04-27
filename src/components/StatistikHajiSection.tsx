@@ -205,6 +205,8 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
   const isEmpty = data.total === 0 && !data.lastSync;
   const isEmptyForYear = data.total === 0 && !!data.lastSync;
   const belumLunasCount = data.cicilan + data.belumBayar;
+  const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+  const gridStroke = isDark ? '#1e293b' : '#f1f5f9';
 
   if (isEmpty) {
     return (
@@ -340,7 +342,7 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
               <div className="px-2 py-3">
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={data.komisi.breakdownTahun} margin={{ top: 8, right: 12, left: -20, bottom: 0 }}>
-                    <CartesianGrid horizontal vertical={false} strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <CartesianGrid horizontal vertical={false} strokeDasharray="3 3" stroke={gridStroke} />
                     <XAxis dataKey="tahun" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} allowDecimals={false} />
                     <Tooltip content={<BreakdownTooltip />} cursor={{ fill: 'rgba(16,185,129,0.06)' }} />
