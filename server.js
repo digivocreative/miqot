@@ -8465,10 +8465,23 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
   try {
     const agentId = req.user.id;
 
-    const { data, error } = await supabase
-      .from('jamaah_haji')
-      .select('id_haji, thn_hijriyah, thn_masehi, status_bayar, jenis, paket')
-      .eq('agent_id', agentId);
+    // Fire jamaah_haji aggregate + agents lastSync read in parallel.
+    // lastSync sources from agents.last_jamaah_haji_sync_at (the actual sync
+    // attempt timestamp) rather than MAX(jamaah_haji.synced_at), because the
+    // skip_noop_update_jamaah_haji_trg trigger keeps row.synced_at frozen
+    // when data is unchanged — making per-row timestamps misleading for "when
+    // did sync last run".
+    const [{ data, error }, { data: agentRow }] = await Promise.all([
+      supabase
+        .from('jamaah_haji')
+        .select('id_haji, thn_hijriyah, thn_masehi, status_bayar, jenis, paket')
+        .eq('agent_id', agentId),
+      supabase
+        .from('agents')
+        .select('last_jamaah_haji_sync_at')
+        .eq('id', agentId)
+        .maybeSingle(),
+    ]);
 
     if (error) throw error;
 
@@ -8503,7 +8516,8 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
         cicilan,
         belumBayar,
         byTahun,
-        byJenis
+        byJenis,
+        lastSync: agentRow?.last_jamaah_haji_sync_at || null,
       }
     });
   } catch (err) {
@@ -11387,6 +11401,234 @@ async function runSyncCycleLoop() {
 setTimeout(() => {
   runSyncCycleLoop().catch(err => console.error('[SYNC] Loop crashed:', err.message));
 }, 30 * 1000);
+
+// ── Haji background sync: dedicated loop, decoupled from umroh path ──
+// Why dedicated: when AWAPI_SYNC_ENABLED=true (umroh via official API),
+// syncOneAgent returns early after API success and never reaches the inline
+// haji block — leaving haji bg sync dead. This loop owns its own legacy
+// session per agent (haji has no API yet) and runs independently so umroh's
+// 10min API cycle stays untouched. Inline haji block in syncOneAgent is
+// kept as a fallback path that fires only when umroh API throws.
+async function syncHajiOneAgent(agent) {
+  const slug = agent.slug;
+  const agentId = agent.id;
+
+  // Honor the unified mutex — skip if any sync (manual umroh/haji or umroh bg
+  // fallback) is already running for this agent. We'll catch this agent on
+  // the next 30min cycle.
+  const existing = syncingAgents.get(agentId);
+  if (existing?.isSyncing) {
+    return { skipped: true };
+  }
+
+  syncingAgents.set(agentId, {
+    isSyncing: true, background: true, scope: 'haji-bg',
+    totalSynced: 0, lastSync: null, startedAt: Date.now(),
+    username: agent.jamaah_username,
+  });
+
+  try {
+    await laporanDisconnect(agent.jamaah_username, { skipRemoteLogout: true });
+    const decrypted = capiDecrypt(agent.jamaah_password);
+    const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
+    if (!loginResult.success) {
+      console.error(`[HAJI-BG] ${slug}: login failed — ${loginResult.error || 'unknown reason'}`);
+      const rateLimited = loginResult.reason === 'rate_limited';
+      syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true, rateLimited });
+      return { loginFailed: true, rateLimited };
+    }
+
+    const sessionCookies = getSessionCookie(agent.jamaah_username);
+    if (!sessionCookies) {
+      console.warn(`[HAJI-BG] ${slug}: no session cookie after login`);
+      syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
+      return { loginFailed: true };
+    }
+
+    const syncTime = new Date().toISOString();
+    const { rows: hajiList, complete: hajiListComplete } = await fetchHajiList(sessionCookies);
+    const uniqueIds = [...new Set(hajiList.map(h => h.id_haji))];
+    console.log(`[HAJI-BG] ${slug}: found ${uniqueIds.length} unique haji entries, complete=${hajiListComplete}`);
+
+    const fetchedBookingIds = new Set(uniqueIds);
+    const successfulBookingIds = new Set();
+    const successfulJamaahPerBooking = new Map();
+
+    if (uniqueIds.length > 0) {
+      const HAJI_BATCH = 5;
+      let hajiSynced = 0;
+      const allHajiRows = [];
+
+      for (let i = 0; i < uniqueIds.length; i += HAJI_BATCH) {
+        const batch = uniqueIds.slice(i, i + HAJI_BATCH);
+        const results = await Promise.allSettled(
+          batch.map(async (idHaji) => {
+            const details = await fetchHajiDetail(sessionCookies, idHaji);
+            const listEntry = hajiList.find(h => h.id_haji === idHaji);
+            return { idHaji, details, listEntry };
+          })
+        );
+        for (const r of results) {
+          if (r.status === 'fulfilled') {
+            const { idHaji, details, listEntry } = r.value;
+            successfulBookingIds.add(idHaji);
+            const jamaahSet = successfulJamaahPerBooking.get(idHaji) || new Set();
+            for (const detail of details) {
+              jamaahSet.add(detail.id_jamaah);
+              allHajiRows.push({
+                agent_id: agentId,
+                id_haji: idHaji,
+                id_jamaah: detail.id_jamaah,
+                nama: detail.nama,
+                jk: detail.jk,
+                alamat: detail.alamat,
+                telp: detail.telp,
+                thn_hijriyah: listEntry.thn_hijriyah,
+                thn_masehi: listEntry.thn_masehi,
+                perwakilan: listEntry.perwakilan,
+                marketing: listEntry.marketing,
+                paket: listEntry.paket,
+                staff: listEntry.staff,
+                jenis: listEntry.jenis,
+                status_bayar: detail.status_bayar,
+                status_berangkat: detail.status_berangkat,
+                bpih_url: detail.bpih_url,
+                surat_pernyataan_url: detail.surat_pernyataan_url,
+                synced_at: syncTime,
+              });
+            }
+            successfulJamaahPerBooking.set(idHaji, jamaahSet);
+          } else if (r.reason?.message === 'SESSION_EXPIRED') {
+            throw r.reason;
+          }
+        }
+
+        if (allHajiRows.length >= 50 || i + HAJI_BATCH >= uniqueIds.length) {
+          if (allHajiRows.length > 0) {
+            const { error: hajiErr } = await supabase
+              .from('jamaah_haji')
+              .upsert(allHajiRows, { onConflict: 'agent_id,id_haji,id_jamaah' });
+            if (hajiErr) console.error(`[HAJI-BG] ${slug} batch error:`, hajiErr.message);
+            hajiSynced += allHajiRows.length;
+            allHajiRows.length = 0;
+            syncingAgents.set(agentId, {
+              isSyncing: true, background: true, scope: 'haji-bg',
+              totalSynced: hajiSynced, lastSync: syncTime,
+              startedAt: Date.now(), username: agent.jamaah_username,
+            });
+          }
+        }
+
+        if (i + HAJI_BATCH < uniqueIds.length) await new Promise(r => setTimeout(r, 100));
+      }
+      console.log(`[HAJI-BG] ${slug}: ${hajiSynced} haji jamaah synced`);
+    }
+
+    const { data: existingHajiRows } = await supabase
+      .from('jamaah_haji')
+      .select('id_haji, id_jamaah')
+      .eq('agent_id', agentId);
+    const plan = computeSafeDeletions({
+      listComplete: hajiListComplete,
+      fetchedBookingIds,
+      successfulBookingIds,
+      successfulJamaahPerBooking,
+      existingRows: (existingHajiRows || []).map(r => ({ bookingId: r.id_haji, jamaahKey: r.id_jamaah })),
+      maxDeletePercent: 0.3,
+    });
+    if (plan.decision === 'skip') {
+      console.warn(`[HAJI-BG] ${slug} cleanup skipped: ${plan.reason} (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+    } else if (plan.toDelete.length > 0) {
+      const deletedCount = await executeHajiDeletions(slug, agentId, plan.toDelete);
+      console.log(`[HAJI-BG] ${slug}: removed ${deletedCount} stale haji (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+    }
+
+    const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: syncTime }).eq('id', agentId);
+    if (bumpErr) console.warn(`[HAJI-BG] ${slug} bump last_jamaah_haji_sync_at failed:`, bumpErr.message);
+
+    return { ok: true };
+  } catch (err) {
+    console.error(`[HAJI-BG] ${slug} error:`, err.message);
+    return { error: err.message };
+  } finally {
+    // Only release the lock if we still own it (scope haji-bg). A manual sync
+    // that started during our run would have its own scope and we must not
+    // clobber its state.
+    const cur = syncingAgents.get(agentId);
+    if (cur?.isSyncing && cur?.scope === 'haji-bg') {
+      syncingAgents.set(agentId, {
+        isSyncing: false,
+        totalSynced: cur.totalSynced || 0,
+        lastSync: cur.lastSync || null,
+      });
+    }
+    try { await laporanDisconnect(agent.jamaah_username, { skipRemoteLogout: true }); } catch {}
+  }
+}
+
+async function syncAllAgentsHaji() {
+  console.log('[HAJI-BG] Starting haji sync cycle...');
+  const startTime = Date.now();
+
+  const { data: agents, error } = await supabase
+    .from('agents')
+    .select('*')
+    .not('jamaah_username', 'is', null)
+    .not('jamaah_password', 'is', null);
+
+  if (error || !agents?.length) {
+    console.log('[HAJI-BG] No agents with credentials found');
+    return;
+  }
+
+  // Sequential with 5s gap to avoid Apache rate-limiting on rapid logins
+  // (same throttling pattern that legacy umroh bg sync used historically).
+  let ok = 0, fail = 0, skipped = 0, loginFail = 0;
+  let abort = false;
+  const INTER_AGENT_GAP_MS = 5000;
+
+  for (const agent of agents) {
+    if (abort) { skipped++; continue; }
+    try {
+      const result = await syncHajiOneAgent(agent);
+      if (result.skipped) skipped++;
+      else if (result.loginFailed) {
+        loginFail++;
+        if (result.rateLimited) {
+          console.warn(`[HAJI-BG] Aborting cycle — Apache rate-limiting at ${agent.slug}`);
+          abort = true;
+        }
+      } else if (result.error) fail++;
+      else ok++;
+    } catch (err) {
+      console.error(`[HAJI-BG] ${agent.slug} uncaught:`, err.message);
+      fail++;
+    }
+    if (!abort) {
+      await new Promise(r => setTimeout(r, INTER_AGENT_GAP_MS));
+    }
+  }
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[HAJI-BG] Cycle complete: ${ok} OK, ${loginFail} login failed, ${fail} error, ${skipped} skipped in ${elapsed}s`);
+}
+
+const HAJI_SYNC_COOLDOWN_MS = 30 * 60 * 1000; // matches legacy bg cadence
+async function runHajiSyncCycleLoop() {
+  while (true) {
+    try {
+      await syncAllAgentsHaji();
+    } catch (err) {
+      console.error('[HAJI-BG] Cycle error:', err.message);
+    }
+    await new Promise(r => setTimeout(r, HAJI_SYNC_COOLDOWN_MS));
+  }
+}
+// Start 90s after boot — well after the umroh API loop (30s) so the very
+// first haji cycle doesn't compete for boot resources.
+setTimeout(() => {
+  runHajiSyncCycleLoop().catch(err => console.error('[HAJI-BG] Loop crashed:', err.message));
+}, 90 * 1000);
 
 // ── Umroh schedules sync: 45s after startup, then every 1 hour ──
 // Bunny file sync runs after schedule sync completes

@@ -83,6 +83,7 @@ interface HajiStats {
   belumBayar: number;
   byTahun: Record<string, number>;
   byJenis: Record<string, number>;
+  lastSync: string | null;
 }
 
 type ViewState = 'loading' | 'login' | 'connecting' | 'data';
@@ -388,7 +389,10 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
     try {
       const res = await fetch('/api/haji/stats', { headers: { ...getAuthHeaders() } });
       const result = await res.json();
-      if (result.success) setStats(result.data);
+      if (result.success) {
+        setStats(result.data);
+        setLastSync(result.data.lastSync ?? null);
+      }
     } catch { /* ignore */ }
   }, []);
 
@@ -406,7 +410,9 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
       if (result.success) {
         setJamaahList(result.data || []);
         setTotal(result.total || 0);
-        if (result.data?.length > 0) setLastSync(result.data[0].synced_at);
+        // lastSync is sourced from /api/haji/stats (agents.last_jamaah_haji_sync_at).
+        // Per-row synced_at is unreliable here because the no-op-skip Postgres
+        // trigger keeps it frozen on unchanged rows.
       } else {
         setError(result.error || 'Gagal memuat data');
       }
