@@ -27,7 +27,6 @@ const TYPE_META: Record<BioTile['type'], { icon: any; label: string; badge: stri
   photo:    { icon: ImageIcon,      label: 'Foto',           badge: 'FOTO',     badgeClass: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300' },
   testi:    { icon: Quote,          label: 'Testimoni',      badge: 'TESTI',    badgeClass: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300' },
 };
-
 function formatIdPhone(raw?: string): string {
   if (!raw) return '';
   const digits = String(raw).replace(/\D/g, '');
@@ -41,7 +40,6 @@ function formatIdPhone(raw?: string): string {
   }
   return local;
 }
-
 function tileSubtitle(tile: BioTile, agentPhone?: string): string {
   const c = tile.config as Record<string, any>;
   switch (tile.type) {
