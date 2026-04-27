@@ -63,6 +63,8 @@ interface JamaahItem {
   dokumen: Record<string, boolean> | null;
   no_paspor: string | null;
   paspor_expired: string | null;
+  diskon_kantor: number | null;
+  diskon_marketing: number | null;
   raw_data: { staf?: string; status_bayar?: string; [key: string]: unknown } | null;
   synced_at: string;
   notes: string | null;
@@ -1303,6 +1305,18 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                             <p className="text-[13px] font-bold text-amber-600 dark:text-amber-400">Belum Setor</p>
                           )}
                         </div>
+                        {(item.diskon_kantor || 0) > 0 && (
+                          <div>
+                            <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Diskon Kantor</p>
+                            <p className="text-[13px] font-bold text-emerald-600 dark:text-emerald-400">{formatRupiah(item.diskon_kantor || 0)}</p>
+                          </div>
+                        )}
+                        {(item.diskon_marketing || 0) > 0 && (
+                          <div>
+                            <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Diskon Marketing</p>
+                            <p className="text-[13px] font-bold text-emerald-600 dark:text-emerald-400">{formatRupiah(item.diskon_marketing || 0)}</p>
+                          </div>
+                        )}
                         {item.raw_data?.staf && (
                           <div>
                             <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Staff</p>

@@ -199,6 +199,8 @@ export function normalizeAwapiRow(raw, { agentId, agentSlug } = {}) {
     paspor_expired: safeDate(raw.paspor_expired),
     perlengkapan: raw.perlengkapan && typeof raw.perlengkapan === 'object' ? raw.perlengkapan : null,
     dokumen: raw.dokumen && typeof raw.dokumen === 'object' ? raw.dokumen : null,
+    diskon_kantor: safeBigint(raw.diskon_kantor),
+    diskon_marketing: safeBigint(raw.diskon_marketing),
     raw_data: raw,
     synced_at: new Date().toISOString(),
   };
