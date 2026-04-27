@@ -18,7 +18,7 @@ import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration, fetchAwapiCredentials } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
-import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
+import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
 import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent } from './lib/og-generator.mjs';
@@ -8498,7 +8498,7 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
     // Filtered fetch for all aggregates.
     let q = supabase
       .from('jamaah_haji')
-      .select('id_haji, thn_hijriyah, thn_masehi, status_bayar, jenis, paket')
+      .select('id_haji, thn_hijriyah, thn_masehi, status_bayar, status_berangkat, jenis, paket')
       .eq('agent_id', agentId);
     if (year) q = q.eq('thn_masehi', year);
 
@@ -8558,6 +8558,7 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
           rateUhud: KOMISI_RATE_UHUD,
           rateRahmah: KOMISI_RATE_RAHMAH,
           byPaket: computeByPaket(data),
+          berangkat: computeBerangkatStats(data),
           ...komisiBase,
           breakdownTahun,
         },
