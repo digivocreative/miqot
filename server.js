@@ -4135,7 +4135,7 @@ const HIJRIAH_YEARS = {
   '1449': { tglAwal: '2026-12-06', tglAkhir: '2028-05-25' },
 };
 
-// Determine hijriah year from departure date
+// Gregorian date ranges for Hijriah years.
 // Based on actual Islamic calendar: 1 Muharram of each year
 const HIJRIAH_RANGES = [
   { year: '1446', start: '2024-07-08', end: '2025-06-25' },
@@ -4145,20 +4145,32 @@ const HIJRIAH_RANGES = [
   { year: '1450', start: '2028-05-26', end: '2029-05-14' },
 ];
 
-function getHijriahYear(tglBerangkat) {
-  if (!tglBerangkat) return null;
+function getHijriahDateRange(year) {
+  return HIJRIAH_RANGES.find(range => range.year === String(year)) || null;
+}
+
+function getHijriahYearFromGregorian(gregorianDate) {
+  if (!gregorianDate) return null;
+  const dateKey = String(gregorianDate).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return null;
   for (const range of HIJRIAH_RANGES) {
-    if (tglBerangkat >= range.start && tglBerangkat <= range.end) {
+    if (dateKey >= range.start && dateKey <= range.end) {
       return range.year;
     }
   }
   // Dynamic fallback: approximate Hijri year from known reference point
   // Reference: 1 Muharram 1448 H ≈ 2026-06-16, one Hijri year ≈ 354.37 days
   const refDate = new Date('2026-06-16');
-  const d = new Date(tglBerangkat);
+  const d = new Date(dateKey);
+  if (Number.isNaN(d.getTime())) return null;
   const daysDiff = (d - refDate) / (1000 * 60 * 60 * 24);
   const hijriYear = 1448 + Math.floor(daysDiff / 354.37);
   return String(hijriYear);
+}
+
+// Determine hijriah year from departure date.
+function getHijriahYear(tglBerangkat) {
+  return getHijriahYearFromGregorian(tglBerangkat);
 }
 
 function getActiveHijriahYears() {
@@ -7477,9 +7489,16 @@ app.get('/api/umrah/form-debug', authMiddleware, async (req, res) => {
 app.get('/api/laporan/tren-daftar/years', authMiddleware, adminOnly, async (req, res) => {
   try {
     const data = await fetchAllRows(
-      supabase.from('jamaah').select('hijriah_year').not('hijriah_year', 'is', null)
+      supabase
+        .from('jamaah')
+        .select('tgl_berangkat, bayar, sisa')
+        .not('tgl_berangkat', 'is', null)
+        .or('bayar.gt.0,sisa.eq.0,sisa.is.null')
+        .order('id', { ascending: true })
     );
-    const years = [...new Set(data.map(d => d.hijriah_year))].sort((a, b) => b.localeCompare(a));
+    const years = [...new Set(data.map(d => getHijriahYearFromGregorian(d.tgl_berangkat)).filter(Boolean))]
+      .filter(y => Number(y) >= 1447)
+      .sort((a, b) => Number(b) - Number(a));
     res.json({ success: true, data: years });
   } catch (err) {
     console.error('[TrenDaftar] Years error:', err.message);
@@ -7493,6 +7512,32 @@ const TREN_MONTH_FULL = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
 const VALID_PAKET_PREFIX = ['HEMAT','REGULER','PLUS','VIP','UHUD','PREMIUM','SUPER','EKSKLUSIF','EKONOMI','PROMO','GOLD','SILVER','PLATINUM','DIAMOND'];
 const BLACKLIST_PAKET = ['WAITINGLIST','WAITING','RAHMAH','CANCEL','BATAL','REFUND','PENDING','LIST','DRAFT'];
 
+function excludeBelumDPQuery(q) {
+  // Equivalent to: NOT (bayar = 0 AND sisa > 0) = bayar>0 OR sisa=0 OR sisa IS NULL.
+  return q.or('bayar.gt.0,sisa.eq.0,sisa.is.null');
+}
+
+async function fetchTrenDaftarRows(year, selectColumns) {
+  const yearKey = String(year);
+  const range = getHijriahDateRange(yearKey);
+  const columns = selectColumns.split(',').map(c => c.trim());
+  const selectWithDeparture = columns.includes('tgl_berangkat')
+    ? selectColumns
+    : `${selectColumns}, tgl_berangkat`;
+  let query = excludeBelumDPQuery(
+    supabase
+      .from('jamaah')
+      .select(selectWithDeparture)
+      .not('tgl_berangkat', 'is', null)
+      .order('id', { ascending: true })
+  );
+  if (range) query = query.gte('tgl_berangkat', range.start).lte('tgl_berangkat', range.end);
+
+  const rows = await fetchAllRows(query);
+  if (range) return rows;
+  return rows.filter(j => getHijriahYearFromGregorian(j.tgl_berangkat) === yearKey);
+}
+
 app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) => {
   try {
     const { hijriahYear } = req.query;
@@ -7501,16 +7546,11 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
     const year = String(hijriahYear);
     const prevYear = String(Number(year) - 1);
 
-    // Exclude "Belum DP" jamaah (bayar=0 AND sisa>0) from all count-based metrics
-    // so Ranking Agent / monthly trend / gender / age / paket distribution only
-    // reflect jamaah who have actually committed (paid DP or Lunas).
-    // Equivalent to: NOT (bayar = 0 AND sisa > 0) = bayar>0 OR sisa=0 OR sisa IS NULL.
-    const excludeBelumDP = (q) => q.or('bayar.gt.0,sisa.eq.0,sisa.is.null');
-
-    // Fetch all jamaah for this year + prev year (excluding Belum DP)
+    // Tren Daftar is anchored to departure year: a jamaah who registered in
+    // 1447H but departs in 1448H belongs to the 1448H cohort.
     const [rowsCur, rowsPrev] = await Promise.all([
-      fetchAllRows(excludeBelumDP(supabase.from('jamaah').select('tgl_daftar, tgl_berangkat, tgl_lahir, jk, bayar, sisa, paket, agent_id').eq('hijriah_year', year))),
-      fetchAllRows(excludeBelumDP(supabase.from('jamaah').select('tgl_daftar, bayar, sisa').eq('hijriah_year', prevYear))),
+      fetchTrenDaftarRows(year, 'tgl_daftar, tgl_berangkat, tgl_lahir, jk, bayar, sisa, paket, agent_id'),
+      fetchTrenDaftarRows(prevYear, 'tgl_daftar, bayar, sisa'),
     ]);
 
     const cur = rowsCur;
@@ -7560,8 +7600,19 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
     }));
 
     // Heatmap (3 years)
-    const heatYearsRaw = await fetchAllRows(supabase.from('jamaah').select('hijriah_year').not('hijriah_year', 'is', null));
-    const allYears = [...new Set(heatYearsRaw.map(d => d.hijriah_year))].sort((a, b) => b.localeCompare(a)).slice(0, 3);
+    const heatYearsRaw = await fetchAllRows(
+      excludeBelumDPQuery(
+        supabase
+          .from('jamaah')
+          .select('tgl_berangkat, bayar, sisa')
+          .not('tgl_berangkat', 'is', null)
+          .order('id', { ascending: true })
+      )
+    );
+    const allYears = [...new Set(heatYearsRaw.map(d => getHijriahYearFromGregorian(d.tgl_berangkat)).filter(Boolean))]
+      .filter(y => Number(y) >= 1447)
+      .sort((a, b) => Number(b) - Number(a))
+      .slice(0, 3);
 
     const heatmap = {};
     heatmap[year] = [...monthlyCur];
@@ -7569,7 +7620,7 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
 
     for (const hy of allYears) {
       if (heatmap[hy]) continue;
-      const hyRows = await fetchAllRows(excludeBelumDP(supabase.from('jamaah').select('tgl_daftar, bayar, sisa').eq('hijriah_year', hy)));
+      const hyRows = await fetchTrenDaftarRows(hy, 'tgl_daftar, bayar, sisa');
       const arr = new Array(12).fill(0);
       hyRows.forEach(j => { if (j.tgl_daftar) { arr[new Date(j.tgl_daftar).getMonth()]++; } });
       heatmap[hy] = arr;
