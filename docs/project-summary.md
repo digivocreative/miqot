@@ -71,12 +71,13 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~10938 lines) — API, proxy, auth, register, sync, stats, AI insight, AI tools, Tanya AI (public), flight tracking, analytics (+ daily aggregation), CAPI event logs, PIN auth, landing-config, bio-config, umrah register (form-scrape + OCR KTP), SPA serve
+├── server.js              # Express backend (~11563 lines) — API, proxy, auth, register, sync, stats, AI insight, AI tools, Tanya AI (public), flight tracking, analytics (+ daily aggregation), CAPI event logs, PIN auth, landing-config, bio-config (+ AI tagline-generate), umrah register (form-scrape + OCR KTP), SPA serve
 ├── instrument.mjs         # Sentry initialization (must be imported before everything else)
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
 ├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
 ├── haji-api.js             # Haji data scraper (HTTP session + Cheerio, parallel batch sync to `jamaah_haji` table)
 ├── jamaah-api.js           # Legacy: Playwright-based jamaah scraping (deprecated, replaced by laporan-api.js)
+├── awapi-client.js         # Alhijaz Official API client (post-2026-04-26 umroh sync via official API instead of legacy scrape)
 ├── telegram-notifier.js    # Telegram alerts (~2458 lines) — seat, price, weekly, AI insights, per-agent departure reminders, pembayaran masuk
 ├── deploy-webhook.js       # GitHub webhook listener (port 9000) → auto deploy
 ├── deploy.sh               # Deploy script: pull, install, build, restart systemd
@@ -90,21 +91,21 @@ alhijaz/
 │   ├── App.tsx             # Main SPA component — package list, filters, layout
 │   ├── index.css           # Global CSS (TailwindCSS + custom animations)
 │   ├── components/         # 49 top-level React components + feature folders
-│   │   ├── PackageCard.tsx        # Card paket umroh (komponen terbesar, ~2450+ lines) — flag overlay, "Diskusi" button (Tanya AI), share link row
-│   │   ├── DashboardProfile.tsx   # Edit profile + photo crop + Telegram + AIW internal system + PIN management (~2334 lines)
+│   │   ├── PackageCard.tsx        # Card paket umroh (komponen terbesar, ~2464 lines) — flag overlay, "Diskusi" button (Tanya AI), share link row
+│   │   ├── DashboardProfile.tsx   # Edit profile + photo crop + Telegram + AIW internal system + PIN management (~2336 lines)
 │   │   ├── CapiPage.tsx           # Meta Conversion API config UI + event log (~1876 lines)
+│   │   ├── JamaahPage.tsx         # View jamaah umroh data, sync & filter + "Jamaah Baru" entry ke UmrahRegisterPage (~1833 lines)
 │   │   ├── UmrahRegisterPage.tsx  # Pendaftaran jamaah umroh ke sistem legacy (~1584 lines) — form-options scrape, KTP OCR (OpenAI Vision), searchable select, idb binding (family/group), preview modal, dummy-fill buttons
-│   │   ├── KalkulasiPage.tsx      # Hitung harga + generate quotation PDF (~1498 lines)
-│   │   ├── JamaahPage.tsx         # View jamaah umroh data, sync & filter + "Jamaah Baru" entry ke UmrahRegisterPage (~1435 lines)
-│   │   ├── HajiPage.tsx           # View jamaah haji data, login to legacy, sync, document viewer popup (~1171 lines)
+│   │   ├── KalkulasiPage.tsx      # Hitung harga + generate quotation PDF (~1500 lines)
+│   │   ├── HajiPage.tsx           # View jamaah haji data, login to legacy, sync, document viewer popup (~1200 lines)
 │   │   ├── FlightStatusCard.tsx   # Real-time flight tracking with AirLabs API, grouped kloter cards, share link (~1159 lines)
 │   │   ├── ComparePage.tsx        # Bandingkan 2 paket side-by-side (~1101 lines)
 │   │   ├── AskAIModal.tsx         # Tanya AI fullscreen modal (~1080 lines) — chip pool 24 soalan (reshuffle + pinned "brosur"), typewriter reveal, WA nudge, brosur/itinerary inline attachments, iOS Safari keyboard handling, AiAvatar (agent photo + Sparkles badge)
 │   │   ├── StatistikPage.tsx      # Dashboard statistik: ringkasan jamaah, komisi, chart tren, PIN-gated (~1070 lines)
+│   │   ├── DashboardLayout.tsx    # Dashboard home + navigation + tab routing (~913 lines) — Kurs widget dengan "Share" button (admin) yang membuka ShareKursModal; AI Tools sub-page override icon/color (landing-page, voice-over, kartu-nama, haji-plus, kurs, compare)
+│   │   ├── LandingPagePage.tsx    # Landing page config — 3 tab Umroh/Haji/Bio; SEO title/description/OG image untuk /:slug/umroh & /:slug/haji, plus entry point Bio editor (~907 lines)
 │   │   ├── AgentManagementPage.tsx # Admin: manage all agents CRUD + approval (~851 lines)
 │   │   ├── FlightSharePage.tsx    # Public flight share page /f/:code — hero card, map, boarding pass, weather, agent CTA (~830 lines)
-│   │   ├── DashboardLayout.tsx    # Dashboard home + navigation + tab routing (~796 lines) — AI Tools sub-page override icon/color (landing-page, voice-over, kartu-nama, haji-plus, kurs, compare)
-│   │   ├── LandingPagePage.tsx    # Landing page config — 3 tab Umroh/Haji/Bio; SEO title/description/OG image untuk /:slug/umroh & /:slug/haji, plus entry point Bio editor
 │   │   ├── SimulasiHajiPlus.tsx   # Haji Plus simulation calculator — package pricing, USD→IDR, inflation projection, export PNG (~676 lines)
 │   │   ├── LoginPage.tsx          # Login + JWT session management (~673 lines)
 │   │   ├── AnalyticsPage.tsx      # Analytics dashboard with event tracking charts (~584 lines)
@@ -136,8 +137,10 @@ alhijaz/
 │   │   ├── FloatingAgentBar.tsx   # Floating WhatsApp CTA bar (~107 lines)
 │   │   ├── AgentProfile.tsx       # Agent info card on package page (~85 lines)
 │   │   ├── PinInput.tsx           # 6-digit PIN input component (visual boxes, error state) (~59 lines)
-│   │   ├── bio/                   # Public Link Bio page (`/:slug/bio`) — themed hero, socials, system/custom tiles, client-side meta refresh
-│   │   ├── bio-editor/            # Dashboard Bio editor — autosave, theme picker, hero/SEO sheets, tile validation, drag reorder, fullscreen preview
+│   │   ├── ShareKursModal.tsx     # Admin-only modal untuk preview + share/download infografis kurs (4 templates) (~268 lines)
+│   │   ├── KursShareTemplates.tsx # 4 template renderer untuk kurs share (Minimalist, Islamic, Bold, Premium) — fixed 1080×1080 canvas (~296 lines)
+│   │   ├── bio/                   # Public Link Bio page (`/:slug/bio`) — themed hero, socials, system tiles (umroh/umroh_landing/haji/wa), custom content tiles (featured/link/text/photo/testi), client-side meta refresh
+│   │   ├── bio-editor/            # Dashboard Bio editor — autosave, theme picker, hero/SEO sheets (incl. AI tagline-generate), tile validation, drag reorder, fullscreen preview, edit/add tile sheets, photo upload field, paket picker
 │   │   └── index.ts               # Barrel re-exports
 │   ├── data/
 │   │   ├── agents.ts           # Agent data + Supabase fetch + fallback
@@ -205,6 +208,13 @@ alhijaz/
 │   ├── backfill-analytics-daily.js  # One-shot backfill for historical analytics aggregation
 │   ├── backfill-capi-crossagent.js  # Backfill CAPI events across agents
 │   ├── backfill-capi-purchase.js    # Backfill CAPI Purchase status
+│   ├── migrate-jamaah-diskon.js     # Add diskon column to jamaah table
+│   ├── migrate-agents-awapi.js      # Migrate agents schema for AWApi integration
+│   ├── migrate-agents-fk-cascade.js # Add ON DELETE CASCADE to agent FK references
+│   ├── migrate-agents-fk-cascade-sweep.js # Sweep dangling FKs after cascade migration
+│   ├── test-awapi-client.js         # Test harness for AWApi client (Alhijaz Official API)
+│   ├── test-awapi.js                # Lower-level AWApi smoke test
+│   ├── test-perlengkapan-upsert.js  # Test harness for perlengkapan upsert flow
 │   ├── test-cleanup-guard.mjs       # Test harness for cleanup guard logic
 │   └── check-ai-credits.js          # Debug script for AI credit status
 │
@@ -336,6 +346,7 @@ alhijaz/
 - **Kurs Mata Uang** — halaman kurs `/dashboard/kurs`:
   - Scrape dari sumber kurs, tampilkan sell rate USD & SAR
   - Compact widget di dashboard home
+  - **Share Kurs (admin only)** — tombol Share di Kurs widget membuka `ShareKursModal` (full-screen): preview 4 template (Minimalist, Islamic, Bold, Premium) dengan canvas tetap 1080×1080, action download PNG / native share / copy caption. Font khusus DM Serif Display + Amiri di-preload saat modal open. Lazy-loaded via React.lazy + Suspense.
 - **Analytics** — event tracking dashboard (`/dashboard/analytics`):
   - Track page views, actions, conversions per agent
   - Chart tren harian/mingguan
@@ -449,7 +460,7 @@ tiles       array        -- ordered tile list: { id, type, visible, order, confi
 ```
 
 Tile types:
-- `wa`, `umroh`, `haji` are system tiles.
+- `wa`, `umroh` (Jadwal — list semua jadwal paket), `umroh_landing` (link ke `/:slug/umroh`), `haji` (link ke `/:slug/haji`) are system tiles.
 - `featured` links to one `umroh_schedules.jadwal_id` preview.
 - `link`, `text`, `photo`, `testi` are custom content tiles.
 
@@ -721,6 +732,7 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | POST | `/api/auth/pin-reset-request` | Bearer | Request PIN reset via email OTP |
 | POST | `/api/auth/pin-reset-verify` | Bearer | Verify OTP and reset PIN to null |
 | POST | `/api/auth/register` | — | Self-register new agent (rate limited, status=pending, Telegram notify admin) |
+| GET | `/api/auth/slug-cooldown` | Bearer | Check sisa cooldown sebelum agent boleh ganti slug lagi (anti-spam slug rename) |
 
 ### Admin
 | Method | Path | Auth | Deskripsi |
@@ -750,6 +762,9 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | POST | `/api/laporan/login` | Bearer | Login ke sistem internal (native fetch, auto-save credentials) |
 | POST | `/api/laporan/sync` | Bearer | Fetch → parse → progressive upsert to Supabase |
 | GET | `/api/laporan/sync-status` | Bearer | Check if background sync is in progress |
+| GET | `/api/laporan/jamaah/:idJamaah/refresh` | Bearer | Refresh data 1 jamaah on-demand dari legacy (bypass cache) |
+| GET | `/api/laporan/umrah/:idUmrah/refresh` | Bearer | Refresh data 1 jadwal umroh on-demand dari legacy |
+| POST | `/api/laporan/jamaah/note` | Bearer | Save catatan agent untuk jamaah (free text, persisted di Supabase) |
 | GET | `/api/laporan/jamaah` | Bearer | List jamaah (filter, search, sort, pagination) |
 | GET | `/api/laporan/stats` | Bearer | Statistik jamaah: total, lunas, komisi, tren, berangkat, outstanding |
 | POST | `/api/laporan/disconnect` | Bearer | Clear in-memory session |
@@ -794,6 +809,7 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | GET | `/api/bio/:slug/config` | — | Public read config for `/:slug/bio`; auto-populates default config on first access. If `enabled=false`, returns 404 unless optional Bearer owner/admin is provided |
 | PUT | `/api/bio/:slug/config` | Bearer | Save validated `bio_config` for owner/admin. Allows incomplete draft tiles only when `visible:false`; visible tiles must pass required-field validation |
 | POST | `/api/bio/:slug/og-image` | Bearer | Upload Bio SEO OG image as JSON base64 (`image/png` or `image/jpeg`, max 5MB) to Supabase Storage `agent-photos/bio/*`; returns `{ url }` for client to persist in `seo.og_image_url` |
+| POST | `/api/bio/:slug/tagline-generate` | Bearer | Generate tagline 1-line via OpenAI dari konteks agent (nama, jadwal, dll). Owner/admin only |
 | POST | `/api/bio/:slug/photo-upload` | Bearer | Upload image for `photo` tile as JSON base64 (`image/png`, `image/jpeg`, `image/webp`, max 6MB); returns public URL |
 | GET | `/api/bio/:slug/featured-paket-preview?jadwal_id=...` | — | Public package preview for `featured` tile, sourced from `umroh_schedules` by latest `year_code` |
 
@@ -811,6 +827,7 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | Method | Path | Auth | Deskripsi |
 |--------|------|------|-----------|
 | GET | `/api/flights/status` | Bearer | Get all active flights for agent (merged with calendar groups) |
+| GET | `/api/flights/:flightId` | Bearer | Get detail single flight (live status + boarding info dari AirLabs cache) |
 
 ### Flight Share
 | Method | Path | Auth | Deskripsi |
@@ -841,12 +858,28 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 |--------|------|------|-----------|
 | GET | `/api/haji-plus/data` | Bearer | Get Haji Plus yearly stats (scraped from alhijazindowisata.com) |
 
+### Haji (Jamaah)
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| POST | `/api/haji/sync` | Bearer | Sync jamaah haji dari legacy system (HTTP session + Cheerio, parallel batch) |
+| GET | `/api/haji/sync-status` | Bearer | Background sync status untuk jamaah haji |
+| GET | `/api/haji/jamaah` | Bearer | List jamaah haji (filter, pagination) |
+| POST | `/api/haji/jamaah/note` | Bearer | Save catatan agent untuk jamaah haji |
+| GET | `/api/haji/stats` | Bearer | Statistik jamaah haji per tahun |
+| GET | `/api/haji/doc-proxy` | Bearer | Proxy dokumen BPIH/Surat Pernyataan (bypass CORS legacy) |
+
+### Schedules / Cache
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| GET | `/api/schedules/:yearCode` | — | Get cached `umroh_schedules` rows untuk year_code (server-side cache, fallback ke proxy jika kosong) |
+
 ### Calendar
 | Method | Path | Auth | Deskripsi |
 |--------|------|------|-----------|
 | GET | `/api/calendar/events` | Bearer | Get calendar events (query: `month`, `year`) — grouped by date+type |
 | POST | `/api/calendar/enrich-kumpul` | Bearer | Enrich calendar keberangkatan events with jam_kumpul & titik_kumpul from PDF itineraries |
 | GET | `/api/calendar/insight` | Bearer | Get AI-generated insight (in-memory cache → Supabase fallback) |
+| POST | `/api/calendar/insight/refresh` | Bearer | Force regenerate AI Calendar Insight (admin manual refresh, bypass cache) |
 | GET | `/api/calendar/insight-jamaah` | Bearer | Jamaah-specific insights: belum lunas, paspor status, 7-day departures |
 
 ### Itinerary
@@ -1011,6 +1044,10 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - **PackageCard button revamp** — Diskusi (Tanya AI) di row 1 dengan animated emerald ring border (`.diskusi-ai-border` conic gradient + mask-composite), Link dipindahkan ke row 2
 - Public analytics events diperluas: `ask_ai_opened`, `ask_ai_chip_tapped`, `ask_ai_free_query`, `ask_ai_wa_clicked`, `bio_view` (plus existing `page_view`, `wa_click_public`, `quiz_started`, `quiz_completed`, `inquiry_submitted`)
 - Tanya AI hardcoded product knowledge (di system prompt): DP Rp 5jt, pelunasan 30 hari, AMITRA syariah, Saudia 2×23kg (lain 30kg), Zurich Syariah asuransi, visa diurus tim Alhijaz, manasik 2-3 minggu sebelum, Wi-Fi hotel (redirect SSID/password ke tour leader)
+- **Tanya AI iOS Safari fixes** — track `visualViewport.offsetTop` (bukan hanya height) untuk handle keyboard slide-in, body-lock `position:fixed` agar auto-scroll tidak bleed, multi-leg route inference untuk Umroh start date
+- **Bio Link publik** (`/:slug/bio`) — public Linktree-style page dengan 6 theme (emerald/desert/midnight/rosegold/sunset/mono), hero (foto, tagline, badges 0-3, socials IG/TikTok/YouTube), system tiles (umroh/umroh_landing/haji/wa), custom tiles (featured/link/text/photo/testi), SSR OG injection dari `bio_config.seo`
+- **Bio editor** dengan 6 theme picker, Hero/SEO sheets, AI tagline generator (`/api/bio/:slug/tagline-generate` via OpenAI), drag reorder (@dnd-kit), tile validation, autosave debounce, fullscreen preview (90% scaled iframe di phone frame), explicit Simpan per sheet
+- **Kurs Share (admin only)** — `ShareKursModal` + `KursShareTemplates` (4 template: Minimalist, Islamic, Bold, Premium); fixed 1080×1080 canvas; export via DOM-to-PNG; native share + copy caption; admin-gated dari Kurs widget
 
 ### Rencana / Backlog
 - [TODO] Testing suite
@@ -1044,11 +1081,13 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 | **Bio draft tile boleh incomplete hanya saat hidden** | Autosave tidak boleh gagal saat user baru membuat tile kosong, tetapi public page harus tetap bersih. Backend mengizinkan draft `visible:false`, frontend mencegah tile incomplete dibuat visible, dan public renderer hanya memakai `visible && !orphaned`. |
 
 ### Known Issues / Technical Debt
-- **PackageCard.tsx terlalu besar** (~2450+ baris) — perlu di-split ke sub-components
-- **DashboardProfile.tsx terlalu besar** (~2334 baris) — profile + telegram + PIN management, bisa di-split
+- **PackageCard.tsx terlalu besar** (~2464 baris) — perlu di-split ke sub-components
+- **DashboardProfile.tsx terlalu besar** (~2336 baris) — profile + telegram + PIN management, bisa di-split
 - **CapiPage.tsx terlalu besar** (~1876 baris) — bisa di-modularisasi
-- **server.js monolith** (~10938 baris) — perlu di-split ke route modules (ask-ai, landing-config, bio-config, umrah-register bisa jadi kandidat pertama)
+- **server.js monolith** (~11563 baris) — perlu di-split ke route modules (ask-ai, landing-config, bio-config, umrah-register bisa jadi kandidat pertama)
+- **JamaahPage.tsx besar** (~1833 baris) — view + filter + pagination + entry ke UmrahRegisterPage, bisa di-split per concern
 - **UmrahRegisterPage.tsx sangat besar** (~1584 baris) — form config + OCR + SearchableSelect + preview modal bisa dipecah
+- **HajiPage.tsx besar** (~1200 baris) — list, login legacy, document viewer popup
 - **AskAIModal.tsx besar** (~1080 baris) — bisa di-split ke sub-komponen (header, chat area, input, attachment card)
 - **Tidak ada test suite** — risiko regresi saat refactor
 - **No error boundary** — React errors bisa crash seluruh app
@@ -1084,3 +1123,6 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - ❌ **DON'T**: Jangan skip `triggerOgRegen(slug)` setelah update profile (nama/foto) — OG image per agent di-regenerate from fresh agent data
 - ❌ **DON'T**: Jangan kirim `text`, `title`, atau `url` bersama `files` saat `navigator.share()` — trigger "double image" bug di WhatsApp mobile (lihat Design System section "Native Share Format")
 - ❌ **DON'T**: Jangan ubah fakta produk Alhijaz (DP, pelunasan, AMITRA, visa, asuransi Zurich, bagasi per maskapai, manasik timing) tanpa update system prompt di endpoint `POST /api/ask-ai/:slug/:jadwalId` — itu hardcoded sebagai rule di prompt
+- ✅ **DO**: Render Kurs share template di canvas tetap **1080×1080** lalu transform `scale(360/1080)` untuk preview — supaya layout preview & PNG output benar-benar 1:1 (tidak ada drift saat export)
+- ✅ **DO**: Preload font DM Serif Display + Amiri via `document.fonts.load()` saat `ShareKursModal` open — jika tidak, modern-screenshot akan rasterize dengan fallback system font
+- ❌ **DON'T**: Jangan render `ShareKursModal` jika `kursData.sar == null` — beberapa template butuh SAR; tombol Share di-guard agar tidak bisa dibuka (lihat `DashboardLayout.tsx`)

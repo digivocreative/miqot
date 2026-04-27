@@ -2919,23 +2919,24 @@ function normalizeBioConfig(raw, existing) {
     }
     // Be graceful with incomplete-but-visible tiles: instead of rejecting the
     // whole save (which would block auto-save while the agent is still typing),
-    // auto-flip the tile to hidden and keep going. The render-time guard on the
-    // public bio already hides incomplete tiles, so the user-facing effect is
-    // identical — but the editor stays unblocked.
+    // accept the save with the user's intended visibility flag intact and just
+    // sanitize the config. The render-time guard on the public bio
+    // (`canShowBioTile`) keeps incomplete tiles from leaking out, so the user-
+    // facing effect on the public page is identical — but the editor preserves
+    // the user's "make this section visible by default" intent until they
+    // finish filling it in.
     let validated = validateTileConfig(t);
-    let resolvedVisible = t.visible !== false;
     if (!validated.ok) {
       const fallback = validateTileConfig({ ...t, visible: false });
       if (!fallback.ok) {
         throw Object.assign(new Error(validated.error), { status: 400 });
       }
       validated = fallback;
-      resolvedVisible = false;
     }
     cleanedTiles.push({
       id: typeof t.id === 'string' && t.id.trim() ? t.id.trim().slice(0, 32) : bioNewId(),
       type,
-      visible: resolvedVisible,
+      visible: t.visible !== false,
       order: 0, // re-assigned below
       config: validated.config,
     });

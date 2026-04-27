@@ -438,7 +438,11 @@ function LinkFields({ c, onUpdate }: { c: Record<string, any>; onUpdate: (p: Rec
   const title = typeof c.title === 'string' ? c.title : '';
   const url = typeof c.url === 'string' ? c.url : '';
   const icon = typeof c.icon === 'string' ? c.icon : 'Link2';
-  const urlInvalid = url.length > 0 && !/^https:\/\//i.test(url);
+
+  // Render `https://` as a non-editable prefix and only let the user type the
+  // rest. We strip any protocol the user pastes and persist a normalized
+  // `https://…` URL — matches the @ prefix pattern used for social handles.
+  const urlBody = url.replace(/^https?:\/\//i, '');
 
   return (
     <div className="space-y-4">
@@ -459,20 +463,22 @@ function LinkFields({ c, onUpdate }: { c: Record<string, any>; onUpdate: (p: Rec
 
       <section>
         <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1.5">URL</label>
-        <input
-          type="url"
-          value={url}
-          onChange={(e) => onUpdate({ url: e.target.value.trim() })}
-          placeholder="https://example.com"
-          className={`w-full px-3 py-2 text-sm rounded-xl border bg-white dark:bg-slate-900 text-gray-800 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 ${
-            urlInvalid
-              ? 'border-red-300 dark:border-red-700 focus:ring-red-500/30 focus:border-red-500'
-              : 'border-gray-200 dark:border-slate-600 focus:ring-emerald-500/30 focus:border-emerald-500'
-          }`}
-        />
-        {urlInvalid && (
-          <p className="text-[11px] text-red-600 dark:text-red-400 mt-1">URL harus diawali dengan https://</p>
-        )}
+        <div className="flex items-stretch rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-900 focus-within:ring-2 focus-within:ring-emerald-500/30 focus-within:border-emerald-500 overflow-hidden">
+          <span className="shrink-0 flex items-center pl-3 pr-1 text-sm text-gray-500 dark:text-slate-400 select-none border-r border-gray-100 dark:border-slate-700/60 mr-2">
+            https://
+          </span>
+          <input
+            type="text"
+            inputMode="url"
+            value={urlBody}
+            onChange={(e) => {
+              const cleaned = e.target.value.replace(/^https?:\/\//i, '').trim();
+              onUpdate({ url: cleaned ? `https://${cleaned}` : '' });
+            }}
+            placeholder="example.com"
+            className="flex-1 min-w-0 pl-0 pr-3 py-2 text-sm bg-transparent text-gray-800 dark:text-white placeholder:text-gray-400 focus:outline-none"
+          />
+        </div>
       </section>
 
       <section>

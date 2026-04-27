@@ -1077,6 +1077,8 @@ Seo subtitle default: "Title, deskripsi & gambar pratinjau saat link dibagikan"
 Seo custom subtitle: "{n}/3 field dikustomisasi · tap untuk edit"
 ```
 
+`SheetHero` punya tombol AI tagline (sparkle icon) yang memanggil `POST /api/bio/:slug/tagline-generate`. Endpoint mengembalikan 1 baris tagline natural dari OpenAI — di-stream ke field tagline dengan typewriter feel sebelum diserahkan ke validator. Rate limit per agent supaya tidak spam OpenAI.
+
 Tile section:
 ```
 Section label: BAGIAN
@@ -1092,7 +1094,7 @@ Edit action: ChevronRight
 Tile badges:
 ```
 Type badge:
-  SISTEM      → umroh, haji, wa
+  SISTEM      → umroh (Jadwal), umroh_landing (Umroh), haji, wa
   FEATURED   → featured
   LINK        → custom link
   TEKS        → text
@@ -1105,12 +1107,15 @@ Status badge:
   ORPHAN            → featured package no longer available
 ```
 
+Subtitle row pada `wa` tile mem-format nomor agent ke pola lokal (62… → 0…) dan menampilkan `→ 0852-xxxx-xxxx`. Jika nomor tidak ada, fallback ke "Belum ada nomor HP".
+
 Validation rules:
-- `wa`: agent phone is required.
-- `featured`: `jadwal_id` is required.
+- `wa`: agent phone is required (di-derive dari `agents.phone`, bukan field tile).
+- `umroh` / `umroh_landing` / `haji`: system tiles, tidak butuh field tambahan; selalu lulus validasi selama tile ada.
+- `featured`: `jadwal_id` is required, dan harus matching salah satu paket aktif (jika tidak → status `ORPHAN`).
 - `link`: `title` and `https://` URL are required.
 - `text`: `content` is required.
-- `photo`: uploaded `https://` image URL is required.
+- `photo`: uploaded `https://` image URL is required (via `/api/bio/:slug/photo-upload`).
 - `testi`: `quote` and `author_name` are required.
 
 Empty/hidden states:
@@ -2056,6 +2061,134 @@ bg-gray-50 dark:bg-slate-900/40 border border-gray-100 dark:border-slate-700/50
 Layout: Flag → Currency code (bold, larger) → Rate value
 
 Date display: full Indonesian format (e.g., "Kamis, 2 April 2026")
+
+### Header Action Buttons
+
+Header sebelah kanan dari Kurs widget berisi 2 button outline (admin) atau 1 button (non-admin):
+
+```
+flex items-center gap-1 px-2.5 py-1.5 rounded-lg
+border border-gray-200 dark:border-slate-600
+text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold
+hover:bg-gray-50 dark:hover:bg-slate-700 active:scale-95 transition-colors
+```
+
+| Button | Visibility | Icon | Label |
+|--------|-----------|------|-------|
+| Share | Admin only (`isAdmin && kursData.sar != null`) | `Share2` 10 | "Share" |
+| Kurs (open `/dashboard/ai-tools/kurs`) | All | — / `ChevronRight` 10 right | "Kurs" |
+
+---
+
+## Share Kurs Modal (`ShareKursModal.tsx`)
+
+Full-screen modal untuk admin generate infografis kurs harian (USD/SAR) dengan 4 template, lalu share/download. Lazy-loaded via `React.lazy` + `Suspense` di `DashboardLayout.tsx`.
+
+### Trigger
+
+Tombol "Share" pada Kurs widget header — admin only. Hanya muncul ketika `kursData.sar != null` (SAR guard).
+
+### Container
+
+```
+Portal: createPortal ke document.body
+Backdrop: fixed inset-0 z-[9999]
+Card: full-screen flex flex-col bg-white dark:bg-slate-900
+Animation: Framer Motion `y: '100%' → 0`, sama pattern dengan BrochureModal/AskAIModal
+ESC key + body-lock (overflow: hidden) saat open
+```
+
+### Canvas & Preview
+
+- **Fixed canvas**: 1080 × 1080 px (square, optimized for IG/WA story)
+- **Preview width**: 360 px → `scale = 360/1080 = 0.333`
+- **Thumbnail width**: 72 px → `scale = 72/1080 = 0.0667`
+- Render template via `transform: scale()` + `transform-origin: top left` agar layout 1:1 dengan output PNG.
+
+### Template Picker
+
+Horizontal scroll thumbnail row, 1 thumb per template:
+
+```
+flex gap-2 overflow-x-auto pb-2
+Thumb (selected): border-emerald-500 ring-2 ring-emerald-500/20
+Thumb (unselected): border-gray-200 dark:border-slate-700
+Inner: 72×72 scaled-down preview
+Label: text-[10px] font-semibold mt-1
+```
+
+Templates registered di `KURS_TEMPLATES`:
+
+| ID | Name | Style |
+|----|------|-------|
+| `minimalist` | Minimalist | Clean white + emerald accent + DM Serif Display headline |
+| `islamic` | Islamic | Islamic motif (geometric pattern, Amiri serif), warm palette |
+| `bold` | Bold | High-contrast, big rate digits, emerald/dark gradient |
+| `premium` | Premium | Luxury gradient, serif headline, gold accent |
+
+Semua template menerima props `KursTemplateProps`: `{ usd, sar, updatedAt, agentName, agentPhone, agentPhoto, agentSlug }`.
+
+### Action Buttons (footer)
+
+3 tombol horizontal stack di footer:
+
+```
+Share button (native share, jika canShare):
+  bg-emerald-500 text-white shadow-md shadow-emerald-500/30
+  + Share2 icon
+
+Download button:
+  bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700
+  + Download icon
+
+Copy Caption button:
+  bg-gray-100 dark:bg-slate-800 border
+  + Copy icon
+
+Common: flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2
+```
+
+### Export Flow
+
+- DOM → PNG via `modern-screenshot` (`scale: 1` karena canvas sudah 1080×1080)
+- Output blob → `File('kurs-{template}-{date}.png', { type: 'image/png' })`
+- Native share: `navigator.share({ files: [file] })` — **WAJIB hanya `files`**, tanpa `text/title/url` (lihat "Native Share Format")
+- Download: trigger `<a download>` dengan `URL.createObjectURL(blob)`
+- Copy caption: build caption string dari template (USD/SAR rate + agent contact) ke clipboard
+
+### Font Preload
+
+DM Serif Display + Amiri di-preload via `document.fonts.load()` saat modal open agar export rasterizes dengan font benar (bukan fallback system font).
+
+```ts
+useEffect(() => {
+  if (!open) return;
+  ['DM Serif Display', 'Amiri'].forEach(f => {
+    try { document.fonts?.load(`16px "${f}"`); } catch {}
+  });
+}, [open]);
+```
+
+Font loading di `index.html` (Google Fonts: DM Serif Display, Amiri) — preload disisipkan sebelum modal pertama dibuka untuk hindari FOUT.
+
+### Toast Feedback
+
+Inline toast di footer setelah action sukses/error:
+
+```
+absolute bottom-20 left-1/2 -translate-x-1/2
+text-[11.5px] font-medium px-3 py-1.5 rounded-lg shadow-md
+Success: bg-emerald-50 text-emerald-800 border border-emerald-200
+Auto-dismiss: 2200ms
+```
+
+### Analytics
+
+```ts
+trackEvent('feature', 'open_share_kurs');  // ketika modal open
+```
+
+Tambahan event yang ditelusuri (lihat utils/analytics): download_kurs_share, share_kurs_share, copy_kurs_caption.
 
 ---
 

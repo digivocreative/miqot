@@ -79,19 +79,17 @@ export default function BioEditorPage({ agent }: Props) {
     bio.updateTile(tile.id, { visible: true });
   };
 
+  // Save the patched config without ever flipping the user's `visible` flag.
+  // The public bio's render-time guard already hides incomplete tiles, so we
+  // don't need to fight the user's intent here — they explicitly asked for the
+  // section to default visible, and forcing it off mid-edit is confusing.
   const updateTileConfigSafely = (id: string, patch: Record<string, unknown>) => {
-    const current = config?.tiles.find(t => t.id === id);
-    const nextCurrent = current ? { ...current, config: { ...current.config, ...patch } } : null;
-    const shouldHide = !!(nextCurrent?.visible && !canShowBioTile(nextCurrent, agent.phone));
     bio.updateConfig(prev => ({
       ...prev,
-      tiles: prev.tiles.map(t => {
-        if (t.id !== id) return t;
-        const next = { ...t, config: { ...t.config, ...patch } };
-        return shouldHide ? { ...next, visible: false } : next;
-      }),
+      tiles: prev.tiles.map(t => (
+        t.id === id ? { ...t, config: { ...t.config, ...patch } } : t
+      )),
     }));
-    if (shouldHide) showNotice('Bagian disembunyikan sampai lengkap', 'error');
   };
 
   const showCompleteHiddenTiles = () => {
