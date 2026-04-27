@@ -1305,18 +1305,22 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                             <p className="text-[13px] font-bold text-amber-600 dark:text-amber-400">Belum Setor</p>
                           )}
                         </div>
-                        {(item.diskon_kantor || 0) > 0 && (
-                          <div>
-                            <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Diskon Kantor</p>
+                        <div>
+                          <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Diskon Kantor</p>
+                          {(item.diskon_kantor || 0) > 0 ? (
                             <p className="text-[13px] font-bold text-emerald-600 dark:text-emerald-400">{formatRupiah(item.diskon_kantor || 0)}</p>
-                          </div>
-                        )}
-                        {(item.diskon_marketing || 0) > 0 && (
-                          <div>
-                            <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Diskon Marketing</p>
+                          ) : (
+                            <p className="text-[13px] font-bold text-gray-400 dark:text-slate-500">-</p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Diskon Marketing</p>
+                          {(item.diskon_marketing || 0) > 0 ? (
                             <p className="text-[13px] font-bold text-emerald-600 dark:text-emerald-400">{formatRupiah(item.diskon_marketing || 0)}</p>
-                          </div>
-                        )}
+                          ) : (
+                            <p className="text-[13px] font-bold text-gray-400 dark:text-slate-500">-</p>
+                          )}
+                        </div>
                         {item.raw_data?.staf && (
                           <div>
                             <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Staff</p>
