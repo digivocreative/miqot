@@ -18,7 +18,7 @@ import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration, fetchAwapiCredentials } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData } from './haji-api.js';
-import { computeKomisi, computeBreakdownTahun, computeAvailableYears } from './lib/haji-stats.js';
+import { computeKomisi, computeBreakdownTahun, computeAvailableYears, KOMISI_RATE, KOMISI_STAGE1, KOMISI_STAGE2 } from './lib/haji-stats.js';
 import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent } from './lib/og-generator.mjs';
@@ -8468,6 +8468,11 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
     const agentId = req.user.id;
 
     // Always-unfiltered: availableYears (dropdown source) + lastSync.
+    // lastSync sources from agents.last_jamaah_haji_sync_at (the actual sync
+    // attempt timestamp) rather than MAX(jamaah_haji.synced_at), because the
+    // skip_noop_update_jamaah_haji_trg trigger keeps row.synced_at frozen
+    // when data is unchanged — making per-row timestamps misleading for "when
+    // did sync last run".
     const [{ data: yearsData, error: yearsErr }, { data: agentRow }] = await Promise.all([
       supabase
         .from('jamaah_haji')
@@ -8485,7 +8490,7 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
     const availableYears = computeAvailableYears(yearsData || []);
 
     // Default to latest masehi year if no year query param.
-    let year = req.query.year || null;
+    let year = typeof req.query.year === 'string' ? req.query.year : null;
     if (!year && availableYears.length > 0) {
       year = availableYears[0];
     }
@@ -8510,9 +8515,11 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
     // % Pelunasan = (LUNAS + LEBIH BAYAR) / total
     const lunasPercent = total > 0 ? Math.round(((lunas + lebihBayar) / total) * 100) : 0;
 
-    // Group by thn_masehi (existing field, kept for backward compat)
+    // Group by thn_masehi — computed from UNFILTERED yearsData so existing
+    // consumers (HajiPage.tsx year dropdown) still see all years even when
+    // ?year filter is applied to other aggregates.
     const byTahun = {};
-    data.forEach(d => {
+    (yearsData || []).forEach(d => {
       const key = d.thn_masehi || 'unknown';
       byTahun[key] = (byTahun[key] || 0) + 1;
     });
@@ -8547,9 +8554,9 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
         lebihBayar,
         lunasPercent,
         komisi: {
-          rate: 500,
-          stage1: 200,
-          stage2: 300,
+          rate: KOMISI_RATE,
+          stage1: KOMISI_STAGE1,
+          stage2: KOMISI_STAGE2,
           ...komisiBase,
           breakdownTahun,
         },
