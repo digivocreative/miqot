@@ -44,12 +44,6 @@ export interface HajiStatsData {
 }
 
 // ── Formatters ──
-function fmtUSD(n: number): string {
-  if (!n) return '$0';
-  if (n >= 1000) return `$${(n / 1000).toFixed(1).replace('.0', '')}k`;
-  return `$${n.toLocaleString('en-US')}`;
-}
-
 function fmtUSDFull(n: number): string {
   return `$${(n || 0).toLocaleString('en-US')}`;
 }
@@ -248,7 +242,7 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
               <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center border border-emerald-100 dark:border-emerald-800/40 mb-2">
                 <Wallet size={16} className="text-emerald-600 dark:text-emerald-400" />
               </div>
-              <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtUSD(data.komisi.sudahCair)}</p>
+              <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtUSDFull(data.komisi.sudahCair)}</p>
               <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Komisi Cair (USD)</p>
             </div>
 
