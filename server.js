@@ -87,6 +87,39 @@ async function logAnalyticsEvent(agentId, eventType, eventName, metadata = {}) {
   }
 }
 
+// ── Stats cache (60s TTL, per agent+year) ────────────────────────────
+const STATS_TTL_MS = 60 * 1000;
+const statsCache = new Map(); // key -> { data, expiresAt }
+
+function statsCacheGet(key) {
+  const entry = statsCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    statsCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function statsCacheSet(key, data) {
+  statsCache.set(key, { data, expiresAt: Date.now() + STATS_TTL_MS });
+}
+
+function invalidateStatsCache(agentId) {
+  if (!agentId) return;
+  for (const k of statsCache.keys()) {
+    if (k.includes(`:${agentId}:`)) statsCache.delete(k);
+  }
+}
+
+// Periodic cleanup of expired entries (every 5 min)
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of statsCache.entries()) {
+    if (now > v.expiresAt) statsCache.delete(k);
+  }
+}, 5 * 60 * 1000);
+
 // ============ KURS BANK MANDIRI ============
 let kursCache = null; // { rates: { USD: number, ... }, updatedAt: string, fetchedAt: number }
 const KURS_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
@@ -4485,6 +4518,7 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } 
     .update({ last_jamaah_sync_at: now })
     .eq('id', agentId);
   if (bumpErr) console.warn(`[Sync/api/${context}] ${slug} bump last_jamaah_sync_at failed:`, bumpErr.message);
+  invalidateStatsCache(agentId);
 
   return {
     ok: yearErrors === 0,
@@ -5020,6 +5054,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     // jamaah.synced_at advancement on cycles where no row content changed.
     const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_sync_at: now }).eq('id', agentId);
     if (bumpErr) console.warn(`[Sync] ${slug} bump last_jamaah_sync_at failed:`, bumpErr.message);
+    invalidateStatsCache(agentId);
   }
 
   // If we never sent response (all phases empty)
@@ -7763,13 +7798,18 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       .filter(y => Number(y) >= 1447)  // Only show 1447+
       .sort((a, b) => b.localeCompare(a));
 
-
-
-
     // Determine hijriah year — default to 1448
     let year = req.query.year || null;
     if (!year) {
       year = availableYears.includes('1448') ? '1448' : (availableYears[0] || null);
+    }
+
+    // Cache check (key includes resolved year so different years are separate)
+    const requestedYear = req.query.year || '';
+    const cacheKey = `umroh:${agentId}:${requestedYear}`;
+    const cached = statsCacheGet(cacheKey);
+    if (cached) {
+      return res.json(cached);
     }
 
     // Base filter
@@ -7782,37 +7822,25 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     // Equivalent SQL: NOT (bayar = 0 AND sisa > 0) = bayar>0 OR sisa=0 OR sisa IS NULL.
     const excludeBelumDP = (q) => q.or('bayar.gt.0,sisa.eq.0,sisa.is.null');
 
-    // ── totalJamaah ──
-    const { count: totalJamaah } = await excludeBelumDP(supabase
-      .from('jamaah')
-      .select('*', { count: 'exact', head: true })
-      .match(baseMatch));
-
-    // ── lunas: sisa = 0 (already excludes Belum DP since Belum DP has sisa > 0) ──
-    const { count: lunas } = await supabase
-      .from('jamaah')
-      .select('*', { count: 'exact', head: true })
-      .match(baseMatch)
-      .or('sisa.eq.0,sisa.is.null');
-
-    // ── belumLunas: sisa > 0 AND sudah DP (bayar > 0) — excludes Belum DP ──
-    const { count: belumLunas } = await supabase
-      .from('jamaah')
-      .select('*', { count: 'exact', head: true })
-      .match(baseMatch)
-      .gt('sisa', 0)
-      .gt('bayar', 0);
-
-    // ── totalOutstanding: SUM(sisa) where sisa > 0 ──
-    let outQ = supabase.from('jamaah').select('sisa').eq('agent_id', agentId).gt('sisa', 0);
-    if (year) outQ = outQ.eq('hijriah_year', year);
-    const outData = await fetchAllRows(outQ);
-    const totalOutstanding = outData.reduce((s, r) => s + (r.sisa || 0), 0);
-
     const todayStr = new Date().toISOString().split('T')[0];
     const now = new Date();
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const monthEnd = nextMonth.toISOString().split('T')[0];
+    const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthStart = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}-01`;
+    const sevenMonthsAgo = new Date();
+    sevenMonthsAgo.setMonth(sevenMonthsAgo.getMonth() - 6);
+    const tmStr = `${sevenMonthsAgo.getFullYear()}-${String(sevenMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
 
-    // ── berangkatSegera: jamaah in the nearest upcoming departure month ──
+    // Build query builders (don't await yet)
+    const totalQ = excludeBelumDP(supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch));
+    const lunasQ = supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).or('sisa.eq.0,sisa.is.null');
+    const belumLunasQ = supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).gt('sisa', 0).gt('bayar', 0);
+
+    let outQ = supabase.from('jamaah').select('sisa').eq('agent_id', agentId).gt('sisa', 0);
+    if (year) outQ = outQ.eq('hijriah_year', year);
+
     let bebQ = supabase.from('jamaah')
       .select('nama, paket, jk, tgl_berangkat, sisa, bayar, wa')
       .eq('agent_id', agentId)
@@ -7820,12 +7848,65 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       .order('tgl_berangkat', { ascending: true })
       .order('nama', { ascending: true });
     if (year) bebQ = bebQ.eq('hijriah_year', year);
-    const bebRows = await fetchAllRows(excludeBelumDP(bebQ));
+
+    let jbQ = supabase.from('jamaah').select('*', { count: 'exact', head: true })
+      .match(baseMatch).gte('tgl_daftar', monthStart).lt('tgl_daftar', monthEnd);
+
+    const prevTotalQ = excludeBelumDP(supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).lt('tgl_daftar', monthStart));
+    const prevJamaahBaruQ = excludeBelumDP(supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).gte('tgl_daftar', prevMonthStart).lt('tgl_daftar', monthStart));
+
+    let trendQ = supabase.from('jamaah').select('tgl_daftar, bayar, sisa').eq('agent_id', agentId).gte('tgl_daftar', tmStr).order('tgl_daftar', { ascending: true });
+    if (year) trendQ = trendQ.eq('hijriah_year', year);
+
+    let olQ = supabase.from('jamaah').select('nama, paket, jk, sisa, tgl_berangkat, wa').eq('agent_id', agentId).gt('sisa', 0).order('sisa', { ascending: false }).order('tgl_berangkat', { ascending: true });
+    if (year) olQ = olQ.eq('hijriah_year', year);
+
+    let komisiQ = supabase.from('jamaah').select('paket, sisa, tgl_berangkat, diskon_kantor, diskon_marketing').eq('agent_id', agentId);
+    if (year) komisiQ = komisiQ.eq('hijriah_year', year);
+
+    // Fire ALL independent queries in parallel
+    const [
+      totalRes,
+      lunasRes,
+      belumLunasRes,
+      outData,
+      bebRows,
+      jbRes,
+      prevTotalRes,
+      prevJbRes,
+      trendRows,
+      olRows,
+      komisiRows,
+      syncResult,
+    ] = await Promise.all([
+      totalQ,
+      lunasQ,
+      belumLunasQ,
+      fetchAllRows(outQ),
+      fetchAllRows(excludeBelumDP(bebQ)),
+      excludeBelumDP(jbQ),
+      prevTotalQ,
+      prevJamaahBaruQ,
+      fetchAllRows(excludeBelumDP(trendQ)),
+      fetchAllRows(olQ),
+      fetchAllRows(komisiQ),
+      supabase.from('agents').select('last_jamaah_sync_at').eq('id', agentId).maybeSingle(),
+    ]);
+
+    const totalJamaah = totalRes.count;
+    const lunas = lunasRes.count;
+    const belumLunas = belumLunasRes.count;
+    const jamaahBaru = jbRes.count;
+    const prevTotal = prevTotalRes.count;
+    const prevJamaahBaru = prevJbRes.count;
+    const totalOutstanding = (outData || []).reduce((s, r) => s + (r.sisa || 0), 0);
+    const lastSync = syncResult.data?.last_jamaah_sync_at || null;
+
+    const todayDate = new Date(todayStr);
 
     let berangkatBulanIni = [];
     let berangkatSegera = 0;
     let berangkatBulan = null;
-    const todayDate = new Date(todayStr);
 
     if (bebRows && bebRows.length > 0) {
       const firstMonth = bebRows[0].tgl_berangkat.substring(0, 7);
@@ -7851,35 +7932,9 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       berangkatBulan = fm.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
     }
 
-    // ── jamaahBaru: tgl_daftar in current month ──
-    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const monthEnd = nextMonth.toISOString().split('T')[0];
-    let jbQ = supabase.from('jamaah').select('*', { count: 'exact', head: true })
-      .match(baseMatch).gte('tgl_daftar', monthStart).lt('tgl_daftar', monthEnd);
-    const { count: jamaahBaru } = await excludeBelumDP(jbQ);
-
     // ── lunasPercent ──
     const total = totalJamaah || 0;
     const lunasPercent = total > 0 ? Math.round(((lunas || 0) / total) * 100) : 0;
-
-    // ── comparison vs previous month ──
-    // totalJamaah: prev = jamaah registered before this month
-    const { count: prevTotal } = await excludeBelumDP(supabase
-      .from('jamaah')
-      .select('*', { count: 'exact', head: true })
-      .match(baseMatch)
-      .lt('tgl_daftar', monthStart));
-
-    // jamaahBaru: prev = registrations in previous month
-    const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const prevMonthStart = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}-01`;
-    const { count: prevJamaahBaru } = await excludeBelumDP(supabase
-      .from('jamaah')
-      .select('*', { count: 'exact', head: true })
-      .match(baseMatch)
-      .gte('tgl_daftar', prevMonthStart)
-      .lt('tgl_daftar', monthStart));
 
     const comparison = {
       totalJamaah: { prev: prevTotal || 0, diff: (totalJamaah || 0) - (prevTotal || 0) },
@@ -7887,15 +7942,6 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       berangkatSegera: { prev: null, diff: null },
       jamaahBaru: { prev: prevJamaahBaru || 0, diff: (jamaahBaru || 0) - (prevJamaahBaru || 0) },
     };
-
-    // ── trend: 7 months group by tgl_daftar ──
-    const sevenMonthsAgo = new Date();
-    sevenMonthsAgo.setMonth(sevenMonthsAgo.getMonth() - 6);
-    const tmStr = `${sevenMonthsAgo.getFullYear()}-${String(sevenMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
-    let trendQ = supabase.from('jamaah').select('tgl_daftar, bayar, sisa').eq('agent_id', agentId)
-      .gte('tgl_daftar', tmStr).order('tgl_daftar', { ascending: true });
-    if (year) trendQ = trendQ.eq('hijriah_year', year);
-    const trendRows = await fetchAllRows(excludeBelumDP(trendQ));
 
     const trendMap = new Map();
     for (const row of trendRows) {
@@ -7906,16 +7952,6 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     const trend = Array.from(trendMap.entries())
       .map(([bulan, count]) => ({ bulan, count }))
       .sort((a, b) => a.bulan.localeCompare(b.bulan));
-
-    // ── outstandingList: jamaah with sisa > 0, sorted by sisa DESC ──
-    let olQ = supabase.from('jamaah')
-      .select('nama, paket, jk, sisa, tgl_berangkat, wa')
-      .eq('agent_id', agentId)
-      .gt('sisa', 0)
-      .order('sisa', { ascending: false })
-      .order('tgl_berangkat', { ascending: true });
-    if (year) olQ = olQ.eq('hijriah_year', year);
-    const olRows = await fetchAllRows(olQ);
 
     const outstandingList = olRows.map(r => {
       let hari_lagi = null;
@@ -7939,23 +7975,23 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     const KOMISI_REGULER = 1800000;
     const getRate = (p) => (p && p.toLowerCase().includes('hemat') ? KOMISI_HEMAT : KOMISI_REGULER);
 
-    let komisiQ = supabase.from('jamaah').select('paket, sisa, tgl_berangkat').eq('agent_id', agentId);
-    if (year) komisiQ = komisiQ.eq('hijriah_year', year);
-    const komisiRows = await fetchAllRows(komisiQ);
+    // Net komisi per jamaah = rate - diskon_kantor - diskon_marketing, floored at 0.
+    // Diskon dipotong dari kantor & marketing mengurangi komisi yang diterima agen.
+    const getNetKomisi = (r) => Math.max(0, getRate(r.paket) - (r.diskon_kantor || 0) - (r.diskon_marketing || 0));
 
     let sudahCair = 0, sudahCairCount = 0;
     let belumCair = 0, belumCairCount = 0;
     let potensi = 0, potensiCount = 0;
     let hematCount = 0, hematTotal = 0, regulerCount = 0, regulerTotal = 0;
     for (const r of komisiRows) {
-      const rate = getRate(r.paket);
+      const net = getNetKomisi(r);
       const isLunas = !r.sisa || r.sisa === 0;
       const departed = r.tgl_berangkat && r.tgl_berangkat < todayStr;
-      if (isLunas && departed) { sudahCair += rate; sudahCairCount++; }
-      else if (isLunas) { belumCair += rate; belumCairCount++; }
-      else { potensi += rate; potensiCount++; }
-      if (r.paket && r.paket.toLowerCase().includes('hemat')) { hematCount++; hematTotal += rate; }
-      else { regulerCount++; regulerTotal += rate; }
+      if (isLunas && departed) { sudahCair += net; sudahCairCount++; }
+      else if (isLunas) { belumCair += net; belumCairCount++; }
+      else { potensi += net; potensiCount++; }
+      if (r.paket && r.paket.toLowerCase().includes('hemat')) { hematCount++; hematTotal += net; }
+      else { regulerCount++; regulerTotal += net; }
     }
     // chartBulanan: komisi cair grouped by departure month (7 months)
     const chartMap = new Map();
@@ -7991,35 +8027,27 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       chartBulanan,
     };
 
-    // ── lastSync ──
-    const { data: syncData } = await supabase
-      .from('agents')
-      .select('last_jamaah_sync_at')
-      .eq('id', agentId)
-      .maybeSingle();
-    const lastSync = syncData?.last_jamaah_sync_at || null;
-
-    res.json({
-      success: true,
-      data: {
-        totalJamaah: totalJamaah || 0,
-        lunas: lunas || 0,
-        belumLunas: belumLunas || 0,
-        totalOutstanding,
-        berangkatSegera,
-        berangkatBulan,
-        jamaahBaru: jamaahBaru || 0,
-        lunasPercent,
-        comparison,
-        trend,
-        berangkatBulanIni,
-        outstandingList,
-        availableYears,
-        komisi,
-        hijriahYear: year || null,
-        lastSync,
-      },
-    });
+    const responseData = {
+      totalJamaah: totalJamaah || 0,
+      lunas: lunas || 0,
+      belumLunas: belumLunas || 0,
+      totalOutstanding,
+      berangkatSegera,
+      berangkatBulan,
+      jamaahBaru: jamaahBaru || 0,
+      lunasPercent,
+      comparison,
+      trend,
+      berangkatBulanIni,
+      outstandingList,
+      availableYears,
+      komisi,
+      hijriahYear: year || null,
+      lastSync,
+    };
+    const responsePayload = { success: true, data: responseData };
+    statsCacheSet(cacheKey, responsePayload);
+    res.json(responsePayload);
   } catch (err) {
     console.error('[Stats] Error:', err);
     res.status(500).json({ error: 'Gagal memuat statistik', message: err.message });
@@ -8078,6 +8106,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
         syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: truncatedNow });
         const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: truncatedNow }).eq('id', agentId);
         if (bumpErr) console.warn(`[haji-sync] ${slug} bump last_jamaah_haji_sync_at (truncated) failed:`, bumpErr.message);
+        invalidateStatsCache(agentId);
         return res.json({ success: true, data: { initialCount: 0, syncing: false, message: 'Respons list tidak lengkap — cleanup dilewati' } });
       }
       // Legitimate empty — but go through cleanup guard which also percent-guards.
@@ -8103,6 +8132,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: emptyNow });
       const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: emptyNow }).eq('id', agentId);
       if (bumpErr) console.warn(`[haji-sync] ${slug} bump last_jamaah_haji_sync_at (empty) failed:`, bumpErr.message);
+      invalidateStatsCache(agentId);
       return res.json({ success: true, data: { initialCount: 0, syncing: false } });
     }
 
@@ -8288,6 +8318,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
           syncingAgents.set(agentId, { isSyncing: false, totalSynced: firstRows.length, lastSync: now });
           const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: now }).eq('id', agentId);
           if (bumpErr) console.warn(`[haji-sync] ${slug} bump last_jamaah_haji_sync_at failed:`, bumpErr.message);
+          invalidateStatsCache(agentId);
         } catch (err) {
           console.error('[haji-sync] BG sync error:', err.message);
           syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
@@ -8299,6 +8330,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: firstRows.length, lastSync: now });
       const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: now }).eq('id', agentId);
       if (bumpErr) console.warn(`[haji-sync] ${slug} bump last_jamaah_haji_sync_at failed:`, bumpErr.message);
+      invalidateStatsCache(agentId);
     }
   } catch (err) {
     console.error('[haji] Sync error:', err);
@@ -8521,6 +8553,13 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
   try {
     const agentId = req.user.id;
 
+    const requestedYear = req.query.year || '';
+    const cacheKey = `haji:${agentId}:${requestedYear}`;
+    const cached = statsCacheGet(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     // Always-unfiltered: availableYears (dropdown source) + lastSync.
     // lastSync sources from agents.last_jamaah_haji_sync_at (the actual sync
     // attempt timestamp) rather than MAX(jamaah_haji.synced_at), because the
@@ -8589,7 +8628,7 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
     const komisiBase = computeKomisi(data);
     const breakdownTahun = computeBreakdownTahun(data);
 
-    res.json({
+    const hajiResponsePayload = {
       success: true,
       data: {
         // existing fields
@@ -8617,7 +8656,9 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
           breakdownTahun,
         },
       },
-    });
+    };
+    statsCacheSet(cacheKey, hajiResponsePayload);
+    res.json(hajiResponsePayload);
   } catch (err) {
     console.error('[haji] Stats error:', err);
     res.status(500).json({ error: 'Gagal mengambil statistik haji' });
@@ -11255,6 +11296,7 @@ async function syncOneAgent(agent) {
     {
       const { error: umrohBumpErr } = await supabase.from('agents').update({ last_jamaah_sync_at: syncTime }).eq('id', agentId);
       if (umrohBumpErr) console.warn(`[SYNC] ${slug} bump last_jamaah_sync_at failed:`, umrohBumpErr.message);
+      invalidateStatsCache(agentId);
     }
 
     // ── Haji sync (reuse same session) ──
@@ -11360,6 +11402,7 @@ async function syncOneAgent(agent) {
         }
         const { error: hajiBumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: syncTime }).eq('id', agentId);
         if (hajiBumpErr) console.warn(`[SYNC] ${slug} bump last_jamaah_haji_sync_at failed:`, hajiBumpErr.message);
+        invalidateStatsCache(agentId);
 
         await backfillHajiPaketDetail(agentId, slug, sessionCookies);
       }
@@ -11645,6 +11688,7 @@ async function syncHajiOneAgent(agent) {
 
     const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: syncTime }).eq('id', agentId);
     if (bumpErr) console.warn(`[HAJI-BG] ${slug} bump last_jamaah_haji_sync_at failed:`, bumpErr.message);
+    invalidateStatsCache(agentId);
 
     await backfillHajiPaketDetail(agentId, slug, sessionCookies);
 
