@@ -18,9 +18,10 @@ export interface HajiStatsData {
   masehiYear: string | null;
   lastSync: string | null;
   komisi: {
-    rate: number;
     stage1: number;
-    stage2: number;
+    rateUhud: number;
+    rateRahmah: number;
+    byPaket: { uhud: number; rahmah: number };
     totalKomisi: number;
     sudahCair: number;
     sudahCairCount: number;
@@ -274,7 +275,7 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
             <div className="px-4 pt-4 pb-2 flex items-center justify-between">
               <span className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Estimasi Komisi (USD)</span>
-              <span className="text-[10px] text-gray-400 dark:text-slate-400">{data.total} jamaah · ${data.komisi.rate}/jamaah</span>
+              <span className="text-[10px] text-gray-400 dark:text-slate-400">{data.total} jamaah · ${data.komisi.rateUhud}–${data.komisi.rateRahmah}/jamaah</span>
             </div>
             <div className="px-4 pb-3">
               <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtUSDFull(data.komisi.totalKomisi)}</p>
@@ -297,6 +298,9 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
                 <span className="flex items-center gap-1.5 text-[10px]"><span className="w-2 h-2 rounded-full bg-gray-200 dark:bg-slate-600" /><span className="font-medium text-gray-600 dark:text-slate-300">Potensi</span></span>
               </div>
             </div>
+            <div className="px-4 pb-2 -mt-0.5">
+              <p className="text-[10px] text-gray-400 dark:text-slate-500">{data.komisi.byPaket.uhud} UHUD · {data.komisi.byPaket.rahmah} RAHMAH</p>
+            </div>
 
             {/* Detail rows */}
             <div className="px-4 pb-4 space-y-2">
@@ -305,7 +309,7 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
                   <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
                     Sudah Cair <span className="text-[10px] font-normal text-emerald-600/70 dark:text-emerald-400/60 ml-1">({data.komisi.sudahCairCount} jamaah)</span>
                   </span>
-                  <p className="text-[9px] text-emerald-500/70 dark:text-emerald-400/50">${data.komisi.stage1} per CICILAN + ${data.komisi.rate} per LUNAS</p>
+                  <p className="text-[9px] text-emerald-500/70 dark:text-emerald-400/50">${data.komisi.stage1} per CICILAN + ${data.komisi.rateUhud}/${data.komisi.rateRahmah} per LUNAS (UHUD/RAHMAH)</p>
                 </div>
                 <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtUSDFull(data.komisi.sudahCair)}</span>
               </div>
@@ -314,7 +318,7 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
                   <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">
                     Belum Cair <span className="text-[10px] font-normal text-blue-600/70 dark:text-blue-400/60 ml-1">({data.komisi.belumCairCount} jamaah)</span>
                   </span>
-                  <p className="text-[9px] text-blue-500/70 dark:text-blue-400/50">${data.komisi.stage2} sisa per CICILAN — cair saat LUNAS</p>
+                  <p className="text-[9px] text-blue-500/70 dark:text-blue-400/50">${data.komisi.rateUhud - data.komisi.stage1}/${data.komisi.rateRahmah - data.komisi.stage1} sisa per CICILAN (UHUD/RAHMAH)</p>
                 </div>
                 <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{fmtUSDFull(data.komisi.belumCair)}</span>
               </div>
