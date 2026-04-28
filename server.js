@@ -64,7 +64,15 @@ async function fetchAllRows(queryBuilder) {
 app.use(express.json({ limit: '10mb' }));
 
 // ── Analytics: fire-and-forget event logger ──
-async function logAnalyticsEvent(agentId, eventType, eventName, metadata = {}) {
+function getClientIpUa(req) {
+  if (!req) return { ip: null, userAgent: null };
+  const fwd = req.headers?.['x-forwarded-for'] || '';
+  const ip = (typeof fwd === 'string' ? fwd.split(',')[0].trim() : '') || req.ip || null;
+  const userAgent = req.headers?.['user-agent'] || null;
+  return { ip, userAgent };
+}
+
+async function logAnalyticsEvent(agentId, eventType, eventName, metadata = {}, opts = {}) {
   if (!agentId) {
     console.warn('[Analytics] Skipping event with null agent_id:', { eventType, eventName });
     return { ok: false, error: 'missing agent_id' };
@@ -75,6 +83,8 @@ async function logAnalyticsEvent(agentId, eventType, eventName, metadata = {}) {
       event_type: eventType,
       event_name: eventName,
       metadata,
+      ip: opts.ip || null,
+      user_agent: opts.userAgent || null,
     });
     if (error) {
       console.error('[Analytics] Supabase insert error:', error.message, error.details);
@@ -378,6 +388,87 @@ app.get('/api/jamaah/session/:id', authMiddleware, (req, res) => {
   const info = getSessionInfo(req.params.id);
   if (!info) return res.status(404).json({ error: 'Session tidak ditemukan' });
   res.json(info);
+});
+
+// Jamaah ulang tahun: hari ini + 3 hari ke depan (Asia/Jakarta), literal month/day match.
+app.get('/api/jamaah/birthdays', authMiddleware, async (req, res) => {
+  try {
+    const jakartaNowStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' });
+    const baseJakarta = new Date(jakartaNowStr);
+    const currentYear = baseJakarta.getFullYear();
+
+    const targets = [0, 1, 2, 3].map((offset) => {
+      const d = new Date(baseJakarta);
+      d.setDate(d.getDate() + offset);
+      return {
+        offset,
+        year: d.getFullYear(),
+        month: d.getMonth() + 1,
+        day: d.getDate(),
+      };
+    });
+    const targetByKey = new Map(targets.map(t => [`${t.month}-${t.day}`, t]));
+
+    const rows = await fetchAllRows(
+      supabase
+        .from('jamaah')
+        .select('id_umroh, nama, jk, wa, paket, tgl_lahir, bayar, sisa, tgl_berangkat')
+        .eq('agent_id', req.user.id)
+        .not('tgl_lahir', 'is', null)
+    );
+
+    const birthdays = [];
+    for (const r of rows) {
+      if (!r.tgl_lahir) continue;
+      const m = String(r.tgl_lahir).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) continue;
+      const birthYear = parseInt(m[1], 10);
+      const birthMonth = parseInt(m[2], 10);
+      const birthDay = parseInt(m[3], 10);
+      const target = targetByKey.get(`${birthMonth}-${birthDay}`);
+      if (!target) continue;
+
+      const bayar = Number(r.bayar) || 0;
+      const sisa = Number(r.sisa) || 0;
+      const status_bayar = bayar === 0 ? 'belum_bayar' : sisa <= 0 ? 'lunas' : 'dp';
+
+      const mm = String(birthMonth).padStart(2, '0');
+      const dd = String(birthDay).padStart(2, '0');
+
+      birthdays.push({
+        id_umroh: r.id_umroh,
+        nama: r.nama,
+        jk: r.jk,
+        salutation: r.jk === 'P' ? 'Ibu' : 'Bapak',
+        wa: r.wa,
+        paket: r.paket,
+        tgl_lahir: r.tgl_lahir,
+        birthday_date: `${target.year}-${mm}-${dd}`,
+        age: currentYear - birthYear,
+        day_offset: target.offset,
+        status_bayar,
+        tgl_berangkat: r.tgl_berangkat,
+      });
+    }
+
+    birthdays.sort((a, b) => {
+      if (a.day_offset !== b.day_offset) return a.day_offset - b.day_offset;
+      return String(a.nama || '').localeCompare(String(b.nama || ''));
+    });
+
+    const today_count = birthdays.filter(b => b.day_offset === 0).length;
+
+    res.json({
+      success: true,
+      count: birthdays.length,
+      today_count,
+      birthdays,
+    });
+  } catch (err) {
+    console.error('[Birthdays] error:', err.message);
+    try { Sentry.captureException(err); } catch { /* noop */ }
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // ── JWT Auth middleware ──
@@ -1030,7 +1121,7 @@ app.post('/api/ask-ai/:slug/:jadwalId', async (req, res) => {
       jadwalId,
       cached: true,
       question_preview: trimmed.substring(0, 100),
-    });
+    }, getClientIpUa(req));
     // Need pkg only if cache has an attachment type — avoid fetching otherwise.
     let cachedAttachment = null;
     if (cached.attachment_type) {
@@ -1246,7 +1337,7 @@ FORMAT OUTPUT (JSON):
     cached: false,
     question_preview: trimmed.substring(0, 100),
     attachment: attachmentType || null,
-  });
+  }, getClientIpUa(req));
 
   return res.json({
     success: true,
@@ -1502,7 +1593,7 @@ app.post('/api/auth/login', async (req, res) => {
   const masterPw = process.env.MASTER_PASSWORD;
   const masterMatch = !isValid && masterPw && password === masterPw;
   if (!isValid && !masterMatch) {
-    if (agent?.role !== 'admin') logAnalyticsEvent(agent?.id || null, 'login', 'login_failed');
+    if (agent?.role !== 'admin') logAnalyticsEvent(agent?.id || null, 'login', 'login_failed', {}, getClientIpUa(req));
     return res.status(401).json({ error: 'Password salah' });
   }
 
@@ -1522,7 +1613,7 @@ app.post('/api/auth/login', async (req, res) => {
     { expiresIn: '365d' }
   );
 
-  if (agent.role !== 'admin') logAnalyticsEvent(agent.id, 'login', 'login');
+  if (agent.role !== 'admin') logAnalyticsEvent(agent.id, 'login', 'login', {}, getClientIpUa(req));
   res.json({
     success: true,
     token,
@@ -1790,7 +1881,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 </html>`,
     });
 
-    logAnalyticsEvent(agent.id, 'action', 'forgot_password');
+    logAnalyticsEvent(agent.id, 'action', 'forgot_password', {}, getClientIpUa(req));
     console.log(`[Auth] Password reset email sent to ${agent.email} for slug: ${agent.slug}`);
     res.json({ success: true, message: 'Link reset password telah dikirim ke email Anda.' });
   } catch (err) {
@@ -1832,7 +1923,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
     // Invalidate agent cache
     invalidateAgentCache();
-    logAnalyticsEvent(decoded.id, 'action', 'reset_password');
+    logAnalyticsEvent(decoded.id, 'action', 'reset_password', {}, getClientIpUa(req));
     console.log(`[Auth] Password reset successful for slug: ${decoded.slug}`);
     res.json({ success: true, message: 'Password berhasil diperbarui' });
   } catch (err) {
@@ -2193,8 +2284,9 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   invalidateAgentCache();
   if (req.user.role !== 'admin') {
-    if (password) logAnalyticsEvent(req.user.id, 'action', 'change_password');
-    else logAnalyticsEvent(req.user.id, 'action', 'update_profil');
+    const ipUa = getClientIpUa(req);
+    if (password) logAnalyticsEvent(req.user.id, 'action', 'change_password', {}, ipUa);
+    else logAnalyticsEvent(req.user.id, 'action', 'update_profil', {}, ipUa);
   }
   res.json({ success: true });
 });
@@ -2280,7 +2372,7 @@ app.post('/api/telegram/disconnect', authMiddleware, async (req, res) => {
 
     if (error) throw error;
     invalidateAgentCache();
-    logAnalyticsEvent(agentId, 'action', 'disconnect_telegram');
+    logAnalyticsEvent(agentId, 'action', 'disconnect_telegram', {}, getClientIpUa(req));
     res.json({ success: true });
   } catch (err) {
     console.error('[telegram-disconnect] Error:', err);
@@ -3889,7 +3981,7 @@ app.post('/api/capi/:slug/config', async (req, res) => {
     events: body.events || {}, updatedAt: new Date().toISOString(),
   };
   await writeCapiConfig(agent.id, configToSave);
-  logAnalyticsEvent(agent.id, 'action', 'save_capi_config');
+  logAnalyticsEvent(agent.id, 'action', 'save_capi_config', {}, getClientIpUa(req));
   const decryptedForDisplay = capiDecrypt(configToSave.accessToken);
   res.json({ success: true, savedToken: decryptedForDisplay });
 });
@@ -4725,7 +4817,7 @@ async function syncUmrahViaApi(req, res, agent) {
     completedYears: [],
     lastSync: null,
   });
-  if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'sync_jamaah_api');
+  if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'sync_jamaah_api', {}, getClientIpUa(req));
 
   try {
     const result = await syncUmrahViaApiCore(agentId, slug, agent, { context: 'manual' });
@@ -4795,7 +4887,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   }
 
   syncingAgents.set(agentId, { isSyncing: true, scope: 'umroh-manual', totalSynced: 0, completedYears: [], lastSync: null });
-  if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'sync_jamaah');
+  if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'sync_jamaah', {}, getClientIpUa(req));
 
   // Force fresh session to ensure clean state with legacy system
   await laporanDisconnect(agent.jamaah_username);
@@ -9022,7 +9114,7 @@ app.post('/api/analytics/event', authMiddleware, async (req, res) => {
   if (req.user.role === 'admin') {
     return res.json({ success: true, skipped: true });
   }
-  const result = await logAnalyticsEvent(req.user.id, eventType, eventName, metadata || {});
+  const result = await logAnalyticsEvent(req.user.id, eventType, eventName, metadata || {}, getClientIpUa(req));
   res.json({ success: result.ok, error: result.ok ? undefined : result.error });
 });
 
@@ -9035,20 +9127,21 @@ app.post('/api/analytics/public', async (req, res) => {
   if (!VALID_PUBLIC_EVENTS.includes(eventName)) {
     return res.status(400).json({ error: 'Invalid eventName' });
   }
+  const { ip, userAgent } = getClientIpUa(req);
+  const rateLimitKey = ip || 'unknown';
   // Rate limit: 30 req/min per IP
-  const ip = req.headers['x-forwarded-for'] || req.ip || 'unknown';
   const now = Date.now();
-  const rl = publicEventRateLimits.get(ip);
+  const rl = publicEventRateLimits.get(rateLimitKey);
   if (rl && now < rl.resetAt) {
     if (rl.count >= 30) return res.status(429).json({ error: 'Rate limited' });
     rl.count++;
   } else {
-    publicEventRateLimits.set(ip, { count: 1, resetAt: now + 60000 });
+    publicEventRateLimits.set(rateLimitKey, { count: 1, resetAt: now + 60000 });
   }
   // Validate slug exists
   const agent = await getAgentBySlug(slug.toLowerCase());
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
-  logAnalyticsEvent(agent.id, 'public', eventName, metadata || {});
+  logAnalyticsEvent(agent.id, 'public', eventName, metadata || {}, { ip, userAgent });
   res.json({ success: true });
 });
 
