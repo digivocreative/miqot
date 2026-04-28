@@ -8191,7 +8191,10 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       const net = getNetKomisi(r);
       const isLunas = !r.sisa || r.sisa === 0;
       const departed = r.tgl_berangkat && r.tgl_berangkat < todayStr;
-      if (isLunas && departed) { sudahCair += net; sudahCairCount++; }
+      // Komisi umroh cair saat jamaah sudah berangkat (regardless of sisa).
+      // Belum cair = lunas tapi belum berangkat (akan cair saat keberangkatan).
+      // Potensi = belum lunas + belum berangkat (perlu pelunasan dulu).
+      if (departed) { sudahCair += net; sudahCairCount++; }
       else if (isLunas) { belumCair += net; belumCairCount++; }
       else { potensi += net; potensiCount++; }
       if (r.paket && r.paket.toLowerCase().includes('hemat')) { hematCount++; hematTotal += net; }
@@ -8208,8 +8211,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     }
     for (const r of komisiRows) {
       if (!r.tgl_berangkat || r.tgl_berangkat >= todayStr) continue;
-      const isLunas = !r.sisa || r.sisa === 0;
-      if (!isLunas) continue;
+      // Sudah berangkat → komisi cair (regardless of sisa).
       const ym = r.tgl_berangkat.substring(0, 7);
       if (chartMap.has(ym)) {
         const entry = chartMap.get(ym);
