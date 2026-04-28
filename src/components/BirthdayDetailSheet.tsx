@@ -177,7 +177,6 @@ export default function BirthdayDetailSheet({
       setIsExporting(false);
     }
   };
-
   const handleSend = async () => {
     if (isExporting) return;
     setIsExporting(true);
@@ -202,7 +201,6 @@ export default function BirthdayDetailSheet({
       setIsExporting(false);
     }
   };
-
   return createPortal(
     <>
       <motion.div
