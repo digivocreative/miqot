@@ -38,19 +38,37 @@ function getDefaultMessage(jamaah: Birthday, agentName: string): string {
   const doa = `Allah panjangkan umur ${sapaan} ${jamaahFirst} dengan keberkahan, dilimpahkan kesehatan, dilapangkan rezekinya, dan dimudahkan langkah menuju Baitullah`;
 
   const body = jamaah.day_offset === 0
-    ? `*Barakallahu fii umrik, ${sapaan} ${jamaahFirst}!*\n\nDi hari yang penuh berkah ini, ${agentFirst} ikut mendoakan — semoga di usia ke-${jamaah.age} ini, ${doa}.\n\n_Aamiin Yaa Rabbal 'Alamiin_ 🤲`
-    : `*${sapaan} ${jamaahFirst}*, _${upcomingWord}_ ulang tahun ya 🎉\n\nSebelum harinya, ${agentFirst} ingin doakan dulu — semoga di usia ke-${jamaah.age} nanti, ${doa}.\n\n_Aamiin Yaa Rabbal 'Alamiin_ 🤲`;
+    ? `*Barakallahu fii umrik, ${sapaan} ${jamaahFirst}!*\n\nDi hari yang penuh berkah ini, ${agentFirst} ikut mendoakan — semoga di usia ke-${jamaah.age} ini, ${doa}.\n\n_Aamiin Yaa Rabbal 'Alamiin_`
+    : `*${sapaan} ${jamaahFirst}*, _${upcomingWord}_ ulang tahun ya.\n\nSebelum harinya, ${agentFirst} ingin doakan dulu — semoga di usia ke-${jamaah.age} nanti, ${doa}.\n\n_Aamiin Yaa Rabbal 'Alamiin_`;
 
-  return `Assalamu'alaikum 🌹\n\n${body}\n\n— *${agentName}*\n_Alhijaz Indowisata_`;
+  return `Assalamu'alaikum\n\n${body}\n\n— *${agentName}*\n_Alhijaz Indowisata_`;
 }
 
-function normalizeWaNumber(wa: string): string | null {
-  const cleaned = (wa || '').replace(/[^0-9]/g, '');
+function normalizeWaNumber(wa?: string | null): string | null {
+  const raw = String(wa || '').trim();
+  if (!raw) return null;
+
+  const candidate = raw.match(/(?:\+?62|0|8)[\d\s().-]{7,24}/)?.[0] || raw;
+  let cleaned = candidate.replace(/[^0-9]/g, '');
   if (!cleaned) return null;
-  if (cleaned.startsWith('0')) return '62' + cleaned.slice(1);
-  if (cleaned.startsWith('62')) return cleaned;
-  if (cleaned.startsWith('8')) return '62' + cleaned;
+
+  // Fix common bad imports:
+  // - 620812xxxx -> 62812xxxx
+  // - 6213xxxx / 6221xxxx -> 62813xxxx / 62821xxxx
+  //   (old data often lost the "8" from 08xx mobile numbers)
+  if (cleaned.startsWith('620')) cleaned = '62' + cleaned.slice(3);
+  else if (/^62[1-9]\d{7,11}$/.test(cleaned)) cleaned = `628${cleaned.slice(2)}`;
+  else if (cleaned.startsWith('0')) cleaned = '62' + cleaned.slice(1);
+  else if (cleaned.startsWith('8')) cleaned = '62' + cleaned;
+
+  // Indonesian mobile WA numbers should be 628 + 7-12 more digits.
+  if (!/^628\d{7,12}$/.test(cleaned)) return null;
   return cleaned;
+}
+
+function formatWaDisplay(phone: string): string {
+  const local = phone.startsWith('62') ? `0${phone.slice(2)}` : phone;
+  return local.replace(/^(\d{4})(\d{4})(\d+)$/, '$1 $2 $3');
 }
 
 function slugify(s: string): string {
@@ -135,6 +153,7 @@ export default function BirthdayDetailSheet({
     () => jamaah.nama.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase(),
     [jamaah.nama],
   );
+  const normalizedWa = useMemo(() => normalizeWaNumber(jamaah.wa), [jamaah.wa]);
 
   const captureCardBlob = async (): Promise<Blob | null> => {
     const target = selectedTemplate === 'classic' ? classicRef.current : islamicRef.current;
@@ -187,7 +206,7 @@ export default function BirthdayDetailSheet({
         day_offset: jamaah.day_offset,
       });
 
-      const phone = normalizeWaNumber(jamaah.wa);
+      const phone = normalizedWa;
       if (!phone) {
         showToast('Nomor WA jamaah tidak valid');
         return;
@@ -235,6 +254,16 @@ export default function BirthdayDetailSheet({
             </div>
             <div className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5">
               {dayLabel(jamaah.day_offset)} · {jamaah.age} tahun
+            </div>
+            <div
+              className={`text-[11px] mt-1 truncate ${
+                normalizedWa
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-red-500 dark:text-red-400'
+              }`}
+              title={`Data WA: ${jamaah.wa || '-'}`}
+            >
+              WA: {normalizedWa ? formatWaDisplay(normalizedWa) : 'Tidak valid'}
             </div>
           </div>
           <button
