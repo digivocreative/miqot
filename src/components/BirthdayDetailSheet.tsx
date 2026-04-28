@@ -81,32 +81,6 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-function openPreparedWindow(): Window | null {
-  const win = window.open('', '_blank');
-  if (!win) return null;
-  try {
-    win.document.write(`
-      <!doctype html>
-      <html>
-        <head><title>Menyiapkan WhatsApp...</title></head>
-        <body style="font-family: system-ui, sans-serif; padding: 24px;">
-          <p>Menyiapkan WhatsApp...</p>
-        </body>
-      </html>
-    `);
-    win.document.close();
-  } catch { /* noop */ }
-  return win;
-}
-
-function openWhatsAppUrl(url: string, preparedWindow?: Window | null): void {
-  if (preparedWindow && !preparedWindow.closed) {
-    preparedWindow.location.href = url;
-    return;
-  }
-  window.location.assign(url);
-}
-
 function WhatsAppIcon({ size = 14 }: { size?: number }) {
   return (
     <svg viewBox="0 0 448 512" width={size} height={size} fill="currentColor" aria-hidden>
@@ -220,22 +194,10 @@ export default function BirthdayDetailSheet({
         return;
       }
 
+      // Keep send action text-only. Agents can use the download button to attach
+      // the card manually when needed.
       const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-      const preparedWaWindow = includeKartu ? openPreparedWindow() : null;
-
-      // WhatsApp deep links cannot prefill media attachments. Download the card
-      // first, then open the jamaah chat with the message pre-filled.
-      if (includeKartu) {
-        const blob = await captureCardBlob();
-        if (blob) {
-          downloadBlob(blob, cardFileName(jamaah, selectedTemplate));
-          showToast('Kartu didownload — attach ke chat');
-        } else {
-          showToast('Gagal generate kartu, lanjut buka WA');
-        }
-      }
-
-      openWhatsAppUrl(waUrl, preparedWaWindow);
+      window.open(waUrl, '_blank');
     } finally {
       setIsExporting(false);
     }
