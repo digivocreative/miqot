@@ -8063,7 +8063,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     let olQ = supabase.from('jamaah').select('nama, paket, jk, sisa, tgl_berangkat, wa').eq('agent_id', agentId).gt('sisa', 0).order('sisa', { ascending: false }).order('tgl_berangkat', { ascending: true });
     if (year) olQ = olQ.eq('hijriah_year', year);
 
-    let komisiQ = supabase.from('jamaah').select('paket, sisa, tgl_berangkat, diskon_kantor, diskon_marketing').eq('agent_id', agentId);
+    let komisiQ = supabase.from('jamaah').select('paket, sisa, tgl_berangkat, diskon_marketing').eq('agent_id', agentId);
     if (year) komisiQ = komisiQ.eq('hijriah_year', year);
 
     // Fire ALL independent queries in parallel
@@ -8177,9 +8177,11 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     const KOMISI_REGULER = 1800000;
     const getRate = (p) => (p && p.toLowerCase().includes('hemat') ? KOMISI_HEMAT : KOMISI_REGULER);
 
-    // Net komisi per jamaah = rate - diskon_kantor - diskon_marketing, floored at 0.
-    // Diskon dipotong dari kantor & marketing mengurangi komisi yang diterima agen.
-    const getNetKomisi = (r) => Math.max(0, getRate(r.paket) - (r.diskon_kantor || 0) - (r.diskon_marketing || 0));
+    // Net komisi per jamaah = rate - diskon_marketing, floored at 0.
+    // Hanya diskon_marketing yang dipotong dari komisi agen. diskon_kantor
+    // adalah potongan harga paket yang ditanggung kantor (tidak mengurangi
+    // komisi agen).
+    const getNetKomisi = (r) => Math.max(0, getRate(r.paket) - (r.diskon_marketing || 0));
 
     let sudahCair = 0, sudahCairCount = 0;
     let belumCair = 0, belumCairCount = 0;
