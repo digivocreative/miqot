@@ -66,6 +66,21 @@ function dayLabel(offset: 0 | 1 | 2 | 3): string {
   return ['Hari ini', 'Besok', '2 hari lagi', '3 hari lagi'][offset];
 }
 
+function cardFileName(jamaah: Birthday, template: CardTemplate): string {
+  return `ucapan-${slugify(jamaah.nama)}-${template}.jpg`;
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function WhatsAppIcon({ size = 14 }: { size?: number }) {
   return (
     <svg viewBox="0 0 448 512" width={size} height={size} fill="currentColor" aria-hidden>
@@ -155,14 +170,7 @@ export default function BirthdayDetailSheet({
         showToast('Gagal generate kartu, coba lagi');
         return;
       }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `ucapan-${slugify(jamaah.nama)}-${selectedTemplate}.jpg`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, cardFileName(jamaah, selectedTemplate));
       showToast('Berhasil download');
       trackEvent('action', 'birthday_download', { template: selectedTemplate });
     } finally {
@@ -186,18 +194,38 @@ export default function BirthdayDetailSheet({
         return;
       }
 
-      // If kartu enabled, generate + auto-download first so agent can attach manually
+      // WhatsApp deep links cannot prefill media attachments. On browsers that
+      // support file sharing, use the native share sheet so image + text go together.
       if (includeKartu) {
         const blob = await captureCardBlob();
         if (blob) {
-          const downloadUrl = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = downloadUrl;
-          a.download = `ucapan-${slugify(jamaah.nama)}.jpg`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(downloadUrl);
+          const file = new File([blob], cardFileName(jamaah, selectedTemplate), { type: 'image/jpeg' });
+          const nav = navigator as Navigator & {
+            canShare?: (data: ShareData) => boolean;
+            share?: (data: ShareData) => Promise<void>;
+          };
+          const shareData: ShareData = {
+            title: `Ucapan ulang tahun untuk ${jamaah.nama}`,
+            text: message,
+            files: [file],
+          };
+
+          if (nav.share && nav.canShare?.(shareData)) {
+            try {
+              await nav.share(shareData);
+              trackEvent('action', 'birthday_native_share', { template: selectedTemplate });
+              return;
+            } catch (e) {
+              const err = e as DOMException;
+              if (err.name === 'AbortError') {
+                showToast('Share dibatalkan');
+                return;
+              }
+              console.error('[BirthdaySheet] native share error:', e);
+            }
+          }
+
+          downloadBlob(blob, cardFileName(jamaah, selectedTemplate));
           showToast('Kartu didownload — attach ke chat');
         }
       }

@@ -186,9 +186,27 @@ function CanvasFrame({
   );
 }
 
+function textWidthWeight(text: string): number {
+  return Array.from(text).reduce((total, char) => {
+    if (char === ' ') return total + 0.35;
+    if ('ilI1.,'.includes(char)) return total + 0.35;
+    if ('mwMW'.includes(char)) return total + 1.05;
+    if (char === char.toUpperCase() && char !== char.toLowerCase()) return total + 0.72;
+    return total + 0.62;
+  }, 0);
+}
+
+function singleLineFontSize(text: string, max: number, min: number, maxWidth = 860): number {
+  const estimated = textWidthWeight(text) || 1;
+  const fitted = Math.floor(maxWidth / estimated);
+  return Math.max(min, Math.min(max, fitted));
+}
+
 function Classic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 'template'>) {
   const GOLD = '#d4af6d';
   const CONTENT_BOTTOM = 200;
+  const fullName = `${jamaah.salutation} ${jamaah.nama}`;
+  const nameSize = singleLineFontSize(fullName, 64, 22);
   return (
     <CanvasFrame background="linear-gradient(135deg, #3f0a0a 0%, #7f1d1d 55%, #991b1b 100%)">
       {/* Vignette overlay for depth */}
@@ -256,7 +274,7 @@ function Classic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
           boxSizing: 'border-box',
         }}
       >
-        <div style={{ fontSize: 110, lineHeight: 1, marginBottom: 12 }}>💐</div>
+        <div style={{ fontSize: 110, lineHeight: 1, marginBottom: 12, flexShrink: 0 }}>💐</div>
 
         <div
           style={{
@@ -264,6 +282,7 @@ function Classic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
             fontSize: 92,
             color: '#FFFFFF',
             lineHeight: 1.0,
+            flexShrink: 0,
           }}
         >
           Selamat
@@ -276,6 +295,7 @@ function Classic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
             color: GOLD,
             lineHeight: 1.0,
             marginTop: 4,
+            flexShrink: 0,
           }}
         >
           Ulang Tahun
@@ -290,6 +310,7 @@ function Classic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
             gap: 12,
             margin: '36px 0 28px 0',
             width: '60%',
+            flexShrink: 0,
           }}
         >
           <div style={{ flex: 1, height: 1, background: GOLD, opacity: 0.6 }} />
@@ -300,23 +321,30 @@ function Classic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
         <div
           style={{
             fontFamily: 'Inter, sans-serif',
-            fontSize: 42,
+            fontSize: nameSize,
             fontWeight: 600,
             color: '#FFFFFF',
-            lineHeight: 1.2,
-            maxWidth: '95%',
-            wordBreak: 'break-word',
+            lineHeight: 1.25,
+            width: '100%',
+            maxWidth: '100%',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            flexShrink: 0,
+            paddingBottom: 6,
           }}
         >
-          {jamaah.salutation} {jamaah.nama}
+          {fullName}
         </div>
         <div
           style={{
             fontFamily: 'Inter, sans-serif',
-            fontSize: 22,
-            color: 'rgba(255, 230, 200, 0.85)',
+            fontSize: 28,
+            color: 'rgba(255, 230, 200, 0.9)',
             marginTop: 16,
             fontStyle: 'italic',
+            lineHeight: 1.3,
+            flexShrink: 0,
           }}
         >
           Kini menginjak usia {jamaah.age} tahun
@@ -326,11 +354,12 @@ function Classic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
           style={{
             fontFamily: 'Inter, sans-serif',
             fontStyle: 'italic',
-            fontSize: 19,
-            color: 'rgba(255, 230, 200, 0.75)',
-            marginTop: 22,
-            maxWidth: '80%',
+            fontSize: 24,
+            color: 'rgba(255, 230, 200, 0.78)',
+            marginTop: 26,
+            maxWidth: '85%',
             lineHeight: 1.5,
+            flexShrink: 0,
           }}
         >
           Semoga panjang umur, sehat selalu, dan dimudahkan menuju Baitullah.
@@ -351,6 +380,8 @@ function Classic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
 function Islamic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 'template'>) {
   const GOLD = '#d4af6d';
   const CONTENT_BOTTOM = 200;
+  const fullName = `${jamaah.salutation} ${jamaah.nama}`;
+  const nameSize = singleLineFontSize(fullName, 44, 20);
   return (
     <CanvasFrame background="linear-gradient(135deg, #022c22 0%, #064e3b 50%, #047857 100%)">
       {/* Islamic geometric pattern overlay */}
@@ -451,7 +482,7 @@ function Islamic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
         }}
       >
         {/* Top decorative ornament: --- ❋ --- */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18, flexShrink: 0 }}>
           <div style={{ width: 70, height: 1, background: GOLD, opacity: 0.55 }} />
           <div style={{ fontSize: 18, color: GOLD, lineHeight: 1, opacity: 0.9 }}>❋</div>
           <div style={{ width: 70, height: 1, background: GOLD, opacity: 0.55 }} />
@@ -463,12 +494,13 @@ function Islamic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
             fontSize: 56,
             color: '#FFFFFF',
             lineHeight: 1,
+            flexShrink: 0,
           }}
         >
           بِسْمِ اللَّهِ
         </div>
 
-        <div style={{ marginTop: 28 }}>
+        <div style={{ marginTop: 28, flexShrink: 0 }}>
           <div
             style={{
               fontFamily: '"Amiri", serif',
@@ -503,6 +535,7 @@ function Islamic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
             gap: 12,
             margin: '32px 0 20px 0',
             width: '60%',
+            flexShrink: 0,
           }}
         >
           <div style={{ flex: 1, height: 1, background: GOLD, opacity: 0.6 }} />
@@ -513,9 +546,10 @@ function Islamic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
         <div
           style={{
             fontFamily: 'Inter, sans-serif',
-            fontSize: 24,
-            color: 'rgba(255, 235, 200, 0.85)',
+            fontSize: 30,
+            color: 'rgba(255, 235, 200, 0.9)',
             letterSpacing: '0.04em',
+            flexShrink: 0,
           }}
         >
           Selamat Ulang Tahun
@@ -524,24 +558,31 @@ function Islamic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
         <div
           style={{
             fontFamily: 'Inter, sans-serif',
-            fontSize: 32,
+            fontSize: nameSize,
             fontWeight: 600,
             color: '#FFFFFF',
             marginTop: 14,
-            lineHeight: 1.25,
-            maxWidth: '95%',
-            wordBreak: 'break-word',
+            lineHeight: 1.3,
+            width: '100%',
+            maxWidth: '100%',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            flexShrink: 0,
+            paddingBottom: 6,
           }}
         >
-          {jamaah.salutation} {jamaah.nama}
+          {fullName}
         </div>
         <div
           style={{
             fontFamily: 'Inter, sans-serif',
-            fontSize: 22,
-            color: 'rgba(255, 235, 200, 0.85)',
-            marginTop: 12,
+            fontSize: 28,
+            color: 'rgba(255, 235, 200, 0.9)',
+            marginTop: 16,
             fontStyle: 'italic',
+            lineHeight: 1.3,
+            flexShrink: 0,
           }}
         >
           Kini menginjak usia {jamaah.age} tahun
@@ -551,11 +592,12 @@ function Islamic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
           style={{
             fontFamily: 'Inter, sans-serif',
             fontStyle: 'italic',
-            fontSize: 19,
-            color: 'rgba(255, 235, 200, 0.75)',
-            marginTop: 22,
-            maxWidth: '80%',
+            fontSize: 24,
+            color: 'rgba(255, 235, 200, 0.78)',
+            marginTop: 26,
+            maxWidth: '85%',
             lineHeight: 1.5,
+            flexShrink: 0,
           }}
         >
           Semoga panjang umur, sehat selalu, dan dimudahkan menuju Baitullah.
