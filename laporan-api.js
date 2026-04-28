@@ -90,13 +90,13 @@ export async function login(username, password, kantor = '2') {
       }
 
       if (!cookies || cookies.length === 0) {
-        return { success: false, error: 'Login gagal — username atau password salah' };
+        return { success: false, error: 'Login gagal — username atau password salah', reason: 'invalid_credentials' };
       }
 
       // Extract PHPSESSID value
       const phpSessionCookie = cookies.find(c => c.includes('PHPSESSID'));
       if (!phpSessionCookie) {
-        return { success: false, error: 'Login gagal — username atau password salah' };
+        return { success: false, error: 'Login gagal — username atau password salah', reason: 'invalid_credentials' };
       }
 
       // Build cookie string for subsequent requests

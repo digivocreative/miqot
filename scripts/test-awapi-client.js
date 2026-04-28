@@ -34,7 +34,7 @@ async function run(label, fn) {
     const dt = Date.now() - t0;
     console.log(`OK ${dt}ms — rows=${result.rows.length}`);
     if (result.rows.length > 0) {
-      const norm = normalizeAwapiRow(result.rows[0], { agentId: FAKE_AGENT_ID, agentSlug: 'test' });
+      const norm = normalizeAwapiRow(result.rows[0], { agentId: FAKE_AGENT_ID });
       console.log('Normalized sample:');
       console.log(JSON.stringify(norm, null, 2).slice(0, 1200));
     }

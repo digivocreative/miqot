@@ -23,7 +23,7 @@ import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
-import { awapiFetchUmrahByKeberangkatan, awapiFetchUmrahById, awapiFetchJamaahById, normalizeAwapiRow, AwapiError } from './awapi-client.js';
+import { awapiFetchUmrahByKeberangkatan, awapiFetchUmrahByPendaftaran, awapiFetchUmrahById, awapiFetchJamaahById, normalizeAwapiRow, AwapiError } from './awapi-client.js';
 import {
   runAnalyticsMaintenance,
   fetchEventsForRange,
@@ -4206,6 +4206,56 @@ app.get('/api/laporan/status', authMiddleware, async (req, res) => {
   });
 });
 
+function isInvalidLaporanCredentials(result) {
+  return result?.reason === 'invalid_credentials';
+}
+
+async function clearInvalidJamaahCredentials(agent, context = 'login') {
+  if (!agent?.id) return agent;
+
+  if (agent.jamaah_username) {
+    try { await laporanDisconnect(agent.jamaah_username, { skipRemoteLogout: true }); } catch {}
+  }
+
+  const state = syncingAgents.get(agent.id);
+  if (state?.isSyncing) {
+    syncingAgents.set(agent.id, {
+      ...state,
+      isSyncing: false,
+      cancelled: true,
+      loginFailed: true,
+      invalidCredentials: true,
+    });
+  }
+
+  const { error } = await supabase
+    .from('agents')
+    .update({
+      jamaah_username: null,
+      jamaah_password: null,
+      jamaah_kantor: null,
+      awapi_key: null,
+      awapi_code: null,
+    })
+    .eq('id', agent.id);
+
+  if (error) {
+    console.warn(`[credentials/${context}] ${agent.slug || agent.id}: failed to clear invalid credentials — ${error.message}`);
+    return agent;
+  }
+
+  invalidateAgentCache();
+  console.warn(`[credentials/${context}] ${agent.slug || agent.id}: cleared invalid jamaah credentials`);
+  return {
+    ...agent,
+    jamaah_username: null,
+    jamaah_password: null,
+    jamaah_kantor: null,
+    awapi_key: null,
+    awapi_code: null,
+  };
+}
+
 // Login: login to legacy system + auto-save credentials to Supabase
 app.post('/api/laporan/login', authMiddleware, async (req, res) => {
   const { username, password, kantor } = req.body;
@@ -4476,6 +4526,9 @@ async function ensureAwapiCredentials(agent) {
       const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
       if (!loginResult.success) {
         console.warn(`[awapi/lazy] ${agent.slug}: login failed — ${loginResult.error || loginResult.reason}`);
+        if (isInvalidLaporanCredentials(loginResult)) {
+          return await clearInvalidJamaahCredentials(agent, 'awapi-lazy');
+        }
         return agent;
       }
     }
@@ -4513,46 +4566,76 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } 
   const MIN_HIJRIAH_YEAR = 1447;
 
   // Aggregate normalized rows from all hijriah years; dedup by (id_umroh, jm_id)
-  // since /bh and /bm responses can overlap when a booking spans the year edge.
+  // because keberangkatan (/bh) and pendaftaran (/dh) can overlap. The /dh
+  // backfill catches fresh registrations whose departure-year list can lag.
   const rowsByKey = new Map();
   const fetchedBookingIds = new Set();
   const successfulBookingIds = new Set();
   const successfulJamaahPerBooking = new Map();
   let listComplete = true;
-  let yearErrors = 0;
+  let fetchErrors = 0;
+  let keberangkatanYearsCompleted = 0;
+  let upsertErrors = 0;
+  let firstUpsertError = null;
 
   for (const yearH of yearsToSync) {
-    try {
-      const { rows } = await awapiFetchUmrahByKeberangkatan(apiKey, code, {
-        tahun: yearH,
-        hijriah: true,
-      });
-      for (const raw of rows) {
-        const norm = normalizeAwapiRow(raw, { agentId, agentSlug: slug });
-        if (!norm) continue;
-        const yr = getHijriahYear(norm.tgl_berangkat) || yearH;
-        if (Number(yr) < MIN_HIJRIAH_YEAR) continue;
-        norm.hijriah_year = yr;
+    const fetchPlans = [
+      {
+        source: 'keberangkatan',
+        endpoint: 'bh',
+        fetchRows: () => awapiFetchUmrahByKeberangkatan(apiKey, code, {
+          tahun: yearH,
+          hijriah: true,
+        }),
+      },
+      {
+        source: 'pendaftaran',
+        endpoint: 'dh',
+        fetchRows: () => awapiFetchUmrahByPendaftaran(apiKey, code, {
+          tahun: yearH,
+          hijriah: true,
+        }),
+      },
+    ];
 
-        const key = `${norm.id_umroh}_${norm.jm_id}`.toLowerCase();
-        if (!rowsByKey.has(key)) rowsByKey.set(key, norm);
+    for (const plan of fetchPlans) {
+      try {
+        const { rows } = await plan.fetchRows();
+        for (const raw of rows) {
+          const norm = normalizeAwapiRow(raw, { agentId });
+          if (!norm) continue;
+          const yr = getHijriahYear(norm.tgl_berangkat) || yearH;
+          if (Number(yr) < MIN_HIJRIAH_YEAR) continue;
+          norm.hijriah_year = yr;
 
-        fetchedBookingIds.add(norm.id_umroh);
-        successfulBookingIds.add(norm.id_umroh);
-        const jset = successfulJamaahPerBooking.get(norm.id_umroh) || new Set();
-        jset.add(String(norm.nama || '').trim().toLowerCase());
-        successfulJamaahPerBooking.set(norm.id_umroh, jset);
+          const key = `${norm.id_umroh}_${norm.jm_id}`.toLowerCase();
+          rowsByKey.set(key, {
+            ...norm,
+            raw_data: {
+              ...(norm.raw_data || {}),
+              sync_source: plan.source,
+              sync_endpoint: plan.endpoint,
+            },
+          });
+
+          fetchedBookingIds.add(norm.id_umroh);
+          successfulBookingIds.add(norm.id_umroh);
+          const jset = successfulJamaahPerBooking.get(norm.id_umroh) || new Set();
+          jset.add(String(norm.nama || '').trim().toLowerCase());
+          successfulJamaahPerBooking.set(norm.id_umroh, jset);
+        }
+        if (plan.source === 'keberangkatan') keberangkatanYearsCompleted++;
+        console.log(`[Sync/api/${context}] ${slug} ${plan.endpoint}/${yearH}: ${rows.length} rows`);
+      } catch (err) {
+        fetchErrors++;
+        listComplete = false;
+        console.warn(`[Sync/api/${context}] ${slug} ${plan.endpoint}/${yearH} failed: ${err.message}`);
       }
-      console.log(`[Sync/api/${context}] ${slug} year ${yearH}: ${rows.length} rows`);
-    } catch (err) {
-      yearErrors++;
-      listComplete = false;
-      console.warn(`[Sync/api/${context}] ${slug} year ${yearH} failed: ${err.message}`);
     }
   }
 
   const allRows = Array.from(rowsByKey.values());
-  console.log(`[Sync/api/${context}] ${slug}: ${allRows.length} unique rows from ${yearsToSync.length - yearErrors}/${yearsToSync.length} years`);
+  console.log(`[Sync/api/${context}] ${slug}: ${allRows.length} unique rows from ${keberangkatanYearsCompleted}/${yearsToSync.length} keberangkatan years + pendaftaran backfill (${fetchErrors} fetch errors)`);
 
   // Upsert in batches with the same conflict target as legacy.
   const BATCH = 50;
@@ -4564,10 +4647,20 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } 
       .from('jamaah')
       .upsert(batch, { onConflict: 'agent_id,id_umroh,jm_id' });
     if (error) {
+      upsertErrors++;
+      if (!firstUpsertError) firstUpsertError = error.message;
       console.error(`[Sync/api/${context}] ${slug} upsert batch error:`, error.message);
     } else {
       upserted += batch.length;
     }
+  }
+
+  if (upsertErrors > 0) {
+    throw new Error(`API upsert failed in ${upsertErrors} batch(es): ${firstUpsertError || 'unknown error'}`);
+  }
+
+  if (fetchErrors > 0) {
+    throw new Error(`API fetch incomplete: ${fetchErrors} endpoint(s) failed`);
   }
 
   // Cleanup: only run if all years fetched successfully.
@@ -4612,9 +4705,9 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } 
   invalidateStatsCache(agentId);
 
   return {
-    ok: yearErrors === 0,
+    ok: fetchErrors === 0,
     count: upserted,
-    yearsCompleted: yearsToSync.length - yearErrors,
+    yearsCompleted: keberangkatanYearsCompleted,
     yearsAttempted: yearsToSync.length,
     syncedAt: now,
   };
@@ -4681,6 +4774,13 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     // Lazy-discover credentials for agents who logged in before Phase 1.
     // Skips network call if awapi_key already present.
     agent = await ensureAwapiCredentials(agent);
+    if (!agent?.jamaah_username || !agent?.jamaah_password) {
+      syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null, loginFailed: true, invalidCredentials: true });
+      return res.status(401).json({
+        error: 'Credential sistem internal sudah tidak valid. Silakan login ulang.',
+        credentialsCleared: true,
+      });
+    }
     if (agent.awapi_key) {
       try {
         return await syncUmrahViaApi(req, res, agent);
@@ -4702,6 +4802,13 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   const decrypted = capiDecrypt(agent.jamaah_password);
   const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
   if (!loginResult.success) {
+    if (isInvalidLaporanCredentials(loginResult)) {
+      await clearInvalidJamaahCredentials(agent, 'umroh-manual');
+      return res.status(401).json({
+        error: 'Credential sistem internal sudah tidak valid. Silakan login ulang.',
+        credentialsCleared: true,
+      });
+    }
     syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null });
     return res.status(401).json({ error: 'Gagal login ulang ke sistem internal' });
   }
@@ -5183,7 +5290,7 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Jamaah tidak ditemukan di sistem Alhijaz' });
     }
-    const norm = normalizeAwapiRow(rows[0], { agentId, agentSlug: slug });
+    const norm = normalizeAwapiRow(rows[0], { agentId });
     if (!norm) {
       return res.status(422).json({ error: 'Data jamaah tidak lengkap untuk dinormalisasi' });
     }
@@ -5240,7 +5347,7 @@ app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) 
 
     const normalized = [];
     for (const raw of rows) {
-      const norm = normalizeAwapiRow(raw, { agentId, agentSlug: slug });
+      const norm = normalizeAwapiRow(raw, { agentId });
       if (!norm) continue;
       norm.hijriah_year = getHijriahYear(norm.tgl_berangkat) || null;
       normalized.push(norm);
@@ -7205,6 +7312,14 @@ async function ensureLegacySession(agent) {
     const decrypted = capiDecrypt(agent.jamaah_password);
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
+      if (isInvalidLaporanCredentials(loginResult)) {
+        await clearInvalidJamaahCredentials(agent, 'legacy-session');
+        return {
+          success: false,
+          error: 'Credential sistem internal sudah tidak valid. Silakan login ulang di halaman Jamaah.',
+          credentialsCleared: true,
+        };
+      }
       return { success: false, error: 'Gagal login ulang ke sistem internal. Silakan login manual di halaman Jamaah.' };
     }
     return { success: true };
@@ -8171,6 +8286,13 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
+      if (isInvalidLaporanCredentials(loginResult)) {
+        await clearInvalidJamaahCredentials(agent, 'haji-manual');
+        return res.status(401).json({
+          error: 'Credential sistem internal sudah tidak valid. Silakan login ulang.',
+          credentialsCleared: true,
+        });
+      }
       return res.status(401).json({ error: 'Gagal login ke sistem internal. Silakan login ulang.' });
     }
 
@@ -10973,6 +11095,10 @@ async function syncOneAgent(agent) {
   // effort, falls through to legacy if it can't get a key.
   if (process.env.AWAPI_SYNC_ENABLED === 'true') {
     agent = await ensureAwapiCredentials(agent);
+    if (!agent?.jamaah_username || !agent?.jamaah_password) {
+      syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true, invalidCredentials: true });
+      return;
+    }
   }
   if (process.env.AWAPI_SYNC_ENABLED === 'true' && agent.awapi_key) {
     try {
@@ -10999,6 +11125,10 @@ async function syncOneAgent(agent) {
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
       console.error(`[SYNC] ${slug}: login failed — ${loginResult.error || 'unknown reason'}`);
+      if (isInvalidLaporanCredentials(loginResult)) {
+        await clearInvalidJamaahCredentials(agent, 'umroh-bg');
+        return { loginFailed: true, invalidCredentials: true };
+      }
       const rateLimited = loginResult.reason === 'rate_limited';
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true, rateLimited });
       return;
@@ -11674,6 +11804,10 @@ async function syncHajiOneAgent(agent) {
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
       console.error(`[HAJI-BG] ${slug}: login failed — ${loginResult.error || 'unknown reason'}`);
+      if (isInvalidLaporanCredentials(loginResult)) {
+        await clearInvalidJamaahCredentials(agent, 'haji-bg');
+        return { loginFailed: true, invalidCredentials: true };
+      }
       const rateLimited = loginResult.reason === 'rate_limited';
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true, rateLimited });
       return { loginFailed: true, rateLimited };

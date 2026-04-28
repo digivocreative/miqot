@@ -305,6 +305,10 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
   // next to the dark-mode toggle). Matches the Umroh tab for visual consistency.
   useEffect(() => {
     if (!onHeaderRight) return;
+    if (view !== 'data') {
+      onHeaderRight(null);
+      return;
+    }
     const selector = (
       <select
         value={thnMasehi}
@@ -321,7 +325,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
     onHeaderRight(selector);
     return () => onHeaderRight(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onHeaderRight, thnMasehi, tahunOptions.join(',')]);
+  }, [onHeaderRight, view, thnMasehi, tahunOptions.join(',')]);
 
   const formatNoteDate = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -528,6 +532,16 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
       if (!res.ok || !result.success) {
         setError(result.error || 'Gagal sync data haji');
         setSyncing(false);
+        setBackgroundSyncing(false);
+        if (result.credentialsCleared) {
+          setConnectedUser('');
+          setJamaahList([]);
+          setStats(null);
+          setUsername('');
+          setPassword('');
+          onConnectionChange?.(false, '');
+          setView('login');
+        }
         return;
       }
 

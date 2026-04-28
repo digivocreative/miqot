@@ -168,6 +168,10 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
   // (rendered by DashboardLayout next to the dark-mode toggle).
   useEffect(() => {
     if (!onHeaderRight) return;
+    if (view !== 'data' || subTab !== 'umroh') {
+      onHeaderRight(null);
+      return;
+    }
     const selector = (
       <select
         value={hijriahYear}
@@ -183,7 +187,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
     );
     onHeaderRight(selector);
     return () => onHeaderRight(null);
-  }, [onHeaderRight, hijriahYear, hijriahOptions]);
+  }, [onHeaderRight, view, subTab, hijriahYear, hijriahOptions]);
 
   const formatNoteDate = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -436,6 +440,16 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
       if (!result.success) {
         setError(result.error || 'Gagal sync data');
         setSyncing(false);
+        setBackgroundSyncing(false);
+        if (result.credentialsCleared) {
+          setConnectedUser('');
+          setData(null);
+          setUsername('');
+          setPassword('');
+          onConnectionChange?.(false, '');
+          setView('login');
+          return;
+        }
         if (isFirstSync) setView('data');
         return;
       }

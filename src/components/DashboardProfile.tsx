@@ -169,7 +169,9 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
 
   return (
     <div>
-      <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">NOTIFIKASI TELEGRAM</p>
+      {!statusLoading && telegramStatus.hasCredentials && (
+        <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">NOTIFIKASI TELEGRAM</p>
+      )}
 
       {statusLoading ? (
         /* ── Skeleton Loading ── */

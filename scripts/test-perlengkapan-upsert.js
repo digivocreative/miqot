@@ -23,7 +23,7 @@ const ID_UMRAH = 'AIW0025677';
   console.log(`API returned ${rows.length} rows for ${ID_UMRAH}`);
 
   for (const raw of rows) {
-    const norm = normalizeAwapiRow(raw, { agentId, agentSlug: agent.slug });
+    const norm = normalizeAwapiRow(raw, { agentId });
     norm.hijriah_year = '1447';
     console.log(`\nUpsert ${norm.nama}:`);
     console.log(`  perlengkapan in payload:`, JSON.stringify(norm.perlengkapan));

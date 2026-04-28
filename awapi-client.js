@@ -15,7 +15,7 @@
  * on non-2xx or network failure. Success returns `{ rows, raw }` where
  * `rows` is the `aaData` array (always an array, possibly empty).
  *
- * Use `normalizeAwapiRow(raw, { agentId, agentSlug })` to project a raw API row
+ * Use `normalizeAwapiRow(raw, { agentId })` to project a raw API row
  * into the shape of the `jamaah` Supabase table (excluding `hijriah_year`,
  * which is computed by the caller from `tgl_berangkat`).
  */
@@ -172,9 +172,8 @@ function safePaspor(v) {
  * @param {object} raw  Single row from aaData
  * @param {object} ctx
  * @param {string} ctx.agentId  agents.id (uuid)
- * @param {string} [ctx.agentSlug]  agents.slug (text)
  */
-export function normalizeAwapiRow(raw, { agentId, agentSlug } = {}) {
+export function normalizeAwapiRow(raw, { agentId } = {}) {
   if (!raw || !agentId) return null;
   const id_umroh = safeText(raw.id_umrah);
   const jm_id = safeText(raw.id_jamaah);
@@ -183,7 +182,6 @@ export function normalizeAwapiRow(raw, { agentId, agentSlug } = {}) {
 
   return {
     agent_id: agentId,
-    agent_slug: agentSlug || null,
     id_umroh,
     jm_id,
     nama,
