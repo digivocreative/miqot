@@ -194,39 +194,15 @@ export default function BirthdayDetailSheet({
         return;
       }
 
-      // WhatsApp deep links cannot prefill media attachments. On browsers that
-      // support file sharing, use the native share sheet so image + text go together.
+      // WhatsApp deep links cannot prefill media attachments. Download the card
+      // first, then open the jamaah chat with the message pre-filled.
       if (includeKartu) {
         const blob = await captureCardBlob();
         if (blob) {
-          const file = new File([blob], cardFileName(jamaah, selectedTemplate), { type: 'image/jpeg' });
-          const nav = navigator as Navigator & {
-            canShare?: (data: ShareData) => boolean;
-            share?: (data: ShareData) => Promise<void>;
-          };
-          const shareData: ShareData = {
-            title: `Ucapan ulang tahun untuk ${jamaah.nama}`,
-            text: message,
-            files: [file],
-          };
-
-          if (nav.share && nav.canShare?.(shareData)) {
-            try {
-              await nav.share(shareData);
-              trackEvent('action', 'birthday_native_share', { template: selectedTemplate });
-              return;
-            } catch (e) {
-              const err = e as DOMException;
-              if (err.name === 'AbortError') {
-                showToast('Share dibatalkan');
-                return;
-              }
-              console.error('[BirthdaySheet] native share error:', e);
-            }
-          }
-
           downloadBlob(blob, cardFileName(jamaah, selectedTemplate));
           showToast('Kartu didownload — attach ke chat');
+        } else {
+          showToast('Gagal generate kartu, lanjut buka WA');
         }
       }
 
