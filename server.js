@@ -8040,7 +8040,9 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     const lunasQ = supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).or('sisa.eq.0,sisa.is.null');
     const belumLunasQ = supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).gt('sisa', 0).gt('bayar', 0);
 
-    let outQ = supabase.from('jamaah').select('sisa').eq('agent_id', agentId).gt('sisa', 0);
+    // Need id_umroh to dedupe — sisa is booking-level (same value across each
+    // family member row), so summing per-row inflates by booking size.
+    let outQ = supabase.from('jamaah').select('id_umroh, sisa').eq('agent_id', agentId).gt('sisa', 0);
     if (year) outQ = outQ.eq('hijriah_year', year);
 
     let bebQ = supabase.from('jamaah')
@@ -8060,7 +8062,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     let trendQ = supabase.from('jamaah').select('tgl_daftar, bayar, sisa').eq('agent_id', agentId).gte('tgl_daftar', tmStr).order('tgl_daftar', { ascending: true });
     if (year) trendQ = trendQ.eq('hijriah_year', year);
 
-    let olQ = supabase.from('jamaah').select('nama, paket, jk, sisa, tgl_berangkat, wa').eq('agent_id', agentId).gt('sisa', 0).order('sisa', { ascending: false }).order('tgl_berangkat', { ascending: true });
+    let olQ = supabase.from('jamaah').select('id_umroh, nama, paket, jk, sisa, tgl_berangkat, wa').eq('agent_id', agentId).gt('sisa', 0).order('sisa', { ascending: false }).order('tgl_berangkat', { ascending: true });
     if (year) olQ = olQ.eq('hijriah_year', year);
 
     let komisiQ = supabase.from('jamaah').select('paket, sisa, tgl_berangkat, diskon_marketing').eq('agent_id', agentId);
@@ -8101,7 +8103,13 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     const jamaahBaru = jbRes.count;
     const prevTotal = prevTotalRes.count;
     const prevJamaahBaru = prevJbRes.count;
-    const totalOutstanding = (outData || []).reduce((s, r) => s + (r.sisa || 0), 0);
+    // Dedupe by id_umroh — sisa is booking-level, not per-jamaah.
+    const seenOutBookings = new Set();
+    const totalOutstanding = (outData || []).reduce((s, r) => {
+      if (!r.id_umroh || seenOutBookings.has(r.id_umroh)) return s;
+      seenOutBookings.add(r.id_umroh);
+      return s + (r.sisa || 0);
+    }, 0);
     const lastSync = syncResult.data?.last_jamaah_sync_at || null;
 
     const todayDate = new Date(todayStr);
@@ -8155,13 +8163,19 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       .map(([bulan, count]) => ({ bulan, count }))
       .sort((a, b) => a.bulan.localeCompare(b.bulan));
 
-    const outstandingList = olRows.map(r => {
+    // Dedupe by id_umroh — show one row per booking (first encountered wins;
+    // olQ is sorted by sisa DESC then tgl_berangkat ASC). The displayed sisa
+    // is the booking-level outstanding, not per-jamaah.
+    const seenOlBookings = new Set();
+    const outstandingList = (olRows || []).reduce((acc, r) => {
+      if (!r.id_umroh || seenOlBookings.has(r.id_umroh)) return acc;
+      seenOlBookings.add(r.id_umroh);
       let hari_lagi = null;
       if (r.tgl_berangkat) {
         const dep = new Date(r.tgl_berangkat);
         hari_lagi = Math.ceil((dep.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
       }
-      return {
+      acc.push({
         nama: r.nama,
         paket: r.paket,
         jk: r.jk,
@@ -8169,8 +8183,9 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
         tgl_berangkat: r.tgl_berangkat,
         hari_lagi,
         wa: r.wa,
-      };
-    });
+      });
+      return acc;
+    }, []);
 
     // ── komisi ──
     const KOMISI_HEMAT = 1300000;
