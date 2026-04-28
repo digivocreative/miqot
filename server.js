@@ -8189,7 +8189,8 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     let hematCount = 0, hematTotal = 0, regulerCount = 0, regulerTotal = 0;
     for (const r of komisiRows) {
       const net = getNetKomisi(r);
-      const isLunas = !r.sisa || r.sisa === 0;
+      // sisa <= 0 = lunas (incl. lebih bayar / sisa negatif). NULL = lunas juga.
+      const isLunas = r.sisa == null || r.sisa <= 0;
       const departed = r.tgl_berangkat && r.tgl_berangkat < todayStr;
       // Komisi umroh cair saat jamaah sudah berangkat (regardless of sisa).
       // Belum cair = lunas tapi belum berangkat (akan cair saat keberangkatan).
