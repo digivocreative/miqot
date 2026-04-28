@@ -21,7 +21,7 @@
  */
 
 const BASE = process.env.AWAPI_BASE || 'http://115.124.86.220';
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 20_000;
 const RETRY_DELAY_MS = 800;
 
 class AwapiError extends Error {

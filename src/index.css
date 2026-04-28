@@ -328,3 +328,17 @@ body.page-entering > #root {
   0%   { background-position: 0 0; }
   100% { background-position: 20px 0; }
 }
+
+/* ============================================ */
+/* Birthday Widget — Pulse ring on icon          */
+/* ============================================ */
+@keyframes birthdayPulse {
+  0% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.4);
+  }
+}

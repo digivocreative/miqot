@@ -26,11 +26,12 @@ const NOTIFICATION_GROUPS = [
   {
     label: 'Jamaah',
     items: [
-      { key: 'departure',     emoji: '🕋', label: 'Keberangkatan',  desc: 'Reminder H-14, H-7, H-3, H-1' },
-      { key: 'paspor',        emoji: '📛', label: 'Paspor',         desc: 'Jamaah belum kumpul paspor' },
-      { key: 'pelunasan',     emoji: '💰', label: 'Pelunasan',      desc: 'Deadline pembayaran mendekati' },
-      { key: 'perlengkapan',  emoji: '📦', label: 'Perlengkapan',   desc: 'Jamaah belum lengkap perlengkapan' },
-      { key: 'manasik',       emoji: '🕌', label: 'Manasik',        desc: 'H-3 sebelum jadwal manasik' },
+      { key: 'departure',       emoji: '🕋', label: 'Keberangkatan',     desc: 'Reminder H-14, H-7, H-3, H-1' },
+      { key: 'paspor',          emoji: '📛', label: 'Paspor',            desc: 'Jamaah belum kumpul paspor' },
+      { key: 'pelunasan',       emoji: '💰', label: 'Pelunasan',         desc: 'Deadline pembayaran mendekati' },
+      { key: 'perlengkapan',    emoji: '📦', label: 'Perlengkapan',      desc: 'Jamaah belum lengkap perlengkapan' },
+      { key: 'manasik',         emoji: '🕌', label: 'Manasik',           desc: 'H-3 sebelum jadwal manasik' },
+      { key: 'birthday_digest', emoji: '🎂', label: 'Ucapan Ulang Tahun', desc: 'Digest harian jam 7 pagi — list jamaah yang ulang tahun hari itu' },
     ]
   },
   {

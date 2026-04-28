@@ -15,6 +15,7 @@ import { existsSync, mkdirSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
+import { getTodaysBirthdays } from './lib/birthdays.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATE_FILE = path.join(__dirname, 'data', 'notifier-state.json');
@@ -2342,9 +2343,108 @@ export async function sendKursUpdate() {
   }
 }
 
+// ─── Birthday Digest (daily 07:00 WIB) ───────────────
+
+function normalizeBirthdayWa(wa) {
+  const cleaned = String(wa || '').replace(/[^0-9]/g, '');
+  if (!cleaned) return null;
+  if (cleaned.startsWith('0')) return '62' + cleaned.slice(1);
+  if (cleaned.startsWith('62')) return cleaned;
+  if (cleaned.startsWith('8')) return '62' + cleaned;
+  return cleaned;
+}
+
+function escHtmlBday(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function formatBirthdayDigestMessage(birthdays) {
+  const lines = [
+    '🎂 <b>Ulang Tahun Jamaah Hari Ini</b>',
+    '',
+    `Ada ${birthdays.length} jamaah berulang tahun hari ini:`,
+    '',
+  ];
+
+  birthdays.forEach((b, i) => {
+    lines.push(`${i + 1}. <b>${escHtmlBday(b.salutation)} ${escHtmlBday(b.nama)}</b> (${b.age} tahun)`);
+    if (b.paket) lines.push(`   📦 ${escHtmlBday(b.paket)}`);
+    if (b.wa) {
+      const phone = normalizeBirthdayWa(b.wa);
+      if (phone) {
+        lines.push(`   💬 <a href="https://wa.me/${phone}">Kirim ucapan</a>`);
+      }
+    }
+    lines.push('');
+  });
+
+  lines.push('Buka <a href="https://alhijaz.co/dashboard">dashboard</a> untuk kirim ucapan dengan kartu.');
+  return lines.join('\n');
+}
+
+async function sendBirthdayDigestToAgent(agent) {
+  const todayBirthdays = await getTodaysBirthdays(supabaseAdmin, agent.id);
+  if (todayBirthdays.length === 0) return { sent: false, reason: 'no_birthdays' };
+
+  const message = formatBirthdayDigestMessage(todayBirthdays);
+  await sendTelegramToAgent(agent.telegram_chat_id, message);
+  return { sent: true, count: todayBirthdays.length };
+}
+
+async function runBirthdayDigest() {
+  if (!supabaseAdmin) {
+    loadConfig();
+    if (!supabaseAdmin) {
+      warn('[birthday-digest] Supabase admin client not configured — skipping');
+      return { agentsChecked: 0, sent: 0 };
+    }
+  }
+
+  log('[birthday-digest] Cron fired at', new Date().toISOString());
+
+  const { data: agents, error } = await supabaseAdmin
+    .from('agents')
+    .select('id, slug, name, telegram_chat_id, notification_prefs')
+    .not('telegram_chat_id', 'is', null);
+
+  if (error) {
+    warn('[birthday-digest] Failed to fetch agents:', error.message);
+    return { agentsChecked: 0, sent: 0, error: error.message };
+  }
+
+  let sentCount = 0;
+  let optedIn = 0;
+
+  for (const agent of agents || []) {
+    const prefs = agent.notification_prefs || {};
+    if (prefs.birthday_digest !== true) continue;
+    optedIn++;
+
+    try {
+      const result = await sendBirthdayDigestToAgent(agent);
+      if (result.sent) {
+        sentCount++;
+        log(`[birthday-digest] sent to ${agent.slug} (${result.count} jamaah)`);
+      }
+    } catch (err) {
+      warn(`[birthday-digest] Failed for agent ${agent.slug}:`, err.message);
+      // Continue to next agent
+    }
+
+    // Throttle to avoid Telegram rate limits
+    await sleep(300);
+  }
+
+  log(`[birthday-digest] Done: ${sentCount}/${optedIn} digests sent (of ${agents?.length || 0} connected agents)`);
+  return { agentsChecked: agents?.length || 0, optedIn, sent: sentCount };
+}
+
 // ─── Init ────────────────────────────────────────────
 
-export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyPembayaranMasuk };
+export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyPembayaranMasuk, runBirthdayDigest };
 
 export function initNotifier() {
   loadConfig();
@@ -2416,6 +2516,11 @@ export function initNotifier() {
   // CRON: Departure Reminder Pagi (07:00 WIB) — semua milestone, conversational
   cron.schedule('0 7 * * *', () => {
     sendAgentDepartureReminders();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // CRON: Birthday Digest Harian (07:00 WIB) — opt-in via notification_prefs.birthday_digest
+  cron.schedule('0 7 * * *', () => {
+    runBirthdayDigest();
   }, { timezone: 'Asia/Jakarta' });
 
   // CRON: Departure Reminder Sore (17:00 WIB) — H-1 only, urgent

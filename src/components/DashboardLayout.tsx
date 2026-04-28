@@ -27,9 +27,12 @@ import HajiPlusExportPage from './HajiPlusExportPage';
 import KursPage from './KursPage';
 import UmrahRegisterPage from './UmrahRegisterPage';
 import CuacaWidget from './CuacaWidget';
+import BirthdayWidget from './BirthdayWidget';
+import type { Birthday } from './BirthdayWidget';
 import { trackEvent } from '../utils/analytics';
 
 const ShareKursModal = lazy(() => import('./ShareKursModal'));
+const BirthdayDetailSheet = lazy(() => import('./BirthdayDetailSheet'));
 
 type TabId = 'home' | 'settings' | 'kalkulasi' | 'caption' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools';
 
@@ -273,6 +276,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     updatedAt: string;
   } | null>(null);
   const [showShareKurs, setShowShareKurs] = useState(false);
+  const [selectedBirthday, setSelectedBirthday] = useState<Birthday | null>(null);
 
   useEffect(() => {
     fetch('/api/kurs')
@@ -750,15 +754,18 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           {visibleCards.map(renderMenuCard)}
         </div>
 
-        {/* ── Flight Status + Upcoming Schedule + Cuaca + Kurs (flight card goes above calendar when has flights) ── */}
+        {/* ── Flight Status + Kurs + Birthday + Upcoming Schedule + Cuaca (flight card goes above when has flights) ── */}
         <div className="flex flex-col mt-4 gap-4">
-          <div style={{ order: flightCount > 0 ? 0 : 4 }}>
+          <div style={{ order: flightCount > 0 ? 0 : 5 }}>
             <FlightStatusCard onFlightCount={setFlightCount} />
           </div>
           <div style={{ order: 2 }}>
-            <UpcomingSchedule />
+            <BirthdayWidget onSelectJamaah={setSelectedBirthday} />
           </div>
           <div style={{ order: 3 }}>
+            <UpcomingSchedule />
+          </div>
+          <div style={{ order: 4 }}>
             <CuacaWidget />
           </div>
 
@@ -857,6 +864,20 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             />
           </Suspense>
         )}
+
+        {/* ── Birthday Detail Sheet ── */}
+        <Suspense fallback={null}>
+          {selectedBirthday && (
+            <BirthdayDetailSheet
+              jamaah={selectedBirthday}
+              onClose={() => setSelectedBirthday(null)}
+              agentName={agentData.name}
+              agentPhone={agentData.phone}
+              agentPhoto={agentData.photo}
+              agentSlug={agentData.slug}
+            />
+          )}
+        </Suspense>
 
         {/* ── Statistik Not Ready Alert ── */}
         {showStatAlert && (

@@ -19,7 +19,8 @@ import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration, fetchAwapiCredentials } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
-import { initNotifier, notifyPembayaranMasuk } from './telegram-notifier.js';
+import { initNotifier, notifyPembayaranMasuk, runBirthdayDigest } from './telegram-notifier.js';
+import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
@@ -393,71 +394,8 @@ app.get('/api/jamaah/session/:id', authMiddleware, (req, res) => {
 // Jamaah ulang tahun: hari ini + 3 hari ke depan (Asia/Jakarta), literal month/day match.
 app.get('/api/jamaah/birthdays', authMiddleware, async (req, res) => {
   try {
-    const jakartaNowStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' });
-    const baseJakarta = new Date(jakartaNowStr);
-    const currentYear = baseJakarta.getFullYear();
-
-    const targets = [0, 1, 2, 3].map((offset) => {
-      const d = new Date(baseJakarta);
-      d.setDate(d.getDate() + offset);
-      return {
-        offset,
-        year: d.getFullYear(),
-        month: d.getMonth() + 1,
-        day: d.getDate(),
-      };
-    });
-    const targetByKey = new Map(targets.map(t => [`${t.month}-${t.day}`, t]));
-
-    const rows = await fetchAllRows(
-      supabase
-        .from('jamaah')
-        .select('id_umroh, nama, jk, wa, paket, tgl_lahir, bayar, sisa, tgl_berangkat')
-        .eq('agent_id', req.user.id)
-        .not('tgl_lahir', 'is', null)
-    );
-
-    const birthdays = [];
-    for (const r of rows) {
-      if (!r.tgl_lahir) continue;
-      const m = String(r.tgl_lahir).match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (!m) continue;
-      const birthYear = parseInt(m[1], 10);
-      const birthMonth = parseInt(m[2], 10);
-      const birthDay = parseInt(m[3], 10);
-      const target = targetByKey.get(`${birthMonth}-${birthDay}`);
-      if (!target) continue;
-
-      const bayar = Number(r.bayar) || 0;
-      const sisa = Number(r.sisa) || 0;
-      const status_bayar = bayar === 0 ? 'belum_bayar' : sisa <= 0 ? 'lunas' : 'dp';
-
-      const mm = String(birthMonth).padStart(2, '0');
-      const dd = String(birthDay).padStart(2, '0');
-
-      birthdays.push({
-        id_umroh: r.id_umroh,
-        nama: r.nama,
-        jk: r.jk,
-        salutation: r.jk === 'P' ? 'Ibu' : 'Bapak',
-        wa: r.wa,
-        paket: r.paket,
-        tgl_lahir: r.tgl_lahir,
-        birthday_date: `${target.year}-${mm}-${dd}`,
-        age: currentYear - birthYear,
-        day_offset: target.offset,
-        status_bayar,
-        tgl_berangkat: r.tgl_berangkat,
-      });
-    }
-
-    birthdays.sort((a, b) => {
-      if (a.day_offset !== b.day_offset) return a.day_offset - b.day_offset;
-      return String(a.nama || '').localeCompare(String(b.nama || ''));
-    });
-
+    const birthdays = await getBirthdaysForAgent(supabase, req.user.id, [0, 1, 2, 3]);
     const today_count = birthdays.filter(b => b.day_offset === 0).length;
-
     res.json({
       success: true,
       count: birthdays.length,
@@ -470,6 +408,19 @@ app.get('/api/jamaah/birthdays', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// Dev-only: trigger birthday digest cron manually (skipped in production).
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/api/dev/trigger-birthday-digest', authMiddleware, async (req, res) => {
+    try {
+      const result = await runBirthdayDigest();
+      res.json({ success: true, message: 'Digest triggered', ...result });
+    } catch (err) {
+      console.error('[Birthdays/dev-trigger] error:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+}
 
 // ── JWT Auth middleware ──
 async function authMiddleware(req, res, next) {
@@ -2387,6 +2338,7 @@ const DEFAULT_NOTIFICATION_PREFS = {
   manasik: true, seat_alert: true, paket_baru: true, perubahan_harga: true,
   pembayaran_masuk: true, ringkasan_mingguan: true,
   flight_status: true, insight_harian: true, kurs_dollar: true,
+  birthday_digest: false,
 };
 
 app.get('/api/telegram/prefs', authMiddleware, async (req, res) => {
@@ -11803,7 +11755,7 @@ async function syncAllAgents() {
   // parallel — there's no Apache session/rate-limit to throttle around.
   // Falls back to sequential + 5s gap for legacy behavior.
   const apiEnabled = process.env.AWAPI_SYNC_ENABLED === 'true';
-  const PARALLEL = apiEnabled ? 5 : 1;
+  const PARALLEL = apiEnabled ? 3 : 1;
   const INTER_AGENT_GAP_MS = apiEnabled ? 0 : 5000;
 
   let ok = 0, fail = 0, skipped = 0, loginFail = 0;
