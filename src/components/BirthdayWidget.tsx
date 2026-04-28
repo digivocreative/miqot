@@ -4,7 +4,7 @@ import { getAuthHeaders } from './LoginPage';
 
 const BirthdayListSheet = lazy(() => import('./BirthdayListSheet'));
 
-const DAY_LABELS = ['Hari Ini', 'Besok', 'Lusa', '3 Hari Lagi'];
+const DAY_LABELS = ['Hari Ini', 'Besok', '2 Hari Lagi', '3 Hari Lagi'];
 
 export interface Birthday {
   id_umroh: string;
@@ -233,7 +233,7 @@ function BirthdayRow({ jamaah, highlighted, onClick }: {
           ? 'bg-pink-100 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400'
           : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400'
       }`}>
-        {jamaah.age} thn
+        {jamaah.age} tahun
       </div>
     </button>
   );

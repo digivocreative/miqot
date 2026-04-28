@@ -33,9 +33,7 @@ function getDefaultMessage(jamaah: Birthday, agentName: string): string {
 
   const upcomingWord = jamaah.day_offset === 1
     ? 'besok'
-    : jamaah.day_offset === 2
-      ? 'lusa'
-      : `${jamaah.day_offset} hari lagi`;
+    : `${jamaah.day_offset} hari lagi`;
 
   const doa = `Allah panjangkan umur ${sapaan} ${jamaahFirst} dengan keberkahan, dilimpahkan kesehatan, dilapangkan rezekinya, dan dimudahkan langkah menuju Baitullah`;
 
@@ -65,7 +63,7 @@ function slugify(s: string): string {
 }
 
 function dayLabel(offset: 0 | 1 | 2 | 3): string {
-  return ['Hari ini', 'Besok', 'Lusa', '3 hari lagi'][offset];
+  return ['Hari ini', 'Besok', '2 hari lagi', '3 hari lagi'][offset];
 }
 
 function WhatsAppIcon({ size = 14 }: { size?: number }) {
@@ -130,7 +128,9 @@ export default function BirthdayDetailSheet({
       try { await document.fonts?.ready; } catch { /* noop */ }
       const { snapdom } = await import('@zumer/snapdom');
       const result = await snapdom(target, { scale: 1 });
-      return await result.toBlob({ type: 'png' });
+      // JPEG quality 0.9 — file size ~10-15% of PNG, no transparency needed
+      // (cards have solid backgrounds), still high visual quality for sharing.
+      return await result.toBlob({ type: 'jpeg', quality: 0.9 });
     } catch (e) {
       console.error('[BirthdaySheet] snapdom error:', e);
       return null;
@@ -158,12 +158,12 @@ export default function BirthdayDetailSheet({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `ucapan-${slugify(jamaah.nama)}-${selectedTemplate}.png`;
+      a.download = `ucapan-${slugify(jamaah.nama)}-${selectedTemplate}.jpg`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      showToast('Kartu didownload');
+      showToast('Berhasil download');
       trackEvent('action', 'birthday_download', { template: selectedTemplate });
     } finally {
       setIsExporting(false);
@@ -180,42 +180,29 @@ export default function BirthdayDetailSheet({
         day_offset: jamaah.day_offset,
       });
 
-      let cardFile: File | null = null;
-      if (includeKartu) {
-        const blob = await captureCardBlob();
-        if (blob) {
-          cardFile = new File([blob], `ucapan-${slugify(jamaah.nama)}.png`, { type: 'image/png' });
-        }
-      }
-
-      if (cardFile && navigator.canShare && navigator.canShare({ files: [cardFile] })) {
-        try {
-          await navigator.share({ files: [cardFile], text: message });
-          showToast('Ucapan dikirim');
-          return;
-        } catch (err) {
-          if ((err as Error).name === 'AbortError') return;
-          // fallthrough to wa.me
-        }
-      }
-
-      if (cardFile) {
-        const downloadUrl = URL.createObjectURL(cardFile);
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.download = cardFile.name;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(downloadUrl);
-        showToast('Kartu didownload — attach ke WA secara manual');
-      }
-
       const phone = normalizeWaNumber(jamaah.wa);
       if (!phone) {
         showToast('Nomor WA jamaah tidak valid');
         return;
       }
+
+      // If kartu enabled, generate + auto-download first so agent can attach manually
+      if (includeKartu) {
+        const blob = await captureCardBlob();
+        if (blob) {
+          const downloadUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = downloadUrl;
+          a.download = `ucapan-${slugify(jamaah.nama)}.jpg`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(downloadUrl);
+          showToast('Kartu didownload — attach ke chat');
+        }
+      }
+
+      // Direct open chat with jamaah's WA number, message pre-filled
       const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
       window.open(waUrl, '_blank');
     } finally {

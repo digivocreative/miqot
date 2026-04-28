@@ -10,7 +10,7 @@ interface Props {
   onSelectJamaah: (b: Birthday) => void;
 }
 
-const DAY_LABELS = ['Hari Ini', 'Besok', 'Lusa', '3 Hari Lagi'];
+const DAY_LABELS = ['Hari Ini', 'Besok', '2 Hari Lagi', '3 Hari Lagi'];
 
 function formatIndoDate(iso: string): string {
   const [, m, d] = iso.split('-').map(Number);
@@ -113,7 +113,6 @@ export default function BirthdayListSheet({ birthdays, onClose, onSelectJamaah }
 function BirthdayListRow({ jamaah, onClick }: { jamaah: Birthday; onClick: () => void }) {
   const initials = jamaah.nama.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
   const isFemale = jamaah.jk === 'P';
-  const isToday = jamaah.day_offset === 0;
 
   return (
     <button
@@ -135,12 +134,8 @@ function BirthdayListRow({ jamaah, onClick }: { jamaah: Birthday; onClick: () =>
           Keberangkatan: {jamaah.tgl_berangkat ? formatBerangkat(jamaah.tgl_berangkat) : '-'}
         </div>
       </div>
-      <div className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex-shrink-0 ${
-        isToday
-          ? 'bg-pink-100 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400'
-          : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400'
-      }`}>
-        {jamaah.age} thn
+      <div className="text-[10px] font-bold px-2 py-0.5 rounded-md flex-shrink-0 bg-pink-100 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400">
+        {jamaah.age} tahun
       </div>
     </button>
   );

@@ -24,13 +24,14 @@ function formatWaDisplay(phone?: string): string {
   const cleaned = (phone || '').replace(/[^0-9]/g, '');
   if (!cleaned) return '';
   let digits = cleaned;
-  if (digits.startsWith('0')) digits = '62' + digits.slice(1);
-  if (digits.startsWith('62')) {
-    const rest = digits.slice(2);
-    const a = rest.slice(0, 3);
-    const b = rest.slice(3, 7);
-    const c = rest.slice(7);
-    return `+62 ${[a, b, c].filter(Boolean).join('-')}`;
+  if (digits.startsWith('62')) digits = '0' + digits.slice(2);
+  if (!digits.startsWith('0')) digits = '0' + digits;
+  // Format: 0812 3456 7890 (Indonesian local format with spaces)
+  if (digits.length >= 4) {
+    const a = digits.slice(0, 4);
+    const b = digits.slice(4, 8);
+    const c = digits.slice(8);
+    return [a, b, c].filter(Boolean).join(' ');
   }
   return digits;
 }
@@ -155,7 +156,7 @@ function CardFooter({
       {/* Logo right */}
       <img
         src="/logo-alhijaz-besar.svg"
-        style={{ height: 36, opacity: 0.85, filter: 'brightness(0) invert(1)', flexShrink: 0, marginLeft: 16 }}
+        style={{ height: 120, opacity: 0.95, filter: 'brightness(0) invert(1)', flexShrink: 0, marginLeft: 16 }}
         alt="Alhijaz"
       />
     </div>
@@ -186,35 +187,83 @@ function CanvasFrame({
 }
 
 function Classic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 'template'>) {
+  const GOLD = '#d4af6d';
+  const CONTENT_BOTTOM = 200;
   return (
-    <CanvasFrame background="linear-gradient(135deg, #831843 0%, #be185d 100%)">
-      <div style={{ position: 'absolute', top: 50, left: 50, fontSize: 110, opacity: 0.18 }}>🌹</div>
-      <div style={{ position: 'absolute', top: 50, right: 50, fontSize: 110, opacity: 0.18 }}>🌹</div>
-      <div style={{ position: 'absolute', bottom: 220, left: 50, fontSize: 80, opacity: 0.14 }}>🌹</div>
-      <div style={{ position: 'absolute', bottom: 220, right: 50, fontSize: 80, opacity: 0.14 }}>🌹</div>
+    <CanvasFrame background="linear-gradient(135deg, #3f0a0a 0%, #7f1d1d 55%, #991b1b 100%)">
+      {/* Vignette overlay for depth */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: 'radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.35) 100%)',
+          pointerEvents: 'none',
+        }}
+      />
 
+      {/* Gold double-line frame */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 40,
+          left: 40,
+          right: 40,
+          bottom: CONTENT_BOTTOM + 40,
+          border: `1.5px solid ${GOLD}`,
+          opacity: 0.4,
+          pointerEvents: 'none',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          top: 50,
+          left: 50,
+          right: 50,
+          bottom: CONTENT_BOTTOM + 50,
+          border: `1px solid ${GOLD}`,
+          opacity: 0.2,
+          pointerEvents: 'none',
+        }}
+      />
+
+      {/* Gold corner sparkles */}
+      <div style={{ position: 'absolute', top: 26, left: 26, fontSize: 32, color: GOLD, opacity: 0.85, lineHeight: 1 }}>✦</div>
+      <div style={{ position: 'absolute', top: 26, right: 26, fontSize: 32, color: GOLD, opacity: 0.85, lineHeight: 1 }}>✦</div>
+      <div style={{ position: 'absolute', bottom: CONTENT_BOTTOM + 26, left: 26, fontSize: 32, color: GOLD, opacity: 0.85, lineHeight: 1 }}>✦</div>
+      <div style={{ position: 'absolute', bottom: CONTENT_BOTTOM + 26, right: 26, fontSize: 32, color: GOLD, opacity: 0.85, lineHeight: 1 }}>✦</div>
+
+      {/* Subtle sparkles scattered */}
+      <div style={{ position: 'absolute', top: 130, left: 100, fontSize: 18, color: GOLD, opacity: 0.4 }}>✧</div>
+      <div style={{ position: 'absolute', top: 200, right: 120, fontSize: 16, color: GOLD, opacity: 0.4 }}>✧</div>
+      <div style={{ position: 'absolute', top: 720, left: 130, fontSize: 18, color: GOLD, opacity: 0.4 }}>✧</div>
+      <div style={{ position: 'absolute', top: 680, right: 110, fontSize: 16, color: GOLD, opacity: 0.4 }}>✧</div>
+      <div style={{ position: 'absolute', top: 380, left: 70, fontSize: 14, color: GOLD, opacity: 0.3 }}>✦</div>
+      <div style={{ position: 'absolute', top: 540, right: 80, fontSize: 14, color: GOLD, opacity: 0.3 }}>✦</div>
+
+      {/* Content */}
       <div
         style={{
           position: 'relative',
           width: '100%',
-          height: 'calc(100% - 180px)',
+          height: `calc(100% - ${CONTENT_BOTTOM}px)`,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '0 80px',
+          padding: '60px 110px 40px 110px',
           textAlign: 'center',
           boxSizing: 'border-box',
         }}
       >
-        <div style={{ fontSize: 110, lineHeight: 1, marginBottom: 16 }}>💐</div>
+        <div style={{ fontSize: 110, lineHeight: 1, marginBottom: 12 }}>💐</div>
 
         <div
           style={{
             fontFamily: '"DM Serif Display", serif',
-            fontSize: 88,
+            fontSize: 92,
             color: '#FFFFFF',
-            lineHeight: 1.05,
+            lineHeight: 1.0,
           }}
         >
           Selamat
@@ -223,31 +272,40 @@ function Classic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
           style={{
             fontFamily: '"DM Serif Display", serif',
             fontStyle: 'italic',
-            fontSize: 88,
-            color: '#FFFFFF',
-            lineHeight: 1.05,
+            fontSize: 92,
+            color: GOLD,
+            lineHeight: 1.0,
+            marginTop: 4,
           }}
         >
           Ulang Tahun
         </div>
 
+        {/* Gold divider with center diamond */}
         <div
           style={{
-            width: 110,
-            height: 2,
-            background: 'rgba(255,255,255,0.4)',
-            margin: '32px 0 24px 0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            margin: '36px 0 28px 0',
+            width: '60%',
           }}
-        />
+        >
+          <div style={{ flex: 1, height: 1, background: GOLD, opacity: 0.6 }} />
+          <div style={{ width: 8, height: 8, background: GOLD, transform: 'rotate(45deg)', opacity: 0.85 }} />
+          <div style={{ flex: 1, height: 1, background: GOLD, opacity: 0.6 }} />
+        </div>
 
         <div
           style={{
             fontFamily: 'Inter, sans-serif',
-            fontSize: 40,
+            fontSize: 42,
             fontWeight: 600,
             color: '#FFFFFF',
             lineHeight: 1.2,
-            maxWidth: '90%',
+            maxWidth: '95%',
+            wordBreak: 'break-word',
           }}
         >
           {jamaah.salutation} {jamaah.nama}
@@ -255,12 +313,27 @@ function Classic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
         <div
           style={{
             fontFamily: 'Inter, sans-serif',
-            fontSize: 26,
-            color: 'rgba(255,255,255,0.8)',
-            marginTop: 10,
+            fontSize: 22,
+            color: 'rgba(255, 230, 200, 0.85)',
+            marginTop: 16,
+            fontStyle: 'italic',
           }}
         >
-          Genap usia ke-{jamaah.age} tahun
+          Kini menginjak usia {jamaah.age} tahun
+        </div>
+
+        <div
+          style={{
+            fontFamily: 'Inter, sans-serif',
+            fontStyle: 'italic',
+            fontSize: 19,
+            color: 'rgba(255, 230, 200, 0.75)',
+            marginTop: 22,
+            maxWidth: '80%',
+            lineHeight: 1.5,
+          }}
+        >
+          Semoga panjang umur, sehat selalu, dan dimudahkan menuju Baitullah.
         </div>
       </div>
 
@@ -268,64 +341,127 @@ function Classic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
         agentName={agentName}
         agentPhone={agentPhone}
         agentPhoto={agentPhoto}
-        ringColor="#9d174d"
-        topBorder="1px solid rgba(255,255,255,0.18)"
+        ringColor="#7f1d1d"
+        topBorder={`1px solid ${GOLD}55`}
       />
     </CanvasFrame>
   );
 }
 
 function Islamic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 'template'>) {
+  const GOLD = '#d4af6d';
+  const CONTENT_BOTTOM = 200;
   return (
-    <CanvasFrame background="linear-gradient(135deg, #064e3b 0%, #047857 100%)">
+    <CanvasFrame background="linear-gradient(135deg, #022c22 0%, #064e3b 50%, #047857 100%)">
+      {/* Islamic geometric pattern overlay */}
       <div
         style={{
           position: 'absolute',
           inset: 0,
           backgroundImage: ISLAMIC_PATTERN,
           backgroundRepeat: 'repeat',
-          opacity: 0.5,
+          opacity: 0.45,
         }}
       />
 
+      {/* Vignette overlay for depth */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: 'radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.4) 100%)',
+          pointerEvents: 'none',
+        }}
+      />
+
+      {/* Mosque silhouette backdrop */}
       <svg
         viewBox="0 0 400 200"
         preserveAspectRatio="xMidYEnd meet"
         style={{
           position: 'absolute',
-          bottom: 200,
+          bottom: CONTENT_BOTTOM + 60,
           left: '50%',
           transform: 'translateX(-50%)',
-          width: 600,
-          height: 280,
-          opacity: 0.16,
+          width: 620,
+          height: 260,
+          opacity: 0.13,
           fill: '#FFFFFF',
+          zIndex: 0,
         }}
       >
         <path d="M40 200V120c0-12 8-22 20-22V70l-12-8 12-12 12 12-12 8v28c12 0 20 10 20 22v80H40zM160 200V100c0-30 18-54 40-54s40 24 40 54v100H160zM200 46v-22m-10 6h20M320 200v-80c0-12 8-22 20-22V70l-12-8 12-12 12 12-12 8v28c12 0 20 10 20 22v80h-40z" />
         <path d="M0 200h400" stroke="#FFFFFF" strokeWidth="2" />
       </svg>
 
+      {/* Gold double-line frame */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 40,
+          left: 40,
+          right: 40,
+          bottom: CONTENT_BOTTOM + 40,
+          border: `1.5px solid ${GOLD}`,
+          opacity: 0.4,
+          pointerEvents: 'none',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          top: 50,
+          left: 50,
+          right: 50,
+          bottom: CONTENT_BOTTOM + 50,
+          border: `1px solid ${GOLD}`,
+          opacity: 0.2,
+          pointerEvents: 'none',
+        }}
+      />
+
+      {/* 4 Islamic 8-pointed star corners */}
+      <div style={{ position: 'absolute', top: 22, left: 22, fontSize: 38, color: GOLD, opacity: 0.9, lineHeight: 1 }}>✸</div>
+      <div style={{ position: 'absolute', top: 22, right: 22, fontSize: 38, color: GOLD, opacity: 0.9, lineHeight: 1 }}>✸</div>
+      <div style={{ position: 'absolute', bottom: CONTENT_BOTTOM + 22, left: 22, fontSize: 38, color: GOLD, opacity: 0.9, lineHeight: 1 }}>✸</div>
+      <div style={{ position: 'absolute', bottom: CONTENT_BOTTOM + 22, right: 22, fontSize: 38, color: GOLD, opacity: 0.9, lineHeight: 1 }}>✸</div>
+
+      {/* Subtle scattered sparkles */}
+      <div style={{ position: 'absolute', top: 130, left: 100, fontSize: 18, color: GOLD, opacity: 0.45 }}>✧</div>
+      <div style={{ position: 'absolute', top: 200, right: 120, fontSize: 16, color: GOLD, opacity: 0.45 }}>✧</div>
+      <div style={{ position: 'absolute', top: 720, left: 130, fontSize: 18, color: GOLD, opacity: 0.45 }}>✧</div>
+      <div style={{ position: 'absolute', top: 680, right: 110, fontSize: 16, color: GOLD, opacity: 0.45 }}>✧</div>
+      <div style={{ position: 'absolute', top: 380, left: 70, fontSize: 14, color: GOLD, opacity: 0.35 }}>✦</div>
+      <div style={{ position: 'absolute', top: 540, right: 80, fontSize: 14, color: GOLD, opacity: 0.35 }}>✦</div>
+
+      {/* Content */}
       <div
         style={{
           position: 'relative',
           width: '100%',
-          height: 'calc(100% - 180px)',
+          height: `calc(100% - ${CONTENT_BOTTOM}px)`,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'flex-start',
-          padding: '90px 80px 0 80px',
+          padding: '85px 110px 40px 110px',
           textAlign: 'center',
           zIndex: 1,
           boxSizing: 'border-box',
         }}
       >
+        {/* Top decorative ornament: --- ❋ --- */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+          <div style={{ width: 70, height: 1, background: GOLD, opacity: 0.55 }} />
+          <div style={{ fontSize: 18, color: GOLD, lineHeight: 1, opacity: 0.9 }}>❋</div>
+          <div style={{ width: 70, height: 1, background: GOLD, opacity: 0.55 }} />
+        </div>
+
         <div
           style={{
             fontFamily: '"Amiri", serif',
-            fontSize: 50,
-            color: 'rgba(255,255,255,0.7)',
+            fontSize: 56,
+            color: '#FFFFFF',
             lineHeight: 1,
           }}
         >
@@ -336,7 +472,7 @@ function Islamic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
           <div
             style={{
               fontFamily: '"Amiri", serif',
-              fontSize: 96,
+              fontSize: 100,
               color: '#FFFFFF',
               lineHeight: 1,
               fontWeight: 700,
@@ -349,21 +485,36 @@ function Islamic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
               fontFamily: '"Amiri", serif',
               fontStyle: 'italic',
               fontSize: 64,
-              color: '#FFFFFF',
+              color: GOLD,
               lineHeight: 1,
-              marginTop: 6,
+              marginTop: 4,
             }}
           >
             fii Umrik
           </div>
         </div>
 
+        {/* Gold divider with diamond */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            margin: '32px 0 20px 0',
+            width: '60%',
+          }}
+        >
+          <div style={{ flex: 1, height: 1, background: GOLD, opacity: 0.6 }} />
+          <div style={{ width: 8, height: 8, background: GOLD, transform: 'rotate(45deg)', opacity: 0.85 }} />
+          <div style={{ flex: 1, height: 1, background: GOLD, opacity: 0.6 }} />
+        </div>
+
         <div
           style={{
             fontFamily: 'Inter, sans-serif',
-            fontSize: 26,
-            color: 'rgba(255,255,255,0.85)',
-            marginTop: 36,
+            fontSize: 24,
+            color: 'rgba(255, 235, 200, 0.85)',
             letterSpacing: '0.04em',
           }}
         >
@@ -373,12 +524,13 @@ function Islamic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
         <div
           style={{
             fontFamily: 'Inter, sans-serif',
-            fontSize: 38,
+            fontSize: 32,
             fontWeight: 600,
             color: '#FFFFFF',
-            marginTop: 18,
-            lineHeight: 1.2,
-            maxWidth: '90%',
+            marginTop: 14,
+            lineHeight: 1.25,
+            maxWidth: '95%',
+            wordBreak: 'break-word',
           }}
         >
           {jamaah.salutation} {jamaah.nama}
@@ -387,21 +539,22 @@ function Islamic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
           style={{
             fontFamily: 'Inter, sans-serif',
             fontSize: 22,
-            color: 'rgba(255,255,255,0.8)',
-            marginTop: 6,
+            color: 'rgba(255, 235, 200, 0.85)',
+            marginTop: 12,
+            fontStyle: 'italic',
           }}
         >
-          Genap usia ke-{jamaah.age} tahun
+          Kini menginjak usia {jamaah.age} tahun
         </div>
 
         <div
           style={{
             fontFamily: 'Inter, sans-serif',
             fontStyle: 'italic',
-            fontSize: 20,
-            color: 'rgba(255,255,255,0.75)',
-            marginTop: 28,
-            maxWidth: '78%',
+            fontSize: 19,
+            color: 'rgba(255, 235, 200, 0.75)',
+            marginTop: 22,
+            maxWidth: '80%',
             lineHeight: 1.5,
           }}
         >
@@ -414,7 +567,7 @@ function Islamic({ jamaah, agentName, agentPhoto, agentPhone }: Omit<CardProps, 
         agentPhone={agentPhone}
         agentPhoto={agentPhoto}
         ringColor="#065f46"
-        topBorder="1px solid rgba(255,255,255,0.18)"
+        topBorder={`1px solid ${GOLD}55`}
       />
     </CanvasFrame>
   );
