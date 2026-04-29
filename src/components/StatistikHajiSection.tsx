@@ -44,6 +44,8 @@ export interface HajiStatsData {
 }
 
 // ── Formatters ──
+const STATISTIK_HAJI_KURS_ADJUSTMENT = 200;
+
 function fmtUSDFull(n: number): string {
   return `$${(n || 0).toLocaleString('en-US')}`;
 }
@@ -116,7 +118,12 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
   useEffect(() => {
     fetch('/api/kurs')
       .then(r => r.json())
-      .then(j => { if (j.success && j.data?.rates?.USD) setKursUSD(Number(j.data.rates.USD)); })
+      .then(j => {
+        const mandiriUsdRate = Number(j.data?.rates?.USD);
+        if (j.success && Number.isFinite(mandiriUsdRate) && mandiriUsdRate > 0) {
+          setKursUSD(Math.max(mandiriUsdRate - STATISTIK_HAJI_KURS_ADJUSTMENT, 0));
+        }
+      })
       .catch(() => {});
   }, []);
 
