@@ -297,6 +297,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               const monthName = dt.toLocaleDateString('id-ID', { month: 'long' });
               formattedDate = `${dayName}, ${dt.getDate()} ${monthName} ${dt.getFullYear()}`;
             }
+
             setKursData({
               usd: usdRate,
               sar: sarRate,
@@ -869,6 +870,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 phone: agentData.phone,
                 photo: agentData.photo,
                 slug: agentData.slug,
+                website: agentData.website,
               }}
             />
           </Suspense>

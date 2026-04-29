@@ -15,11 +15,16 @@ export interface ShareKursModalProps {
   open: boolean;
   onClose: () => void;
   kurs: { usd: number; updatedAt: string };
-  agent: { name: string; phone: string; photo: string; slug: string };
+  agent: { name: string; phone: string; photo: string; slug: string; website?: string };
 }
 
 const PREVIEW_MAX_WIDTH = 520;
 const PREVIEW_MIN_WIDTH = 280;
+const PREVIEW_FRAME_INSET = 32;
+const EXPORT_SCALE = 1;
+const EXPORT_TYPE = 'jpeg';
+const EXPORT_MIME = 'image/jpeg';
+const EXPORT_QUALITY = 0.9;
 
 export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKursModalProps) {
   const [isExporting, setIsExporting] = useState(false);
@@ -53,7 +58,8 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
   const computeScale = useCallback(() => {
     if (!previewContainerRef.current) return;
     const containerW = previewContainerRef.current.clientWidth;
-    const targetW = Math.max(PREVIEW_MIN_WIDTH, Math.min(containerW, PREVIEW_MAX_WIDTH));
+    const availableW = Math.max(0, containerW - PREVIEW_FRAME_INSET);
+    const targetW = Math.max(PREVIEW_MIN_WIDTH, Math.min(availableW, PREVIEW_MAX_WIDTH));
     setPreviewScale(targetW / TEMPLATE_W);
   }, []);
 
@@ -78,14 +84,34 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
     return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   };
 
+  const captureKursBlob = async (): Promise<Blob> => {
+    if (!exportRef.current) throw new Error('Template belum siap');
+    await waitForFonts();
+    const { snapdom } = await import('@zumer/snapdom');
+    const result = await snapdom(exportRef.current, {
+      scale: EXPORT_SCALE,
+      backgroundColor: '#064e3b',
+    });
+    return await result.toBlob({ type: EXPORT_TYPE, quality: EXPORT_QUALITY });
+  };
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const handleDownload = async () => {
     if (!exportRef.current || isExporting) return;
     setIsExporting(true);
     try {
-      await waitForFonts();
-      const { snapdom } = await import('@zumer/snapdom');
-      const result = await snapdom(exportRef.current, { scale: 2 });
-      await result.download({ type: 'png', filename: `kurs-${yyyymmdd()}` });
+      const blob = await captureKursBlob();
+      downloadBlob(blob, `kurs-${yyyymmdd()}.jpg`);
       trackEvent('action', 'download_share_kurs');
     } catch (e) {
       console.error('[ShareKurs] Download gagal:', e);
@@ -99,17 +125,14 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
     if (!exportRef.current || isExporting) return;
     setIsExporting(true);
     try {
-      await waitForFonts();
-      const { snapdom } = await import('@zumer/snapdom');
-      const result = await snapdom(exportRef.current, { scale: 2 });
-      const blob = await result.toBlob({ type: 'png' });
-      const file = new File([blob], `kurs-${yyyymmdd()}.png`, { type: 'image/png' });
+      const blob = await captureKursBlob();
+      const file = new File([blob], `kurs-${yyyymmdd()}.jpg`, { type: EXPORT_MIME });
       if (navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file] });
         trackEvent('action', 'share_kurs');
       } else {
-        await result.download({ type: 'png', filename: `kurs-${yyyymmdd()}` });
-        showToast('Share tidak didukung, gambar diunduh');
+        downloadBlob(blob, `kurs-${yyyymmdd()}.jpg`);
+        showToast('Share tidak didukung, gambar JPG diunduh');
       }
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
@@ -123,7 +146,9 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
 
   const handleCopyCaption = async () => {
     const wa = normalizePhone(agent.phone);
-    const web = `${agent.slug || 'agent'}.alhijaz.co`;
+    const web = agent.website?.trim()
+      ? agent.website.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/g, '')
+      : `wa.me/${wa}`;
     const caption = [
       `📊 Update Kurs Bank Mandiri — ${kurs.updatedAt}`,
       '',
@@ -187,7 +212,7 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
           <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 px-5 py-6">
             <div ref={previewContainerRef} className="max-w-xl mx-auto">
               <div
-                className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-2 flex justify-center"
+                className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3 flex justify-center"
               >
                 <div
                   style={{
@@ -206,6 +231,8 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
                       position: 'absolute',
                       top: 0,
                       left: 0,
+                      width: TEMPLATE_W,
+                      height: TEMPLATE_H,
                     }}
                   >
                     <div ref={exportRef}>
