@@ -14,7 +14,7 @@ import { trackEvent } from '../utils/analytics';
 export interface ShareKursModalProps {
   open: boolean;
   onClose: () => void;
-  kurs: { usd: number; sar: number; updatedAt: string };
+  kurs: { usd: number; updatedAt: string };
   agent: { name: string; phone: string; photo: string; slug: string };
 }
 
@@ -128,7 +128,6 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
       `📊 Update Kurs Bank Mandiri — ${kurs.updatedAt}`,
       '',
       `💵 USD: Rp ${formatKurs(kurs.usd)}`,
-      `🇸🇦 SAR: Rp ${formatKurs(kurs.sar)}`,
       '',
       'Info paket Umroh & Haji:',
       agent.name,
@@ -188,7 +187,7 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
           <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 px-5 py-6">
             <div ref={previewContainerRef} className="max-w-xl mx-auto">
               <div
-                className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4 flex justify-center"
+                className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-2 flex justify-center"
               >
                 <div
                   style={{
