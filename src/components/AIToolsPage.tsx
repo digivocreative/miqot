@@ -26,15 +26,6 @@ const TOOLS = [
     active: true,
   },
   {
-    id: 'voice-over',
-    name: 'Voice Over Generator',
-    desc: 'Buat voice over promosi paket umroh & haji',
-    icon: Mic,
-    color: 'purple',
-    route: 'voice-over',
-    active: true,
-  },
-  {
     id: 'kurs',
     name: 'Kurs Hari Ini',
     desc: 'Cek & Hitung Kurs Valas hari ini',
@@ -50,6 +41,15 @@ const TOOLS = [
     icon: BarChart3,
     color: 'emerald',
     route: 'haji-plus',
+    active: true,
+  },
+  {
+    id: 'voice-over',
+    name: 'Voice Over Generator',
+    desc: 'Buat voice over promosi paket umroh & haji',
+    icon: Mic,
+    color: 'purple',
+    route: 'voice-over',
     active: true,
   },
   {

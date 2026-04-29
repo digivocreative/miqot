@@ -6853,6 +6853,19 @@ async function sendTelegramMessageDirect(chatId, text, options = {}) {
   }
 }
 
+const TELEGRAM_APP_BASE_URL = 'https://alhijaz.co';
+
+function buildTelegramUrlKeyboard(rows) {
+  const inline_keyboard = rows
+    .map(row => row
+      .filter(button => button?.text && button?.url)
+      .map(button => ({ text: button.text, url: button.url }))
+    )
+    .filter(row => row.length > 0);
+
+  return inline_keyboard.length > 0 ? { inline_keyboard } : undefined;
+}
+
 async function answerTelegramCallbackQuery(callbackQueryId, text) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !callbackQueryId) return;
@@ -6990,10 +7003,19 @@ async function detectAndNotifyChanges(oldData, newData, calendarEvent) {
       .not('telegram_chat_id', 'is', null);
 
     if (agents) {
+      const replyMarkup = buildTelegramUrlKeyboard([
+        [
+          { text: '✈️ Buka Dashboard', url: `${TELEGRAM_APP_BASE_URL}/dashboard` },
+          { text: '👥 Buka Jamaah', url: `${TELEGRAM_APP_BASE_URL}/dashboard/jamaah` },
+        ],
+      ]);
+
       for (const agent of agents) {
         const prefs = agent.notification_prefs || {};
         if (prefs.flight_status === false) continue;
-        await sendTelegramMessageDirect(agent.telegram_chat_id, message);
+        await sendTelegramMessageDirect(agent.telegram_chat_id, message, {
+          reply_markup: replyMarkup,
+        });
       }
     }
 

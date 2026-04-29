@@ -172,20 +172,73 @@ async function sendTelegramMessage(text) {
 }
 
 const FOOTER = '\n\n<i>🤖 Pesan ini dikirim otomatis. Analisis dibantu AI, data bisa berubah sewaktu-waktu.</i>';
+const APP_BASE_URL = 'https://alhijaz.co';
+
+function buildAgentPackageUrl(agentSlug, packageId) {
+  return `${APP_BASE_URL}/${agentSlug}/${packageId}`;
+}
+
+function buildDashboardUrl(path = '') {
+  return `${APP_BASE_URL}/dashboard${path}`;
+}
+
+function buildUrlKeyboard(rows) {
+  const inline_keyboard = rows
+    .map(row => row
+      .filter(button => button?.text && button?.url)
+      .map(button => ({ text: button.text, url: button.url }))
+    )
+    .filter(row => row.length > 0);
+
+  return inline_keyboard.length > 0 ? { inline_keyboard } : undefined;
+}
+
+function buildJamaahKeyboard(extraRows = []) {
+  return buildUrlKeyboard([
+    [
+      { text: '👥 Buka Jamaah', url: buildDashboardUrl('/jamaah') },
+      { text: '📊 Statistik', url: buildDashboardUrl('/statistik') },
+    ],
+    ...extraRows,
+  ]);
+}
+
+function buildDashboardKeyboard() {
+  return buildUrlKeyboard([
+    [{ text: '🏠 Buka Dashboard', url: buildDashboardUrl() }],
+  ]);
+}
+
+function buildPackageActionKeyboard(packages, agentSlug) {
+  const inline_keyboard = packages
+    .filter(pkg => pkg?.id)
+    .map(pkg => {
+      const url = buildAgentPackageUrl(agentSlug, pkg.id);
+      return [
+        { text: '📋 Salin Link', copy_text: { text: url } },
+        { text: '👁️ Lihat Paket', url },
+      ];
+    });
+
+  return inline_keyboard.length > 0 ? { inline_keyboard } : undefined;
+}
 
 // Send to a specific agent's Telegram chat ID (for per-agent notifications)
-async function sendTelegramToAgent(chatId, message) {
+async function sendTelegramToAgent(chatId, message, options = {}) {
   if (!BOT_TOKEN || !chatId) return;
   try {
+    const body = {
+      chat_id: chatId,
+      text: message,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+    };
+    if (options.reply_markup) body.reply_markup = options.reply_markup;
+
     const res = await fetch(`${TELEGRAM_API}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-      }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const err = await res.text();
@@ -211,15 +264,23 @@ async function broadcastToAgents(changeType, messageBuilder) {
     for (const agent of agents) {
       if (agent.notification_prefs?.[changeType] === false) continue;
 
-      const message = messageBuilder(agent.name, agent.slug);
-      if (!message) continue;
+      const builtMessages = messageBuilder(agent.name, agent.slug, agent);
+      const messages = Array.isArray(builtMessages) ? builtMessages : [builtMessages];
 
-      try {
-        await sendTelegramToAgent(agent.telegram_chat_id, message);
-      } catch (err) {
-        warn(`[broadcast-${changeType}] Failed for ${agent.slug}:`, err.message);
+      for (const builtMessage of messages) {
+        if (!builtMessage) continue;
+
+        const message = typeof builtMessage === 'string' ? builtMessage : builtMessage.text;
+        const options = typeof builtMessage === 'string' ? {} : (builtMessage.options || {});
+        if (!message) continue;
+
+        try {
+          await sendTelegramToAgent(agent.telegram_chat_id, message, options);
+        } catch (err) {
+          warn(`[broadcast-${changeType}] Failed for ${agent.slug}:`, err.message);
+        }
+        await new Promise(r => setTimeout(r, 300));
       }
-      await new Promise(r => setTimeout(r, 300));
     }
   } catch (err) {
     warn(`[broadcast-${changeType}] Error:`, err.message);
@@ -683,6 +744,10 @@ function titleCase(str) {
   return (str || '').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 }
 
+function formatPersonName(name) {
+  return escHtml(titleCase(name));
+}
+
 // ── Pagi (07:00 WIB) — semua milestone, conversational ──
 
 function buildPagiMessage(agentName, milestones) {
@@ -691,7 +756,7 @@ function buildPagiMessage(agentName, milestones) {
   // H-1: Paling detail — sebut nama satu-satu
   if (milestones.h1.list.length > 0) {
     const { list } = milestones.h1;
-    const names = list.map(j => `→ ${titleCase(j.nama)}${j.sisa && parseFloat(j.sisa) > 0 ? ' ⚠️ belum lunas' : ''}`);
+    const names = list.map(j => `→ <b>${formatPersonName(j.nama)}</b>${j.sisa && parseFloat(j.sisa) > 0 ? ' ⚠️ belum lunas' : ''}`);
     parts.push(
       `⚠️ <b>Besok</b> ada ${list.length} jamaah kamu berangkat:\n` +
       names.join('\n') + '\n' +
@@ -705,7 +770,7 @@ function buildPagiMessage(agentName, milestones) {
     const belumLunas = list.filter(j => j.sisa && parseFloat(j.sisa) > 0).length;
     const dateStr = formatTanggalShortID(date);
     const shownNames = list.slice(0, 3).map(j =>
-      `→ ${titleCase(j.nama)}${j.sisa && parseFloat(j.sisa) > 0 ? ' ⚠️ belum lunas' : ''}`
+      `→ <b>${formatPersonName(j.nama)}</b>${j.sisa && parseFloat(j.sisa) > 0 ? ' ⚠️ belum lunas' : ''}`
     );
     const sisanya = list.length > 3 ? `\n→ dan ${list.length - 3} lainnya` : '';
     const followUp = belumLunas > 0 ? '\nMungkin bisa follow up pembayarannya hari ini?' : '';
@@ -739,9 +804,9 @@ function buildPagiMessage(agentName, milestones) {
 
   if (parts.length === 0) return null;
 
-  return `🕋 Halo ${agentName}!\n\n` +
+  return `🕋 Halo <b>${escHtml(agentName)}</b>!\n\n` +
     parts.join('\n\n') +
-    '\n\n💡 Cek detail di dashboard → Jamaah';
+    '\n\n👥 <i>Gunakan tombol di bawah untuk cek detail jamaah.</i>';
 }
 
 async function sendAgentDepartureReminders() {
@@ -826,7 +891,9 @@ async function sendAgentDepartureReminders() {
       if (!message) continue;
 
       try {
-        await sendTelegramToAgent(agent.telegram_chat_id, message);
+        await sendTelegramToAgent(agent.telegram_chat_id, message, {
+          reply_markup: buildJamaahKeyboard(),
+        });
         state.sentDepartureReminders[stateKey] = new Date().toISOString();
         sentCount++;
         log(`✅ Departure pagi sent to ${slug}`);
@@ -906,16 +973,19 @@ async function departureReminderSore() {
       // Check notification preference
       if (agent.notification_prefs?.departure === false) continue;
 
-      const names = jamaahList.map(j => `→ ${titleCase(j.nama)}`).join('\n');
+      const names = jamaahList.map(j => `→ <b>${formatPersonName(j.nama)}</b>`).join('\n');
 
       const message =
         `⏰ <b>Reminder — besok berangkat!</b>\n\n` +
-        `${agent.name}, ${jamaahList.length} jamaah kamu berangkat besok pagi:\n` +
+        `<b>${escHtml(agent.name)}</b>, ${jamaahList.length} jamaah kamu berangkat besok pagi:\n` +
         `${names}\n\n` +
-        `Pastikan semua sudah ready ya! 🙏`;
+        `Pastikan semua sudah ready ya! 🙏\n\n` +
+        `👥 <i>Gunakan tombol di bawah untuk cek data jamaah.</i>`;
 
       try {
-        await sendTelegramToAgent(agent.telegram_chat_id, message);
+        await sendTelegramToAgent(agent.telegram_chat_id, message, {
+          reply_markup: buildJamaahKeyboard(),
+        });
         state.sentDepartureReminders[stateKey] = new Date().toISOString();
         sentCount++;
         log(`✅ Departure sore sent to ${slug}`);
@@ -942,7 +1012,7 @@ function buildPassportMessage(agentName, belumKumpul, expired, today) {
   if (expired.length > 0) {
     const names = expired.map(j => {
       const berangkat = formatTanggalID(j.tgl_berangkat);
-      return `→ ${titleCase(j.nama)} (berangkat ${berangkat})`;
+      return `→ <b>${formatPersonName(j.nama)}</b> (berangkat ${berangkat})`;
     });
     parts.push(
       `🚨 <b>${expired.length} jamaah paspor expired</b> sebelum keberangkatan:\n` +
@@ -966,7 +1036,7 @@ function buildPassportMessage(agentName, belumKumpul, expired, today) {
 
     const names = sorted.map(j => {
       const hari = daysLeft(j.tgl_berangkat);
-      return `→ ${titleCase(j.nama)} — berangkat ${hari} hari lagi`;
+      return `→ <b>${formatPersonName(j.nama)}</b> — berangkat ${hari} hari lagi`;
     });
 
     parts.push(
@@ -978,9 +1048,9 @@ function buildPassportMessage(agentName, belumKumpul, expired, today) {
 
   if (parts.length === 0) return null;
 
-  return `📛 Halo ${agentName}!\n\n` +
+  return `📛 Halo <b>${escHtml(agentName)}</b>!\n\n` +
     parts.join('\n\n') +
-    '\n\n💡 Cek detail di dashboard → Jamaah';
+    '\n\n👥 <i>Gunakan tombol di bawah untuk buka data jamaah.</i>';
 }
 
 async function passportReminder() {
@@ -1064,7 +1134,9 @@ async function passportReminder() {
       if (!message) continue;
 
       try {
-        await sendTelegramToAgent(agent.telegram_chat_id, message);
+        await sendTelegramToAgent(agent.telegram_chat_id, message, {
+          reply_markup: buildJamaahKeyboard(),
+        });
         if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
         state.sentDepartureReminders[stateKey] = new Date().toISOString();
         sentCount++;
@@ -1097,18 +1169,18 @@ function buildManasikMessage(events, manasikDate) {
 
   const details = events.map(e => {
     const parts = [];
-    if (e.group_number) parts.push(`Group ${e.group_number}`);
-    if (e.paket) parts.push(e.paket);
+    if (e.group_number) parts.push(`Group ${escHtml(e.group_number)}`);
+    if (e.paket) parts.push(escHtml(e.paket));
     if (e.pax) parts.push(`${e.pax} jamaah`);
-    if (e.jam) parts.push(`jam ${e.jam}`);
-    return `→ ${parts.join(' • ')}`;
+    if (e.jam) parts.push(`jam ${escHtml(e.jam)}`);
+    return `→ ${parts.join(' • ') || 'Jadwal manasik'}`;
   });
 
   return `🕌 <b>Manasik 3 hari lagi!</b>\n\n` +
-    `📅 ${dateStr}\n\n` +
+    `📅 <b>${dateStr}</b>\n\n` +
     details.join('\n') + '\n\n' +
     'Jangan lupa kabari jamaah yang ikut manasik ya! Ingatkan waktu, tempat, dan perlengkapan yang perlu dibawa. 🙏\n\n' +
-    '💡 Cek detail di dashboard → Kalender';
+    '🏠 <i>Gunakan tombol di bawah untuk buka dashboard.</i>';
 }
 
 async function manasikReminder() {
@@ -1156,7 +1228,9 @@ async function manasikReminder() {
       if (agent.notification_prefs?.manasik === false) continue;
 
       try {
-        await sendTelegramToAgent(agent.telegram_chat_id, message);
+        await sendTelegramToAgent(agent.telegram_chat_id, message, {
+          reply_markup: buildDashboardKeyboard(),
+        });
         if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
         state.sentDepartureReminders[stateKey] = new Date().toISOString();
         sentCount++;
@@ -1200,16 +1274,16 @@ function buildPerlengkapanMessage(agentName, jamaahList, today) {
     const missingStr = missing.length <= 3
       ? missing.join(', ')
       : `${missing.slice(0, 3).join(', ')} +${missing.length - 3} lainnya`;
-    return `→ ${titleCase(j.nama)} (${hari} hari lagi)\n   Kurang: ${missingStr}`;
+    return `→ <b>${formatPersonName(j.nama)}</b> (${hari} hari lagi)\n   Kurang: ${escHtml(missingStr)}`;
   });
 
   const sisanya = remaining > 0 ? `\n→ dan ${remaining} jamaah lainnya` : '';
 
-  return `📦 Halo ${agentName}!\n\n` +
+  return `📦 Halo <b>${escHtml(agentName)}</b>!\n\n` +
     `<b>${jamaahList.length} jamaah</b> perlengkapannya belum lengkap dan berangkat dalam 30 hari:\n\n` +
     lines.join('\n') + sisanya + '\n\n' +
     'Yuk diinfokan supaya jamaah bisa siapin sebelum berangkat 🙏\n\n' +
-    '💡 Cek detail di dashboard → Jamaah';
+    '👥 <i>Gunakan tombol di bawah untuk buka data jamaah.</i>';
 }
 
 async function perlengkapanReminder() {
@@ -1279,7 +1353,9 @@ async function perlengkapanReminder() {
       if (!message) continue;
 
       try {
-        await sendTelegramToAgent(agent.telegram_chat_id, message);
+        await sendTelegramToAgent(agent.telegram_chat_id, message, {
+          reply_markup: buildJamaahKeyboard(),
+        });
         if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
         state.sentDepartureReminders[stateKey] = new Date().toISOString();
         sentCount++;
@@ -1336,9 +1412,9 @@ function buildWeeklyMessage(agentName, stats) {
     parts.push(`<b>Perlu follow up:</b>\n` + actions.join('\n'));
   }
 
-  return `Halo ${agentName}! 👋\n\n` +
+  return `👋 Halo <b>${escHtml(agentName)}</b>!\n\n` +
     parts.join('\n\n') +
-    '\n\nSemangat minggu ini! 💪\n💡 Cek detail di dashboard';
+    '\n\nSemangat minggu ini! 💪\n🏠 <i>Gunakan tombol di bawah untuk buka dashboard.</i>';
 }
 
 async function weeklySummary() {
@@ -1356,7 +1432,7 @@ async function weeklySummary() {
 
     const { data: agents, error: aError } = await supabaseAdmin
       .from('agents')
-      .select('slug, name, telegram_chat_id, notification_prefs')
+      .select('id, slug, name, telegram_chat_id, notification_prefs')
       .not('telegram_chat_id', 'is', null);
 
     if (aError) throw aError;
@@ -1415,7 +1491,11 @@ async function weeklySummary() {
       });
 
       try {
-        await sendTelegramToAgent(agent.telegram_chat_id, message);
+        await sendTelegramToAgent(agent.telegram_chat_id, message, {
+          reply_markup: buildJamaahKeyboard([
+            [{ text: '🏠 Buka Dashboard', url: buildDashboardUrl() }],
+          ]),
+        });
         if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
         state.sentDepartureReminders[stateKey] = new Date().toISOString();
         sentCount++;
@@ -1439,7 +1519,7 @@ async function weeklySummary() {
 function buildPembayaranMessage(agentName, pembayaranList) {
   const lines = pembayaranList.map(p => {
     const status = p.isLunas ? ' ✅ LUNAS!' : ` (sisa ${fmtRpShort(p.sisa)})`;
-    return `→ ${titleCase(p.nama)} — <b>+${fmtRpShort(p.jumlah)}</b>${status}`;
+    return `→ <b>${formatPersonName(p.nama)}</b> — <b>+${fmtRpShort(p.jumlah)}</b>${status}`;
   });
 
   const totalMasuk = pembayaranList.reduce((sum, p) => sum + p.jumlah, 0);
@@ -1450,12 +1530,12 @@ function buildPembayaranMessage(agentName, pembayaranList) {
     footer = `\n🎉 ${lunasCount} jamaah sudah LUNAS!`;
   }
 
-  return `💵 Halo ${agentName}!\n\n` +
-    `<b>Pembayaran masuk!</b>\n\n` +
+  return `💵 Halo <b>${escHtml(agentName)}</b>!\n\n` +
+    `✅ <b>Pembayaran masuk!</b>\n\n` +
     lines.join('\n') + '\n\n' +
     `Total masuk: <b>${fmtRpShort(totalMasuk)}</b>` +
     footer + '\n\n' +
-    '💡 Cek detail di dashboard → Jamaah';
+    '👥 <i>Gunakan tombol di bawah untuk cek detail jamaah.</i>';
 }
 
 async function notifyPembayaranMasuk(agentId, pembayaranList) {
@@ -1475,10 +1555,12 @@ async function notifyPembayaranMasuk(agentId, pembayaranList) {
     const message = buildPembayaranMessage(agent.name, pembayaranList);
     if (!message) return;
 
-    await sendTelegramToAgent(agent.telegram_chat_id, message);
+    await sendTelegramToAgent(agent.telegram_chat_id, message, {
+      reply_markup: buildJamaahKeyboard(),
+    });
     log(`✅ Pembayaran notif sent to ${agent.slug}: ${pembayaranList.length} payment(s)`);
   } catch (err) {
-    warn(`[pembayaran-notif] Error for ${agentSlug}:`, err.message);
+    warn(`[pembayaran-notif] Error for ${agentId}:`, err.message);
   }
 }
 
@@ -1836,45 +1918,64 @@ async function checkAndNotify() {
           }
         }
 
-        const pkgUrl = (slug, id) => `https://alhijaz.co/${slug}/${id}`;
-
         if (seatAlerts.length > 0) {
           await broadcastToAgents('seat_alert', (agentName, agentSlug) => {
-            const lines = seatAlerts.map(s =>
-              `→ <b>${s.nama}</b>\n   Berangkat: ${s.tgl} • Sisa: <b>${s.sisa} seat</b>\n   🔗 <code>${pkgUrl(agentSlug, s.id)}</code>`
-            ).join('\n\n');
-            return `🪑 Halo ${agentName}!\n\n` +
-              `<b>Seat tinggal sedikit!</b>\n\n` +
-              lines + '\n\n' +
-              `Segera infokan ke calon jamaah yang berminat! 🏃‍♂️`;
+            return seatAlerts.map(s => ({
+              text: `🔥 Halo <b>${escHtml(agentName)}</b>!\n\n` +
+                `⚠️ <b>Seat tinggal sedikit!</b>\n` +
+                `<i>Momentum bagus untuk follow up calon jamaah yang sudah berminat.</i>\n\n` +
+                `🕋 <b>${s.nama}</b>\n` +
+                `📅 Berangkat: <b>${s.tgl}</b>\n` +
+                `🪑 Sisa: <b>${s.sisa} seat</b>\n` +
+                `🔗 <i>Gunakan tombol di bawah untuk buka atau salin link.</i>\n\n` +
+                `🏃‍♂️ <b>Segera infokan sebelum seat habis.</b>`,
+              options: {
+                reply_markup: buildPackageActionKeyboard([s], agentSlug),
+              },
+            }));
           });
         }
 
         if (paketBarus.length > 0) {
           await broadcastToAgents('paket_baru', (agentName, agentSlug) => {
-            const lines = paketBarus.map(p =>
-              `→ <b>${p.nama}</b>\n   Berangkat: ${p.tgl} • Harga mulai: <b>${p.harga}</b> • Seat: ${p.seat}\n   🔗 <code>${pkgUrl(agentSlug, p.id)}</code>`
-            ).join('\n\n');
-            return `🆕 Halo ${agentName}!\n\n` +
-              `<b>${paketBarus.length > 1 ? paketBarus.length + ' paket baru' : 'Paket baru'} tersedia!</b>\n\n` +
-              lines + '\n\n' +
-              `Cek detail dan mulai promosikan ke calon jamaah! 🎉`;
+            return paketBarus.map(p => ({
+              text: `🆕 Halo <b>${escHtml(agentName)}</b>!\n\n` +
+                `🎉 <b>Paket baru tersedia!</b>\n` +
+                `<i>Siap dipromosikan ke calon jamaah hari ini.</i>\n\n` +
+                `🕋 <b>${p.nama}</b>\n` +
+                `📅 Berangkat: <b>${p.tgl}</b>\n` +
+                `💰 Harga mulai: <b>${p.harga}</b>\n` +
+                `🪑 Seat tersedia: <b>${p.seat}</b>\n` +
+                `🔗 <i>Gunakan tombol di bawah untuk buka atau salin link.</i>\n\n` +
+                `🚀 <b>Cek detail dan mulai promosikan.</b>`,
+              options: {
+                reply_markup: buildPackageActionKeyboard([p], agentSlug),
+              },
+            }));
           });
         }
 
         if (hargaChanges.length > 0) {
           await broadcastToAgents('perubahan_harga', (agentName, agentSlug) => {
-            const lines = hargaChanges.map(h => {
+            return hargaChanges.map(h => {
               const cl = h.changes.map(c => {
                 const dir = c.newPrice > c.oldPrice ? '📈 naik' : '📉 turun';
                 return `   ${escHtml(c.paketType)} ${escHtml(c.roomType)}: ${formatRupiah(c.oldPrice)} → ${formatRupiah(c.newPrice)} (${dir})`;
               }).join('\n');
-              return `→ <b>${h.nama}</b>\n   Berangkat: ${h.tgl}\n${cl}\n   🔗 <code>${pkgUrl(agentSlug, h.id)}</code>`;
-            }).join('\n\n');
-            return `💲 Halo ${agentName}!\n\n` +
-              `<b>Perubahan harga paket!</b>\n\n` +
-              lines + '\n\n' +
-              `Update info ke jamaah yang sudah tanya ya!`;
+              return {
+                text: `💲 Halo <b>${escHtml(agentName)}</b>!\n\n` +
+                  `📣 <b>Perubahan harga paket!</b>\n` +
+                  `<i>Pastikan calon jamaah mendapat info harga terbaru.</i>\n\n` +
+                  `🕋 <b>${h.nama}</b>\n` +
+                  `📅 Berangkat: <b>${h.tgl}</b>\n` +
+                  `${cl}\n` +
+                  `🔗 <i>Gunakan tombol di bawah untuk buka atau salin link.</i>\n\n` +
+                  `✅ <b>Update info ke jamaah yang sudah tanya ya.</b>`,
+                options: {
+                  reply_markup: buildPackageActionKeyboard([h], agentSlug),
+                },
+              };
+            });
           });
         }
       } else {
@@ -2361,6 +2462,23 @@ function escHtmlBday(s) {
     .replace(/>/g, '&gt;');
 }
 
+function buildBirthdayActionKeyboard(birthdays) {
+  const waRows = birthdays
+    .map(b => {
+      const phone = normalizeBirthdayWa(b.wa);
+      if (!phone) return null;
+      const firstName = titleCase(String(b.nama || '').split(/\s+/)[0] || 'Jamaah');
+      return [{ text: `💬 Ucapkan ${firstName}`, url: `https://wa.me/${phone}` }];
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+
+  return buildUrlKeyboard([
+    [{ text: '🎂 Buka Dashboard', url: buildDashboardUrl() }],
+    ...waRows,
+  ]);
+}
+
 function formatBirthdayDigestMessage(birthdays) {
   const lines = [
     '🎂 <b>Ulang Tahun Jamaah Hari Ini</b>',
@@ -2381,7 +2499,7 @@ function formatBirthdayDigestMessage(birthdays) {
     lines.push('');
   });
 
-  lines.push('Buka <a href="https://alhijaz.co/dashboard">dashboard</a> untuk kirim ucapan dengan kartu.');
+  lines.push('🎁 <i>Gunakan tombol di bawah untuk buka dashboard atau kirim ucapan cepat.</i>');
   return lines.join('\n');
 }
 
@@ -2390,7 +2508,9 @@ async function sendBirthdayDigestToAgent(agent) {
   if (todayBirthdays.length === 0) return { sent: false, reason: 'no_birthdays' };
 
   const message = formatBirthdayDigestMessage(todayBirthdays);
-  await sendTelegramToAgent(agent.telegram_chat_id, message);
+  await sendTelegramToAgent(agent.telegram_chat_id, message, {
+    reply_markup: buildBirthdayActionKeyboard(todayBirthdays),
+  });
   return { sent: true, count: todayBirthdays.length };
 }
 
