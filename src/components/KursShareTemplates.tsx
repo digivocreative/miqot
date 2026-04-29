@@ -61,33 +61,65 @@ export function KursTemplate({ kurs, agent }: KursTemplateProps) {
       position: 'relative',
       overflow: 'hidden',
       fontFamily: 'Inter, system-ui, sans-serif',
-      padding: '72px 88px',
+      padding: '64px 80px',
       display: 'flex',
       flexDirection: 'column',
     }}>
-      {/* Top row: Title (left) + Logo (right) */}
+      {/* Subtle dot pattern overlay */}
+      <div style={{
+        position: 'absolute',
+        inset: 0,
+        backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.06) 1.5px, transparent 1.5px)',
+        backgroundSize: '32px 32px',
+        pointerEvents: 'none',
+      }} />
+
+      {/* Soft radial highlight top-right */}
+      <div style={{
+        position: 'absolute',
+        top: -200,
+        right: -200,
+        width: 700,
+        height: 700,
+        background: 'radial-gradient(circle, rgba(110,231,183,0.18) 0%, transparent 60%)',
+        pointerEvents: 'none',
+      }} />
+
+      {/* TOP ROW: Title + Logo */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
-        alignItems: 'flex-start',
+        alignItems: 'center',
         position: 'relative',
         zIndex: 1,
       }}>
-        <h1 style={{
-          fontSize: 96,
-          fontWeight: 900,
-          color: '#fff',
-          letterSpacing: -2,
-          lineHeight: 1,
-          margin: 0,
-        }}>
-          Kurs Hari Ini
-        </h1>
+        <div>
+          <h1 style={{
+            fontSize: 80,
+            fontWeight: 900,
+            color: '#fff',
+            letterSpacing: -2,
+            lineHeight: 1,
+            margin: 0,
+          }}>
+            Kurs Hari Ini
+          </h1>
+          <div style={{
+            fontSize: 22,
+            color: '#6EE7B7',
+            fontWeight: 600,
+            letterSpacing: 4,
+            marginTop: 14,
+            textTransform: 'uppercase',
+          }}>
+            Bank Mandiri · Update Harian
+          </div>
+        </div>
         <img
           src="/logo-alhijaz-besar.svg"
           alt="Alhijaz"
           style={{
-            height: 140,
+            height: 180,
             width: 'auto',
             filter: 'brightness(0) invert(1)',
             flexShrink: 0,
@@ -95,72 +127,101 @@ export function KursTemplate({ kurs, agent }: KursTemplateProps) {
         />
       </div>
 
-      {/* USD hero (only) */}
-      <div style={{ marginTop: 56, position: 'relative', zIndex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginBottom: 12 }}>
-          <FlagUS size={88} />
-          <span style={{ fontSize: 56, fontWeight: 700, color: '#fff', letterSpacing: 3 }}>USD</span>
-        </div>
+      {/* MIDDLE — Rate card centered */}
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        position: 'relative',
+        zIndex: 1,
+      }}>
         <div style={{
-          fontSize: 280,
-          fontWeight: 900,
-          color: '#fff',
-          lineHeight: 0.9,
-          letterSpacing: -8,
-          fontFamily: 'Inter, system-ui, sans-serif',
+          background: 'rgba(255,255,255,0.06)',
+          border: '1px solid rgba(110,231,183,0.25)',
+          borderRadius: 32,
+          padding: '48px 80px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 56,
+          boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
         }}>
-          {formatKurs(kurs.usd)}
-        </div>
-        <div style={{ fontSize: 32, color: '#6EE7B7', fontWeight: 500, marginTop: 8 }}>
-          US Dollar · Rupiah
+          <FlagUS size={140} />
+          <div>
+            <div style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 18,
+              marginBottom: 4,
+            }}>
+              <span style={{ fontSize: 64, fontWeight: 800, color: '#fff', letterSpacing: 4 }}>USD</span>
+              <span style={{ fontSize: 24, color: '#A7F3D0', fontWeight: 500, letterSpacing: 1 }}>US Dollar</span>
+            </div>
+            <div style={{
+              fontSize: 200,
+              fontWeight: 900,
+              color: '#fff',
+              lineHeight: 0.92,
+              letterSpacing: -6,
+              fontFamily: 'Inter, system-ui, sans-serif',
+            }}>
+              {formatKurs(kurs.usd)}
+            </div>
+            <div style={{ fontSize: 24, color: '#6EE7B7', fontWeight: 500, marginTop: 8, letterSpacing: 1 }}>
+              terhadap Rupiah
+            </div>
+          </div>
         </div>
       </div>
 
-      <div style={{ flex: 1 }} />
-
-      {/* Bottom row: Agent (left) + Date (right) */}
+      {/* BOTTOM ROW: Agent (left) + Date pill (right) */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingTop: 36,
+        paddingTop: 32,
         borderTop: '1px solid rgba(110,231,183,0.25)',
         position: 'relative',
         zIndex: 1,
       }}>
         {/* Agent — bottom left */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
           <img
             src={photo}
             alt=""
             style={{
-              width: 96,
-              height: 96,
+              width: 110,
+              height: 110,
               borderRadius: '50%',
               objectFit: 'cover',
-              border: '3px solid #6EE7B7',
+              border: '4px solid #6EE7B7',
               flexShrink: 0,
             }}
           />
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
-            <strong style={{ fontSize: 36, color: '#fff', fontWeight: 700 }}>{agent.name}</strong>
-            <span style={{ fontSize: 24, color: '#6EE7B7', fontWeight: 500, marginTop: 4 }}>
+            <strong style={{ fontSize: 40, color: '#fff', fontWeight: 800, letterSpacing: -0.5 }}>
+              {agent.name}
+            </strong>
+            <span style={{ fontSize: 24, color: '#6EE7B7', fontWeight: 500, marginTop: 6 }}>
               wa.me/{wa}
             </span>
           </div>
         </div>
 
-        {/* Date — bottom right */}
+        {/* Date pill — bottom right */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
           gap: 14,
-          fontSize: 28,
-          color: '#fff',
-          fontWeight: 600,
+          background: 'rgba(255,255,255,0.10)',
+          border: '1px solid rgba(110,231,183,0.30)',
+          borderRadius: 100,
+          padding: '16px 28px',
         }}>
-          <span style={{ fontSize: 32 }}>📅</span>
-          <span>{kurs.updatedAt}</span>
+          <span style={{ fontSize: 28 }}>📅</span>
+          <span style={{ fontSize: 26, color: '#fff', fontWeight: 600 }}>
+            {kurs.updatedAt}
+          </span>
         </div>
       </div>
     </div>
