@@ -1,13 +1,13 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Download, Share2, Copy } from 'lucide-react';
 import {
-  KURS_TEMPLATES,
+  KursTemplate,
+  TEMPLATE_W,
+  TEMPLATE_H,
   formatKurs,
   normalizePhone,
-  type KursTemplateId,
-  type KursTemplateProps,
 } from './KursShareTemplates';
 import { trackEvent } from '../utils/analytics';
 
@@ -18,30 +18,20 @@ export interface ShareKursModalProps {
   agent: { name: string; phone: string; photo: string; slug: string };
 }
 
-const PREVIEW_WIDTH = 360;
-const CANVAS_SIZE = 1080;
-const PREVIEW_SCALE = PREVIEW_WIDTH / CANVAS_SIZE;
-const THUMB_WIDTH = 72;
-const THUMB_SCALE = THUMB_WIDTH / CANVAS_SIZE;
+const PREVIEW_MAX_WIDTH = 520;
+const PREVIEW_MIN_WIDTH = 280;
 
 export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKursModalProps) {
-  const [selectedId, setSelectedId] = useState<KursTemplateId>('minimalist');
   const [isExporting, setIsExporting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [previewScale, setPreviewScale] = useState(PREVIEW_MAX_WIDTH / TEMPLATE_W);
   const exportRef = useRef<HTMLDivElement>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
 
   const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   useEffect(() => {
     if (open) trackEvent('feature', 'open_share_kurs');
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const fonts = ['DM Serif Display', 'Amiri'];
-    fonts.forEach(f => {
-      try { document.fonts?.load(`16px "${f}"`); } catch {}
-    });
   }, [open]);
 
   useEffect(() => {
@@ -60,9 +50,19 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
     return () => { document.body.style.overflow = prev; };
   }, [open]);
 
-  const templateProps: KursTemplateProps = useMemo(() => ({ kurs, agent }), [kurs, agent]);
-  const current = KURS_TEMPLATES.find(t => t.id === selectedId) || KURS_TEMPLATES[0];
-  const Renderer = current.Renderer;
+  const computeScale = useCallback(() => {
+    if (!previewContainerRef.current) return;
+    const containerW = previewContainerRef.current.clientWidth;
+    const targetW = Math.max(PREVIEW_MIN_WIDTH, Math.min(containerW, PREVIEW_MAX_WIDTH));
+    setPreviewScale(targetW / TEMPLATE_W);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    computeScale();
+    window.addEventListener('resize', computeScale);
+    return () => window.removeEventListener('resize', computeScale);
+  }, [open, computeScale]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -85,8 +85,8 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
       await waitForFonts();
       const { snapdom } = await import('@zumer/snapdom');
       const result = await snapdom(exportRef.current, { scale: 2 });
-      await result.download({ type: 'png', filename: `kurs-${selectedId}-${yyyymmdd()}` });
-      trackEvent('action', 'download_share_kurs', { template: selectedId });
+      await result.download({ type: 'png', filename: `kurs-${yyyymmdd()}` });
+      trackEvent('action', 'download_share_kurs');
     } catch (e) {
       console.error('[ShareKurs] Download gagal:', e);
       showToast('Gagal generate gambar, coba lagi');
@@ -103,12 +103,12 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
       const { snapdom } = await import('@zumer/snapdom');
       const result = await snapdom(exportRef.current, { scale: 2 });
       const blob = await result.toBlob({ type: 'png' });
-      const file = new File([blob], `kurs-${selectedId}-${yyyymmdd()}.png`, { type: 'image/png' });
+      const file = new File([blob], `kurs-${yyyymmdd()}.png`, { type: 'image/png' });
       if (navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file] });
-        trackEvent('action', 'share_kurs', { template: selectedId });
+        trackEvent('action', 'share_kurs');
       } else {
-        await result.download({ type: 'png', filename: `kurs-${selectedId}-${yyyymmdd()}` });
+        await result.download({ type: 'png', filename: `kurs-${yyyymmdd()}` });
         showToast('Share tidak didukung, gambar diunduh');
       }
     } catch (e: any) {
@@ -157,6 +157,9 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
     }
   };
 
+  const previewW = TEMPLATE_W * previewScale;
+  const previewH = TEMPLATE_H * previewScale;
+
   return createPortal(
     <AnimatePresence>
       {open && (
@@ -182,40 +185,34 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
           </div>
 
           {/* ─── SCROLLABLE CONTENT ─── */}
-          <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 px-5 py-5">
-            <div className="max-w-md mx-auto space-y-5">
-              {/* Preview card */}
-              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4 flex justify-center">
-                <div style={{ width: PREVIEW_WIDTH, height: PREVIEW_WIDTH, position: 'relative', borderRadius: 16, overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
-                  <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: 'top left', position: 'absolute', top: 0, left: 0 }}>
+          <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 px-5 py-6">
+            <div ref={previewContainerRef} className="max-w-xl mx-auto">
+              <div
+                className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4 flex justify-center"
+              >
+                <div
+                  style={{
+                    width: previewW,
+                    height: previewH,
+                    position: 'relative',
+                    borderRadius: 12,
+                    overflow: 'hidden',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+                  }}
+                >
+                  <div
+                    style={{
+                      transform: `scale(${previewScale})`,
+                      transformOrigin: 'top left',
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                    }}
+                  >
                     <div ref={exportRef}>
-                      <Renderer {...templateProps} />
+                      <KursTemplate kurs={kurs} agent={agent} />
                     </div>
                   </div>
-                </div>
-              </div>
-
-              {/* Thumbnail picker card */}
-              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4">
-                <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-3">Pilih Desain</div>
-                <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
-                  {KURS_TEMPLATES.map(t => {
-                    const T = t.Renderer;
-                    const active = t.id === selectedId;
-                    return (
-                      <button
-                        key={t.id}
-                        onClick={() => setSelectedId(t.id)}
-                        className={`flex-shrink-0 rounded-xl overflow-hidden transition-all active:scale-95 ${active ? 'ring-2 ring-emerald-500' : 'ring-1 ring-gray-200 dark:ring-slate-700'}`}
-                        style={{ width: THUMB_WIDTH, height: THUMB_WIDTH, position: 'relative' }}
-                        aria-label={t.name}
-                      >
-                        <div style={{ transform: `scale(${THUMB_SCALE})`, transformOrigin: 'top left', position: 'absolute', top: 0, left: 0 }}>
-                          <T {...templateProps} />
-                        </div>
-                      </button>
-                    );
-                  })}
                 </div>
               </div>
             </div>

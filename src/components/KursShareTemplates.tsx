@@ -1,11 +1,12 @@
-import type React from 'react';
+import type { ReactNode } from 'react';
 
 export interface KursTemplateProps {
   kurs: { usd: number; sar: number; updatedAt: string };
   agent: { name: string; phone: string; photo: string; slug: string };
 }
 
-export type KursTemplateId = 'minimalist' | 'islamic' | 'bold' | 'premium';
+export const TEMPLATE_W = 1600;
+export const TEMPLATE_H = 1000;
 
 // ═══════════════════════════════════════════════════════════════
 // Helpers
@@ -29,268 +30,180 @@ function avatarFallback(name: string): string {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&size=192`;
 }
 
-// Canvas wrapper — semua template pakai ini agar ukuran 1080×1080 konsisten
-function CanvasFrame({ background, children }: { background: string; children: React.ReactNode }) {
+// ═══════════════════════════════════════════════════════════════
+// Flag SVGs
+// ═══════════════════════════════════════════════════════════════
+
+function FlagUS({ size = 32 }: { size?: number }) {
+  const w = Math.round(size * 1.4);
+  return (
+    <svg width={w} height={size} viewBox="0 0 30 21" style={{ borderRadius: 3, boxShadow: '0 2px 6px rgba(0,0,0,0.3)', flexShrink: 0 }}>
+      <rect width="30" height="21" fill="#fff" />
+      {[0, 2, 4, 6, 8, 10, 12].map(y => (
+        <rect key={y} x="0" y={y * 1.5} width="30" height="1.62" fill="#B22234" />
+      ))}
+      <rect width="12" height="11.32" fill="#3C3B6E" />
+    </svg>
+  );
+}
+
+function FlagSA({ size = 32 }: { size?: number }) {
+  const w = Math.round(size * 1.4);
+  return (
+    <svg width={w} height={size} viewBox="0 0 30 21" style={{ borderRadius: 3, boxShadow: '0 2px 6px rgba(0,0,0,0.3)', flexShrink: 0 }}>
+      <rect width="30" height="21" fill="#006C35" />
+    </svg>
+  );
+}
+
+function FlagID({ size = 24 }: { size?: number }) {
+  const w = Math.round(size * 1.5);
+  return (
+    <svg width={w} height={size} viewBox="0 0 30 20" style={{ borderRadius: 2, boxShadow: '0 1px 3px rgba(0,0,0,0.3)', flexShrink: 0, verticalAlign: 'middle' }}>
+      <rect width="30" height="10" fill="#E70011" />
+      <rect y="10" width="30" height="10" fill="#fff" />
+    </svg>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sub-components
+// ═══════════════════════════════════════════════════════════════
+
+function RateBlock({ flag, label, rate, sub }: { flag: ReactNode; label: string; rate: number; sub: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 8 }}>
+        {flag}
+        <span style={{ fontSize: 36, fontWeight: 700, color: '#fff', letterSpacing: 2 }}>{label}</span>
+      </div>
+      <div style={{
+        fontSize: 180,
+        fontWeight: 900,
+        color: '#fff',
+        lineHeight: 0.92,
+        letterSpacing: -4,
+        fontFamily: 'Inter, system-ui, sans-serif',
+      }}>
+        {formatKurs(rate)}
+      </div>
+      <div style={{ fontSize: 26, color: '#6EE7B7', fontWeight: 500, marginTop: 6 }}>{sub}</div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Template — Cuaca-style hero card (16:10)
+// ═══════════════════════════════════════════════════════════════
+
+export function KursTemplate({ kurs, agent }: KursTemplateProps) {
+  const photo = agent.photo || avatarFallback(agent.name);
+  const wa = normalizePhone(agent.phone);
+
   return (
     <div style={{
-      width: 1080,
-      height: 1080,
-      background,
+      width: TEMPLATE_W,
+      height: TEMPLATE_H,
+      background: 'linear-gradient(135deg, #064e3b 0%, #0F6E56 50%, #065f46 100%)',
       position: 'relative',
       overflow: 'hidden',
       fontFamily: 'Inter, system-ui, sans-serif',
+      padding: '72px 88px',
+      display: 'flex',
+      flexDirection: 'column',
     }}>
-      {children}
-    </div>
-  );
-}
+      {/* Decorative emoji top-right */}
+      <div style={{
+        position: 'absolute',
+        right: 56,
+        top: 16,
+        fontSize: 520,
+        opacity: 0.10,
+        lineHeight: 1,
+        pointerEvents: 'none',
+        userSelect: 'none',
+      }}>
+        💱
+      </div>
 
-// ═══════════════════════════════════════════════════════════════
-// T1 — Minimalist
-// ═══════════════════════════════════════════════════════════════
+      {/* Top label */}
+      <div style={{
+        fontSize: 30,
+        fontWeight: 800,
+        textTransform: 'uppercase',
+        letterSpacing: 7,
+        color: '#6EE7B7',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16,
+        position: 'relative',
+        zIndex: 1,
+      }}>
+        <span>HARI INI</span>
+        <span style={{ color: 'rgba(110,231,183,0.5)' }}>·</span>
+        <FlagID size={32} />
+        <span>KURS BANK MANDIRI</span>
+      </div>
 
-function Minimalist({ kurs, agent }: KursTemplateProps) {
-  const photo = agent.photo || avatarFallback(agent.name);
-  const wa = normalizePhone(agent.phone);
-  const web = `${agent.slug || 'agent'}.alhijaz.co`;
+      {/* Hero rates */}
+      <div style={{
+        display: 'flex',
+        gap: 96,
+        marginTop: 40,
+        alignItems: 'flex-end',
+        position: 'relative',
+        zIndex: 1,
+      }}>
+        <RateBlock flag={<FlagUS size={64} />} label="USD" rate={kurs.usd} sub="US Dollar · Rupiah" />
+        <RateBlock flag={<FlagSA size={64} />} label="SAR" rate={kurs.sar} sub="Saudi Riyal · Rupiah" />
+      </div>
 
-  return (
-    <CanvasFrame background="#FFFFFF">
-      {/* Header */}
-      <div style={{ padding: '64px 64px 0 64px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <img src="/logo-alhijaz-besar.svg" style={{ height: 56 }} alt="Alhijaz" />
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 18, fontWeight: 700, color: '#059669', letterSpacing: '0.2em', textTransform: 'uppercase' }}>
-            Kurs Bank Mandiri
+      <div style={{ flex: 1 }} />
+
+      {/* Bottom row: date + agent */}
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '28px 56px',
+        alignItems: 'center',
+        paddingTop: 36,
+        borderTop: '1px solid rgba(110,231,183,0.25)',
+        position: 'relative',
+        zIndex: 1,
+      }}>
+        <div style={{
+          fontSize: 26,
+          color: '#6EE7B7',
+          fontWeight: 500,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+        }}>
+          <span style={{ fontSize: 28 }}>📅</span>
+          <strong style={{ color: '#fff', fontWeight: 700 }}>{kurs.updatedAt}</strong>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <img
+            src={photo}
+            alt=""
+            style={{
+              width: 80,
+              height: 80,
+              borderRadius: '50%',
+              objectFit: 'cover',
+              border: '3px solid #6EE7B7',
+              flexShrink: 0,
+            }}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+            <strong style={{ fontSize: 30, color: '#fff', fontWeight: 700 }}>{agent.name}</strong>
+            <span style={{ fontSize: 22, color: '#6EE7B7', fontWeight: 500, marginTop: 4 }}>
+              📞 wa.me/{wa}
+            </span>
           </div>
-          <div style={{ fontSize: 16, color: '#6B7280', marginTop: 6 }}>{kurs.updatedAt}</div>
         </div>
-      </div>
-
-      {/* Body — 2 rate cards */}
-      <div style={{ padding: '48px 64px', display: 'flex', gap: 24, marginTop: 64 }}>
-        <RateCardLight flag="🇺🇸" label="USD" rate={kurs.usd} />
-        <RateCardLight flag="🇸🇦" label="SAR" rate={kurs.sar} />
-      </div>
-
-      {/* Footer */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, borderTop: '2px solid #10B981', padding: '40px 64px', display: 'flex', alignItems: 'center', gap: 24, background: '#FFFFFF' }}>
-        <img src={photo} style={{ width: 96, height: 96, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '3px solid #ECFDF5' }} alt="" />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 26, fontWeight: 700, color: '#111827', lineHeight: 1.2 }}>{agent.name}</div>
-          <div style={{ fontSize: 18, color: '#4B5563', marginTop: 6 }}>wa.me/{wa}</div>
-          <div style={{ fontSize: 18, color: '#059669', marginTop: 2 }}>{web}</div>
-        </div>
-      </div>
-    </CanvasFrame>
-  );
-}
-
-function RateCardLight({ flag, label, rate }: { flag: string; label: string; rate: number }) {
-  return (
-    <div style={{ flex: 1, background: '#F9FAFB', borderRadius: 24, padding: 40 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-        <span style={{ fontSize: 64, lineHeight: 1 }}>{flag}</span>
-        <span style={{ fontSize: 26, fontWeight: 600, color: '#6B7280', letterSpacing: '0.1em' }}>{label}</span>
-      </div>
-      <div style={{ fontSize: 88, fontWeight: 800, color: '#111827', fontFamily: '"SF Mono", Menlo, monospace', lineHeight: 1, letterSpacing: '-0.02em' }}>
-        {formatKurs(rate)}
-      </div>
-      <div style={{ fontSize: 20, color: '#9CA3AF', marginTop: 12 }}>Rupiah</div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// T2 — Islamic
-// ═══════════════════════════════════════════════════════════════
-
-// Arabic geometric pattern sebagai data URL
-const ISLAMIC_PATTERN = `url("data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23ffffff' stroke-width='1' opacity='0.15'%3E%3Cpath d='M40 0L80 40L40 80L0 40Z'/%3E%3Cpath d='M40 12L68 40L40 68L12 40Z'/%3E%3Cpath d='M40 24L56 40L40 56L24 40Z'/%3E%3C/g%3E%3C/svg%3E")`;
-
-function Islamic({ kurs, agent }: KursTemplateProps) {
-  const photo = agent.photo || avatarFallback(agent.name);
-  const wa = normalizePhone(agent.phone);
-  const web = `${agent.slug || 'agent'}.alhijaz.co`;
-
-  return (
-    <CanvasFrame background="linear-gradient(135deg, #047857 0%, #022C22 100%)">
-      {/* Pattern overlay */}
-      <div style={{ position: 'absolute', inset: 0, backgroundImage: ISLAMIC_PATTERN, backgroundRepeat: 'repeat', opacity: 0.5 }} />
-
-      {/* Logo pill top-right */}
-      <div style={{ position: 'absolute', top: 48, right: 48, background: '#FFFFFF', borderRadius: 14, padding: '10px 18px', display: 'flex', alignItems: 'center' }}>
-        <img src="/logo-alhijaz-besar.svg" style={{ height: 36 }} alt="Alhijaz" />
-      </div>
-
-      {/* Header */}
-      <div style={{ padding: '96px 64px 0 64px', textAlign: 'center', position: 'relative', zIndex: 1 }}>
-        <div style={{ fontFamily: '"Amiri", serif', fontSize: 40, color: '#A7F3D0', lineHeight: 1.2 }}>
-          بسم الله الرحمن الرحيم
-        </div>
-        <div style={{ fontSize: 22, color: '#FFFFFF', letterSpacing: '0.3em', fontWeight: 700, marginTop: 36, textTransform: 'uppercase' }}>
-          Kurs Bank Mandiri
-        </div>
-        <div style={{ fontSize: 16, color: '#A7F3D0', marginTop: 8 }}>{kurs.updatedAt}</div>
-      </div>
-
-      {/* Rate cards */}
-      <div style={{ padding: '56px 64px', display: 'flex', gap: 24, marginTop: 12, position: 'relative', zIndex: 1 }}>
-        <RateCardGlass flag="🇺🇸" label="USD" rate={kurs.usd} />
-        <RateCardGlass flag="🇸🇦" label="SAR" rate={kurs.sar} />
-      </div>
-
-      {/* Footer */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '40px 64px', display: 'flex', alignItems: 'center', gap: 24, zIndex: 1 }}>
-        <img src={photo} style={{ width: 96, height: 96, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '3px solid #6EE7B7' }} alt="" />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 26, fontWeight: 700, color: '#FFFFFF', lineHeight: 1.2 }}>{agent.name}</div>
-          <div style={{ fontSize: 18, color: '#A7F3D0', marginTop: 6 }}>wa.me/{wa}</div>
-          <div style={{ fontSize: 18, color: '#6EE7B7', marginTop: 2 }}>{web}</div>
-        </div>
-      </div>
-    </CanvasFrame>
-  );
-}
-
-function RateCardGlass({ flag, label, rate }: { flag: string; label: string; rate: number }) {
-  return (
-    <div style={{ flex: 1, background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.20)', borderRadius: 24, padding: 40, backdropFilter: 'blur(4px)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-        <span style={{ fontSize: 64, lineHeight: 1 }}>{flag}</span>
-        <span style={{ fontSize: 26, fontWeight: 600, color: '#A7F3D0', letterSpacing: '0.1em' }}>{label}</span>
-      </div>
-      <div style={{ fontSize: 88, fontWeight: 800, color: '#FFFFFF', fontFamily: '"SF Mono", Menlo, monospace', lineHeight: 1, letterSpacing: '-0.02em' }}>
-        {formatKurs(rate)}
-      </div>
-      <div style={{ fontSize: 20, color: '#6EE7B7', marginTop: 12 }}>Rupiah</div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// T3 — Bold
-// ═══════════════════════════════════════════════════════════════
-
-function Bold({ kurs, agent }: KursTemplateProps) {
-  const photo = agent.photo || avatarFallback(agent.name);
-  const wa = normalizePhone(agent.phone);
-  const web = `${agent.slug || 'agent'}.alhijaz.co`;
-
-  return (
-    <CanvasFrame background="#0F172A">
-      {/* Header */}
-      <div style={{ padding: '64px 64px 0 64px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: 20, color: '#34D399', letterSpacing: '0.3em', fontWeight: 700, textTransform: 'uppercase' }}>
-            Kurs Bank Mandiri
-          </div>
-          <div style={{ fontSize: 14, color: '#64748B', marginTop: 8, letterSpacing: '0.1em' }}>{kurs.updatedAt}</div>
-        </div>
-        <div style={{ background: '#FFFFFF', borderRadius: 12, padding: '8px 16px', display: 'flex', alignItems: 'center' }}>
-          <img src="/logo-alhijaz-besar.svg" style={{ height: 32 }} alt="Alhijaz" />
-        </div>
-      </div>
-
-      {/* Stacked rates */}
-      <div style={{ padding: '48px 64px 0 64px' }}>
-        <BoldRate label="USD" rate={kurs.usd} />
-        <div style={{ height: 1, background: '#1E293B', margin: '32px 0' }} />
-        <BoldRate label="SAR" rate={kurs.sar} />
-      </div>
-
-      {/* Footer */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, borderTop: '1px solid #10B981', padding: '36px 64px', display: 'flex', alignItems: 'center', gap: 24 }}>
-        <img src={photo} style={{ width: 88, height: 88, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '2px solid #10B981' }} alt="" />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 22, fontWeight: 700, color: '#FFFFFF', lineHeight: 1.2 }}>{agent.name}</div>
-          <div style={{ fontSize: 16, color: '#94A3B8', marginTop: 4 }}>wa.me/{wa} · {web}</div>
-        </div>
-      </div>
-    </CanvasFrame>
-  );
-}
-
-function BoldRate({ label, rate }: { label: string; rate: number }) {
-  return (
-    <div>
-      <div style={{ fontSize: 20, color: '#94A3B8', letterSpacing: '0.2em', fontWeight: 600 }}>{label}</div>
-      <div style={{ fontSize: 128, fontWeight: 800, color: '#FFFFFF', fontFamily: '"SF Mono", Menlo, monospace', lineHeight: 1, letterSpacing: '-0.03em', marginTop: 8 }}>
-        {formatKurs(rate)}
       </div>
     </div>
   );
 }
-
-// ═══════════════════════════════════════════════════════════════
-// T4 — Premium
-// ═══════════════════════════════════════════════════════════════
-
-const GOLD = '#C9A961';
-
-function Premium({ kurs, agent }: KursTemplateProps) {
-  const photo = agent.photo || avatarFallback(agent.name);
-  const wa = normalizePhone(agent.phone);
-  const web = `${agent.slug || 'agent'}.alhijaz.co`;
-
-  return (
-    <CanvasFrame background="#FDF8F0">
-      {/* Gold frame */}
-      <div style={{ position: 'absolute', top: 32, left: 32, right: 32, bottom: 32, border: `3px solid ${GOLD}`, borderRadius: 4, pointerEvents: 'none' }} />
-
-      {/* Header */}
-      <div style={{ padding: '80px 80px 0 80px', textAlign: 'center' }}>
-        <img src="/logo-alhijaz-besar.svg" style={{ height: 64, margin: '0 auto' }} alt="Alhijaz" />
-        <div style={{ fontFamily: '"DM Serif Display", serif', fontSize: 30, color: GOLD, letterSpacing: '0.15em', marginTop: 32, textTransform: 'uppercase' }}>
-          Kurs Bank Mandiri
-        </div>
-        <div style={{ height: 1, background: GOLD, maxWidth: 200, margin: '20px auto' }} />
-        <div style={{ fontFamily: '"DM Serif Display", serif', fontSize: 20, color: '#475569', fontStyle: 'italic' }}>{kurs.updatedAt}</div>
-      </div>
-
-      {/* Rate row */}
-      <div style={{ padding: '64px 80px', display: 'flex', alignItems: 'stretch', marginTop: 24 }}>
-        <PremiumRate label="USD" rate={kurs.usd} />
-        <div style={{ width: 1, background: GOLD, margin: '0 32px' }} />
-        <PremiumRate label="SAR" rate={kurs.sar} />
-      </div>
-
-      {/* Footer */}
-      <div style={{ position: 'absolute', bottom: 60, left: 80, right: 80, display: 'flex', alignItems: 'center', gap: 24 }}>
-        <img src={photo} style={{ width: 96, height: 96, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: `3px solid ${GOLD}`, boxShadow: `0 0 0 2px #FDF8F0, 0 0 0 4px ${GOLD}` }} alt="" />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: '"DM Serif Display", serif', fontSize: 26, color: '#0F172A', lineHeight: 1.2 }}>{agent.name}</div>
-          <div style={{ fontSize: 16, color: '#64748B', marginTop: 4 }}>wa.me/{wa}</div>
-          <div style={{ fontSize: 16, color: GOLD, marginTop: 2 }}>{web}</div>
-        </div>
-      </div>
-    </CanvasFrame>
-  );
-}
-
-function PremiumRate({ label, rate }: { label: string; rate: number }) {
-  return (
-    <div style={{ flex: 1, textAlign: 'center' }}>
-      <div style={{ fontFamily: '"DM Serif Display", serif', fontStyle: 'italic', fontSize: 26, color: GOLD, letterSpacing: '0.05em' }}>{label}</div>
-      <div style={{ fontFamily: '"DM Serif Display", serif', fontSize: 104, color: '#0F172A', lineHeight: 1, marginTop: 16, letterSpacing: '-0.02em' }}>
-        {formatKurs(rate)}
-      </div>
-      <div style={{ fontSize: 16, color: '#94A3B8', marginTop: 8, letterSpacing: '0.1em' }}>RUPIAH</div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Registry
-// ═══════════════════════════════════════════════════════════════
-
-export const KURS_TEMPLATES: Array<{
-  id: KursTemplateId;
-  name: string;
-  Renderer: React.FC<KursTemplateProps>;
-}> = [
-  { id: 'minimalist', name: 'Minimalist', Renderer: Minimalist },
-  { id: 'islamic', name: 'Islamic', Renderer: Islamic },
-  { id: 'bold', name: 'Bold', Renderer: Bold },
-  { id: 'premium', name: 'Premium', Renderer: Premium },
-];
