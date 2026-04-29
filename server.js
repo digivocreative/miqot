@@ -270,14 +270,14 @@ async function fetchKursMandiri() {
   }
 })();
 
-const KURS_RETRY_INTERVAL = 30 * 60 * 1000; // 30 minutes
+const KURS_RETRY_INTERVAL = 15 * 60 * 1000; // 15 minutes
 const KURS_MAX_RETRIES = 8;
 
 function scheduleKursCron() {
   const now = new Date();
-  // 08:00 WIB = 01:00 UTC
+  // 09:15 WIB = 02:15 UTC
   const next = new Date(now);
-  next.setUTCHours(1, 0, 0, 0);
+  next.setUTCHours(2, 15, 0, 0);
   if (next <= now) {
     next.setUTCDate(next.getUTCDate() + 1);
   }
@@ -299,7 +299,7 @@ async function fetchKursWithRetry() {
       return;
     }
     if (attempt < KURS_MAX_RETRIES) {
-      console.log(`[Kurs] Data belum hari ini (attempt ${attempt}/${KURS_MAX_RETRIES}), retry in 30 min...`);
+      console.log(`[Kurs] Data belum hari ini (attempt ${attempt}/${KURS_MAX_RETRIES}), retry in 15 min...`);
       await new Promise(r => setTimeout(r, KURS_RETRY_INTERVAL));
     } else {
       console.warn(`[Kurs] Max retries reached (${KURS_MAX_RETRIES}), using latest available data`);
