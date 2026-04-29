@@ -15,6 +15,7 @@ import StatistikPage from './StatistikPage';
 import AgentManagementPage from './AgentManagementPage';
 import UpcomingSchedule from './UpcomingSchedule';
 import CalendarInsight from './CalendarInsight';
+import TelegramConnectBanner from './TelegramConnectBanner';
 import FlightStatusCard from './FlightStatusCard';
 import AnalyticsPage from './AnalyticsPage';
 import SettingsPage from './SettingsPage';
@@ -745,6 +746,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       </header>
 
       <main className="max-w-lg mx-auto px-4 pt-5 pb-8">
+
+        {/* ── Telegram Connect Banner ── */}
+        <TelegramConnectBanner
+          onConnect={() => {
+            navigateTab('settings');
+            window.history.replaceState({}, '', '/dashboard/settings/telegram');
+          }}
+        />
 
         {/* ── AI Insight Alert Bar ── */}
         <CalendarInsight onNavigate={(tab) => navigateTab(tab as TabId)} />
