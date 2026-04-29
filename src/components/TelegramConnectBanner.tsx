@@ -74,8 +74,8 @@ export default function TelegramConnectBanner({ onConnect }: Props) {
             </div>
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-bold text-white drop-shadow-sm">Jangan lewatkan jamaahmu!</p>
-            <p className="text-xs text-white/85 mt-0.5">Notif keberangkatan langsung di Telegram.</p>
+            <p className="text-sm font-bold text-white drop-shadow-sm">Layani jamaah dengan sigap!</p>
+            <p className="text-xs text-white/85 mt-0.5">Dapatkan notifikasi penting langsung di Telegram kamu.</p>
           </div>
         </div>
         <button
@@ -83,7 +83,6 @@ export default function TelegramConnectBanner({ onConnect }: Props) {
           onClick={onConnect}
           className="group w-full sm:w-auto px-4 py-2 rounded-lg bg-white text-[#229ED9] text-sm font-semibold hover:bg-white/95 active:bg-white/85 transition-colors flex-shrink-0 inline-flex items-center justify-center gap-1.5 shadow-md shadow-black/10"
         >
-          <Send size={14} className="-rotate-12" />
           <span>Hubungkan</span>
           <ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
         </button>
