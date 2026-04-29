@@ -45,6 +45,19 @@ const supabase = createClient(
 );
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
+const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f']);
+
+function withTimeout(promise, ms, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(message);
+      err.code = 'APP_TIMEOUT';
+      reject(err);
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 // ── Helper: fetch all rows from a Supabase query (bypasses 1000-row PostgREST limit) ──
 async function fetchAllRows(queryBuilder) {
@@ -392,17 +405,46 @@ app.get('/api/jamaah/session/:id', authMiddleware, (req, res) => {
 });
 
 // Jamaah ulang tahun: hari ini + 3 hari ke depan (Asia/Jakarta), literal month/day match.
+const BIRTHDAY_LOOKUP_TIMEOUT_MS = 4500;
+const BIRTHDAY_CACHE_TTL_MS = 15 * 60 * 1000;
+const birthdayCache = new Map(); // agentId -> { birthdays, expiresAt }
+
+function getBirthdayResponsePayload(birthdays, extra = {}) {
+  const today_count = birthdays.filter(b => b.day_offset === 0).length;
+  return {
+    success: true,
+    count: birthdays.length,
+    today_count,
+    birthdays,
+    ...extra,
+  };
+}
+
 app.get('/api/jamaah/birthdays', authMiddleware, async (req, res) => {
+  const cacheKey = req.user.id;
+  const cached = birthdayCache.get(cacheKey);
   try {
-    const birthdays = await getBirthdaysForAgent(supabase, req.user.id, [0, 1, 2, 3]);
-    const today_count = birthdays.filter(b => b.day_offset === 0).length;
-    res.json({
-      success: true,
-      count: birthdays.length,
-      today_count,
+    const birthdays = await withTimeout(
+      getBirthdaysForAgent(supabase, req.user.id, [0, 1, 2, 3]),
+      BIRTHDAY_LOOKUP_TIMEOUT_MS,
+      'Birthday lookup timed out',
+    );
+    birthdayCache.set(cacheKey, {
       birthdays,
+      expiresAt: Date.now() + BIRTHDAY_CACHE_TTL_MS,
     });
+    res.json(getBirthdayResponsePayload(birthdays));
   } catch (err) {
+    if (cached?.birthdays && Date.now() < cached.expiresAt) {
+      return res.json(getBirthdayResponsePayload(cached.birthdays, { stale: true }));
+    }
+    if (err.code === 'APP_TIMEOUT' || /upstream request timeout|timeout/i.test(err.message || '')) {
+      console.warn('[Birthdays] lookup timeout, returning empty fallback');
+      return res.json(getBirthdayResponsePayload([], {
+        stale: true,
+        warning: 'Birthday data temporarily unavailable',
+      }));
+    }
     console.error('[Birthdays] error:', err.message);
     try { Sentry.captureException(err); } catch { /* noop */ }
     res.status(500).json({ success: false, error: err.message });
@@ -11047,10 +11089,10 @@ app.get('{*path}', async (req, res) => {
 
   // Extract slug
   const slug = req.path.replace(/^\/+/, '').split('/')[0].toLowerCase();
-  let agent = await getAgentBySlug(slug);
+  let agent = RESERVED_SPA_SLUGS.has(slug) ? null : await getAgentBySlug(slug);
 
   // Redirect old slugs to current slug
-  if (!agent && slug && slug !== '' && !['login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f'].includes(slug)) {
+  if (!agent && slug && !RESERVED_SPA_SLUGS.has(slug)) {
     const { data: history } = await supabase
       .from('agent_slug_history')
       .select('agent_id')
