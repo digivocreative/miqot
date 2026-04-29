@@ -74,8 +74,8 @@ export default function TelegramConnectBanner({ onConnect }: Props) {
             </div>
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-bold text-white drop-shadow-sm">Jangan lewatkan momen jamaahmu!</p>
-            <p className="text-xs text-white/85 mt-0.5">Aktifkan notifikasi Telegram &mdash; setiap keberangkatan & kepulangan langsung masuk ke chatmu.</p>
+            <p className="text-sm font-bold text-white drop-shadow-sm">Jangan lewatkan jamaahmu!</p>
+            <p className="text-xs text-white/85 mt-0.5">Notif keberangkatan langsung di Telegram.</p>
           </div>
         </div>
         <button
