@@ -2,12 +2,13 @@ import { Document, Page, View, Text, Image, StyleSheet, Font, Svg, Circle, Path 
 import type { UmrohPackage } from '@/types';
 import type { AgentData } from '@/data/agents';
 
-// ── Register Inter font (Google Fonts CDN – works everywhere) ──
+// ── Register Inter font (self-hosted from /public/fonts; no external CDN dependency) ──
+const fontOrigin = typeof window !== 'undefined' ? window.location.origin : '';
 Font.register({
   family: 'Inter',
   fonts: [
-    { src: 'https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfMZg.ttf', fontWeight: 'normal' },
-    { src: 'https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuFuYMZg.ttf', fontWeight: 'bold' },
+    { src: `${fontOrigin}/fonts/Inter-Regular.ttf`, fontWeight: 'normal' },
+    { src: `${fontOrigin}/fonts/Inter-Bold.ttf`, fontWeight: 'bold' },
   ],
 });
 // Disable hyphenation
@@ -24,6 +25,8 @@ interface SummaryItem {
 
 export interface QuotationProps {
   pkg: UmrohPackage | null;
+  /** Active pricing tier (e.g. "UHUD", "RAHMAH"). Defaults to first tier in pkg.hotel. */
+  tier?: string;
   summary: {
     items: SummaryItem[];
     subtotal: number;
@@ -187,7 +190,7 @@ const banks = [
 // ═══════════════════════════════════════════════════
 // Component
 // ═══════════════════════════════════════════════════
-export function QuotationDocument({ pkg, summary, namaLengkap, agent, agentPhotoBase64, discountLabel }: QuotationProps) {
+export function QuotationDocument({ pkg, tier, summary, namaLengkap, agent, agentPhotoBase64, discountLabel }: QuotationProps) {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const logoSrc = `${origin}/icon-192x192.png`;
   const now = new Date();
@@ -209,9 +212,9 @@ export function QuotationDocument({ pkg, summary, namaLengkap, agent, agentPhoto
     }
   }
 
-  // Hotel info
-  const firstTier = pkg ? Object.keys(pkg.hotel)[0] : null;
-  const hotelData = firstTier && pkg ? (pkg.hotel[firstTier] as unknown as Record<string, string>) : null;
+  // Hotel info — prefer the active tier when available, fall back to first key
+  const activeTier = pkg ? (tier && pkg.hotel[tier] ? tier : Object.keys(pkg.hotel)[0]) : null;
+  const hotelData = activeTier && pkg ? (pkg.hotel[activeTier] as unknown as Record<string, string>) : null;
   const starLabel = hotelData?.mekkah_bintang ? `AKOMODASI HOTEL` : 'AKOMODASI HOTEL';
   const hotelNames = hotelData ? [hotelData.mekkah_hotel, hotelData.madinah_hotel].filter(Boolean).join(' / ') : '—';
 

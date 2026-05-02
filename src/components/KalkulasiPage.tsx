@@ -306,6 +306,7 @@ function ResultModal({
   isOpen,
   onClose,
   pkg,
+  tier,
   rooms,
   jamaah,
   summary,
@@ -323,6 +324,7 @@ function ResultModal({
   isOpen: boolean;
   onClose: () => void;
   pkg: UmrohPackage | null;
+  tier: string;
   rooms: RoomCounts;
   jamaah: JamaahCounts;
   summary: { items: { label: string; qty: number; unitPrice: number; total: number; note?: string }[]; subtotal: number; discount: number; grandTotal: number };
@@ -387,11 +389,11 @@ function ResultModal({
       lines.push(`*${fmtDate(pkg.kepulangan.tgl)}*, *${pkg.kepulangan.jam} WIB*`);
       lines.push(`*${pkg.kepulangan.kodePenerbangan}* ─ *${pkg.kepulangan.rute}*`);
       lines.push('');
-      // Hotels from first tier
-      const firstTier = Object.keys(pkg.hotel)[0];
-      if (firstTier) {
-        const h = pkg.hotel[firstTier] as HotelInfo & Record<string, string>;
-        lines.push(`*PAKET ${firstTier}*`);
+      // Hotels for the active tier
+      const activeTier = tier && pkg.hotel[tier] ? tier : Object.keys(pkg.hotel)[0];
+      if (activeTier) {
+        const h = pkg.hotel[activeTier] as HotelInfo & Record<string, string>;
+        lines.push(`*PAKET ${activeTier}*`);
         lines.push('─────────────');
         const hotelKeys: { key: string; starKey: string; label: string }[] = [
           { key: 'mekkah_hotel', starKey: 'mekkah_bintang', label: '🇸🇦 HOTEL MEKKAH' },
@@ -500,8 +502,8 @@ function ResultModal({
     } catch (err) { console.error('Share failed:', err); } finally { setPdfSharing(false); }
   };
 
-  const firstTier = pkg ? Object.keys(pkg.hotel)[0] : null;
-  const hotelData = firstTier && pkg ? (pkg.hotel[firstTier] as HotelInfo & Record<string, string>) : null;
+  const activeTier = pkg ? (tier && pkg.hotel[tier] ? tier : Object.keys(pkg.hotel)[0]) : null;
+  const hotelData = activeTier && pkg ? (pkg.hotel[activeTier] as HotelInfo & Record<string, string>) : null;
 
   return createPortal(
     <AnimatePresence>
@@ -828,6 +830,7 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
   // --- Form State ---
   const [namaLengkap, setNamaLengkap] = useState('');
   const [selectedPackage, setSelectedPackage] = useState('');
+  const [selectedTier, setSelectedTier] = useState('');
   const [jamaah, setJamaah] = useState<JamaahCounts>({
     dewasa: 1,
     balitaKasur: 0,
@@ -858,20 +861,37 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
     return packages.find((p) => p.jadwalId === selectedPackage) || null;
   }, [packages, selectedPackage]);
 
-  // Extract room prices from the selected package's first tier
+  // Available pricing tiers for the selected package (e.g. UHUD, RAHMAH)
+  const tierKeys = useMemo(() => {
+    if (!selectedPkg) return [] as string[];
+    return Object.keys(selectedPkg.harga);
+  }, [selectedPkg]);
+
+  // Reset selected tier when package changes (default to first tier from API)
+  useEffect(() => {
+    if (tierKeys.length === 0) {
+      setSelectedTier('');
+      return;
+    }
+    if (!tierKeys.includes(selectedTier)) {
+      setSelectedTier(tierKeys[0]);
+    }
+  }, [tierKeys, selectedTier]);
+
+  // Extract room prices from the active pricing tier
   const roomPrices = useMemo(() => {
     if (!selectedPkg) return ROOM_PRICES_FALLBACK;
-    const firstTier = Object.keys(selectedPkg.harga)[0];
-    if (!firstTier) return ROOM_PRICES_FALLBACK;
-    const tierPricing = selectedPkg.harga[firstTier];
+    const tierKey = selectedTier && selectedPkg.harga[selectedTier] ? selectedTier : Object.keys(selectedPkg.harga)[0];
+    if (!tierKey) return ROOM_PRICES_FALLBACK;
+    const tierPricing = selectedPkg.harga[tierKey];
     return {
-      quad: parseInt(tierPricing.Quard || '0', 10),
-      triple: parseInt(tierPricing.Triple || '0', 10),
-      double: parseInt(tierPricing.Double || '0', 10),
-      single: parseInt(tierPricing.Single || '0', 10),
+      quad: parseInt(tierPricing.Quard || '0', 10) || 0,
+      triple: parseInt(tierPricing.Triple || '0', 10) || 0,
+      double: parseInt(tierPricing.Double || '0', 10) || 0,
+      single: parseInt(tierPricing.Single || '0', 10) || 0,
       infant: parseInt(tierPricing.Infant || '0', 10) || INFANT_PRICE,
     };
-  }, [selectedPkg]);
+  }, [selectedPkg, selectedTier]);
 
   // Reset room counts for unavailable room types when package changes
   useEffect(() => {
@@ -902,8 +922,9 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
     // Anak tanpa kasur: harga quad minus diskon (varies by package type)
     if (jamaah.balitaTanpaKasur > 0 && roomPrices.quad > 0) {
       const pkgName = selectedPkg?.nama?.toUpperCase() ?? '';
-      const firstTier = selectedPkg ? Object.keys(selectedPkg.harga)[0]?.toUpperCase() ?? '' : '';
-      const isRahmah = pkgName.includes('RAHMAH') || firstTier.includes('RAHMAH');
+      const activeTier = selectedTier.toUpperCase();
+      // Detect RAHMAH from the active tier first; fall back to nama for legacy single-tier packages
+      const isRahmah = activeTier.includes('RAHMAH') || (!activeTier && pkgName.includes('RAHMAH'));
       const isPromo = selectedPkg?.isPromo ?? pkgName.includes('PROMO');
       const disc = isRahmah
         ? ANAK_TANPA_KASUR_DISC_RAHMAH
@@ -926,7 +947,7 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
     const grandTotal = Math.max(0, subtotal - discount);
 
     return { items, subtotal, discount, grandTotal };
-  }, [rooms, jamaah, isDiscountActive, discountAmount, discountType, roomPrices, selectedPkg]);
+  }, [rooms, jamaah, isDiscountActive, discountAmount, discountType, roomPrices, selectedPkg, selectedTier]);
 
   // --- Room / Jamaah balance validation ---
   // Anak dengan kasur = counted as dewasa (needs bed)
@@ -988,7 +1009,7 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
         }
       }
       const blob = await pdf(
-        <QuotationDocument pkg={selectedPkg} summary={summary} namaLengkap={namaLengkap} agent={agent || undefined} agentPhotoBase64={agentPhotoBase64} discountLabel={discountLabel} />
+        <QuotationDocument pkg={selectedPkg} tier={selectedTier} summary={summary} namaLengkap={namaLengkap} agent={agent || undefined} agentPhotoBase64={agentPhotoBase64} discountLabel={discountLabel} />
       ).toBlob();
       pdfBlobRef.current = blob;
       const url = URL.createObjectURL(blob);
@@ -999,7 +1020,7 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
     } finally {
       setPdfLoading(false);
     }
-  }, [summary, selectedPkg, namaLengkap, agent]);
+  }, [summary, selectedPkg, selectedTier, namaLengkap, agent, discountLabel]);
 
   // ============================================
   // Render
@@ -1069,6 +1090,93 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
           <AnimatePresence>
           {selectedPkg && (
             <>
+            {/* ══════════════════════════════ */}
+            {/* SECTION: Tipe Paket (Tier)    */}
+            {/* ══════════════════════════════ */}
+            {tierKeys.length > 1 && (
+              <motion.div
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 24 }}
+                transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1], delay: 0 }}
+              >
+                <SectionDivider />
+                <div className="py-6">
+                  <SectionHeader icon={Tag} label="Tipe Paket" />
+                  <div className="grid grid-cols-2 gap-2">
+                    {tierKeys.map((tierKey) => {
+                      const isSelected = selectedTier === tierKey;
+                      const tierHotel = selectedPkg.hotel[tierKey] as HotelInfo & Record<string, string> | undefined;
+                      const mekkahStar = tierHotel?.mekkah_bintang ? parseInt(tierHotel.mekkah_bintang, 10) : 0;
+                      const madinahStar = tierHotel?.madinah_bintang ? parseInt(tierHotel.madinah_bintang, 10) : 0;
+                      const tierPricing = selectedPkg.harga[tierKey];
+                      const prices = [tierPricing?.Quard, tierPricing?.Triple, tierPricing?.Double, tierPricing?.Single]
+                        .map((p) => parseInt(p || '0', 10) || 0)
+                        .filter((p) => p > 0);
+                      const startingFrom = prices.length > 0 ? Math.min(...prices) : 0;
+                      return (
+                        <button
+                          key={tierKey}
+                          type="button"
+                          onClick={() => setSelectedTier(tierKey)}
+                          className={`relative text-left rounded-2xl border-2 p-3.5 transition-all duration-300 active:scale-[0.98] ${
+                            isSelected
+                              ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-900/25 shadow-sm'
+                              : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500'
+                          }`}
+                        >
+                          {isSelected && (
+                            <CheckCircle2 size={16} className="absolute top-2.5 right-2.5 text-emerald-600" />
+                          )}
+                          <p className={`text-sm font-bold tracking-tight ${
+                            isSelected ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-100'
+                          }`}>
+                            {tierKey}
+                          </p>
+                          {(mekkahStar > 0 || madinahStar > 0) && (
+                            <div className="mt-2 space-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                              {mekkahStar > 0 && (
+                                <div className="flex items-center justify-between gap-2">
+                                  <span>Mekkah</span>
+                                  <span className="flex tracking-tight">
+                                    {Array.from({ length: mekkahStar }).map((_, i) => (
+                                      <span key={i} className="text-amber-400 leading-none">★</span>
+                                    ))}
+                                  </span>
+                                </div>
+                              )}
+                              {madinahStar > 0 && (
+                                <div className="flex items-center justify-between gap-2">
+                                  <span>Madinah</span>
+                                  <span className="flex tracking-tight">
+                                    {Array.from({ length: madinahStar }).map((_, i) => (
+                                      <span key={i} className="text-amber-400 leading-none">★</span>
+                                    ))}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {startingFrom > 0 && (
+                            <div className={`mt-2 pt-2 border-t border-dashed ${
+                              isSelected ? 'border-emerald-200 dark:border-emerald-800/50' : 'border-slate-200 dark:border-slate-700'
+                            }`}>
+                              <p className="text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-0.5">Mulai dari</p>
+                              <p className={`text-[12px] font-bold tabular-nums leading-tight ${
+                                isSelected ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-200'
+                              }`}>
+                                {formatRupiah(startingFrom)}
+                              </p>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {/* ══════════════════════════════ */}
             {/* SECTION: Komposisi Jamaah     */}
             {/* ══════════════════════════════ */}
@@ -1480,6 +1588,7 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
         isOpen={showResultModal}
         onClose={() => setShowResultModal(false)}
         pkg={selectedPkg}
+        tier={selectedTier}
         rooms={rooms}
         jamaah={jamaah}
         summary={summary}
