@@ -978,9 +978,14 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
       setSuccess(true);
       setSubmitting(false);
       setTimeout(() => {
-        // Navigate to jamaah list with ?sync=1 so JamaahPage auto-syncs and the
-        // newly-registered jamaah appears immediately in the list.
-        window.location.href = '/dashboard/jamaah?sync=1';
+        // For idb-bound (group) registration we know the id_umroh — refresh just
+        // that booking via API resmi instead of running a full sync. Falls back
+        // to full sync for fresh registrations where the new id_umroh is unknown.
+        const refreshIdUmroh = bindIdb ? bindIdb.split('.')[0] : '';
+        const target = refreshIdUmroh
+          ? `/dashboard/jamaah?refresh_id_umroh=${encodeURIComponent(refreshIdUmroh)}`
+          : '/dashboard/jamaah?sync=1';
+        window.location.href = target;
       }, 1500);
     } catch {
       setError('Gagal menghubungi server');
@@ -1125,6 +1130,41 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
     sections[sec].sort((a, b) => a.def.order - b.def.order);
   }
 
+  // ── Auto-fill all fields in "Data Jamaah" section in one click ──
+  const handleAutoFillJamaah = () => {
+    const entries = sections['jamaah'];
+    if (!entries || entries.length === 0) return;
+    const updates: Record<string, string> = {};
+    for (const { name, type, def } of entries) {
+      const label = def.label;
+      if (type === 'select') {
+        const opts = options.selects[name] || [];
+        if (opts.length === 0) continue;
+        if (label === 'Jenis Kelamin') {
+          const laki = opts.find(o => /^l|laki/i.test(o.label)) || opts[0];
+          if (laki) updates[name] = laki.value;
+          continue;
+        }
+        const preferred = label === 'Pekerjaan'
+          ? opts.find(o => o.value && /karyawan\s*swasta/i.test(o.label))
+          : undefined;
+        const firstUsable = opts.find(o => o.value && o.value.trim() !== '');
+        const choice = preferred || firstUsable;
+        if (choice) updates[name] = choice.value;
+      } else {
+        const val = dummyValueFor(label);
+        updates[name] = label === 'Nama Pendaftar' ? val.toUpperCase() : val;
+      }
+    }
+    if (Object.keys(updates).length === 0) return;
+    setFields(prev => ({ ...prev, ...updates }));
+    setFieldErrors(prev => {
+      const cleared = { ...prev };
+      for (const name of Object.keys(updates)) cleared[name] = '';
+      return cleared;
+    });
+  };
+
   // ── Render helpers ──
   const renderLabelRow = (label: string, required: boolean, onDummy: (() => void) | null, extra?: React.ReactNode) => {
     const showBtn = onDummy && !NO_INSERT_BTN_LABELS.has(label);
@@ -1144,7 +1184,7 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
     );
   };
 
-  const renderSelect = (name: string, label: string, required: boolean, _searchable = false) => {
+  const renderSelect = (name: string, label: string, required: boolean, _searchable = false, hideAuto = false) => {
     const opts = options.selects[name] || [];
     const fieldLabel = getFieldDef(name).label;
     // paket, marketing, koordinator are all dependent on jadwal selection
@@ -1168,7 +1208,7 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
       : undefined;
     const firstUsableOption = opts.find(o => o.value && o.value.trim() !== '');
     const dummyOption = preferredOption || firstUsableOption;
-    const handleDummy = !isLocked && dummyOption
+    const handleDummy = !isLocked && dummyOption && !hideAuto
       ? () => updateField(name, dummyOption.value)
       : null;
 
@@ -1188,7 +1228,7 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
 
       return (
         <div key={name}>
-          {renderLabelRow(label, required, () => updateField(name, laki.value))}
+          {renderLabelRow(label, required, hideAuto ? null : () => updateField(name, laki.value))}
           <div className="flex gap-2">
             <button
               type="button"
@@ -1242,12 +1282,12 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
     );
   };
 
-  const renderInput = (name: string, label: string, placeholder: string, required: boolean, type = 'text') => {
+  const renderInput = (name: string, label: string, placeholder: string, required: boolean, type = 'text', hideAuto = false) => {
     // Legacy registrations store Nama Pendaftar in uppercase, so force-match here.
     const forceUpper = label === 'Nama Pendaftar';
     return (
       <div key={name}>
-        {renderLabelRow(label, required, () => updateField(name, dummyValueFor(label)))}
+        {renderLabelRow(label, required, hideAuto ? null : () => updateField(name, dummyValueFor(label)))}
         <input
           type={type}
           value={fields[name] || ''}
@@ -1260,9 +1300,9 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
     );
   };
 
-  const renderTextarea = (name: string, label: string, placeholder: string, required: boolean) => (
+  const renderTextarea = (name: string, label: string, placeholder: string, required: boolean, hideAuto = false) => (
     <div key={name}>
-      {renderLabelRow(label, required, () => updateField(name, dummyValueFor(label)))}
+      {renderLabelRow(label, required, hideAuto ? null : () => updateField(name, dummyValueFor(label)))}
       <textarea
         value={fields[name] || ''}
         onChange={e => updateField(name, e.target.value)}
@@ -1274,17 +1314,17 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
     </div>
   );
 
-  const renderField = (entry: FieldEntry) => {
+  const renderField = (entry: FieldEntry, hideAuto = false) => {
     const { name, type, def } = entry;
     const placeholder = def.placeholder || options.inputs[name]?.placeholder || options.textareas[name]?.placeholder || '';
     const required = def.required ?? false;
     const inputType = options.inputs[name]?.type || 'text';
 
-    if (type === 'select') return renderSelect(name, def.label, required, def.searchable);
-    if (type === 'textarea') return renderTextarea(name, def.label, placeholder, required);
+    if (type === 'select') return renderSelect(name, def.label, required, def.searchable, hideAuto);
+    if (type === 'textarea') return renderTextarea(name, def.label, placeholder, required, hideAuto);
     // File inputs from legacy form → skip, handled in separate Dokumen section
     if (inputType === 'file') return null;
-    return renderInput(name, def.label, placeholder, required, inputType);
+    return renderInput(name, def.label, placeholder, required, inputType, hideAuto);
   };
 
   return (
@@ -1500,10 +1540,21 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
                     }`}
                     aria-disabled={isLockedSection || undefined}
                   >
-                    <div className="px-4 py-2.5 border-b border-gray-50 dark:border-slate-700/50">
+                    <div className="px-4 py-2.5 border-b border-gray-50 dark:border-slate-700/50 flex items-center justify-between gap-2">
                       <h3 className="text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-slate-300">
                         {SECTION_TITLES[sec]}
                       </h3>
+                      {sec === 'jamaah' && (
+                        <button
+                          type="button"
+                          onClick={handleAutoFillJamaah}
+                          className={DUMMY_BTN_CLASS}
+                          title="Isi semua field dengan data dummy"
+                        >
+                          <Wand2 size={10} strokeWidth={2.5} />
+                          Auto
+                        </button>
+                      )}
                     </div>
                     <div className="p-4 space-y-4">
                       {sec === 'pendaftaran' && bindIdb && (
@@ -1520,7 +1571,7 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
                           </div>
                         </div>
                       )}
-                      {entries.map(renderField)}
+                      {entries.map(entry => renderField(entry, sec === 'jamaah'))}
                     </div>
                   </div>
                   {/* KTP OCR card placed right after "INFO PENDAFTARAN" */}

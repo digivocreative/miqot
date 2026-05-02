@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { X, Download } from 'lucide-react';
 import { trackEvent } from '../utils/analytics';
+import { normalizeWaNumber, formatWaDisplay } from '../utils/phone';
 import type { Birthday } from './BirthdayWidget';
 import {
   BirthdayCard,
@@ -42,33 +43,6 @@ function getDefaultMessage(jamaah: Birthday, agentName: string): string {
     : `*${sapaan} ${jamaahFirst}*, _${upcomingWord}_ ulang tahun ya.\n\nSebelum harinya, ${agentFirst} ingin doakan dulu — semoga di usia ke-${jamaah.age} nanti, ${doa}.\n\n_Aamiin Yaa Rabbal 'Alamiin_`;
 
   return `Assalamu'alaikum\n\n${body}\n\n— *${agentName}*\n_Alhijaz Indowisata_`;
-}
-
-function normalizeWaNumber(wa?: string | null): string | null {
-  const raw = String(wa || '').trim();
-  if (!raw) return null;
-
-  const candidate = raw.match(/(?:\+?62|0|8)[\d\s().-]{7,24}/)?.[0] || raw;
-  let cleaned = candidate.replace(/[^0-9]/g, '');
-  if (!cleaned) return null;
-
-  // Fix common bad imports:
-  // - 620812xxxx -> 62812xxxx
-  // - 6213xxxx / 6221xxxx -> 62813xxxx / 62821xxxx
-  //   (old data often lost the "8" from 08xx mobile numbers)
-  if (cleaned.startsWith('620')) cleaned = '62' + cleaned.slice(3);
-  else if (/^62[1-9]\d{7,11}$/.test(cleaned)) cleaned = `628${cleaned.slice(2)}`;
-  else if (cleaned.startsWith('0')) cleaned = '62' + cleaned.slice(1);
-  else if (cleaned.startsWith('8')) cleaned = '62' + cleaned;
-
-  // Indonesian mobile WA numbers should be 628 + 7-12 more digits.
-  if (!/^628\d{7,12}$/.test(cleaned)) return null;
-  return cleaned;
-}
-
-function formatWaDisplay(phone: string): string {
-  const local = phone.startsWith('62') ? `0${phone.slice(2)}` : phone;
-  return local.replace(/^(\d{4})(\d{4})(\d+)$/, '$1 $2 $3');
 }
 
 function slugify(s: string): string {
