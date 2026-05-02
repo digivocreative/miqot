@@ -189,6 +189,52 @@ function dummyValueFor(label: string): string {
   return 'Data Dummy';
 }
 
+// Wrap substrings of `text` matching `query` (case-insensitive) in <mark>.
+// Returns plain text when query is empty.
+function highlightMatch(text: string, query: string): React.ReactNode {
+  const q = query.trim();
+  if (!q) return text;
+  const lower = text.toLowerCase();
+  const ql = q.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let i = 0;
+  let idx = lower.indexOf(ql, i);
+  while (idx !== -1) {
+    if (idx > i) parts.push(text.slice(i, idx));
+    parts.push(
+      <mark key={idx} className="bg-yellow-200 dark:bg-yellow-500/40 text-inherit">
+        {text.slice(idx, idx + q.length)}
+      </mark>
+    );
+    i = idx + q.length;
+    idx = lower.indexOf(ql, i);
+  }
+  if (i < text.length) parts.push(text.slice(i));
+  return parts;
+}
+
+// ── Jadwal label parser ──
+// Legacy form labels for "Tanggal Berangkat" arrive as a single string with
+// "→" separators, e.g. `13 Juni 2026 → SAUDIA → 25 seat → REGULER PAKET RAHMAH 9HR (KERETA CEPAT)`.
+// We split that into structured fields for a richer dropdown UI.
+function parseJadwalLabel(label: string): {
+  date: string;
+  airline: string;
+  seats: string;
+  packageName: string;
+} | null {
+  const parts = label.split(/\s*→\s*/).map(p => p.trim()).filter(Boolean);
+  if (parts.length < 4) return null;
+  const [dateRaw, airlineRaw, seatsRaw, ...rest] = parts;
+  // Strip leading zero from day (e.g. "01 Juli 2026" → "1 Juli 2026")
+  const date = dateRaw.replace(/^0(\d)/, '$1');
+  // Title-case airline name (SAUDIA → Saudia, GARUDA INDONESIA → Garuda Indonesia)
+  const airline = airlineRaw.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  const packageName = rest.join(' → ');
+  const seats = (seatsRaw.match(/\d+/)?.[0] || seatsRaw) + ' seat';
+  return { date, airline, seats, packageName };
+}
+
 // ── Searchable Select Component ──
 interface SearchableSelectProps {
   options: SelectOption[];
@@ -197,9 +243,10 @@ interface SearchableSelectProps {
   placeholder?: string;
   error?: boolean;
   disabled?: boolean;
+  renderOption?: (option: SelectOption, isSelected: boolean, query: string) => React.ReactNode;
 }
 
-function SearchableSelect({ options, value, onChange, placeholder = '— Pilih —', error, disabled }: SearchableSelectProps) {
+function SearchableSelect({ options, value, onChange, placeholder = '— Pilih —', error, disabled, renderOption }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -261,11 +308,15 @@ function SearchableSelect({ options, value, onChange, placeholder = '— Pilih �
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        className={`w-full px-3 py-2.5 bg-white dark:bg-slate-900 border rounded-xl text-sm text-left outline-none transition-all flex items-center justify-between gap-2 focus:ring-2 ${borderClass}`}
+        className={`w-full ${selected && renderOption ? 'px-2.5 py-2' : 'px-3 py-2.5'} bg-white dark:bg-slate-900 border rounded-xl text-sm text-left outline-none transition-all flex items-center justify-between gap-2 focus:ring-2 ${borderClass}`}
       >
-        <span className={`truncate ${selected ? 'text-gray-800 dark:text-white' : 'text-gray-400'}`}>
-          {displayLabel}
-        </span>
+        {selected && renderOption ? (
+          <div className="flex-1 min-w-0">{renderOption(selected, false, '')}</div>
+        ) : (
+          <span className={`truncate ${selected ? 'text-gray-800 dark:text-white' : 'text-gray-400'}`}>
+            {displayLabel}
+          </span>
+        )}
         <ChevronDown size={16} className={`text-gray-400 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
@@ -333,9 +384,11 @@ function SearchableSelect({ options, value, onChange, placeholder = '— Pilih �
                   <div className="flex-shrink-0 w-3.5 h-3.5 mt-0.5">
                     {isSelected && <Check size={14} className="text-emerald-500" strokeWidth={3} />}
                   </div>
-                  <span className={`flex-1 leading-snug ${isSelected ? 'font-semibold' : ''}`}>
-                    {opt.label}
-                  </span>
+                  <div className="flex-1 min-w-0 leading-snug">
+                    {renderOption ? renderOption(opt, isSelected, query) : (
+                      <span className={isSelected ? 'font-semibold' : ''}>{opt.label}</span>
+                    )}
+                  </div>
                 </button>
               );
             })
@@ -1275,6 +1328,30 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
             onChange={isLocked ? () => {} : (v => updateField(name, v))}
             error={!!fieldErrors[name]}
             disabled={isLocked}
+            renderOption={fieldLabel === 'Tanggal Berangkat' ? (opt, isSelected, query) => {
+              const parsed = parseJadwalLabel(opt.label);
+              if (!parsed) {
+                return <span className={isSelected ? 'font-semibold' : ''}>{highlightMatch(opt.label, query)}</span>;
+              }
+              const { date, airline, seats, packageName } = parsed;
+              return (
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <div className="flex items-center justify-between gap-2 min-w-0">
+                    <span className={`text-[13px] truncate ${isSelected ? 'font-bold' : 'font-semibold'} text-gray-900 dark:text-white`}>
+                      {highlightMatch(date, query)}
+                    </span>
+                    <div className="flex items-center gap-1.5 flex-shrink-0 text-[11px] font-semibold">
+                      <span className="text-emerald-600 dark:text-emerald-400">{highlightMatch(seats, query)}</span>
+                      <span className="text-gray-400 dark:text-slate-500" aria-hidden>•</span>
+                      <span className="text-sky-600 dark:text-sky-400">{highlightMatch(airline, query)}</span>
+                    </div>
+                  </div>
+                  <span className="text-[10.5px] text-gray-500 dark:text-slate-400 truncate">
+                    {highlightMatch(packageName, query)}
+                  </span>
+                </div>
+              );
+            } : undefined}
           />
         )}
         {fieldErrors[name] && <p className="mt-1 text-xs text-red-500">{fieldErrors[name]}</p>}
