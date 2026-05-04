@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PinInput from './PinInput';
+import { normalizeWaNumber } from '../utils/phone';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, CartesianGrid,
   XAxis, YAxis, Tooltip,
@@ -246,8 +247,9 @@ function OutstandingRow({ item }: { item: OutstandingItem }) {
   const initials = getInitials(item.nama);
   const isFemale = item.jk === 'P';
   const daysLabel = fmtHariLagi(item.hari_lagi);
-  const waUrl = item.wa
-    ? `https://wa.me/${item.wa.replace(/^0/, '62').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Assalamualaikum ${item.nama}, ini reminder untuk pelunasan umroh ya. Terima kasih.`)}`
+  const waNumber = normalizeWaNumber(item.wa);
+  const waUrl = waNumber
+    ? `https://wa.me/${waNumber}?text=${encodeURIComponent(`Assalamualaikum ${item.nama}, ini reminder untuk pelunasan umroh ya. Terima kasih.`)}`
     : null;
   return (
     <div className="px-4 py-3 flex items-center gap-3">

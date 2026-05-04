@@ -10,6 +10,7 @@ import {
 import { getAuthHeaders, getStoredSession } from './LoginPage';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import { trackEvent } from '../utils/analytics';
+import { normalizeWaNumber } from '../utils/phone';
 
 // ── Animated Counter: smooth count-up between values ──
 function AnimatedCounter({ value, duration = 600 }: { value: number; duration?: number }) {
@@ -1075,15 +1076,18 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                                 <FileText size={13} /> Pernyataan
                               </button>
                             )}
-                            {item.telp && (
-                              <a
-                                href={`https://wa.me/${item.telp.replace(/^0/, '62').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Assalamualaikum ${item.nama || ''}, saya dari Alhijaz Indowisata ingin menginformasikan terkait pendaftaran haji Anda (${item.id_haji}).`)}`}
-                                target="_blank" rel="noopener noreferrer"
-                                onClick={() => trackEvent('action', 'wa_click_haji', { jamaah: item.nama || '' })}
-                                className="flex-[2] flex items-center justify-center text-white bg-emerald-500 py-2 rounded-xl shadow-sm shadow-emerald-500/20 hover:bg-emerald-600 transition-colors active:scale-95">
-                                <WaIcon size={16} />
-                              </a>
-                            )}
+                            {(() => {
+                              const waNumber = normalizeWaNumber(item.telp);
+                              return waNumber ? (
+                                <a
+                                  href={`https://wa.me/${waNumber}?text=${encodeURIComponent(`Assalamualaikum ${item.nama || ''}, saya dari Alhijaz Indowisata ingin menginformasikan terkait pendaftaran haji Anda (${item.id_haji}).`)}`}
+                                  target="_blank" rel="noopener noreferrer"
+                                  onClick={() => trackEvent('action', 'wa_click_haji', { jamaah: item.nama || '' })}
+                                  className="flex-[2] flex items-center justify-center text-white bg-emerald-500 py-2 rounded-xl shadow-sm shadow-emerald-500/20 hover:bg-emerald-600 transition-colors active:scale-95">
+                                  <WaIcon size={16} />
+                                </a>
+                              ) : null;
+                            })()}
                           </div>
                         </div>
                       </motion.div>

@@ -62,13 +62,13 @@ const TOOLS = [
     active: false,
   },
   {
-    id: 'brosur',
-    name: 'Brosur Generator',
-    desc: 'Generate brosur dengan watermark agent',
+    id: 'brochure-prompt',
+    name: 'Prompt Brosur AI',
+    desc: 'Buat prompt banner & brosur siap copy untuk AI image generator.',
     icon: Image,
     color: 'pink',
-    route: null,
-    active: false,
+    route: 'brochure-prompt',
+    active: true,
   },
 ];
 

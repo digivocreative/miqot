@@ -44,6 +44,8 @@ Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 | **Info** | `blue-50` bg, `blue-600` text | `blue-900/20`, `blue-400` | Kalkulasi, profile, komisi belum cair |
 | **Violet** | `violet-50` bg, `violet-600` text | `violet-900/20`, `violet-400` | Compare, jamaah baru stats |
 | **Purple** | `purple-50` bg, `purple-600` text | `purple-900/20`, `purple-400` | Manasik event (calendar) |
+| **Birthday Pink** | `pink-50` bg, `pink-600` text | `pink-900/20`, `pink-400` | Birthday widget, birthday cards, female avatar highlight |
+| **Telegram Blue** | `#2AA9E0`, `#229ED9`, `#16719E` | same | Telegram badge, connect banner |
 | **Neutral** | `gray-50`–`gray-600` | `slate-400`–`slate-700` | Borders, secondary text |
 
 ### Feature Card Colors (Dashboard Menu)
@@ -839,7 +841,7 @@ flex flex-col
 
 ### AI Tools Hub (`AIToolsPage.tsx`)
 
-Hub page for AI tools & utilities — vertical stack of tool cards. Card urutan: **Landing Page**, **Bandingkan Paket**, **Voice Over**, **Kurs Hari Ini**, **Infografis Haji Plus**, **Kartu Nama** (disabled), **Brosur Generator** (disabled).
+Hub page for AI tools & utilities — vertical stack of tool cards. Card urutan: **Landing Page**, **Bandingkan Paket**, **Kurs Hari Ini**, **Infografis Haji Plus**, **Voice Over**, **Kartu Nama** (disabled), **Prompt Brosur AI**.
 
 ```
 relative w-full text-left bg-white dark:bg-slate-800 rounded-2xl
@@ -859,11 +861,11 @@ hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] transition-all cursor
 |------|------|--------------|
 | Landing Page | `Globe` | purple |
 | Bandingkan Paket (Compare) | `ArrowLeftRight` | violet |
-| Voice Over Generator | `Mic` | purple |
 | Kurs Hari Ini | `Banknote` | amber |
 | Infografis Haji Plus | `BarChart3` | emerald |
+| Voice Over Generator | `Mic` | purple |
 | Kartu Nama Digital *(disabled)* | `CreditCard` | teal |
-| Brosur Generator *(disabled)* | `Image` | pink |
+| Prompt Brosur AI | `Image` | pink |
 
 #### "Segera Hadir" Badge
 
@@ -882,6 +884,42 @@ Ketika navigasi ke AI Tools sub-page, header icon + label di-override sesuai sub
 - `haji-plus` / `haji-plus/export` / `haji-plus/simulasi`: BarChart3, emerald
 - `kurs`: TrendingUp, emerald
 - `compare`: ArrowLeftRight, violet
+- `brochure-prompt`: Image, pink
+
+### Prompt Brosur AI (`BrochurePromptPage.tsx`)
+
+Mobile-first prompt builder at `/dashboard/ai-tools/brochure-prompt`. It produces copyable prompts for ChatGPT, Gemini, Claude, Canva AI, or image generators; it does not render/export an image itself.
+
+Page shell:
+```
+max-w-lg mx-auto px-4 pt-4 pb-28 space-y-4
+Card: bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4
+```
+
+Accent:
+- Pink tool color: `bg-pink-50 dark:bg-pink-900/20`, `text-pink-600 dark:text-pink-400`
+- Primary CTA: `bg-pink-500 hover:bg-pink-600 text-white shadow-md shadow-pink-500/20`
+- Inputs use pink focus ring: `focus:ring-2 focus:ring-pink-500 focus:border-pink-500`
+
+Sections:
+- Intro card with `Sparkles` icon.
+- Pengaturan Desain: jenis desain, aspect ratio, konsep visual, tone warna, gaya copywriting, CTA.
+- Data Paket: mode `Tanpa Paket`, `Pilih Paket`, or `Isi Manual`.
+- Identitas Agent: read-only name, WhatsApp, website fallback `https://alhijaz.co/{slug}`.
+- Catatan Tambahan: 4-row textarea.
+- Output card: editable monospace textarea (`rows={14}`), Copy Prompt button, Reset button.
+
+Package behavior:
+- `Pilih Paket` lazy-loads packages only when chosen via `getPackages({ yearCode: '1448' })`.
+- Package select label format: `{date} — {package name}`.
+- Manual mode fields: nama paket, tanggal berangkat, maskapai, hotel, harga mulai, seat tersisa.
+
+Analytics:
+```ts
+trackEvent('feature', 'open_brochure_prompt');
+trackEvent('feature', 'generate_brochure_prompt');
+trackEvent('feature', 'copy_brochure_prompt');
+```
 
 ### Voice Over Generator (`VoiceOverPage.tsx`)
 
@@ -1289,6 +1327,28 @@ Family/group registration — auto-select parent's jadwal, fetch dependent optio
 
 ## Telegram Components
 
+### Telegram Connect Banner (`TelegramConnectBanner.tsx`)
+
+Dashboard-home CTA untuk agent yang belum menghubungkan Telegram. Banner tidak tampil saat status masih loading, status belum ada, atau Telegram sudah connected.
+
+```
+relative mb-4 rounded-xl border border-white/15
+shadow-lg shadow-cyan-500/30 dark:shadow-cyan-500/40
+p-4 overflow-hidden
+background: linear-gradient(135deg, #2AA9E0, #229ED9, #16719E)
+```
+
+Visual layers:
+- Decorative blurred circles in `white/10` and `cyan-200/20`
+- Large `Send` icon watermark: `size=140`, `absolute -right-6 -bottom-8`, `text-white/[0.07]`, `rotate-12`
+- Icon badge: `w-10 h-10 rounded-xl bg-white/15`, inner white circle, subtle ping ring
+- Text: title `text-sm font-bold text-white`, subtitle `text-xs text-white/85`
+- CTA: `px-3 py-2 rounded-lg bg-white text-[#229ED9] text-xs font-bold shadow-lg`, includes `ArrowRight` size 14
+
+Copy:
+- Title: "Layani jamaah dengan sigap!"
+- Button: "Hubungkan"
+
 ### Status Badge (Connected)
 
 Compact Telegram-brand badge used in `DashboardProfile.tsx` `TelegramSection`:
@@ -1307,7 +1367,7 @@ Inner elements:
 
 ### Notification Toggle List
 
-Grouped by section (JAMAAH × 5, PAKET × 3, LAINNYA × 2):
+Grouped by section (JAMAAH × 6, PAKET × 3, LAINNYA × 4):
 
 ```
 Section header: text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500 mt-5 mb-2 px-1
@@ -1320,6 +1380,12 @@ Row inner:
 - Label: `text-sm font-semibold text-gray-700 dark:text-slate-200`
 - Desc: `text-[11px] text-gray-400 dark:text-slate-500 mt-0.5`
 - Toggle: `w-10 h-6 rounded-full` (emerald-500 on / gray-200 off), thumb `w-5 h-5 rounded-full bg-white shadow-sm`
+
+Current keys:
+- Jamaah: `departure`, `paspor`, `pelunasan`, `perlengkapan`, `manasik`, `birthday_digest`
+- Paket: `seat_alert`, `paket_baru`, `perubahan_harga`
+- Lainnya: `pembayaran_masuk`, `ringkasan_mingguan`, `flight_status`, `kurs_dollar`
+- Backend default also includes `insight_harian`; keep compatibility when normalizing saved prefs.
 
 ### Disconnect Button
 
@@ -1351,6 +1417,89 @@ Section header: h-3 w-16/w-12 rounded-md animate-pulse
 Toggle rows: px-4 py-3 with circle (w-8 h-8), text (h-3 w-28 + h-2.5 w-20), toggle pill (w-9 h-5)
 All: bg-gray-200 dark:bg-slate-700 animate-pulse
 ```
+
+---
+
+## Birthday Components
+
+Birthday workflow lives on dashboard home and is backed by `GET /api/jamaah/birthdays` for today + next 3 days in `Asia/Jakarta`.
+
+### Birthday Widget (`BirthdayWidget.tsx`)
+
+Compact card with a soft pink header and list rows for imminent birthdays.
+
+```
+bg-white dark:bg-slate-800 rounded-2xl
+border border-gray-100 dark:border-slate-700
+shadow-sm overflow-hidden
+```
+
+Header:
+- Wrapper: `relative px-4 py-3.5 overflow-hidden`
+- Background: `linear-gradient(180deg, rgba(244,114,182,0.08) 0%, transparent 100%)`
+- Icon shell: pulse ring + `w-9 h-9 rounded-xl`, gradient `#f472b6 → #be185d`, pink shadow
+- Title: `text-sm font-bold`; subtitle `text-[11px] text-gray-500`
+- Day pill: `text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full`, pink tint for today
+
+Birthday row:
+```
+w-full px-4 py-2.5 flex items-center gap-3
+border-t border-gray-50 dark:border-slate-700/50
+```
+
+Row details:
+- Avatar: `w-9 h-9 rounded-full`; female `bg-pink-100 text-pink-700`, male `bg-blue-100 text-blue-700`
+- Today overlay uses pink birthday marker; age badge uses `text-[10px] font-bold px-2 py-0.5 rounded-md`
+- "Lihat X lagi minggu ini" uses the existing emerald "Lihat Semua" expand button style.
+
+### Birthday List Sheet (`BirthdayListSheet.tsx`)
+
+Bottom sheet grouped by day. Uses the standard mobile sheet language:
+
+```
+fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-lg
+bg-white dark:bg-slate-800 rounded-t-2xl
+border-t border-x border-gray-100 dark:border-slate-700
+max-h-[85vh] overflow-y-auto shadow-2xl
+```
+
+Backdrop: `fixed inset-0 z-50 bg-black/40 backdrop-blur-sm`. Keep the top handle sticky for long birthday lists.
+
+### Birthday Detail Sheet (`BirthdayDetailSheet.tsx`)
+
+Detail sheet for one jamaah with editable WhatsApp text, card template selection, download, and WhatsApp send.
+
+```
+Header avatar: w-12 h-12 rounded-full
+Title: text-sm font-bold
+Textarea: rows={10}, rounded-xl, border-gray-200 dark:border-slate-700
+Footer buttons: Download card + Send WhatsApp
+```
+
+Export behavior:
+- Hidden export nodes render both card templates at original size.
+- Download uses `@zumer/snapdom` → JPEG `quality: 0.9`.
+- WhatsApp send opens `wa.me` with text only; card image is downloaded/shared manually.
+- Tracking events: `open_birthday_sheet`, `birthday_download`, `birthday_send`.
+
+### Birthday Card Templates (`BirthdayCardTemplates.tsx`)
+
+Fixed-size social cards:
+
+```
+CARD_W = 1080
+CARD_H = 1080
+```
+
+Templates:
+- `classic`: warm red/gold celebration layout.
+- `islamic`: emerald/gold geometric layout.
+
+Common structure:
+- Jamaah name as main focus, age/day metadata as supporting text.
+- Message block from editable WhatsApp text.
+- Footer contains agent photo, name, verified badge, and Alhijaz logo.
+- Use solid backgrounds and embedded SVG decoration so JPEG export has no transparency dependency.
 
 ---
 
@@ -1658,6 +1807,53 @@ Gradient overlay: `linear-gradient(to bottom, transparent, white)` / `linear-gra
 
 ---
 
+## PackageCard Variants
+
+Public package cards can be rendered in multiple visual variants through `CardVariants.tsx`. The agent preference is saved as `agents.card_variant`; public rendering fetches `/api/agent/:slug/card-variant` and SSR can inject `data-agent-card-variant` for first paint consistency.
+
+### Variant Set
+
+| Key | Usage |
+|-----|-------|
+| `default` | Existing compact card layout |
+| `split` | Image/info split composition |
+| `spotlight` | Large image-forward hero card |
+| `ticket` | Travel ticket-inspired layout |
+| `tiled` | Grid/tile arrangement |
+| `magazine` | Editorial package presentation |
+
+`PackageCard` should force `default` while `isCapturing` so downloaded/shared package images stay stable.
+
+### DashboardProfile Picker
+
+The "Tampilan Card" control in `DashboardProfile.tsx` opens a full-screen picker.
+
+Closed row:
+```
+w-full flex items-center gap-3 px-3 py-2.5 rounded-xl
+border border-gray-200 dark:border-slate-700
+hover:border-emerald-300 dark:hover:border-emerald-700
+```
+
+Preview thumbnail:
+```
+w-10 h-14 rounded-md border border-gray-200 dark:border-slate-700 overflow-hidden
+```
+
+Fullscreen picker:
+```
+fixed inset-0 z-50 bg-white dark:bg-slate-900 flex flex-col
+Header: sticky top-0 px-4 py-3 border-b, close X + title
+Grid: grid grid-cols-3 gap-3 p-4
+Card: rounded-xl border p-2 active:scale-95 transition-all
+Selected: border-emerald-500 ring-2 ring-emerald-500/20
+Bottom bar: sticky bottom-0 p-4 border-t bg-white dark:bg-slate-900
+```
+
+Mini preview cards use `h-20`, compact typography, and variant-specific layout cues rather than full package content.
+
+---
+
 ## Icons
 
 **Library**: [Lucide React](https://lucide.dev/) — seluruh project menggunakan Lucide.
@@ -1703,8 +1899,17 @@ Gradient overlay: `linear-gradient(to bottom, transparent, white)` / `linear-gra
 | `Unlink` | Disconnect Telegram |
 | `Sparkles` | AI Tools menu, generate script |
 | `Mic` | Voice Over Generator |
+| `Image` | Prompt Brosur AI, brochure/image-related actions |
+| `WandSparkles` | Generate prompt/script CTA |
+| `Palette` | Design settings |
+| `MonitorSmartphone` | Agent identity / preview context |
+| `Gift` | Birthday widget and birthday detail |
+| `Share2` | Share Kurs, public share actions |
+| `Download` | Image/card/audio download actions |
+| `Copy` | Copy caption/message |
+| `DollarSign` / `Banknote` | Kurs and currency actions |
+| `ArrowRight` | Telegram connect CTA, row navigation |
 | `Play` / `Pause` | Audio player controls |
-| `Download` | Download buttons (MP3/WAV) |
 | `Package` | "Dari Paket" mode toggle |
 | `PenLine` | "Tulis Manual" mode toggle |
 | `Lock` / `Unlock` | PIN gate / PIN verified |
@@ -1714,7 +1919,6 @@ Gradient overlay: `linear-gradient(to bottom, transparent, white)` / `linear-gra
 | `ArrowLeft` | Back navigation (RegisterPage) |
 | `Info` | Simulasi Haji Plus info |
 | `FileText` | PDF preview (Simulasi) |
-| `Share2` | Share button (export/share features) |
 
 ### WhatsApp Icon (Custom SVG)
 
@@ -1848,6 +2052,7 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 | Diskusi border glow | `.diskusi-ai-border::before` — rotating conic emerald ring via mask-composite, `ai-rotate 2.8s linear infinite` |
 | Tanya AI typing dots | `askAiTyping 1.2s infinite ease-in-out` (3 dots, delays 0/0.15/0.3s) |
 | Tanya AI typewriter | 22ms per word, cursor `w-[2px] h-3.5 bg-emerald-500 animate-pulse` |
+| Birthday icon pulse | `birthdayPulse` ring on dashboard birthday widget icon |
 
 ---
 
@@ -1863,6 +2068,7 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 | Legacy table styling | `.laporan-content table/th/td` |
 | Disconnect modal anims | `dcOverlayIn/Out`, `dcModalIn/Out` (inline `<style>` in component) |
 | Telegram badge anims | `tgFloat` (icon bob), `tgPulseGlow` (green dot pulse) (inline `<style>`) |
+| Birthday widget anims | `birthdayPulse` icon ring (inline `<style>` in `BirthdayWidget`) |
 | Register form anims | `fadeSlideIn` (form entry), `errorSlideIn` (error msg) (inline `<style>`) |
 | Diskusi button ring | `.diskusi-ai-border`, `@keyframes ai-rotate`, `@property --ai-angle` (rotating conic gradient, mask-composite xor to cut center) |
 | Tanya AI typing dots | `@keyframes askAiTyping` (scoped inline `<style>` inside `AskAIModal`) |
@@ -1873,10 +2079,13 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 ## Image Export & Native Share
 
 ### Export Strategy
-- Use `modern-screenshot` for DOM-to-PNG (specifically `domToPng` with `{ scale: 3, quality: 1 }`).
-- Wait at least `1000ms` for image loading/fonts before snapshotting.
-- Result should be rasterized via `fetch(dataUrl)` to `blob()` to ensure compatibility.
-- **CSS Grid + Flexbox Warning**: `modern-screenshot` struggles to compute heights for flex-nested elements within grid rows, causing vertical overlapping of text/divs. When building layouts specifically for image exports, prefer using standard block-level stacking inside grid cells rather than `display: flex` and explicit alignment. Use exact sizes (`px` widths) or simpler table models to avoid clipping or wrapping issues.
+- Use the exporter already chosen by each feature:
+  - `modern-screenshot` for Kalkulasi DOM-to-PNG (`domToPng` with `{ scale: 3, quality: 1 }`).
+  - `@zumer/snapdom` for fixed-size social images: Share Kurs and Birthday cards.
+- For `snapdom`, capture the fixed original-size node and export JPEG (`quality: 0.9`) when the design has a solid background.
+- Wait for `document.fonts.ready` and image decode/load before snapshotting. Use a short fallback delay only after font/image readiness has been attempted.
+- Result should be rasterized to `Blob`/`File` before download/share.
+- **CSS Grid + Flexbox Warning**: DOM image exporters can struggle to compute heights for flex-nested elements within grid rows, causing vertical overlapping of text/divs. When building layouts specifically for image exports, prefer using standard block-level stacking inside grid cells rather than `display: flex` and explicit alignment. Use exact sizes (`px` widths) or simpler table models to avoid clipping or wrapping issues.
 
 ### Native Share Format
 - WhatsApp requires the sharing payload to **only contain the `files` array**.
@@ -1891,7 +2100,7 @@ navigator.share({ files: [file], text: 'Caption', title: 'Infografis' });
 
 ### SVG Compatibility for Export
 - Always use **fill-based paths** instead of stroke-based primitives.
-- `modern-screenshot` may fail to accurately rasterize SVG stroke properties.
+- DOM image exporters may fail to accurately rasterize SVG stroke properties.
 - Example: Convert `<circle>` or `<path stroke="..." />` to `<path d="..." />` filled with exact color/opacity.
 
 ---
@@ -2060,11 +2269,11 @@ bg-gray-50 dark:bg-slate-900/40 border border-gray-100 dark:border-slate-700/50
 
 Layout: Flag → Currency code (bold, larger) → Rate value
 
-Date display: full Indonesian format (e.g., "Kamis, 2 April 2026")
+Date display: value dari API `kursData.updatedAt`.
 
 ### Header Action Buttons
 
-Header sebelah kanan dari Kurs widget berisi 2 button outline (admin) atau 1 button (non-admin):
+Header sebelah kanan dari Kurs widget berisi tombol outline kecil. Tombol Share tersedia untuk semua agent selama `kursData.usd !== null`.
 
 ```
 flex items-center gap-1 px-2.5 py-1.5 rounded-lg
@@ -2075,120 +2284,148 @@ hover:bg-gray-50 dark:hover:bg-slate-700 active:scale-95 transition-colors
 
 | Button | Visibility | Icon | Label |
 |--------|-----------|------|-------|
-| Share | Admin only (`isAdmin && kursData.sar != null`) | `Share2` 10 | "Share" |
+| Share | All agents (`kursData.usd != null`) | `Share2` 10 | "Share" |
 | Kurs (open `/dashboard/ai-tools/kurs`) | All | — / `ChevronRight` 10 right | "Kurs" |
 
 ---
 
 ## Share Kurs Modal (`ShareKursModal.tsx`)
 
-Full-screen modal untuk admin generate infografis kurs harian (USD/SAR) dengan 4 template, lalu share/download. Lazy-loaded via `React.lazy` + `Suspense` di `DashboardLayout.tsx`.
+Full-screen modal untuk generate infografis kurs harian. Implementasi terbaru memakai **single Hero USD template** 16:10, export JPEG via `@zumer/snapdom`, lalu download/share/copy caption. Lazy-loaded via `React.lazy` + `Suspense` di `DashboardLayout.tsx`.
 
 ### Trigger
 
-Tombol "Share" pada Kurs widget header — admin only. Hanya muncul ketika `kursData.sar != null` (SAR guard).
+Tombol "Share" pada Kurs widget header. Hanya muncul ketika `kursData.usd != null`.
 
 ### Container
 
 ```
 Portal: createPortal ke document.body
-Backdrop: fixed inset-0 z-[9999]
-Card: full-screen flex flex-col bg-white dark:bg-slate-900
-Animation: Framer Motion `y: '100%' → 0`, sama pattern dengan BrochureModal/AskAIModal
+Root: fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col
+Animation: Framer Motion opacity + `y: '100%' → 0`
 ESC key + body-lock (overflow: hidden) saat open
+```
+
+Header:
+```
+sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl
+border-b border-gray-200/60 dark:border-slate-700/60
+px-5 py-4 flex justify-between items-center shadow-sm
+Title: text-lg font-bold "Bagikan Kurs"
+Close: p-2 bg-gray-100 dark:bg-slate-800 rounded-full
+```
+
+Scrollable body:
+```
+flex-1 overflow-y-auto bg-gray-100 dark:bg-slate-950 px-5 py-6
+Preview shell: max-w-xl mx-auto bg-white dark:bg-slate-800 rounded-2xl border shadow-sm p-3
 ```
 
 ### Canvas & Preview
 
-- **Fixed canvas**: 1080 × 1080 px (square, optimized for IG/WA story)
-- **Preview width**: 360 px → `scale = 360/1080 = 0.333`
-- **Thumbnail width**: 72 px → `scale = 72/1080 = 0.0667`
-- Render template via `transform: scale()` + `transform-origin: top left` agar layout 1:1 dengan output PNG.
-
-### Template Picker
-
-Horizontal scroll thumbnail row, 1 thumb per template:
+- **Fixed canvas**: `TEMPLATE_W = 1400`, `TEMPLATE_H = 1000` (16:10)
+- **Preview scale**: computed dari container width, min 280px, max 520px.
+- `PREVIEW_FRAME_INSET = 32`; `targetW = clamp(containerW - inset, 280, 520)`.
+- Render template via `transform: scale(previewScale)` + `transform-origin: top left`; export node tetap ukuran asli 1400×1000.
 
 ```
-flex gap-2 overflow-x-auto pb-2
-Thumb (selected): border-emerald-500 ring-2 ring-emerald-500/20
-Thumb (unselected): border-gray-200 dark:border-slate-700
-Inner: 72×72 scaled-down preview
-Label: text-[10px] font-semibold mt-1
+borderRadius: 12
+overflow: hidden
+boxShadow: 0 8px 32px rgba(0,0,0,0.18)
 ```
 
-Templates registered di `KURS_TEMPLATES`:
+### Template — Hero USD 16:10
 
-| ID | Name | Style |
-|----|------|-------|
-| `minimalist` | Minimalist | Clean white + emerald accent + DM Serif Display headline |
-| `islamic` | Islamic | Islamic motif (geometric pattern, Amiri serif), warm palette |
-| `bold` | Bold | High-contrast, big rate digits, emerald/dark gradient |
-| `premium` | Premium | Luxury gradient, serif headline, gold accent |
+Props:
+```ts
+{
+  kurs: { usd: number; updatedAt: string };
+  agent: { name: string; phone: string; photo: string; slug: string; website?: string };
+}
+```
 
-Semua template menerima props `KursTemplateProps`: `{ usd, sar, updatedAt, agentName, agentPhone, agentPhoto, agentSlug }`.
+Visual:
+- Background radial emerald/gold glow + diagonal emerald gradient `#054233 → #0F6E56 → #064e3b`.
+- Geometric Islamic line pattern as inline SVG overlay.
+- Top row: title "Kurs Hari Ini", subtitle "Update nilai tukar USD ke Rupiah", Alhijaz logo white on right.
+- Hero rate: US flag pill + "USD / US Dollar"; giant rate digits with `Rp` prefix and "per 1 USD" underline.
+- Bottom glass panel: agent avatar, name + verified check, website/WA fallback, date pill with calendar icon.
+- Template intentionally USD-only; SAR tetap ditampilkan di widget/page kurs jika data tersedia, tetapi tidak wajib untuk share image.
 
 ### Action Buttons (footer)
 
-3 tombol horizontal stack di footer:
+Footer sticky di bawah:
 
 ```
-Share button (native share, jika canShare):
-  bg-emerald-500 text-white shadow-md shadow-emerald-500/30
-  + Share2 icon
-
-Download button:
-  bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700
-  + Download icon
-
-Copy Caption button:
-  bg-gray-100 dark:bg-slate-800 border
-  + Copy icon
-
-Common: flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2
+sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4
+Inner: max-w-md mx-auto space-y-2
+Row: grid grid-cols-2 gap-2 when native share exists, grid-cols-1 otherwise
+Download: bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-500/20
+Bagikan: border border-emerald-500 text-emerald-600 dark:text-emerald-400
+Salin Caption: border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300
+Common: flex items-center justify-center gap-2 rounded-xl text-sm font-bold active:scale-95 disabled:opacity-50
 ```
 
 ### Export Flow
 
-- DOM → PNG via `modern-screenshot` (`scale: 1` karena canvas sudah 1080×1080)
-- Output blob → `File('kurs-{template}-{date}.png', { type: 'image/png' })`
-- Native share: `navigator.share({ files: [file] })` — **WAJIB hanya `files`**, tanpa `text/title/url` (lihat "Native Share Format")
+- DOM → JPEG via `@zumer/snapdom` (`scale: 1`, `backgroundColor: '#064e3b'`)
+- Output blob → `File('kurs-YYYYMMDD.jpg', { type: 'image/jpeg' })`
+- JPEG quality: `0.9`; transparency tidak diperlukan karena template punya solid background.
+- Native share: `navigator.share({ files: [file] })` — hanya `files`, tanpa `text/title/url`.
 - Download: trigger `<a download>` dengan `URL.createObjectURL(blob)`
-- Copy caption: build caption string dari template (USD/SAR rate + agent contact) ke clipboard
+- Copy caption: build string dari `kurs.updatedAt`, USD rate, `agent.name`, `wa.me/{phone}`, dan website/WA fallback.
 
-### Font Preload
+### Font Handling
 
-DM Serif Display + Amiri di-preload via `document.fonts.load()` saat modal open agar export rasterizes dengan font benar (bukan fallback system font).
-
-```ts
-useEffect(() => {
-  if (!open) return;
-  ['DM Serif Display', 'Amiri'].forEach(f => {
-    try { document.fonts?.load(`16px "${f}"`); } catch {}
-  });
-}, [open]);
-```
-
-Font loading di `index.html` (Google Fonts: DM Serif Display, Amiri) — preload disisipkan sebelum modal pertama dibuka untuk hindari FOUT.
+`ShareKursModal` menunggu `document.fonts.ready` sebelum capture. Template memakai Inter/system stack; tidak lagi bergantung pada DM Serif Display/Amiri.
 
 ### Toast Feedback
 
-Inline toast di footer setelah action sukses/error:
-
 ```
-absolute bottom-20 left-1/2 -translate-x-1/2
-text-[11.5px] font-medium px-3 py-1.5 rounded-lg shadow-md
-Success: bg-emerald-50 text-emerald-800 border border-emerald-200
-Auto-dismiss: 2200ms
+fixed bottom-28 left-1/2 -translate-x-1/2 z-[10000]
+bg-gray-900 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-xl
+Auto-dismiss: 2500ms
 ```
 
 ### Analytics
 
 ```ts
 trackEvent('feature', 'open_share_kurs');  // ketika modal open
+trackEvent('action', 'download_share_kurs');
+trackEvent('action', 'share_kurs');
+trackEvent('action', 'copy_kurs_caption');
 ```
 
-Tambahan event yang ditelusuri (lihat utils/analytics): download_kurs_share, share_kurs_share, copy_kurs_caption.
+---
+
+## Analytics Components
+
+### Agent Drill-Down Modal (`AgentDrillDownModal.tsx`)
+
+Admin-only modal opened from analytics agent rows. Data covers the last 7 days and is fetched from `/api/analytics/agent/:slug`.
+
+```
+Backdrop: fixed inset-0 z-[55] bg-black/40 backdrop-blur-sm
+Sheet: fixed bottom-0 left-0 right-0 z-[56] mx-auto max-w-lg
+bg-white dark:bg-slate-900 rounded-t-2xl
+border-t border-x border-gray-100 dark:border-slate-700
+max-h-[92vh] overflow-y-auto shadow-2xl
+```
+
+Header:
+- Agent avatar/photo, name, and slug.
+- Subtitle: "Aktivitas 7 hari terakhir".
+- Close button uses the standard `X` icon button.
+
+Body modules:
+- Summary stat cards for views, WA clicks, inquiries, and AI actions.
+- Timeline chart using Recharts `BarChart`.
+- 24-hour heatmap grid with emerald intensity.
+- Feature/action breakdown lists.
+- Funnel summary.
+- Recent events list with compact metadata.
+
+Use dense card spacing (`space-y-3`, `p-3.5`) because this modal is operational, not editorial.
 
 ---
 

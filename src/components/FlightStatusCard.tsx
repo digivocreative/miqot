@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap, Calendar, Radio, Share2, Check, Lock } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
+import { normalizeWaNumber } from '../utils/phone';
 
 const FlightMap = lazy(() => import('./FlightMap'));
 
@@ -879,7 +880,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                               .split(' ').filter(Boolean).slice(0, 2)
                               .map(w => w[0]).join('').toUpperCase();
                             const isFemale = j.jk === 'P';
-                            const waNumber = j.wa ? j.wa.replace(/^0/, '62').replace(/[^0-9]/g, '') : null;
+                            const waNumber = normalizeWaNumber(j.wa);
 
                             return (
                               <div
@@ -1101,7 +1102,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                       .split(' ').filter(Boolean).slice(0, 2)
                       .map(w => w[0]).join('').toUpperCase();
                     const isFemale = j.jk === 'P';
-                    const waNumber = j.wa ? j.wa.replace(/^0/, '62').replace(/[^0-9]/g, '') : null;
+                    const waNumber = normalizeWaNumber(j.wa);
                     const waText = encodeURIComponent(`Assalamualaikum,\n`);
 
                     return (
