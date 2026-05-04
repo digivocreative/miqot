@@ -8150,7 +8150,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
 
     // Need id_umroh to dedupe — sisa is booking-level (same value across each
     // family member row), so summing per-row inflates by booking size.
-    let outQ = supabase.from('jamaah').select('id_umroh, sisa').eq('agent_id', agentId).gt('sisa', 0);
+    let outQ = supabase.from('jamaah').select('id_umroh, sisa').eq('agent_id', agentId).gt('sisa', 0).gt('bayar', 0);
     if (year) outQ = outQ.eq('hijriah_year', year);
 
     let bebQ = supabase.from('jamaah')
@@ -8170,7 +8170,7 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     let trendQ = supabase.from('jamaah').select('tgl_daftar, bayar, sisa').eq('agent_id', agentId).gte('tgl_daftar', tmStr).order('tgl_daftar', { ascending: true });
     if (year) trendQ = trendQ.eq('hijriah_year', year);
 
-    let olQ = supabase.from('jamaah').select('id_umroh, nama, paket, jk, sisa, tgl_berangkat, wa').eq('agent_id', agentId).gt('sisa', 0).order('sisa', { ascending: false }).order('tgl_berangkat', { ascending: true });
+    let olQ = supabase.from('jamaah').select('id_umroh, nama, paket, jk, sisa, tgl_berangkat, wa').eq('agent_id', agentId).gt('sisa', 0).gt('bayar', 0).order('sisa', { ascending: false }).order('tgl_berangkat', { ascending: true });
     if (year) olQ = olQ.eq('hijriah_year', year);
 
     let komisiQ = supabase.from('jamaah').select('paket, sisa, tgl_berangkat, diskon_marketing').eq('agent_id', agentId);
