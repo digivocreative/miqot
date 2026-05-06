@@ -2668,10 +2668,7 @@ export function initNotifier() {
     weeklySummary();
   }, { timezone: 'Asia/Jakarta' });
 
-  // CRON: Kurs Dollar Update (11:00 WIB, Senin-Sabtu)
-  cron.schedule('0 11 * * 1-6', () => {
-    sendKursUpdate();
-  }, { timezone: 'Asia/Jakarta' });
+  // Kurs Dollar Update is now event-driven (triggered by server.js after successful scrape)
 
   // Initial check after 15s delay (let Express settle)
   setTimeout(() => {

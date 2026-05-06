@@ -6,10 +6,12 @@ import {
   KursTemplate,
   TEMPLATE_W,
   TEMPLATE_H,
+  KURS_FONT_WEIGHTS,
   formatKurs,
   normalizePhone,
 } from './KursShareTemplates';
 import { trackEvent } from '../utils/analytics';
+import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 
 export interface ShareKursModalProps {
   open: boolean;
@@ -33,7 +35,7 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
   const exportRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
-  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+  const showShareButton = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   useEffect(() => {
     if (open) trackEvent('feature', 'open_share_kurs');
@@ -76,7 +78,17 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
   };
 
   const waitForFonts = async () => {
-    try { await document.fonts?.ready; } catch {}
+    try {
+      if (!document.fonts) return;
+      // Explicitly request every weight the template uses so the browser
+      // actually downloads them — `fonts.ready` only awaits in-flight loads.
+      await Promise.all(
+        KURS_FONT_WEIGHTS.map(w =>
+          document.fonts.load(`${w} 16px Inter`).catch(() => null)
+        )
+      );
+      await document.fonts.ready;
+    } catch {}
   };
 
   const yyyymmdd = () => {
@@ -91,19 +103,9 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
     const result = await snapdom(exportRef.current, {
       scale: EXPORT_SCALE,
       backgroundColor: '#064e3b',
+      embedFonts: true,
     });
     return await result.toBlob({ type: EXPORT_TYPE, quality: EXPORT_QUALITY });
-  };
-
-  const downloadBlob = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const handleDownload = async () => {
@@ -127,7 +129,7 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
     try {
       const blob = await captureKursBlob();
       const file = new File([blob], `kurs-${yyyymmdd()}.jpg`, { type: EXPORT_MIME });
-      if (navigator.canShare?.({ files: [file] })) {
+      if (canShareFiles([file])) {
         await navigator.share({ files: [file] });
         trackEvent('action', 'share_kurs');
       } else {
@@ -247,7 +249,7 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
           {/* ─── STICKY FOOTER ─── */}
           <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
             <div className="max-w-md mx-auto space-y-2">
-              <div className={`grid ${canShare ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+              <div className={`grid ${showShareButton ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
                 <button
                   onClick={handleDownload}
                   disabled={isExporting}
@@ -256,7 +258,7 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
                   <Download size={16} strokeWidth={2.5} />
                   {isExporting ? 'Menyimpan...' : 'Download'}
                 </button>
-                {canShare && (
+                {showShareButton && (
                   <button
                     onClick={handleShare}
                     disabled={isExporting}

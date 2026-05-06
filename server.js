@@ -19,7 +19,7 @@ import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration, fetchAwapiCredentials } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
-import { initNotifier, notifyPembayaranMasuk, runBirthdayDigest } from './telegram-notifier.js';
+import { initNotifier, notifyPembayaranMasuk, runBirthdayDigest, sendKursUpdate } from './telegram-notifier.js';
 import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent } from './lib/og-generator.mjs';
@@ -281,6 +281,10 @@ async function fetchKursMandiri() {
     console.log('[Kurs] Cached kurs is not from today, fetching fresh...');
     await fetchKursMandiri();
   }
+  // If cache is current, trigger Telegram send (dedup via lastKursSentDate)
+  if (isKursToday(kursCache?.updatedAt)) {
+    sendKursUpdate().catch(err => console.error('[Kurs] startup send error:', err.message));
+  }
 })();
 
 const KURS_RETRY_INTERVAL = 15 * 60 * 1000; // 15 minutes
@@ -309,6 +313,7 @@ async function fetchKursWithRetry() {
     const isCurrent = await fetchKursMandiri();
     if (isCurrent) {
       console.log(`[Kurs] Got today's rates on attempt ${attempt}`);
+      sendKursUpdate().catch(err => console.error('[Kurs] post-scrape send error:', err.message));
       return;
     }
     if (attempt < KURS_MAX_RETRIES) {

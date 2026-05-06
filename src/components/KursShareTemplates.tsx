@@ -6,6 +6,9 @@ export interface KursTemplateProps {
 export const TEMPLATE_W = 1400;
 export const TEMPLATE_H = 1000;
 
+export const KURS_FONT_STACK = "'Inter', 'Inter var', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+export const KURS_FONT_WEIGHTS = [600, 650, 750, 800, 850, 900] as const;
+
 // ═══════════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════════
@@ -142,7 +145,7 @@ export function KursTemplate({ kurs, agent }: KursTemplateProps) {
       background: 'radial-gradient(circle at 76% 34%, rgba(248, 223, 161, 0.14) 0%, rgba(248, 223, 161, 0) 28%), radial-gradient(circle at 20% 72%, rgba(110, 231, 183, 0.16) 0%, rgba(110, 231, 183, 0) 26%), linear-gradient(135deg, #054233 0%, #0F6E56 52%, #064e3b 100%)',
       position: 'relative',
       overflow: 'hidden',
-      fontFamily: 'Inter, system-ui, sans-serif',
+      fontFamily: KURS_FONT_STACK,
       padding: '68px 84px 62px',
       display: 'flex',
       flexDirection: 'column',
@@ -226,7 +229,7 @@ export function KursTemplate({ kurs, agent }: KursTemplateProps) {
             color: '#fff',
             lineHeight: 0.86,
             letterSpacing: -5,
-            fontFamily: 'Inter, system-ui, sans-serif',
+            fontFamily: KURS_FONT_STACK,
           }}>
             {formatKurs(kurs.usd)}
           </span>

@@ -2,8 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Loader2, ZoomIn, ZoomOut } from 'lucide-react';
+import { X, Share2, Download, Loader2, ZoomIn, ZoomOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 
 // ============================================
 // Types
@@ -25,6 +26,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
   const [isSharing, setIsSharing] = useState(false);
   const [scale, setScale] = useState(1);
   const pinchRef = useRef({ startDist: 0, startScale: 1 });
+  const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   // Use CDN URL directly if available, otherwise use proxy path
   const isCdnUrl = imageUrl && (imageUrl.includes('.b-cdn.net') || imageUrl.includes('bunnycdn'));
@@ -107,22 +109,21 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
       window.URL.revokeObjectURL(blobUrl);
 
       const file = new File([pngBlob], fileName, { type: 'image/png' });
-      const shareData = {
-        title: `Brosur - ${title}`,
-        text: `Berikut brosur untuk Paket ${title}`,
-        files: [file],
-      };
 
-      if (navigator.canShare && navigator.canShare(shareData)) {
+      if (canShareFiles([file])) {
         try {
-          await navigator.share(shareData);
+          await navigator.share({
+            title: `Brosur - ${title}`,
+            text: `Berikut brosur untuk Paket ${title}`,
+            files: [file],
+          });
         } catch (err: any) {
           if (err?.name !== 'AbortError') {
-            triggerDownload(pngBlob, fileName);
+            downloadBlob(pngBlob, fileName);
           }
         }
       } else {
-        triggerDownload(pngBlob, fileName);
+        downloadBlob(pngBlob, fileName);
       }
     } catch {
       const fullUrl = imageUrl.replace(/^http:\/\//i, 'https://');
@@ -130,17 +131,6 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
     } finally {
       setIsSharing(false);
     }
-  };
-
-  const triggerDownload = (blob: Blob, name: string) => {
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = name;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
   };
 
   return createPortal(
@@ -260,10 +250,15 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
                     <Loader2 size={20} className="animate-spin" />
                     <span>Memproses...</span>
                   </>
-                ) : (
+                ) : useShareLabel ? (
                   <>
                     <Share2 size={20} />
                     <span>Bagikan Brosur</span>
+                  </>
+                ) : (
+                  <>
+                    <Download size={20} />
+                    <span>Download Brosur</span>
                   </>
                 )}
               </button>

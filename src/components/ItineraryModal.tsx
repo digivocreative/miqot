@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Loader2, AlertCircle, ZoomIn, ZoomOut } from 'lucide-react';
+import { X, Share2, Download, Loader2, AlertCircle, ZoomIn, ZoomOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import type { UmrohPackage } from '@/types';
 import { trackEvent } from '../utils/analytics';
+import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 
 // Setup PDF.js Worker — primary CDN with fallback
 try {
@@ -41,6 +42,7 @@ interface ItineraryModalProps {
 export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryModalProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [isSharing, setIsSharing] = useState(false);
+  const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
   const [isPdfLoading, setIsPdfLoading] = useState(true);
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'unknown'>('unknown');
   const [pdfWidth, setPdfWidth] = useState(0);
@@ -158,46 +160,30 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
       const safeTitle = title.replace(/\s+/g, '_');
       const fileName = `${safeTitle}_Itinerary.${ext}`;
 
-      // Create File object
       const file = new File([blob], fileName, { type: mimeType });
-      const shareData = {
-        title: `Itinerary - ${title}`,
-        text: `Berikut itinerary untuk paket: ${title}`,
-        files: [file],
-      };
 
-      // Share or Fallback
-      if (navigator.canShare && navigator.canShare(shareData)) {
+      if (canShareFiles([file])) {
         try {
-          await navigator.share(shareData);
+          await navigator.share({
+            title: `Itinerary - ${title}`,
+            text: `Berikut itinerary untuk paket: ${title}`,
+            files: [file],
+          });
         } catch (err: any) {
           if (err?.name !== 'AbortError') {
             console.warn('Share error, falling back:', err);
-            triggerDownload(blob, fileName);
+            downloadBlob(blob, fileName);
           }
         }
       } else {
-        triggerDownload(blob, fileName);
+        downloadBlob(blob, fileName);
       }
     } catch (error) {
       console.error('Gagal share itinerary:', error);
-      // CORS fallback: open original URL in new tab
       window.open(originalUrl, '_blank');
     } finally {
       setIsSharing(false);
     }
-  };
-
-  // Helper: trigger download
-  const triggerDownload = (blob: Blob, name: string) => {
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = name;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
   };
 
   return createPortal(
@@ -347,10 +333,15 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
               <Loader2 size={20} className="animate-spin" />
               <span>Menyiapkan File...</span>
             </>
-          ) : (
+          ) : useShareLabel ? (
             <>
               <Share2 size={20} />
               <span>Bagikan Itinerary</span>
+            </>
+          ) : (
+            <>
+              <Download size={20} />
+              <span>Download Itinerary</span>
             </>
           )}
         </button>
