@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { pdf } from '@react-pdf/renderer';
 import { trackEvent } from '../utils/analytics';
+import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { Document as PdfDoc, Page as PdfPage, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -345,6 +346,7 @@ function ResultModal({
   const [pdfBtnLoading, setPdfBtnLoading] = useState(false);
   const [pdfPageWidth, setPdfPageWidth] = useState(0);
   const pdfContentRef = useRef<HTMLDivElement>(null);
+  const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   // Reset view when modal re-opens
   useEffect(() => {
@@ -487,19 +489,27 @@ function ResultModal({
       const safeTitle = pkg ? pkg.nama.replace(/\s+/g, '_').substring(0, 30).toUpperCase() : 'ALHIJAZ';
       const fileName = `QUOTATION_${safeTitle}.pdf`;
       const file = new File([pdfBlobRef.current], fileName, { type: 'application/pdf' });
-      const shareData = { title: `Quotation - ${pkg?.nama || 'Alhijaz'}`, text: 'Berikut quotation penawaran umroh', files: [file] };
-      if (navigator.canShare && navigator.canShare(shareData)) {
-        try { await navigator.share(shareData); } catch (err: any) {
+
+      if (canShareFiles([file])) {
+        try {
+          await navigator.share({
+            title: `Quotation - ${pkg?.nama || 'Alhijaz'}`,
+            text: 'Berikut quotation penawaran umroh',
+            files: [file],
+          });
+        } catch (err: any) {
           if (err?.name !== 'AbortError') {
-            const url = URL.createObjectURL(pdfBlobRef.current); const a = document.createElement('a'); a.href = url; a.download = fileName;
-            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            downloadBlob(pdfBlobRef.current, fileName);
           }
         }
       } else {
-        const url = URL.createObjectURL(pdfBlobRef.current); const a = document.createElement('a'); a.href = url; a.download = fileName;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        downloadBlob(pdfBlobRef.current, fileName);
       }
-    } catch (err) { console.error('Share failed:', err); } finally { setPdfSharing(false); }
+    } catch (err) {
+      console.error('Share failed:', err);
+    } finally {
+      setPdfSharing(false);
+    }
   };
 
   const activeTier = pkg ? (tier && pkg.hotel[tier] ? tier : Object.keys(pkg.hotel)[0]) : null;
@@ -703,7 +713,13 @@ function ResultModal({
               <ChevronLeft size={20} />
             </button>
             <button onClick={handleSharePdf} disabled={pdfSharing || pdfLoading} className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70">
-              {pdfSharing ? (<><Loader2 size={20} className="animate-spin" /><span>Bentar...</span></>) : (<><Share2 size={20} /><span>Unduh PDF</span></>)}
+              {pdfSharing ? (
+                <><Loader2 size={20} className="animate-spin" /><span>Bentar...</span></>
+              ) : useShareLabel ? (
+                <><Share2 size={20} /><span>Bagikan PDF</span></>
+              ) : (
+                <><Download size={20} /><span>Unduh PDF</span></>
+              )}
             </button>
           </div>
         )}
