@@ -32,6 +32,7 @@ import {
   tallyBy,
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
+import { pickBrochurePrice, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -9735,6 +9736,74 @@ app.post('/api/ai-tools/generate-voice', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('[ai-tools] Generate voice error:', err);
     res.status(500).json({ error: 'Gagal generate voice over' });
+  }
+});
+
+app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) => {
+  try {
+    const monthsAhead = Math.max(1, Math.min(36, Number(req.query.monthsAhead) || 24));
+
+    // Agent profile — for personalization in brochure footer
+    const { data: agent, error: agentErr } = await supabase
+      .from('agents')
+      .select('name, phone, photo, website')
+      .eq('id', req.user.id)
+      .maybeSingle();
+
+    if (agentErr) {
+      console.error('[brosur-jadwal] agent fetch:', agentErr.message);
+      return res.status(500).json({ error: 'Failed to read agent' });
+    }
+
+    // Schedules — pull all years (table is small, <300 rows globally)
+    const { data: rows, error: schedErr } = await supabase
+      .from('umroh_schedules')
+      .select('jadwal_id, jadwal_nama, maskapai, berangkat_tgl, pulang_tgl, paket_harga');
+
+    if (schedErr) {
+      console.error('[brosur-jadwal] schedule fetch:', schedErr.message);
+      return res.status(500).json({ error: 'Failed to read schedules' });
+    }
+
+    // Resolve brochure price per row; drop rows with no price
+    const priced = [];
+    let droppedNoPrice = 0;
+    for (const r of (rows || [])) {
+      const price = pickBrochurePrice(r.paket_harga);
+      if (price === null) {
+        droppedNoPrice++;
+        continue;
+      }
+      priced.push({
+        id: r.jadwal_id,
+        nama: String(r.jadwal_nama || '').toUpperCase(),
+        maskapai: String(r.maskapai || '').toUpperCase(),
+        berangkat_tgl: r.berangkat_tgl,
+        pulang_tgl: r.pulang_tgl,
+        harga: price,
+      });
+    }
+    if (droppedNoPrice > 0) {
+      console.log(`[brosur-jadwal] dropped ${droppedNoPrice} packages with no resolvable price`);
+    }
+
+    // today: Date is timezone-agnostic (absolute instant); helpers use UTC component accessors,
+    // so server TZ (e.g. WIB UTC+7) does not affect the date window boundary.
+    const today = new Date();
+    const months = groupPackagesByMonth(priced, today, monthsAhead);
+
+    res.json({
+      months,
+      agent: {
+        name: agent?.name || '',
+        phone: agent?.phone || '',
+        photo: agent?.photo || '',
+        website: agent?.website || '',
+      },
+    });
+  } catch (err) {
+    console.error('[brosur-jadwal] unexpected:', err);
+    res.status(500).json({ error: 'Internal error' });
   }
 });
 

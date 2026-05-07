@@ -26,6 +26,7 @@ import LandingPagePage from './LandingPagePage';
 import HajiPlusPage from './HajiPlusPage';
 import HajiPlusExportPage from './HajiPlusExportPage';
 import KursPage from './KursPage';
+import BrochureSchedulePage from './BrochureSchedulePage';
 import UmrahRegisterPage from './UmrahRegisterPage';
 import CuacaWidget from './CuacaWidget';
 import BirthdayWidget from './BirthdayWidget';
@@ -371,6 +372,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       ? 'Kurs Hari Ini'
       : (activeTab === 'ai-tools' && aiSub === 'compare')
       ? 'Compare'
+      : (activeTab === 'ai-tools' && aiSub === 'brosur-jadwal')
+      ? 'Brosur Jadwal'
       : TAB_TITLES[activeTab] || 'Dashboard';
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -600,6 +603,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
           {activeTab === 'ai-tools' && (() => {
             const sub = getAIToolsSubFromPath();
+            if (sub === 'brosur-jadwal') return <BrochureSchedulePage agent={{
+              name: agentData.name,
+              phone: agentData.phone,
+              photo: agentData.photo || '',
+              website: agentData.website || '',
+            }} />;
             if (sub === 'compare') return <ComparePage agent={{
               name: agentData.name, website: agentData.website,
               phone: agentData.phone, photo: agentData.photo,
@@ -625,7 +634,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               <AIToolsPage
                 onNavigate={(toolId) => {
                   window.history.pushState({}, '', `/dashboard/ai-tools/${toolId}`);
-                  document.title = toolId === 'voice-over' ? 'Voice Over' : toolId === 'business-card' ? 'Kartu Nama' : toolId === 'landing-page' ? 'Landing Page' : toolId === 'haji-plus' ? 'Haji Plus' : toolId === 'kurs' ? 'Kurs Hari Ini' : toolId === 'compare' ? 'Compare' : 'Tools';
+                  document.title = toolId === 'voice-over' ? 'Voice Over' : toolId === 'business-card' ? 'Kartu Nama' : toolId === 'landing-page' ? 'Landing Page' : toolId === 'haji-plus' ? 'Haji Plus' : toolId === 'kurs' ? 'Kurs Hari Ini' : toolId === 'compare' ? 'Compare' : toolId === 'brosur-jadwal' ? 'Brosur Jadwal' : 'Tools';
                   // Force re-render by toggling tab
                   setActiveTab('home');
                   setTimeout(() => setActiveTab('ai-tools'), 0);
