@@ -9787,6 +9787,8 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
       console.log(`[brosur-jadwal] dropped ${droppedNoPrice} packages with no resolvable price`);
     }
 
+    // today: Date is timezone-agnostic (absolute instant); helpers use UTC component accessors,
+    // so server TZ (e.g. WIB UTC+7) does not affect the date window boundary.
     const today = new Date();
     const months = groupPackagesByMonth(priced, today, monthsAhead);
 
