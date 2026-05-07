@@ -52,8 +52,9 @@ src/components/
 
 ```
 GET /api/brochure/jadwal-bulan?monthsAhead=24
-  → reads from Supabase `umroh_packages` (existing table, already synced)
-  → filters tgl_berangkat >= today AND <= today + monthsAhead months
+  → reads from Supabase `umroh_schedules` (existing table, already synced via syncUmrohSchedules)
+  → filters berangkat_tgl >= today AND <= today + monthsAhead months
+  → resolves min Quard/Triple/Double price per package
   → groups by YYYY-MM
   → returns only months with ≥1 package
 ```
@@ -99,8 +100,8 @@ Add `'brosur-jadwal'` route case in `DashboardLayout.tsx` to render `BrochureSch
         {
           "id": 12345,
           "nama": "REGULER 9HR (KERETA CEPAT)",
-          "tgl_berangkat": "2026-06-13",
-          "tgl_pulang": "2026-06-20",
+          "berangkat_tgl": "2026-06-13",
+          "pulang_tgl": "2026-06-20",
           "maskapai": "SAUDIA",
           "harga": 33900000
         }
@@ -116,11 +117,21 @@ Add `'brosur-jadwal'` route case in `DashboardLayout.tsx` to render `BrochureSch
 }
 ```
 
-**Source field mapping:** Implementation must verify the correct "harga publish kantor" column on the `umroh_packages` table. The `awapi-client.js` `normalizeAwapiRow` includes a `harga` field; this is the published kantor price (not agent-specific markup). Use that. If the table has separate `harga_kantor` and `harga_jual` columns, prefer `harga_kantor`. Fallback chain: `harga_kantor` → `harga` → null. If null OR 0, the package is excluded from the brochure with a server log warning (treats `0` as "not yet published").
+**Source field mapping:** Read from existing `umroh_schedules` table (synced via `syncUmrohSchedules` in server.js). Schema-relevant columns: `jadwal_id`, `jadwal_nama`, `year_code`, `maskapai`, `berangkat_tgl`, `pulang_tgl`, `paket_harga`.
 
-**Sort:** Within each month, packages sorted by `tgl_berangkat` ascending (matches reference: 13 Jun before 16 Jun before 17 Jun).
+`paket_harga` is JSONB shaped like:
+```json
+{
+  "Hotel Bintang 5": { "Quard": 33900000, "Triple": 35000000, "Double": 38000000, "Infant": 5000000 },
+  "Hotel Bintang 4": { ... }
+}
+```
 
-**Filter:** Only packages with `tgl_berangkat >= today` (don't show past departures even if month is current).
+For the brochure single-price display (matches reference "starting from" style), pick the **minimum `Quard` price across all hotel tiers**. Fallback chain per tier: `Quard` → `Triple` → `Double` (skip `Infant` — that's per-baby surcharge, not the package price). Final brochure price = min over all hotel tiers using that fallback. If after all fallbacks no positive price exists, exclude the package with a server log warning. Server uses existing `hasValidPricing(paket_harga)` helper at server.js:10153 to confirm at least one positive price exists before resolving the min.
+
+**Sort:** Within each month, packages sorted by `berangkat_tgl` ascending (matches reference: 13 Jun before 16 Jun before 17 Jun).
+
+**Filter:** Only packages with `berangkat_tgl >= today` (don't show past departures even if month is current).
 
 **Truncation:** Server returns up to 10 packages per month. If more exist, `packages` array is truncated and the response includes `truncatedCount: <N>` for that month — client renders a "+ N paket lainnya" footnote.
 
@@ -208,7 +219,7 @@ if (navigator.canShare?.({ files: [file] })) {
 
 1. **No packages at all (any month):** Page shows empty state — heading "Belum ada jadwal paket yang aktif" + small explainer. No tabs, no template render.
 2. **Tab month switches but no packages for that month:** Cannot happen by design — server only returns months with ≥1 package, so every tab is non-empty.
-3. **More than 10 packages in a month:** Server truncates to top 10 by `tgl_berangkat asc`. Template renders truncated list + footnote row "+ {N} paket lainnya — hubungi {agent.name}" in a single small row at the bottom of the table.
+3. **More than 10 packages in a month:** Server truncates to top 10 by `berangkat_tgl asc`. Template renders truncated list + footnote row "+ {N} paket lainnya — hubungi {agent.name}" in a single small row at the bottom of the table.
 4. **Agent photo missing or 404:** Fallback to `ui-avatars.com` (same pattern as KursTemplate's `avatarFallback`).
 5. **Agent website missing:** Show default "alhijazindonesia.com" in the website strip.
 6. **Agent phone missing:** Show "—" in the phone slot (fallback to website-only). This is a legitimate state (some test agents).
@@ -236,7 +247,7 @@ if (navigator.canShare?.({ files: [file] })) {
 
 - **Mecca photo source:** Use existing CDN asset if Alhijaz already has one in `/public`; otherwise pick a royalty-free Unsplash crowd photo and bundle it. Do not hot-link external.
 - **Top-right badge icons:** Two small SVG badges. If Alhijaz has existing branded assets ("Sertifikasi Kemenag" + "5 Pasti Umrah"), use those; otherwise approximate with generic seal icons in red/gold.
-- **Exact "harga publish kantor" column:** Verify in Supabase `umroh_packages` schema. Fallback chain: `harga_kantor` → `harga` → exclude row.
+- **Hotel tier room sort order:** Resolved — pick min Quard across hotel tiers, fallback Triple → Double, skip Infant. Document above.
 
 ## Anti-Pattern Compliance
 
