@@ -1,8 +1,20 @@
 // src/components/BrochureSchedulePage.tsx
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Download, Share2, Loader2 } from 'lucide-react';
-import { BrochureScheduleTemplate, BROCHURE_W, BROCHURE_H, type BrochureMonth, type BrochureAgent } from './BrochureScheduleTemplate';
+import {
+  BrochureScheduleTemplate,
+  BROCHURE_W,
+  BROCHURE_H,
+  BROCHURE_FONT_WEIGHTS,
+  type BrochureMonth,
+  type BrochureAgent,
+} from './BrochureScheduleTemplate';
 import { getAuthHeaders } from './LoginPage';
+import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
+
+const EXPORT_TYPE = 'png';
+const EXPORT_MIME = 'image/png';
+const PACKAGES_PER_IMAGE = 10;
 
 interface BrochureSchedulePageProps {
   agent: BrochureAgent;
@@ -13,6 +25,65 @@ interface ApiResponse {
   agent: BrochureAgent;
 }
 
+function mergeAgentProfile(base: BrochureAgent, incoming?: BrochureAgent | null): BrochureAgent {
+  const merged = { ...base, ...(incoming || {}) };
+  return {
+    ...merged,
+    slug: (incoming?.slug || base.slug || '').trim(),
+  };
+}
+
+function BrochureSkeleton() {
+  return (
+    <div
+      className="animate-pulse w-full"
+      style={{
+        maxWidth: 480,
+        aspectRatio: `${BROCHURE_W} / ${BROCHURE_H}`,
+        borderRadius: 16,
+        overflow: 'hidden',
+        background: 'linear-gradient(180deg, #ffffff 0%, #fff8ec 100%)',
+        boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
+      }}
+    >
+      <div className="flex items-center justify-between p-5">
+        <div className="h-8 w-24 rounded bg-rose-100" />
+        <div className="flex gap-2">
+          <div className="w-10 h-10 rounded-full bg-amber-100" />
+          <div className="w-10 h-10 rounded-full bg-rose-100" />
+        </div>
+      </div>
+      <div className="px-6 mt-2 flex flex-col items-center gap-2">
+        <div className="h-7 w-3/5 rounded bg-amber-100" />
+        <div className="h-9 w-2/3 rounded bg-rose-100" />
+      </div>
+      <div className="mt-6 mx-5 rounded-2xl bg-white overflow-hidden border border-amber-100">
+        <div className="h-7 bg-rose-900/80" />
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} className="h-9 border-t border-rose-100/70 px-3 flex items-center gap-3">
+            <div className="h-3 w-4 rounded bg-rose-200" />
+            <div className="h-3 flex-1 rounded bg-rose-100" />
+            <div className="h-3 w-12 rounded bg-rose-200" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function splitMonthIntoImagePages(month: BrochureMonth): BrochureMonth[] {
+  const pages: BrochureMonth[] = [];
+  for (let start = 0; start < month.packages.length; start += PACKAGES_PER_IMAGE) {
+    pages.push({
+      ...month,
+      key: `${month.key}-page-${pages.length + 1}`,
+      packages: month.packages.slice(start, start + PACKAGES_PER_IMAGE),
+      truncatedCount: 0,
+    });
+  }
+  return pages.length ? pages : [{ ...month, truncatedCount: 0 }];
+}
+
 export default function BrochureSchedulePage({ agent: agentProp }: BrochureSchedulePageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -21,19 +92,24 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const tabBarRef = useRef<HTMLDivElement | null>(null);
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
-  const [previewScale, setPreviewScale] = useState(0.4);
-  const exportRef = useRef<HTMLDivElement | null>(null);
-  const [busy, setBusy] = useState<null | 'share' | 'download'>(null);
+  const [previewScale, setPreviewScale] = useState(0);
+  const exportPageRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const [busy, setBusy] = useState<null | { kind: 'share' | 'download'; pageIndex: number }>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Compute preview scale once container is in DOM (after loading flips off).
+  // useLayoutEffect runs synchronously before paint, so we never paint at the wrong scale.
   useLayoutEffect(() => {
+    if (loading) return;
     function recompute() {
       const w = previewContainerRef.current?.clientWidth;
-      setPreviewScale(w && w > 0 ? w / BROCHURE_W : 0.4);
+      if (w && w > 0) setPreviewScale(w / BROCHURE_W);
     }
     recompute();
     window.addEventListener('resize', recompute);
     return () => window.removeEventListener('resize', recompute);
-  }, []);
+  }, [loading]);
 
   useEffect(() => {
     let alive = true;
@@ -42,11 +118,17 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         setLoading(true);
         setError(null);
         const res = await fetch('/api/ai-tools/brosur-jadwal-bulan', { headers: getAuthHeaders() });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          let payload: any = null;
+          try { payload = await res.json(); } catch { /* ignore non-JSON errors */ }
+          if (res.status === 403) throw new Error(payload?.message || 'Anda tidak memiliki akses ke fitur ini.');
+          if (res.status === 401) throw new Error('Sesi login berakhir. Silakan login ulang.');
+          throw new Error(payload?.message || 'Gagal memuat jadwal, coba lagi.');
+        }
         const json: ApiResponse = await res.json();
         if (!alive) return;
         setMonths(json.months || []);
-        setAgent(json.agent || agentProp);
+        setAgent(mergeAgentProfile(agentProp, json.agent));
         if (json.months?.length) {
           setActiveKey(json.months[0].key);
         }
@@ -60,6 +142,12 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     return () => { alive = false; };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
   // Scroll active tab into view on change
   useEffect(() => {
     if (!activeKey || !tabBarRef.current) return;
@@ -68,87 +156,133 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   }, [activeKey]);
 
   const activeMonth = months.find(m => m.key === activeKey) || null;
+  const activeImagePages = activeMonth ? splitMonthIntoImagePages(activeMonth) : [];
+  const showShareButton = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
-  const filenameForMonth = (label: string) =>
-    `brosur-paket-umroh-${label.toLowerCase().replace(/\s+/g, '-')}.png`;
+  const filenameForMonth = (label: string, pageIndex = 1, pageCount = 1) => {
+    const base = `brosur-paket-umroh-${label.toLowerCase().replace(/\s+/g, '-')}`;
+    return `${base}${pageCount > 1 ? `-gambar-${pageIndex}` : ''}.png`;
+  };
 
-  function triggerDownload(blob: Blob, filename: string) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  function showToast(message: string) {
+    setToast(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 2500);
   }
 
-  async function captureBlob(): Promise<Blob | null> {
-    if (!exportRef.current) return null;
-    // Design-system mandate: wait for fonts before snapshotting to avoid weight fallback flicker.
-    if (document.fonts?.ready) {
-      try { await document.fonts.ready; } catch { /* ignore — best-effort */ }
-    }
-    const { snapdom } = await import('@zumer/snapdom');
-    const result = await snapdom(exportRef.current, { scale: 2, embedFonts: true });
-    return await result.toBlob({ type: 'png' });
-  }
-
-  async function handleDownload() {
-    if (!activeMonth) return;
-    setBusy('download');
+  async function waitForFonts() {
+    if (!document.fonts) return;
     try {
-      const blob = await captureBlob();
+      await Promise.all(
+        [
+          ...BROCHURE_FONT_WEIGHTS.map(w => document.fonts.load(`${w} 16px Inter`).catch(() => null)),
+          document.fonts.load(`400 16px "Bebas Neue"`).catch(() => null),
+        ]
+      );
+      await document.fonts.ready;
+    } catch {
+      // Best effort: export should continue even if one font load probe fails.
+    }
+  }
+
+  async function captureBlob(pageIndex: number): Promise<Blob | null> {
+    const target = exportPageRefs.current[pageIndex];
+    if (!target) return null;
+    await waitForFonts();
+    const { snapdom } = await import('@zumer/snapdom');
+    const result = await snapdom(target, {
+      scale: 2,
+      embedFonts: true,
+      backgroundColor: '#FFFFFF',
+    });
+    const blob = await result.toBlob({ type: EXPORT_TYPE });
+    return blob.type === EXPORT_MIME ? blob : new Blob([blob], { type: EXPORT_MIME });
+  }
+
+  async function handleDownload(pageIndex: number) {
+    if (!activeMonth) return;
+    setBusy({ kind: 'download', pageIndex });
+    try {
+      const blob = await captureBlob(pageIndex);
       if (!blob) throw new Error('capture-failed');
-      triggerDownload(blob, filenameForMonth(activeMonth.label));
+      downloadBlob(blob, filenameForMonth(activeMonth.label, pageIndex + 1, activeImagePages.length));
     } catch (e) {
       console.error('[brosur] download failed:', e);
-      alert('Gagal generate brosur, coba lagi.');
+      showToast('Gagal generate brosur, coba lagi');
     } finally {
       setBusy(null);
     }
   }
 
-  async function handleShare() {
+  async function handleShare(pageIndex: number) {
     if (!activeMonth) return;
-    setBusy('share');
+    setBusy({ kind: 'share', pageIndex });
     try {
-      const blob = await captureBlob();
+      const blob = await captureBlob(pageIndex);
       if (!blob) throw new Error('capture-failed');
-      const file = new File([blob], filenameForMonth(activeMonth.label), { type: 'image/png' });
-      if (navigator.canShare?.({ files: [file] })) {
+      const file = new File(
+        [blob],
+        filenameForMonth(activeMonth.label, pageIndex + 1, activeImagePages.length),
+        { type: EXPORT_MIME }
+      );
+      if (canShareFiles([file])) {
         try {
-          await navigator.share({ files: [file] });
+          await navigator.share({
+            files: [file],
+            title: `Brosur Paket Umroh ${activeMonth.label}`,
+            text: `Paket Umroh ${activeMonth.label} dari ${agent.name || 'Alhijaz'}`,
+          });
         } catch (err: any) {
           if (err?.name === 'AbortError') return; // user cancelled — silent
           throw err;
         }
       } else {
-        // Fallback: download
-        triggerDownload(blob, filenameForMonth(activeMonth.label));
-        alert('Browser tidak support share langsung, brosur ter-download.');
+        downloadBlob(blob, filenameForMonth(activeMonth.label, pageIndex + 1, activeImagePages.length));
+        showToast('Share tidak didukung, PNG diunduh');
       }
     } catch (e) {
       console.error('[brosur] share failed:', e);
-      alert('Gagal generate brosur, coba lagi.');
+      showToast('Gagal generate brosur, coba lagi');
     } finally {
       setBusy(null);
     }
   }
 
+  // ── Loading: skeleton placeholder ───────────────────────────────
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 size={24} className="animate-spin text-emerald-500" />
-        <span className="ml-2 text-sm text-gray-500 dark:text-slate-400">Memuat brosur...</span>
+      <div className="pb-8">
+        {/* Tab bar skeleton */}
+        <div className="sticky top-0 bg-white dark:bg-slate-900 z-10 border-b border-gray-100 dark:border-slate-800">
+          <div className="flex gap-2 px-4 py-3 overflow-hidden">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-7 rounded-full bg-gray-100 dark:bg-slate-800 animate-pulse"
+                style={{ width: 90 }}
+              />
+            ))}
+          </div>
+        </div>
+        {/* Brochure skeleton */}
+        <div className="flex justify-center px-4 pt-5">
+          <BrochureSkeleton />
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="px-4 pt-6 pb-8 text-center text-sm text-red-600 dark:text-red-400">
-        {error}
+      <div className="px-4 pt-10 pb-8 text-center">
+        <p className="text-sm font-bold text-gray-800 dark:text-white">Gagal memuat brosur</p>
+        <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5 leading-relaxed">{error}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-4 px-4 py-2 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold active:scale-95 transition"
+        >
+          Coba Lagi
+        </button>
       </div>
     );
   }
@@ -156,13 +290,19 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   if (!months.length || !activeMonth) {
     return (
       <div className="px-4 pt-10 pb-8 text-center">
-        <p className="text-sm text-gray-500 dark:text-slate-400">Belum ada jadwal paket yang aktif.</p>
+        <p className="text-sm font-bold text-gray-800 dark:text-white">Belum ada jadwal paket yang aktif</p>
+        <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5 leading-relaxed">
+          Jadwal akan muncul otomatis saat ada paket mendatang dengan harga aktif.
+        </p>
       </div>
     );
   }
 
+  const previewReady = previewScale > 0;
+  const imagePageCount = activeImagePages.length;
+
   return (
-    <div className="pb-32">
+    <div style={{ paddingBottom: '2rem' }}>
       {/* Tab bar */}
       <div className="sticky top-0 bg-white dark:bg-slate-900 z-10 border-b border-gray-100 dark:border-slate-800">
         <div ref={tabBarRef} className="overflow-x-auto no-scrollbar">
@@ -188,60 +328,112 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         </div>
       </div>
 
-      {/* Brochure preview — scaled to fit screen */}
+      {/* Brochure previews + per-image actions */}
       <div className="flex justify-center px-4 pt-5">
         <div
           ref={previewContainerRef}
           style={{
             width: '100%',
             maxWidth: 480,
-            aspectRatio: `${BROCHURE_W} / ${BROCHURE_H}`,
-            position: 'relative',
-            overflow: 'hidden',
-            borderRadius: 16,
-            boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 18,
           }}
         >
-          <div
-            style={{
-              width: BROCHURE_W,
-              height: BROCHURE_H,
-              transform: `scale(${previewScale})`,
-              transformOrigin: 'top left',
-            }}
-          >
-            <BrochureScheduleTemplate month={activeMonth} agent={agent} />
-          </div>
+          {previewReady ? (
+            activeImagePages.map((page, index) => {
+              const shareBusy = busy?.kind === 'share' && busy.pageIndex === index;
+              const downloadBusy = busy?.kind === 'download' && busy.pageIndex === index;
+
+              return (
+                <div
+                  key={page.key}
+                  style={{
+                    width: '100%',
+                    overflow: 'hidden',
+                    borderRadius: 18,
+                    boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
+                    background: '#fff',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '100%',
+                      aspectRatio: `${BROCHURE_W} / ${BROCHURE_H}`,
+                      position: 'relative',
+                      overflow: 'hidden',
+                      background: '#fff',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: BROCHURE_W,
+                        height: BROCHURE_H,
+                        transform: `scale(${previewScale})`,
+                        transformOrigin: 'top left',
+                      }}
+                    >
+                      <BrochureScheduleTemplate month={page} agent={agent} />
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      padding: 10,
+                      borderTop: '1px solid rgba(15, 23, 42, 0.08)',
+                      background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                    }}
+                  >
+                    <div className={`grid ${showShareButton ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+                      {showShareButton && (
+                        <button
+                          onClick={() => handleShare(index)}
+                          disabled={busy !== null}
+                          className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                        >
+                          {shareBusy ? <Loader2 size={17} className="animate-spin" /> : <Share2 size={17} />}
+                          <span>Share</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDownload(index)}
+                        disabled={busy !== null}
+                        className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700/70 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                      >
+                        {downloadBusy ? <Loader2 size={17} className="animate-spin" /> : <Download size={17} />}
+                        <span>Download</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <BrochureSkeleton />
+          )}
         </div>
       </div>
+
+      {toast && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 z-30 bg-gray-900 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-xl max-w-[90vw] whitespace-nowrap"
+          style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom))' }}
+        >
+          {toast}
+        </div>
+      )}
 
       {/* Hidden full-size export node — used as snapdom target */}
       <div style={{ position: 'fixed', left: -99999, top: 0, pointerEvents: 'none', opacity: 0 }}>
-        <div ref={exportRef}>
-          <BrochureScheduleTemplate month={activeMonth} agent={agent} />
-        </div>
-      </div>
-
-      {/* Action bar */}
-      <div className="fixed left-0 right-0 bottom-16 px-4 z-20 pointer-events-none">
-        <div className="max-w-md mx-auto flex gap-3 pointer-events-auto">
-          <button
-            onClick={handleShare}
-            disabled={busy !== null}
-            className="flex-1 h-12 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 active:scale-95 disabled:opacity-60"
+        {activeImagePages.map((page, index) => (
+          <div
+            key={page.key}
+            ref={(node) => { exportPageRefs.current[index] = node; }}
+            style={{ width: BROCHURE_W, height: BROCHURE_H }}
           >
-            {busy === 'share' ? <Loader2 className="animate-spin" size={18} /> : <Share2 size={18} />}
-            Share
-          </button>
-          <button
-            onClick={handleDownload}
-            disabled={busy !== null}
-            className="flex-1 h-12 rounded-2xl bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 border-2 border-emerald-500 dark:border-emerald-400 font-bold flex items-center justify-center gap-2 shadow-md active:scale-95 disabled:opacity-60"
-          >
-            {busy === 'download' ? <Loader2 className="animate-spin" size={18} /> : <Download size={18} />}
-            Download
-          </button>
-        </div>
+            <BrochureScheduleTemplate month={page} agent={agent} />
+          </div>
+        ))}
       </div>
     </div>
   );

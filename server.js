@@ -19,7 +19,7 @@ import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration, fetchAwapiCredentials } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
-import { initNotifier, notifyPembayaranMasuk, runBirthdayDigest, sendKursUpdate } from './telegram-notifier.js';
+import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate } from './telegram-notifier.js';
 import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent } from './lib/og-generator.mjs';
@@ -32,7 +32,7 @@ import {
   tallyBy,
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
-import { pickBrochurePrice, groupPackagesByMonth } from './lib/brochure-schedule.js';
+import { cleanBrochurePackageName, countBrochureTripDays, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -272,7 +272,10 @@ async function fetchKursMandiri() {
   }
 }
 
-// On startup: load from Supabase, then fetch fresh if cache is missing or stale
+// On startup: load from Supabase, then fetch fresh if cache is missing or stale.
+// Telegram broadcast is NOT triggered here — only after the scheduled daily
+// scrape (09:15 WIB) succeeds. This prevents re-broadcasting whenever the
+// server restarts during the day.
 (async () => {
   const loaded = await loadKursFromSupabase();
   if (!loaded) {
@@ -281,10 +284,6 @@ async function fetchKursMandiri() {
   } else if (!isKursToday(kursCache?.updatedAt)) {
     console.log('[Kurs] Cached kurs is not from today, fetching fresh...');
     await fetchKursMandiri();
-  }
-  // If cache is current, trigger Telegram send (dedup via lastKursSentDate)
-  if (isKursToday(kursCache?.updatedAt)) {
-    sendKursUpdate().catch(err => console.error('[Kurs] startup send error:', err.message));
   }
 })();
 
@@ -2384,10 +2383,21 @@ app.post('/api/telegram/disconnect', authMiddleware, async (req, res) => {
 const DEFAULT_NOTIFICATION_PREFS = {
   departure: true, paspor: true, pelunasan: true, perlengkapan: true,
   manasik: true, seat_alert: true, paket_baru: true, perubahan_harga: true,
-  pembayaran_masuk: true, ringkasan_mingguan: true,
+  jamaah_baru: true, pembayaran_masuk: true,
+  pembayaran_cicilan: true, pembayaran_pelunasan: true,
+  ringkasan_mingguan: true,
   flight_status: true, insight_harian: true, kurs_dollar: true,
   birthday_digest: false,
 };
+
+function normalizeNotificationPrefs(raw = {}) {
+  const merged = { ...DEFAULT_NOTIFICATION_PREFS, ...(raw || {}) };
+  if (raw?.pembayaran_masuk === false) {
+    if (!Object.prototype.hasOwnProperty.call(raw, 'pembayaran_cicilan')) merged.pembayaran_cicilan = false;
+    if (!Object.prototype.hasOwnProperty.call(raw, 'pembayaran_pelunasan')) merged.pembayaran_pelunasan = false;
+  }
+  return merged;
+}
 
 app.get('/api/telegram/prefs', authMiddleware, async (req, res) => {
   try {
@@ -2402,7 +2412,7 @@ app.get('/api/telegram/prefs', authMiddleware, async (req, res) => {
 
     res.json({
       success: true,
-      data: { ...DEFAULT_NOTIFICATION_PREFS, ...(data.notification_prefs || {}) },
+      data: normalizeNotificationPrefs(data.notification_prefs || {}),
     });
   } catch (err) {
     console.error('[telegram-prefs] Get error:', err);
@@ -2435,7 +2445,7 @@ app.put('/api/telegram/prefs', authMiddleware, async (req, res) => {
 
     if (fetchErr) throw fetchErr;
 
-    const merged = { ...DEFAULT_NOTIFICATION_PREFS, ...(existing.notification_prefs || {}), ...filtered };
+    const merged = normalizeNotificationPrefs({ ...(existing.notification_prefs || {}), ...filtered });
 
     const { error: updateErr } = await supabase
       .from('agents')
@@ -4597,6 +4607,189 @@ function buildRows(items, agentId, now) {
   return Array.from(map.values());
 }
 
+function emptyJamaahSyncEvents() {
+  return { jamaahBaru: [], pembayaranCicilan: [], pembayaranPelunasan: [] };
+}
+
+function hasJamaahSyncEvents(events) {
+  return !!(
+    events?.jamaahBaru?.length ||
+    events?.pembayaranCicilan?.length ||
+    events?.pembayaranPelunasan?.length
+  );
+}
+
+function mergeJamaahSyncEvents(target, source) {
+  if (!source) return target;
+  target.jamaahBaru.push(...(source.jamaahBaru || []));
+  target.pembayaranCicilan.push(...(source.pembayaranCicilan || []));
+  target.pembayaranPelunasan.push(...(source.pembayaranPelunasan || []));
+  return target;
+}
+
+function jamaahRowKey(row) {
+  if (!row?.id_umroh || !row?.jm_id) return null;
+  return `${String(row.id_umroh).trim().toLowerCase()}|${String(row.jm_id).trim().toLowerCase()}`;
+}
+
+function toMoney(value) {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function isLegacyGrossUmrahDetailPayment(row, nextBayar) {
+  const raw = row?.raw_data || {};
+  if (raw.source !== 'umrah_detail') return false;
+  const grossFromDetail = Math.max(0, toMoney(raw.harga_paket) - toMoney(row?.sisa));
+  const currentBayar = toMoney(row?.bayar);
+  const targetBayar = toMoney(nextBayar);
+  return grossFromDetail > 0 && currentBayar > targetBayar && currentBayar === grossFromDetail;
+}
+
+function shouldKeepExistingBayar(existing, nextBayar) {
+  const existingBayar = toMoney(existing?.bayar);
+  const incomingBayar = toMoney(nextBayar);
+  if (existingBayar <= incomingBayar) return false;
+  if (incomingBayar <= 0) return true;
+  return !isLegacyGrossUmrahDetailPayment(existing, incomingBayar);
+}
+
+function datePlusDaysKey(date, days) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function isFutureRelevantJamaah(row, cutoffStr) {
+  if (!row?.tgl_berangkat) return true;
+  return String(row.tgl_berangkat).slice(0, 10) >= cutoffStr;
+}
+
+async function hasJamaahNotificationBaseline(agentId, agent) {
+  if (agent?.last_jamaah_sync_at) return true;
+  const { data: syncRow, error: syncErr } = await supabase
+    .from('agents')
+    .select('last_jamaah_sync_at')
+    .eq('id', agentId)
+    .maybeSingle();
+  if (!syncErr && syncRow?.last_jamaah_sync_at) return true;
+  if (syncErr) {
+    console.warn(`[Sync/events] last sync lookup failed for ${agentId}:`, syncErr.message);
+  }
+  const { count, error } = await supabase
+    .from('jamaah')
+    .select('*', { count: 'exact', head: true })
+    .eq('agent_id', agentId);
+  if (error) {
+    console.warn(`[Sync/events] baseline check failed for ${agentId}:`, error.message);
+    return false;
+  }
+  return (count || 0) > 0;
+}
+
+async function fetchExistingJamaahByBooking(agentId, rows) {
+  const bookingIds = [...new Set(
+    (rows || [])
+      .map(r => r?.id_umroh)
+      .filter(Boolean)
+      .map(v => String(v))
+  )];
+  const existingByKey = new Map();
+  const CHUNK = 100;
+  for (let i = 0; i < bookingIds.length; i += CHUNK) {
+    const ids = bookingIds.slice(i, i + CHUNK);
+    const { data, error } = await supabase
+      .from('jamaah')
+      .select('id_umroh, jm_id, nama, paket, bayar, sisa, tgl_berangkat, tgl_daftar, raw_data')
+      .eq('agent_id', agentId)
+      .in('id_umroh', ids);
+    if (error) {
+      console.warn(`[Sync/events] existing lookup failed for ${agentId}:`, error.message);
+      continue;
+    }
+    for (const row of data || []) {
+      const key = jamaahRowKey(row);
+      if (key) existingByKey.set(key, row);
+    }
+  }
+  return existingByKey;
+}
+
+async function detectUmrohJamaahSyncEvents(agentId, rows, options = {}) {
+  const deduped = new Map();
+  for (const row of rows || []) {
+    const key = jamaahRowKey(row);
+    if (key) deduped.set(key, row);
+  }
+  const incomingRows = Array.from(deduped.values());
+  if (incomingRows.length === 0) return emptyJamaahSyncEvents();
+
+  const existingByKey = await fetchExistingJamaahByBooking(agentId, incomingRows);
+  const events = emptyJamaahSyncEvents();
+  const newCutoffStr = datePlusDaysKey(options.now || new Date(), 0);
+  const paymentCutoffStr = datePlusDaysKey(options.now || new Date(), options.paymentBufferDays ?? 7);
+  const allowNewJamaah = options.allowNewJamaah !== false;
+
+  for (const row of incomingRows) {
+    const key = jamaahRowKey(row);
+    const existing = key ? existingByKey.get(key) : null;
+
+    if (!existing) {
+      if (allowNewJamaah && isFutureRelevantJamaah(row, newCutoffStr)) {
+        events.jamaahBaru.push({
+          nama: row.nama,
+          paket: row.paket,
+          idUmroh: row.id_umroh,
+          jmId: row.jm_id,
+          tglBerangkat: row.tgl_berangkat,
+          tglDaftar: row.tgl_daftar,
+          bayar: toMoney(row.bayar),
+          sisa: toMoney(row.sisa),
+        });
+      }
+      continue;
+    }
+
+    if (!isFutureRelevantJamaah(row, paymentCutoffStr)) continue;
+
+    const bayarBefore = toMoney(existing.bayar);
+    const bayarAfter = toMoney(row.bayar);
+    const sisaBefore = toMoney(existing.sisa);
+    const hasKnownSisaAfter = row.sisa !== null && row.sisa !== undefined;
+    const sisaAfter = hasKnownSisaAfter ? toMoney(row.sisa) : sisaBefore;
+    const jumlah = Math.max(0, bayarAfter - bayarBefore);
+    const sisaDecreased = hasKnownSisaAfter && sisaBefore > 0 && sisaAfter < sisaBefore;
+    const becameLunas = hasKnownSisaAfter && sisaBefore > 0 && sisaAfter <= 0;
+    const paidFromEmptyToLunas = hasKnownSisaAfter && bayarBefore <= 0 && jumlah > 0 && sisaAfter <= 0;
+
+    if (jumlah <= 0 && !becameLunas) continue;
+
+    const event = {
+      nama: row.nama || existing.nama,
+      paket: row.paket || existing.paket,
+      idUmroh: row.id_umroh,
+      jmId: row.jm_id,
+      tglBerangkat: row.tgl_berangkat || existing.tgl_berangkat,
+      jumlah,
+      totalBayar: bayarAfter,
+      sisa: sisaAfter,
+      isLunas: sisaAfter <= 0,
+    };
+
+    if (becameLunas || paidFromEmptyToLunas) events.pembayaranPelunasan.push(event);
+    else if (jumlah > 0 && sisaAfter > 0 && sisaDecreased) events.pembayaranCicilan.push(event);
+  }
+
+  return events;
+}
+
+function queueJamaahSyncNotifications(agentId, events, label) {
+  if (!hasJamaahSyncEvents(events)) return;
+  notifyJamaahSyncEvents(agentId, events).catch(err =>
+    console.error(`[SYNC] ${label}: telegram jamaah event error:`, err.message)
+  );
+}
+
 // Lazy-discover Alhijaz Official API credentials for an agent that already
 // has jamaah_username + jamaah_password but no awapi_key yet (typical for
 // agents who logged in before Phase 1 was deployed).
@@ -4669,6 +4862,8 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } 
   let keberangkatanYearsCompleted = 0;
   let upsertErrors = 0;
   let firstUpsertError = null;
+  const syncEvents = emptyJamaahSyncEvents();
+  const allowNewJamaahNotify = await hasJamaahNotificationBaseline(agentId, agent);
 
   for (const yearH of yearsToSync) {
     const fetchPlans = [
@@ -4728,6 +4923,10 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } 
 
   const allRows = Array.from(rowsByKey.values());
   console.log(`[Sync/api/${context}] ${slug}: ${allRows.length} unique rows from ${keberangkatanYearsCompleted}/${yearsToSync.length} keberangkatan years + pendaftaran backfill (${fetchErrors} fetch errors)`);
+  mergeJamaahSyncEvents(
+    syncEvents,
+    await detectUmrohJamaahSyncEvents(agentId, allRows, { allowNewJamaah: allowNewJamaahNotify })
+  );
 
   // Upsert in batches with the same conflict target as legacy.
   const BATCH = 50;
@@ -4750,6 +4949,8 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } 
   if (upsertErrors > 0) {
     throw new Error(`API upsert failed in ${upsertErrors} batch(es): ${firstUpsertError || 'unknown error'}`);
   }
+
+  queueJamaahSyncNotifications(agentId, syncEvents, `api/${context}/${slug}`);
 
   if (fetchErrors > 0) {
     throw new Error(`API fetch incomplete: ${fetchErrors} endpoint(s) failed`);
@@ -4911,6 +5112,8 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   let totalItems = 0;
   let firstBatchSent = false;
   const now = new Date().toISOString();
+  const syncEvents = emptyJamaahSyncEvents();
+  const allowNewJamaahNotify = await hasJamaahNotificationBaseline(agentId, agent);
 
   try {
     // ═══════════════════════════════════════════════════════════════════
@@ -5023,6 +5226,8 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
               paket: item.paket || null,
               bayar: item.bayar || 0,
               sisa: item.sisa || 0,
+              diskon_kantor: item.diskon_kantor || 0,
+              diskon_marketing: item.diskon_marketing || 0,
               tgl_berangkat: item.tgl_berangkat || null,
               tgl_daftar: bookingTglDaftarMap.get(idUmroh) || null,
               hijriah_year: itemYear,
@@ -5051,8 +5256,10 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           for (let b = 0; b < dedupedRows.length; b += BATCH) {
             const upsertBatch = filterSafeJamaahRows(dedupedRows.slice(b, b + BATCH), 'P1-manual');
             if (upsertBatch.length === 0) continue;
+            const batchEvents = await detectUmrohJamaahSyncEvents(agentId, upsertBatch, { allowNewJamaah: allowNewJamaahNotify });
             const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
             if (error) console.error(`[Sync] ${slug} Phase 1 upsert error:`, error.message);
+            else mergeJamaahSyncEvents(syncEvents, batchEvents);
           }
           syncingAgents.set(agentId, { isSyncing: true, scope: 'umroh-manual', totalSynced: globalKeys.size, phase: 1, completedYears: [], lastSync: now });
         }
@@ -5246,18 +5453,18 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         const rowIduIds = [...new Set(rows.map(r => r.id_umroh).filter(Boolean))];
         const { data: existingPhase1, error: paymentLookupErr } = await supabase
           .from('jamaah')
-          .select('id_umroh, nama, jm_id, bayar')
+          .select('id_umroh, nama, jm_id, bayar, sisa, raw_data')
           .eq('agent_id', agentId)
           .in('nama', rowNames)
           .in('id_umroh', rowIduIds);
         if (paymentLookupErr) console.warn(`[Sync] ${slug} bayar lookup error:`, paymentLookupErr.message);
         // Per-jm_id bayar lookup: within a group where multiple members share the
         // same nama (e.g. MARNI with 10 rows), each jm_id tracks its own payment.
-        const existingBayarByJmId = new Map();
+        const existingPaymentByJmId = new Map();
         // Map (id_umroh, nama) → list of known jm_ids (used to resolve truncated/synth jm_ids)
         const existingJmIdLookup = new Map();
         (existingPhase1 || []).forEach(r => {
-          existingBayarByJmId.set(`${r.id_umroh}_${r.jm_id}`.toLowerCase(), r.bayar || 0);
+          existingPaymentByJmId.set(`${r.id_umroh}_${r.jm_id}`.toLowerCase(), r);
           const namaKey = `${r.id_umroh}_${r.nama}`.toLowerCase();
           const list = existingJmIdLookup.get(namaKey) || [];
           list.push(r.jm_id);
@@ -5273,12 +5480,13 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           if (!row.tgl_daftar) {
             row.tgl_daftar = bookingTglDaftarMap.get(row.id_umroh) || null;
           }
-          // bayar: never regress — payment can only increase. Keyed by jm_id so
-          // sibling jamaah sharing nama (e.g. MARNI) don't contaminate each other.
+          // bayar normally should not regress. Exception: old Phase 1 detail
+          // rows were grossed up by discounts; let Phase 2 correct those.
+          // Keyed by jm_id so same-name siblings don't contaminate each other.
           const jmIdKey = `${row.id_umroh}_${row.jm_id}`.toLowerCase();
-          const existingBayar = existingBayarByJmId.get(jmIdKey);
-          if (existingBayar !== undefined && existingBayar > (row.bayar || 0)) {
-            row.bayar = existingBayar;
+          const existingPayment = existingPaymentByJmId.get(jmIdKey);
+          if (shouldKeepExistingBayar(existingPayment, row.bayar)) {
+            row.bayar = existingPayment.bayar;
           }
           // Resolve jm_id: if Phase 2 synthesized from nama OR produced nothing,
           // reuse an existing Phase 1 jm_id keyed by (id_umroh, nama). Only
@@ -5305,8 +5513,10 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         for (let b = 0; b < safeRows.length; b += BATCH) {
           const upsertBatch = filterSafeJamaahRows(safeRows.slice(b, b + BATCH), 'P2-manual');
           if (upsertBatch.length === 0) continue;
+          const batchEvents = await detectUmrohJamaahSyncEvents(agentId, upsertBatch, { allowNewJamaah: allowNewJamaahNotify });
           const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
           if (error) console.error(`[Sync] ${slug} Phase 2 range ${job.tglAwal} error:`, error.message);
+          else mergeJamaahSyncEvents(syncEvents, batchEvents);
         }
         // Back-fill enrichment for items whose CSS-truncated jm_id got dropped
         // by buildRows. Targets existing rows keyed on (id_umroh, nama), using
@@ -5340,6 +5550,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   } finally {
     console.log(`[Sync] ${slug}: sync complete — ${totalItems} total items`);
     syncingAgents.set(agentId, { isSyncing: false, totalSynced: totalItems, lastSync: now });
+    queueJamaahSyncNotifications(agentId, syncEvents, `manual/${slug}`);
     // Persist sync timestamp at agent level — skip_noop_update trigger blocks
     // jamaah.synced_at advancement on cycles where no row content changed.
     const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_sync_at: now }).eq('id', agentId);
@@ -5388,6 +5599,9 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
     }
     norm.hijriah_year = getHijriahYear(norm.tgl_berangkat) || null;
 
+    const syncEvents = await detectUmrohJamaahSyncEvents(agentId, [norm], {
+      allowNewJamaah: await hasJamaahNotificationBaseline(agentId, agent),
+    });
     const { error } = await supabase
       .from('jamaah')
       .upsert([norm], { onConflict: 'agent_id,id_umroh,jm_id' });
@@ -5395,6 +5609,7 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
       console.error(`[Sync/api] ${slug} jamaah/${idJamaah} upsert error:`, error.message);
       return res.status(500).json({ error: 'Gagal menyimpan data refreshed' });
     }
+    queueJamaahSyncNotifications(agentId, syncEvents, `refresh-jamaah/${slug}`);
 
     // Best-effort CAPI Purchase event for this single jamaah.
     processCapiPurchases(agentId, slug, 'umroh', [{ id_umroh: norm.id_umroh, nama: norm.nama }]).catch((e) =>
@@ -5449,6 +5664,9 @@ app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) 
     }
 
     const safeRows = filterSafeJamaahRows(normalized, 'api-refresh-umrah');
+    const syncEvents = await detectUmrohJamaahSyncEvents(agentId, safeRows, {
+      allowNewJamaah: await hasJamaahNotificationBaseline(agentId, agent),
+    });
     if (safeRows.length > 0) {
       const { error } = await supabase
         .from('jamaah')
@@ -5458,6 +5676,7 @@ app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) 
         return res.status(500).json({ error: 'Gagal menyimpan data refreshed' });
       }
     }
+    queueJamaahSyncNotifications(agentId, syncEvents, `refresh-umrah/${slug}`);
 
     processCapiPurchases(
       agentId,
@@ -9746,7 +9965,7 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
     // Agent profile — for personalization in brochure footer
     const { data: agent, error: agentErr } = await supabase
       .from('agents')
-      .select('name, phone, photo, website')
+      .select('slug, name, phone, photo, website')
       .eq('id', req.user.id)
       .maybeSingle();
 
@@ -9758,7 +9977,7 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
     // Schedules — pull all years (table is small, <300 rows globally)
     const { data: rows, error: schedErr } = await supabase
       .from('umroh_schedules')
-      .select('jadwal_id, jadwal_nama, maskapai, berangkat_tgl, pulang_tgl, paket_harga');
+      .select('jadwal_id, jadwal_nama, maskapai, berangkat_tgl, pulang_tgl, seat_sisa, paket_harga, paket_hotel');
 
     if (schedErr) {
       console.error('[brosur-jadwal] schedule fetch:', schedErr.message);
@@ -9769,32 +9988,38 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
     const priced = [];
     let droppedNoPrice = 0;
     for (const r of (rows || [])) {
-      const price = pickBrochurePrice(r.paket_harga);
-      if (price === null) {
+      const details = pickBrochurePackageDetails(r.paket_harga, r.paket_hotel);
+      const seatSisa = parseSeatSisa(r.seat_sisa);
+      const soldOut = seatSisa !== null && seatSisa <= 0;
+      if (!details && !soldOut) {
         droppedNoPrice++;
         continue;
       }
       priced.push({
         id: r.jadwal_id,
-        nama: String(r.jadwal_nama || '').toUpperCase(),
+        nama: cleanBrochurePackageName(r.jadwal_nama),
         maskapai: String(r.maskapai || '').toUpperCase(),
         berangkat_tgl: r.berangkat_tgl,
         pulang_tgl: r.pulang_tgl,
-        harga: price,
+        hari: countBrochureTripDays(r.berangkat_tgl, r.pulang_tgl),
+        hotel: details?.hotel || [],
+        harga: details?.harga ?? null,
+        soldOut,
       });
     }
     if (droppedNoPrice > 0) {
       console.log(`[brosur-jadwal] dropped ${droppedNoPrice} packages with no resolvable price`);
     }
 
-    // today: Date is timezone-agnostic (absolute instant); helpers use UTC component accessors,
-    // so server TZ (e.g. WIB UTC+7) does not affect the date window boundary.
-    const today = new Date();
+    // Schedules are Indonesian business data; use Jakarta's calendar day as
+    // the source of truth, then pass a UTC-midnight Date into the pure helper.
+    const today = new Date(`${getWIBDateStr()}T00:00:00.000Z`);
     const months = groupPackagesByMonth(priced, today, monthsAhead);
 
     res.json({
       months,
       agent: {
+        slug: agent?.slug || '',
         name: agent?.name || '',
         phone: agent?.phone || '',
         photo: agent?.photo || '',
@@ -11339,6 +11564,8 @@ async function syncOneAgent(agent) {
 
     const syncTime = new Date().toISOString();
     let totalSynced = 0;
+    const syncEvents = emptyJamaahSyncEvents();
+    const allowNewJamaahNotify = await hasJamaahNotificationBaseline(agentId, agent);
 
     // ── PHASE 1: Fast scan via umrah list + detail pages ──
     // Captures ALL jamaah including calon (belum DP), plus staf names
@@ -11409,6 +11636,8 @@ async function syncOneAgent(agent) {
                 paket: item.paket || null,
                 bayar: item.bayar || 0,
                 sisa: item.sisa || 0,
+                diskon_kantor: item.diskon_kantor || 0,
+                diskon_marketing: item.diskon_marketing || 0,
                 tgl_berangkat: item.tgl_berangkat || null,
                 tgl_daftar: bookingTglDaftarMap.get(idUmroh) || null,
                 hijriah_year: itemYear,
@@ -11477,8 +11706,10 @@ async function syncOneAgent(agent) {
             for (let b = 0; b < dedupedRows.length; b += BATCH) {
               const upsertBatch = filterSafeJamaahRows(dedupedRows.slice(b, b + BATCH), 'P1-bg');
               if (upsertBatch.length === 0) continue;
+              const batchEvents = await detectUmrohJamaahSyncEvents(agentId, upsertBatch, { allowNewJamaah: allowNewJamaahNotify });
               const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
               if (error) console.error(`[SYNC] ${slug} Phase 1 upsert error:`, error.message);
+              else mergeJamaahSyncEvents(syncEvents, batchEvents);
             }
           }
         }
@@ -11574,16 +11805,6 @@ async function syncOneAgent(agent) {
     const fetchJobs = bgAllChunks;
     console.log(`[SYNC] ${slug}: ${fetchJobs.length} chunks (7-day, capped at ${bgFutureCapStr})`);
 
-    // Fetch existing bayar data ONCE before sync for payment detection
-    // Only future departures — we don't care about payment changes for past jamaah
-    const { data: existingData } = await supabase
-      .from('jamaah')
-      .select('id_umroh, nama, bayar')
-      .eq('agent_id', agentId)
-      .gte('tgl_berangkat', bgTodayStr);
-    const existingMap = {};
-    (existingData || []).forEach(j => { existingMap[`${j.id_umroh}_${j.nama}`] = j.bayar || 0; });
-
     const kantor = agent.jamaah_kantor || '2';
     let networkFailures = 0;
     let timeoutCount = 0;
@@ -11632,14 +11853,14 @@ async function syncOneAgent(agent) {
         const laporanNames = items.map(it => it.nama).filter(Boolean);
         const { data: bgExistingPayments, error: bgPaymentLookupErr } = await supabase
           .from('jamaah')
-          .select('id_umroh, nama, jm_id, bayar')
+          .select('id_umroh, nama, jm_id, bayar, sisa, raw_data')
           .eq('agent_id', agentId)
           .in('nama', laporanNames);
         if (bgPaymentLookupErr) console.warn(`[SYNC] ${slug} bayar lookup error:`, bgPaymentLookupErr.message);
         // Key by jm_id so same-nama siblings don't pollute each other's bayar.
-        const bgExistingBayarByJmId = new Map();
+        const bgExistingPaymentByJmId = new Map();
         (bgExistingPayments || []).forEach(r => {
-          bgExistingBayarByJmId.set(`${r.id_umroh}_${r.jm_id}`.toLowerCase(), r.bayar || 0);
+          bgExistingPaymentByJmId.set(`${r.id_umroh}_${r.jm_id}`.toLowerCase(), r);
         });
 
         const allNewRows = [];
@@ -11654,19 +11875,22 @@ async function syncOneAgent(agent) {
             if (!row.tgl_daftar) {
               row.tgl_daftar = bookingTglDaftarMap?.get(row.id_umroh) || null;
             }
-            // bayar: never regress — payment can only increase. Keyed per-jm_id.
-            const bgExistingBayar = bgExistingBayarByJmId.get(`${row.id_umroh}_${row.jm_id}`.toLowerCase());
-            if (bgExistingBayar !== undefined && bgExistingBayar > (row.bayar || 0)) {
-              row.bayar = bgExistingBayar;
+            // bayar normally should not regress. Exception: old Phase 1 detail
+            // rows were grossed up by discounts; let Phase 2 correct those.
+            const bgExistingPayment = bgExistingPaymentByJmId.get(`${row.id_umroh}_${row.jm_id}`.toLowerCase());
+            if (shouldKeepExistingBayar(bgExistingPayment, row.bayar)) {
+              row.bayar = bgExistingPayment.bayar;
             }
           }
           allNewRows.push(...rows);
           const safeRows = filterSafeJamaahRows(rows, 'P2-bg');
           if (safeRows.length > 0) {
+            const batchEvents = await detectUmrohJamaahSyncEvents(agentId, safeRows, { allowNewJamaah: allowNewJamaahNotify });
             const { error } = await supabase
               .from('jamaah')
               .upsert(safeRows, { onConflict: 'agent_id,id_umroh,jm_id' });
             if (error) console.error(`[SYNC] ${slug} range ${job.tglAwal} batch error:`, error.message);
+            else mergeJamaahSyncEvents(syncEvents, batchEvents);
           }
           // Phase 2 is enrichment, not new-jamaah-count. Don't re-count — same jamaah
           // appears across multiple 7-day chunks which would inflate the counter.
@@ -11677,39 +11901,6 @@ async function syncOneAgent(agent) {
         // by buildRows. Targets existing rows keyed on (id_umroh, nama), using
         // the truncated-jm_id suffix hint to disambiguate same-nama siblings.
         await enrichJamaahFromLaporanItems(agentId, items, 'P2-bg');
-
-        // Detect pembayaran masuk (only for jamaah departing in the future)
-        // Use 7-day buffer to avoid false positives from Phase 1/Phase 2 bayar discrepancies
-        // near departure date
-        const bgCutoffDate = new Date(bgToday);
-        bgCutoffDate.setDate(bgCutoffDate.getDate() + 7);
-        const bgCutoffStr = bgCutoffDate.toISOString().split('T')[0];
-        const pembayaranBaru = [];
-        for (const row of allNewRows) {
-          const key = `${row.id_umroh}_${row.nama}`;
-          if (!(key in existingMap)) continue;
-          // Skip if no departure date — can't verify if still relevant
-          if (!row.tgl_berangkat) continue;
-          // Skip past departures and those departing within 7 days
-          // (old data may have bayar discrepancies between Phase 1 and Phase 2)
-          if (row.tgl_berangkat < bgCutoffStr) continue;
-          const bayarBefore = existingMap[key];
-          const bayarAfter = row.bayar || 0;
-          if (bayarAfter > bayarBefore) {
-            pembayaranBaru.push({
-              nama: row.nama,
-              jumlah: bayarAfter - bayarBefore,
-              totalBayar: bayarAfter,
-              sisa: row.sisa || 0,
-              isLunas: !row.sisa || row.sisa === 0,
-            });
-          }
-        }
-        if (pembayaranBaru.length > 0) {
-          notifyPembayaranMasuk(agentId, pembayaranBaru).catch(e =>
-            console.error(`[SYNC] ${slug}: pembayaran notif error:`, e.message)
-          );
-        }
 
         // Fire CAPI Purchase events (DP & Lunas)
         const capiIds = allNewRows.map(r => ({ id_umroh: r.id_umroh, nama: r.nama }));
@@ -11724,6 +11915,7 @@ async function syncOneAgent(agent) {
     }
 
     console.log(`[SYNC] ${slug}: total ${totalSynced} umroh synced`);
+    queueJamaahSyncNotifications(agentId, syncEvents, `bg/${slug}`);
     {
       const { error: umrohBumpErr } = await supabase.from('agents').update({ last_jamaah_sync_at: syncTime }).eq('id', agentId);
       if (umrohBumpErr) console.warn(`[SYNC] ${slug} bump last_jamaah_sync_at failed:`, umrohBumpErr.message);

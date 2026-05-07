@@ -87,6 +87,28 @@ type ViewState = 'loading' | 'login' | 'connecting' | 'syncing' | 'data';
 type StatusFilter = 'semua' | 'belum' | 'berangkat';
 type SortKey = 'nama' | 'sisa_desc' | 'berangkat' | 'terbaru';
 
+const AUTO_PERLENGKAPAN_STALE_MS = 60 * 60 * 1000;
+
+function getJamaahRefreshKey(item: Pick<JamaahItem, 'id_umroh' | 'jm_id'>) {
+  return `${item.id_umroh || '-'}::${item.jm_id}`;
+}
+
+function isStaleSyncedAt(syncedAt?: string | null) {
+  if (!syncedAt) return true;
+  const time = Date.parse(syncedAt);
+  return !Number.isFinite(time) || Date.now() - time > AUTO_PERLENGKAPAN_STALE_MS;
+}
+
+function shouldAutoRefreshPerlengkapan(item: JamaahItem) {
+  if (!item.jm_id) return false;
+  const values = item.perlengkapan ? Object.values(item.perlengkapan) : [];
+  if (values.length === 0) return true;
+  const hasAnyDone = values.some(v => Boolean(v));
+  if (!hasAnyDone) return true;
+  const incomplete = values.some(v => !Boolean(v));
+  return incomplete && isStaleSyncedAt(item.synced_at);
+}
+
 // ── Props (session persistence from parent) ──
 interface JamaahPageProps {
   jamaahConnected?: boolean;
@@ -143,6 +165,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
 
   // Per-row refresh (Phase 4 — single-jamaah pull from API resmi)
   const [refreshingJmId, setRefreshingJmId] = useState<string | null>(null);
+  const [autoRefreshingKey, setAutoRefreshingKey] = useState<string | null>(null);
   const [refreshedJmId, setRefreshedJmId] = useState<string | null>(null);
   const [refreshErrorJmId, setRefreshErrorJmId] = useState<string | null>(null);
 
@@ -157,6 +180,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollStartRef = useRef<number>(0);
   const hasAutoSynced = useRef(false);
+  const autoPerlengkapanRefreshRef = useRef<Set<string>>(new Set());
 
   // Switch sub-tab and update URL
   const switchSubTab = useCallback((tab: 'umroh' | 'haji') => {
@@ -198,8 +222,9 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
   // Refresh a single jamaah from Alhijaz Official API. Updates the row
   // in-place — much faster than a full sync when you just want fresh
   // payment/paspor/perlengkapan for one person.
-  const handleRefreshRow = async (item: JamaahItem) => {
-    if (!item.jm_id) return;
+  const handleRefreshRow = async (item: JamaahItem, options: { showFailure?: boolean } = {}) => {
+    const showFailure = options.showFailure !== false;
+    if (!item.jm_id) return false;
     setRefreshingJmId(item.jm_id);
     setRefreshErrorJmId(null);
     setRefreshedJmId(null);
@@ -220,18 +245,52 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
         } : prev);
         setRefreshedJmId(item.jm_id);
         setTimeout(() => setRefreshedJmId(prev => prev === item.jm_id ? null : prev), 1800);
+        return true;
       } else {
-        setRefreshErrorJmId(item.jm_id);
-        setTimeout(() => setRefreshErrorJmId(prev => prev === item.jm_id ? null : prev), 2400);
+        if (showFailure) {
+          setRefreshErrorJmId(item.jm_id);
+          setTimeout(() => setRefreshErrorJmId(prev => prev === item.jm_id ? null : prev), 2400);
+        }
+        return false;
       }
     } catch (err) {
       console.error('Failed to refresh jamaah:', err);
-      setRefreshErrorJmId(item.jm_id);
-      setTimeout(() => setRefreshErrorJmId(prev => prev === item.jm_id ? null : prev), 2400);
+      if (showFailure) {
+        setRefreshErrorJmId(item.jm_id);
+        setTimeout(() => setRefreshErrorJmId(prev => prev === item.jm_id ? null : prev), 2400);
+      }
+      return false;
     } finally {
       setRefreshingJmId(prev => prev === item.jm_id ? null : prev);
     }
   };
+
+  const maybeAutoRefreshPerlengkapan = (item: JamaahItem) => {
+    if (!shouldAutoRefreshPerlengkapan(item)) return;
+    const key = getJamaahRefreshKey(item);
+    if (autoPerlengkapanRefreshRef.current.has(key)) return;
+    autoPerlengkapanRefreshRef.current.add(key);
+    setAutoRefreshingKey(key);
+    const startedAt = Date.now();
+    handleRefreshRow(item, { showFailure: false })
+      .then(ok => {
+        if (!ok) {
+          setTimeout(() => autoPerlengkapanRefreshRef.current.delete(key), 5 * 60 * 1000);
+        }
+      })
+      .finally(() => {
+        const remainingMs = Math.max(0, 800 - (Date.now() - startedAt));
+        setTimeout(() => {
+          setAutoRefreshingKey(prev => prev === key ? null : prev);
+        }, remainingMs);
+      });
+  };
+
+  useEffect(() => {
+    if (view !== 'data' || !data || expandedId === null) return;
+    const item = data.items.find(j => j.id === expandedId);
+    if (item) maybeAutoRefreshPerlengkapan(item);
+  }, [view, expandedId, data?.items]);
 
   const handleSaveNote = async (item: JamaahItem) => {
     setSavingNote(true);
@@ -1611,12 +1670,16 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                       <div className="px-3 py-2.5 flex gap-2">
                         {/* Refresh single row from Alhijaz Official API */}
                         {item.jm_id && (() => {
-                          const isRefreshing = refreshingJmId === item.jm_id;
+                          const refreshKey = getJamaahRefreshKey(item);
+                          const isAutoRefreshing = autoRefreshingKey === refreshKey;
+                          const isRefreshing = refreshingJmId === item.jm_id || isAutoRefreshing;
                           const justRefreshed = refreshedJmId === item.jm_id;
                           const hasError = refreshErrorJmId === item.jm_id;
                           const baseClass = 'w-10 h-10 shrink-0 flex items-center justify-center rounded-xl transition-all active:scale-95 border disabled:opacity-60';
                           const stateClass = hasError
                             ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800/40'
+                            : isAutoRefreshing
+                              ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40'
                             : justRefreshed
                               ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40'
                               : 'bg-gray-50 dark:bg-slate-800 text-gray-500 dark:text-slate-400 border-gray-200 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-700';
@@ -1626,14 +1689,16 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                               onClick={() => handleRefreshRow(item)}
                               disabled={isRefreshing}
                               className={`${baseClass} ${stateClass}`}
-                              title={hasError ? 'Refresh gagal — coba lagi' : justRefreshed ? 'Berhasil di-refresh' : 'Refresh data jamaah dari Alhijaz'}
+                              title={isAutoRefreshing ? 'Auto-refresh perlengkapan...' : hasError ? 'Refresh gagal — coba lagi' : justRefreshed ? 'Berhasil di-refresh' : 'Refresh data jamaah dari Alhijaz'}
                             >
-                              {hasError ? (
+                              {isRefreshing ? (
+                                <RefreshCw size={14} strokeWidth={2.2} className="animate-spin" />
+                              ) : hasError ? (
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
                               ) : justRefreshed ? (
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
                               ) : (
-                                <RefreshCw size={14} strokeWidth={2.2} className={isRefreshing ? 'animate-spin' : ''} />
+                                <RefreshCw size={14} strokeWidth={2.2} />
                               )}
                             </button>
                           );

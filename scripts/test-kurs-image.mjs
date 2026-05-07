@@ -3,7 +3,7 @@
 import { writeFile } from 'fs/promises';
 import { generateKursImageBuffer, closeKursBrowser } from '../lib/kurs-image-generator.mjs';
 
-const sampleKurs = { usd: 17500, updatedAt: 'Rabu, 7 Mei 2026' };
+const sampleKurs = { usd: 17500, updatedAt: 'Kamis, 7 Mei 2026' };
 
 const sampleAgents = [
   { slug: 'nina', name: 'Nina Nasution', phone: '081234567890', photo: '', website: 'alhijazumrahtours.com' },

@@ -432,10 +432,15 @@ export async function fetchUmrahDetail(username, idUmroh) {
 
       // col[4]: HARGA PAKET (rupiah string "38.700.000")
       const hargaPaket = parseRupiah($(tds[4]).text().trim());
+      // col[5-6]: diskon kantor/marketing. These reduce the amount the jamaah
+      // actually paid; treating them as cash payment causes false "payment in"
+      // notifications on every sync.
+      const diskonKantor = parseRupiah($(tds[5]).text().trim());
+      const diskonMarketing = parseRupiah($(tds[6]).text().trim());
       // col[7]: SISA PAKET
       const sisaPaket = parseRupiah($(tds[7]).text().trim());
-      // bayar = harga - sisa
-      const bayar = hargaPaket - sisaPaket;
+      // bayar bersih = harga - diskon - sisa
+      const bayar = hargaPaket - diskonKantor - diskonMarketing - sisaPaket;
 
       // col[14]: STATUS BAYAR
       const statusBayar = $(tds[14])?.text()?.trim() || '';
@@ -447,8 +452,18 @@ export async function fetchUmrahDetail(username, idUmroh) {
         jk: jk || null,
         bayar: bayar > 0 ? bayar : 0,
         sisa: sisaPaket,
+        diskon_kantor: diskonKantor,
+        diskon_marketing: diskonMarketing,
         tgl_berangkat,
-        raw_data: { jm_id: jmId, status_bayar: statusBayar, harga_paket: hargaPaket, source: 'umrah_detail' },
+        raw_data: {
+          jm_id: jmId,
+          status_bayar: statusBayar,
+          harga_paket: hargaPaket,
+          diskon_kantor: diskonKantor,
+          diskon_marketing: diskonMarketing,
+          bayar_gross: Math.max(0, hargaPaket - sisaPaket),
+          source: 'umrah_detail',
+        },
       });
     });
 

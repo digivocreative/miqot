@@ -38,10 +38,21 @@ const sar = kursJson.data.rates.SAR;
 const updatedAt = kursJson.data.updatedAt;
 console.log(`Kurs: USD=${usd}  SAR=${sar}  updated=${updatedAt}`);
 
+// Format updatedAt to "Hari, D Bulan YYYY" (matches dashboard + production broadcast)
+function formatKursDateForShare(raw) {
+  const m = String(raw || '').match(/(\d{2})\/(\d{2})\/(\d{2})\s+\d{2}:\d{2}\s*WIB/);
+  if (!m) return raw || '';
+  const dt = new Date(2000 + parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+  const dayName = dt.toLocaleDateString('id-ID', { weekday: 'long' });
+  const monthName = dt.toLocaleDateString('id-ID', { month: 'long' });
+  return `${dayName}, ${dt.getDate()} ${monthName} ${dt.getFullYear()}`;
+}
+const updatedAtFormatted = formatKursDateForShare(updatedAt);
+
 // 3) Generate image
 console.time('generate');
 const buf = await generateKursImageBuffer({
-  kurs: { usd, updatedAt },
+  kurs: { usd, updatedAt: updatedAtFormatted },
   agent: {
     slug: nikita.slug,
     name: nikita.name,
@@ -64,8 +75,7 @@ const caption =
   `📅 ${dateStr}\n\n` +
   `🇺🇸 <b>USD:</b> ${fmtIDR(usd)}` +
   (sar ? `\n🇸🇦 <b>SAR:</b> ${fmtIDR(sar)}` : '') +
-  `\n\n<i>Sumber: Bank Mandiri TT Counter</i>` +
-  `\n\n<i>🤖 Pesan TEST — fitur baru kurs share via Telegram.</i>`;
+  `\n\n<i>Sumber: Bank Mandiri TT Counter</i>`;
 
 // 5) Send via Telegram /sendPhoto (multipart)
 const form = new FormData();

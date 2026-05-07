@@ -23,10 +23,13 @@ async function migrate() {
         "pelunasan": true,
         "perlengkapan": true,
         "manasik": true,
+        "jamaah_baru": true,
         "seat_alert": true,
         "paket_baru": true,
         "perubahan_harga": true,
         "pembayaran_masuk": true,
+        "pembayaran_cicilan": true,
+        "pembayaran_pelunasan": true,
         "ringkasan_mingguan": true
       }'::jsonb;
     `
@@ -51,10 +54,13 @@ async function migrate() {
   "pelunasan": true,
   "perlengkapan": true,
   "manasik": true,
+  "jamaah_baru": true,
   "seat_alert": true,
   "paket_baru": true,
   "perubahan_harga": true,
   "pembayaran_masuk": true,
+  "pembayaran_cicilan": true,
+  "pembayaran_pelunasan": true,
   "ringkasan_mingguan": true
 }'::jsonb;`);
       process.exit(1);

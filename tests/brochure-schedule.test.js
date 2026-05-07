@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pickBrochurePrice } from '../lib/brochure-schedule.js';
+import {
+  cleanBrochurePackageName,
+  countBrochureTripDays,
+  parseSeatSisa,
+  pickBrochurePackageDetails,
+  pickBrochurePrice,
+} from '../lib/brochure-schedule.js';
 
 test('pickBrochurePrice: single hotel tier with Quard', () => {
   const harga = { 'Hotel Bintang 5': { Quard: 33900000, Triple: 35000000, Double: 38000000, Infant: 5000000 } };
@@ -39,6 +45,53 @@ test('pickBrochurePrice: null/undefined input returns null', () => {
 test('pickBrochurePrice: non-numeric string price ignored', () => {
   const harga = { 'Hotel Bintang 5': { Quard: 'tba', Triple: 35000000 } };
   assert.equal(pickBrochurePrice(harga), 35000000);
+});
+
+test('pickBrochurePackageDetails: returns matching hotel tier for selected price', () => {
+  const harga = {
+    RAHMAH: { Quard: 39900000 },
+    UHUD: { Quard: 33900000 },
+  };
+  const hotel = {
+    RAHMAH: { mekkah: 'PULLMAN ZAMZAM/SETARAF (⭐5)', madinah: 'ANWAR AL MADINAH (⭐5)' },
+    UHUD: { mekkah: 'ELAF AL MASHAER/SETARAF (★4)', madinah: 'GRAND PLAZA (★4)' },
+  };
+  assert.deepEqual(pickBrochurePackageDetails(harga, hotel), {
+    harga: 33900000,
+    tier: 'UHUD',
+    hotel: [
+      { city: 'Mekkah', name: 'ELAF AL MASHAER / SETARAF', stars: 4 },
+      { city: 'Madinah', name: 'GRAND PLAZA', stars: 4 },
+    ],
+  });
+});
+
+test('cleanBrochurePackageName: removes mix Rahmah/Uhud and duration labels', () => {
+  assert.equal(
+    cleanBrochurePackageName('PLUS CAIRO + ALEXANDRIA 12HR MIX  PAKET RAHMAH & UHUD( KERETA CEPAT)'),
+    'PLUS CAIRO + ALEXANDRIA (KERETA CEPAT)'
+  );
+  assert.equal(
+    cleanBrochurePackageName("JUM'ATAIN PLUS TAIF + BADAR MIX PAKET UHUD & RAHMAH 12HR"),
+    "JUM'ATAIN PLUS TAIF + BADAR"
+  );
+  assert.equal(
+    cleanBrochurePackageName('REGULER PAKET RAHMAH 9HR'),
+    'REGULER PAKET RAHMAH'
+  );
+});
+
+test('countBrochureTripDays: counts departure and return days inclusively', () => {
+  assert.equal(countBrochureTripDays('2026-06-13', '2026-06-21'), 9);
+  assert.equal(countBrochureTripDays('2026-06-30', '2026-07-10'), 11);
+  assert.equal(countBrochureTripDays('invalid', '2026-07-10'), null);
+});
+
+test('parseSeatSisa: blank values are unknown, numeric zero means sold out', () => {
+  assert.equal(parseSeatSisa(''), null);
+  assert.equal(parseSeatSisa(null), null);
+  assert.equal(parseSeatSisa('0'), 0);
+  assert.equal(parseSeatSisa(12), 12);
 });
 
 import { groupPackagesByMonth } from '../lib/brochure-schedule.js';
@@ -95,16 +148,16 @@ test('groupPackagesByMonth: drops months with zero packages', () => {
   assert.equal(out[0].key, '2026-06');
 });
 
-test('groupPackagesByMonth: truncates to 10 packages, keeps earliest', () => {
+test('groupPackagesByMonth: keeps all packages so frontend can split brochure pages', () => {
   const rows = Array.from({ length: 13 }, (_, i) => ({
     jadwal_id: `p${i}`,
     berangkat_tgl: `2026-06-${String(i + 1).padStart(2, '0')}`,
   }));
   const out = groupPackagesByMonth(rows, today, 24);
-  assert.equal(out[0].packages.length, 10);
+  assert.equal(out[0].packages.length, 13);
   assert.equal(out[0].packages[0].jadwal_id, 'p0');
-  assert.equal(out[0].packages[9].jadwal_id, 'p9');
-  assert.equal(out[0].truncatedCount, 3);
+  assert.equal(out[0].packages[12].jadwal_id, 'p12');
+  assert.equal(out[0].truncatedCount, 0);
 });
 
 test('groupPackagesByMonth: skips rows with invalid berangkat_tgl', () => {

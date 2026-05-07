@@ -605,6 +605,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           {activeTab === 'ai-tools' && (() => {
             const sub = getAIToolsSubFromPath();
             if (sub === 'brosur-jadwal') return <BrochureSchedulePage agent={{
+              slug: agentData.slug,
               name: agentData.name,
               phone: agentData.phone,
               photo: agentData.photo || '',
@@ -633,6 +634,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             }} />;
             return (
               <AIToolsPage
+                agentSlug={agentData.slug}
                 onNavigate={(toolId) => {
                   window.history.pushState({}, '', `/dashboard/ai-tools/${toolId}`);
                   document.title = toolId === 'voice-over' ? 'Voice Over' : toolId === 'business-card' ? 'Kartu Nama' : toolId === 'landing-page' ? 'Landing Page' : toolId === 'haji-plus' ? 'Haji Plus' : toolId === 'kurs' ? 'Kurs Hari Ini' : toolId === 'compare' ? 'Compare' : toolId === 'brosur-jadwal' ? 'Brosur Jadwal' : 'Tools';

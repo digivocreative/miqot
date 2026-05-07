@@ -1,4 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  Eye, Search as SearchIcon, FileText, Phone, UserPlus, BadgeCheck,
+  ShoppingCart, Heart, CreditCard, DollarSign, Bell, Sparkles,
+  Lock, Activity, Shield, Settings as SettingsIcon, ScrollText,
+  Save, Trash2, AlertTriangle, AlertCircle, CheckCircle2, XCircle,
+  Loader2, ChevronDown, Check, FlaskConical, Zap, Sun, Moon, LogOut,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import CapiEventLog from './CapiEventLog';
 
 // ── Types ──
@@ -38,20 +46,28 @@ const DEFAULT_CONFIG: CapiConfig = {
   updatedAt: '',
 };
 
-// ── Meta Event Icons (inline SVG paths) ──
-const META_EVENT_ICONS: Record<string, JSX.Element> = {
-  PageView: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
-  Search: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
-  ViewContent: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>,
-  Contact: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>,
-  Lead: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>,
-  CompleteRegistration: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
-  AddToCart: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>,
-  AddToWishlist: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>,
-  InitiateCheckout: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
-  Purchase: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>,
-  Subscribe: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>,
-  CustomEvent: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
+// ── Meta Event Icons (lucide-react) ──
+const META_EVENT_ICONS: Record<string, LucideIcon> = {
+  PageView: Eye,
+  Search: SearchIcon,
+  ViewContent: FileText,
+  Contact: Phone,
+  Lead: UserPlus,
+  CompleteRegistration: BadgeCheck,
+  AddToCart: ShoppingCart,
+  AddToWishlist: Heart,
+  InitiateCheckout: CreditCard,
+  Purchase: DollarSign,
+  Subscribe: Bell,
+  CustomEvent: Sparkles,
+};
+
+// ── Event Definition Icons (per row label) ──
+const EVENT_DEF_ICONS: Record<string, LucideIcon> = {
+  pageView: Eye,
+  search: SearchIcon,
+  viewContent: FileText,
+  contact: Phone,
 };
 
 // ── Custom Event Dropdown Component ──
@@ -67,29 +83,53 @@ function EventDropdown({ value, onChange }: { value: string; onChange: (v: strin
     return () => document.removeEventListener('mousedown', handleClick);
   }, [open]);
 
+  const ActiveIcon = META_EVENT_ICONS[value] || META_EVENT_ICONS.CustomEvent;
+
   return (
-    <div className="capi-dropdown" ref={ref}>
-      <button type="button" className="capi-dropdown-trigger" onClick={() => setOpen(!open)}>
-        <span className="capi-dropdown-icon">{META_EVENT_ICONS[value] || META_EVENT_ICONS.CustomEvent}</span>
-        <span className="capi-dropdown-value">{value}</span>
-        <svg className="capi-dropdown-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ transform: open ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}><polyline points="6 9 12 15 18 9"/></svg>
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-800 dark:text-white hover:border-emerald-400 dark:hover:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+      >
+        <span className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0">
+          <ActiveIcon size={14} strokeWidth={2.2} />
+        </span>
+        <span className="flex-1 text-left">{value}</span>
+        <ChevronDown
+          size={14}
+          className="text-gray-400 dark:text-slate-500 transition-transform duration-200"
+          style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}
+        />
       </button>
       {open && (
-        <div className="capi-dropdown-menu">
-          {META_EVENTS.map(me => (
-            <button
-              key={me}
-              type="button"
-              className={`capi-dropdown-option${me === value ? ' capi-dropdown-active' : ''}`}
-              onClick={() => { onChange(me); setOpen(false); }}
-            >
-              <span className="capi-dropdown-icon">{META_EVENT_ICONS[me]}</span>
-              <span>{me}</span>
-              {me === value && (
-                <svg className="capi-dropdown-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              )}
-            </button>
-          ))}
+        <div className="absolute top-[calc(100%+4px)] left-0 right-0 z-50 max-h-64 overflow-y-auto bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-xl shadow-lg p-1">
+          {META_EVENTS.map(me => {
+            const Icon = META_EVENT_ICONS[me];
+            const active = me === value;
+            return (
+              <button
+                key={me}
+                type="button"
+                onClick={() => { onChange(me); setOpen(false); }}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                  active
+                    ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400'
+                    : 'text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700/50'
+                }`}
+              >
+                <span className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${
+                  active
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400'
+                }`}>
+                  <Icon size={12} strokeWidth={2.2} />
+                </span>
+                <span className="flex-1 text-left">{me}</span>
+                {active && <Check size={12} strokeWidth={3} />}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -153,7 +193,16 @@ export default function CapiPage({ agentSlug, hideHeader = false, embedded = fal
 
   const darkClass = isDarkMode ? ' capi-dark' : '';
 
-  if (isLoading) return <><div className={`capi-page capi-center${darkClass}`}><div className="capi-spinner" /></div><style>{capiStyles}</style></>;
+  if (isLoading) {
+    if (hideHeader || embedded) {
+      return (
+        <div className="flex justify-center py-12">
+          <Loader2 size={20} className="animate-spin text-emerald-500" />
+        </div>
+      );
+    }
+    return <><div className={`capi-page capi-center${darkClass}`}><div className="capi-spinner" /></div><style>{capiStyles}</style></>;
+  }
 
   return (
     <>
@@ -399,299 +448,282 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
     }
   };
 
-  if (!configLoaded) return <div className={`capi-page capi-center${isDark ? ' capi-dark' : ''}`}><div className="capi-spinner" /></div>;
+  if (!configLoaded) {
+    return hideHeader ? (
+      <div className="flex justify-center py-12">
+        <Loader2 size={20} className="animate-spin text-emerald-500" />
+      </div>
+    ) : (
+      <div className={`min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 ${isDark ? 'dark' : ''}`}>
+        <Loader2 size={28} className="animate-spin text-emerald-500" />
+      </div>
+    );
+  }
 
-  return (
-    <div className={`capi-page${isDark ? ' capi-dark' : ''}`}>
-      {/* Toast notification */}
-      {toast && (
-        <div className={`capi-toast ${toast.type === 'success' ? 'capi-toast-success' : 'capi-toast-error'}`}>
-          {toast.message}
-        </div>
-      )}
+  const inputClass = "w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400";
+  const labelClass = "flex items-center gap-1 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide";
 
-      {/* Header */}
-      {!hideHeader && (
-      <header className="capi-header">
-        <div className="capi-header-left">
-          <img src="/meta-logo.webp" alt="Meta" className="capi-header-logo" loading="eager" />
-        </div>
-        <div className="capi-header-right">
-          <button type="button" className="capi-header-theme" onClick={onToggleDark} title={isDark ? 'Light mode' : 'Dark mode'}>
-            {isDark ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
-            )}
-          </button>
-          <button className="capi-header-logout" onClick={onLogout}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-            Logout
-          </button>
-        </div>
-      </header>
-      )}
-
+  const inner = (
+    <div className="space-y-4">
       {/* Sub-tab: Settings | Event Log */}
-      <div className="capi-subtab-bar">
-        <div className="capi-subtab-bar-inner">
-          <button
-            type="button"
-            className={`capi-subtab${capiView === 'settings' ? ' capi-subtab-active' : ''}`}
-            onClick={() => switchCapiView('settings')}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-            Settings
-          </button>
-          <button
-            type="button"
-            className={`capi-subtab${capiView === 'event-log' ? ' capi-subtab-active' : ''}`}
-            onClick={() => switchCapiView('event-log')}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-            Event Log
-          </button>
-        </div>
+      <div className="flex gap-1 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl w-full">
+        <button
+          type="button"
+          onClick={() => switchCapiView('settings')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 active:opacity-70 ${
+            capiView === 'settings'
+              ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-500 dark:text-emerald-400 font-semibold'
+              : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium'
+          }`}
+          style={capiView === 'settings' ? { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } : undefined}
+        >
+          <SettingsIcon size={13} strokeWidth={2.2} />
+          <span className="text-[11px]">Settings</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => switchCapiView('event-log')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 active:opacity-70 ${
+            capiView === 'event-log'
+              ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-500 dark:text-emerald-400 font-semibold'
+              : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium'
+          }`}
+          style={capiView === 'event-log' ? { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } : undefined}
+        >
+          <ScrollText size={13} strokeWidth={2.2} />
+          <span className="text-[11px]">Event Log</span>
+        </button>
       </div>
 
       {capiView === 'event-log' ? (
-        <div className="capi-content">
-          <CapiEventLog agentSlug={agentSlug} />
-        </div>
+        <CapiEventLog agentSlug={agentSlug} />
       ) : (
-      <div className="capi-content">
-        {/* Section 1: Meta Credentials */}
-        <section className="capi-card">
-          <h2 className="capi-card-title">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-            Meta Credentials
-          </h2>
-          <p className="capi-card-desc">Masukkan Pixel ID dan Access Token dari Meta Business Manager.</p>
-
-          <div className="capi-field">
-            <label className="capi-label" htmlFor="pixelId">
-              Pixel ID <span className="capi-required">*</span>
-            </label>
-            <input
-              id="pixelId"
-              type="text"
-              className="capi-input"
-              value={config.pixelId}
-              onChange={e => updateConfig({ pixelId: e.target.value })}
-              placeholder="Contoh: 123456789012345"
-            />
-            <span className="capi-help">Pixel ID dapat ditemukan di Meta Events Manager &gt; Data Sources.</span>
-          </div>
-
-          <div className="capi-field">
-            <label className="capi-label" htmlFor="accessToken">
-              Access Token <span className="capi-required">*</span>
-            </label>
-            <textarea
-              id="accessToken"
-              className="capi-input capi-textarea"
-              value={config.accessToken}
-              onChange={e => updateConfig({ accessToken: e.target.value })}
-              placeholder="EAABxxxxxxx..."
-              rows={3}
-            />
-            <span className="capi-help">Generate token di Meta Events Manager &gt; Settings &gt; Conversions API.</span>
-          </div>
-
-          {/* Advanced: Test Event Code (accordion) */}
-          <button
-            type="button"
-            className={`capi-accordion-btn${showAdvanced ? ' capi-accordion-open' : ''}`}
-            onClick={() => setShowAdvanced(!showAdvanced)}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-              Opsi Lanjutan
-            </span>
-            <svg
-              width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-              style={{ transform: showAdvanced ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.25s' }}
-            >
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
-          {showAdvanced && (
-            <div className="capi-field" style={{ marginTop: 12 }}>
-              <label className="capi-label" htmlFor="testEventCode">Test Event Code</label>
-              <input
-                id="testEventCode"
-                type="text"
-                className="capi-input"
-                value={config.testEventCode}
-                onChange={e => updateConfig({ testEventCode: e.target.value })}
-                placeholder="Contoh: TEST12345 (opsional)"
-              />
-              <span className="capi-help">Gunakan kode ini untuk menguji event di Meta Events Manager &gt; Test Events.</span>
+        <>
+          {/* Section 1: Meta Credentials */}
+          <section className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-50 dark:border-slate-700/50 flex items-center gap-2">
+              <Lock size={14} className="text-emerald-600 dark:text-emerald-400" strokeWidth={2.2} />
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-slate-200">Meta Credentials</h3>
             </div>
-          )}
-        </section>
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-gray-500 dark:text-slate-400 leading-relaxed">Masukkan Pixel ID dan Access Token dari Meta Business Manager.</p>
 
-        {/* Section 2: Event Mapping */}
-        <section className="capi-card">
-          <h2 className="capi-card-title">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            Event Mapping
-          </h2>
-          <p className="capi-card-desc">Pilih event mana yang ingin di-track dan mapping ke event Meta.</p>
+              <div>
+                <label htmlFor="pixelId" className={labelClass}>
+                  Pixel ID <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="pixelId"
+                  type="text"
+                  value={config.pixelId}
+                  onChange={e => updateConfig({ pixelId: e.target.value })}
+                  placeholder="Contoh: 123456789012345"
+                  className={inputClass}
+                />
+                <p className="mt-1.5 text-[11px] text-gray-400 dark:text-slate-500">Pixel ID dapat ditemukan di Meta Events Manager &gt; Data Sources.</p>
+              </div>
 
-          <div className="capi-event-list">
-            {EVENT_DEFINITIONS.map(evt => {
-              const eventConfig = config.events[evt.key] || { enabled: true, eventName: evt.defaultEvent };
-              return (
-                <div key={evt.key} className="capi-event-item">
-                  <div className="capi-event-header">
-                    <label className="capi-toggle">
-                      <input
-                        type="checkbox"
-                        checked={eventConfig.enabled}
-                        onChange={e => updateEvent(evt.key, 'enabled', e.target.checked)}
-                      />
-                      <span className="capi-toggle-slider" />
-                    </label>
-                    <div className="capi-event-info">
-                      <span className="capi-event-label">{evt.label}</span>
-                      <span className="capi-event-desc">{evt.desc}</span>
-                    </div>
-                  </div>
-                  {eventConfig.enabled && (
-                    <div className="capi-event-config">
-                      <EventDropdown
-                        value={eventConfig.eventName}
-                        onChange={v => updateEvent(evt.key, 'eventName', v)}
-                      />
-                      {eventConfig.eventName === 'CustomEvent' && (
-                        <input
-                          type="text"
-                          className="capi-input capi-mt-sm"
-                          placeholder="Nama custom event"
-                          value={eventConfig.customEventName || ''}
-                          onChange={e => updateEvent(evt.key, 'customEventName', e.target.value)}
+              <div>
+                <label htmlFor="accessToken" className={labelClass}>
+                  Access Token <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  id="accessToken"
+                  rows={3}
+                  value={config.accessToken}
+                  onChange={e => updateConfig({ accessToken: e.target.value })}
+                  placeholder="EAABxxxxxxx..."
+                  className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-[12px] font-mono break-all focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 resize-y"
+                />
+                <p className="mt-1.5 text-[11px] text-gray-400 dark:text-slate-500">Generate token di Meta Events Manager &gt; Settings &gt; Conversions API.</p>
+              </div>
+
+              {/* Advanced accordion */}
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs font-semibold transition-colors ${
+                  showAdvanced
+                    ? 'bg-emerald-50 dark:bg-emerald-900/15 border-emerald-100 dark:border-emerald-800/40 text-emerald-600 dark:text-emerald-400'
+                    : 'bg-gray-50 dark:bg-slate-900/40 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700/50'
+                }`}
+              >
+                <span className="flex items-center gap-1.5">
+                  <SettingsIcon size={12} strokeWidth={2.2} />
+                  Opsi Lanjutan
+                </span>
+                <ChevronDown
+                  size={12}
+                  className="transition-transform duration-200"
+                  style={{ transform: showAdvanced ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                />
+              </button>
+              {showAdvanced && (
+                <div>
+                  <label htmlFor="testEventCode" className={labelClass}>Test Event Code</label>
+                  <input
+                    id="testEventCode"
+                    type="text"
+                    value={config.testEventCode}
+                    onChange={e => updateConfig({ testEventCode: e.target.value })}
+                    placeholder="Contoh: TEST12345 (opsional)"
+                    className={inputClass}
+                  />
+                  <p className="mt-1.5 text-[11px] text-gray-400 dark:text-slate-500">Gunakan kode ini untuk menguji event di Meta Events Manager &gt; Test Events.</p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Section 2: Event Mapping */}
+          <section className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
+            <div className="px-5 py-3 border-b border-gray-50 dark:border-slate-700/50 flex items-center gap-2 rounded-t-2xl">
+              <Activity size={14} className="text-emerald-600 dark:text-emerald-400" strokeWidth={2.2} />
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-slate-200">Event Mapping</h3>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-gray-500 dark:text-slate-400 leading-relaxed">Pilih event mana yang ingin di-track dan mapping ke event Meta.</p>
+
+              {EVENT_DEFINITIONS.map(evt => {
+                const eventConfig = config.events[evt.key] || { enabled: true, eventName: evt.defaultEvent };
+                const RowIcon = EVENT_DEF_ICONS[evt.key];
+                return (
+                  <div
+                    key={evt.key}
+                    className="bg-gray-50 dark:bg-slate-900/40 border border-gray-100 dark:border-slate-700/60 rounded-xl p-3"
+                  >
+                    <div className="flex items-start gap-3">
+                      <button
+                        type="button"
+                        onClick={() => updateEvent(evt.key, 'enabled', !eventConfig.enabled)}
+                        role="switch"
+                        aria-checked={eventConfig.enabled}
+                        className={`relative shrink-0 w-9 h-5 rounded-full transition-colors mt-0.5 ${
+                          eventConfig.enabled ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-slate-600'
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+                            eventConfig.enabled ? 'translate-x-4' : 'translate-x-0'
+                          }`}
                         />
-                      )}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          {RowIcon && <RowIcon size={12} className="text-gray-500 dark:text-slate-400" strokeWidth={2.2} />}
+                          <span className="text-[13px] font-semibold text-gray-800 dark:text-white">{evt.label}</span>
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-gray-500 dark:text-slate-400 leading-relaxed">{evt.desc}</p>
+                      </div>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* Section 3: Mode & Status */}
-        <section className="capi-card">
-          <h2 className="capi-card-title">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            Mode & Status
-          </h2>
-
-          {/* Segmented Mode Toggle */}
-          <div className="capi-mode-toggle">
-            <button
-              type="button"
-              className={`capi-mode-btn capi-mode-test${config.testMode ? ' capi-mode-active' : ''}`}
-              onClick={() => updateConfig({ testMode: true })}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
-              <div className="capi-mode-text">
-                <span className="capi-mode-label">Test Mode</span>
-                <span className="capi-mode-desc">Event dikirim ke Test Events</span>
-              </div>
-            </button>
-            <button
-              type="button"
-              className={`capi-mode-btn capi-mode-live${!config.testMode ? ' capi-mode-active' : ''}`}
-              onClick={() => updateConfig({ testMode: false })}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              <div className="capi-mode-text">
-                <span className="capi-mode-label">Live Mode</span>
-                <span className="capi-mode-desc">Event dikirim secara live</span>
-              </div>
-            </button>
-          </div>
-
-          {config.testMode && !config.testEventCode && (
-            <div className="capi-alert capi-alert-warning" style={{ marginTop: 12 }}>
-              ⚠️ Test Mode aktif tapi Test Event Code belum diisi. Event tidak akan muncul di Test Events.
+                    {eventConfig.enabled && (
+                      <div className="mt-3 space-y-2">
+                        <EventDropdown
+                          value={eventConfig.eventName}
+                          onChange={v => updateEvent(evt.key, 'eventName', v)}
+                        />
+                        {eventConfig.eventName === 'CustomEvent' && (
+                          <input
+                            type="text"
+                            placeholder="Nama custom event"
+                            value={eventConfig.customEventName || ''}
+                            onChange={e => updateEvent(evt.key, 'customEventName', e.target.value)}
+                            className={inputClass}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          )}
+          </section>
 
-          {/* Status Koneksi */}
-          <div className="capi-status-section">
-            <span className="capi-label" style={{ marginBottom: 8 }}>Status Koneksi</span>
-            {status === 'unconfigured' && (
-              <div className="capi-status-card capi-status-card-warn">
-                <div className="capi-status-icon-wrap capi-status-icon-warn">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                </div>
-                <div>
-                  <div className="capi-status-card-title">Belum dikonfigurasi</div>
-                  <div className="capi-status-card-desc">Isi Pixel ID dan Access Token lalu simpan.</div>
-                </div>
+          {/* Section 3: Mode & Status */}
+          <section className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-50 dark:border-slate-700/50 flex items-center gap-2">
+              <Shield size={14} className="text-emerald-600 dark:text-emerald-400" strokeWidth={2.2} />
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-slate-200">Mode & Status</h3>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => updateConfig({ testMode: true })}
+                  className={`flex items-center gap-2 p-3 rounded-xl border text-left transition-colors ${
+                    config.testMode
+                      ? 'bg-amber-50 dark:bg-amber-900/15 border-amber-200 dark:border-amber-800/40 text-amber-700 dark:text-amber-300'
+                      : 'bg-gray-50 dark:bg-slate-900/40 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700/50'
+                  }`}
+                >
+                  <FlaskConical size={16} strokeWidth={2.2} className="shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-[12px] font-semibold leading-tight">Test Mode</div>
+                    <div className="text-[10px] opacity-70 mt-0.5">Hit Test Events</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateConfig({ testMode: false })}
+                  className={`flex items-center gap-2 p-3 rounded-xl border text-left transition-colors ${
+                    !config.testMode
+                      ? 'bg-emerald-50 dark:bg-emerald-900/15 border-emerald-200 dark:border-emerald-800/40 text-emerald-700 dark:text-emerald-300'
+                      : 'bg-gray-50 dark:bg-slate-900/40 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700/50'
+                  }`}
+                >
+                  <Zap size={16} strokeWidth={2.2} className="shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-[12px] font-semibold leading-tight">Live Mode</div>
+                    <div className="text-[10px] opacity-70 mt-0.5">Kirim secara live</div>
+                  </div>
+                </button>
               </div>
-            )}
-            {status === 'checking' && (
-              <div className="capi-status-card capi-status-card-info">
-                <div className="capi-status-icon-wrap capi-status-icon-info">
-                  <span className="capi-spinner-sm" />
-                </div>
-                <div>
-                  <div className="capi-status-card-title">Memeriksa koneksi...</div>
-                  <div className="capi-status-card-desc">Harap tunggu sebentar.</div>
-                </div>
-              </div>
-            )}
-            {status === 'connected' && (
-              <div className="capi-status-card capi-status-card-ok">
-                <div className="capi-status-icon-wrap capi-status-icon-ok">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                </div>
-                <div>
-                  <div className="capi-status-card-title">Connected</div>
-                  <div className="capi-status-card-desc">Pixel aktif dan siap menerima event.</div>
-                </div>
-              </div>
-            )}
-            {status === 'error' && (
-              <div className="capi-status-card capi-status-card-err">
-                <div className="capi-status-icon-wrap capi-status-icon-err">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                </div>
-                <div>
-                  <div className="capi-status-card-title">Error</div>
-                  <div className="capi-status-card-desc">Pixel ID atau Access Token tidak valid.</div>
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
 
-        {/* Save Button */}
-        <div className="capi-actions">
+              {config.testMode && !config.testEventCode && (
+                <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/15 border border-amber-100 dark:border-amber-800/40 rounded-xl">
+                  <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" strokeWidth={2.2} />
+                  <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+                    Test Mode aktif tapi Test Event Code belum diisi. Event tidak akan muncul di Test Events.
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <span className={labelClass + " mb-2"}>Status Koneksi</span>
+                {status === 'unconfigured' && (
+                  <StatusCard variant="warn" icon={AlertCircle} title="Belum dikonfigurasi" desc="Isi Pixel ID dan Access Token lalu simpan." />
+                )}
+                {status === 'checking' && (
+                  <StatusCard variant="info" icon={Loader2} spinning title="Memeriksa koneksi..." desc="Harap tunggu sebentar." />
+                )}
+                {status === 'connected' && (
+                  <StatusCard variant="ok" icon={CheckCircle2} title="Connected" desc="Pixel aktif dan siap menerima event." />
+                )}
+                {status === 'error' && (
+                  <StatusCard variant="err" icon={XCircle} title="Error" desc="Pixel ID atau Access Token tidak valid." />
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* Save Button */}
           <button
-            className={`capi-btn capi-btn-primary capi-btn-lg capi-btn-save${saved ? ' capi-btn-saved' : ''}`}
             onClick={handleSave}
             disabled={saving || saved}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95 disabled:opacity-70 disabled:active:scale-100"
           >
             {saving ? (
-              <><span className="capi-spinner-sm" /> Menyimpan...</>
+              <><Loader2 size={16} className="animate-spin" /> Menyimpan...</>
             ) : saved ? (
-              <><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="capi-save-check"><polyline points="20 6 9 17 4 12"/></svg> Tersimpan!</>
+              <><CheckCircle2 size={18} strokeWidth={2.5} /> Tersimpan!</>
             ) : (
-              <><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Simpan Konfigurasi</>
+              <><Save size={16} strokeWidth={2.2} /> Simpan Konfigurasi</>
             )}
           </button>
-        </div>
 
-        {/* Reset Button */}
-        <div className="capi-actions" style={{ paddingTop: 12 }}>
+          {/* Reset Button */}
           <button
             type="button"
-            className="capi-btn capi-btn-reset"
             onClick={async () => {
               if (!window.confirm('Apakah Anda yakin ingin mereset Pixel ID dan Access Token? Data akan dihapus permanen.')) return;
               try {
@@ -708,13 +740,120 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
                 showToast('Gagal menghubungi server.', 'error');
               }
             }}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-gray-400 dark:text-slate-500 border border-dashed border-gray-200 dark:border-slate-700 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-800/40 hover:bg-red-50/50 dark:hover:bg-red-900/10 transition-colors"
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            <Trash2 size={13} strokeWidth={2.2} />
             Reset Pixel & Token
           </button>
-        </div>
-      </div>
+        </>
       )}
+    </div>
+  );
+
+  const toastNode = toast && (
+    <div className={`fixed top-4 left-4 right-4 sm:left-auto sm:right-4 sm:max-w-sm z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-lg border ${
+      toast.type === 'success'
+        ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800/40'
+        : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-200 border-red-200 dark:border-red-800/40'
+    }`} style={{ animation: 'capi-toast-in 0.3s ease' }}>
+      {toast.message}
+    </div>
+  );
+
+  if (hideHeader) {
+    return (
+      <>
+        {toastNode}
+        {inner}
+      </>
+    );
+  }
+
+  return (
+    <div className={isDark ? 'dark' : ''}>
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950">
+        {toastNode}
+        <header className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50">
+          <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+            <img src="/meta-logo.webp" alt="Meta" className="h-7 object-contain" loading="eager" />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onToggleDark}
+                title={isDark ? 'Light mode' : 'Dark mode'}
+                className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors active:scale-95"
+              >
+                {isDark ? <Sun size={16} strokeWidth={2.2} /> : <Moon size={16} strokeWidth={2.2} />}
+              </button>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-500 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+              >
+                <LogOut size={13} strokeWidth={2.2} />
+                Logout
+              </button>
+            </div>
+          </div>
+        </header>
+        <main className="max-w-lg mx-auto px-4 pt-4 pb-8">
+          {inner}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+// ── Status Card Helper ──
+function StatusCard({
+  variant,
+  icon: Icon,
+  spinning = false,
+  title,
+  desc,
+}: {
+  variant: 'warn' | 'info' | 'ok' | 'err';
+  icon: LucideIcon;
+  spinning?: boolean;
+  title: string;
+  desc: string;
+}) {
+  const styles = {
+    warn: {
+      card: 'bg-amber-50 dark:bg-amber-900/15 border-amber-100 dark:border-amber-800/40',
+      iconBg: 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
+      title: 'text-amber-800 dark:text-amber-200',
+      desc: 'text-amber-700/80 dark:text-amber-300/80',
+    },
+    info: {
+      card: 'bg-blue-50 dark:bg-blue-900/15 border-blue-100 dark:border-blue-800/40',
+      iconBg: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+      title: 'text-blue-800 dark:text-blue-200',
+      desc: 'text-blue-700/80 dark:text-blue-300/80',
+    },
+    ok: {
+      card: 'bg-emerald-50 dark:bg-emerald-900/15 border-emerald-100 dark:border-emerald-800/40',
+      iconBg: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400',
+      title: 'text-emerald-800 dark:text-emerald-200',
+      desc: 'text-emerald-700/80 dark:text-emerald-300/80',
+    },
+    err: {
+      card: 'bg-red-50 dark:bg-red-900/15 border-red-100 dark:border-red-800/40',
+      iconBg: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
+      title: 'text-red-800 dark:text-red-200',
+      desc: 'text-red-700/80 dark:text-red-300/80',
+    },
+  }[variant];
+
+  return (
+    <div className={`flex items-center gap-3 p-3 rounded-xl border ${styles.card}`}>
+      <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${styles.iconBg}`}>
+        <Icon size={16} strokeWidth={2.2} className={spinning ? 'animate-spin' : ''} />
+      </div>
+      <div className="min-w-0">
+        <div className={`text-[13px] font-semibold leading-tight ${styles.title}`}>{title}</div>
+        <div className={`text-[11px] mt-0.5 ${styles.desc}`}>{desc}</div>
+      </div>
     </div>
   );
 }

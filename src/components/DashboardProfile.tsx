@@ -26,6 +26,7 @@ const NOTIFICATION_GROUPS = [
   {
     label: 'Jamaah',
     items: [
+      { key: 'jamaah_baru',     emoji: '🆕', label: 'Jamaah Baru',       desc: 'Jamaah baru terdeteksi saat sync' },
       { key: 'departure',       emoji: '🕋', label: 'Keberangkatan',     desc: 'Reminder H-14, H-7, H-3, H-1' },
       { key: 'paspor',          emoji: '📛', label: 'Paspor',            desc: 'Jamaah belum kumpul paspor' },
       { key: 'pelunasan',       emoji: '💰', label: 'Pelunasan',         desc: 'Deadline pembayaran mendekati' },
@@ -45,10 +46,11 @@ const NOTIFICATION_GROUPS = [
   {
     label: 'Lainnya',
     items: [
-      { key: 'pembayaran_masuk',   emoji: '💵', label: 'Pembayaran Masuk',   desc: 'Jamaah melakukan pembayaran' },
+      { key: 'pembayaran_cicilan',   emoji: '💵', label: 'Cicilan Masuk',     desc: 'Pembayaran cicilan jamaah bertambah' },
+      { key: 'pembayaran_pelunasan', emoji: '🎉', label: 'Pelunasan Masuk',   desc: 'Jamaah menyelesaikan pembayaran' },
       { key: 'ringkasan_mingguan', emoji: '📊', label: 'Ringkasan Mingguan', desc: 'Laporan mingguan setiap Senin' },
       { key: 'flight_status',      emoji: '✈️', label: 'Status Penerbangan', desc: 'Delay, pembatalan, gate berubah' },
-      { key: 'kurs_dollar',        emoji: '💱', label: 'Kurs Dollar',         desc: 'Update kurs USD & SAR setiap pagi' },
+      { key: 'kurs_dollar',        emoji: '🇺🇸', label: 'Kurs Dollar',         desc: 'Update kurs USD & SAR setiap pagi' },
     ]
   },
 ];
@@ -168,6 +170,19 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
     </div>
   );
 
+  const NotificationPrefsSkeleton = () => (
+    <div>
+      <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md animate-pulse mt-5 mb-2 ml-1" />
+      <SkeletonGroup rows={7} />
+
+      <div className="h-3 w-12 bg-gray-200 dark:bg-slate-700 rounded-md animate-pulse mt-5 mb-2 ml-1" />
+      <SkeletonGroup rows={3} />
+
+      <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md animate-pulse mt-5 mb-2 ml-1" />
+      <SkeletonGroup rows={5} />
+    </div>
+  );
+
   return (
     <div>
       {!statusLoading && telegramStatus.hasCredentials && (
@@ -177,16 +192,11 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
       {statusLoading ? (
         /* ── Skeleton Loading ── */
         <div>
+          <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md animate-pulse mb-3" />
           {/* Status badge skeleton */}
           <div className="h-14 w-full rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
 
-          {/* Section: JAMAAH */}
-          <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md animate-pulse mt-5 mb-2 ml-1" />
-          <SkeletonGroup rows={5} />
-
-          {/* Section: PAKET */}
-          <div className="h-3 w-12 bg-gray-200 dark:bg-slate-700 rounded-md animate-pulse mt-5 mb-2 ml-1" />
-          <SkeletonGroup rows={3} />
+          <NotificationPrefsSkeleton />
         </div>
       ) : telegramStatus.connected ? (
         <>
@@ -230,44 +240,46 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
           </div>
 
           {/* Toggle list — notification preferences */}
-          {!prefsLoading && NOTIFICATION_GROUPS.map(group => (
-            <div key={group.label}>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500 mb-2 mt-5 px-1">
-                {group.label}
-              </p>
-              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
-                {group.items.map((item, idx) => (
-                  <div
-                    key={item.key}
-                    className={`px-4 py-3 flex items-center justify-between ${
-                      idx < group.items.length - 1 ? 'border-b border-gray-50 dark:border-slate-700/50' : ''
-                    }`}
-                  >
-                    <div className="flex items-start gap-3 flex-1 min-w-0">
-                      <span className="text-base flex-shrink-0 mt-0.5">{item.emoji}</span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">{item.label}</p>
-                        <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">{item.desc}</p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleToggle(item.key)}
-                      className={`w-10 h-6 rounded-full transition-colors duration-200 cursor-pointer relative flex-shrink-0 ${
-                        prefs[item.key] !== false ? 'bg-emerald-500' : 'bg-gray-200 dark:bg-slate-600'
+          {prefsLoading ? (
+            <NotificationPrefsSkeleton />
+          ) : NOTIFICATION_GROUPS.map(group => (
+              <div key={group.label}>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500 mb-2 mt-5 px-1">
+                  {group.label}
+                </p>
+                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+                  {group.items.map((item, idx) => (
+                    <div
+                      key={item.key}
+                      className={`px-4 py-3 flex items-center justify-between ${
+                        idx < group.items.length - 1 ? 'border-b border-gray-50 dark:border-slate-700/50' : ''
                       }`}
                     >
-                      <span
-                        className={`block w-5 h-5 rounded-full bg-white shadow-sm absolute top-0.5 transition-transform duration-200 ${
-                          prefs[item.key] !== false ? 'translate-x-4' : 'translate-x-0.5'
+                      <div className="flex items-start gap-3 flex-1 min-w-0">
+                        <span className="text-base flex-shrink-0 mt-0.5">{item.emoji}</span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">{item.label}</p>
+                          <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">{item.desc}</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggle(item.key)}
+                        className={`w-10 h-6 rounded-full transition-colors duration-200 cursor-pointer relative flex-shrink-0 ${
+                          prefs[item.key] !== false ? 'bg-emerald-500' : 'bg-gray-200 dark:bg-slate-600'
                         }`}
-                      />
-                    </button>
-                  </div>
-                ))}
+                      >
+                        <span
+                          className={`block w-5 h-5 rounded-full bg-white shadow-sm absolute top-0.5 transition-transform duration-200 ${
+                            prefs[item.key] !== false ? 'translate-x-4' : 'translate-x-0.5'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
 
           {/* Putuskan Koneksi — at the bottom */}
           <button

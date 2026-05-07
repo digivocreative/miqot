@@ -4,9 +4,21 @@ import { trackEvent } from '../utils/analytics';
 
 interface AIToolsPageProps {
   onNavigate: (sub: string) => void;
+  agentSlug: string;
 }
 
-const TOOLS = [
+interface Tool {
+  id: string;
+  name: string;
+  desc: string;
+  icon: typeof Mic;
+  color: string;
+  route: string;
+  active: boolean;
+  restrictedTo?: string[];
+}
+
+const TOOLS: Tool[] = [
   {
     id: 'brosur-jadwal',
     name: 'Brosur Jadwal',
@@ -99,7 +111,7 @@ const iconStyles: Record<string, { bg: string; text: string }> = {
   },
 };
 
-export default function AIToolsPage({ onNavigate }: AIToolsPageProps) {
+export default function AIToolsPage({ onNavigate, agentSlug }: AIToolsPageProps) {
   const tracked = useRef(false);
   useEffect(() => { if (!tracked.current) { trackEvent('feature', 'open_ai_tools'); tracked.current = true; } }, []);
 
@@ -109,12 +121,14 @@ export default function AIToolsPage({ onNavigate }: AIToolsPageProps) {
         {TOOLS.map(tool => {
           const Icon = tool.icon;
           const { bg, text } = iconStyles[tool.color];
+          const restricted = !!tool.restrictedTo && !tool.restrictedTo.includes(agentSlug);
+          const enabled = tool.active && !restricted;
           return (
             <div
               key={tool.id}
-              onClick={() => tool.active && tool.route && onNavigate(tool.route)}
+              onClick={() => enabled && tool.route && onNavigate(tool.route)}
               className={`relative bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4 transition-all ${
-                tool.active
+                enabled
                   ? 'hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] cursor-pointer'
                   : 'opacity-60 cursor-default'
               }`}

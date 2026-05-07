@@ -1186,6 +1186,186 @@ async function passportReminder() {
   }
 }
 
+// ─── Pelunasan Reminder (10:30 WIB) — deadline H-30 ────────────────
+
+function daysUntilDate(dateStr, todayStr) {
+  const target = new Date(dateStr + 'T00:00:00+07:00');
+  const today = new Date(todayStr + 'T00:00:00+07:00');
+  return Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+}
+
+function collapsePelunasanBookings(rows) {
+  const byBooking = new Map();
+
+  for (const row of rows) {
+    const fallbackKey = `${row.tgl_berangkat || ''}:${String(row.nama || '').trim().toLowerCase()}`;
+    const key = `${row.agent_id}:${row.id_umroh || fallbackKey}`;
+    const sisa = Number(row.sisa || 0);
+    const bayar = Number(row.bayar || 0);
+
+    if (!byBooking.has(key)) {
+      byBooking.set(key, {
+        agent_id: row.agent_id,
+        id_umroh: row.id_umroh || null,
+        paket: row.paket || '',
+        tgl_berangkat: row.tgl_berangkat,
+        sisa,
+        bayar,
+        names: row.nama ? [row.nama] : [],
+        memberCount: 1,
+      });
+      continue;
+    }
+
+    const existing = byBooking.get(key);
+    existing.sisa = Math.max(Number(existing.sisa || 0), sisa);
+    existing.bayar = Math.max(Number(existing.bayar || 0), bayar);
+    if (!existing.paket && row.paket) existing.paket = row.paket;
+    if (!existing.tgl_berangkat && row.tgl_berangkat) existing.tgl_berangkat = row.tgl_berangkat;
+    if (row.nama && !existing.names.some(n => n.toLowerCase() === row.nama.toLowerCase())) {
+      existing.names.push(row.nama);
+    }
+    existing.memberCount += 1;
+  }
+
+  return Array.from(byBooking.values());
+}
+
+function buildPelunasanMessage(agentName, bookings, today) {
+  const sorted = [...bookings].sort((a, b) => {
+    const dateCompare = String(a.tgl_berangkat || '').localeCompare(String(b.tgl_berangkat || ''));
+    if (dateCompare !== 0) return dateCompare;
+    return Number(b.sisa || 0) - Number(a.sisa || 0);
+  });
+
+  const getDeadlineInfo = (booking) => {
+    const daysToDepart = daysUntilDate(booking.tgl_berangkat, today);
+    const daysToDeadline = daysToDepart - 30;
+    if (daysToDeadline > 0) return { urgency: 1, text: `deadline ${daysToDeadline} hari lagi`, daysToDepart };
+    if (daysToDeadline === 0) return { urgency: 2, text: 'deadline hari ini', daysToDepart };
+    return { urgency: 3, text: `lewat deadline ${Math.abs(daysToDeadline)} hari`, daysToDepart };
+  };
+
+  const overdue = sorted.filter(b => getDeadlineInfo(b).urgency === 3);
+  const dueToday = sorted.filter(b => getDeadlineInfo(b).urgency === 2);
+  const dueSoon = sorted.filter(b => getDeadlineInfo(b).urgency === 1);
+  const ordered = [...overdue, ...dueToday, ...dueSoon];
+  const shown = ordered.slice(0, 8);
+  const remaining = ordered.length - shown.length;
+  const totalSisa = sorted.reduce((sum, b) => sum + Number(b.sisa || 0), 0);
+
+  const lines = shown.map(booking => {
+    const info = getDeadlineInfo(booking);
+    const primaryName = booking.names[0] || 'Tanpa nama';
+    const extraNames = booking.memberCount > 1 ? ` +${booking.memberCount - 1} jamaah` : '';
+    const paket = booking.paket ? ` — ${escHtml(booking.paket)}` : '';
+    const departLabel = info.daysToDepart === 0 ? 'berangkat hari ini' : `H-${info.daysToDepart}`;
+    return `→ <b>${formatPersonName(primaryName)}</b>${extraNames}${paket}\n` +
+      `   ${formatTanggalShortID(booking.tgl_berangkat)} (${departLabel}) • ${info.text} • sisa <b>${fmtRpShort(Number(booking.sisa || 0))}</b>`;
+  });
+
+  const remainingLine = remaining > 0 ? `\n→ dan ${remaining} pendaftaran lainnya` : '';
+  const summary = [
+    overdue.length > 0 ? `🚨 ${overdue.length} lewat deadline H-30` : null,
+    dueToday.length > 0 ? `⏰ ${dueToday.length} deadline hari ini` : null,
+    dueSoon.length > 0 ? `📌 ${dueSoon.length} deadline dalam 5 hari` : null,
+  ].filter(Boolean).join('\n');
+
+  return `💰 Halo <b>${escHtml(agentName)}</b>!\n\n` +
+    `<b>Reminder pelunasan jamaah</b>\n` +
+    `Pelunasan maksimal H-30 sebelum keberangkatan.\n\n` +
+    (summary ? `${summary}\n\n` : '') +
+    lines.join('\n') + remainingLine + '\n\n' +
+    `Total sisa yang perlu difollow up: <b>${fmtRpShort(totalSisa)}</b>\n\n` +
+    '👥 <i>Gunakan tombol di bawah untuk buka data jamaah.</i>';
+}
+
+async function pelunasanReminder() {
+  try {
+    if (!supabaseAdmin) { warn('pelunasanReminder: no supabaseAdmin'); return; }
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    const addDays = (dateStr, days) => {
+      const d = new Date(dateStr + 'T00:00:00+07:00');
+      d.setDate(d.getDate() + days);
+      return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    };
+    const maxDate = addDays(today, 35);
+
+    const { data: jamaahData, error: jError } = await supabaseAdmin
+      .from('jamaah')
+      .select('agent_id, id_umroh, nama, paket, bayar, sisa, tgl_berangkat')
+      .gte('tgl_berangkat', today)
+      .lte('tgl_berangkat', maxDate)
+      .gt('sisa', 0)
+      .gt('bayar', 0);
+
+    if (jError) throw jError;
+    if (!jamaahData || jamaahData.length === 0) { log('[pelunasan] No outstanding payments near H-30 deadline'); return; }
+
+    const { data: agents, error: aError } = await supabaseAdmin
+      .from('agents')
+      .select('id, slug, name, telegram_chat_id, notification_prefs')
+      .not('telegram_chat_id', 'is', null);
+
+    if (aError) throw aError;
+    if (!agents || agents.length === 0) return;
+
+    const agentMap = {};
+    agents.forEach(a => { agentMap[a.id] = a; });
+
+    const bookings = collapsePelunasanBookings(jamaahData);
+    const perAgent = {};
+    bookings.forEach(booking => {
+      if (!agentMap[booking.agent_id]) return;
+      if (!perAgent[booking.agent_id]) perAgent[booking.agent_id] = [];
+      perAgent[booking.agent_id].push(booking);
+    });
+
+    const state = await loadState() || freshState();
+    if (!state.sentDepartureReminders) state.sentDepartureReminders = {};
+
+    let sentCount = 0;
+
+    for (const [agentId, bookingList] of Object.entries(perAgent)) {
+      const agent = agentMap[agentId];
+      const stateKey = `pelunasan_${agent.slug}_${today}`;
+      if (state.sentDepartureReminders[stateKey]) continue;
+
+      if (agent.notification_prefs?.pelunasan === false) continue;
+
+      const message = buildPelunasanMessage(agent.name, bookingList, today);
+      if (!message) continue;
+
+      try {
+        await sendTelegramToAgent(agent.telegram_chat_id, message, {
+          reply_markup: buildJamaahKeyboard(),
+        });
+        state.sentDepartureReminders[stateKey] = new Date().toISOString();
+        sentCount++;
+        log(`✅ Pelunasan reminder sent to ${agent.slug}`);
+      } catch (err) {
+        warn(`Failed pelunasan reminder to ${agent.slug}:`, err.message);
+      }
+
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 45);
+    for (const [key, sentAt] of Object.entries(state.sentDepartureReminders)) {
+      if (key.startsWith('pelunasan_') && new Date(sentAt) < cutoff) {
+        delete state.sentDepartureReminders[key];
+      }
+    }
+
+    await saveState(state);
+    log(`✅ Pelunasan reminder done: ${sentCount} agent(s) notified`);
+  } catch (err) {
+    warn('pelunasanReminder error:', err.message);
+  }
+}
+
 // ─── Manasik Reminder H-3 (14:00 WIB) ───────────────
 
 const HARI_ID = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -1545,33 +1725,88 @@ async function weeklySummary() {
   }
 }
 
-// ─── Pembayaran Masuk (triggered by sync) ────────
+// ─── Jamaah Sync Events (triggered by sync) ────────
 
-function buildPembayaranMessage(agentName, pembayaranList) {
-  const lines = pembayaranList.map(p => {
-    const status = p.isLunas ? ' ✅ LUNAS!' : ` (sisa ${fmtRpShort(p.sisa)})`;
-    return `→ <b>${formatPersonName(p.nama)}</b> — <b>+${fmtRpShort(p.jumlah)}</b>${status}`;
-  });
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
 
-  const totalMasuk = pembayaranList.reduce((sum, p) => sum + p.jumlah, 0);
-  const lunasCount = pembayaranList.filter(p => p.isLunas).length;
+function prefEnabled(prefs, key, legacyKey = null) {
+  if (prefs?.[key] === false) return false;
+  if (!hasOwn(prefs, key) && legacyKey && prefs?.[legacyKey] === false) return false;
+  return true;
+}
 
-  let footer = '';
-  if (lunasCount > 0) {
-    footer = `\n🎉 ${lunasCount} jamaah sudah LUNAS!`;
+function formatTanggalMaybe(dateStr) {
+  if (!dateStr) return '-';
+  const dateKey = String(dateStr).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return '-';
+  try {
+    const d = new Date(dateKey + 'T00:00:00');
+    if (Number.isNaN(d.getTime())) return '-';
+    return formatTanggalShortID(dateKey);
+  } catch {
+    return '-';
   }
+}
 
-  return `💵 Halo <b>${escHtml(agentName)}</b>!\n\n` +
-    `✅ <b>Pembayaran masuk!</b>\n\n` +
+function appendRemaining(lines, total, shown) {
+  if (total > shown) lines.push(`→ dan ${total - shown} lainnya`);
+  return lines;
+}
+
+function buildJamaahBaruMessage(agentName, jamaahList) {
+  const shown = jamaahList.slice(0, 8);
+  const lines = shown.map(j => {
+    const meta = [
+      j.paket ? escHtml(j.paket) : null,
+      j.tglBerangkat ? `berangkat ${formatTanggalMaybe(j.tglBerangkat)}` : null,
+      j.idUmroh ? `ID <code>${escHtml(j.idUmroh)}</code>` : null,
+    ].filter(Boolean).join(' • ');
+    return `→ <b>${formatPersonName(j.nama)}</b>${meta ? `\n   ${meta}` : ''}`;
+  });
+  appendRemaining(lines, jamaahList.length, shown.length);
+
+  return `🆕 Halo <b>${escHtml(agentName)}</b>!\n\n` +
+    `<b>${jamaahList.length} jamaah baru terdeteksi</b>\n\n` +
     lines.join('\n') + '\n\n' +
-    `Total masuk: <b>${fmtRpShort(totalMasuk)}</b>` +
+    '👥 <i>Gunakan tombol di bawah untuk cek detail jamaah.</i>';
+}
+
+function formatPaymentAmount(p) {
+  const amount = Number(p.jumlah || 0);
+  return amount > 0 ? `+${fmtRpShort(amount)}` : 'status lunas';
+}
+
+function buildPembayaranMessage(agentName, pembayaranList, kind) {
+  const shown = pembayaranList.slice(0, 8);
+  const lines = shown.map(p => {
+    const total = Number(p.totalBayar || 0) > 0 ? `total ${fmtRpShort(Number(p.totalBayar || 0))}` : null;
+    const sisa = Number(p.sisa || 0) > 0 ? `sisa ${fmtRpShort(Number(p.sisa || 0))}` : 'LUNAS';
+    const berangkat = p.tglBerangkat ? `berangkat ${formatTanggalMaybe(p.tglBerangkat)}` : null;
+    const meta = [total, sisa, berangkat].filter(Boolean).join(' • ');
+    return `→ <b>${formatPersonName(p.nama)}</b> — <b>${formatPaymentAmount(p)}</b>\n   ${meta}`;
+  });
+  appendRemaining(lines, pembayaranList.length, shown.length);
+
+  const totalMasuk = pembayaranList.reduce((sum, p) => sum + Number(p.jumlah || 0), 0);
+  const title = kind === 'pelunasan'
+    ? '🎉 <b>Pelunasan masuk!</b>'
+    : '💵 <b>Pembayaran cicilan masuk!</b>';
+  const footer = totalMasuk > 0
+    ? `\n\nTotal masuk: <b>${fmtRpShort(totalMasuk)}</b>`
+    : '';
+
+  return `Halo <b>${escHtml(agentName)}</b>!\n\n` +
+    title + '\n\n' +
+    lines.join('\n') +
     footer + '\n\n' +
     '👥 <i>Gunakan tombol di bawah untuk cek detail jamaah.</i>';
 }
 
-async function notifyPembayaranMasuk(agentId, pembayaranList) {
+async function notifyJamaahSyncEvents(agentId, events) {
   try {
-    if (!supabaseAdmin) return;
+    if (!supabaseAdmin || !events) return;
 
     const { data: agent, error } = await supabaseAdmin
       .from('agents')
@@ -1581,18 +1816,48 @@ async function notifyPembayaranMasuk(agentId, pembayaranList) {
 
     if (error || !agent) return;
     if (!agent.telegram_chat_id) return;
-    if (agent.notification_prefs?.pembayaran_masuk === false) return;
 
-    const message = buildPembayaranMessage(agent.name, pembayaranList);
-    if (!message) return;
+    const prefs = agent.notification_prefs || {};
+    const messages = [];
 
-    await sendTelegramToAgent(agent.telegram_chat_id, message, {
-      reply_markup: buildJamaahKeyboard(),
-    });
-    log(`✅ Pembayaran notif sent to ${agent.slug}: ${pembayaranList.length} payment(s)`);
+    if ((events.jamaahBaru || []).length > 0 && prefEnabled(prefs, 'jamaah_baru')) {
+      messages.push(buildJamaahBaruMessage(agent.name, events.jamaahBaru));
+    }
+    if ((events.pembayaranCicilan || []).length > 0 && prefEnabled(prefs, 'pembayaran_cicilan', 'pembayaran_masuk')) {
+      messages.push(buildPembayaranMessage(agent.name, events.pembayaranCicilan, 'cicilan'));
+    }
+    if ((events.pembayaranPelunasan || []).length > 0 && prefEnabled(prefs, 'pembayaran_pelunasan', 'pembayaran_masuk')) {
+      messages.push(buildPembayaranMessage(agent.name, events.pembayaranPelunasan, 'pelunasan'));
+    }
+
+    for (const message of messages) {
+      if (!message) continue;
+      await sendTelegramToAgent(agent.telegram_chat_id, message, {
+        reply_markup: buildJamaahKeyboard(),
+      });
+      await sleep(300);
+    }
+
+    if (messages.length > 0) {
+      log(`✅ Jamaah sync notif sent to ${agent.slug}: ${messages.length} message(s)`);
+    }
   } catch (err) {
-    warn(`[pembayaran-notif] Error for ${agentId}:`, err.message);
+    warn(`[jamaah-sync-notif] Error for ${agentId}:`, err.message);
   }
+}
+
+async function notifyPembayaranMasuk(agentId, pembayaranList) {
+  const events = emptyPaymentEventsFromLegacy(pembayaranList);
+  return notifyJamaahSyncEvents(agentId, events);
+}
+
+function emptyPaymentEventsFromLegacy(pembayaranList) {
+  const events = { jamaahBaru: [], pembayaranCicilan: [], pembayaranPelunasan: [] };
+  for (const p of pembayaranList || []) {
+    if (p.isLunas) events.pembayaranPelunasan.push(p);
+    else events.pembayaranCicilan.push(p);
+  }
+  return events;
 }
 
 // ─── Hot Deal (berangkat < 14 hari, seat masih banyak) ─
@@ -2406,6 +2671,17 @@ export async function sendCalendarInsight() {
 
 // ─── Kurs Dollar Daily Update ────────────────────────
 
+// Convert "DD/MM/YY HH:MM WIB" → "Hari, D Bulan YYYY" (matches dashboard share modal).
+// Falls back to the original string if parsing fails.
+function formatKursDateForShare(rawUpdatedAt) {
+  const m = String(rawUpdatedAt || '').match(/(\d{2})\/(\d{2})\/(\d{2})\s+\d{2}:\d{2}\s*WIB/);
+  if (!m) return rawUpdatedAt || '';
+  const dt = new Date(2000 + parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+  const dayName = dt.toLocaleDateString('id-ID', { weekday: 'long' });
+  const monthName = dt.toLocaleDateString('id-ID', { month: 'long' });
+  return `${dayName}, ${dt.getDate()} ${monthName} ${dt.getFullYear()}`;
+}
+
 export async function sendKursUpdate() {
   try {
     const res = await fetch(`${BASE_URL}/api/kurs`);
@@ -2485,7 +2761,7 @@ export async function sendKursUpdate() {
           if (agent.notification_prefs?.kurs_dollar === false) continue;
           try {
             const buf = await generateKursImageBuffer({
-              kurs: { usd, updatedAt },
+              kurs: { usd, updatedAt: formatKursDateForShare(updatedAt) },
               agent: {
                 name: agent.name || '',
                 phone: agent.phone || '',
@@ -2643,7 +2919,7 @@ async function runBirthdayDigest() {
 
 // ─── Init ────────────────────────────────────────────
 
-export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyPembayaranMasuk, runBirthdayDigest };
+export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, pelunasanReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyJamaahSyncEvents, notifyPembayaranMasuk, runBirthdayDigest };
 
 export function initNotifier() {
   loadConfig();
@@ -2730,6 +3006,11 @@ export function initNotifier() {
   // CRON: Passport Reminder (09:30 WIB) — paspor belum kumpul / expired
   cron.schedule('30 9 * * *', () => {
     passportReminder();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // CRON: Pelunasan Reminder (10:30 WIB) — deadline H-30
+  cron.schedule('30 10 * * *', () => {
+    pelunasanReminder();
   }, { timezone: 'Asia/Jakarta' });
 
   // CRON: Manasik Reminder H-3 (14:00 WIB)
