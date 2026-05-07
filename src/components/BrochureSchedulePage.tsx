@@ -1,6 +1,6 @@
 // src/components/BrochureSchedulePage.tsx
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Download, Share2, Loader2 } from 'lucide-react';
 import { BrochureScheduleTemplate, BROCHURE_W, BROCHURE_H, type BrochureMonth, type BrochureAgent } from './BrochureScheduleTemplate';
 import { getAuthHeaders } from './LoginPage';
 
@@ -22,6 +22,8 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   const tabBarRef = useRef<HTMLDivElement | null>(null);
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const [previewScale, setPreviewScale] = useState(0.4);
+  const exportRef = useRef<HTMLDivElement | null>(null);
+  const [busy, setBusy] = useState<null | 'share' | 'download'>(null);
 
   useLayoutEffect(() => {
     function recompute() {
@@ -66,6 +68,76 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   }, [activeKey]);
 
   const activeMonth = months.find(m => m.key === activeKey) || null;
+
+  const filenameForMonth = (label: string) =>
+    `brosur-paket-umroh-${label.toLowerCase().replace(/\s+/g, '-')}.png`;
+
+  async function captureBlob(): Promise<Blob | null> {
+    if (!exportRef.current) return null;
+    const { snapdom } = await import('@zumer/snapdom');
+    const result = await snapdom(exportRef.current, { scale: 2, embedFonts: true });
+    return await result.toBlob({ type: 'png' });
+  }
+
+  async function handleDownload() {
+    if (!activeMonth) return;
+    setBusy('download');
+    try {
+      const blob = await captureBlob();
+      if (!blob) throw new Error('capture-failed');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filenameForMonth(activeMonth.label);
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      console.error('[brosur] download failed:', e);
+      alert('Gagal generate brosur, coba lagi.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleShare() {
+    if (!activeMonth) return;
+    setBusy('share');
+    try {
+      const blob = await captureBlob();
+      if (!blob) throw new Error('capture-failed');
+      const file = new File([blob], filenameForMonth(activeMonth.label), { type: 'image/png' });
+      if (navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: `Brosur Paket Umroh ${activeMonth.label}`,
+            text: `Paket Umroh ${activeMonth.label} dari ${agent.name || 'Alhijaz'}`,
+          });
+        } catch (err: any) {
+          if (err?.name === 'AbortError') return; // user cancelled — silent
+          throw err;
+        }
+      } else {
+        // Fallback: download
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filenameForMonth(activeMonth.label);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        alert('Browser tidak support share langsung, brosur ter-download.');
+      }
+    } catch (e) {
+      console.error('[brosur] share failed:', e);
+      alert('Gagal generate brosur, coba lagi.');
+    } finally {
+      setBusy(null);
+    }
+  }
 
   if (loading) {
     return (
@@ -142,6 +214,35 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
           >
             <BrochureScheduleTemplate month={activeMonth} agent={agent} />
           </div>
+        </div>
+      </div>
+
+      {/* Hidden full-size export node — used as snapdom target */}
+      <div style={{ position: 'fixed', left: -99999, top: 0, pointerEvents: 'none' }}>
+        <div ref={exportRef}>
+          <BrochureScheduleTemplate month={activeMonth} agent={agent} />
+        </div>
+      </div>
+
+      {/* Action bar */}
+      <div className="fixed left-0 right-0 bottom-16 px-4 z-20 pointer-events-none">
+        <div className="max-w-md mx-auto flex gap-3 pointer-events-auto">
+          <button
+            onClick={handleShare}
+            disabled={busy !== null}
+            className="flex-1 h-12 rounded-2xl bg-red-600 text-white font-bold flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] disabled:opacity-60"
+          >
+            {busy === 'share' ? <Loader2 className="animate-spin" size={18} /> : <Share2 size={18} />}
+            Share
+          </button>
+          <button
+            onClick={handleDownload}
+            disabled={busy !== null}
+            className="flex-1 h-12 rounded-2xl bg-white dark:bg-slate-800 text-red-600 dark:text-red-400 border-2 border-red-600 dark:border-red-400 font-bold flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] disabled:opacity-60"
+          >
+            {busy === 'download' ? <Loader2 className="animate-spin" size={18} /> : <Download size={18} />}
+            Download
+          </button>
         </div>
       </div>
     </div>
