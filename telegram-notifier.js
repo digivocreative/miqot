@@ -16,6 +16,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import { getTodaysBirthdays } from './lib/birthdays.js';
+import { generateKursImageBuffer } from './lib/kurs-image-generator.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATE_FILE = path.join(__dirname, 'data', 'notifier-state.json');
@@ -246,6 +247,36 @@ async function sendTelegramToAgent(chatId, message, options = {}) {
     }
   } catch (err) {
     warn(`sendTelegramToAgent error for ${chatId}:`, err.message);
+  }
+}
+
+// Send a photo (Buffer) with optional HTML caption to a specific agent.
+// Throws on Telegram API error so callers can fall back to a text message.
+async function sendTelegramPhotoToAgent(chatId, photoBuffer, caption, options = {}) {
+  if (!BOT_TOKEN || !chatId) throw new Error('Bot token or chat id missing');
+  if (!photoBuffer || !photoBuffer.length) throw new Error('Empty photo buffer');
+
+  const filename = options.filename || `kurs.jpg`;
+  const mime = options.mime || 'image/jpeg';
+
+  const form = new FormData();
+  form.append('chat_id', String(chatId));
+  if (caption) {
+    form.append('caption', caption);
+    form.append('parse_mode', 'HTML');
+  }
+  if (options.reply_markup) {
+    form.append('reply_markup', JSON.stringify(options.reply_markup));
+  }
+  form.append('photo', new Blob([photoBuffer], { type: mime }), filename);
+
+  const res = await fetch(`${TELEGRAM_API}/sendPhoto`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`sendPhoto ${res.status}: ${errText}`);
   }
 }
 
@@ -2427,13 +2458,61 @@ export async function sendKursUpdate() {
     msg += `\n<i>Sumber: Bank Mandiri TT Counter</i>`;
     msg += `\n<i>Update: ${updatedAt}</i>`;
 
-    // Send to group chat
+    // Send to group chat (text — admin/internal channel)
     await sendLongMessage(msg);
     log('[Kurs] Sent to group');
 
-    // Broadcast to agents with kurs_dollar pref enabled
-    await broadcastToAgents('kurs_dollar', () => msg + FOOTER);
-    log('[Kurs] Broadcast to agents done');
+    // Per-agent broadcast: send the personalized kurs image with a short caption.
+    // Falls back to text message if image generation fails for an agent.
+    const caption =
+      `💱 <b>Kurs Hari Ini</b>\n` +
+      `📅 ${dateStr}\n\n` +
+      `🇺🇸 <b>USD:</b> ${formatRupiah(usd)}${delta(usd, prev.USD)}` +
+      (sar ? `\n🇸🇦 <b>SAR:</b> ${formatRupiah(sar)}${delta(sar, prev.SAR)}` : '') +
+      `\n\n<i>Sumber: Bank Mandiri TT Counter</i>`;
+
+    if (supabaseAdmin) {
+      const { data: agents, error: agentsErr } = await supabaseAdmin
+        .from('agents')
+        .select('slug, name, phone, photo, website, telegram_chat_id, notification_prefs')
+        .not('telegram_chat_id', 'is', null);
+
+      if (agentsErr) {
+        warn('[Kurs] Failed to load agents for broadcast:', agentsErr.message);
+      } else if (agents && agents.length) {
+        let sent = 0, fallback = 0, failed = 0;
+        for (const agent of agents) {
+          if (agent.notification_prefs?.kurs_dollar === false) continue;
+          try {
+            const buf = await generateKursImageBuffer({
+              kurs: { usd, updatedAt },
+              agent: {
+                name: agent.name || '',
+                phone: agent.phone || '',
+                photo: agent.photo || '',
+                slug: agent.slug,
+                website: agent.website || '',
+              },
+            });
+            await sendTelegramPhotoToAgent(agent.telegram_chat_id, buf, caption + FOOTER, {
+              filename: `kurs-${agent.slug}.jpg`,
+            });
+            sent++;
+          } catch (err) {
+            warn(`[Kurs] Image broadcast failed for ${agent.slug}, falling back to text:`, err.message);
+            try {
+              await sendTelegramToAgent(agent.telegram_chat_id, msg + FOOTER);
+              fallback++;
+            } catch (err2) {
+              failed++;
+              warn(`[Kurs] Text fallback also failed for ${agent.slug}:`, err2.message);
+            }
+          }
+          await new Promise(r => setTimeout(r, 300)); // throttle Telegram API
+        }
+        log(`[Kurs] Broadcast done — image: ${sent}, text-fallback: ${fallback}, failed: ${failed}`);
+      }
+    }
 
     // Save current rates and mark as sent today
     state.lastKurs = { USD: usd, SAR: sar };

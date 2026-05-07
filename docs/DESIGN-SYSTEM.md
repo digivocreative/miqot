@@ -841,7 +841,7 @@ flex flex-col
 
 ### AI Tools Hub (`AIToolsPage.tsx`)
 
-Hub page for AI tools & utilities — vertical stack of tool cards. Card urutan: **Landing Page**, **Bandingkan Paket**, **Kurs Hari Ini**, **Infografis Haji Plus**, **Voice Over**, **Kartu Nama** (disabled), **Prompt Brosur AI**.
+Hub page for AI tools & utilities — vertical stack of tool cards. Card urutan: **Landing Page**, **Bandingkan Paket**, **Kurs Hari Ini**, **Infografis Haji Plus**, **Voice Over**, **Kartu Nama** (disabled).
 
 ```
 relative w-full text-left bg-white dark:bg-slate-800 rounded-2xl
@@ -865,7 +865,6 @@ hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] transition-all cursor
 | Infografis Haji Plus | `BarChart3` | emerald |
 | Voice Over Generator | `Mic` | purple |
 | Kartu Nama Digital *(disabled)* | `CreditCard` | teal |
-| Prompt Brosur AI | `Image` | pink |
 
 #### "Segera Hadir" Badge
 
@@ -884,42 +883,6 @@ Ketika navigasi ke AI Tools sub-page, header icon + label di-override sesuai sub
 - `haji-plus` / `haji-plus/export` / `haji-plus/simulasi`: BarChart3, emerald
 - `kurs`: TrendingUp, emerald
 - `compare`: ArrowLeftRight, violet
-- `brochure-prompt`: Image, pink
-
-### Prompt Brosur AI (`BrochurePromptPage.tsx`)
-
-Mobile-first prompt builder at `/dashboard/ai-tools/brochure-prompt`. It produces copyable prompts for ChatGPT, Gemini, Claude, Canva AI, or image generators; it does not render/export an image itself.
-
-Page shell:
-```
-max-w-lg mx-auto px-4 pt-4 pb-28 space-y-4
-Card: bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4
-```
-
-Accent:
-- Pink tool color: `bg-pink-50 dark:bg-pink-900/20`, `text-pink-600 dark:text-pink-400`
-- Primary CTA: `bg-pink-500 hover:bg-pink-600 text-white shadow-md shadow-pink-500/20`
-- Inputs use pink focus ring: `focus:ring-2 focus:ring-pink-500 focus:border-pink-500`
-
-Sections:
-- Intro card with `Sparkles` icon.
-- Pengaturan Desain: jenis desain, aspect ratio, konsep visual, tone warna, gaya copywriting, CTA.
-- Data Paket: mode `Tanpa Paket`, `Pilih Paket`, or `Isi Manual`.
-- Identitas Agent: read-only name, WhatsApp, website fallback `https://alhijaz.co/{slug}`.
-- Catatan Tambahan: 4-row textarea.
-- Output card: editable monospace textarea (`rows={14}`), Copy Prompt button, Reset button.
-
-Package behavior:
-- `Pilih Paket` lazy-loads packages only when chosen via `getPackages({ yearCode: '1448' })`.
-- Package select label format: `{date} — {package name}`.
-- Manual mode fields: nama paket, tanggal berangkat, maskapai, hotel, harga mulai, seat tersisa.
-
-Analytics:
-```ts
-trackEvent('feature', 'open_brochure_prompt');
-trackEvent('feature', 'generate_brochure_prompt');
-trackEvent('feature', 'copy_brochure_prompt');
-```
 
 ### Voice Over Generator (`VoiceOverPage.tsx`)
 
@@ -1899,7 +1862,7 @@ Mini preview cards use `h-20`, compact typography, and variant-specific layout c
 | `Unlink` | Disconnect Telegram |
 | `Sparkles` | AI Tools menu, generate script |
 | `Mic` | Voice Over Generator |
-| `Image` | Prompt Brosur AI, brochure/image-related actions |
+| `Image` | Brochure/image-related actions |
 | `WandSparkles` | Generate prompt/script CTA |
 | `Palette` | Design settings |
 | `MonitorSmartphone` | Agent identity / preview context |

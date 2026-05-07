@@ -113,7 +113,6 @@ alhijaz/
 │   │   ├── SimulasiHajiPlus.tsx   # Haji Plus simulation calculator — package pricing, USD→IDR, inflation projection, export PNG (~676 lines)
 │   │   ├── LoginPage.tsx          # Login + JWT session management (~673 lines)
 │   │   ├── AnalyticsPage.tsx      # Analytics dashboard with event tracking charts + agent drill-down modal (~616 lines)
-│   │   ├── BrochurePromptPage.tsx # Prompt Brosur AI builder — package-aware prompt generator for image tools (~630 lines)
 │   │   ├── BusinessCardPage.tsx   # Digital business card generator (~574 lines)
 │   │   ├── HajiPlusExportPage.tsx # Haji Plus infographic export PNG (~555 lines)
 │   │   ├── RegisterPage.tsx       # Agent self-registration form — slug auto-gen, validation, pending approval workflow (~529 lines)
@@ -144,7 +143,7 @@ alhijaz/
 │   │   ├── CapiEventLog.tsx       # CAPI event log viewer — pagination, filtering, auto-refresh 30s (~194 lines)
 │   │   ├── CompactCard.tsx        # Compact card variant (~148 lines)
 │   │   ├── PhotoCropModal.tsx     # Reusable photo crop modal (react-easy-crop) (~181 lines)
-│   │   ├── AIToolsPage.tsx        # AI Tools hub page (tool cards grid — Landing Page, Compare, Kurs, Haji Plus, Voice Over, Kartu Nama, Prompt Brosur AI) (~138 lines)
+│   │   ├── AIToolsPage.tsx        # AI Tools hub page (tool cards grid — Landing Page, Compare, Kurs, Haji Plus, Voice Over, Kartu Nama) (~138 lines)
 │   │   ├── SettingsPage.tsx       # Unified settings: iOS segmented control (3 tabs: Profil, Telegram, CAPI) (~257 lines)
 │   │   ├── FloatingAgentBar.tsx   # Floating WhatsApp CTA bar (~107 lines)
 │   │   ├── AgentProfile.tsx       # Agent info card on package page (~85 lines)
@@ -408,7 +407,6 @@ alhijaz/
   - **Infografis Haji Plus** (`/dashboard/ai-tools/haji-plus`): Visualisasi data jamaah Haji Plus per tahun, grafik Recharts (multi-color bar chart), stat cards ber-icon, dan fitur export infografis PNG.
   - **Simulasi Haji Plus** (`/dashboard/ai-tools/haji-plus/simulasi`): Kalkulator harga Haji Plus — pilih paket RAHMAH ($15,700/5-star) atau UHUD ($12,500/4-star), DP $4,500/orang, pelunasan 6 bulan sebelum berangkat, proyeksi inflasi 1.5%/tahun, export PNG + share via native share.
   - **Kartu Nama Digital** (`/dashboard/ai-tools/business-card`): **Disabled / "Segera Hadir"** — digital business cards dengan opsi desain premium (gradient, glassmorphism) dan QR code profile.
-  - **Prompt Brosur AI** (`/dashboard/ai-tools/brochure-prompt`): Builder prompt banner/brosur/story/poster untuk AI image generator. Input: jenis desain, aspect ratio, konsep visual, tone warna, gaya copywriting, CTA, mode paket (`Tanpa Paket` / `Pilih Paket` / `Isi Manual`), catatan tambahan, dan identitas agent otomatis. Mode `Pilih Paket` lazy-load data `getPackages({ yearCode: '1448' })`; output bisa diedit dan dicopy.
 
 ### Fitur Infrastruktur
 - **Tanya AI (public)** — `POST /api/ask-ai/:slug/:jadwalId` (no auth, CORS-enabled):
@@ -1070,13 +1068,12 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Seed script for dummy agent "bagas" with 25 jamaah records
 - Haji tab integration (embedded in Jamaah page, slug-based URL routing, legacy login, card list, document viewer popup)
 - AI Tools hub page + Voice Over Generator (3-step flow: script generation, voice selection, audio player with download)
-- Prompt Brosur AI (`BrochurePromptPage`) — active AI Tools card pink, package-aware prompt builder, copy output, analytics events `open_brochure_prompt`, `generate_brochure_prompt`, `copy_brochure_prompt`
 - Voice Over upgraded to Google Cloud TTS Chirp3-HD (8 voices: 4 wanita + 4 pria, natural Indonesian)
 - AI credit system (25K chars/agent/month, `ai_credits` table, auto-reset 30 days, banner with progress bar)
 - Script generation with casual/gaul Indonesian, duration-aware character limits, AI-friendly word choices
 - Sentry error tracking (server-side, `@sentry/node` + `instrument.mjs`)
 - UI Polish Haji Plus Dashboard (stat cards dengan icon badges, ornamen dekoratif hero card, EMERALD_PALETTE untuk chart bars, custom spacing, override header tool icon)
-- Dynamic navbar icon/color override logic untuk AI Tools sub-pages (Haji Plus, Voice Over, Kartu Nama, Prompt Brosur AI)
+- Dynamic navbar icon/color override logic untuk AI Tools sub-pages (Haji Plus, Voice Over, Kartu Nama)
 - Kartu Nama Digital revamped to rich high-fidelity templates (gradient, glassmorphism, dynamic user data)
 - AI Web Itinerary View with vertical timeline, time badges, OpenAI extraction + Supabase caching
 - Haji Plus Export Improvements (mobile native share double-image fix, Recharts data labels inside bars, SVG fill compatibility for screenshot engine, and design system-standard CTA buttons)

@@ -1,3 +1,6 @@
+// ⚠️  DUAL TEMPLATE: when changing visuals here, mirror the same change in
+// `lib/kurs-image-generator.mjs` (server-side renderer used for Telegram broadcast).
+
 export interface KursTemplateProps {
   kurs: { usd: number; updatedAt: string };
   agent: { name: string; phone: string; photo: string; slug: string; website?: string };
@@ -7,7 +10,10 @@ export const TEMPLATE_W = 1400;
 export const TEMPLATE_H = 1000;
 
 export const KURS_FONT_STACK = "'Inter', 'Inter var', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-export const KURS_FONT_WEIGHTS = [600, 650, 750, 800, 850, 900] as const;
+// Only standard weights — non-standard weights (650/750/850) round inconsistently
+// across system-font fallbacks vs. Inter Variable, making text look heavier on
+// some agents' devices when snapdom captures before fonts finish loading.
+export const KURS_FONT_WEIGHTS = [600, 700, 800, 900] as const;
 
 // ═══════════════════════════════════════════════════════════════
 // Helpers
@@ -160,14 +166,15 @@ export function KursTemplate({ kurs, agent }: KursTemplateProps) {
         position: 'relative',
         zIndex: 2,
       }}>
-        <div>
+        <div style={{ minWidth: 0 }}>
           <h1 style={{
             fontSize: 78,
             fontWeight: 900,
             color: '#fff',
             letterSpacing: -1,
-            lineHeight: 0.95,
+            lineHeight: 1,
             margin: 0,
+            whiteSpace: 'nowrap',
           }}>
             Kurs Hari Ini
           </h1>
@@ -175,8 +182,9 @@ export function KursTemplate({ kurs, agent }: KursTemplateProps) {
             marginTop: 18,
             fontSize: 28,
             color: '#D1FAE5',
-            fontWeight: 650,
+            fontWeight: 600,
             letterSpacing: 0,
+            whiteSpace: 'nowrap',
           }}>
             Update nilai tukar USD ke Rupiah
           </div>
@@ -210,14 +218,14 @@ export function KursTemplate({ kurs, agent }: KursTemplateProps) {
           backdropFilter: 'blur(10px)',
         }}>
           <FlagUS size={62} />
-          <span style={{ fontSize: 40, fontWeight: 850, color: '#fff', letterSpacing: 2 }}>USD</span>
+          <span style={{ fontSize: 40, fontWeight: 800, color: '#fff', letterSpacing: 2 }}>USD</span>
           <span style={{ width: 1, height: 42, background: 'rgba(255,255,255,0.25)' }} />
-          <span style={{ fontSize: 28, fontWeight: 650, color: '#D1FAE5' }}>US Dollar</span>
+          <span style={{ fontSize: 28, fontWeight: 600, color: '#D1FAE5' }}>US Dollar</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 22 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 22, whiteSpace: 'nowrap' }}>
           <span style={{
             fontSize: 72,
-            fontWeight: 850,
+            fontWeight: 800,
             color: '#F8DFA1',
             lineHeight: 1,
           }}>
@@ -227,7 +235,7 @@ export function KursTemplate({ kurs, agent }: KursTemplateProps) {
             fontSize: 246,
             fontWeight: 900,
             color: '#fff',
-            lineHeight: 0.86,
+            lineHeight: 0.9,
             letterSpacing: -5,
             fontFamily: KURS_FONT_STACK,
           }}>
@@ -241,7 +249,7 @@ export function KursTemplate({ kurs, agent }: KursTemplateProps) {
           marginTop: 26,
           fontSize: 34,
           color: '#D1FAE5',
-          fontWeight: 650,
+          fontWeight: 600,
         }}>
           <span style={{ width: 58, height: 4, borderRadius: 999, background: '#F8DFA1' }} />
           <span>per 1 USD</span>
@@ -312,7 +320,7 @@ export function KursTemplate({ kurs, agent }: KursTemplateProps) {
           border: '1px solid rgba(255,255,255,0.14)',
           fontSize: 28,
           color: '#fff',
-          fontWeight: 750,
+          fontWeight: 700,
           whiteSpace: 'nowrap',
         }}>
           <CalendarIcon size={34} />

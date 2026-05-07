@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Mic, Image, CreditCard, BarChart3, Banknote, ArrowLeftRight, Globe } from 'lucide-react';
+import { Mic, CreditCard, BarChart3, Banknote, ArrowLeftRight, Globe } from 'lucide-react';
 import { trackEvent } from '../utils/analytics';
 
 interface AIToolsPageProps {
@@ -61,15 +61,6 @@ const TOOLS = [
     route: 'business-card',
     active: false,
   },
-  {
-    id: 'brochure-prompt',
-    name: 'Prompt Brosur AI',
-    desc: 'Buat prompt banner & brosur siap copy untuk AI image generator.',
-    icon: Image,
-    color: 'pink',
-    route: 'brochure-prompt',
-    active: true,
-  },
 ];
 
 const iconStyles: Record<string, { bg: string; text: string }> = {
@@ -80,10 +71,6 @@ const iconStyles: Record<string, { bg: string; text: string }> = {
   teal: {
     bg: 'bg-teal-50 dark:bg-teal-900/20',
     text: 'text-teal-600 dark:text-teal-400',
-  },
-  pink: {
-    bg: 'bg-pink-50 dark:bg-pink-900/20',
-    text: 'text-pink-600 dark:text-pink-400',
   },
   amber: {
     bg: 'bg-amber-50 dark:bg-amber-900/20',

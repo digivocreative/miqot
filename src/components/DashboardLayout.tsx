@@ -4,7 +4,7 @@ import {
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
   BarChart3, Loader2, Sparkles,
   CalendarRange, ExternalLink, TrendingUp, Mic, CreditCard,
-  DollarSign, ChevronRight, Globe, Share2, Image,
+  DollarSign, ChevronRight, Globe, Share2,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
@@ -26,7 +26,6 @@ import LandingPagePage from './LandingPagePage';
 import HajiPlusPage from './HajiPlusPage';
 import HajiPlusExportPage from './HajiPlusExportPage';
 import KursPage from './KursPage';
-import BrochurePromptPage from './BrochurePromptPage';
 import UmrahRegisterPage from './UmrahRegisterPage';
 import CuacaWidget from './CuacaWidget';
 import BirthdayWidget from './BirthdayWidget';
@@ -372,8 +371,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       ? 'Kurs Hari Ini'
       : (activeTab === 'ai-tools' && aiSub === 'compare')
       ? 'Compare'
-      : (activeTab === 'ai-tools' && aiSub === 'brochure-prompt')
-      ? 'Prompt Brosur AI'
       : TAB_TITLES[activeTab] || 'Dashboard';
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -470,7 +467,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   'haji-plus/simulasi': { icon: BarChart3, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Haji Plus' },
                   'kurs': { icon: TrendingUp, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Kurs Hari Ini' },
                   'compare': { icon: ArrowLeftRight, bg: 'bg-violet-50', bgDark: 'dark:bg-violet-900/20', border: 'border-violet-100', borderDark: 'dark:border-violet-800/40', color: 'text-violet-600 dark:text-violet-400', label: 'Compare' },
-                  'brochure-prompt': { icon: Image, bg: 'bg-pink-50', bgDark: 'dark:bg-pink-900/20', border: 'border-pink-100', borderDark: 'dark:border-pink-800/40', color: 'text-pink-600 dark:text-pink-400', label: 'Prompt Brosur AI' },
                 };
                 const sub = aiSub && AI_SUB_STYLES[aiSub] ? AI_SUB_STYLES[aiSub] : null;
                 if (sub) {
@@ -609,7 +605,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               phone: agentData.phone, photo: agentData.photo,
             }} hideHeader />;
             if (sub === 'kurs') return <KursPage />;
-            if (sub === 'brochure-prompt') return <BrochurePromptPage agent={agentData} />;
             if (sub === 'voice-over') return <VoiceOverPage />;
             if (sub === 'business-card') return <BusinessCardPage agent={agentData} />;
             if (sub === 'landing-page') return <LandingPagePage agent={{ slug: agentData.slug, name: agentData.name, photo: agentData.photo, phone: agentData.phone, role: agentData.role }} />;
@@ -630,7 +625,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               <AIToolsPage
                 onNavigate={(toolId) => {
                   window.history.pushState({}, '', `/dashboard/ai-tools/${toolId}`);
-                  document.title = toolId === 'voice-over' ? 'Voice Over' : toolId === 'business-card' ? 'Kartu Nama' : toolId === 'landing-page' ? 'Landing Page' : toolId === 'haji-plus' ? 'Haji Plus' : toolId === 'kurs' ? 'Kurs Hari Ini' : toolId === 'compare' ? 'Compare' : toolId === 'brochure-prompt' ? 'Prompt Brosur AI' : 'Tools';
+                  document.title = toolId === 'voice-over' ? 'Voice Over' : toolId === 'business-card' ? 'Kartu Nama' : toolId === 'landing-page' ? 'Landing Page' : toolId === 'haji-plus' ? 'Haji Plus' : toolId === 'kurs' ? 'Kurs Hari Ini' : toolId === 'compare' ? 'Compare' : 'Tools';
                   // Force re-render by toggling tab
                   setActiveTab('home');
                   setTimeout(() => setActiveTab('ai-tools'), 0);
