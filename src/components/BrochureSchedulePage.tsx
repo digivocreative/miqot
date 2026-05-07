@@ -27,8 +27,8 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
 
   useLayoutEffect(() => {
     function recompute() {
-      const w = previewContainerRef.current?.clientWidth || BROCHURE_W;
-      setPreviewScale(w / BROCHURE_W);
+      const w = previewContainerRef.current?.clientWidth;
+      setPreviewScale(w && w > 0 ? w / BROCHURE_W : 0.4);
     }
     recompute();
     window.addEventListener('resize', recompute);
@@ -215,7 +215,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       </div>
 
       {/* Hidden full-size export node — used as snapdom target */}
-      <div style={{ position: 'fixed', left: -99999, top: 0, pointerEvents: 'none' }}>
+      <div style={{ position: 'fixed', left: -99999, top: 0, pointerEvents: 'none', opacity: 0 }}>
         <div ref={exportRef}>
           <BrochureScheduleTemplate month={activeMonth} agent={agent} />
         </div>
