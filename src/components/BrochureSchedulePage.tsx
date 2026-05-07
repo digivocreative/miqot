@@ -85,6 +85,10 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
 
   async function captureBlob(): Promise<Blob | null> {
     if (!exportRef.current) return null;
+    // Design-system mandate: wait for fonts before snapshotting to avoid weight fallback flicker.
+    if (document.fonts?.ready) {
+      try { await document.fonts.ready; } catch { /* ignore — best-effort */ }
+    }
     const { snapdom } = await import('@zumer/snapdom');
     const result = await snapdom(exportRef.current, { scale: 2, embedFonts: true });
     return await result.toBlob({ type: 'png' });
@@ -114,11 +118,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       const file = new File([blob], filenameForMonth(activeMonth.label), { type: 'image/png' });
       if (navigator.canShare?.({ files: [file] })) {
         try {
-          await navigator.share({
-            files: [file],
-            title: `Brosur Paket Umroh ${activeMonth.label}`,
-            text: `Paket Umroh ${activeMonth.label} dari ${agent.name || 'Alhijaz'}`,
-          });
+          await navigator.share({ files: [file] });
         } catch (err: any) {
           if (err?.name === 'AbortError') return; // user cancelled — silent
           throw err;
@@ -138,8 +138,9 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
 
   if (loading) {
     return (
-      <div className="px-4 pt-6 pb-8 flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="animate-spin text-gray-400" size={28} />
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={24} className="animate-spin text-emerald-500" />
+        <span className="ml-2 text-sm text-gray-500 dark:text-slate-400">Memuat brosur...</span>
       </div>
     );
   }
@@ -175,7 +176,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
                   onClick={() => setActiveKey(m.key)}
                   className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${
                     active
-                      ? 'bg-red-600 text-white'
+                      ? 'bg-emerald-500 text-white'
                       : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300'
                   }`}
                 >
@@ -227,7 +228,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
           <button
             onClick={handleShare}
             disabled={busy !== null}
-            className="flex-1 h-12 rounded-2xl bg-red-600 text-white font-bold flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] disabled:opacity-60"
+            className="flex-1 h-12 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 active:scale-95 disabled:opacity-60"
           >
             {busy === 'share' ? <Loader2 className="animate-spin" size={18} /> : <Share2 size={18} />}
             Share
@@ -235,7 +236,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
           <button
             onClick={handleDownload}
             disabled={busy !== null}
-            className="flex-1 h-12 rounded-2xl bg-white dark:bg-slate-800 text-red-600 dark:text-red-400 border-2 border-red-600 dark:border-red-400 font-bold flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] disabled:opacity-60"
+            className="flex-1 h-12 rounded-2xl bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 border-2 border-emerald-500 dark:border-emerald-400 font-bold flex items-center justify-center gap-2 shadow-md active:scale-95 disabled:opacity-60"
           >
             {busy === 'download' ? <Loader2 className="animate-spin" size={18} /> : <Download size={18} />}
             Download
