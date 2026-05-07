@@ -31,7 +31,7 @@ const NOTIFICATION_GROUPS = [
       { key: 'pelunasan',       emoji: '💰', label: 'Pelunasan',         desc: 'Deadline pembayaran mendekati' },
       { key: 'perlengkapan',    emoji: '📦', label: 'Perlengkapan',      desc: 'Jamaah belum lengkap perlengkapan' },
       { key: 'manasik',         emoji: '🕌', label: 'Manasik',           desc: 'H-3 sebelum jadwal manasik' },
-      { key: 'birthday_digest', emoji: '🎂', label: 'Ucapan Ulang Tahun', desc: 'Digest harian jam 7 pagi — list jamaah yang ulang tahun hari itu' },
+      { key: 'birthday_digest', emoji: '🎂', label: 'Ucapan Ulang Tahun', desc: 'List jamaah yang ulang tahun' },
     ]
   },
   {
