@@ -4729,6 +4729,7 @@ async function detectUmrohJamaahSyncEvents(agentId, rows, options = {}) {
   const newCutoffStr = datePlusDaysKey(options.now || new Date(), 0);
   const paymentCutoffStr = datePlusDaysKey(options.now || new Date(), options.paymentBufferDays ?? 7);
   const allowNewJamaah = options.allowNewJamaah !== false;
+  const seenPaymentEvents = new Set();
 
   for (const row of incomingRows) {
     const key = jamaahRowKey(row);
@@ -4762,7 +4763,7 @@ async function detectUmrohJamaahSyncEvents(agentId, rows, options = {}) {
     const becameLunas = hasKnownSisaAfter && sisaBefore > 0 && sisaAfter <= 0;
     const paidFromEmptyToLunas = hasKnownSisaAfter && bayarBefore <= 0 && jumlah > 0 && sisaAfter <= 0;
 
-    if (jumlah <= 0 && !becameLunas) continue;
+    if (jumlah <= 0) continue;
 
     const event = {
       nama: row.nama || existing.nama,
@@ -4776,15 +4777,46 @@ async function detectUmrohJamaahSyncEvents(agentId, rows, options = {}) {
       isLunas: sisaAfter <= 0,
     };
 
-    if (becameLunas || paidFromEmptyToLunas) events.pembayaranPelunasan.push(event);
-    else if (jumlah > 0 && sisaAfter > 0 && sisaDecreased) events.pembayaranCicilan.push(event);
+    const kind = becameLunas || paidFromEmptyToLunas ? 'pelunasan' : 'cicilan';
+    const eventKey = [
+      kind,
+      row.id_umroh || row.jm_id || row.nama,
+      jumlah,
+      bayarAfter,
+      sisaAfter,
+    ].join('|');
+    if (seenPaymentEvents.has(eventKey)) continue;
+    seenPaymentEvents.add(eventKey);
+
+    if (kind === 'pelunasan') events.pembayaranPelunasan.push(event);
+    else if (sisaAfter > 0 && sisaDecreased) events.pembayaranCicilan.push(event);
   }
 
   return events;
 }
 
+function jakartaLocalDate(date = new Date()) {
+  return new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+}
+
+function isJamaahNotificationSendWindow(date = new Date()) {
+  const now = jakartaLocalDate(date);
+  const day = now.getDay();
+  const hour = now.getHours();
+  if (day === 6) return hour >= 8 && hour < 15;
+  return hour >= 8 && hour < 21;
+}
+
+function isBackgroundJamaahSyncLabel(label = '') {
+  return String(label).startsWith('bg/') || String(label).startsWith('api/bg/');
+}
+
 function queueJamaahSyncNotifications(agentId, events, label) {
   if (!hasJamaahSyncEvents(events)) return;
+  if (isBackgroundJamaahSyncLabel(label) && !isJamaahNotificationSendWindow()) {
+    console.log(`[SYNC] ${label}: jamaah telegram notification skipped outside send window`);
+    return;
+  }
   notifyJamaahSyncEvents(agentId, events).catch(err =>
     console.error(`[SYNC] ${label}: telegram jamaah event error:`, err.message)
   );
