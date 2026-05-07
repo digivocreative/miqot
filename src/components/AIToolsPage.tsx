@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Mic, CreditCard, BarChart3, Banknote, ArrowLeftRight, Globe } from 'lucide-react';
+import { Mic, CreditCard, BarChart3, Banknote, ArrowLeftRight, Globe, FileImage } from 'lucide-react';
 import { trackEvent } from '../utils/analytics';
 
 interface AIToolsPageProps {
@@ -7,6 +7,15 @@ interface AIToolsPageProps {
 }
 
 const TOOLS = [
+  {
+    id: 'brosur-jadwal',
+    name: 'Brosur Jadwal',
+    desc: 'Brosur paket umroh per bulan, siap share',
+    icon: FileImage,
+    color: 'red',
+    route: 'brosur-jadwal',
+    active: true,
+  },
   {
     id: 'landing-page',
     name: 'Landing Page',
@@ -83,6 +92,10 @@ const iconStyles: Record<string, { bg: string; text: string }> = {
   violet: {
     bg: 'bg-violet-50 dark:bg-violet-900/20',
     text: 'text-violet-600 dark:text-violet-400',
+  },
+  red: {
+    bg: 'bg-red-50 dark:bg-red-900/20',
+    text: 'text-red-600 dark:text-red-400',
   },
 };
 
