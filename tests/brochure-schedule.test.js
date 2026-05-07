@@ -40,3 +40,84 @@ test('pickBrochurePrice: non-numeric string price ignored', () => {
   const harga = { 'Hotel Bintang 5': { Quard: 'tba', Triple: 35000000 } };
   assert.equal(pickBrochurePrice(harga), 35000000);
 });
+
+import { groupPackagesByMonth } from '../lib/brochure-schedule.js';
+
+const today = new Date('2026-05-07T00:00:00.000Z');
+
+test('groupPackagesByMonth: groups by YYYY-MM and sorts asc', () => {
+  const rows = [
+    { jadwal_id: 'a', jadwal_nama: 'PAKET A', maskapai: 'SAUDIA', berangkat_tgl: '2026-06-20', pulang_tgl: '2026-06-27', price: 33900000 },
+    { jadwal_id: 'b', jadwal_nama: 'PAKET B', maskapai: 'EMIRATES', berangkat_tgl: '2026-06-13', pulang_tgl: '2026-06-20', price: 41700000 },
+    { jadwal_id: 'c', jadwal_nama: 'PAKET C', maskapai: 'SAUDIA', berangkat_tgl: '2026-07-05', pulang_tgl: '2026-07-12', price: 35000000 },
+  ];
+  const out = groupPackagesByMonth(rows, today, 24);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].key, '2026-06');
+  assert.equal(out[0].label, 'Juni 2026');
+  assert.equal(out[0].monthIndexId, 5);
+  assert.equal(out[0].year, 2026);
+  assert.equal(out[0].packages.length, 2);
+  assert.equal(out[0].packages[0].jadwal_id, 'b'); // sorted asc by berangkat_tgl
+  assert.equal(out[0].packages[1].jadwal_id, 'a');
+  assert.equal(out[0].truncatedCount, 0);
+  assert.equal(out[1].key, '2026-07');
+  assert.equal(out[1].packages.length, 1);
+});
+
+test('groupPackagesByMonth: filters out past berangkat_tgl', () => {
+  const rows = [
+    { jadwal_id: 'past', jadwal_nama: 'PAKET LAMA', berangkat_tgl: '2026-05-01' }, // before today 2026-05-07
+    { jadwal_id: 'cur', jadwal_nama: 'PAKET INI', berangkat_tgl: '2026-05-15' },
+  ];
+  const out = groupPackagesByMonth(rows, today, 24);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].key, '2026-05');
+  assert.equal(out[0].packages.length, 1);
+  assert.equal(out[0].packages[0].jadwal_id, 'cur');
+});
+
+test('groupPackagesByMonth: filters beyond monthsAhead window', () => {
+  const rows = [
+    { jadwal_id: 'within', berangkat_tgl: '2026-08-01' },
+    { jadwal_id: 'beyond', berangkat_tgl: '2027-08-01' },
+  ];
+  const out = groupPackagesByMonth(rows, today, 6); // only 6 months ahead
+  assert.equal(out.length, 1);
+  assert.equal(out[0].packages[0].jadwal_id, 'within');
+});
+
+test('groupPackagesByMonth: drops months with zero packages', () => {
+  const rows = [{ jadwal_id: 'a', berangkat_tgl: '2026-06-13' }];
+  const out = groupPackagesByMonth(rows, today, 24);
+  // No 2026-05 in result even if today is in May, because no packages match
+  assert.equal(out.length, 1);
+  assert.equal(out[0].key, '2026-06');
+});
+
+test('groupPackagesByMonth: truncates to 10 packages, keeps earliest', () => {
+  const rows = Array.from({ length: 13 }, (_, i) => ({
+    jadwal_id: `p${i}`,
+    berangkat_tgl: `2026-06-${String(i + 1).padStart(2, '0')}`,
+  }));
+  const out = groupPackagesByMonth(rows, today, 24);
+  assert.equal(out[0].packages.length, 10);
+  assert.equal(out[0].packages[0].jadwal_id, 'p0');
+  assert.equal(out[0].packages[9].jadwal_id, 'p9');
+  assert.equal(out[0].truncatedCount, 3);
+});
+
+test('groupPackagesByMonth: skips rows with invalid berangkat_tgl', () => {
+  const rows = [
+    { jadwal_id: 'good', berangkat_tgl: '2026-06-13' },
+    { jadwal_id: 'null', berangkat_tgl: null },
+    { jadwal_id: 'bad', berangkat_tgl: 'not a date' },
+  ];
+  const out = groupPackagesByMonth(rows, today, 24);
+  assert.equal(out[0].packages.length, 1);
+  assert.equal(out[0].packages[0].jadwal_id, 'good');
+});
+
+test('groupPackagesByMonth: empty input returns []', () => {
+  assert.deepEqual(groupPackagesByMonth([], today, 24), []);
+});
