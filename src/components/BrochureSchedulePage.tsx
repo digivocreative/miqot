@@ -72,6 +72,17 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   const filenameForMonth = (label: string) =>
     `brosur-paket-umroh-${label.toLowerCase().replace(/\s+/g, '-')}.png`;
 
+  function triggerDownload(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   async function captureBlob(): Promise<Blob | null> {
     if (!exportRef.current) return null;
     const { snapdom } = await import('@zumer/snapdom');
@@ -85,14 +96,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     try {
       const blob = await captureBlob();
       if (!blob) throw new Error('capture-failed');
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filenameForMonth(activeMonth.label);
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      triggerDownload(blob, filenameForMonth(activeMonth.label));
     } catch (e) {
       console.error('[brosur] download failed:', e);
       alert('Gagal generate brosur, coba lagi.');
@@ -121,14 +125,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         }
       } else {
         // Fallback: download
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filenameForMonth(activeMonth.label);
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        triggerDownload(blob, filenameForMonth(activeMonth.label));
         alert('Browser tidak support share langsung, brosur ter-download.');
       }
     } catch (e) {
