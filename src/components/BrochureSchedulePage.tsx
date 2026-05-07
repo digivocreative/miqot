@@ -12,9 +12,18 @@ import {
 import { getAuthHeaders } from './LoginPage';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 
-const EXPORT_TYPE = 'png';
-const EXPORT_MIME = 'image/png';
+const EXPORT_TYPE = 'jpeg';
+const EXPORT_MIME = 'image/jpeg';
+const EXPORT_EXT = 'jpg';
+const EXPORT_SCALE = 1;
+const EXPORT_QUALITY = 0.88;
 const PACKAGES_PER_IMAGE = 10;
+
+interface ExportedImage {
+  blob: Blob;
+  ext: string;
+  mime: string;
+}
 
 interface BrochureSchedulePageProps {
   agent: BrochureAgent;
@@ -159,9 +168,9 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   const activeImagePages = activeMonth ? splitMonthIntoImagePages(activeMonth) : [];
   const showShareButton = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
-  const filenameForMonth = (label: string, pageIndex = 1, pageCount = 1) => {
+  const filenameForMonth = (label: string, pageIndex = 1, pageCount = 1, ext = EXPORT_EXT) => {
     const base = `brosur-paket-umroh-${label.toLowerCase().replace(/\s+/g, '-')}`;
-    return `${base}${pageCount > 1 ? `-gambar-${pageIndex}` : ''}.png`;
+    return `${base}${pageCount > 1 ? `-gambar-${pageIndex}` : ''}.${ext}`;
   };
 
   function showToast(message: string) {
@@ -170,42 +179,92 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     toastTimerRef.current = setTimeout(() => setToast(null), 2500);
   }
 
+  function waitForNextPaint(): Promise<void> {
+    return new Promise(resolve => requestAnimationFrame(() => resolve()));
+  }
+
   async function waitForFonts() {
     if (!document.fonts) return;
     try {
       await Promise.all(
         [
-          ...BROCHURE_FONT_WEIGHTS.map(w => document.fonts.load(`${w} 16px Inter`).catch(() => null)),
+          ...BROCHURE_FONT_WEIGHTS.map(w => document.fonts.load(`${w} 16px "Inter"`).catch(() => null)),
           document.fonts.load(`400 16px "Bebas Neue"`).catch(() => null),
         ]
       );
       await document.fonts.ready;
+      await waitForNextPaint();
+      await waitForNextPaint();
     } catch {
       // Best effort: export should continue even if one font load probe fails.
     }
   }
 
-  async function captureBlob(pageIndex: number): Promise<Blob | null> {
+  async function toExportedImage(result: any): Promise<ExportedImage | null> {
+    try {
+      const jpeg = await result.toBlob({
+        type: EXPORT_TYPE,
+        quality: EXPORT_QUALITY,
+        backgroundColor: '#FFFFFF',
+      });
+      if (jpeg instanceof Blob && jpeg.size > 0) {
+        return { blob: jpeg, ext: EXPORT_EXT, mime: jpeg.type || EXPORT_MIME };
+      }
+    } catch (err) {
+      console.warn('[brosur] JPEG export failed, retrying as PNG:', err);
+    }
+
+    try {
+      const png = await result.toBlob({
+        type: 'png',
+        backgroundColor: '#FFFFFF',
+      });
+      if (png instanceof Blob && png.size > 0) {
+        return { blob: png, ext: 'png', mime: png.type || 'image/png' };
+      }
+    } catch (err) {
+      console.warn('[brosur] PNG fallback export failed:', err);
+    }
+
+    return null;
+  }
+
+  async function captureBlob(pageIndex: number): Promise<ExportedImage | null> {
     const target = exportPageRefs.current[pageIndex];
     if (!target) return null;
     await waitForFonts();
+    target.getBoundingClientRect();
+    await waitForNextPaint();
     const { snapdom } = await import('@zumer/snapdom');
-    const result = await snapdom(target, {
-      scale: 2,
-      embedFonts: true,
-      backgroundColor: '#FFFFFF',
-    });
-    const blob = await result.toBlob({ type: EXPORT_TYPE });
-    return blob.type === EXPORT_MIME ? blob : new Blob([blob], { type: EXPORT_MIME });
+
+    let lastError: unknown = null;
+    for (const embedFonts of [true, false]) {
+      try {
+        const result = await snapdom(target, {
+          scale: EXPORT_SCALE,
+          embedFonts,
+          backgroundColor: '#FFFFFF',
+          quality: EXPORT_QUALITY,
+        });
+        const image = await toExportedImage(result);
+        if (image) return image;
+      } catch (err) {
+        lastError = err;
+        console.warn(`[brosur] capture failed with embedFonts=${embedFonts}:`, err);
+      }
+    }
+
+    if (lastError) throw lastError;
+    return null;
   }
 
   async function handleDownload(pageIndex: number) {
     if (!activeMonth) return;
     setBusy({ kind: 'download', pageIndex });
     try {
-      const blob = await captureBlob(pageIndex);
-      if (!blob) throw new Error('capture-failed');
-      downloadBlob(blob, filenameForMonth(activeMonth.label, pageIndex + 1, activeImagePages.length));
+      const image = await captureBlob(pageIndex);
+      if (!image) throw new Error('capture-failed');
+      downloadBlob(image.blob, filenameForMonth(activeMonth.label, pageIndex + 1, activeImagePages.length, image.ext));
     } catch (e) {
       console.error('[brosur] download failed:', e);
       showToast('Gagal generate brosur, coba lagi');
@@ -218,12 +277,12 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     if (!activeMonth) return;
     setBusy({ kind: 'share', pageIndex });
     try {
-      const blob = await captureBlob(pageIndex);
-      if (!blob) throw new Error('capture-failed');
+      const image = await captureBlob(pageIndex);
+      if (!image) throw new Error('capture-failed');
       const file = new File(
-        [blob],
-        filenameForMonth(activeMonth.label, pageIndex + 1, activeImagePages.length),
-        { type: EXPORT_MIME }
+        [image.blob],
+        filenameForMonth(activeMonth.label, pageIndex + 1, activeImagePages.length, image.ext),
+        { type: image.mime }
       );
       if (canShareFiles([file])) {
         try {
@@ -237,8 +296,8 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
           throw err;
         }
       } else {
-        downloadBlob(blob, filenameForMonth(activeMonth.label, pageIndex + 1, activeImagePages.length));
-        showToast('Share tidak didukung, PNG diunduh');
+        downloadBlob(image.blob, filenameForMonth(activeMonth.label, pageIndex + 1, activeImagePages.length, image.ext));
+        showToast(`Share tidak didukung, ${image.ext.toUpperCase()} diunduh`);
       }
     } catch (e) {
       console.error('[brosur] share failed:', e);
@@ -423,8 +482,17 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         </div>
       )}
 
-      {/* Hidden full-size export node — used as snapdom target */}
-      <div style={{ position: 'fixed', left: -99999, top: 0, pointerEvents: 'none', opacity: 0 }}>
+      {/* Off-screen full-size export node — used as snapdom target. Keep it rendered, not transparent, so export matches preview. */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          left: -(BROCHURE_W + 80),
+          top: 0,
+          width: BROCHURE_W,
+          pointerEvents: 'none',
+        }}
+      >
         {activeImagePages.map((page, index) => (
           <div
             key={page.key}

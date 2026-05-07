@@ -47,7 +47,7 @@ export const BROCHURE_H = 1920;
 
 export const BROCHURE_FONT_STACK = "'Inter', 'Inter var', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 export const BROCHURE_TABLE_FONT_STACK = "'Bebas Neue', 'Inter', 'Arial Narrow', system-ui, sans-serif";
-export const BROCHURE_FONT_WEIGHTS = [600, 700, 800, 900] as const;
+export const BROCHURE_FONT_WEIGHTS = [400, 600, 700, 800, 900] as const;
 
 const MONTH_ABBR_ID = ['JAN','FEB','MAR','APR','MEI','JUN','JUL','AGT','SEP','OKT','NOV','DES'];
 const BRAND_RED = '#C8102E';
