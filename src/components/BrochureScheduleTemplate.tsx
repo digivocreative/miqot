@@ -48,6 +48,8 @@ function formatTglID(iso: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
   const d = new Date(`${iso}T00:00:00.000Z`);
   if (Number.isNaN(d.getTime())) return '';
+  // Round-trip check: detect calendar overflow (e.g., 2025-02-29 → Mar 1)
+  if (d.getUTCDate() !== parseInt(iso.slice(8, 10), 10)) return '';
   return `${String(d.getUTCDate()).padStart(2, '0')} ${MONTH_ABBR_ID[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
@@ -57,9 +59,8 @@ function formatPhoneDisplay(rawPhone: string): string {
   const norm = normalizeWaNumber(rawPhone);
   if (!norm) return '';
   const local = '0' + norm.slice(2); // "62..." → "0..."
-  // Group as 4-4-rest (e.g. 0822-9000-20). If shorter, group what we can.
-  if (local.length <= 4) return local;
-  if (local.length <= 8) return `${local.slice(0, 4)}-${local.slice(4)}`;
+  // Ungrouped fallback for inputs too short to group meaningfully.
+  if (local.length < 10) return local;
   return `${local.slice(0, 4)}-${local.slice(4, 8)}-${local.slice(8)}`;
 }
 
@@ -71,7 +72,8 @@ function cleanWebsite(website: string): string {
   return (website || '')
     .replace(/^https?:\/\//i, '')
     .replace(/^www\./i, '')
-    .replace(/\/+$/g, '');
+    .replace(/\/+$/g, '')
+    .toLowerCase();
 }
 
 export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTemplateProps) {
@@ -212,7 +214,7 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
             textAlign: 'center',
             borderTop: '1px dashed #E5A0AA',
           }}>
-            + {month.truncatedCount} paket lainnya — hubungi {agent.name || 'kami'}
+            + {month.truncatedCount} paket lainnya — hubungi {agent.name?.trim() || 'kami'}
           </div>
         )}
       </div>
