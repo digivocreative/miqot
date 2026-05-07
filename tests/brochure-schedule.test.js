@@ -121,3 +121,22 @@ test('groupPackagesByMonth: skips rows with invalid berangkat_tgl', () => {
 test('groupPackagesByMonth: empty input returns []', () => {
   assert.deepEqual(groupPackagesByMonth([], today, 24), []);
 });
+
+test('groupPackagesByMonth: monthsAhead=0 returns []', () => {
+  const rows = [{ jadwal_id: 'a', berangkat_tgl: '2026-06-13' }];
+  assert.deepEqual(groupPackagesByMonth(rows, today, 0), []);
+});
+
+test('groupPackagesByMonth: month-end overflow does not extend window', () => {
+  const jan31 = new Date('2026-01-31T00:00:00.000Z');
+  const rows = [
+    { jadwal_id: 'feb', berangkat_tgl: '2026-02-15' },
+    { jadwal_id: 'mar', berangkat_tgl: '2026-03-02' }, // would slip in if endDate overflows to Mar 3
+  ];
+  const out = groupPackagesByMonth(rows, jan31, 1);
+  // monthsAhead=1 from Jan 31 should END on Feb 28 (clamped), not roll over to Mar
+  assert.equal(out.length, 1);
+  assert.equal(out[0].key, '2026-02');
+  assert.equal(out[0].packages.length, 1);
+  assert.equal(out[0].packages[0].jadwal_id, 'feb');
+});
