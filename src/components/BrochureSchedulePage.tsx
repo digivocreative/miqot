@@ -12,11 +12,10 @@ import {
 import { getAuthHeaders } from './LoginPage';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 
-const EXPORT_TYPE = 'jpeg';
-const EXPORT_MIME = 'image/jpeg';
-const EXPORT_EXT = 'jpg';
+const EXPORT_TYPE = 'png';
+const EXPORT_MIME = 'image/png';
+const EXPORT_EXT = 'png';
 const EXPORT_SCALE = 1;
-const EXPORT_QUALITY = 0.88;
 const PACKAGES_PER_IMAGE = 10;
 
 interface ExportedImage {
@@ -202,30 +201,16 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
 
   async function toExportedImage(result: any): Promise<ExportedImage | null> {
     try {
-      const jpeg = await result.toBlob({
-        type: EXPORT_TYPE,
-        quality: EXPORT_QUALITY,
-        backgroundColor: '#FFFFFF',
-      });
-      if (jpeg instanceof Blob && jpeg.size > 0) {
-        return { blob: jpeg, ext: EXPORT_EXT, mime: jpeg.type || EXPORT_MIME };
-      }
-    } catch (err) {
-      console.warn('[brosur] JPEG export failed, retrying as PNG:', err);
-    }
-
-    try {
       const png = await result.toBlob({
-        type: 'png',
+        type: EXPORT_TYPE,
         backgroundColor: '#FFFFFF',
       });
       if (png instanceof Blob && png.size > 0) {
-        return { blob: png, ext: 'png', mime: png.type || 'image/png' };
+        return { blob: png, ext: EXPORT_EXT, mime: png.type || EXPORT_MIME };
       }
     } catch (err) {
-      console.warn('[brosur] PNG fallback export failed:', err);
+      console.warn('[brosur] PNG export failed:', err);
     }
-
     return null;
   }
 
@@ -244,7 +229,6 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
           scale: EXPORT_SCALE,
           embedFonts,
           backgroundColor: '#FFFFFF',
-          quality: EXPORT_QUALITY,
         });
         const image = await toExportedImage(result);
         if (image) return image;

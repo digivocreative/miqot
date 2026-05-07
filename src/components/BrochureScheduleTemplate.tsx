@@ -524,27 +524,39 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
               }}>
                 {p.soldOut ? (
                   <span style={{
+                    width: 150,
+                    height: 62,
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '7px 11px 8px',
-                    borderRadius: 2,
-                    background: '#F01822',
-                    color: '#fff',
-                    border: '3px solid rgba(255,255,255,0.92)',
-                    outline: '3px solid #F01822',
-                    outlineOffset: 1,
-                    fontFamily: BROCHURE_TABLE_FONT_STACK,
-                    fontSize: 31,
-                    fontWeight: 400,
-                    letterSpacing: 1.2,
-                    lineHeight: 0.92,
-                    textTransform: 'uppercase',
-                    transform: 'rotate(-7deg)',
-                    boxShadow: '0 10px 18px rgba(90,0,16,0.2)',
-                    textShadow: '0 1px 0 rgba(90,0,16,0.24)',
+                    position: 'relative',
+                    overflow: 'visible',
                   }}>
-                    SOLD OUT
+                    <span style={{
+                      width: 132,
+                      height: 42,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxSizing: 'border-box',
+                      borderRadius: 2,
+                      background: '#F01822',
+                      color: '#fff',
+                      border: '3px solid rgba(255,255,255,0.94)',
+                      boxShadow: '0 0 0 3px #F01822, 0 10px 18px rgba(90,0,16,0.2)',
+                      fontFamily: BROCHURE_FONT_STACK,
+                      fontSize: 23,
+                      fontWeight: 900,
+                      letterSpacing: 0.4,
+                      lineHeight: 1,
+                      textTransform: 'uppercase',
+                      transform: 'rotate(-7deg)',
+                      transformOrigin: 'center center',
+                      textShadow: '0 1px 0 rgba(90,0,16,0.24)',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      SOLD OUT
+                    </span>
                   </span>
                 ) : typeof p.harga === 'number' ? (
                   <>
