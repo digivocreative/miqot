@@ -288,6 +288,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
       position: 'relative',
       overflow: 'hidden',
       fontFamily: BROCHURE_FONT_STACK,
+      fontSynthesis: 'none',
       background: CANVAS_BACKGROUND,
       color: INK,
       display: 'flex',

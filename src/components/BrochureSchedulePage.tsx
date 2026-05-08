@@ -14,14 +14,15 @@ import {
 import { getAuthHeaders } from './LoginPage';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 
-const EXPORT_TYPE = 'png';
-const EXPORT_MIME = 'image/png';
-const EXPORT_EXT = 'png';
-// 2x scale yields a sharper PNG for WhatsApp Status. Now that the brochure
-// fonts ship as WOFF2 (~58% smaller than the original TTFs), the inlined font
-// payload is small enough that snapdom's capture stays within iOS Safari's
-// memory budget at 2x.
-const EXPORT_SCALE = 2;
+const EXPORT_TYPE = 'jpeg';
+const EXPORT_MIME = 'image/jpeg';
+const EXPORT_EXT = 'jpg';
+const EXPORT_QUALITY = 0.9;
+// The template is already authored at 1080px wide. Exporting at 2x makes the
+// browser rasterize 6.9M pixels and produces multi-MB PNGs; 1x JPG is enough
+// for WhatsApp/status sharing and keeps mobile clicks responsive.
+const EXPORT_SCALE = 1;
+const EXPORT_CACHE_LIMIT = 3;
 const PACKAGES_PER_IMAGE = 10;
 
 interface ExportedImage {
@@ -178,10 +179,9 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   const [busy, setBusy] = useState<null | { kind: 'share' | 'download'; pageIndex: number }>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Pre-captured PNGs keyed by page key. Lets us call navigator.share()
-  // synchronously inside the click handler so iOS preserves the user-activation
-  // window. Without this, capture takes long enough that iOS throws NotAllowedError.
-  const [exportCache, setExportCache] = useState<Map<string, ExportedImage>>(new Map());
+  // Export blobs are intentionally kept outside React state. They can be large,
+  // and state updates would re-render every preview card for no UI benefit.
+  const exportCacheRef = useRef<Map<string, ExportedImage>>(new Map());
 
   // Measure the dashboard's own sticky header at runtime so the filter row's
   // sticky offset matches it exactly. Hardcoded values broke when the header's
@@ -404,17 +404,28 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
 
   async function toExportedImage(result: any): Promise<ExportedImage | null> {
     try {
-      const png = await result.toBlob({
+      const blob = await result.toBlob({
         type: EXPORT_TYPE,
+        quality: EXPORT_QUALITY,
         backgroundColor: '#FFFFFF',
       });
-      if (png instanceof Blob && png.size > 0) {
-        return { blob: png, ext: EXPORT_EXT, mime: png.type || EXPORT_MIME };
+      if (blob instanceof Blob && blob.size > 0) {
+        return { blob, ext: EXPORT_EXT, mime: blob.type || EXPORT_MIME };
       }
     } catch (err) {
-      console.warn('[brosur] PNG export failed:', err);
+      console.warn('[brosur] image export failed:', err);
     }
     return null;
+  }
+
+  function rememberExport(pageKey: string, image: ExportedImage) {
+    const cache = exportCacheRef.current;
+    cache.set(pageKey, image);
+    while (cache.size > EXPORT_CACHE_LIMIT) {
+      const oldest = cache.keys().next().value;
+      if (!oldest) break;
+      cache.delete(oldest);
+    }
   }
 
   async function captureBlob(pageIndex: number): Promise<ExportedImage | null> {
@@ -426,7 +437,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     const { snapdom } = await import('@zumer/snapdom');
 
     // Always capture with embedFonts: true. Falling back to embedFonts: false
-    // produces a "successful" PNG rendered with system-fallback fonts (because an
+    // produces a "successful" image rendered with system-fallback fonts (because an
     // SVG <foreignObject> data URL doesn't share the page's font registry) — exactly
     // the bug we're trying to avoid. If the attempt fails, re-warm fonts once and retry.
     let lastError: unknown = null;
@@ -434,8 +445,11 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       try {
         const result = await snapdom(target, {
           scale: EXPORT_SCALE,
+          type: EXPORT_TYPE,
+          quality: EXPORT_QUALITY,
           embedFonts: true,
           backgroundColor: '#FFFFFF',
+          safariWarmupAttempts: 1,
         });
         const image = await toExportedImage(result);
         if (image) return image;
@@ -453,52 +467,16 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     return null;
   }
 
-  // Pre-capture pages in the background so handleShare can hand the file to
-  // navigator.share() synchronously (preserves the iOS user-activation window).
-  // Effect re-runs whenever the rendered page set changes (filter changes etc.).
   const pageKeys = activeImagePages.map(p => p.key).join('|');
   useEffect(() => {
-    if (!previewScale || activeImagePages.length === 0) return;
-    // Drop stale entries whose page no longer exists.
-    setExportCache(prev => {
-      const valid = new Set(activeImagePages.map(p => p.key));
-      let changed = false;
-      const next = new Map(prev);
-      for (const k of next.keys()) {
-        if (!valid.has(k)) { next.delete(k); changed = true; }
+    const valid = new Set(activeImagePages.map(p => p.key));
+    for (const key of exportCacheRef.current.keys()) {
+      if (!valid.has(key)) {
+        exportCacheRef.current.delete(key);
       }
-      return changed ? next : prev;
-    });
-    let cancelled = false;
-    (async () => {
-      // Brief delay so layout/fonts settle after a filter change before we
-      // serialise the off-screen DOM.
-      await new Promise(r => setTimeout(r, 250));
-      for (let i = 0; i < activeImagePages.length; i++) {
-        if (cancelled) return;
-        const key = activeImagePages[i].key;
-        // Skip if already cached.
-        if (exportCache.has(key)) continue;
-        try {
-          const image = await captureBlob(i);
-          if (cancelled) return;
-          if (image) {
-            setExportCache(prev => {
-              if (prev.has(key)) return prev;
-              const next = new Map(prev);
-              next.set(key, image);
-              return next;
-            });
-          }
-        } catch (e) {
-          console.warn('[brosur] precapture failed for', key, e);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-    // exportCache intentionally omitted: it gets mutated by this effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewScale, pageKeys]);
+    }
+    exportPageRefs.current = exportPageRefs.current.slice(0, activeImagePages.length);
+  }, [pageKeys, activeImagePages]);
 
   // Surface the underlying error in the toast so iPhone users — who can't open
   // a console — still have a starting point for diagnosis. Truncate to keep
@@ -508,11 +486,17 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     return raw.length > 90 ? raw.slice(0, 87) + '…' : raw;
   }
 
+  function isShareActivationError(e: unknown): boolean {
+    const err = e as { name?: string; message?: string } | null;
+    const text = `${err?.name || ''} ${err?.message || ''}`;
+    return /NotAllowedError|user activation|user gesture|permission/i.test(text);
+  }
+
   function handleDownload(pageIndex: number) {
     if (!exportLabel) return;
     const page = activeImagePages[pageIndex];
     if (!page) return;
-    const cached = exportCache.get(page.key);
+    const cached = exportCacheRef.current.get(page.key);
     if (cached) {
       // Cache hit — fire download immediately, no await between click & action.
       downloadBlob(cached.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, cached.ext));
@@ -524,6 +508,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       try {
         const image = await captureBlob(pageIndex);
         if (!image) throw new Error('capture-failed');
+        rememberExport(page.key, image);
         downloadBlob(image.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext));
       } catch (e) {
         console.error('[brosur] download failed:', e);
@@ -535,14 +520,13 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   }
 
   // Synchronous when cached. iOS Safari requires navigator.share() to be called
-  // inside the user-activation window (~5s); awaiting capture first burns that
-  // budget and triggers NotAllowedError. With a pre-captured blob we go straight
-  // from the click to the share sheet.
+  // inside the click's user-activation window; if the first capture misses that
+  // window, we keep the blob so the next Share tap can open the sheet instantly.
   function handleShare(pageIndex: number) {
     if (!exportLabel) return;
     const page = activeImagePages[pageIndex];
     if (!page) return;
-    const cached = exportCache.get(page.key);
+    const cached = exportCacheRef.current.get(page.key);
 
     if (cached) {
       const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, cached.ext);
@@ -572,6 +556,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       try {
         const image = await captureBlob(pageIndex);
         if (!image) throw new Error('capture-failed');
+        rememberExport(page.key, image);
         const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext);
         const file = new File([image.blob], filename, { type: image.mime });
         if (canShareFiles([file])) {
@@ -583,6 +568,10 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
             });
           } catch (err: any) {
             if (err?.name === 'AbortError') return;
+            if (isShareActivationError(err)) {
+              showToast('Gambar siap, klik Share sekali lagi');
+              return;
+            }
             throw err;
           }
         } else {
