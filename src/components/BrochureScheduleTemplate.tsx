@@ -12,6 +12,7 @@ export interface BrochurePackage {
   hotel?: BrochureHotel[];
   harga: number | null;
   soldOut?: boolean;
+  umrohDulu?: boolean;
 }
 
 export interface BrochureHotel {
@@ -187,6 +188,8 @@ function cleanPackageDisplayName(name: string): string {
     .replace(/\bMIX\s+(?:PAKET\s+)?(?:RAHMAH\s*&\s*UHUD|UHUD\s*&\s*RAHMAH|RAHMAH\s+UHUD|UHUD\s+RAHMAH)\b/gi, '')
     .replace(/\b\d+\s*HR\b/gi, '')
     // Pill keywords — strip from the title.
+    .replace(/\bUMR[OA]H\s+DULU\b/gi, '')
+    .replace(/\bMEK+AH\s+DULU\b/gi, '')
     .replace(/\s*\(?\s*KERETA\s+CEPAT\s*\)?\s*/gi, ' ')
     .replace(/\bRAHMAH\b/gi, '')
     .replace(/\bJUM['‘’]?ATAIN\b/gi, '')
@@ -211,15 +214,28 @@ function cleanPackageDisplayName(name: string): string {
 
 // Order of definitions = display order of pills under the title.
 type PillTag = { label: string; pattern: RegExp; bg: string; fg: string };
+const UMROH_DULU_PILL: PillTag = {
+  label: 'Umroh Dulu',
+  pattern: /\b(?:UMR[OA]H|MEK+AH)\s+DULU\b/i,
+  bg: PALE_GOLD,
+  fg: DARK_RED,
+};
 const PILL_TAGS: ReadonlyArray<PillTag> = [
   { label: 'Hotel Bintang 5', pattern: /\bRAHMAH\b/i,            bg: '#7A4F12', fg: '#FFFFFF' },
+  UMROH_DULU_PILL,
   { label: 'Kereta Cepat',    pattern: /\bKERETA\s+CEPAT\b/i,    bg: '#0F766E', fg: '#FFFFFF' },
   { label: '2x Jumatan',      pattern: /\bJUM['‘’]?ATAIN\b/i,    bg: DARK_RED,  fg: '#FFFFFF' },
 ];
 
-function detectPackagePills(rawName: string): PillTag[] {
+function detectPackagePills(rawName: string, umrohDulu?: boolean): PillTag[] {
   const s = String(rawName || '');
-  return PILL_TAGS.filter(t => t.pattern.test(s));
+  const pills = PILL_TAGS.filter(t => t.pattern.test(s));
+  if (umrohDulu && !pills.some(p => p.label === UMROH_DULU_PILL.label)) {
+    const insertAt = pills.findIndex(p => p.label === 'Kereta Cepat');
+    if (insertAt >= 0) pills.splice(insertAt, 0, UMROH_DULU_PILL);
+    else pills.push(UMROH_DULU_PILL);
+  }
+  return pills;
 }
 
 function countTripDays(berangkat: string, pulang: string): number | null {
@@ -476,7 +492,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
         {/* Data rows */}
         {month.packages.map((p, i) => {
           const packageName = cleanPackageDisplayName(p.nama);
-          const packagePills = detectPackagePills(p.nama);
+          const packagePills = detectPackagePills(p.nama, p.umrohDulu);
           const tripDays = p.hari ?? countTripDays(p.berangkat_tgl, p.pulang_tgl);
           const departureDay = formatDepartureDay(p.berangkat_tgl);
           const departureMonthName = showFullDate ? formatDepartureMonthName(p.berangkat_tgl) : '';
@@ -565,7 +581,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
                         padding: '4px 11px 5px',
                         borderRadius: 999,
                         background: isSoldOut ? '#64748B' : pill.bg,
-                        color: pill.fg,
+                        color: isSoldOut ? '#FFFFFF' : pill.fg,
                         fontFamily: BROCHURE_MONTSERRAT_FONT_STACK,
                         fontSize: 13,
                         fontWeight: 700,

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   cleanBrochurePackageName,
   countBrochureTripDays,
+  isUmrohFirstRoute,
   parseSeatSisa,
   pickBrochurePackageDetails,
   pickBrochurePrice,
@@ -92,6 +93,14 @@ test('parseSeatSisa: blank values are unknown, numeric zero means sold out', () 
   assert.equal(parseSeatSisa(null), null);
   assert.equal(parseSeatSisa('0'), 0);
   assert.equal(parseSeatSisa(12), 12);
+});
+
+test('isUmrohFirstRoute: detects Jeddah as final departure arrival', () => {
+  assert.equal(isUmrohFirstRoute('CGK - JED'), true);
+  assert.equal(isUmrohFirstRoute('CGK-DXB/DXB-JED'), true);
+  assert.equal(isUmrohFirstRoute('CGK - MED'), false);
+  assert.equal(isUmrohFirstRoute('CGK-JED/JED-CAI/CAI-MED'), false);
+  assert.equal(isUmrohFirstRoute(''), false);
 });
 
 import { groupPackagesByMonth } from '../lib/brochure-schedule.js';

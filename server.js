@@ -32,7 +32,7 @@ import {
   tallyBy,
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
-import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
+import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -10315,7 +10315,7 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
     // Schedules — pull all years (table is small, <300 rows globally)
     const { data: rows, error: schedErr } = await supabase
       .from('umroh_schedules')
-      .select('jadwal_id, jadwal_nama, maskapai, berangkat_tgl, pulang_tgl, seat_sisa, paket_harga, paket_hotel');
+      .select('jadwal_id, jadwal_nama, maskapai, berangkat_tgl, pulang_tgl, berangkat_rute, seat_sisa, paket_harga, paket_hotel');
 
     if (schedErr) {
       console.error('[brosur-jadwal] schedule fetch:', schedErr.message);
@@ -10348,6 +10348,7 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
         hotel: details?.hotel || [],
         harga: details?.harga ?? null,
         soldOut,
+        umrohDulu: isUmrohFirstRoute(r.berangkat_rute),
       });
     }
     if (droppedNoPrice > 0) {

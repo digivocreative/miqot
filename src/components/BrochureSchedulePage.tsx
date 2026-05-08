@@ -437,6 +437,14 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     return null;
   }
 
+  // Surface the underlying error in the toast so iPhone users — who can't open
+  // a console — still have a starting point for diagnosis. Truncate to keep
+  // the toast bubble from overflowing.
+  function errMsg(e: unknown): string {
+    const raw = e instanceof Error ? (e.message || e.name) : String(e);
+    return raw.length > 90 ? raw.slice(0, 87) + '…' : raw;
+  }
+
   async function handleDownload(pageIndex: number) {
     if (!exportLabel) return;
     setBusy({ kind: 'download', pageIndex });
@@ -446,7 +454,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       downloadBlob(image.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext));
     } catch (e) {
       console.error('[brosur] download failed:', e);
-      showToast('Gagal generate brosur, coba lagi');
+      showToast(`Gagal generate gambar: ${errMsg(e)}`);
     } finally {
       setBusy(null);
     }
@@ -455,32 +463,43 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   async function handleShare(pageIndex: number) {
     if (!exportLabel) return;
     setBusy({ kind: 'share', pageIndex });
+    let image: ExportedImage | null = null;
+    // Phase 1: capture. Surface this as a generation failure if it fails.
     try {
-      const image = await captureBlob(pageIndex);
+      image = await captureBlob(pageIndex);
       if (!image) throw new Error('capture-failed');
-      const file = new File(
-        [image.blob],
-        filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext),
-        { type: image.mime }
-      );
+    } catch (e) {
+      console.error('[brosur] share capture failed:', e);
+      showToast(`Gagal generate gambar: ${errMsg(e)}`);
+      setBusy(null);
+      return;
+    }
+    // Phase 2: hand off to the share sheet. iOS Web Share API requires the
+    // call to land inside the user-activation window — capture above can take
+    // a few seconds, which often invalidates the activation. If share fails
+    // with anything other than the user cancelling, fall back to a download
+    // so the user still ends up with a usable file.
+    const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext);
+    try {
+      const file = new File([image.blob], filename, { type: image.mime });
       if (canShareFiles([file])) {
-        try {
-          await navigator.share({
-            files: [file],
-            title: `Brosur Paket Umroh ${exportLabel}`,
-            text: `Paket Umroh ${exportLabel} dari ${agent.name || 'Alhijaz'}`,
-          });
-        } catch (err: any) {
-          if (err?.name === 'AbortError') return; // user cancelled — silent
-          throw err;
-        }
+        await navigator.share({
+          files: [file],
+          title: `Brosur Paket Umroh ${exportLabel}`,
+          text: `Paket Umroh ${exportLabel} dari ${agent.name || 'Alhijaz'}`,
+        });
       } else {
-        downloadBlob(image.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext));
+        downloadBlob(image.blob, filename);
         showToast(`Share tidak didukung, ${image.ext.toUpperCase()} diunduh`);
       }
-    } catch (e) {
-      console.error('[brosur] share failed:', e);
-      showToast('Gagal generate brosur, coba lagi');
+    } catch (e: any) {
+      if (e?.name === 'AbortError') {
+        // User cancelled the share sheet — silent.
+      } else {
+        console.error('[brosur] share failed, falling back to download:', e);
+        downloadBlob(image.blob, filename);
+        showToast(`Share gagal (${errMsg(e)}), file diunduh`);
+      }
     } finally {
       setBusy(null);
     }
