@@ -383,6 +383,7 @@ export function PackageCard({
     if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('a')) {
       return;
     }
+    if (!isExpanded) fireViewContent();
     if (onToggle) {
       onToggle();
     }
@@ -478,7 +479,7 @@ _________________________
       : pkg.brosurUrl.replace(/^https?:\/\/(?:jadwal\.(?:miqot\.com|alhijaz\.co)|115\.124\.86\.220)/i, '')
     : '';
 
-  const handleDownloadBrosur = async () => {
+  const downloadBrosurFile = async () => {
     try {
       const response = await fetch(brosurImageUrl);
       const blob = await response.blob();
@@ -495,7 +496,13 @@ _________________________
     }
   };
 
+  const handleDownloadBrosur = async () => {
+    fireViewContent();
+    await downloadBrosurFile();
+  };
+
   const handleShareBrosur = async () => {
+    fireViewContent();
     try {
       const response = await fetch(brosurImageUrl);
       const blob = await response.blob();
@@ -504,7 +511,7 @@ _________________________
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file] });
       } else {
-        handleDownloadBrosur();
+        await downloadBrosurFile();
       }
     } catch (err: any) {
       if (err.name !== 'AbortError') {
@@ -1815,6 +1822,7 @@ _________________________
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
+                  fireViewContent();
                   document.body.classList.add('navigating');
                   const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
                   const base = seg ? `/${seg}/kalkulasi` : '/kalkulasi';
@@ -1877,6 +1885,7 @@ _________________________
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
+                  fireViewContent();
                   setAskAIOpen(true);
                 }}
                 className="diskusi-ai-border flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 border-transparent transition-transform active:scale-95"
@@ -1908,6 +1917,7 @@ _________________________
               data-screenshot-ignore
               onClick={(e) => {
                 e.stopPropagation();
+                fireViewContent();
                 setAskAIOpen(true);
               }}
               className="diskusi-ai-border w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-transparent mb-2 transition-transform active:scale-[0.98]"
@@ -1931,6 +1941,7 @@ _________________________
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
+                      fireViewContent();
                       if (navigator.share) {
                         navigator.share({ text: shareText }).catch(() => {});
                       } else {
@@ -1952,6 +1963,7 @@ _________________________
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
+                  fireViewContent();
                   document.body.classList.add('navigating');
                   const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
                   const base = seg ? `/${seg}/kalkulasi` : '/kalkulasi';
@@ -1976,6 +1988,7 @@ _________________________
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
+                      fireViewContent();
                       document.body.classList.add('navigating');
                       setTimeout(() => {
                         window.location.href = `/${seg}/compare?paketA=${encodeURIComponent(pkg.jadwalId)}&transition=1`;

@@ -1,12 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { resolve, join } from 'path'
+import { resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { execSync } from 'child_process'
 import { VitePWA } from 'vite-plugin-pwa'
 import dotenv from 'dotenv'
-import nodeCrypto from 'crypto'
-import { existsSync, readFileSync as nodeReadFileSync, writeFileSync as nodeWriteFileSync, mkdirSync as nodeMkdirSync } from 'fs'
 
 dotenv.config()
 
@@ -207,309 +205,55 @@ Buat caption yang membuat orang tertarik untuk segera mendaftar.`;
   };
 }
 
-// Vite plugin: handle /api/capi/* routes in dev server
+// Vite plugin: proxy /api/capi/* to local Express server.
+// Keeping CAPI on the real backend avoids drift between dev and production.
 function capiDevPlugin() {
   return {
-    name: 'capi-dev',
+    name: 'capi-dev-proxy',
     configureServer(server: any) {
-      // ── Agent data (always fresh for HMR) ──
-      async function getAgentsData() {
-        const mod = await server.ssrLoadModule('/src/data/agents.ts');
-        return mod.AGENTS_DATA as Record<string, any>;
-      }
-
-      // ── Crypto helpers (use top-level ESM imports) ──
-      const ENCRYPTION_KEY = process.env.CAPI_ENCRYPTION_KEY || '';
-
-      function encrypt(text: string): string {
-        if (!ENCRYPTION_KEY || !text) return text;
-        const key = Buffer.from(ENCRYPTION_KEY, 'base64').slice(0, 32);
-        const iv = nodeCrypto.randomBytes(12);
-        const cipher = nodeCrypto.createCipheriv('aes-256-gcm', key, iv);
-        let encrypted = cipher.update(text, 'utf8', 'hex');
-        encrypted += cipher.final('hex');
-        const tag = cipher.getAuthTag().toString('hex');
-        return `${iv.toString('hex')}:${tag}:${encrypted}`;
-      }
-
-      function decrypt(data: string): string {
-        if (!ENCRYPTION_KEY || !data || !data.includes(':')) return data;
-        try {
-          const [ivHex, tagHex, encrypted] = data.split(':');
-          const key = Buffer.from(ENCRYPTION_KEY, 'base64').slice(0, 32);
-          const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
-          decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
-          let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-          decrypted += decipher.final('utf8');
-          return decrypted;
-        } catch { return data; }
-      }
-
-      function maskToken(token: string): string {
-        if (!token || token.length <= 6) return token;
-        return token.substring(0, 6) + '****';
-      }
-
-      // ── File storage ──
-      const dataDir = resolve(process.cwd(), 'data', 'capi');
-
-      function getConfigPath(slug: string): string {
-        return join(dataDir, `${slug}.json`);
-      }
-
-      function readConfig(slug: string): any | null {
-        try {
-          const filePath = getConfigPath(slug);
-          if (existsSync(filePath)) {
-            return JSON.parse(nodeReadFileSync(filePath, 'utf8'));
-          }
-        } catch { /* ignore */ }
-        return null;
-      }
-
-      function writeConfig(slug: string, config: any): void {
-        if (!existsSync(dataDir)) {
-          nodeMkdirSync(dataDir, { recursive: true });
-        }
-        nodeWriteFileSync(getConfigPath(slug), JSON.stringify(config, null, 2));
-      }
-
-      // ── Rate limiting ──
-      const rateLimits: Record<string, { count: number; resetAt: number }> = {};
-      function checkRateLimit(slug: string): boolean {
-        const now = Date.now();
-        const limit = rateLimits[slug];
-        if (!limit || now > limit.resetAt) {
-          rateLimits[slug] = { count: 1, resetAt: now + 1000 };
-          return true;
-        }
-        if (limit.count >= 10) return false;
-        limit.count++;
-        return true;
-      }
-
-      // ── Helper to read request body ──
-      async function readBody(req: any): Promise<any> {
-        let body = '';
-        for await (const chunk of req) body += chunk;
-        return body ? JSON.parse(body) : {};
-      }
-
-      function sendJson(res: any, status: number, data: any) {
-        res.writeHead(status, {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        });
-        res.end(JSON.stringify(data));
-      }
-
-      // ── Route handler ──
       server.middlewares.use(async (req: any, res: any, next: any) => {
-        // CORS preflight
-        if (req.method === 'OPTIONS' && req.url?.startsWith('/api/capi/')) {
+        if (!req.url?.startsWith('/api/capi/')) return next();
+
+        if (req.method === 'OPTIONS') {
           res.writeHead(204, {
             'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
           });
           return res.end();
         }
 
-        // Match /api/capi/:slug/:action
-        const match = req.url?.match(/^\/api\/capi\/([a-z0-9-]+)\/(login|config|event|validate)/);
-        if (!match) return next();
-
-        const slug = match[1];
-        const action = match[2];
-        const agents = await getAgentsData();
-
-        // Validate agent exists
-        if (!agents[slug]) {
-          return sendJson(res, 404, { error: 'Agent not found' });
-        }
-
         try {
-          // ── LOGIN — proxy to Express server for bcrypt ──
-          if (action === 'login' && req.method === 'POST') {
-            const body = await readBody(req);
-            try {
-              const proxyRes = await fetch(`http://localhost:3000/api/capi/${slug}/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-              });
-              const proxyData = await proxyRes.json();
-              return sendJson(res, proxyRes.status, proxyData);
-            } catch {
-              return sendJson(res, 500, { error: 'Express server not running on port 3000' });
-            }
+          const headers: Record<string, string> = {};
+          if (req.headers['content-type']) headers['Content-Type'] = String(req.headers['content-type']);
+          if (req.headers.authorization) headers.Authorization = String(req.headers.authorization);
+
+          let body: string | undefined;
+          if (req.method !== 'GET' && req.method !== 'HEAD') {
+            body = '';
+            for await (const chunk of req) body += chunk;
           }
 
-          // ── CONFIG GET ──
-          if (action === 'config' && req.method === 'GET') {
-            const config = readConfig(slug);
-            if (!config) {
-              return sendJson(res, 200, { config: null, maskedToken: '' });
-            }
-            // Decrypt and mask token for display
-            const decryptedToken = decrypt(config.accessToken || '');
-            return sendJson(res, 200, {
-              config: { ...config, accessToken: decryptedToken },
-            });
-          }
-
-          // ── CONFIG POST ──
-          if (action === 'config' && req.method === 'POST') {
-            const body = await readBody(req);
-            const existingConfig = readConfig(slug);
-
-            // Validation
-            if (!body.pixelId?.trim()) {
-              return sendJson(res, 400, { success: false, error: 'Pixel ID wajib diisi' });
-            }
-
-            // If token is empty but we have one stored, keep it
-            let tokenToStore = body.accessToken;
-            if (!tokenToStore && existingConfig?.accessToken) {
-              tokenToStore = existingConfig.accessToken; // already encrypted
-            } else if (tokenToStore) {
-              tokenToStore = encrypt(tokenToStore);
-            }
-
-            if (!tokenToStore) {
-              return sendJson(res, 400, { success: false, error: 'Access Token wajib diisi' });
-            }
-
-            const configToSave = {
-              pixelId: body.pixelId || '',
-              accessToken: tokenToStore || '',
-              testEventCode: body.testEventCode || '',
-              testMode: !!body.testMode,
-              events: body.events || {},
-              updatedAt: new Date().toISOString(),
-            };
-
-            writeConfig(slug, configToSave);
-
-            const decryptedForDisplay = decrypt(configToSave.accessToken);
-            return sendJson(res, 200, {
-              success: true,
-              savedToken: decryptedForDisplay,
-            });
-          }
-
-          // ── CONFIG DELETE (reset) ──
-          if (action === 'config' && req.method === 'DELETE') {
-            const configToSave = {
-              pixelId: '',
-              accessToken: '',
-              testEventCode: '',
-              testMode: false,
-              events: {},
-              updatedAt: new Date().toISOString(),
-            };
-            writeConfig(slug, configToSave);
-            return sendJson(res, 200, { success: true });
-          }
-
-          // ── EVENT ──
-          if (action === 'event' && req.method === 'POST') {
-            if (!checkRateLimit(slug)) {
-              return sendJson(res, 429, { error: 'Rate limit exceeded' });
-            }
-
-            const body = await readBody(req);
-            const config = readConfig(slug);
-            if (!config) {
-              return sendJson(res, 200, { sent: false, reason: 'No config' });
-            }
-
-            const eventKey = body.eventKey;
-            const eventConfig = config.events?.[eventKey];
-            if (!eventConfig?.enabled) {
-              return sendJson(res, 200, { sent: false, reason: 'Event disabled' });
-            }
-
-            // Determine event name
-            let eventName = eventConfig.eventName;
-            if (eventName === 'CustomEvent') {
-              eventName = eventConfig.customEventName || eventKey;
-            }
-
-            // Build Meta CAPI payload
-            const accessToken = decrypt(config.accessToken);
-            const pixelId = config.pixelId;
-
-            if (!accessToken || !pixelId) {
-              return sendJson(res, 200, { sent: false, reason: 'Missing credentials' });
-            }
-
-            const metaPayload = {
-              data: [{
-                event_name: eventName,
-                event_time: body.timestamp || Math.floor(Date.now() / 1000),
-                event_id: body.eventId,
-                event_source_url: body.sourceUrl,
-                user_data: {
-                  client_user_agent: body.userAgent,
-                  fbc: body.fbc || undefined,
-                  fbp: body.fbp || undefined,
-                },
-                action_source: 'website',
-              }],
-              ...(config.testMode && config.testEventCode ? { test_event_code: config.testEventCode } : {}),
-            };
-
-            try {
-              const metaRes = await fetch(
-                `https://graph.facebook.com/v21.0/${pixelId}/events?access_token=${encodeURIComponent(accessToken)}`,
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(metaPayload),
-                }
-              );
-              const metaData = await metaRes.json();
-              return sendJson(res, 200, { sent: true, response: metaData });
-            } catch (err: any) {
-              console.error('[CAPI] Meta API error:', err);
-              return sendJson(res, 200, { sent: false, reason: err.message });
-            }
-          }
-
-          // ── VALIDATE ──
-          if (action === 'validate' && req.method === 'POST') {
-            const config = readConfig(slug);
-            if (!config?.pixelId || !config?.accessToken) {
-              return sendJson(res, 200, { valid: false, reason: 'Missing credentials' });
-            }
-
-            const accessToken = decrypt(config.accessToken);
-            try {
-              const metaRes = await fetch(
-                `https://graph.facebook.com/v21.0/${config.pixelId}?access_token=${encodeURIComponent(accessToken)}&fields=name,id`
-              );
-              const metaData = await metaRes.json();
-              // If we get an id back, fully connected
-              if (metaData?.id && !metaData?.error) {
-                return sendJson(res, 200, { valid: true, pixel: metaData });
-              }
-              // "Missing Permission" means the token IS valid (authenticated)
-              // but lacks ads_read — this is fine for CAPI (only needs ads_management)
-              if (metaData?.error?.code === 100 && metaData?.error?.message?.includes('Missing Permission')) {
-                return sendJson(res, 200, { valid: true, note: 'Token valid, CAPI ready' });
-              }
-              // Anything else (invalid token, expired, etc.) is an error
-              return sendJson(res, 200, { valid: false, error: metaData?.error });
-            } catch (err: any) {
-              return sendJson(res, 200, { valid: false, reason: 'Connection failed' });
-            }
-          }
-
-          return sendJson(res, 404, { error: 'Unknown action' });
+          const upstream = await fetch(`http://localhost:3000${req.url}`, {
+            method: req.method,
+            headers,
+            body,
+          });
+          const text = await upstream.text();
+          res.writeHead(upstream.status, {
+            'Content-Type': upstream.headers.get('content-type') || 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          return res.end(text);
         } catch (err: any) {
-          console.error('[CAPI] Error:', err);
-          return sendJson(res, 500, { error: 'Internal error', message: err.message });
+          res.writeHead(502, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          return res.end(JSON.stringify({
+            error: 'Express server not reachable for CAPI routes',
+            message: err.message,
+          }));
         }
       });
     },

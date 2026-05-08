@@ -185,12 +185,18 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   async function waitForFonts() {
     if (!document.fonts) return;
     try {
-      await Promise.all(
-        [
-          ...BROCHURE_FONT_WEIGHTS.map(w => document.fonts.load(`${w} 16px "Inter"`).catch(() => null)),
-          document.fonts.load(`400 16px "Bebas Neue"`).catch(() => null),
-        ]
-      );
+      // Probe at the actual sizes used in the brochure, not 16px. Some browsers cache
+      // font metrics per size — probing at 16 doesn't guarantee 25/40/etc are decoded
+      // by the time snapdom serializes the SVG.
+      await Promise.all([
+        ...BROCHURE_FONT_WEIGHTS.map(w => document.fonts.load(`${w} 32px "Inter"`).catch(() => null)),
+        ...BROCHURE_FONT_WEIGHTS.map(w => document.fonts.load(`${w} 88px "Inter"`).catch(() => null)),
+        document.fonts.load(`400 25px "Bebas Neue"`).catch(() => null),
+        document.fonts.load(`400 42px "Bebas Neue"`).catch(() => null),
+        document.fonts.load(`500 25px "Oswald"`).catch(() => null),
+        document.fonts.load(`900 40px "Montserrat"`).catch(() => null),
+        document.fonts.load(`800 20px "Montserrat"`).catch(() => null),
+      ]);
       await document.fonts.ready;
       await waitForNextPaint();
       await waitForNextPaint();
@@ -222,19 +228,28 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     await waitForNextPaint();
     const { snapdom } = await import('@zumer/snapdom');
 
+    // Always capture with embedFonts: true. The previous fallback to embedFonts: false
+    // produced a "successful" PNG that was rendered with system-fallback fonts (because
+    // an SVG <foreignObject> data URL doesn't share the page's font registry) — which is
+    // exactly the bug we're trying to avoid. If the first attempt fails, re-warm fonts
+    // and try the same config once more.
     let lastError: unknown = null;
-    for (const embedFonts of [true, false]) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const result = await snapdom(target, {
           scale: EXPORT_SCALE,
-          embedFonts,
+          embedFonts: true,
           backgroundColor: '#FFFFFF',
         });
         const image = await toExportedImage(result);
         if (image) return image;
       } catch (err) {
         lastError = err;
-        console.warn(`[brosur] capture failed with embedFonts=${embedFonts}:`, err);
+        console.warn(`[brosur] capture attempt ${attempt + 1} failed:`, err);
+      }
+      if (attempt === 0) {
+        await waitForFonts();
+        await waitForNextPaint();
       }
     }
 

@@ -43,10 +43,12 @@ export interface BrochureScheduleTemplateProps {
 }
 
 export const BROCHURE_W = 1080;
-export const BROCHURE_H = 1920;
+export const BROCHURE_H = 1620;
 
 export const BROCHURE_FONT_STACK = "'Inter', 'Inter var', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 export const BROCHURE_TABLE_FONT_STACK = "'Bebas Neue', 'Inter', 'Arial Narrow', system-ui, sans-serif";
+export const BROCHURE_OSWALD_FONT_STACK = "'Oswald', 'Inter', 'Arial Narrow', system-ui, sans-serif";
+export const BROCHURE_MONTSERRAT_FONT_STACK = "'Montserrat', 'Inter', system-ui, -apple-system, sans-serif";
 export const BROCHURE_FONT_WEIGHTS = [400, 600, 700, 800, 900] as const;
 
 const MONTH_ABBR_ID = ['JAN','FEB','MAR','APR','MEI','JUN','JUL','AGT','SEP','OKT','NOV','DES'];
@@ -63,7 +65,7 @@ const ISLAMIC_PATTERN_BG = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3
 const DOME_IMAGE = '/img-brosur/nabawi-dome.png';
 const KABAH_IMAGE = '/img-brosur/kabah.png';
 const NABAWI_WIDE_IMAGE = '/img-brosur/nabawi-wide.png';
-const TABLE_COLUMNS = '74px 276px 64px 374px 160px';
+const TABLE_COLUMNS = '88px 460px 88px 140px 172px';
 const PACKAGE_NAME_FONT_SIZE = 25;
 
 function formatHargaJt(harga: number): string {
@@ -173,14 +175,15 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
   const landingUrl = landingUrlForAgent(agent);
   const agentName = agent.name || 'Alhijaz';
   const monthTitle = month.label.toUpperCase();
-  const monthTitleFontSize = monthTitle.length >= 14 ? 92 : monthTitle.length >= 12 ? 100 : 108;
+  const monthTitleFontSize = monthTitle.length >= 14 ? 80 : monthTitle.length >= 12 ? 86 : 92;
   const agentNameFontSize = agentName.length > 28 ? 32 : agentName.length > 22 ? 36 : agentName.length > 16 ? 39 : 42;
   const phoneFontSize = phone.length > 14 ? 26 : 28;
 
-  // Row height adapts: 7 rows = 110px, 10 rows = 90px (linear). Cap min 80px.
+  // Row height adapts to fit a 1080×1620 (2:3) canvas. With max 10 packages/image:
+  // n=7 → 105px, n=10 → 87px. Floor 80px / cap 110px keep rows legible without wasting space.
   const n = month.packages.length;
-  const rowH = Math.max(80, Math.round(110 - (n - 7) * 5));
-  const landmarkMaxH = Math.max(188, 282 - Math.max(0, n - 7) * 30);
+  const rowH = Math.max(80, Math.min(110, Math.round(105 - (n - 7) * 6)));
+  const landmarkMaxH = Math.max(160, 230 - Math.max(0, n - 7) * 26);
 
   return (
     <div style={{
@@ -257,7 +260,7 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
 
       {/* Header bar — uniform 50px insets on all sides */}
       <div style={{
-        height: 166,
+        height: 150,
         position: 'relative',
         zIndex: 2,
       }}>
@@ -266,9 +269,9 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
           alt="Alhijaz"
           style={{
             position: 'absolute',
-            top: 42,
+            top: 38,
             left: 50,
-            height: 108,
+            height: 96,
             width: 'auto',
             objectFit: 'contain',
           }}
@@ -288,9 +291,9 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
           alt="5 Pasti Umrah"
           style={{
             position: 'absolute',
-            top: 48,
+            top: 42,
             right: 50,
-            width: 112,
+            width: 100,
             height: 'auto',
             objectFit: 'contain',
             filter: 'drop-shadow(0 10px 18px rgba(90,0,16,0.18))',
@@ -300,15 +303,15 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
 
       {/* Title block */}
       <div style={{
-        padding: '34px 60px 18px',
+        padding: '26px 60px 14px',
         textAlign: 'center',
         position: 'relative',
         zIndex: 2,
       }}>
         <div style={{
-          fontSize: 88, fontWeight: 900, lineHeight: 0.92, letterSpacing: 0,
+          fontSize: 78, fontWeight: 900, lineHeight: 0.92, letterSpacing: 0,
           color: BRAND_RED,
-          textShadow: '0 5px 0 rgba(248,223,161,0.65)',
+          textShadow: '0 4px 0 rgba(248,223,161,0.65)',
         }}>PAKET UMROH</div>
         <div style={{
           position: 'relative',
@@ -317,20 +320,20 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
           fontWeight: 900,
           lineHeight: 0.96,
           letterSpacing: 0,
-          marginTop: 4,
-          padding: '0 24px 12px',
+          marginTop: 3,
+          padding: '0 22px 11px',
         }}>
           <span aria-hidden="true" style={{
             position: 'absolute',
-            inset: '0 24px 12px',
-            transform: 'translateY(7px)',
+            inset: '0 22px 11px',
+            transform: 'translateY(6px)',
             color: PALE_GOLD,
             opacity: 0.95,
             zIndex: 0,
           }}>{monthTitle}</span>
           <span aria-hidden="true" style={{
             position: 'absolute',
-            inset: '0 24px 12px',
+            inset: '0 22px 11px',
             color: 'transparent',
             WebkitTextStroke: `7px ${PALE_GOLD}`,
             zIndex: 1,
@@ -340,7 +343,7 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
             zIndex: 3,
             color: BRAND_RED,
             WebkitTextStroke: `2px ${DEEP_RED}`,
-            textShadow: '0 2px 0 rgba(255,255,255,0.38), 0 12px 24px rgba(90,0,16,0.16)',
+            textShadow: '0 2px 0 rgba(255,255,255,0.38), 0 11px 22px rgba(90,0,16,0.16)',
           }}>{monthTitle}</span>
         </div>
         <div style={{
@@ -349,14 +352,14 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
           justifyContent: 'center',
           width: 'max-content',
           maxWidth: '100%',
-          padding: '9px 22px 10px',
-          margin: '6px auto 0',
+          padding: '8px 20px 9px',
+          margin: '5px auto 0',
           borderRadius: 999,
           background: 'rgba(255,255,255,0.78)',
           border: `2px solid ${PALE_GOLD}`,
-          boxShadow: '0 10px 28px rgba(90,0,16,0.08)',
+          boxShadow: '0 9px 25px rgba(90,0,16,0.08)',
           color: DEEP_RED,
-          fontSize: 26,
+          fontSize: 24,
           fontWeight: 900,
           lineHeight: 1,
         }}>
@@ -392,7 +395,7 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
           <span style={{ textAlign: 'center' }}>TGL</span>
           <span style={{ textAlign: 'center' }}>PAKET</span>
           <span style={{ textAlign: 'center' }}>HARI</span>
-          <span style={{ textAlign: 'center' }}>HOTEL</span>
+          <span style={{ textAlign: 'center' }}>MASKAPAI</span>
           <span style={{ textAlign: 'center' }}>HARGA</span>
         </div>
 
@@ -400,7 +403,6 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
         {month.packages.map((p, i) => {
           const packageName = cleanPackageDisplayName(p.nama);
           const tripDays = p.hari ?? countTripDays(p.berangkat_tgl, p.pulang_tgl);
-          const hotels = orderedHotels(p.hotel || []);
           const departureDay = formatDepartureDay(p.berangkat_tgl);
 
           return (
@@ -436,91 +438,71 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
                 <span style={{ fontSize: 42, fontWeight: 400 }}>{departureDay}</span>
               </span>
               <span style={{
-                overflow: 'hidden',
                 display: '-webkit-box',
                 WebkitLineClamp: 2,
                 WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                // Grid items default to min-width:auto, which lets content overflow the
+                // 276px track. Force the span to respect the column width so wrapping
+                // and ellipsis happen on the correct edge.
+                minWidth: 0,
+                // Without this, a single token wider than the column (e.g. a name with
+                // no spaces) won't break — line 1 overflows, gets clipped, and the
+                // ellipsis appears on line 1 mid-token instead of at the natural end of
+                // line 2. `anywhere` lets the browser break inside long tokens so the
+                // text uses both lines and the ellipsis lands at the very end.
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
                 paddingLeft: 16,
                 paddingRight: 12,
                 lineHeight: 1.04,
+                fontFamily: BROCHURE_OSWALD_FONT_STACK,
                 fontSize: PACKAGE_NAME_FONT_SIZE,
-                fontWeight: 400,
+                fontWeight: 500,
               }}>
                 {packageName}
               </span>
               <span style={{
                 textAlign: 'center',
                 color: DEEP_RED,
-                fontWeight: 400,
+                fontFamily: BROCHURE_OSWALD_FONT_STACK,
+                fontWeight: 500,
                 lineHeight: 0.9,
                 whiteSpace: 'nowrap',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
+                gap: 6,
               }}>
                 <span style={{ fontSize: 36 }}>{tripDays || '-'}</span>
-                <span style={{ fontSize: 15, letterSpacing: 0.8 }}>HARI</span>
+                <span style={{ fontSize: 17, letterSpacing: 0.8 }}>HARI</span>
               </span>
               <span style={{
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
                 minWidth: 0,
-                display: 'grid',
-                gridTemplateColumns: hotels.length > 1 ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)',
-                columnGap: 18,
-                paddingRight: 12,
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
+                textAlign: 'center',
+                fontFamily: BROCHURE_OSWALD_FONT_STACK,
+                fontSize: 24,
+                fontWeight: 500,
+                color: INK,
+                lineHeight: 1.02,
+                paddingLeft: 6,
+                paddingRight: 6,
               }}>
-                {hotels.length > 0 ? hotels.map((h) => {
-                  const stars = starCount(h.stars);
-                  return (
-                    <span key={`${p.id}-${h.city}`} style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 5,
-                      minWidth: 0,
-                    }}>
-                      <span style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 7,
-                        minWidth: 0,
-                        lineHeight: 0.95,
-                      }}>
-                        <span style={{ color: MUTED, fontSize: 20, fontWeight: 400, textTransform: 'uppercase' }}>{h.city}</span>
-                        {stars > 0 && (
-                          <span style={{
-                            color: GOLD,
-                            fontFamily: BROCHURE_FONT_STACK,
-                            fontSize: 14,
-                            letterSpacing: -1,
-                            fontWeight: 900,
-                            whiteSpace: 'nowrap',
-                          }}>
-                            {'★'.repeat(stars)}
-                          </span>
-                        )}
-                      </span>
-                      <span style={{
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                        fontSize: hotelNameFontSize(h.name),
-                        fontWeight: 400,
-                        color: INK,
-                        lineHeight: 0.92,
-                      }}>
-                        {h.name}
-                      </span>
-                    </span>
-                  );
-                }) : (
-                  <span style={{ color: MUTED, fontSize: 23, fontWeight: 400 }}>Hotel menyusul</span>
-                )}
+                {p.maskapai || '-'}
               </span>
               <span style={{
                 textAlign: 'center',
                 whiteSpace: 'nowrap',
-                fontFamily: BROCHURE_FONT_STACK,
+                fontFamily: BROCHURE_MONTSERRAT_FONT_STACK,
               }}>
                 {p.soldOut ? (
                   <span style={{
@@ -644,8 +626,8 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
 
       {/* Footer pill — agent info */}
       <div style={{
-        margin: '0 50px 42px',
-        padding: '22px 28px',
+        margin: '0 50px 36px',
+        padding: '20px 26px',
         borderRadius: 26,
         background: `linear-gradient(135deg, ${DARK_RED} 0%, ${DEEP_RED} 44%, ${BRAND_RED} 100%)`,
         border: `3px solid ${PALE_GOLD}`,
@@ -708,6 +690,12 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
                 color: '#fff',
                 fontWeight: 900,
                 lineHeight: 1,
+                // Hyphens in the formatted phone (0822-9000-2034) are soft break opportunities.
+                // Without nowrap, the digits split across two lines inside the badge when
+                // the agent name leaves limited horizontal room. flexShrink:0 keeps the badge
+                // intact and lets the parent flex container wrap the whole badge instead.
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
               }}>
                 <span style={{
                   width: 36,
@@ -719,10 +707,11 @@ export function BrochureScheduleTemplate({ month, agent }: BrochureScheduleTempl
                   alignItems: 'center',
                   justifyContent: 'center',
                   boxShadow: '0 4px 10px rgba(0,0,0,0.16)',
+                  flexShrink: 0,
                 }}>
                   <WhatsAppIcon size={24} />
                 </span>
-                <span style={{ fontSize: phoneFontSize }}>{phone}</span>
+                <span style={{ fontSize: phoneFontSize, whiteSpace: 'nowrap' }}>{phone}</span>
               </span>
             )}
           </div>

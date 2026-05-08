@@ -118,17 +118,33 @@ function DashboardRouter() {
   const [checking, setChecking] = useState(true)
 
   useEffect(() => {
-    if (!session) { setChecking(false); return }
+    if (!session?.token) { setChecking(false); return }
+    const token = session.token
     // Verify token — but never auto-logout on failure (network error, server restart, etc.)
-    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${session.token}` } })
+    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => { if (!r.ok) throw new Error('expired'); return r.json() })
-      .then(() => setChecking(false))
+      .then((user) => {
+        setSession(prev => {
+          if (!prev || prev.token !== token) return prev
+          const next = { ...prev, user: { ...prev.user, ...user } }
+          try {
+            const storage = localStorage.getItem('auth_session')
+              ? localStorage
+              : sessionStorage.getItem('auth_session')
+              ? sessionStorage
+              : null
+            storage?.setItem('auth_session', JSON.stringify(next))
+          } catch { /* ignore */ }
+          return next
+        })
+        setChecking(false)
+      })
       .catch(() => {
         // Don't clear session — just proceed with existing session
         // Agent should never be auto-logged out
         setChecking(false)
       })
-  }, [session])
+  }, [session?.token])
 
   if (checking) {
     return (
@@ -210,4 +226,3 @@ if (!shouldAutoRedirect) {
     createRoot(document.getElementById('root')!).render(page)
   })()
 }
-

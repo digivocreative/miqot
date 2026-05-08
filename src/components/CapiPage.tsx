@@ -5,9 +5,11 @@ import {
   Lock, Activity, Shield, Settings as SettingsIcon, ScrollText,
   Save, Trash2, AlertTriangle, AlertCircle, CheckCircle2, XCircle,
   Loader2, ChevronDown, Check, FlaskConical, Zap, Sun, Moon, LogOut,
+  RefreshCw,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import CapiEventLog from './CapiEventLog';
+import { getAuthHeaders } from './LoginPage';
 
 // ── Types ──
 
@@ -21,6 +23,8 @@ interface CapiConfig {
 }
 
 type ConnectionStatus = 'unconfigured' | 'connected' | 'error' | 'checking';
+
+const DEFAULT_STATUS_ERROR_DESC = 'Pixel ID atau Access Token tidak valid.';
 
 const META_EVENTS = [
   'PageView', 'Search', 'ViewContent', 'Contact', 'Lead',
@@ -45,6 +49,17 @@ const DEFAULT_CONFIG: CapiConfig = {
   ),
   updatedAt: '',
 };
+
+function normalizeLoadedConfig(config?: Partial<CapiConfig> | null): CapiConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    ...(config || {}),
+    events: {
+      ...DEFAULT_CONFIG.events,
+      ...(config?.events || {}),
+    },
+  };
+}
 
 // ── Meta Event Icons (lucide-react) ──
 const META_EVENT_ICONS: Record<string, LucideIcon> = {
@@ -334,41 +349,73 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
   const [config, setConfig] = useState<CapiConfig>(DEFAULT_CONFIG);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [replayingPurchases, setReplayingPurchases] = useState(false);
   const [saved, setSaved] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('unconfigured');
+  const [statusErrorDesc, setStatusErrorDesc] = useState(DEFAULT_STATUS_ERROR_DESC);
   const [configLoaded, setConfigLoaded] = useState(false);
-
-
-  // Load existing config
-  useEffect(() => {
-    fetch(`/api/capi/${agentSlug}/config`)
-      .then(r => r.json())
-      .then(async data => {
-        if (data.config) {
-          setConfig(data.config);
-          // Validate connection with real Meta API
-          if (data.config.pixelId && data.config.accessToken) {
-            setStatus('checking');
-            try {
-              const valRes = await fetch(`/api/capi/${agentSlug}/validate`, { method: 'POST' });
-              const valData = await valRes.json();
-              setStatus(valData.valid ? 'connected' : 'error');
-            } catch {
-              setStatus('error');
-            }
-          }
-        }
-        setConfigLoaded(true);
-      })
-      .catch(() => setConfigLoaded(true));
-  }, [agentSlug]);
 
   // Show toast
   const showToast = useCallback((message: string, type: 'success' | 'error') => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
+    setTimeout(() => setToast(null), 3500);
   }, []);
+
+  // Load existing config
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadConfig = async () => {
+      try {
+        const res = await fetch(`/api/capi/${agentSlug}/config`, { headers: getAuthHeaders() });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || `HTTP ${res.status}`);
+        }
+
+        if (data.config) {
+          const loadedConfig = normalizeLoadedConfig(data.config);
+          if (!cancelled) setConfig(loadedConfig);
+
+          // Validate connection with real Meta API
+          if (loadedConfig.pixelId && loadedConfig.accessToken) {
+            if (!cancelled) setStatus('checking');
+            try {
+              const valRes = await fetch(`/api/capi/${agentSlug}/validate`, { method: 'POST', headers: getAuthHeaders() });
+              const valData = await valRes.json().catch(() => ({}));
+              if (!cancelled) {
+                setStatusErrorDesc(DEFAULT_STATUS_ERROR_DESC);
+                setStatus(valRes.ok && valData.valid ? 'connected' : 'error');
+              }
+            } catch {
+              if (!cancelled) {
+                setStatusErrorDesc('Konfigurasi termuat, tapi koneksi ke Meta gagal divalidasi.');
+                setStatus('error');
+              }
+            }
+          } else if (!cancelled) {
+            setStatus('unconfigured');
+          }
+        } else if (!cancelled) {
+          setConfig(normalizeLoadedConfig());
+          setStatus('unconfigured');
+        }
+      } catch (err) {
+        console.warn('[CAPI] Gagal memuat konfigurasi:', err);
+        if (!cancelled) {
+          setStatusErrorDesc('Konfigurasi gagal dimuat dari server.');
+          setStatus('error');
+          showToast('Gagal memuat konfigurasi CAPI. Silakan login ulang jika masih terjadi.', 'error');
+        }
+      } finally {
+        if (!cancelled) setConfigLoaded(true);
+      }
+    };
+
+    loadConfig();
+    return () => { cancelled = true; };
+  }, [agentSlug, showToast]);
 
   // Update config helper
   const updateConfig = (partial: Partial<CapiConfig>) => {
@@ -385,6 +432,33 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
         [key]: { ...fallback, ...prev.events[key], [field]: value },
       },
     }));
+  };
+
+  const handleManualPurchaseReplay = async () => {
+    if (!config.pixelId.trim() || !config.accessToken.trim()) {
+      showToast('CAPI belum lengkap.', 'error');
+      return;
+    }
+    if (!window.confirm('Re-hit event Purchase untuk seluruh jamaah umroh dan haji agent ini?')) return;
+
+    setReplayingPurchases(true);
+    try {
+      const replayRes = await fetch(`/api/capi/${agentSlug}/replay-purchases`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ reason: 'manual-rehit', mode: 'reset-all' }),
+      });
+      const replayData = await replayRes.json().catch(() => ({}));
+      if (!replayRes.ok || !replayData.success) {
+        showToast(replayData.error || 'Gagal menjalankan re-hit Purchase.', 'error');
+        return;
+      }
+      showToast('Re-hit Purchase jamaah berjalan di background.', 'success');
+    } catch {
+      showToast('Gagal menghubungi server.', 'error');
+    } finally {
+      setReplayingPurchases(false);
+    }
   };
 
   // Save config
@@ -407,12 +481,13 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
       // Step 1: Save config first (so validate endpoint can read it)
       const res = await fetch(`/api/capi/${agentSlug}/config`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify(config),
       });
       const data = await res.json();
       if (!data.success) {
         showToast(data.error || 'Gagal menyimpan konfigurasi', 'error');
+        setStatusErrorDesc(data.error || 'Gagal menyimpan konfigurasi CAPI.');
         setStatus('error');
         setSaving(false);
         return;
@@ -425,23 +500,51 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
 
       // Step 2: Validate credentials against Meta API
       try {
-        const valRes = await fetch(`/api/capi/${agentSlug}/validate`, { method: 'POST' });
+        const valRes = await fetch(`/api/capi/${agentSlug}/validate`, { method: 'POST', headers: getAuthHeaders() });
         const valData = await valRes.json();
         if (valData.valid) {
           setStatus('connected');
           setSaved(true);
           setTimeout(() => setSaved(false), 2500);
-          showToast('Konfigurasi disimpan & Pixel tervalidasi! Koneksi aktif.', 'success');
+          if (data.purchaseRehitRequired) {
+            try {
+              const replayRes = await fetch(`/api/capi/${agentSlug}/replay-purchases`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({
+                  reason: data.purchaseRehitReason || 'config-change',
+                  mode: data.purchaseReplayMode || 'reset-all',
+                }),
+              });
+              const replayData = await replayRes.json().catch(() => ({}));
+              if (!replayRes.ok || !replayData.success) {
+                console.warn('[CAPI] Gagal queue replay Purchase:', replayData.error || replayRes.status);
+              }
+            } catch (err) {
+              console.warn('[CAPI] Gagal queue replay Purchase:', err);
+            }
+            showToast(
+              data.purchaseReplayMode === 'retry-unhit'
+                ? 'Konfigurasi tersimpan. Retry Purchase yang belum sukses berjalan di background.'
+                : 'Konfigurasi tersimpan. Re-hit Purchase jamaah berjalan di background.',
+              'success'
+            );
+          } else {
+            showToast('CAPI tersimpan. Koneksi aktif.', 'success');
+          }
         } else {
+          setStatusErrorDesc(DEFAULT_STATUS_ERROR_DESC);
           setStatus('error');
           showToast('Konfigurasi disimpan, tapi Pixel ID atau Access Token tidak valid.', 'error');
         }
       } catch {
+        setStatusErrorDesc('Konfigurasi disimpan, tapi koneksi ke Meta gagal divalidasi.');
         setStatus('error');
         showToast('Konfigurasi disimpan, tapi gagal memvalidasi koneksi ke Meta.', 'error');
       }
     } catch {
       showToast('Gagal menghubungi server', 'error');
+      setStatusErrorDesc('Server tidak merespons saat menyimpan konfigurasi.');
       setStatus('error');
     } finally {
       setSaving(false);
@@ -700,7 +803,7 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
                   <StatusCard variant="ok" icon={CheckCircle2} title="Connected" desc="Pixel aktif dan siap menerima event." />
                 )}
                 {status === 'error' && (
-                  <StatusCard variant="err" icon={XCircle} title="Error" desc="Pixel ID atau Access Token tidak valid." />
+                  <StatusCard variant="err" icon={XCircle} title="Error" desc={statusErrorDesc} />
                 )}
               </div>
             </div>
@@ -721,13 +824,28 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
             )}
           </button>
 
+          {/* Manual Purchase Replay Button */}
+          <button
+            type="button"
+            onClick={handleManualPurchaseReplay}
+            disabled={saving || replayingPurchases || !config.pixelId || !config.accessToken}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/15 border border-emerald-100 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/25 transition-colors disabled:opacity-50 disabled:hover:bg-emerald-50 dark:disabled:hover:bg-emerald-900/15"
+          >
+            {replayingPurchases ? (
+              <Loader2 size={13} strokeWidth={2.2} className="animate-spin" />
+            ) : (
+              <RefreshCw size={13} strokeWidth={2.2} />
+            )}
+            Re-hit Purchase Jamaah
+          </button>
+
           {/* Reset Button */}
           <button
             type="button"
             onClick={async () => {
               if (!window.confirm('Apakah Anda yakin ingin mereset Pixel ID dan Access Token? Data akan dihapus permanen.')) return;
               try {
-                const res = await fetch(`/api/capi/${agentSlug}/config`, { method: 'DELETE' });
+                const res = await fetch(`/api/capi/${agentSlug}/config`, { method: 'DELETE', headers: getAuthHeaders() });
                 const data = await res.json();
                 if (data.success) {
                   setConfig(prev => ({ ...prev, pixelId: '', accessToken: '', testEventCode: '' }));
@@ -750,13 +868,20 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
     </div>
   );
 
+  const ToastIcon = toast?.type === 'success' ? CheckCircle2 : AlertCircle;
   const toastNode = toast && (
-    <div className={`fixed top-4 left-4 right-4 sm:left-auto sm:right-4 sm:max-w-sm z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-lg border ${
-      toast.type === 'success'
-        ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800/40'
-        : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-200 border-red-200 dark:border-red-800/40'
-    }`} style={{ animation: 'capi-toast-in 0.3s ease' }}>
-      {toast.message}
+    <div
+      role="status"
+      aria-live="polite"
+      className={`fixed left-1/2 -translate-x-1/2 bottom-24 z-50 pointer-events-none flex max-w-[90vw] items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-1.5 text-[11.5px] font-medium shadow-md ${
+        toast.type === 'success'
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-900/30 dark:text-emerald-200'
+          : 'border-red-200 bg-red-50 text-red-700 dark:border-red-800/40 dark:bg-red-900/30 dark:text-red-200'
+      }`}
+      style={{ animation: 'capi-toast-fade-in 150ms ease-out' }}
+    >
+      <ToastIcon size={13} strokeWidth={2.4} className="shrink-0" />
+      <span className="min-w-0 overflow-hidden text-ellipsis">{toast.message}</span>
     </div>
   );
 
@@ -1982,6 +2107,10 @@ const capiStyles = `
     opacity: 1;
     transform: translateY(0);
   }
+}
+@keyframes capi-toast-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* ── Responsive ── */

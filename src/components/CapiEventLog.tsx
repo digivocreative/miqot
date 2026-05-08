@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { RefreshCw, ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
+import { RefreshCw, ChevronLeft, ChevronRight, Inbox, AlertTriangle } from 'lucide-react';
+import { getAuthHeaders } from './LoginPage';
 
 interface LogEntry {
   id: number;
@@ -9,6 +10,14 @@ interface LogEntry {
   error_message: string | null;
   source: string;
   created_at: string;
+}
+
+interface CircuitState {
+  open: boolean;
+  consecutiveFailures: number;
+  lastError: string | null;
+  openedAt?: string;
+  resumesAt?: string;
 }
 
 const EVENT_OPTIONS = ['', 'Purchase', 'Contact', 'PageView', 'Search', 'ViewContent'];
@@ -45,18 +54,24 @@ export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
+  const [circuit, setCircuit] = useState<CircuitState | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const eventOptions = Array.from(new Set([
+    ...EVENT_OPTIONS.filter(Boolean),
+    ...logs.map(log => log.event_name).filter(Boolean),
+  ])).sort((a, b) => a.localeCompare(b));
 
   const fetchLogs = useCallback(async (p = page, event = filter) => {
     try {
       const params = new URLSearchParams({ page: String(p), limit: '20' });
       if (event) params.set('event', event);
-      const res = await fetch(`/api/capi/${agentSlug}/logs?${params}`);
+      const res = await fetch(`/api/capi/${agentSlug}/logs?${params}`, { headers: getAuthHeaders() });
       if (!res.ok) return;
       const data = await res.json();
       setLogs(data.logs || []);
       setTotal(data.total || 0);
       setTotalPages(data.totalPages || 0);
+      setCircuit(data.circuit || null);
     } catch {
       // silent
     } finally {
@@ -92,7 +107,7 @@ export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
             className="h-7 text-[10px] font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2 pr-6 outline-none appearance-none cursor-pointer"
           >
             <option value="">Semua</option>
-            {EVENT_OPTIONS.filter(Boolean).map(e => (
+            {eventOptions.map(e => (
               <option key={e} value={e}>{e}</option>
             ))}
           </select>
@@ -104,6 +119,19 @@ export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
           </button>
         </div>
       </div>
+
+      {circuit?.open && (
+        <div className="mb-2 flex items-start gap-2 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-amber-700 dark:text-amber-300">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold">CAPI dijeda sementara</p>
+            <p className="text-[10px] leading-relaxed opacity-80">
+              {circuit.lastError || 'Meta menolak beberapa event berurutan.'}
+              {circuit.resumesAt ? ` Coba lagi otomatis ${formatDate(circuit.resumesAt)}.` : ''}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       {loading && logs.length === 0 ? (

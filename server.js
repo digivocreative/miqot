@@ -3585,36 +3585,129 @@ function capiDecrypt(data) {
   } catch { return data; }
 }
 
-async function readCapiConfig(agentId) {
-  const { data, error } = await supabase
-    .from('capi_configs')
-    .select('*')
-    .eq('agent_id', agentId)
-    .single();
-  if (error || !data) return null;
+function isSupabaseSchemaMiss(error) {
+  const text = `${error?.code || ''} ${error?.message || ''} ${error?.details || ''}`;
+  return text.includes('42703') ||
+    text.includes('does not exist') ||
+    text.includes('schema cache') ||
+    text.includes('Could not find');
+}
+
+function normalizeCapiSlug(slug) {
+  return String(slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+}
+
+function mapCapiConfigRow(data) {
+  if (!data) return null;
   return {
-    pixelId: data.pixel_id,
-    accessToken: data.access_token,
-    testEventCode: data.test_event_code,
-    testMode: data.test_mode,
-    events: data.events,
-    updatedAt: data.updated_at,
+    pixelId: data.pixel_id ?? data.pixelId ?? '',
+    accessToken: data.access_token ?? data.accessToken ?? '',
+    testEventCode: data.test_event_code ?? data.testEventCode ?? '',
+    testMode: !!(data.test_mode ?? data.testMode),
+    events: data.events || {},
+    updatedAt: data.updated_at ?? data.updatedAt ?? '',
   };
 }
 
-async function writeCapiConfig(agentId, config) {
+function readLocalCapiConfig(slug) {
+  const safeSlug = normalizeCapiSlug(slug);
+  if (!safeSlug) return null;
+  const filePath = resolve(__dirname, 'data', 'capi', `${safeSlug}.json`);
+  if (!existsSync(filePath)) return null;
+  try {
+    return mapCapiConfigRow(JSON.parse(readFileSync(filePath, 'utf8')));
+  } catch (err) {
+    console.warn(`[CAPI] ${safeSlug}: failed to read legacy local config:`, err.message);
+    return null;
+  }
+}
+
+async function backfillLegacyCapiAgentId(agentId, slug) {
+  const safeSlug = normalizeCapiSlug(slug);
+  if (!agentId || !safeSlug) return;
   const { error } = await supabase
     .from('capi_configs')
-    .upsert({
-      agent_id: agentId,
-      pixel_id: config.pixelId || '',
-      access_token: config.accessToken || '',
-      test_event_code: config.testEventCode || '',
-      test_mode: config.testMode || false,
-      events: config.events || {},
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'agent_id' });
-  if (error) console.error('[Supabase] CAPI write error:', error.message);
+    .update({ agent_id: agentId })
+    .eq('slug', safeSlug);
+  if (error && !isSupabaseSchemaMiss(error)) {
+    console.warn(`[CAPI] ${safeSlug}: failed to backfill config agent_id:`, error.message);
+  }
+}
+
+async function readCapiConfig(agentId, slug = null) {
+  if (agentId) {
+    const { data, error } = await supabase
+      .from('capi_configs')
+      .select('*')
+      .eq('agent_id', agentId)
+      .limit(1);
+    if (!error && data?.[0]) return mapCapiConfigRow(data[0]);
+    if (error && !isSupabaseSchemaMiss(error)) {
+      console.warn(`[CAPI] ${slug || agentId}: failed to read config by agent_id:`, error.message);
+    }
+  }
+
+  const safeSlug = normalizeCapiSlug(slug);
+  if (safeSlug) {
+    const { data, error } = await supabase
+      .from('capi_configs')
+      .select('*')
+      .eq('slug', safeSlug)
+      .limit(1);
+    if (!error && data?.[0]) {
+      if (!data[0].agent_id || data[0].agent_id !== agentId) {
+        backfillLegacyCapiAgentId(agentId, safeSlug).catch(() => {});
+      }
+      return mapCapiConfigRow(data[0]);
+    }
+    if (error && !isSupabaseSchemaMiss(error)) {
+      console.warn(`[CAPI] ${safeSlug}: failed to read legacy config by slug:`, error.message);
+    }
+  }
+
+  return readLocalCapiConfig(safeSlug);
+}
+
+async function writeCapiConfig(agentId, config, slug = null) {
+  const now = new Date().toISOString();
+  const payload = {
+    agent_id: agentId,
+    pixel_id: config.pixelId || '',
+    access_token: config.accessToken || '',
+    test_event_code: config.testEventCode || '',
+    test_mode: config.testMode || false,
+    events: config.events || {},
+    updated_at: now,
+  };
+
+  const { error } = await supabase
+    .from('capi_configs')
+    .upsert(payload, { onConflict: 'agent_id' });
+  if (!error) return;
+
+  const safeSlug = normalizeCapiSlug(slug);
+  if (safeSlug) {
+    const legacyPayload = {
+      slug: safeSlug,
+      pixel_id: payload.pixel_id,
+      access_token: payload.access_token,
+      test_event_code: payload.test_event_code,
+      test_mode: payload.test_mode,
+      events: payload.events,
+      updated_at: now,
+    };
+    const { error: legacyError } = await supabase
+      .from('capi_configs')
+      .upsert(legacyPayload, { onConflict: 'slug' });
+    if (!legacyError) return;
+
+    if (!isSupabaseSchemaMiss(legacyError)) {
+      console.error('[Supabase] CAPI legacy write error:', legacyError.message);
+    }
+  }
+
+  console.error('[Supabase] CAPI write error:', error.message);
+  throw error;
 }
 
 /**
@@ -3640,7 +3733,7 @@ function logCapiEvent(agentId, eventName, status, { value, errorMessage, source 
  * `phase` is 'dp' or 'lunas' — used to generate DETERMINISTIC event_id
  * so Meta auto-dedupes if the same event is accidentally sent more than once.
  */
-async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, value, contentName, contentType, userName, userPhone, phase }) {
+async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, eventKey, contentId, value, contentName, contentType, userName, userPhone, phase }) {
   // Hash user data for Meta (SHA-256) — Meta requires hashed PII
   const sha256 = (v) => v ? crypto.createHash('sha256').update(v.trim().toLowerCase()).digest('hex') : undefined;
 
@@ -3651,7 +3744,8 @@ async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, v
   userData.country = sha256('id'); // Indonesia
 
   // Deterministic event_id: same jamaah + same phase = same ID, Meta auto-dedupes
-  const eventId = `${agentId}-${id}-${phase}`;
+  const eventSubject = eventKey || id;
+  const eventId = `${agentId}-${eventSubject}-${phase}`;
 
   const payload = {
     data: [{
@@ -3665,7 +3759,7 @@ async function fireCapiPurchaseEvent(agentId, config, accessToken, slug, { id, v
         currency: 'IDR',
         value,
         content_name: contentName,
-        content_ids: [id],
+        content_ids: [contentId || id],
         content_type: 'product',
       },
     }],
@@ -3807,9 +3901,15 @@ async function _rollbackCapiStatus(table, agentId, matchKey, fromStatus, toStatu
 async function _doProcessCapiPurchases(agentId, slug, type, upsertedIdentifiers) {
   try {
     if (!upsertedIdentifiers?.length) return;
-    if (capiCircuitIsOpen(agentId)) return; // skip while circuit breaker is paused
+    if (capiCircuitIsOpen(agentId)) {
+      logCapiEvent(agentId, 'Purchase', 'error', {
+        errorMessage: 'CAPI circuit open: skipped Purchase sync batch',
+        source: 'sync',
+      });
+      return; // skip while circuit breaker is paused
+    }
 
-    const config = await readCapiConfig(agentId);
+    const config = await readCapiConfig(agentId, slug);
     if (!config?.pixelId || !config?.accessToken) return;
     const accessToken = capiDecrypt(config.accessToken);
     if (!accessToken) return;
@@ -3822,7 +3922,7 @@ async function _doProcessCapiPurchases(agentId, slug, type, upsertedIdentifiers)
       const uniqueIds = [...new Set(ids)];
       const { data } = await supabase
         .from(table)
-        .select('id_umroh, nama, wa, paket, bayar, sisa, capi_purchase_status')
+        .select('id_umroh, jm_id, nama, wa, paket, bayar, sisa, capi_purchase_status')
         .eq('agent_id', agentId)
         .in('id_umroh', uniqueIds);
       rows = data || [];
@@ -3850,36 +3950,44 @@ async function _doProcessCapiPurchases(agentId, slug, type, upsertedIdentifiers)
         const bayar = row.bayar || 0;
         const sisa = row.sisa ?? 0;
         if (bayar <= 0) continue;
+        const jmId = row.jm_id ? String(row.jm_id).trim() : '';
+        const eventKey = jmId
+          ? `${row.id_umroh}-${jmId}`
+          : `${row.id_umroh}-${String(row.nama || '').trim().toLowerCase()}`;
+        const matchKey = jmId
+          ? { id_umroh: row.id_umroh, jm_id: jmId }
+          : { id_umroh: row.id_umroh, nama: row.nama };
 
         if (sisa <= 0) {
           lunasRows.push({
-            id: row.id_umroh, value: bayar, contentName: row.paket || 'Paket Umroh',
+            id: row.id_umroh, eventKey, contentId: row.id_umroh, value: bayar, contentName: row.paket || 'Paket Umroh',
             contentType: 'umroh', userName: row.nama, userPhone: row.wa,
-            matchKey: { id_umroh: row.id_umroh, nama: row.nama },
+            matchKey,
             phase: 'lunas', fromStatus: status,
           });
         } else if (sisa > 0 && status === null) {
           dpRows.push({
-            id: row.id_umroh, value: bayar, contentName: row.paket || 'Paket Umroh',
+            id: row.id_umroh, eventKey, contentId: row.id_umroh, value: bayar, contentName: row.paket || 'Paket Umroh',
             contentType: 'umroh', userName: row.nama, userPhone: row.wa,
-            matchKey: { id_umroh: row.id_umroh, nama: row.nama },
+            matchKey,
             phase: 'dp', fromStatus: null,
           });
         }
       } else {
-        const statusBayar = (row.status_bayar || '').toUpperCase();
+        const statusBayar = String(row.status_bayar || '').replace(/\s+/g, ' ').trim().toUpperCase();
         if (statusBayar === 'BELUM BAYAR') continue;
+        const eventKey = `${row.id_haji}-${row.id_jamaah || String(row.nama || '').trim().toLowerCase()}`;
 
-        if (statusBayar === 'LUNAS' && status !== 'lunas') {
+        if ((statusBayar === 'LUNAS' || statusBayar === 'LEBIH BAYAR') && status !== 'lunas') {
           lunasRows.push({
-            id: row.id_haji, value: HAJI_PURCHASE_VALUE, contentName: row.paket || 'Paket Haji',
+            id: row.id_haji, eventKey, contentId: row.id_haji, value: HAJI_PURCHASE_VALUE, contentName: row.paket || 'Paket Haji',
             contentType: 'haji', userName: row.nama, userPhone: row.telp,
             matchKey: { id_haji: row.id_haji, id_jamaah: row.id_jamaah },
             phase: 'lunas', fromStatus: status,
           });
         } else if (statusBayar === 'CICILAN' && status === null) {
           dpRows.push({
-            id: row.id_haji, value: HAJI_PURCHASE_VALUE, contentName: row.paket || 'Paket Haji',
+            id: row.id_haji, eventKey, contentId: row.id_haji, value: HAJI_PURCHASE_VALUE, contentName: row.paket || 'Paket Haji',
             contentType: 'haji', userName: row.nama, userPhone: row.telp,
             matchKey: { id_haji: row.id_haji, id_jamaah: row.id_jamaah },
             phase: 'dp', fromStatus: null,
@@ -3921,9 +4029,119 @@ async function _doProcessCapiPurchases(agentId, slug, type, upsertedIdentifiers)
     if (firedDp + firedLunas + skippedByClaim + circuitBailed > 0) {
       const bailMsg = circuitBailed > 0 ? `, bailed ${circuitBailed} (circuit open)` : '';
       console.log(`[CAPI] ${slug}: fired ${firedDp} DP + ${firedLunas} Lunas, skipped ${skippedByClaim} (already claimed)${bailMsg} — ${type}`);
+      if (circuitBailed > 0) {
+        logCapiEvent(agentId, 'Purchase', 'error', {
+          errorMessage: `CAPI circuit open: skipped ${circuitBailed} Purchase event(s)`,
+          source: 'sync',
+        });
+      }
     }
   } catch (err) {
     console.error(`[CAPI] processCapiPurchases error (${type}) ${slug}:`, err.message);
+  }
+}
+
+const CAPI_REPLAY_PAGE_SIZE = 1000;
+const CAPI_REPLAY_CHUNK_SIZE = 100;
+const HAJI_CAPI_PAID_STATUSES = ['CICILAN', 'LUNAS', 'LEBIH BAYAR'];
+
+async function fetchCapiReplayBookingIds(agentId, type) {
+  const table = type === 'haji' ? 'jamaah_haji' : 'jamaah';
+  const idColumn = type === 'haji' ? 'id_haji' : 'id_umroh';
+  const ids = new Set();
+  let offset = 0;
+
+  while (true) {
+    let query = supabase
+      .from(table)
+      .select(idColumn)
+      .eq('agent_id', agentId)
+      .not(idColumn, 'is', null)
+      .order(idColumn, { ascending: true })
+      .range(offset, offset + CAPI_REPLAY_PAGE_SIZE - 1);
+
+    if (type === 'umroh') {
+      query = query.gt('bayar', 0);
+    } else {
+      query = query.in('status_bayar', HAJI_CAPI_PAID_STATUSES);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    for (const row of data || []) {
+      const id = row?.[idColumn];
+      if (id) ids.add(id);
+    }
+    if (!data || data.length < CAPI_REPLAY_PAGE_SIZE) break;
+    offset += CAPI_REPLAY_PAGE_SIZE;
+  }
+
+  return Array.from(ids);
+}
+
+async function resetCapiReplayStatuses(agentId, type) {
+  const table = type === 'haji' ? 'jamaah_haji' : 'jamaah';
+  let query = supabase
+    .from(table)
+    .update({ capi_purchase_status: null })
+    .eq('agent_id', agentId);
+
+  if (type === 'umroh') {
+    query = query.gt('bayar', 0);
+  } else {
+    query = query.in('status_bayar', HAJI_CAPI_PAID_STATUSES);
+  }
+
+  const { error } = await query;
+  if (error) throw error;
+}
+
+async function _doReplayAllCapiPurchases(agentId, slug, reason = 'config-change', { resetStatuses = true } = {}) {
+  const config = await readCapiConfig(agentId, slug);
+  if (!config?.pixelId || !config?.accessToken) return { umroh: 0, haji: 0 };
+
+  const [umrohIds, hajiIds] = await Promise.all([
+    fetchCapiReplayBookingIds(agentId, 'umroh'),
+    fetchCapiReplayBookingIds(agentId, 'haji'),
+  ]);
+
+  if (umrohIds.length === 0 && hajiIds.length === 0) {
+    console.log(`[CAPI] ${slug}: replay skipped, no paid jamaah (${reason})`);
+    return { umroh: 0, haji: 0 };
+  }
+
+  if (resetStatuses && umrohIds.length > 0) await resetCapiReplayStatuses(agentId, 'umroh');
+  if (resetStatuses && hajiIds.length > 0) await resetCapiReplayStatuses(agentId, 'haji');
+
+  console.log(`[CAPI] ${slug}: replay queued ${umrohIds.length} umroh booking + ${hajiIds.length} haji booking (${reason}, reset=${resetStatuses})`);
+
+  for (let i = 0; i < umrohIds.length; i += CAPI_REPLAY_CHUNK_SIZE) {
+    const chunk = umrohIds.slice(i, i + CAPI_REPLAY_CHUNK_SIZE);
+    await _doProcessCapiPurchases(agentId, slug, 'umroh', chunk.map(id => ({ id_umroh: id })));
+  }
+
+  for (let i = 0; i < hajiIds.length; i += CAPI_REPLAY_CHUNK_SIZE) {
+    const chunk = hajiIds.slice(i, i + CAPI_REPLAY_CHUNK_SIZE);
+    await _doProcessCapiPurchases(agentId, slug, 'haji', chunk.map(id => ({ id_haji: id })));
+  }
+
+  console.log(`[CAPI] ${slug}: replay finished (${reason})`);
+  return { umroh: umrohIds.length, haji: hajiIds.length };
+}
+
+async function replayAllCapiPurchases(agentId, slug, reason = 'config-change', options = {}) {
+  const prev = capiPurchaseLocks.get(agentId);
+  const currentPromise = (async () => {
+    if (prev) { try { await prev; } catch {} }
+    return await _doReplayAllCapiPurchases(agentId, slug, reason, options);
+  })();
+  capiPurchaseLocks.set(agentId, currentPromise);
+  try {
+    return await currentPromise;
+  } finally {
+    if (capiPurchaseLocks.get(agentId) === currentPromise) {
+      capiPurchaseLocks.delete(agentId);
+    }
   }
 }
 
@@ -3943,9 +4161,28 @@ app.options('/api/capi/:slug/:action', (req, res) => {
   res.set({
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   }).sendStatus(204);
 });
+
+async function getAuthorizedCapiAgent(req, res) {
+  const slug = req.params.slug.toLowerCase();
+  const agent = await getAgentBySlug(slug);
+  if (!agent) {
+    res.status(404).json({ error: 'Agent not found' });
+    return null;
+  }
+  const currentUser = req.user?.id ? await getAgentById(req.user.id) : null;
+  const tokenRole = currentUser?.role || req.user?.role;
+  const tokenSlug = currentUser?.slug || req.user?.slug;
+  const isAdmin = tokenRole === 'admin';
+  const isOwner = req.user?.id === agent.id || currentUser?.id === agent.id || tokenSlug === agent.slug || req.user?.slug === agent.slug;
+  if (!isAdmin && !isOwner) {
+    res.status(403).json({ error: 'Forbidden' });
+    return null;
+  }
+  return agent;
+}
 
 // Login
 app.post('/api/capi/:slug/login', async (req, res) => {
@@ -3958,22 +4195,20 @@ app.post('/api/capi/:slug/login', async (req, res) => {
   res.json({ success: isValid || !!masterMatch });
 });
 
-// Config GET — returns decrypted token
-app.get('/api/capi/:slug/config', async (req, res) => {
-  const slug = req.params.slug.toLowerCase();
-  const agent = await getAgentBySlug(slug);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-  const config = await readCapiConfig(agent.id);
+// Config GET — dashboard-auth only, returns decrypted token to the owner/admin UI.
+app.get('/api/capi/:slug/config', authMiddleware, async (req, res) => {
+  const agent = await getAuthorizedCapiAgent(req, res);
+  if (!agent) return;
+  const config = await readCapiConfig(agent.id, agent.slug);
   if (!config) return res.json({ config: null });
   const decryptedToken = capiDecrypt(config.accessToken || '');
   res.json({ config: { ...config, accessToken: decryptedToken } });
 });
 
-// Config POST — validates, saves, returns savedToken
-app.post('/api/capi/:slug/config', async (req, res) => {
-  const slug = req.params.slug.toLowerCase();
-  const agent = await getAgentBySlug(slug);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+// Config POST — dashboard-auth only; validates, saves, returns savedToken.
+app.post('/api/capi/:slug/config', authMiddleware, async (req, res) => {
+  const agent = await getAuthorizedCapiAgent(req, res);
+  if (!agent) return;
   const body = req.body;
 
   // Validation
@@ -3984,29 +4219,77 @@ app.post('/api/capi/:slug/config', async (req, res) => {
     return res.status(400).json({ error: 'Access Token wajib diisi' });
   }
 
+  const previousConfig = await readCapiConfig(agent.id, agent.slug);
+  const previousPixelId = String(previousConfig?.pixelId || '').trim();
+  const previousAccessToken = String(capiDecrypt(previousConfig?.accessToken || '') || '').trim();
+  const nextPixelId = String(body.pixelId || '').trim();
+  const nextAccessToken = String(body.accessToken || '').trim();
+  const previousCapiReady = !!(previousPixelId && previousAccessToken);
+  const pixelReplayRequired = !!(nextPixelId && nextAccessToken && (!previousCapiReady || previousPixelId !== nextPixelId));
+  const accessTokenReplayRequired = !!(
+    nextPixelId &&
+    nextAccessToken &&
+    previousCapiReady &&
+    previousPixelId === nextPixelId &&
+    previousAccessToken !== nextAccessToken
+  );
+  const purchaseReplayMode = (pixelReplayRequired || accessTokenReplayRequired) ? 'reset-all' : null;
+
   const tokenToStore = capiEncrypt(body.accessToken);
   const configToSave = {
-    pixelId: body.pixelId || '', accessToken: tokenToStore || '',
+    pixelId: nextPixelId, accessToken: tokenToStore || '',
     testEventCode: body.testEventCode || '', testMode: !!body.testMode,
     events: body.events || {}, updatedAt: new Date().toISOString(),
   };
-  await writeCapiConfig(agent.id, configToSave);
+  try {
+    await writeCapiConfig(agent.id, configToSave, agent.slug);
+  } catch (err) {
+    return res.status(500).json({ error: 'Gagal menyimpan konfigurasi CAPI: ' + (err.message || 'unknown error') });
+  }
   logAnalyticsEvent(agent.id, 'action', 'save_capi_config', {}, getClientIpUa(req));
   const decryptedForDisplay = capiDecrypt(configToSave.accessToken);
-  res.json({ success: true, savedToken: decryptedForDisplay });
+  res.json({
+    success: true,
+    savedToken: decryptedForDisplay,
+    purchaseRehitRequired: !!purchaseReplayMode,
+    purchaseReplayMode,
+    purchaseRehitReason: pixelReplayRequired
+      ? (previousCapiReady ? 'pixel-changed' : 'config-created')
+      : accessTokenReplayRequired ? 'token-changed' : null,
+  });
 });
 
 // Config DELETE (reset)
-app.delete('/api/capi/:slug/config', async (req, res) => {
-  const slug = req.params.slug.toLowerCase();
-  const agent = await getAgentBySlug(slug);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+app.delete('/api/capi/:slug/config', authMiddleware, async (req, res) => {
+  const agent = await getAuthorizedCapiAgent(req, res);
+  if (!agent) return;
   const configToSave = {
     pixelId: '', accessToken: '', testEventCode: '',
     testMode: false, events: {}, updatedAt: new Date().toISOString(),
   };
-  await writeCapiConfig(agent.id, configToSave);
+  try {
+    await writeCapiConfig(agent.id, configToSave, agent.slug);
+  } catch (err) {
+    return res.status(500).json({ error: 'Gagal mereset konfigurasi CAPI: ' + (err.message || 'unknown error') });
+  }
   res.json({ success: true });
+});
+
+// Replay Purchase events after a validated Pixel/Token change.
+app.post('/api/capi/:slug/replay-purchases', authMiddleware, async (req, res) => {
+  const agent = await getAuthorizedCapiAgent(req, res);
+  if (!agent) return;
+  const config = await readCapiConfig(agent.id, agent.slug);
+  if (!config?.pixelId || !config?.accessToken) {
+    return res.status(400).json({ error: 'CAPI belum dikonfigurasi' });
+  }
+  const reason = String(req.body?.reason || 'config-change').slice(0, 80);
+  const mode = req.body?.mode === 'retry-unhit' ? 'retry-unhit' : 'reset-all';
+  capiCircuit.delete(agent.id);
+  replayAllCapiPurchases(agent.id, agent.slug, reason, { resetStatuses: mode !== 'retry-unhit' }).catch(e =>
+    console.error(`[CAPI] ${agent.slug} replay Purchase error:`, e.message)
+  );
+  res.json({ success: true, queued: true, mode });
 });
 
 // Event
@@ -4015,8 +4298,17 @@ app.post('/api/capi/:slug/event', async (req, res) => {
   const agent = await getAgentBySlug(slug);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
   if (!checkCapiRateLimit(slug)) return res.status(429).json({ error: 'Rate limited' });
-  if (capiCircuitIsOpen(agent.id)) return res.json({ sent: false, reason: 'Temporarily paused (CAPI errors — admin must verify token)' });
-  const config = await readCapiConfig(agent.id);
+  if (capiCircuitIsOpen(agent.id)) {
+    const rawKey = req.body?.eventKey;
+    const rawName = req.body?.eventName;
+    const skipDefaults = { pageView: 'PageView', search: 'Search', viewContent: 'ViewContent', contact: 'Contact' };
+    logCapiEvent(agent.id, rawName || skipDefaults[rawKey] || 'CAPIEvent', 'error', {
+      errorMessage: 'CAPI circuit open: skipped browser event',
+      source: 'browser',
+    });
+    return res.json({ sent: false, reason: 'Temporarily paused (CAPI errors — admin must verify token)' });
+  }
+  const config = await readCapiConfig(agent.id, agent.slug);
   if (!config?.pixelId || !config?.accessToken) return res.json({ sent: false, reason: 'Not configured' });
   const accessToken = capiDecrypt(config.accessToken);
   const { eventKey, eventName, eventId, userData, customData, eventSourceUrl, sourceUrl, actionSource, fbc, fbp, userAgent } = req.body;
@@ -4027,9 +4319,13 @@ app.post('/api/capi/:slug/event', async (req, res) => {
   let resolvedEventName = eventName || 'PageView';
   if (eventKey && !eventName) {
     const eventConfig = config.events?.[eventKey];
-    resolvedEventName = eventConfig?.enabled !== false
-      ? (eventConfig?.eventName || EVENT_KEY_DEFAULTS[eventKey] || 'PageView')
-      : null; // disabled event
+    if (eventConfig?.enabled === false) {
+      resolvedEventName = null; // disabled event
+    } else if (eventConfig?.eventName === 'CustomEvent') {
+      resolvedEventName = eventConfig?.customEventName?.trim() || 'CustomEvent';
+    } else {
+      resolvedEventName = eventConfig?.eventName || EVENT_KEY_DEFAULTS[eventKey] || 'PageView';
+    }
   }
   if (!resolvedEventName) return res.json({ sent: false, reason: 'Event disabled' });
 
@@ -4088,11 +4384,11 @@ app.post('/api/capi/:slug/event', async (req, res) => {
 });
 
 // Validate
-app.post('/api/capi/:slug/validate', async (req, res) => {
+app.post('/api/capi/:slug/validate', authMiddleware, async (req, res) => {
   const slug = req.params.slug.toLowerCase();
-  const agent = await getAgentBySlug(slug);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-  const config = await readCapiConfig(agent.id);
+  const agent = await getAuthorizedCapiAgent(req, res);
+  if (!agent) return;
+  const config = await readCapiConfig(agent.id, agent.slug);
   if (!config?.pixelId || !config?.accessToken) return res.json({ valid: false, reason: 'Missing credentials' });
   const accessToken = capiDecrypt(config.accessToken);
 
@@ -4124,6 +4420,7 @@ app.post('/api/capi/:slug/validate', async (req, res) => {
 
     // Success: Meta accepted the event
     if (metaRes.ok && metaData?.events_received >= 1) {
+      capiCircuit.delete(agent.id);
       return res.json({ valid: true, pixel: { id: config.pixelId } });
     }
 
@@ -4158,10 +4455,9 @@ app.post('/api/capi/:slug/validate', async (req, res) => {
   }
 });
 
-app.get('/api/capi/:slug/logs', async (req, res) => {
-  const slug = req.params.slug.toLowerCase();
-  const agent = await getAgentBySlug(slug);
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+app.get('/api/capi/:slug/logs', authMiddleware, async (req, res) => {
+  const agent = await getAuthorizedCapiAgent(req, res);
+  if (!agent) return;
 
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
@@ -4637,6 +4933,10 @@ function toMoney(value) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function hasJamaahPayment(row) {
+  return toMoney(row?.bayar) > 0;
+}
+
 function isLegacyGrossUmrahDetailPayment(row, nextBayar) {
   const raw = row?.raw_data || {};
   if (raw.source !== 'umrah_detail') return false;
@@ -4736,7 +5036,7 @@ async function detectUmrohJamaahSyncEvents(agentId, rows, options = {}) {
     const existing = key ? existingByKey.get(key) : null;
 
     if (!existing) {
-      if (allowNewJamaah && isFutureRelevantJamaah(row, newCutoffStr)) {
+      if (allowNewJamaah && hasJamaahPayment(row) && isFutureRelevantJamaah(row, newCutoffStr)) {
         events.jamaahBaru.push({
           nama: row.nama,
           paket: row.paket,
@@ -5016,7 +5316,7 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } 
   }
 
   // Fire CAPI Purchase events (DP & Lunas) — fire-and-forget.
-  const upsertedIds = allRows.map((r) => ({ id_umroh: r.id_umroh, nama: r.nama }));
+  const upsertedIds = allRows.map((r) => ({ id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama }));
   processCapiPurchases(agentId, slug, 'umroh', upsertedIds).catch((e) =>
     console.error(`[CAPI/api/${context}] sync error:`, e.message)
   );
@@ -5291,7 +5591,13 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
             const batchEvents = await detectUmrohJamaahSyncEvents(agentId, upsertBatch, { allowNewJamaah: allowNewJamaahNotify });
             const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
             if (error) console.error(`[Sync] ${slug} Phase 1 upsert error:`, error.message);
-            else mergeJamaahSyncEvents(syncEvents, batchEvents);
+            else {
+              mergeJamaahSyncEvents(syncEvents, batchEvents);
+              const upsertedIds = upsertBatch.map(r => ({ id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama }));
+              processCapiPurchases(agentId, slug, 'umroh', upsertedIds).catch(e =>
+                console.error(`[CAPI] Manual sync Phase 1 Purchase error:`, e.message)
+              );
+            }
           }
           syncingAgents.set(agentId, { isSyncing: true, scope: 'umroh-manual', totalSynced: globalKeys.size, phase: 1, completedYears: [], lastSync: now });
         }
@@ -5557,7 +5863,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         // Phase 2: no counter update — just keep syncing state alive
 
         // Fire CAPI Purchase events (DP & Lunas)
-        const upsertedIds = rows.map(r => ({ id_umroh: r.id_umroh, nama: r.nama }));
+        const upsertedIds = rows.map(r => ({ id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama }));
         processCapiPurchases(agentId, slug, 'umroh', upsertedIds).catch(e =>
           console.error(`[CAPI] Manual sync Purchase error:`, e.message)
         );
@@ -5644,7 +5950,7 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
     queueJamaahSyncNotifications(agentId, syncEvents, `refresh-jamaah/${slug}`);
 
     // Best-effort CAPI Purchase event for this single jamaah.
-    processCapiPurchases(agentId, slug, 'umroh', [{ id_umroh: norm.id_umroh, nama: norm.nama }]).catch((e) =>
+    processCapiPurchases(agentId, slug, 'umroh', [{ id_umroh: norm.id_umroh, jm_id: norm.jm_id, nama: norm.nama }]).catch((e) =>
       console.error('[CAPI/api] refresh jamaah error:', e.message)
     );
 
@@ -5714,7 +6020,7 @@ app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) 
       agentId,
       slug,
       'umroh',
-      safeRows.map((r) => ({ id_umroh: r.id_umroh, nama: r.nama }))
+      safeRows.map((r) => ({ id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama }))
     ).catch((e) => console.error('[CAPI/api] refresh umrah error:', e.message));
 
     res.json({ success: true, data: { count: safeRows.length, rows: safeRows, source: 'awapi' } });
@@ -11935,7 +12241,7 @@ async function syncOneAgent(agent) {
         await enrichJamaahFromLaporanItems(agentId, items, 'P2-bg');
 
         // Fire CAPI Purchase events (DP & Lunas)
-        const capiIds = allNewRows.map(r => ({ id_umroh: r.id_umroh, nama: r.nama }));
+        const capiIds = allNewRows.map(r => ({ id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama }));
         processCapiPurchases(agentId, slug, 'umroh', capiIds).catch(e =>
           console.error(`[CAPI] Background sync Purchase error:`, e.message)
         );
@@ -12020,10 +12326,14 @@ async function syncOneAgent(agent) {
             // Upsert in batches of 50
             if (allHajiRows.length >= 50 || i + HAJI_BATCH >= uniqueIds.length) {
               if (allHajiRows.length > 0) {
+                const hajiCapiIds = allHajiRows.map(r => ({ id_haji: r.id_haji, id_jamaah: r.id_jamaah }));
                 const { error: hajiErr } = await supabase
                   .from('jamaah_haji')
                   .upsert(allHajiRows, { onConflict: 'agent_id,id_haji,id_jamaah' });
                 if (hajiErr) console.error(`[SYNC] ${slug} haji batch error:`, hajiErr.message);
+                else processCapiPurchases(agentId, slug, 'haji', hajiCapiIds).catch(e =>
+                  console.error(`[CAPI] Haji inline background Purchase error:`, e.message)
+                );
                 hajiSynced += allHajiRows.length;
                 allHajiRows.length = 0;
                 syncingAgents.set(agentId, { isSyncing: true, background: true, scope: 'haji-bg', totalSynced: hajiSynced, lastSync: syncTime });
@@ -12307,10 +12617,14 @@ async function syncHajiOneAgent(agent) {
 
         if (allHajiRows.length >= 50 || i + HAJI_BATCH >= uniqueIds.length) {
           if (allHajiRows.length > 0) {
+            const hajiCapiIds = allHajiRows.map(r => ({ id_haji: r.id_haji, id_jamaah: r.id_jamaah }));
             const { error: hajiErr } = await supabase
               .from('jamaah_haji')
               .upsert(allHajiRows, { onConflict: 'agent_id,id_haji,id_jamaah' });
             if (hajiErr) console.error(`[HAJI-BG] ${slug} batch error:`, hajiErr.message);
+            else processCapiPurchases(agentId, slug, 'haji', hajiCapiIds).catch(e =>
+              console.error(`[CAPI] Haji dedicated background Purchase error:`, e.message)
+            );
             hajiSynced += allHajiRows.length;
             allHajiRows.length = 0;
             syncingAgents.set(agentId, {

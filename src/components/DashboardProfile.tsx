@@ -26,7 +26,7 @@ const NOTIFICATION_GROUPS = [
   {
     label: 'Jamaah',
     items: [
-      { key: 'jamaah_baru',     emoji: '🆕', label: 'Jamaah Baru',       desc: 'Jamaah baru terdeteksi saat sync' },
+      { key: 'jamaah_baru',     emoji: '🆕', label: 'Jamaah Baru',       desc: 'Jamaah baru yang sudah bayar saat sync' },
       { key: 'departure',       emoji: '🕋', label: 'Keberangkatan',     desc: 'Reminder H-14, H-7, H-3, H-1' },
       { key: 'paspor',          emoji: '📛', label: 'Paspor',            desc: 'Jamaah belum kumpul paspor' },
       { key: 'pelunasan',       emoji: '💰', label: 'Pelunasan',         desc: 'Deadline pembayaran mendekati' },

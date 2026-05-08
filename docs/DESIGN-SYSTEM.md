@@ -60,6 +60,7 @@ Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 | Agents | `cyan-600` / `cyan-400` | `cyan-50` / `cyan-900/20` |
 | Jamaah | `amber-600` / `amber-400` | `amber-50` / `amber-900/20` |
 | AI Tools | `purple-600` / `purple-400` | `purple-50` / `purple-900/20` |
+| Brosur Jadwal | `rose-600` / `rose-400` | `rose-50` / `rose-900/20` |
 | Settings | `gray-600` / `gray-400` | `gray-50` / `gray-800/30` |
 
 ### Jamaah Page Colors
@@ -841,7 +842,7 @@ flex flex-col
 
 ### AI Tools Hub (`AIToolsPage.tsx`)
 
-Hub page for AI tools & utilities — vertical stack of tool cards. Card urutan: **Landing Page**, **Bandingkan Paket**, **Kurs Hari Ini**, **Infografis Haji Plus**, **Voice Over**, **Kartu Nama** (disabled).
+Hub page for AI tools & utilities — vertical stack of tool cards. Card urutan: **Brosur Jadwal**, **Landing Page**, **Bandingkan Paket**, **Kurs Hari Ini**, **Infografis Haji Plus**, **Voice Over**, **Kartu Nama** (disabled).
 
 ```
 relative w-full text-left bg-white dark:bg-slate-800 rounded-2xl
@@ -859,6 +860,7 @@ hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] transition-all cursor
 
 | Tool | Icon | Color accent |
 |------|------|--------------|
+| Brosur Jadwal | `FileImage` | rose |
 | Landing Page | `Globe` | purple |
 | Bandingkan Paket (Compare) | `ArrowLeftRight` | violet |
 | Kurs Hari Ini | `Banknote` | amber |
@@ -877,12 +879,98 @@ px-2 py-0.5 rounded-full
 #### Sub-Page Header Override (DashboardLayout)
 
 Ketika navigasi ke AI Tools sub-page, header icon + label di-override sesuai sub-page (dari `AI_SUB_STYLES` map di `DashboardLayout.tsx`):
+- `brosur-jadwal`: FileImage icon, rose bg/border
 - `landing-page`: Globe icon, purple bg/border
 - `voice-over`: Mic, purple
 - `business-card`: CreditCard, teal
 - `haji-plus` / `haji-plus/export` / `haji-plus/simulasi`: BarChart3, emerald
 - `kurs`: TrendingUp, emerald
 - `compare`: ArrowLeftRight, violet
+
+### Brosur Jadwal (`BrochureSchedulePage.tsx`)
+
+Tool export brosur paket umroh bulanan di `/dashboard/ai-tools/brosur-jadwal`. Preview selalu mengikuti rasio export asli **1080 x 1920** dan hasil akhir berupa PNG.
+
+#### Page Shell
+
+```
+Root: pb-8
+Sticky month tabs: sticky top-0 z-10 bg-white dark:bg-slate-900 border-b
+Tab scroller: overflow-x-auto no-scrollbar
+Preview wrapper: px-4 pt-5 flex justify-center
+Preview max width: 480px
+```
+
+Month pill:
+```
+px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors
+active: bg-emerald-500 text-white
+inactive: bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300
+```
+
+#### Preview Card
+
+```
+width: 100%
+aspect-ratio: 1080 / 1920
+border-radius: 18px
+overflow: hidden
+background: #fff
+box-shadow: 0 12px 40px rgba(0,0,0,0.18)
+```
+
+The real template is rendered at `BROCHURE_W=1080`, `BROCHURE_H=1920`, then previewed with `transform: scale(previewScale)`. Keep this scaling model so preview and exported PNG stay 1:1.
+
+#### Export Template (`BrochureScheduleTemplate.tsx`)
+
+Brand colors:
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `BRAND_RED` | `#C8102E` | headline, active brand accents |
+| `DEEP_RED` | `#870018` | table header gradient, price text |
+| `DARK_RED` | `#5A0010` | shadows / contrast |
+| `GOLD` | `#C98A2C` | stars, dashed footnote |
+| `PALE_GOLD` | `#F8DFA1` | headline stroke, divider |
+| `CREAM` | `#FFF8EC` | alternate table rows |
+| `ROW_LINE` | `#F0D8B5` | table borders |
+
+Template structure:
+- Header: Alhijaz logo left, "5 Pasti Umrah" badge right.
+- Title: "PAKET UMROH" + month label with red/gold layered type.
+- URL pill: `alhijaz.co/{slug}` fallback from agent website.
+- Table columns: `TGL`, `PAKET`, `HARI`, `HOTEL`, `HARGA`.
+- Backdrop assets: `/img-brosur/nabawi-dome.png`, `/img-brosur/kabah.png`, `/img-brosur/nabawi-wide.png`.
+- Row capacity: frontend splits each month into pages of 10 packages (`PACKAGES_PER_IMAGE=10`).
+- Hotel column shows Mekkah/Madinah side-by-side when both are present, with star marks.
+- Harga uses cheapest valid room price in priority `Quard → Triple → Double`; `Infant` is ignored.
+- Sold-out packages (`seat_sisa <= 0`) render a rotated red `SOLD OUT` stamp instead of price.
+- Footer includes agent photo/name, formatted local WhatsApp number, and WhatsApp CTA styling.
+
+#### Action Bar
+
+```
+Footer: padding 10px, border-top rgba(15,23,42,.08)
+Desktop: single Download button
+Touch/native-share capable devices: grid-cols-2 Share + Download
+```
+
+Share button:
+```
+flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold
+bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm shadow-emerald-500/20
+active:scale-[0.98] disabled:opacity-70
+```
+
+Download button:
+```
+flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold
+text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800
+border border-emerald-200 dark:border-emerald-700/70
+active:scale-[0.98] disabled:opacity-70
+```
+
+Export uses `@zumer/snapdom` with `embedFonts=true`, fallback `embedFonts=false`, `backgroundColor: #FFFFFF`, and waits for Inter + Bebas Neue font loads before capture.
 
 ### Voice Over Generator (`VoiceOverPage.tsx`)
 
@@ -1330,7 +1418,7 @@ Inner elements:
 
 ### Notification Toggle List
 
-Grouped by section (JAMAAH × 6, PAKET × 3, LAINNYA × 4):
+Grouped by section (JAMAAH × 7, PAKET × 3, LAINNYA × 5):
 
 ```
 Section header: text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500 mt-5 mb-2 px-1
@@ -1345,10 +1433,10 @@ Row inner:
 - Toggle: `w-10 h-6 rounded-full` (emerald-500 on / gray-200 off), thumb `w-5 h-5 rounded-full bg-white shadow-sm`
 
 Current keys:
-- Jamaah: `departure`, `paspor`, `pelunasan`, `perlengkapan`, `manasik`, `birthday_digest`
+- Jamaah: `jamaah_baru`, `departure`, `paspor`, `pelunasan`, `perlengkapan`, `manasik`, `birthday_digest`
 - Paket: `seat_alert`, `paket_baru`, `perubahan_harga`
-- Lainnya: `pembayaran_masuk`, `ringkasan_mingguan`, `flight_status`, `kurs_dollar`
-- Backend default also includes `insight_harian`; keep compatibility when normalizing saved prefs.
+- Lainnya: `pembayaran_cicilan`, `pembayaran_pelunasan`, `ringkasan_mingguan`, `flight_status`, `kurs_dollar`
+- Backend defaults also include legacy aggregate `pembayaran_masuk` and hidden `insight_harian`; keep compatibility when normalizing saved prefs.
 
 ### Disconnect Button
 
@@ -1862,6 +1950,7 @@ Mini preview cards use `h-20`, compact typography, and variant-specific layout c
 | `Unlink` | Disconnect Telegram |
 | `Sparkles` | AI Tools menu, generate script |
 | `Mic` | Voice Over Generator |
+| `FileImage` | Brosur Jadwal tool and sub-page header |
 | `Image` | Brochure/image-related actions |
 | `WandSparkles` | Generate prompt/script CTA |
 | `Palette` | Design settings |
