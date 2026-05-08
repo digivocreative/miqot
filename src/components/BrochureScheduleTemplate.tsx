@@ -73,12 +73,38 @@ export function derivePackageType(rawName: string | undefined | null): string {
 export const BROCHURE_W = 1080;
 export const BROCHURE_H = 1620;
 
-export const BROCHURE_FONT_STACK = "'Inter', 'Inter var', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-export const BROCHURE_TABLE_FONT_STACK = "'Bebas Neue', 'Inter', 'Arial Narrow', system-ui, sans-serif";
-export const BROCHURE_OSWALD_FONT_STACK = "'Oswald', 'Inter', 'Arial Narrow', system-ui, sans-serif";
-export const BROCHURE_ROBOTO_CONDENSED_FONT_STACK = "'Roboto Condensed', 'Inter', 'Arial Narrow', system-ui, sans-serif";
-export const BROCHURE_MONTSERRAT_FONT_STACK = "'Montserrat', 'Inter', system-ui, -apple-system, sans-serif";
+export const BROCHURE_INTER_FONT = 'AIW Inter';
+export const BROCHURE_BEBAS_FONT = 'AIW Bebas Neue';
+export const BROCHURE_OSWALD_FONT = 'AIW Oswald';
+export const BROCHURE_ROBOTO_CONDENSED_FONT = 'AIW Roboto Condensed';
+export const BROCHURE_MONTSERRAT_FONT = 'AIW Montserrat';
+
+export const BROCHURE_FONT_STACK = `'${BROCHURE_INTER_FONT}', 'Inter', 'Inter var', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+export const BROCHURE_TABLE_FONT_STACK = `'${BROCHURE_BEBAS_FONT}', 'Bebas Neue', '${BROCHURE_INTER_FONT}', 'Inter', 'Arial Narrow', system-ui, sans-serif`;
+export const BROCHURE_OSWALD_FONT_STACK = `'${BROCHURE_OSWALD_FONT}', 'Oswald', '${BROCHURE_INTER_FONT}', 'Inter', 'Arial Narrow', system-ui, sans-serif`;
+export const BROCHURE_ROBOTO_CONDENSED_FONT_STACK = `'${BROCHURE_ROBOTO_CONDENSED_FONT}', 'Roboto Condensed', '${BROCHURE_INTER_FONT}', 'Inter', 'Arial Narrow', system-ui, sans-serif`;
+export const BROCHURE_MONTSERRAT_FONT_STACK = `'${BROCHURE_MONTSERRAT_FONT}', 'Montserrat', '${BROCHURE_INTER_FONT}', 'Inter', system-ui, -apple-system, sans-serif`;
 export const BROCHURE_FONT_WEIGHTS = [400, 600, 700, 800, 900] as const;
+export const BROCHURE_LOCAL_FONTS = [
+  { family: BROCHURE_BEBAS_FONT, src: '/fonts/brochure/BebasNeue-Regular.woff2', weight: 400, style: 'normal' },
+  { family: BROCHURE_INTER_FONT, src: '/fonts/brochure/Inter-Regular.woff2', weight: 400, style: 'normal' },
+  { family: BROCHURE_INTER_FONT, src: '/fonts/brochure/Inter-SemiBold.woff2', weight: 600, style: 'normal' },
+  { family: BROCHURE_INTER_FONT, src: '/fonts/brochure/Inter-Bold.woff2', weight: 700, style: 'normal' },
+  { family: BROCHURE_INTER_FONT, src: '/fonts/brochure/Inter-ExtraBold.woff2', weight: 800, style: 'normal' },
+  { family: BROCHURE_INTER_FONT, src: '/fonts/brochure/Inter-Black.woff2', weight: 900, style: 'normal' },
+  { family: BROCHURE_OSWALD_FONT, src: '/fonts/brochure/Oswald-Regular.woff2', weight: 400, style: 'normal' },
+  { family: BROCHURE_OSWALD_FONT, src: '/fonts/brochure/Oswald-Medium.woff2', weight: 500, style: 'normal' },
+  { family: BROCHURE_OSWALD_FONT, src: '/fonts/brochure/Oswald-Bold.woff2', weight: 700, style: 'normal' },
+  { family: BROCHURE_MONTSERRAT_FONT, src: '/fonts/brochure/Montserrat-Bold.woff2', weight: 700, style: 'normal' },
+  { family: BROCHURE_MONTSERRAT_FONT, src: '/fonts/brochure/Montserrat-ExtraBold.woff2', weight: 800, style: 'normal' },
+  { family: BROCHURE_MONTSERRAT_FONT, src: '/fonts/brochure/Montserrat-Black.woff2', weight: 900, style: 'normal' },
+  { family: BROCHURE_ROBOTO_CONDENSED_FONT, src: '/fonts/brochure/RobotoCondensed-SemiBold.woff2', weight: 600, style: 'normal' },
+  { family: BROCHURE_ROBOTO_CONDENSED_FONT, src: '/fonts/brochure/RobotoCondensed-Bold.woff2', weight: 700, style: 'normal' },
+] as const;
+
+export const BROCHURE_FONT_FACE_CSS = BROCHURE_LOCAL_FONTS.map(font => (
+  `@font-face{font-family:'${font.family}';font-style:${font.style};font-weight:${font.weight};font-display:swap;src:url('${font.src}') format('woff2');}`
+)).join('\n');
 
 const MONTH_ABBR_ID = ['JAN','FEB','MAR','APR','MEI','JUN','JUL','AGT','SEP','OKT','NOV','DES'];
 const MONTH_FULL_ID = ['JANUARI','FEBRUARI','MARET','APRIL','MEI','JUNI','JULI','AGUSTUS','SEPTEMBER','OKTOBER','NOVEMBER','DESEMBER'];
@@ -294,6 +320,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
       display: 'flex',
       flexDirection: 'column',
     }}>
+      <style>{BROCHURE_FONT_FACE_CSS}</style>
       <div style={{
         position: 'absolute',
         top: -78,

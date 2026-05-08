@@ -5,6 +5,12 @@ import {
   BrochureScheduleTemplate,
   BROCHURE_W,
   BROCHURE_H,
+  BROCHURE_BEBAS_FONT,
+  BROCHURE_INTER_FONT,
+  BROCHURE_LOCAL_FONTS,
+  BROCHURE_MONTSERRAT_FONT,
+  BROCHURE_OSWALD_FONT,
+  BROCHURE_ROBOTO_CONDENSED_FONT,
   PACKAGE_TYPES,
   derivePackageType,
   type BrochureMonth,
@@ -369,22 +375,21 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       // Probe at the actual sizes used in the brochure, not 16px. Some browsers cache
       // font metrics per size — probing at 16 doesn't guarantee 25/40/etc are decoded
       // by the time snapdom serializes the SVG. Also: only probe weights that are
-      // actually self-hosted (see <style> in index.html) — asking for 500 of Roboto
-      // Condensed when only 600/700 exist makes the browser synthesise per char and
-      // capture mid-state.
+      // actually self-hosted — asking for weights that do not exist makes the
+      // browser synthesize or fall back per character during capture.
       await Promise.all([
-        ...[400, 600, 700, 800, 900].map(w => document.fonts.load(`${w} 32px "Inter"`).catch(() => null)),
-        ...[400, 600, 700, 800, 900].map(w => document.fonts.load(`${w} 88px "Inter"`).catch(() => null)),
-        document.fonts.load(`400 25px "Bebas Neue"`).catch(() => null),
-        document.fonts.load(`400 42px "Bebas Neue"`).catch(() => null),
-        document.fonts.load(`500 25px "Oswald"`).catch(() => null),
-        document.fonts.load(`700 17px "Oswald"`).catch(() => null),
-        document.fonts.load(`600 24px "Roboto Condensed"`).catch(() => null),
-        document.fonts.load(`600 28px "Roboto Condensed"`).catch(() => null),
-        document.fonts.load(`700 25px "Roboto Condensed"`).catch(() => null),
-        document.fonts.load(`700 13px "Montserrat"`).catch(() => null),
-        document.fonts.load(`800 20px "Montserrat"`).catch(() => null),
-        document.fonts.load(`900 40px "Montserrat"`).catch(() => null),
+        ...[400, 600, 700, 800, 900].map(w => document.fonts.load(`${w} 32px "${BROCHURE_INTER_FONT}"`).catch(() => null)),
+        ...[400, 600, 700, 800, 900].map(w => document.fonts.load(`${w} 88px "${BROCHURE_INTER_FONT}"`).catch(() => null)),
+        document.fonts.load(`400 25px "${BROCHURE_BEBAS_FONT}"`).catch(() => null),
+        document.fonts.load(`400 42px "${BROCHURE_BEBAS_FONT}"`).catch(() => null),
+        document.fonts.load(`500 25px "${BROCHURE_OSWALD_FONT}"`).catch(() => null),
+        document.fonts.load(`700 17px "${BROCHURE_OSWALD_FONT}"`).catch(() => null),
+        document.fonts.load(`600 24px "${BROCHURE_ROBOTO_CONDENSED_FONT}"`).catch(() => null),
+        document.fonts.load(`600 28px "${BROCHURE_ROBOTO_CONDENSED_FONT}"`).catch(() => null),
+        document.fonts.load(`700 25px "${BROCHURE_ROBOTO_CONDENSED_FONT}"`).catch(() => null),
+        document.fonts.load(`700 13px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
+        document.fonts.load(`800 20px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
+        document.fonts.load(`900 40px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
       ]);
       await document.fonts.ready;
       // iOS Safari sometimes resolves `fonts.ready` while individual FontFace entries
@@ -448,6 +453,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
           type: EXPORT_TYPE,
           quality: EXPORT_QUALITY,
           embedFonts: true,
+          localFonts: BROCHURE_LOCAL_FONTS,
           backgroundColor: '#FFFFFF',
           safariWarmupAttempts: 1,
         });
