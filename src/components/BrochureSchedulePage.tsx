@@ -179,6 +179,10 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   const [busy, setBusy] = useState<null | { kind: 'share' | 'download'; pageIndex: number }>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Pre-captured PNGs keyed by page key. Lets us call navigator.share()
+  // synchronously inside the click handler so iOS preserves the user-activation
+  // window. Without this, capture takes long enough that iOS throws NotAllowedError.
+  const [exportCache, setExportCache] = useState<Map<string, ExportedImage>>(new Map());
 
   // Measure the dashboard's own sticky header at runtime so the filter row's
   // sticky offset matches it exactly. Hardcoded values broke when the header's
@@ -450,6 +454,53 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     return null;
   }
 
+  // Pre-capture pages in the background so handleShare can hand the file to
+  // navigator.share() synchronously (preserves the iOS user-activation window).
+  // Effect re-runs whenever the rendered page set changes (filter changes etc.).
+  const pageKeys = activeImagePages.map(p => p.key).join('|');
+  useEffect(() => {
+    if (!previewScale || activeImagePages.length === 0) return;
+    // Drop stale entries whose page no longer exists.
+    setExportCache(prev => {
+      const valid = new Set(activeImagePages.map(p => p.key));
+      let changed = false;
+      const next = new Map(prev);
+      for (const k of next.keys()) {
+        if (!valid.has(k)) { next.delete(k); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+    let cancelled = false;
+    (async () => {
+      // Brief delay so layout/fonts settle after a filter change before we
+      // serialise the off-screen DOM.
+      await new Promise(r => setTimeout(r, 250));
+      for (let i = 0; i < activeImagePages.length; i++) {
+        if (cancelled) return;
+        const key = activeImagePages[i].key;
+        // Skip if already cached.
+        if (exportCache.has(key)) continue;
+        try {
+          const image = await captureBlob(i);
+          if (cancelled) return;
+          if (image) {
+            setExportCache(prev => {
+              if (prev.has(key)) return prev;
+              const next = new Map(prev);
+              next.set(key, image);
+              return next;
+            });
+          }
+        } catch (e) {
+          console.warn('[brosur] precapture failed for', key, e);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+    // exportCache intentionally omitted: it gets mutated by this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewScale, pageKeys]);
+
   // Surface the underlying error in the toast so iPhone users — who can't open
   // a console — still have a starting point for diagnosis. Truncate to keep
   // the toast bubble from overflowing.
@@ -458,50 +509,94 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     return raw.length > 90 ? raw.slice(0, 87) + '…' : raw;
   }
 
-  async function handleDownload(pageIndex: number) {
+  function handleDownload(pageIndex: number) {
     if (!exportLabel) return;
-    setBusy({ kind: 'download', pageIndex });
-    try {
-      const image = await captureBlob(pageIndex);
-      if (!image) throw new Error('capture-failed');
-      downloadBlob(image.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext));
-    } catch (e) {
-      console.error('[brosur] download failed:', e);
-      showToast(`Gagal generate gambar: ${errMsg(e)}`);
-    } finally {
-      setBusy(null);
+    const page = activeImagePages[pageIndex];
+    if (!page) return;
+    const cached = exportCache.get(page.key);
+    if (cached) {
+      // Cache hit — fire download immediately, no await between click & action.
+      downloadBlob(cached.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, cached.ext));
+      return;
     }
+    // Cache miss — capture inline and download. Spinner shown during wait.
+    setBusy({ kind: 'download', pageIndex });
+    (async () => {
+      try {
+        const image = await captureBlob(pageIndex);
+        if (!image) throw new Error('capture-failed');
+        downloadBlob(image.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext));
+      } catch (e) {
+        console.error('[brosur] download failed:', e);
+        showToast(`Gagal generate gambar: ${errMsg(e)}`);
+      } finally {
+        setBusy(null);
+      }
+    })();
   }
 
-  async function handleShare(pageIndex: number) {
+  // Synchronous when cached. iOS Safari requires navigator.share() to be called
+  // inside the user-activation window (~5s); awaiting capture first burns that
+  // budget and triggers NotAllowedError. With a pre-captured blob we go straight
+  // from the click to the share sheet.
+  function handleShare(pageIndex: number) {
     if (!exportLabel) return;
-    setBusy({ kind: 'share', pageIndex });
-    try {
-      const image = await captureBlob(pageIndex);
-      if (!image) throw new Error('capture-failed');
-      const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext);
-      const file = new File([image.blob], filename, { type: image.mime });
+    const page = activeImagePages[pageIndex];
+    if (!page) return;
+    const cached = exportCache.get(page.key);
+
+    if (cached) {
+      const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, cached.ext);
+      const file = new File([cached.blob], filename, { type: cached.mime });
       if (canShareFiles([file])) {
-        try {
-          await navigator.share({
-            files: [file],
-            title: `Brosur Paket Umroh ${exportLabel}`,
-            text: `Paket Umroh ${exportLabel} dari ${agent.name || 'Alhijaz'}`,
-          });
-        } catch (err: any) {
+        // Fire-and-forget within the click handler. No await above this line.
+        navigator.share({
+          files: [file],
+          title: `Brosur Paket Umroh ${exportLabel}`,
+          text: `Paket Umroh ${exportLabel} dari ${agent.name || 'Alhijaz'}`,
+        }).catch((err: any) => {
           if (err?.name === 'AbortError') return; // user cancelled — silent
-          throw err;
-        }
+          console.error('[brosur] share failed:', err);
+          showToast(`Gagal share: ${errMsg(err)}`);
+        });
       } else {
-        downloadBlob(image.blob, filename);
-        showToast(`Share tidak didukung, ${image.ext.toUpperCase()} diunduh`);
+        downloadBlob(cached.blob, filename);
+        showToast(`Share tidak didukung, ${cached.ext.toUpperCase()} diunduh`);
       }
-    } catch (e) {
-      console.error('[brosur] share failed:', e);
-      showToast(`Gagal share: ${errMsg(e)}`);
-    } finally {
-      setBusy(null);
+      return;
     }
+
+    // Cache miss — capture inline. iOS will likely lose user activation here
+    // and surface NotAllowedError; we report it instead of silently swallowing.
+    setBusy({ kind: 'share', pageIndex });
+    (async () => {
+      try {
+        const image = await captureBlob(pageIndex);
+        if (!image) throw new Error('capture-failed');
+        const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext);
+        const file = new File([image.blob], filename, { type: image.mime });
+        if (canShareFiles([file])) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: `Brosur Paket Umroh ${exportLabel}`,
+              text: `Paket Umroh ${exportLabel} dari ${agent.name || 'Alhijaz'}`,
+            });
+          } catch (err: any) {
+            if (err?.name === 'AbortError') return;
+            throw err;
+          }
+        } else {
+          downloadBlob(image.blob, filename);
+          showToast(`Share tidak didukung, ${image.ext.toUpperCase()} diunduh`);
+        }
+      } catch (e) {
+        console.error('[brosur] share failed:', e);
+        showToast(`Gagal share: ${errMsg(e)}`);
+      } finally {
+        setBusy(null);
+      }
+    })();
   }
 
   // ── Loading: skeleton placeholder ───────────────────────────────
