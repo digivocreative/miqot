@@ -17,12 +17,11 @@ import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 const EXPORT_TYPE = 'png';
 const EXPORT_MIME = 'image/png';
 const EXPORT_EXT = 'png';
-// 2x scale produces a sharper PNG for WhatsApp Status, but combined with the 14
-// self-hosted TTF fonts that snapdom inlines as base64 (~3 MB), each capture
-// peaks around 28 MB of bitmap memory — enough to consistently OOM on mobile.
-// Park at 1x until the brochure fonts are converted to WOFF2 (≈75% smaller),
-// then 2x can return safely.
-const EXPORT_SCALE = 1;
+// 2x scale yields a sharper PNG for WhatsApp Status. Now that the brochure
+// fonts ship as WOFF2 (~58% smaller than the original TTFs), the inlined font
+// payload is small enough that snapdom's capture stays within iOS Safari's
+// memory budget at 2x.
+const EXPORT_SCALE = 2;
 const PACKAGES_PER_IMAGE = 10;
 
 interface ExportedImage {

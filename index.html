@@ -58,37 +58,39 @@
     <meta property="og:site_name" content="Alhijaz Indowisata" />
 
     <title>Jadwal Umroh - Alhijaz Indowisata</title>
-    <!-- Self-hosted brochure fonts. Keeping these same-origin makes snapdom export
-         deterministic across devices and avoids Google Fonts/CDN timing variance. -->
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/BebasNeue-Regular.ttf">
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Inter-Regular.ttf">
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Inter-SemiBold.ttf">
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Inter-Bold.ttf">
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Inter-ExtraBold.ttf">
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Inter-Black.ttf">
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Oswald-Regular.ttf">
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Oswald-Medium.ttf">
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Oswald-Bold.ttf">
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Montserrat-Bold.ttf">
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Montserrat-ExtraBold.ttf">
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Montserrat-Black.ttf">
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/RobotoCondensed-SemiBold.ttf">
-    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/RobotoCondensed-Bold.ttf">
+    <!-- Self-hosted brochure fonts (WOFF2 — ~58% smaller than the original TTFs).
+         Same-origin so snapdom can embed deterministically without CDN timing
+         variance. `crossorigin="anonymous"` is required by the spec for `as=font`
+         preloads even on same-origin, otherwise the browser ignores the hint. -->
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/BebasNeue-Regular.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-Regular.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-SemiBold.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-Bold.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-ExtraBold.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-Black.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Oswald-Regular.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Oswald-Medium.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Oswald-Bold.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Montserrat-Bold.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Montserrat-ExtraBold.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Montserrat-Black.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/RobotoCondensed-SemiBold.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/RobotoCondensed-Bold.woff2">
     <style>
-      @font-face { font-family: 'Bebas Neue'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/BebasNeue-Regular.ttf') format('truetype'); }
-      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/Inter-Regular.ttf') format('truetype'); }
-      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/brochure/Inter-SemiBold.ttf') format('truetype'); }
-      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Inter-Bold.ttf') format('truetype'); }
-      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/brochure/Inter-ExtraBold.ttf') format('truetype'); }
-      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 900; font-display: swap; src: url('/fonts/brochure/Inter-Black.ttf') format('truetype'); }
-      @font-face { font-family: 'Oswald'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/Oswald-Regular.ttf') format('truetype'); }
-      @font-face { font-family: 'Oswald'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/brochure/Oswald-Medium.ttf') format('truetype'); }
-      @font-face { font-family: 'Oswald'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Oswald-Bold.ttf') format('truetype'); }
-      @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Montserrat-Bold.ttf') format('truetype'); }
-      @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/brochure/Montserrat-ExtraBold.ttf') format('truetype'); }
-      @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 900; font-display: swap; src: url('/fonts/brochure/Montserrat-Black.ttf') format('truetype'); }
-      @font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/brochure/RobotoCondensed-SemiBold.ttf') format('truetype'); }
-      @font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/RobotoCondensed-Bold.ttf') format('truetype'); }
+      @font-face { font-family: 'Bebas Neue'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/BebasNeue-Regular.woff2') format('woff2'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/Inter-Regular.woff2') format('woff2'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/brochure/Inter-SemiBold.woff2') format('woff2'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Inter-Bold.woff2') format('woff2'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/brochure/Inter-ExtraBold.woff2') format('woff2'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 900; font-display: swap; src: url('/fonts/brochure/Inter-Black.woff2') format('woff2'); }
+      @font-face { font-family: 'Oswald'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/Oswald-Regular.woff2') format('woff2'); }
+      @font-face { font-family: 'Oswald'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/brochure/Oswald-Medium.woff2') format('woff2'); }
+      @font-face { font-family: 'Oswald'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Oswald-Bold.woff2') format('woff2'); }
+      @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Montserrat-Bold.woff2') format('woff2'); }
+      @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/brochure/Montserrat-ExtraBold.woff2') format('woff2'); }
+      @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 900; font-display: swap; src: url('/fonts/brochure/Montserrat-Black.woff2') format('woff2'); }
+      @font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/brochure/RobotoCondensed-SemiBold.woff2') format('woff2'); }
+      @font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/RobotoCondensed-Bold.woff2') format('woff2'); }
     </style>
   </head>
   <body>
