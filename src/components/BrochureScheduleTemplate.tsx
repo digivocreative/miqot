@@ -625,7 +625,10 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
                 textAlign: 'center',
                 fontFamily: BROCHURE_ROBOTO_CONDENSED_FONT_STACK,
                 fontSize: 24,
-                fontWeight: 500,
+                // Roboto Condensed is self-hosted at 600 + 700 only. Asking for 500
+                // makes the browser synthesise (or worse, fall back per character),
+                // producing the "S big, AUDIA small" look in the export. Pin to 600.
+                fontWeight: 600,
                 color: INK,
                 lineHeight: 1.02,
                 paddingLeft: 6,

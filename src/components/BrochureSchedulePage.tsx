@@ -5,7 +5,6 @@ import {
   BrochureScheduleTemplate,
   BROCHURE_W,
   BROCHURE_H,
-  BROCHURE_FONT_WEIGHTS,
   PACKAGE_TYPES,
   derivePackageType,
   type BrochureMonth,
@@ -366,19 +365,33 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     try {
       // Probe at the actual sizes used in the brochure, not 16px. Some browsers cache
       // font metrics per size — probing at 16 doesn't guarantee 25/40/etc are decoded
-      // by the time snapdom serializes the SVG.
+      // by the time snapdom serializes the SVG. Also: only probe weights that are
+      // actually self-hosted (see <style> in index.html) — asking for 500 of Roboto
+      // Condensed when only 600/700 exist makes the browser synthesise per char and
+      // capture mid-state.
       await Promise.all([
-        ...BROCHURE_FONT_WEIGHTS.map(w => document.fonts.load(`${w} 32px "Inter"`).catch(() => null)),
-        ...BROCHURE_FONT_WEIGHTS.map(w => document.fonts.load(`${w} 88px "Inter"`).catch(() => null)),
+        ...[400, 600, 700, 800, 900].map(w => document.fonts.load(`${w} 32px "Inter"`).catch(() => null)),
+        ...[400, 600, 700, 800, 900].map(w => document.fonts.load(`${w} 88px "Inter"`).catch(() => null)),
         document.fonts.load(`400 25px "Bebas Neue"`).catch(() => null),
         document.fonts.load(`400 42px "Bebas Neue"`).catch(() => null),
         document.fonts.load(`500 25px "Oswald"`).catch(() => null),
+        document.fonts.load(`700 17px "Oswald"`).catch(() => null),
+        document.fonts.load(`600 24px "Roboto Condensed"`).catch(() => null),
         document.fonts.load(`600 28px "Roboto Condensed"`).catch(() => null),
         document.fonts.load(`700 25px "Roboto Condensed"`).catch(() => null),
-        document.fonts.load(`900 40px "Montserrat"`).catch(() => null),
+        document.fonts.load(`700 13px "Montserrat"`).catch(() => null),
         document.fonts.load(`800 20px "Montserrat"`).catch(() => null),
+        document.fonts.load(`900 40px "Montserrat"`).catch(() => null),
       ]);
       await document.fonts.ready;
+      // iOS Safari sometimes resolves `fonts.ready` while individual FontFace entries
+      // are still in `loading`. Poll up to ~3 s to catch that race before snapdom
+      // captures the DOM with half the glyphs swapped to fallback.
+      for (let i = 0; i < 30; i++) {
+        const stillLoading = Array.from(document.fonts).some(f => f.status === 'loading');
+        if (!stillLoading) break;
+        await new Promise(r => setTimeout(r, 100));
+      }
       await waitForNextPaint();
       await waitForNextPaint();
     } catch {
@@ -463,43 +476,29 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   async function handleShare(pageIndex: number) {
     if (!exportLabel) return;
     setBusy({ kind: 'share', pageIndex });
-    let image: ExportedImage | null = null;
-    // Phase 1: capture. Surface this as a generation failure if it fails.
     try {
-      image = await captureBlob(pageIndex);
+      const image = await captureBlob(pageIndex);
       if (!image) throw new Error('capture-failed');
-    } catch (e) {
-      console.error('[brosur] share capture failed:', e);
-      showToast(`Gagal generate gambar: ${errMsg(e)}`);
-      setBusy(null);
-      return;
-    }
-    // Phase 2: hand off to the share sheet. iOS Web Share API requires the
-    // call to land inside the user-activation window — capture above can take
-    // a few seconds, which often invalidates the activation. If share fails
-    // with anything other than the user cancelling, fall back to a download
-    // so the user still ends up with a usable file.
-    const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext);
-    try {
+      const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext);
       const file = new File([image.blob], filename, { type: image.mime });
       if (canShareFiles([file])) {
-        await navigator.share({
-          files: [file],
-          title: `Brosur Paket Umroh ${exportLabel}`,
-          text: `Paket Umroh ${exportLabel} dari ${agent.name || 'Alhijaz'}`,
-        });
+        try {
+          await navigator.share({
+            files: [file],
+            title: `Brosur Paket Umroh ${exportLabel}`,
+            text: `Paket Umroh ${exportLabel} dari ${agent.name || 'Alhijaz'}`,
+          });
+        } catch (err: any) {
+          if (err?.name === 'AbortError') return; // user cancelled — silent
+          throw err;
+        }
       } else {
         downloadBlob(image.blob, filename);
         showToast(`Share tidak didukung, ${image.ext.toUpperCase()} diunduh`);
       }
-    } catch (e: any) {
-      if (e?.name === 'AbortError') {
-        // User cancelled the share sheet — silent.
-      } else {
-        console.error('[brosur] share failed, falling back to download:', e);
-        downloadBlob(image.blob, filename);
-        showToast(`Share gagal (${errMsg(e)}), file diunduh`);
-      }
+    } catch (e) {
+      console.error('[brosur] share failed:', e);
+      showToast(`Gagal share: ${errMsg(e)}`);
     } finally {
       setBusy(null);
     }
