@@ -1,6 +1,6 @@
 // src/components/BrochureSchedulePage.tsx
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Download, Share2, Loader2, ChevronDown } from 'lucide-react';
+import { Download, Share2, Loader2, ChevronDown, CircleCheck } from 'lucide-react';
 import {
   BrochureScheduleTemplate,
   BROCHURE_W,
@@ -18,11 +18,12 @@ import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 const EXPORT_TYPE = 'png';
 const EXPORT_MIME = 'image/png';
 const EXPORT_EXT = 'png';
-// WhatsApp Status often crops/zooms this 2:3 brochure into a 9:16 frame and
-// recompresses it. Export at 2x so WA downscales from a sharper source instead
-// of upscaling a 1080px-wide image.
-const EXPORT_SCALE = 2;
-const EXPORT_SCALE_FALLBACK = 1;
+// 2x scale produces a sharper PNG for WhatsApp Status, but combined with the 14
+// self-hosted TTF fonts that snapdom inlines as base64 (~3 MB), each capture
+// peaks around 28 MB of bitmap memory — enough to consistently OOM on mobile.
+// Park at 1x until the brochure fonts are converted to WOFF2 (≈75% smaller),
+// then 2x can return safely.
+const EXPORT_SCALE = 1;
 const PACKAGES_PER_IMAGE = 10;
 
 interface ExportedImage {
@@ -172,6 +173,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   const [agent, setAgent] = useState<BrochureAgent>(agentProp);
   const [filterDim, setFilterDim] = useState<FilterDim>('bulan');
   const [filterValue, setFilterValue] = useState<string | null>(null);
+  const [availableOnly, setAvailableOnly] = useState(false);
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const [previewScale, setPreviewScale] = useState(0);
   const exportPageRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -203,16 +205,24 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     () => months.flatMap(m => m.packages),
     [months],
   );
+  const optionPackages = useMemo<BrochurePackage[]>(
+    () => availableOnly ? allPackages.filter(p => !p.soldOut) : allPackages,
+    [availableOnly, allPackages],
+  );
 
   // Available right-side options per filter dimension. Only includes values
   // that actually have at least one matching package, so users can't pick a
-  // dead end. Order: months ascending, types in PACKAGE_TYPES priority, airlines priority then alphabetical.
+  // dead end. When "Tersedia saja" is active, options are also based only on
+  // non-sold-out packages. Order: months ascending, types in PACKAGE_TYPES
+  // priority, airlines priority then alphabetical.
   const availableValues = useMemo<Array<{ value: string; label: string }>>(() => {
     if (filterDim === 'bulan') {
-      return months.map(m => ({ value: m.key, label: m.label }));
+      return months
+        .filter(m => !availableOnly || m.packages.some(p => !p.soldOut))
+        .map(m => ({ value: m.key, label: m.label }));
     }
     if (filterDim === 'tipe') {
-      const present = new Set(allPackages.map(p => derivePackageType(p.nama)));
+      const present = new Set(optionPackages.map(p => derivePackageType(p.nama)));
       const ordered: Array<{ value: string; label: string }> = [];
       if (present.has('UMROH SAJA')) ordered.push({ value: 'UMROH SAJA', label: 'Umroh Saja' });
       for (const t of PACKAGE_TYPES) {
@@ -221,11 +231,11 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       return ordered;
     }
     if (filterDim === 'maskapai') {
-      const set = new Set(allPackages.map(p => p.maskapai).filter((m): m is string => !!m && m.trim().length > 0));
+      const set = new Set(optionPackages.map(p => p.maskapai).filter((m): m is string => !!m && m.trim().length > 0));
       return [...set].sort(compareAirlineOptions).map(m => ({ value: m, label: m }));
     }
     return [];
-  }, [filterDim, months, allPackages]);
+  }, [filterDim, months, optionPackages, availableOnly]);
 
   // Whenever the dimension changes (or the available values list refreshes),
   // make sure the selected value is still valid; otherwise pick the first.
@@ -297,6 +307,10 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   //   - filteredPackages: the rows that survive the filter
   //   - showFullDate: whether the date badge should also include the month name
   const { filterLabel, filteredPackages, showFullDate } = useMemo(() => {
+    const applyAvailability = (packages: BrochurePackage[]) => (
+      availableOnly ? packages.filter(p => !p.soldOut) : packages
+    );
+
     if (!filterValue) {
       return { filterLabel: '', filteredPackages: [] as BrochurePackage[], showFullDate: false };
     }
@@ -304,7 +318,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       const m = months.find(x => x.key === filterValue);
       return {
         filterLabel: m?.label || '',
-        filteredPackages: m?.packages ?? [],
+        filteredPackages: applyAvailability(m?.packages ?? []),
         showFullDate: false,
       };
     }
@@ -315,18 +329,18 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         .filter(p => derivePackageType(p.nama) === filterValue)
         // Span multiple months → sort by departure date so rows read chronologically.
         .sort((a, b) => String(a.berangkat_tgl).localeCompare(String(b.berangkat_tgl)));
-      return { filterLabel: brochureLabel, filteredPackages: matches, showFullDate: true };
+      return { filterLabel: brochureLabel, filteredPackages: applyAvailability(matches), showFullDate: true };
     }
     // maskapai
     const matches = allPackages
       .filter(p => p.maskapai === filterValue)
       .sort((a, b) => String(a.berangkat_tgl).localeCompare(String(b.berangkat_tgl)));
-    return { filterLabel: filterValue, filteredPackages: matches, showFullDate: true };
-  }, [filterDim, filterValue, months, allPackages, availableValues]);
+    return { filterLabel: filterValue, filteredPackages: applyAvailability(matches), showFullDate: true };
+  }, [filterDim, filterValue, months, allPackages, availableValues, availableOnly]);
 
   const activeImagePages = useMemo(
-    () => splitPackagesIntoPages(filteredPackages, `${filterDim}-${filterValue ?? 'none'}`, filterLabel),
-    [filteredPackages, filterDim, filterValue, filterLabel],
+    () => splitPackagesIntoPages(filteredPackages, `${filterDim}-${filterValue ?? 'none'}${availableOnly ? '-available' : ''}`, filterLabel),
+    [filteredPackages, filterDim, filterValue, filterLabel, availableOnly],
   );
   const showShareButton = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
@@ -335,6 +349,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     const base = `brosur-paket-umroh-${slug}`;
     return `${base}${pageCount > 1 ? `-gambar-${pageIndex}` : ''}.${ext}`;
   };
+  const exportLabel = availableOnly && filterLabel ? `${filterLabel} tersedia` : filterLabel;
 
   function showToast(message: string) {
     setToast(message);
@@ -394,31 +409,27 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     await waitForNextPaint();
     const { snapdom } = await import('@zumer/snapdom');
 
-    // Always capture with embedFonts: true. The previous fallback to embedFonts: false
-    // produced a "successful" PNG that was rendered with system-fallback fonts (because
-    // an SVG <foreignObject> data URL doesn't share the page's font registry) — which is
-    // exactly the bug we're trying to avoid. If the first attempt fails, re-warm fonts
-    // and try the same config once more.
+    // Always capture with embedFonts: true. Falling back to embedFonts: false
+    // produces a "successful" PNG rendered with system-fallback fonts (because an
+    // SVG <foreignObject> data URL doesn't share the page's font registry) — exactly
+    // the bug we're trying to avoid. If the attempt fails, re-warm fonts once and retry.
     let lastError: unknown = null;
-    const scales = Array.from(new Set([EXPORT_SCALE, EXPORT_SCALE_FALLBACK]));
-    for (const scale of scales) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const result = await snapdom(target, {
-            scale,
-            embedFonts: true,
-            backgroundColor: '#FFFFFF',
-          });
-          const image = await toExportedImage(result);
-          if (image) return image;
-        } catch (err) {
-          lastError = err;
-          console.warn(`[brosur] capture scale ${scale} attempt ${attempt + 1} failed:`, err);
-        }
-        if (attempt === 0) {
-          await waitForFonts();
-          await waitForNextPaint();
-        }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const result = await snapdom(target, {
+          scale: EXPORT_SCALE,
+          embedFonts: true,
+          backgroundColor: '#FFFFFF',
+        });
+        const image = await toExportedImage(result);
+        if (image) return image;
+      } catch (err) {
+        lastError = err;
+        console.warn(`[brosur] capture attempt ${attempt + 1} failed:`, err);
+      }
+      if (attempt === 0) {
+        await waitForFonts();
+        await waitForNextPaint();
       }
     }
 
@@ -427,12 +438,12 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   }
 
   async function handleDownload(pageIndex: number) {
-    if (!filterLabel) return;
+    if (!exportLabel) return;
     setBusy({ kind: 'download', pageIndex });
     try {
       const image = await captureBlob(pageIndex);
       if (!image) throw new Error('capture-failed');
-      downloadBlob(image.blob, filenameForBrochure(filterLabel, pageIndex + 1, activeImagePages.length, image.ext));
+      downloadBlob(image.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext));
     } catch (e) {
       console.error('[brosur] download failed:', e);
       showToast('Gagal generate brosur, coba lagi');
@@ -442,29 +453,29 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   }
 
   async function handleShare(pageIndex: number) {
-    if (!filterLabel) return;
+    if (!exportLabel) return;
     setBusy({ kind: 'share', pageIndex });
     try {
       const image = await captureBlob(pageIndex);
       if (!image) throw new Error('capture-failed');
       const file = new File(
         [image.blob],
-        filenameForBrochure(filterLabel, pageIndex + 1, activeImagePages.length, image.ext),
+        filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext),
         { type: image.mime }
       );
       if (canShareFiles([file])) {
         try {
           await navigator.share({
             files: [file],
-            title: `Brosur Paket Umroh ${filterLabel}`,
-            text: `Paket Umroh ${filterLabel} dari ${agent.name || 'Alhijaz'}`,
+            title: `Brosur Paket Umroh ${exportLabel}`,
+            text: `Paket Umroh ${exportLabel} dari ${agent.name || 'Alhijaz'}`,
           });
         } catch (err: any) {
           if (err?.name === 'AbortError') return; // user cancelled — silent
           throw err;
         }
       } else {
-        downloadBlob(image.blob, filenameForBrochure(filterLabel, pageIndex + 1, activeImagePages.length, image.ext));
+        downloadBlob(image.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext));
         showToast(`Share tidak didukung, ${image.ext.toUpperCase()} diunduh`);
       }
     } catch (e) {
@@ -533,8 +544,8 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
 
   return (
     <div style={{ paddingBottom: '2rem' }}>
-      {/* Filter row: dimension (left) + value (right). Sticks just below the
-          dashboard's own sticky header (height measured at runtime). */}
+      {/* Filter row: dimension + value + availability toggle. Sticks just below
+          the dashboard's own sticky header (height measured at runtime). */}
       <div
         className="sticky z-10 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50"
         style={{ top: headerOffset }}
@@ -555,6 +566,20 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
             widthClass="flex-1 min-w-0"
             disabled={availableValues.length === 0}
           />
+          <button
+            type="button"
+            onClick={() => setAvailableOnly(v => !v)}
+            aria-label={availableOnly ? 'Tampilkan semua paket' : 'Tampilkan paket tersedia saja'}
+            aria-pressed={availableOnly}
+            title={availableOnly ? 'Semua paket' : 'Tersedia saja'}
+            className={`h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg border transition-all duration-200 active:scale-[0.98] ${
+              availableOnly
+                ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-500/20'
+                : 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400'
+            }`}
+          >
+            <CircleCheck size={17} strokeWidth={2.5} />
+          </button>
         </div>
       </div>
 
@@ -572,7 +597,9 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         >
           {!hasResults ? (
             <div className="text-center py-10">
-              <p className="text-sm font-bold text-gray-800 dark:text-white">Tidak ada paket untuk filter ini</p>
+              <p className="text-sm font-bold text-gray-800 dark:text-white">
+                {availableOnly ? 'Tidak ada paket tersedia untuk filter ini' : 'Tidak ada paket untuk filter ini'}
+              </p>
               <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5 leading-relaxed">
                 Coba pilih nilai lain atau ganti dimensi filter.
               </p>
