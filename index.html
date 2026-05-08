@@ -58,22 +58,38 @@
     <meta property="og:site_name" content="Alhijaz Indowisata" />
 
     <title>Jadwal Umroh - Alhijaz Indowisata</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <!-- crossorigin on the stylesheet aligns the HTTP cache key with snapdom's CORS fetch
-         during brochure export, so the woff2 files don't get re-downloaded (and possibly
-         time out) at capture time. -->
-    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@100..900&family=Montserrat:wght@400..900&family=Oswald:wght@400..700&display=swap" rel="stylesheet" crossorigin="anonymous">
-    <!-- Preload latin subset of brochure fonts so they're cached before the user hits export.
-         If Google rotates the woff2 URL, the preload is a no-op and CSS-discovered URLs still load. -->
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous"
-          href="https://fonts.gstatic.com/s/bebasneue/v16/JTUSjIg69CK48gW7PXoo9WlhyyTh89Y.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous"
-          href="https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7W0Q5nw.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous"
-          href="https://fonts.gstatic.com/s/oswald/v57/TK3IWkUHHAIjg75cFRf3bXL8LICs1_Fv40pKlN4NNSeSASz7FmlWHYjMdZwl.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous"
-          href="https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WlhyyTh89Y.woff2">
+    <!-- Self-hosted brochure fonts. Keeping these same-origin makes snapdom export
+         deterministic across devices and avoids Google Fonts/CDN timing variance. -->
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/BebasNeue-Regular.ttf">
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Inter-Regular.ttf">
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Inter-SemiBold.ttf">
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Inter-Bold.ttf">
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Inter-ExtraBold.ttf">
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Inter-Black.ttf">
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Oswald-Regular.ttf">
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Oswald-Medium.ttf">
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Oswald-Bold.ttf">
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Montserrat-Bold.ttf">
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Montserrat-ExtraBold.ttf">
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/Montserrat-Black.ttf">
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/RobotoCondensed-SemiBold.ttf">
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/brochure/RobotoCondensed-Bold.ttf">
+    <style>
+      @font-face { font-family: 'Bebas Neue'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/BebasNeue-Regular.ttf') format('truetype'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/Inter-Regular.ttf') format('truetype'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/brochure/Inter-SemiBold.ttf') format('truetype'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Inter-Bold.ttf') format('truetype'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/brochure/Inter-ExtraBold.ttf') format('truetype'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 900; font-display: swap; src: url('/fonts/brochure/Inter-Black.ttf') format('truetype'); }
+      @font-face { font-family: 'Oswald'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/Oswald-Regular.ttf') format('truetype'); }
+      @font-face { font-family: 'Oswald'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/brochure/Oswald-Medium.ttf') format('truetype'); }
+      @font-face { font-family: 'Oswald'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Oswald-Bold.ttf') format('truetype'); }
+      @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Montserrat-Bold.ttf') format('truetype'); }
+      @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/brochure/Montserrat-ExtraBold.ttf') format('truetype'); }
+      @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 900; font-display: swap; src: url('/fonts/brochure/Montserrat-Black.ttf') format('truetype'); }
+      @font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/brochure/RobotoCondensed-SemiBold.ttf') format('truetype'); }
+      @font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/RobotoCondensed-Bold.ttf') format('truetype'); }
+    </style>
   </head>
   <body>
     <script>

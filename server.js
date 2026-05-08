@@ -32,7 +32,7 @@ import {
   tallyBy,
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
-import { cleanBrochurePackageName, countBrochureTripDays, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
+import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -10333,13 +10333,18 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
         droppedNoPrice++;
         continue;
       }
+      // Prefer duration declared in the raw name ("15HR") over date arithmetic —
+      // packages with extensions (Turki, Cairo, Dubai) store dates for the umroh
+      // leg only, so date math undercounts. Fall back to dates when name is silent.
+      const hari = extractDurationFromName(r.jadwal_nama)
+        ?? countBrochureTripDays(r.berangkat_tgl, r.pulang_tgl);
       priced.push({
         id: r.jadwal_id,
         nama: cleanBrochurePackageName(r.jadwal_nama),
         maskapai: String(r.maskapai || '').toUpperCase(),
         berangkat_tgl: r.berangkat_tgl,
         pulang_tgl: r.pulang_tgl,
-        hari: countBrochureTripDays(r.berangkat_tgl, r.pulang_tgl),
+        hari,
         hotel: details?.hotel || [],
         harga: details?.harga ?? null,
         soldOut,

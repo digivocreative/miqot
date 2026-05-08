@@ -1,12 +1,15 @@
 // src/components/BrochureSchedulePage.tsx
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Download, Share2, Loader2 } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Download, Share2, Loader2, ChevronDown } from 'lucide-react';
 import {
   BrochureScheduleTemplate,
   BROCHURE_W,
   BROCHURE_H,
   BROCHURE_FONT_WEIGHTS,
+  PACKAGE_TYPES,
+  derivePackageType,
   type BrochureMonth,
+  type BrochurePackage,
   type BrochureAgent,
 } from './BrochureScheduleTemplate';
 import { getAuthHeaders } from './LoginPage';
@@ -15,7 +18,11 @@ import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 const EXPORT_TYPE = 'png';
 const EXPORT_MIME = 'image/png';
 const EXPORT_EXT = 'png';
-const EXPORT_SCALE = 1;
+// WhatsApp Status often crops/zooms this 2:3 brochure into a 9:16 frame and
+// recompresses it. Export at 2x so WA downscales from a sharper source instead
+// of upscaling a 1080px-wide image.
+const EXPORT_SCALE = 2;
+const EXPORT_SCALE_FALLBACK = 1;
 const PACKAGES_PER_IMAGE = 10;
 
 interface ExportedImage {
@@ -79,17 +86,83 @@ function BrochureSkeleton() {
   );
 }
 
-function splitMonthIntoImagePages(month: BrochureMonth): BrochureMonth[] {
+function splitPackagesIntoPages(
+  packages: BrochurePackage[],
+  pageKeyPrefix: string,
+  label: string,
+): BrochureMonth[] {
   const pages: BrochureMonth[] = [];
-  for (let start = 0; start < month.packages.length; start += PACKAGES_PER_IMAGE) {
+  for (let start = 0; start < packages.length; start += PACKAGES_PER_IMAGE) {
     pages.push({
-      ...month,
-      key: `${month.key}-page-${pages.length + 1}`,
-      packages: month.packages.slice(start, start + PACKAGES_PER_IMAGE),
+      key: `${pageKeyPrefix}-page-${pages.length + 1}`,
+      label,
+      monthIndexId: -1,
+      year: 0,
+      packages: packages.slice(start, start + PACKAGES_PER_IMAGE),
       truncatedCount: 0,
     });
   }
-  return pages.length ? pages : [{ ...month, truncatedCount: 0 }];
+  return pages;
+}
+
+type FilterDim = 'bulan' | 'tipe' | 'maskapai';
+
+const FILTER_DIM_LABELS: Record<FilterDim, string> = {
+  bulan: 'Bulan',
+  tipe: 'Tipe Paket',
+  maskapai: 'Maskapai',
+};
+
+function airlineOptionRank(maskapai: string): number {
+  const normalized = maskapai.trim().toLowerCase();
+  if (normalized.includes('saudia')) return 0;
+  if (normalized.includes('garuda')) return 1;
+  return 2;
+}
+
+function compareAirlineOptions(a: string, b: string): number {
+  const rankDiff = airlineOptionRank(a) - airlineOptionRank(b);
+  if (rankDiff !== 0) return rankDiff;
+  return a.localeCompare(b, 'id', { sensitivity: 'base' });
+}
+
+interface FilterSelectProps {
+  value: string;
+  onChange: (v: string) => void;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  ariaLabel: string;
+  widthClass?: string;
+  disabled?: boolean;
+}
+
+// Adapted from "Filter Select (Compact)" pattern in docs/DESIGN-SYSTEM.md, sized
+// up slightly (h-9 / text-xs) so it reads comfortably on the brochure page where
+// the preview below uses larger type. Same shape language as the DS pattern:
+// rectangular rounded-lg + thin border + subtle bg.
+function FilterSelect({ value, onChange, options, ariaLabel, widthClass = '', disabled = false }: FilterSelectProps) {
+  return (
+    <div className={`relative ${widthClass}`}>
+      <select
+        aria-label={ariaLabel}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full h-9 text-xs font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 pr-8 outline-none appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed truncate"
+      >
+        {options.length === 0 ? (
+          <option value="">—</option>
+        ) : (
+          options.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))
+        )}
+      </select>
+      <ChevronDown
+        size={14}
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500 dark:text-slate-400"
+      />
+    </div>
+  );
 }
 
 export default function BrochureSchedulePage({ agent: agentProp }: BrochureSchedulePageProps) {
@@ -97,14 +170,74 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   const [error, setError] = useState<string | null>(null);
   const [months, setMonths] = useState<BrochureMonth[]>([]);
   const [agent, setAgent] = useState<BrochureAgent>(agentProp);
-  const [activeKey, setActiveKey] = useState<string | null>(null);
-  const tabBarRef = useRef<HTMLDivElement | null>(null);
+  const [filterDim, setFilterDim] = useState<FilterDim>('bulan');
+  const [filterValue, setFilterValue] = useState<string | null>(null);
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const [previewScale, setPreviewScale] = useState(0);
   const exportPageRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [busy, setBusy] = useState<null | { kind: 'share' | 'download'; pageIndex: number }>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Measure the dashboard's own sticky header at runtime so the filter row's
+  // sticky offset matches it exactly. Hardcoded values broke when the header's
+  // padding/content shifted (e.g. font scaling, browser zoom, additional right-
+  // side toolbar buttons). 60 is a sensible default for the first paint.
+  const [headerOffset, setHeaderOffset] = useState(60);
+  useEffect(() => {
+    const header = document.querySelector<HTMLElement>('header.sticky');
+    if (!header) return;
+    const measure = () => setHeaderOffset(header.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(header);
+    window.addEventListener('resize', measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
+
+  // Flatten all months into a single list — used for tipe/maskapai filtering.
+  const allPackages = useMemo<BrochurePackage[]>(
+    () => months.flatMap(m => m.packages),
+    [months],
+  );
+
+  // Available right-side options per filter dimension. Only includes values
+  // that actually have at least one matching package, so users can't pick a
+  // dead end. Order: months ascending, types in PACKAGE_TYPES priority, airlines priority then alphabetical.
+  const availableValues = useMemo<Array<{ value: string; label: string }>>(() => {
+    if (filterDim === 'bulan') {
+      return months.map(m => ({ value: m.key, label: m.label }));
+    }
+    if (filterDim === 'tipe') {
+      const present = new Set(allPackages.map(p => derivePackageType(p.nama)));
+      const ordered: Array<{ value: string; label: string }> = [];
+      if (present.has('UMROH SAJA')) ordered.push({ value: 'UMROH SAJA', label: 'Umroh Saja' });
+      for (const t of PACKAGE_TYPES) {
+        if (present.has(t.value)) ordered.push({ value: t.value, label: t.value.replace(/^PLUS /, 'Plus ') });
+      }
+      return ordered;
+    }
+    if (filterDim === 'maskapai') {
+      const set = new Set(allPackages.map(p => p.maskapai).filter((m): m is string => !!m && m.trim().length > 0));
+      return [...set].sort(compareAirlineOptions).map(m => ({ value: m, label: m }));
+    }
+    return [];
+  }, [filterDim, months, allPackages]);
+
+  // Whenever the dimension changes (or the available values list refreshes),
+  // make sure the selected value is still valid; otherwise pick the first.
+  useEffect(() => {
+    if (availableValues.length === 0) {
+      if (filterValue !== null) setFilterValue(null);
+      return;
+    }
+    if (!filterValue || !availableValues.some(v => v.value === filterValue)) {
+      setFilterValue(availableValues[0].value);
+    }
+  }, [availableValues, filterValue]);
 
   // Compute preview scale once container is in DOM (after loading flips off).
   // useLayoutEffect runs synchronously before paint, so we never paint at the wrong scale.
@@ -137,8 +270,11 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         if (!alive) return;
         setMonths(json.months || []);
         setAgent(mergeAgentProfile(agentProp, json.agent));
+        // Default selection: first (= nearest upcoming) month with packages.
+        // The auto-select effect will pick this up once availableValues is computed.
         if (json.months?.length) {
-          setActiveKey(json.months[0].key);
+          setFilterDim('bulan');
+          setFilterValue(json.months[0].key);
         }
       } catch (e: any) {
         if (!alive) return;
@@ -156,19 +292,47 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     };
   }, []);
 
-  // Scroll active tab into view on change
-  useEffect(() => {
-    if (!activeKey || !tabBarRef.current) return;
-    const el = tabBarRef.current.querySelector(`[data-key="${activeKey}"]`) as HTMLElement | null;
-    el?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
-  }, [activeKey]);
+  // Resolve the current filter into:
+  //   - filterLabel: human-readable subtitle that ends up on the brochure title row
+  //   - filteredPackages: the rows that survive the filter
+  //   - showFullDate: whether the date badge should also include the month name
+  const { filterLabel, filteredPackages, showFullDate } = useMemo(() => {
+    if (!filterValue) {
+      return { filterLabel: '', filteredPackages: [] as BrochurePackage[], showFullDate: false };
+    }
+    if (filterDim === 'bulan') {
+      const m = months.find(x => x.key === filterValue);
+      return {
+        filterLabel: m?.label || '',
+        filteredPackages: m?.packages ?? [],
+        showFullDate: false,
+      };
+    }
+    if (filterDim === 'tipe') {
+      const opt = availableValues.find(v => v.value === filterValue);
+      const brochureLabel = filterValue === 'UMROH SAJA' ? 'REGULER' : opt?.label || filterValue;
+      const matches = allPackages
+        .filter(p => derivePackageType(p.nama) === filterValue)
+        // Span multiple months → sort by departure date so rows read chronologically.
+        .sort((a, b) => String(a.berangkat_tgl).localeCompare(String(b.berangkat_tgl)));
+      return { filterLabel: brochureLabel, filteredPackages: matches, showFullDate: true };
+    }
+    // maskapai
+    const matches = allPackages
+      .filter(p => p.maskapai === filterValue)
+      .sort((a, b) => String(a.berangkat_tgl).localeCompare(String(b.berangkat_tgl)));
+    return { filterLabel: filterValue, filteredPackages: matches, showFullDate: true };
+  }, [filterDim, filterValue, months, allPackages, availableValues]);
 
-  const activeMonth = months.find(m => m.key === activeKey) || null;
-  const activeImagePages = activeMonth ? splitMonthIntoImagePages(activeMonth) : [];
+  const activeImagePages = useMemo(
+    () => splitPackagesIntoPages(filteredPackages, `${filterDim}-${filterValue ?? 'none'}`, filterLabel),
+    [filteredPackages, filterDim, filterValue, filterLabel],
+  );
   const showShareButton = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
-  const filenameForMonth = (label: string, pageIndex = 1, pageCount = 1, ext = EXPORT_EXT) => {
-    const base = `brosur-paket-umroh-${label.toLowerCase().replace(/\s+/g, '-')}`;
+  const filenameForBrochure = (label: string, pageIndex = 1, pageCount = 1, ext = EXPORT_EXT) => {
+    const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'brosur';
+    const base = `brosur-paket-umroh-${slug}`;
     return `${base}${pageCount > 1 ? `-gambar-${pageIndex}` : ''}.${ext}`;
   };
 
@@ -194,6 +358,8 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         document.fonts.load(`400 25px "Bebas Neue"`).catch(() => null),
         document.fonts.load(`400 42px "Bebas Neue"`).catch(() => null),
         document.fonts.load(`500 25px "Oswald"`).catch(() => null),
+        document.fonts.load(`600 28px "Roboto Condensed"`).catch(() => null),
+        document.fonts.load(`700 25px "Roboto Condensed"`).catch(() => null),
         document.fonts.load(`900 40px "Montserrat"`).catch(() => null),
         document.fonts.load(`800 20px "Montserrat"`).catch(() => null),
       ]);
@@ -234,22 +400,25 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     // exactly the bug we're trying to avoid. If the first attempt fails, re-warm fonts
     // and try the same config once more.
     let lastError: unknown = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const result = await snapdom(target, {
-          scale: EXPORT_SCALE,
-          embedFonts: true,
-          backgroundColor: '#FFFFFF',
-        });
-        const image = await toExportedImage(result);
-        if (image) return image;
-      } catch (err) {
-        lastError = err;
-        console.warn(`[brosur] capture attempt ${attempt + 1} failed:`, err);
-      }
-      if (attempt === 0) {
-        await waitForFonts();
-        await waitForNextPaint();
+    const scales = Array.from(new Set([EXPORT_SCALE, EXPORT_SCALE_FALLBACK]));
+    for (const scale of scales) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const result = await snapdom(target, {
+            scale,
+            embedFonts: true,
+            backgroundColor: '#FFFFFF',
+          });
+          const image = await toExportedImage(result);
+          if (image) return image;
+        } catch (err) {
+          lastError = err;
+          console.warn(`[brosur] capture scale ${scale} attempt ${attempt + 1} failed:`, err);
+        }
+        if (attempt === 0) {
+          await waitForFonts();
+          await waitForNextPaint();
+        }
       }
     }
 
@@ -258,12 +427,12 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   }
 
   async function handleDownload(pageIndex: number) {
-    if (!activeMonth) return;
+    if (!filterLabel) return;
     setBusy({ kind: 'download', pageIndex });
     try {
       const image = await captureBlob(pageIndex);
       if (!image) throw new Error('capture-failed');
-      downloadBlob(image.blob, filenameForMonth(activeMonth.label, pageIndex + 1, activeImagePages.length, image.ext));
+      downloadBlob(image.blob, filenameForBrochure(filterLabel, pageIndex + 1, activeImagePages.length, image.ext));
     } catch (e) {
       console.error('[brosur] download failed:', e);
       showToast('Gagal generate brosur, coba lagi');
@@ -273,29 +442,29 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   }
 
   async function handleShare(pageIndex: number) {
-    if (!activeMonth) return;
+    if (!filterLabel) return;
     setBusy({ kind: 'share', pageIndex });
     try {
       const image = await captureBlob(pageIndex);
       if (!image) throw new Error('capture-failed');
       const file = new File(
         [image.blob],
-        filenameForMonth(activeMonth.label, pageIndex + 1, activeImagePages.length, image.ext),
+        filenameForBrochure(filterLabel, pageIndex + 1, activeImagePages.length, image.ext),
         { type: image.mime }
       );
       if (canShareFiles([file])) {
         try {
           await navigator.share({
             files: [file],
-            title: `Brosur Paket Umroh ${activeMonth.label}`,
-            text: `Paket Umroh ${activeMonth.label} dari ${agent.name || 'Alhijaz'}`,
+            title: `Brosur Paket Umroh ${filterLabel}`,
+            text: `Paket Umroh ${filterLabel} dari ${agent.name || 'Alhijaz'}`,
           });
         } catch (err: any) {
           if (err?.name === 'AbortError') return; // user cancelled — silent
           throw err;
         }
       } else {
-        downloadBlob(image.blob, filenameForMonth(activeMonth.label, pageIndex + 1, activeImagePages.length, image.ext));
+        downloadBlob(image.blob, filenameForBrochure(filterLabel, pageIndex + 1, activeImagePages.length, image.ext));
         showToast(`Share tidak didukung, ${image.ext.toUpperCase()} diunduh`);
       }
     } catch (e) {
@@ -311,7 +480,10 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     return (
       <div className="pb-8">
         {/* Tab bar skeleton */}
-        <div className="sticky top-0 bg-white dark:bg-slate-900 z-10 border-b border-gray-100 dark:border-slate-800">
+        <div
+          className="sticky z-10 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50"
+          style={{ top: headerOffset }}
+        >
           <div className="flex gap-2 px-4 py-3 overflow-hidden">
             {Array.from({ length: 4 }).map((_, i) => (
               <div
@@ -345,7 +517,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     );
   }
 
-  if (!months.length || !activeMonth) {
+  if (!months.length) {
     return (
       <div className="px-4 pt-10 pb-8 text-center">
         <p className="text-sm font-bold text-gray-800 dark:text-white">Belum ada jadwal paket yang aktif</p>
@@ -357,32 +529,32 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   }
 
   const previewReady = previewScale > 0;
-  const imagePageCount = activeImagePages.length;
+  const hasResults = filteredPackages.length > 0;
 
   return (
     <div style={{ paddingBottom: '2rem' }}>
-      {/* Tab bar */}
-      <div className="sticky top-0 bg-white dark:bg-slate-900 z-10 border-b border-gray-100 dark:border-slate-800">
-        <div ref={tabBarRef} className="overflow-x-auto no-scrollbar">
-          <div className="flex gap-2 px-4 py-3 min-w-max">
-            {months.map(m => {
-              const active = m.key === activeKey;
-              return (
-                <button
-                  key={m.key}
-                  data-key={m.key}
-                  onClick={() => setActiveKey(m.key)}
-                  className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${
-                    active
-                      ? 'bg-emerald-500 text-white'
-                      : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              );
-            })}
-          </div>
+      {/* Filter row: dimension (left) + value (right). Sticks just below the
+          dashboard's own sticky header (height measured at runtime). */}
+      <div
+        className="sticky z-10 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50"
+        style={{ top: headerOffset }}
+      >
+        <div className="flex gap-2 px-4 py-3">
+          <FilterSelect
+            value={filterDim}
+            onChange={(v) => setFilterDim(v as FilterDim)}
+            options={(['bulan', 'tipe', 'maskapai'] as FilterDim[]).map(d => ({ value: d, label: FILTER_DIM_LABELS[d] }))}
+            ariaLabel="Filter berdasarkan"
+            widthClass="flex-1 min-w-0"
+          />
+          <FilterSelect
+            value={filterValue ?? ''}
+            onChange={setFilterValue}
+            options={availableValues}
+            ariaLabel={`Pilih ${FILTER_DIM_LABELS[filterDim]}`}
+            widthClass="flex-1 min-w-0"
+            disabled={availableValues.length === 0}
+          />
         </div>
       </div>
 
@@ -398,7 +570,14 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
             gap: 18,
           }}
         >
-          {previewReady ? (
+          {!hasResults ? (
+            <div className="text-center py-10">
+              <p className="text-sm font-bold text-gray-800 dark:text-white">Tidak ada paket untuk filter ini</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5 leading-relaxed">
+                Coba pilih nilai lain atau ganti dimensi filter.
+              </p>
+            </div>
+          ) : previewReady ? (
             activeImagePages.map((page, index) => {
               const shareBusy = busy?.kind === 'share' && busy.pageIndex === index;
               const downloadBusy = busy?.kind === 'download' && busy.pageIndex === index;
@@ -431,7 +610,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
                         transformOrigin: 'top left',
                       }}
                     >
-                      <BrochureScheduleTemplate month={page} agent={agent} />
+                      <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} />
                     </div>
                   </div>
 
@@ -498,7 +677,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
             ref={(node) => { exportPageRefs.current[index] = node; }}
             style={{ width: BROCHURE_W, height: BROCHURE_H }}
           >
-            <BrochureScheduleTemplate month={page} agent={agent} />
+            <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} />
           </div>
         ))}
       </div>
