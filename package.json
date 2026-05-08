@@ -8,7 +8,8 @@
     "build": "vite build && node -e \"const e=require('esbuild');e.buildSync({entryPoints:['functions/[slug]/umroh.ts'],outfile:'functions/umroh-landing.mjs',format:'esm',platform:'node'});e.buildSync({entryPoints:['functions/[slug]/haji.ts'],outfile:'functions/haji-landing.mjs',format:'esm',platform:'node'})\"",
     "start": "node server.js",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "playwright install chromium"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
