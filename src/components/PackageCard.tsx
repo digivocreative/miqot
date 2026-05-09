@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
-import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, ClipboardCheck, Copy, RefreshCw, FileText, Maximize2, Download, Link as LinkIcon } from 'lucide-react';
+import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, ClipboardCheck, Copy, RefreshCw, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UmrohPackage, RoomPricing, HotelInfo } from '@/types';
 import { BrochureModal } from './BrochureModal';
@@ -22,6 +22,10 @@ import { trackEvent, trackPublicEvent } from '@/utils/analytics';
 
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
+
+const LINK_COPY_LOADING_MS = 500;
+const LINK_COPY_CHECK_MS = 1200;
+const LINK_COPY_TOAST_MS = 2200;
 
 interface PackageCardProps {
   package: UmrohPackage;
@@ -106,6 +110,34 @@ function getCountryFlags(hotelInfo: HotelInfo | undefined): string[] {
   return flags;
 }
 
+const copyTextToClipboard = async (text: string): Promise<boolean> => {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the legacy copy path for restricted desktop browsers.
+  }
+
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '-9999px';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const copied = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return copied;
+  } catch {
+    return false;
+  }
+};
+
 /**
  * PackageCard Component - Expandable Card
  * Displays Umroh package information with expand/collapse functionality
@@ -135,8 +167,24 @@ export function PackageCard({
   const [aiError, setAiError] = useState<string | null>(null);
   const [askAIOpen, setAskAIOpen] = useState(false);
   const [brosurError, setBrosurError] = useState(false);
+  const [isLinkCopying, setIsLinkCopying] = useState(false);
+  const [linkCheckVisible, setLinkCheckVisible] = useState(false);
+  const [linkToastVisible, setLinkToastVisible] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const brosurSectionRef = useRef<HTMLDivElement>(null);
+  const linkCheckTimerRef = useRef<number | null>(null);
+  const linkToastTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (linkCheckTimerRef.current !== null) {
+        window.clearTimeout(linkCheckTimerRef.current);
+      }
+      if (linkToastTimerRef.current !== null) {
+        window.clearTimeout(linkToastTimerRef.current);
+      }
+    };
+  }, []);
 
   // CAPI: fire viewContent event on content interactions
   const agentSlug = useMemo(() => {
@@ -470,6 +518,43 @@ _________________________
     const encodedMessage = encodeURIComponent(message);
     fireViewContent();
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
+  };
+
+  const handleCopyPackageLink = async (e: React.MouseEvent, shareUrl: string) => {
+    e.stopPropagation();
+    if (isLinkCopying) return;
+
+    fireViewContent();
+    setLinkCheckVisible(false);
+    setIsLinkCopying(true);
+
+    const [copied] = await Promise.all([
+      copyTextToClipboard(shareUrl),
+      new Promise<void>((resolve) => window.setTimeout(resolve, LINK_COPY_LOADING_MS)),
+    ]);
+
+    setIsLinkCopying(false);
+    if (copied) {
+      setLinkCheckVisible(true);
+      setLinkToastVisible(true);
+      if (linkCheckTimerRef.current !== null) {
+        window.clearTimeout(linkCheckTimerRef.current);
+      }
+      if (linkToastTimerRef.current !== null) {
+        window.clearTimeout(linkToastTimerRef.current);
+      }
+      linkCheckTimerRef.current = window.setTimeout(() => {
+        setLinkCheckVisible(false);
+        linkCheckTimerRef.current = null;
+      }, LINK_COPY_CHECK_MS);
+      linkToastTimerRef.current = window.setTimeout(() => {
+        setLinkToastVisible(false);
+        linkToastTimerRef.current = null;
+      }, LINK_COPY_TOAST_MS);
+      return;
+    }
+
+    window.prompt('Salin link paket:', shareUrl);
   };
 
   // Handle Screenshot & Share (Smart Styling Strategy)
@@ -1930,29 +2015,27 @@ _________________________
           {/* ---- Action Buttons Row 2 (agent-only) ---- */}
           {!isSingleView && currentAgent && (
             <div data-screenshot-ignore className={`grid ${currentAgent ? 'grid-cols-4' : 'grid-cols-2'} gap-2 mb-4`}>
-              {/* Link (Copy / Share URL) — moved here from row 1 */}
+              {/* Link (Copy URL) - deterministic desktop-friendly action */}
               {currentAgent && (() => {
                 const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0] || '';
                 if (!seg) return null;
                 const shareUrl = `${window.location.origin}/${seg}/${pkg.jadwalId}`;
-                const shareText = `${shareUrl}\n\n*${pkg.nama}*`;
                 return (
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      fireViewContent();
-                      if (navigator.share) {
-                        navigator.share({ text: shareText }).catch(() => {});
-                      } else {
-                        navigator.clipboard.writeText(shareUrl).then(() => {
-                          alert('Link berhasil disalin!');
-                        });
-                      }
-                    }}
-                    className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:border-slate-700 dark:hover:border-emerald-500"
+                    onClick={(e) => handleCopyPackageLink(e, shareUrl)}
+                    disabled={isLinkCopying}
+                    aria-busy={isLinkCopying}
+                    aria-label={isLinkCopying ? 'Menyalin link paket' : linkCheckVisible ? 'Link paket tersalin' : 'Salin link paket'}
+                    className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-80 dark:hover:bg-emerald-900/30 dark:border-slate-700 dark:hover:border-emerald-500"
                   >
-                    <LinkIcon size={20} className="text-emerald-600 dark:text-emerald-400 mb-1" />
+                    {isLinkCopying ? (
+                      <Loader2 size={20} className="text-emerald-600 dark:text-emerald-400 mb-1 animate-spin" />
+                    ) : linkCheckVisible ? (
+                      <Check size={20} strokeWidth={1.9} className="text-emerald-600 dark:text-emerald-400 mb-1" />
+                    ) : (
+                      <LinkIcon size={20} className="text-emerald-600 dark:text-emerald-400 mb-1" />
+                    )}
                     <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Link</span>
                   </button>
                 );
@@ -2177,6 +2260,26 @@ _________________________
       </div>
       </div>
     </div>
+
+      {createPortal(
+        <AnimatePresence>
+          {linkToastVisible && (
+            <motion.div
+              role="status"
+              aria-live="polite"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="fixed left-1/2 -translate-x-1/2 bottom-24 z-50 pointer-events-none flex max-w-[90vw] items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11.5px] font-medium text-emerald-800 shadow-md dark:border-emerald-800/40 dark:bg-emerald-900/30 dark:text-emerald-200"
+            >
+              <CheckCircle2 size={13} strokeWidth={2.4} className="shrink-0 text-emerald-500 dark:text-emerald-400" />
+              <span className="min-w-0 overflow-hidden text-ellipsis">Link tersalin</span>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* Brochure Modal */}
       {pkg.brosurUrl && (
