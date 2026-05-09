@@ -299,7 +299,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
   const monthTitle = month.label.toUpperCase();
   const monthTitleFontSize = monthTitle.length >= 14 ? 80 : monthTitle.length >= 12 ? 86 : 92;
   const agentNameFontSize = agentName.length > 28 ? 32 : agentName.length > 22 ? 36 : agentName.length > 16 ? 39 : 42;
-  const phoneFontSize = phone.length > 14 ? 28 : 32;
+  const phoneFontSize = phone.length > 14 ? 34 : 38;
 
   // Row height adapts to fit a 1080×1620 (2:3) canvas. With max 10 packages/image:
   // n=7 → 105px, n=10 → 87px. Floor 80px / cap 110px keep rows legible without wasting space.
@@ -321,6 +321,18 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
       flexDirection: 'column',
     }}>
       <style>{BROCHURE_FONT_FACE_CSS}</style>
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 10,
+          background: `linear-gradient(90deg, ${DARK_RED} 0%, ${BRAND_RED} 42%, #F0445F 62%, ${BRAND_RED} 100%)`,
+          zIndex: 10,
+        }}
+      />
       <div style={{
         position: 'absolute',
         top: -78,
@@ -329,7 +341,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
         height: 500,
         backgroundImage: ISLAMIC_PATTERN_BG,
         backgroundSize: '132px 132px',
-        opacity: 0.18,
+        opacity: 0.24,
         transform: 'rotate(7deg)',
         zIndex: 0,
       }} />
@@ -341,7 +353,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
         height: 620,
         backgroundImage: ISLAMIC_PATTERN_BG,
         backgroundSize: '140px 140px',
-        opacity: 0.12,
+        opacity: 0.17,
         transform: 'rotate(-9deg)',
         zIndex: 0,
       }} />
@@ -355,7 +367,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
           width: 540,
           height: 'auto',
           objectFit: 'contain',
-          opacity: 0.07,
+          opacity: 0.11,
           filter: 'saturate(0.85)',
           zIndex: 0,
         }}
@@ -370,7 +382,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
           width: 360,
           height: 'auto',
           objectFit: 'contain',
-          opacity: 0.04,
+          opacity: 0.07,
           filter: 'saturate(0.7)',
           zIndex: 0,
         }}
@@ -387,9 +399,9 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
           alt="Alhijaz"
           style={{
             position: 'absolute',
-            top: 38,
+            top: 34,
             left: 50,
-            height: 96,
+            height: 108,
             width: 'auto',
             objectFit: 'contain',
           }}
@@ -459,8 +471,12 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
             position: 'relative',
             zIndex: 3,
             color: BRAND_RED,
+            backgroundImage: `linear-gradient(180deg, #FF5A70 0%, ${BRAND_RED} 34%, #A4001D 68%, ${DARK_RED} 100%)`,
+            backgroundClip: 'text',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
             WebkitTextStroke: `2px ${DEEP_RED}`,
-            textShadow: '0 2px 0 rgba(255,255,255,0.38), 0 11px 22px rgba(90,0,16,0.16)',
+            filter: 'drop-shadow(0 2px 0 rgba(255,255,255,0.38)) drop-shadow(0 11px 15px rgba(90,0,16,0.18))',
           }}>{monthTitle}</span>
         </div>
         <div style={{
@@ -558,18 +574,29 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
+                fontFamily: BROCHURE_TABLE_FONT_STACK,
+                fontSynthesis: 'none',
                 lineHeight: 0.9,
                 overflow: 'hidden',
                 gap: showFullDate ? 1 : 0,
                 opacity: soldOutContentOpacity,
                 filter: isSoldOut ? 'saturate(0.7)' : 'none',
               }}>
-                <span style={{ fontSize: showFullDate ? 31 : 42, fontWeight: 400 }}>{departureDay}</span>
+                <span style={{
+                  display: 'block',
+                  fontFamily: BROCHURE_TABLE_FONT_STACK,
+                  fontSize: showFullDate ? 31 : 42,
+                  fontWeight: 400,
+                  fontSynthesis: 'none',
+                  lineHeight: 0.9,
+                  letterSpacing: 0,
+                }}>{departureDay}</span>
                 {showFullDate && departureMonthName && (
                   <span style={{
                     fontFamily: BROCHURE_OSWALD_FONT_STACK,
                     fontSize: 14,
                     fontWeight: 700,
+                    fontSynthesis: 'none',
                     letterSpacing: 0.2,
                     lineHeight: 0.95,
                     whiteSpace: 'nowrap',
@@ -610,9 +637,10 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
                         borderRadius: 999,
                         background: isSoldOut ? '#64748B' : pill.bg,
                         color: isSoldOut ? '#FFFFFF' : pill.fg,
-                        fontFamily: BROCHURE_MONTSERRAT_FONT_STACK,
+                        fontFamily: BROCHURE_FONT_STACK,
                         fontSize: 13,
-                        fontWeight: 700,
+                        fontWeight: 600,
+                        fontSynthesis: 'none',
                         lineHeight: 1,
                         letterSpacing: 0.3,
                         whiteSpace: 'nowrap',
@@ -629,6 +657,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
                 color: isSoldOut ? '#374151' : DEEP_RED,
                 fontFamily: BROCHURE_OSWALD_FONT_STACK,
                 fontWeight: 500,
+                fontSynthesis: 'none',
                 lineHeight: 0.9,
                 whiteSpace: 'nowrap',
                 display: 'flex',
@@ -638,8 +667,24 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
                 gap: 6,
                 opacity: soldOutContentOpacity,
               }}>
-                <span style={{ fontSize: 36 }}>{tripDays || '-'}</span>
-                <span style={{ fontSize: 17, letterSpacing: 0.8 }}>HARI</span>
+                <span style={{
+                  display: 'block',
+                  fontFamily: BROCHURE_OSWALD_FONT_STACK,
+                  fontSize: 36,
+                  fontWeight: 500,
+                  fontSynthesis: 'none',
+                  lineHeight: 0.9,
+                  letterSpacing: 0,
+                }}>{tripDays || '-'}</span>
+                <span style={{
+                  display: 'block',
+                  fontFamily: BROCHURE_OSWALD_FONT_STACK,
+                  fontSize: 17,
+                  fontWeight: 500,
+                  fontSynthesis: 'none',
+                  lineHeight: 0.9,
+                  letterSpacing: 0.8,
+                }}>HARI</span>
               </span>
               <span style={{
                 display: '-webkit-box',
@@ -758,7 +803,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
             maxHeight: landmarkMaxH + 150,
             width: 'auto',
             objectFit: 'contain',
-            opacity: 0.18,
+            opacity: 0.23,
             filter: 'saturate(0.62) contrast(0.82) brightness(1.14) drop-shadow(0 18px 34px rgba(90,0,16,0.04))',
             WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
             maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
@@ -774,7 +819,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
             maxHeight: landmarkMaxH + 164,
             width: 'auto',
             objectFit: 'contain',
-            opacity: 0.18,
+            opacity: 0.23,
             filter: 'saturate(0.62) contrast(0.82) brightness(1.14) drop-shadow(0 18px 34px rgba(90,0,16,0.04))',
             WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
             maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
@@ -783,7 +828,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
         <div style={{
           position: 'absolute',
           inset: '-72px 0 -132px',
-          background: 'linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(255,255,255,0.52) 31%, rgba(255,248,236,0.16) 62%, rgba(150,166,142,0.13) 100%)',
+          background: 'linear-gradient(180deg, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.44) 31%, rgba(255,248,236,0.12) 62%, rgba(150,166,142,0.1) 100%)',
         }} />
       </div>
 
@@ -845,14 +890,14 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 14,
+            gap: 18,
             flexShrink: 0,
             color: '#fff',
             // Hyphens in 0822-9000-2034 are soft break opportunities — keep the digits together
             // so the number never splits onto two lines.
             whiteSpace: 'nowrap',
           }}>
-            <WhatsAppIcon size={44} />
+            <WhatsAppIcon size={54} />
             <span style={{
               fontSize: phoneFontSize,
               fontWeight: 900,

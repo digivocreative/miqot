@@ -1,5 +1,6 @@
 // src/components/BrochureSchedulePage.tsx
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { Options as ModernScreenshotOptions } from 'modern-screenshot';
 import { Download, Share2, Loader2, ChevronDown, CircleCheck } from 'lucide-react';
 import {
   BrochureScheduleTemplate,
@@ -20,7 +21,6 @@ import {
 import { getAuthHeaders } from './LoginPage';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 
-const EXPORT_TYPE = 'jpeg';
 const EXPORT_MIME = 'image/jpeg';
 const EXPORT_EXT = 'jpg';
 const EXPORT_QUALITY = 0.9;
@@ -30,6 +30,31 @@ const EXPORT_QUALITY = 0.9;
 const EXPORT_SCALE = 1;
 const EXPORT_CACHE_LIMIT = 3;
 const PACKAGES_PER_IMAGE = 10;
+
+let embeddedBrochureFontCssPromise: Promise<string> | null = null;
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+function getEmbeddedBrochureFontCss(): Promise<string> {
+  if (!embeddedBrochureFontCssPromise) {
+    embeddedBrochureFontCssPromise = Promise.all(BROCHURE_LOCAL_FONTS.map(async font => {
+      const res = await fetch(font.src, { cache: 'force-cache' });
+      if (!res.ok) throw new Error(`font-load-failed:${font.src}`);
+      const dataUrl = `data:font/woff2;base64,${arrayBufferToBase64(await res.arrayBuffer())}`;
+      return `@font-face{font-family:'${font.family}';font-style:${font.style};font-weight:${font.weight};font-display:block;src:url('${dataUrl}') format('woff2');}`;
+    })).then(lines => lines.join('\n'));
+  }
+  return embeddedBrochureFontCssPromise;
+}
 
 interface ExportedImage {
   blob: Blob;
@@ -310,6 +335,16 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     };
   }, []);
 
+  useEffect(() => {
+    if (loading || !months.length) return;
+    const timer = window.setTimeout(() => {
+      getEmbeddedBrochureFontCss().catch(err => {
+        console.warn('[brosur] font prewarm failed:', err);
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [loading, months.length]);
+
   // Resolve the current filter into:
   //   - filterLabel: human-readable subtitle that ends up on the brochure title row
   //   - filteredPackages: the rows that survive the filter
@@ -374,12 +409,13 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     try {
       // Probe at the actual sizes used in the brochure, not 16px. Some browsers cache
       // font metrics per size — probing at 16 doesn't guarantee 25/40/etc are decoded
-      // by the time snapdom serializes the SVG. Also: only probe weights that are
+      // by the time the export renderer serializes the SVG. Also: only probe weights that are
       // actually self-hosted — asking for weights that do not exist makes the
       // browser synthesize or fall back per character during capture.
       await Promise.all([
         ...[400, 600, 700, 800, 900].map(w => document.fonts.load(`${w} 32px "${BROCHURE_INTER_FONT}"`).catch(() => null)),
         ...[400, 600, 700, 800, 900].map(w => document.fonts.load(`${w} 88px "${BROCHURE_INTER_FONT}"`).catch(() => null)),
+        document.fonts.load(`600 13px "${BROCHURE_INTER_FONT}"`).catch(() => null),
         document.fonts.load(`400 25px "${BROCHURE_BEBAS_FONT}"`).catch(() => null),
         document.fonts.load(`400 42px "${BROCHURE_BEBAS_FONT}"`).catch(() => null),
         document.fonts.load(`500 25px "${BROCHURE_OSWALD_FONT}"`).catch(() => null),
@@ -387,13 +423,12 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         document.fonts.load(`600 24px "${BROCHURE_ROBOTO_CONDENSED_FONT}"`).catch(() => null),
         document.fonts.load(`600 28px "${BROCHURE_ROBOTO_CONDENSED_FONT}"`).catch(() => null),
         document.fonts.load(`700 25px "${BROCHURE_ROBOTO_CONDENSED_FONT}"`).catch(() => null),
-        document.fonts.load(`700 13px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
         document.fonts.load(`800 20px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
         document.fonts.load(`900 40px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
       ]);
       await document.fonts.ready;
       // iOS Safari sometimes resolves `fonts.ready` while individual FontFace entries
-      // are still in `loading`. Poll up to ~3 s to catch that race before snapdom
+      // are still in `loading`. Poll up to ~3 s to catch that race before the renderer
       // captures the DOM with half the glyphs swapped to fallback.
       for (let i = 0; i < 30; i++) {
         const stillLoading = Array.from(document.fonts).some(f => f.status === 'loading');
@@ -407,22 +442,6 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     }
   }
 
-  async function toExportedImage(result: any): Promise<ExportedImage | null> {
-    try {
-      const blob = await result.toBlob({
-        type: EXPORT_TYPE,
-        quality: EXPORT_QUALITY,
-        backgroundColor: '#FFFFFF',
-      });
-      if (blob instanceof Blob && blob.size > 0) {
-        return { blob, ext: EXPORT_EXT, mime: blob.type || EXPORT_MIME };
-      }
-    } catch (err) {
-      console.warn('[brosur] image export failed:', err);
-    }
-    return null;
-  }
-
   function rememberExport(pageKey: string, image: ExportedImage) {
     const cache = exportCacheRef.current;
     cache.set(pageKey, image);
@@ -433,38 +452,107 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     }
   }
 
+  async function waitForImages(target: HTMLElement) {
+    const images = Array.from(target.querySelectorAll('img'));
+    await Promise.all(images.map(img => {
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+      return new Promise<void>(resolve => {
+        const done = () => resolve();
+        img.addEventListener('load', done, { once: true });
+        img.addEventListener('error', done, { once: true });
+      });
+    }));
+  }
+
+  function isMostlyBlank(canvas: HTMLCanvasElement): boolean {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+    const sampleW = Math.max(1, Math.floor(canvas.width / 8));
+    const sampleH = Math.max(1, Math.floor(canvas.height / 8));
+    const sample = document.createElement('canvas');
+    sample.width = sampleW;
+    sample.height = sampleH;
+    const sampleCtx = sample.getContext('2d');
+    if (!sampleCtx) return false;
+    sampleCtx.drawImage(canvas, 0, 0, sampleW, sampleH);
+    const data = sampleCtx.getImageData(0, 0, sampleW, sampleH).data;
+    let nearWhite = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] > 248 && data[i + 1] > 248 && data[i + 2] > 248 && data[i + 3] > 248) {
+        nearWhite++;
+      }
+    }
+    return nearWhite / (sampleW * sampleH) > 0.97;
+  }
+
+  function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(blob => {
+        if (blob && blob.size > 0) resolve(blob);
+        else reject(new Error('canvas-to-blob-failed'));
+      }, EXPORT_MIME, EXPORT_QUALITY);
+    });
+  }
+
   async function captureBlob(pageIndex: number): Promise<ExportedImage | null> {
     const target = exportPageRefs.current[pageIndex];
     if (!target) return null;
     await waitForFonts();
-    target.getBoundingClientRect();
+    await waitForImages(target);
     await waitForNextPaint();
-    const { snapdom } = await import('@zumer/snapdom');
+    await waitForNextPaint();
 
-    // Always capture with embedFonts: true. Falling back to embedFonts: false
-    // produces a "successful" image rendered with system-fallback fonts (because an
-    // SVG <foreignObject> data URL doesn't share the page's font registry) — exactly
-    // the bug we're trying to avoid. If the attempt fails, re-warm fonts once and retry.
+    const { domToCanvas } = await import('modern-screenshot');
+    let fontCss = '';
+    try {
+      fontCss = await getEmbeddedBrochureFontCss();
+    } catch (err) {
+      console.warn('[brosur] embedded font css failed:', err);
+      fontCss = Array.from(target.querySelectorAll('style'))
+        .map(style => style.textContent || '')
+        .filter(Boolean)
+        .join('\n');
+    }
+    const captureOptions: ModernScreenshotOptions = {
+      scale: EXPORT_SCALE,
+      width: BROCHURE_W,
+      height: BROCHURE_H,
+      type: EXPORT_MIME,
+      quality: EXPORT_QUALITY,
+      backgroundColor: '#FFFFFF',
+      font: {
+        cssText: fontCss,
+        preferredFormat: 'woff2',
+      },
+      timeout: 15_000,
+      fetch: {
+        requestInit: { cache: 'force-cache' },
+      },
+      features: {
+        copyScrollbar: false,
+        removeAbnormalAttributes: true,
+        removeControlCharacter: true,
+        fixSvgXmlDecode: true,
+      },
+    };
     let lastError: unknown = null;
+
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const result = await snapdom(target, {
-          scale: EXPORT_SCALE,
-          type: EXPORT_TYPE,
-          quality: EXPORT_QUALITY,
-          embedFonts: true,
-          localFonts: BROCHURE_LOCAL_FONTS,
-          backgroundColor: '#FFFFFF',
-          safariWarmupAttempts: 1,
-        });
-        const image = await toExportedImage(result);
-        if (image) return image;
+        const canvas = await domToCanvas(target, captureOptions);
+        if (canvas.width !== BROCHURE_W * EXPORT_SCALE || canvas.height !== BROCHURE_H * EXPORT_SCALE) {
+          console.warn('[brosur] unexpected canvas size:', canvas.width, canvas.height);
+        }
+        if (isMostlyBlank(canvas)) {
+          throw new Error('blank-export');
+        }
+        const blob = await canvasToBlob(canvas);
+        return { blob, ext: EXPORT_EXT, mime: blob.type || EXPORT_MIME };
       } catch (err) {
         lastError = err;
         console.warn(`[brosur] capture attempt ${attempt + 1} failed:`, err);
-      }
-      if (attempt === 0) {
         await waitForFonts();
+        await waitForImages(target);
         await waitForNextPaint();
       }
     }
@@ -794,7 +882,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         </div>
       )}
 
-      {/* Off-screen full-size export node — used as snapdom target. Keep it rendered, not transparent, so export matches preview. */}
+      {/* Off-screen full-size export node. Keep it rendered, not transparent, so export matches preview. */}
       <div
         aria-hidden="true"
         style={{
