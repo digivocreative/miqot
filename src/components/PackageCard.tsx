@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo, Suspense, lazy } from 'react';
+import { Fragment, useState, useRef, useEffect, useMemo, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
-import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, ClipboardCheck, Copy, RefreshCw, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check } from 'lucide-react';
+import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, ClipboardCheck, Copy, RefreshCw, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check, Route, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UmrohPackage, RoomPricing, HotelInfo } from '@/types';
 import { BrochureModal } from './BrochureModal';
@@ -57,10 +57,23 @@ const LANDING_AIRPORT_MAP: Record<string, string> = {
   DXB: 'Dubai',
 };
 
+const getRouteAirportCodes = (route?: string): string[] => {
+  return (route || '').toUpperCase().match(/[A-Z]{3}/g) || [];
+};
+
+const getRouteLegs = (route?: string): Array<{ from: string; to: string }> => {
+  return (route || '')
+    .split('/')
+    .map(segment => {
+      const [from, to] = segment.split(/\s*[-–—]\s*/).map(part => part.trim().toUpperCase());
+      return from && to ? { from, to } : null;
+    })
+    .filter((leg): leg is { from: string; to: string } => Boolean(leg));
+};
+
 const getLandingAirportCode = (pkg: UmrohPackage): string => {
-  const route = pkg.keberangkatan?.rute || '';
-  const routeParts = route.split(' - ');
-  const code = routeParts.length > 1 ? routeParts[1].trim().toUpperCase() : 'JED';
+  const routeLegs = getRouteLegs(pkg.keberangkatan?.rute);
+  const code = routeLegs.length ? routeLegs[routeLegs.length - 1].to : 'JED';
   return code || 'JED';
 };
 
@@ -381,6 +394,7 @@ export function PackageCard({
       { key: 'aqsha', label: 'Aqsha' },
       { key: 'amman', label: 'Amman' },
       { key: 'petra', label: 'Petra' },
+      { key: 'haikou', label: 'Haikou' },
     ];
 
     potentialCities.forEach(city => {
@@ -400,6 +414,77 @@ export function PackageCard({
 
     return extras;
   }, [hotelInfo]);
+
+  const journeySteps = useMemo(() => {
+    type TourConfig = {
+      label: string;
+      codes: string[];
+      cities: string[];
+      pattern: RegExp;
+      imageSrc: string;
+    };
+    type JourneyStep = {
+      label: string;
+      imageSrc: string;
+      imageAlt: string;
+      tone: 'tour' | 'madinah' | 'umroh';
+    };
+
+    const makeStep = (label: string, imageSrc?: string): JourneyStep => {
+      if (label === 'Madinah') {
+        return { label, imageSrc: '/img-brosur/nabawi-dome.png', imageAlt: 'Dome Masjid Nabawi', tone: 'madinah' };
+      }
+      if (label === 'Umroh') {
+        return { label, imageSrc: '/img-brosur/kabah.png', imageAlt: 'Kaabah', tone: 'umroh' };
+      }
+      return { label, imageSrc: imageSrc || '/flags/palestine.svg', imageAlt: `Bendera ${label.replace(/^Tur\s+/i, '')}`, tone: 'tour' };
+    };
+
+    const landingAirportCode = getLandingAirportCode(pkg);
+    const saudiLabels = landingAirportCode === 'MED' ? ['Madinah', 'Umroh'] : ['Umroh', 'Madinah'];
+    const extraCitySet = new Set(extraHotels.map(hotel => hotel.city.toLowerCase()));
+    const packageName = (pkg.nama || '').toUpperCase();
+    const tourConfigs: TourConfig[] = [
+      { label: 'Tur Dubai', codes: ['DXB'], cities: ['dubai'], pattern: /\b(DUBAI|DXB)\b/, imageSrc: '/flags/uae.png' },
+      { label: 'Tur Turki', codes: ['IST'], cities: ['istanbul', 'bursa', 'ankara', 'cappadocia'], pattern: /\b(TURKI|TURKEY|ISTANBUL|BURSA|ANKARA|CAPPADOCIA)\b/, imageSrc: '/flags/turki.png' },
+      { label: 'Tur Mesir', codes: ['CAI'], cities: ['cairo', 'alexandria'], pattern: /\b(MESIR|EGYPT|CAIRO|ALEXANDRIA)\b/, imageSrc: '/flags/mesir.png' },
+      { label: 'Tur China', codes: ['HAK', 'PEK', 'SHA', 'CAN'], cities: ['haikou', 'beijing', 'shanghai', 'guangzhou'], pattern: /\b(CHINA|TIONGKOK|HAIKOU|BEIJING|SHANGHAI|GUANGZHOU)\b/, imageSrc: '/flags/china.png' },
+      { label: 'Tur Aqsha', codes: ['AMM', 'TLV'], cities: ['aqsha', 'amman', 'petra'], pattern: /\b(AQSHA|AL AQSA|AMMAN|PETRA|JORDAN|PALESTINE)\b/, imageSrc: '/flags/palestine.svg' },
+    ];
+    const activeTours = tourConfigs.filter(tour =>
+      tour.cities.some(city => extraCitySet.has(city)) || tour.pattern.test(packageName)
+    );
+
+    const departureLegs = getRouteLegs(pkg.keberangkatan?.rute);
+    const returnCodes = getRouteAirportCodes(pkg.kepulangan?.rute);
+    let saudiLandingLegIndex = -1;
+    for (let i = departureLegs.length - 1; i >= 0; i -= 1) {
+      if (departureLegs[i].to === 'JED' || departureLegs[i].to === 'MED') {
+        saudiLandingLegIndex = i;
+        break;
+      }
+    }
+
+    const preSaudiCodes = new Set(
+      saudiLandingLegIndex > 0 ? departureLegs.slice(0, saudiLandingLegIndex).map(leg => leg.to) : []
+    );
+    const returnTransitCodes = new Set(returnCodes.slice(1, -1));
+    const preSaudiTours = activeTours.filter(tour => tour.codes.some(code => preSaudiCodes.has(code)));
+    const postSaudiTours = activeTours.filter(tour =>
+      !preSaudiTours.includes(tour) && tour.codes.some(code => returnTransitCodes.has(code))
+    );
+    const remainingTours = activeTours.filter(tour =>
+      !preSaudiTours.includes(tour) && !postSaudiTours.includes(tour)
+    );
+
+    const tourStep = (tour: TourConfig) => makeStep(tour.label, tour.imageSrc);
+    return [
+      ...preSaudiTours.map(tourStep),
+      ...remainingTours.map(tourStep),
+      ...saudiLabels.map(label => makeStep(label)),
+      ...postSaudiTours.map(tourStep),
+    ];
+  }, [extraHotels, pkg]);
 
 
 
@@ -1829,6 +1914,54 @@ _________________________
                 </p>
               </div>
             </div>
+            </div>
+          </div>
+
+          <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/40">
+            <div className="mb-3 flex min-w-0 items-center gap-2">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/90 text-emerald-600 shadow-sm ring-1 ring-gray-100 dark:bg-slate-800 dark:text-emerald-400 dark:ring-slate-700">
+                <Route size={15} strokeWidth={2} />
+              </span>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-700 dark:text-slate-300">Urutan perjalanan</p>
+            </div>
+            <div
+              className="grid items-start pb-0.5"
+              style={{
+                gridTemplateColumns: journeySteps
+                  .map((_, idx) => idx < journeySteps.length - 1 ? 'minmax(max-content,1fr) clamp(56px,10vw,112px)' : 'minmax(max-content,1fr)')
+                  .join(' '),
+              }}
+            >
+              {journeySteps.map((step, idx) => (
+                <Fragment key={`${step.label}-${idx}`}>
+                  <div className="flex min-w-0 flex-col items-center text-center">
+                    <span className={`flex h-8 w-8 items-center justify-center overflow-hidden rounded-full shadow-sm ${
+                      step.tone === 'tour'
+                        ? 'bg-white/95 ring-1 ring-gray-200 dark:bg-slate-800 dark:ring-slate-700'
+                        : step.tone === 'madinah'
+                          ? 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-emerald-900/30 dark:ring-emerald-800/50'
+                          : 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-slate-800 dark:ring-emerald-800/60'
+                    }`}>
+                      <img
+                        src={step.imageSrc}
+                        alt={step.imageAlt}
+                        loading="lazy"
+                        className={step.tone === 'tour' ? 'h-[18px] w-6 rounded-[3px] object-cover shadow-[0_1px_2px_rgba(15,23,42,0.18)]' : 'h-full w-full object-contain'}
+                      />
+                    </span>
+                    <span className="mt-1.5 block whitespace-nowrap px-1 text-center text-[11px] font-semibold leading-tight text-gray-800 dark:text-slate-100">
+                      {step.label}
+                    </span>
+                  </div>
+                  {idx < journeySteps.length - 1 && (
+                    <div className="mt-4 flex w-full items-center justify-center px-1" aria-hidden="true">
+                      <span className="h-px flex-1 rounded-full bg-emerald-200 dark:bg-emerald-800/70" />
+                      <ChevronRight size={12} strokeWidth={2.2} className="mx-0.5 shrink-0 text-emerald-500 dark:text-emerald-400" />
+                      <span className="h-px flex-1 rounded-full bg-emerald-200 dark:bg-emerald-800/70" />
+                    </div>
+                  )}
+                </Fragment>
+              ))}
             </div>
           </div>
 

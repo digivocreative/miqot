@@ -5282,11 +5282,15 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } 
     throw new Error(`API upsert failed in ${upsertErrors} batch(es): ${firstUpsertError || 'unknown error'}`);
   }
 
-  queueJamaahSyncNotifications(agentId, syncEvents, `api/${context}/${slug}`);
-
   if (fetchErrors > 0) {
     throw new Error(`API fetch incomplete: ${fetchErrors} endpoint(s) failed`);
   }
+
+  // Fire notifications only after a fully successful sync. If the throw above
+  // triggers, syncOneAgent falls back to legacy scrape — legacy bayar may lag
+  // behind API, overwriting the row with a stale lower value, which makes the
+  // next API cycle re-detect the same payment delta and re-fire the notif.
+  queueJamaahSyncNotifications(agentId, syncEvents, `api/${context}/${slug}`);
 
   // Cleanup: only run if all years fetched successfully.
   if (listComplete && !syncingAgents.get(agentId)?.cancelled) {
