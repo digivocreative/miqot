@@ -144,6 +144,31 @@ const FILTER_DIM_LABELS: Record<FilterDim, string> = {
   maskapai: 'Maskapai',
 };
 
+const TYPE_UMROH_SAJA = 'UMROH SAJA';
+const TYPE_UMROH_RAHMAH = 'UMROH RAHMAH';
+const TYPE_UMROH_PROMO = 'UMROH PROMO';
+
+function isRahmahPackage(pkg: BrochurePackage): boolean {
+  return /\bRAHMAH\b/i.test(pkg.nama);
+}
+
+function isPromoPackage(pkg: BrochurePackage): boolean {
+  return pkg.isPromo === true || /\bPROMO\b/i.test(pkg.nama);
+}
+
+function matchesPackageType(pkg: BrochurePackage, type: string): boolean {
+  if (type === TYPE_UMROH_RAHMAH) return isRahmahPackage(pkg);
+  if (type === TYPE_UMROH_PROMO) return isPromoPackage(pkg);
+  return derivePackageType(pkg.nama) === type;
+}
+
+function brochureLabelForType(type: string, fallback: string): string {
+  if (type === TYPE_UMROH_SAJA) return 'REGULER';
+  if (type === TYPE_UMROH_RAHMAH) return 'RAHMAH';
+  if (type === TYPE_UMROH_PROMO) return 'PROMO';
+  return fallback || type;
+}
+
 function airlineOptionRank(maskapai: string): number {
   const normalized = maskapai.trim().toLowerCase();
   if (normalized.includes('saudia')) return 0;
@@ -257,7 +282,9 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     if (filterDim === 'tipe') {
       const present = new Set(optionPackages.map(p => derivePackageType(p.nama)));
       const ordered: Array<{ value: string; label: string }> = [];
-      if (present.has('UMROH SAJA')) ordered.push({ value: 'UMROH SAJA', label: 'Umroh Saja' });
+      if (present.has(TYPE_UMROH_SAJA)) ordered.push({ value: TYPE_UMROH_SAJA, label: 'Umroh Saja' });
+      if (optionPackages.some(isRahmahPackage)) ordered.push({ value: TYPE_UMROH_RAHMAH, label: 'Umroh Rahmah' });
+      if (optionPackages.some(isPromoPackage)) ordered.push({ value: TYPE_UMROH_PROMO, label: 'Umroh Promo' });
       for (const t of PACKAGE_TYPES) {
         if (present.has(t.value)) ordered.push({ value: t.value, label: t.value.replace(/^PLUS /, 'Plus ') });
       }
@@ -367,9 +394,9 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     }
     if (filterDim === 'tipe') {
       const opt = availableValues.find(v => v.value === filterValue);
-      const brochureLabel = filterValue === 'UMROH SAJA' ? 'REGULER' : opt?.label || filterValue;
+      const brochureLabel = brochureLabelForType(filterValue, opt?.label || filterValue);
       const matches = allPackages
-        .filter(p => derivePackageType(p.nama) === filterValue)
+        .filter(p => matchesPackageType(p, filterValue))
         // Span multiple months → sort by departure date so rows read chronologically.
         .sort((a, b) => String(a.berangkat_tgl).localeCompare(String(b.berangkat_tgl)));
       return { filterLabel: brochureLabel, filteredPackages: applyAvailability(matches), showFullDate: true };

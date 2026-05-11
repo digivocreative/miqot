@@ -12,6 +12,7 @@ export interface BrochurePackage {
   hotel?: BrochureHotel[];
   harga: number | null;
   soldOut?: boolean;
+  isPromo?: boolean;
   umrohDulu?: boolean;
 }
 
