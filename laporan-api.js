@@ -75,6 +75,10 @@ export async function login(username, password, kantor = '2') {
         return { success: false, error: 'Server rate-limit (403) — coba lagi nanti', reason: 'rate_limited' };
       }
 
+      if (res.status === 401) {
+        return { success: false, error: 'Login gagal — username atau password salah', reason: 'invalid_credentials' };
+      }
+
       // Extract cookies from Set-Cookie header
       let cookies;
       if (typeof res.headers.getSetCookie === 'function') {
@@ -90,13 +94,13 @@ export async function login(username, password, kantor = '2') {
       }
 
       if (!cookies || cookies.length === 0) {
-        return { success: false, error: 'Login gagal — username atau password salah', reason: 'invalid_credentials' };
+        return { success: false, error: 'Login sistem internal tidak mengembalikan sesi. Credential tidak dihapus otomatis.', reason: 'login_no_session' };
       }
 
       // Extract PHPSESSID value
       const phpSessionCookie = cookies.find(c => c.includes('PHPSESSID'));
       if (!phpSessionCookie) {
-        return { success: false, error: 'Login gagal — username atau password salah', reason: 'invalid_credentials' };
+        return { success: false, error: 'Login sistem internal tidak mengembalikan PHPSESSID. Credential tidak dihapus otomatis.', reason: 'login_no_session' };
       }
 
       // Build cookie string for subsequent requests

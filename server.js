@@ -4615,60 +4615,6 @@ app.get('/api/laporan/status', authMiddleware, async (req, res) => {
   });
 });
 
-function isInvalidLaporanCredentials(result) {
-  return result?.reason === 'invalid_credentials';
-}
-
-async function clearInvalidJamaahCredentials(agent, context = 'login') {
-  if (!agent?.id) return agent;
-  if (isDemoAgent(agent)) {
-    console.log(`[DEMO] skip clearInvalidJamaahCredentials for ${agent.slug} (${context})`);
-    return agent;
-  }
-
-  if (agent.jamaah_username) {
-    try { await laporanDisconnect(agent.jamaah_username, { skipRemoteLogout: true }); } catch {}
-  }
-
-  const state = syncingAgents.get(agent.id);
-  if (state?.isSyncing) {
-    syncingAgents.set(agent.id, {
-      ...state,
-      isSyncing: false,
-      cancelled: true,
-      loginFailed: true,
-      invalidCredentials: true,
-    });
-  }
-
-  const { error } = await supabase
-    .from('agents')
-    .update({
-      jamaah_username: null,
-      jamaah_password: null,
-      jamaah_kantor: null,
-      awapi_key: null,
-      awapi_code: null,
-    })
-    .eq('id', agent.id);
-
-  if (error) {
-    console.warn(`[credentials/${context}] ${agent.slug || agent.id}: failed to clear invalid credentials — ${error.message}`);
-    return agent;
-  }
-
-  invalidateAgentCache();
-  console.warn(`[credentials/${context}] ${agent.slug || agent.id}: cleared invalid jamaah credentials`);
-  return {
-    ...agent,
-    jamaah_username: null,
-    jamaah_password: null,
-    jamaah_kantor: null,
-    awapi_key: null,
-    awapi_code: null,
-  };
-}
-
 // Login: login to legacy system + auto-save credentials to Supabase
 app.post('/api/laporan/login', authMiddleware, async (req, res) => {
   const { username, password, kantor } = req.body;
@@ -5158,9 +5104,6 @@ async function ensureAwapiCredentials(agent) {
       const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
       if (!loginResult.success) {
         console.warn(`[awapi/lazy] ${agent.slug}: login failed — ${loginResult.error || loginResult.reason}`);
-        if (isInvalidLaporanCredentials(loginResult)) {
-          return await clearInvalidJamaahCredentials(agent, 'awapi-lazy');
-        }
         return agent;
       }
     }
@@ -5424,8 +5367,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     if (!agent?.jamaah_username || !agent?.jamaah_password) {
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null, loginFailed: true, invalidCredentials: true });
       return res.status(401).json({
-        error: 'Credential sistem internal sudah tidak valid. Silakan login ulang.',
-        credentialsCleared: true,
+        error: 'Credential sistem internal tidak tersedia. Silakan login ulang.',
       });
     }
     if (agent.awapi_key) {
@@ -5449,15 +5391,10 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   const decrypted = capiDecrypt(agent.jamaah_password);
   const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
   if (!loginResult.success) {
-    if (isInvalidLaporanCredentials(loginResult)) {
-      await clearInvalidJamaahCredentials(agent, 'umroh-manual');
-      return res.status(401).json({
-        error: 'Credential sistem internal sudah tidak valid. Silakan login ulang.',
-        credentialsCleared: true,
-      });
-    }
     syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null });
-    return res.status(401).json({ error: 'Gagal login ulang ke sistem internal' });
+    return res.status(401).json({
+      error: loginResult.error || 'Gagal login ulang ke sistem internal. Credential tidak dihapus otomatis.',
+    });
   }
 
   // Always sync all active years — weekly chunks make this fast
@@ -7988,6 +7925,8 @@ app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
       jamaah_username: null,
       jamaah_password: null,
       jamaah_kantor: null,
+      awapi_key: null,
+      awapi_code: null,
     })
     .eq('id', agentId);
   if (error) return res.status(500).json({ error: error.message });
@@ -8011,15 +7950,10 @@ async function ensureLegacySession(agent) {
     const decrypted = capiDecrypt(agent.jamaah_password);
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
-      if (isInvalidLaporanCredentials(loginResult)) {
-        await clearInvalidJamaahCredentials(agent, 'legacy-session');
-        return {
-          success: false,
-          error: 'Credential sistem internal sudah tidak valid. Silakan login ulang di halaman Jamaah.',
-          credentialsCleared: true,
-        };
-      }
-      return { success: false, error: 'Gagal login ulang ke sistem internal. Silakan login manual di halaman Jamaah.' };
+      return {
+        success: false,
+        error: loginResult.error || 'Gagal login ulang ke sistem internal. Silakan login manual di halaman Jamaah.',
+      };
     }
     return { success: true };
   } catch (err) {
@@ -9008,14 +8942,9 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
-      if (isInvalidLaporanCredentials(loginResult)) {
-        await clearInvalidJamaahCredentials(agent, 'haji-manual');
-        return res.status(401).json({
-          error: 'Credential sistem internal sudah tidak valid. Silakan login ulang.',
-          credentialsCleared: true,
-        });
-      }
-      return res.status(401).json({ error: 'Gagal login ke sistem internal. Silakan login ulang.' });
+      return res.status(401).json({
+        error: loginResult.error || 'Gagal login ke sistem internal. Credential tidak dihapus otomatis.',
+      });
     }
 
     const sessionCookies = getSessionCookie(agent.jamaah_username);
@@ -11932,10 +11861,6 @@ async function syncOneAgent(agent) {
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
       console.error(`[SYNC] ${slug}: login failed — ${loginResult.error || 'unknown reason'}`);
-      if (isInvalidLaporanCredentials(loginResult)) {
-        await clearInvalidJamaahCredentials(agent, 'umroh-bg');
-        return { loginFailed: true, invalidCredentials: true };
-      }
       const rateLimited = loginResult.reason === 'rate_limited';
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true, rateLimited });
       return;
@@ -12587,10 +12512,6 @@ async function syncHajiOneAgent(agent) {
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
       console.error(`[HAJI-BG] ${slug}: login failed — ${loginResult.error || 'unknown reason'}`);
-      if (isInvalidLaporanCredentials(loginResult)) {
-        await clearInvalidJamaahCredentials(agent, 'haji-bg');
-        return { loginFailed: true, invalidCredentials: true };
-      }
       const rateLimited = loginResult.reason === 'rate_limited';
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true, rateLimited });
       return { loginFailed: true, rateLimited };
