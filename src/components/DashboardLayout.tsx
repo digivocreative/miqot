@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Calculator, ArrowLeftRight, Settings,
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
-  BarChart3, Loader2, Sparkles, AlertTriangle,
+  BarChart3, Loader2, Sparkles,
   CalendarRange, ExternalLink, TrendingUp, Mic, CreditCard,
   DollarSign, ChevronRight, Globe, Share2, FileImage,
 } from 'lucide-react';
@@ -58,12 +58,6 @@ const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
   analytics: 'analytics',
   'ai-tools': 'ai-tools',
 };
-
-const NIKITA_ONLY_TABS = new Set<TabId>(['jamaah', 'statistik']);
-
-function isNikitaOnlyTab(tab: TabId): boolean {
-  return NIKITA_ONLY_TABS.has(tab);
-}
 
 function getTabFromPath(): TabId {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
@@ -256,11 +250,7 @@ const MENU_CARDS: MenuCard[] = [
 ];
 
 export default function DashboardLayout({ session, onLogout }: { session: AuthSession; onLogout: () => void }) {
-  const canAccessJamaahStats = session.user.slug.toLowerCase() === 'nikita';
-  const [activeTab, setActiveTab] = useState<TabId>(() => {
-    const tab = getTabFromPath();
-    return isNikitaOnlyTab(tab) && !canAccessJamaahStats ? 'home' : tab;
-  });
+  const [activeTab, setActiveTab] = useState<TabId>(getTabFromPath);
 
   // Jamaah session persistence across tab switches
   const [jamaahConnected, setJamaahConnected] = useState(false);
@@ -275,8 +265,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [checkingStatistik, setCheckingStatistik] = useState(false);
   const [showStatAlert, setShowStatAlert] = useState(false);
   const [statAlertClosing, setStatAlertClosing] = useState(false);
-  const [showMaintenanceAlert, setShowMaintenanceAlert] = useState(false);
-  const [maintenanceAlertClosing, setMaintenanceAlertClosing] = useState(false);
   const [showComingSoon, setShowComingSoon] = useState(false);
   // Analytics header slot for month dropdown
   const [analyticsHeaderRight, setAnalyticsHeaderRight] = useState<React.ReactNode>(null);
@@ -336,14 +324,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     }, 200);
   }, []);
 
-  const closeMaintenanceAlert = useCallback(() => {
-    setMaintenanceAlertClosing(true);
-    setTimeout(() => {
-      setShowMaintenanceAlert(false);
-      setMaintenanceAlertClosing(false);
-    }, 200);
-  }, []);
-
   const closeDisconnect = useCallback(() => {
     setDisconnectClosing(true);
     setTimeout(() => {
@@ -354,10 +334,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
   // Navigate tab + update URL
   const navigateTab = useCallback((tab: TabId, replace = false) => {
-    if (isNikitaOnlyTab(tab) && !canAccessJamaahStats) {
-      setShowMaintenanceAlert(true);
-      return;
-    }
     setActiveTab(tab);
     document.title = TAB_TITLES[tab] || 'Dashboard';
     const slug = TAB_TO_SLUG[tab];
@@ -367,35 +343,21 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     } else {
       window.history.pushState({ tab }, '', url);
     }
-  }, [canAccessJamaahStats]);
+  }, []);
 
   // Listen for browser back/forward
   useEffect(() => {
     const onPopState = () => {
       const tab = getTabFromPath();
-      if (isNikitaOnlyTab(tab) && !canAccessJamaahStats) {
-        setActiveTab('home');
-        document.title = TAB_TITLES.home;
-        window.history.replaceState({ tab: 'home' }, '', '/dashboard');
-        setShowMaintenanceAlert(true);
-        return;
-      }
       setActiveTab(tab);
       document.title = TAB_TITLES[tab] || 'Dashboard';
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [canAccessJamaahStats]);
+  }, []);
 
   // Set initial history state on mount
   useEffect(() => {
-    const requestedTab = getTabFromPath();
-    if (isNikitaOnlyTab(requestedTab) && !canAccessJamaahStats) {
-      window.history.replaceState({ tab: 'home' }, '', '/dashboard');
-      document.title = TAB_TITLES.home;
-      setShowMaintenanceAlert(true);
-      return;
-    }
     window.history.replaceState({ tab: activeTab }, '', window.location.pathname + window.location.search + window.location.hash);
     const aiSub = getAIToolsSubFromPath();
     document.title = (activeTab === 'ai-tools' && aiSub === 'voice-over')
@@ -456,36 +418,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const isAdmin = agentData.role === 'admin';
   const visibleCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly);
   const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly) : [];
-  const maintenanceAlertModal = showMaintenanceAlert ? (
-    <div
-      className={`fixed inset-0 z-50 flex items-center justify-center px-4 ${maintenanceAlertClosing ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
-      onClick={closeMaintenanceAlert}
-      style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
-    >
-      <div
-        className={`w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl p-5 ${maintenanceAlertClosing ? 'dc-card-exit' : 'dc-card-enter'}`}
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex justify-center">
-          <div className="w-11 h-11 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 flex items-center justify-center">
-            <AlertTriangle size={22} className="text-amber-500" />
-          </div>
-        </div>
-        <p className="text-sm font-bold text-gray-800 dark:text-white text-center mt-3">
-          Fitur Ini Sedang Perbaikan 🚧
-        </p>
-        <p className="text-xs text-gray-500 dark:text-slate-400 text-center mt-1.5 leading-relaxed">
-          Ada baut yang kendor, lagi saya kencengin dulu.
-        </p>
-        <button
-          onClick={closeMaintenanceAlert}
-          className="w-full py-2.5 rounded-xl text-sm font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/20 transition-all active:scale-95 mt-4"
-        >
-          Tutup
-        </button>
-      </div>
-    </div>
-  ) : null;
 
   // ── Sub-page view with dashboard header ──
   if (activeTab !== 'home') {
@@ -578,8 +510,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             </button>
           </div>
         </header>
-
-        {maintenanceAlertModal}
 
         {/* Disconnect confirm modal */}
         {showDisconnectConfirm && (
@@ -734,10 +664,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           if (card.openExternal) {
             trackEvent('feature', 'open_jadwal');
             window.open(`/${agentData.slug}`, '_blank');
-            return;
-          }
-          if (isNikitaOnlyTab(card.id) && !canAccessJamaahStats) {
-            setShowMaintenanceAlert(true);
             return;
           }
           if (card.id === 'statistik') {
@@ -975,8 +901,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             />
           )}
         </Suspense>
-
-        {maintenanceAlertModal}
 
         {/* ── Statistik Not Ready Alert ── */}
         {showStatAlert && (
