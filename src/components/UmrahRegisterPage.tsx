@@ -399,7 +399,7 @@ function SearchableSelect({ options, value, onChange, placeholder = '— Pilih �
   );
 }
 
-export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
+export default function UmrahRegisterPage({ onBack, onNavigate }: { onBack: () => void; onNavigate?: (path: string) => void }) {
   const [options, setOptions] = useState<FormOptions | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -436,8 +436,16 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
     try {
       const qs = bindIdb ? `?idb=${encodeURIComponent(bindIdb)}` : '';
       const res = await fetch(`/api/umrah/form-options${qs}`, { headers: getAuthHeaders() });
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        // Upstream proxy (Cloudflare/nginx) returned an HTML error page instead
+        // of our JSON response — happens on 5xx from origin.
+        setError('Sistem internal tidak dapat diakses dari server. Coba lagi atau hubungi admin.');
+        setLoading(false);
+        return;
+      }
       const data = await res.json();
-      if (!res.ok) {
+      if (!res.ok || data.success === false) {
         setError(data.error || 'Gagal mengambil opsi form');
         setLoading(false);
         return;
@@ -1038,7 +1046,13 @@ export default function UmrahRegisterPage({ onBack }: { onBack: () => void }) {
         const target = refreshIdUmroh
           ? `/dashboard/jamaah?refresh_id_umroh=${encodeURIComponent(refreshIdUmroh)}`
           : '/dashboard/jamaah?sync=1';
-        window.location.href = target;
+        if (onNavigate) {
+          onNavigate(target);
+        } else {
+          // Fallback: avoid full reload (SW would serve stale shell)
+          window.history.pushState({}, '', target);
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        }
       }, 1500);
     } catch {
       setError('Gagal menghubungi server');
