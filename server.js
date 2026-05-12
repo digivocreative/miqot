@@ -7948,13 +7948,31 @@ app.get('/api/umrah/form-options', authMiddleware, async (req, res) => {
     const agent = await getAgentById(req.user.id);
     const sess = await ensureLegacySession(agent);
     if (!sess.success) {
-      return res.status(400).json({ error: sess.error });
+      // Respond 200 so the upstream proxy doesn't replace the body with a
+      // generic HTML error page. Frontend reads success:false and renders msg.
+      return res.json({ success: false, error: sess.error });
     }
 
     const idb = typeof req.query.idb === 'string' ? req.query.idb : '';
-    const result = await fetchUmrahFormOptions(agent.jamaah_username, { idb });
+    let result = await fetchUmrahFormOptions(agent.jamaah_username, { idb });
+
+    // Legacy may have invalidated PHPSESSID for protected actions. Force fresh
+    // login and retry once.
+    if (!result.success && result.reason === 'session_expired_remote') {
+      console.log(`[form-options] remote rejected — forcing re-login for ${agent.jamaah_username}`);
+      try {
+        const decrypted = capiDecrypt(agent.jamaah_password);
+        const fresh = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
+        if (fresh.success) {
+          result = await fetchUmrahFormOptions(agent.jamaah_username, { idb });
+        }
+      } catch (err) {
+        console.error('[form-options] re-login threw:', err.message);
+      }
+    }
+
     if (!result.success) {
-      return res.status(502).json({ error: result.error });
+      return res.json({ success: false, error: result.error || 'Gagal mengambil form pendaftaran' });
     }
 
     // Return structured form data (exclude rawHtml for security)
@@ -7962,7 +7980,7 @@ app.get('/api/umrah/form-options', authMiddleware, async (req, res) => {
     res.json({ success: true, data: formData });
   } catch (err) {
     console.error('GET /api/umrah/form-options error:', err);
-    res.status(500).json({ error: 'Gagal mengambil opsi form pendaftaran' });
+    res.json({ success: false, error: 'Gagal mengambil opsi form pendaftaran' });
   }
 });
 

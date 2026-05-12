@@ -252,6 +252,12 @@ const MENU_CARDS: MenuCard[] = [
 export default function DashboardLayout({ session, onLogout }: { session: AuthSession; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<TabId>(getTabFromPath);
 
+  // pathTick bumps whenever we change URL via pushState without full navigation,
+  // so JSX that reads location (getSubTabFromPath, getAIToolsSubFromPath, etc.)
+  // re-evaluates. Avoids window.location.reload(), which would hit the cached
+  // index.html in the service worker and load the previous bundle.
+  const [, setPathTick] = useState(0);
+
   // Jamaah session persistence across tab switches
   const [jamaahConnected, setJamaahConnected] = useState(false);
   const [jamaahUser, setJamaahUser] = useState('');
@@ -345,12 +351,24 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     }
   }, []);
 
+  // Navigate to an arbitrary in-app path without a full page reload.
+  // Used for sub-routes like /dashboard/jamaah/daftar where the SW would
+  // otherwise serve a stale index.html on reload.
+  const navigatePath = useCallback((path: string) => {
+    window.history.pushState({}, '', path);
+    const tab = getTabFromPath();
+    setActiveTab(tab);
+    document.title = TAB_TITLES[tab] || 'Dashboard';
+    setPathTick(t => t + 1);
+  }, []);
+
   // Listen for browser back/forward
   useEffect(() => {
     const onPopState = () => {
       const tab = getTabFromPath();
       setActiveTab(tab);
       document.title = TAB_TITLES[tab] || 'Dashboard';
+      setPathTick(t => t + 1);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -431,7 +449,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               onClick={() => {
                 // Jamaah daftar (registration form) → back to /dashboard/jamaah list
                 if (activeTab === 'jamaah' && getSubTabFromPath() === 'daftar') {
-                  window.history.pushState({}, '', '/dashboard/jamaah');
+                  navigatePath('/dashboard/jamaah');
                   setJamaahRefreshKey(k => k + 1);
                   return;
                 }
@@ -577,12 +595,13 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           )}
           {activeTab === 'jamaah' && (
             getSubTabFromPath() === 'daftar' ? (
-              <UmrahRegisterPage onBack={() => {
-                // Land on /dashboard/jamaah (the jamaah list), not the dashboard home.
-                // Route is driven by pathname → we just replace URL then nudge a re-render.
-                window.history.pushState({}, '', '/dashboard/jamaah');
-                setJamaahRefreshKey(k => k + 1);
-              }} />
+              <UmrahRegisterPage
+                onBack={() => {
+                  navigatePath('/dashboard/jamaah');
+                  setJamaahRefreshKey(k => k + 1);
+                }}
+                onNavigate={navigatePath}
+              />
             ) : (
               <JamaahPage
                 key={jamaahRefreshKey}
@@ -594,6 +613,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   setJamaahUser(user);
                 }}
                 onHeaderRight={setJamaahHeaderRight}
+                onNavigate={navigatePath}
               />
             )
           )}

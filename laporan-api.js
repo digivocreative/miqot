@@ -15,6 +15,18 @@ const BASE = (process.env.INTERNAL_API_BASE || 'http://115.124.86.220') + '/aiw/
 const sessions = new Map();
 const SESSION_TTL = 60 * 60 * 1000; // 1 hour
 
+// Detects legacy "you've been logged out" responses. Covers the login-page
+// redirect (cek_login.php / "Sign in to start your session") plus the inline
+// alert legacy serves on protected pages when PHPSESSID is rejected:
+//   <script>alert('Sesi Anda habis, silahkan re-login!!'); window.location='/aiw/staff/';</script>
+function isSessionExpiredHtml(html) {
+  if (!html) return false;
+  if (html.includes('cek_login.php')) return true;
+  if (html.includes('Sign in to start your session')) return true;
+  if (/Sesi Anda habis|silahkan re-login/i.test(html)) return true;
+  return false;
+}
+
 function cleanExpired() {
   const now = Date.now();
   for (const [key, session] of sessions) {
@@ -174,7 +186,7 @@ export async function fetchLaporan(username, { kantor, agentId, tglAwal, tglAkhi
       const html = await res.text();
 
       // Check if redirected to login page (session expired on remote)
-      if (html.includes('cek_login.php') || html.includes('Sign in to start your session')) {
+      if (isSessionExpiredHtml(html)) {
         sessions.delete(username);
         return { success: false, reason: 'session_expired', error: 'Session kedaluwarsa di sistem internal' };
       }
@@ -226,7 +238,7 @@ export async function fetchUmrahBookings(username) {
     clearTimeout(timeout);
 
     const html = await res.text();
-    if (html.includes('cek_login.php')) {
+    if (isSessionExpiredHtml(html)) {
       sessions.delete(username);
       return { success: false, error: 'Session kedaluwarsa di sistem internal' };
     }
@@ -332,7 +344,7 @@ export async function fetchAwapiCredentials(username) {
     clearTimeout(timeout);
 
     const html = await res.text();
-    if (html.includes('cek_login.php') || html.includes('Sign in to start your session')) {
+    if (isSessionExpiredHtml(html)) {
       sessions.delete(username);
       return { success: false, error: 'Session kedaluwarsa di sistem internal', reason: 'session_expired' };
     }
@@ -392,7 +404,7 @@ export async function fetchUmrahDetail(username, idUmroh) {
     clearTimeout(timeout);
 
     const html = await res.text();
-    if (html.includes('cek_login.php')) {
+    if (isSessionExpiredHtml(html)) {
       sessions.delete(username);
       return { success: false, reason: 'session_expired', error: 'Session kedaluwarsa' };
     }
@@ -921,15 +933,16 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat, idb } = {}
       headers: {
         Cookie: session.cookie,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': `${BASE}/pages/main.php?route=umrah`,
       },
       signal: controller.signal,
     });
     clearTimeout(timeout);
 
     const html = await res.text();
-    if (html.includes('cek_login.php') || html.includes('Sign in to start your session')) {
+    if (isSessionExpiredHtml(html)) {
       sessions.delete(username);
-      return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+      return { success: false, reason: 'session_expired_remote', error: 'Sistem internal menolak akses form pendaftaran (sesi habis di sisi internal)' };
     }
 
     const $ = cheerio.load(html);
@@ -1221,7 +1234,7 @@ export async function fetchUmrahJdaftarFields(username, jdaftarValue) {
     }
 
     const html = await res.text();
-    if (html.includes('cek_login.php') || html.includes('Sign in to start your session')) {
+    if (isSessionExpiredHtml(html)) {
       sessions.delete(username);
       return { success: false, error: 'Session kedaluwarsa di sistem internal' };
     }
@@ -1438,7 +1451,7 @@ async function tryPaketAjax(session, jadwal, jsHandlers) {
       const preview = responseText.trim().slice(0, previewLen).replace(/\s+/g, ' ');
 
       // Check for session expiration
-      if (responseText.includes('cek_login.php') || responseText.includes('Sign in to start your session')) {
+      if (isSessionExpiredHtml(responseText)) {
         return { sessionExpired: true };
       }
 
@@ -1527,7 +1540,7 @@ export async function fetchUmrahDependentOptions(username, jadwal) {
 
       if (!res.ok) continue;
       const html = await res.text();
-      if (html.includes('cek_login.php') || html.includes('Sign in to start your session')) {
+      if (isSessionExpiredHtml(html)) {
         sessions.delete(username);
         return { success: false, error: 'Session kedaluwarsa di sistem internal' };
       }
@@ -1661,7 +1674,7 @@ export async function fetchUmrahPaketOptions(username, tglBerangkat) {
       }
 
       const body = await res.text();
-      if (body.includes('cek_login.php') || body.includes('Sign in to start your session')) {
+      if (isSessionExpiredHtml(body)) {
         sessions.delete(username);
         return { success: false, error: 'Session kedaluwarsa di sistem internal' };
       }
@@ -1745,7 +1758,7 @@ export async function fetchUmrahPaketDetails(username, jadwal, paketValue) {
     if (!res.ok) return { ok: false, httpStatus: res.status };
 
     const html = await res.text();
-    if (html.includes('cek_login.php') || html.includes('Sign in to start your session')) {
+    if (isSessionExpiredHtml(html)) {
       sessions.delete(username);
       return { ok: false, sessionExpired: true };
     }
@@ -1914,7 +1927,7 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
     console.log(`[UmrahSubmit] Preview: ${responsePreview}`);
 
     // Detect session expired
-    if (responseHtml.includes('cek_login.php') || responseHtml.includes('Sign in to start your session')) {
+    if (isSessionExpiredHtml(responseHtml)) {
       sessions.delete(username);
       return { success: false, error: 'Session kedaluwarsa di sistem internal' };
     }

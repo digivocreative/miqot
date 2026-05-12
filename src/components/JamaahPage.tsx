@@ -116,9 +116,18 @@ interface JamaahPageProps {
   initialSubTab?: 'umroh' | 'haji';
   onConnectionChange?: (connected: boolean, user: string) => void;
   onHeaderRight?: (node: React.ReactNode) => void;
+  onNavigate?: (path: string) => void;
 }
 
-export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab = 'umroh', onConnectionChange, onHeaderRight }: JamaahPageProps) {
+export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab = 'umroh', onConnectionChange, onHeaderRight, onNavigate }: JamaahPageProps) {
+  // Fallback for callers that didn't pass onNavigate. Uses pushState +
+  // popstate dispatch so DashboardLayout's listener can re-render — avoids
+  // window.location.reload() which serves cached HTML via the service worker.
+  const goTo = useCallback((path: string) => {
+    if (onNavigate) { onNavigate(path); return; }
+    window.history.pushState({}, '', path);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, [onNavigate]);
   // Compute current Hijriah year dynamically. Memoized so the `hijriahOptions`
   // array reference is stable across renders — otherwise the useEffect that
   // registers the header selector (deps on hijriahOptions) would rerun every
@@ -864,10 +873,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
               className="flex-1 h-9 bg-transparent text-xs text-gray-800 dark:text-white placeholder:text-gray-400 outline-none min-w-0"
             />
             <button
-              onClick={() => {
-                window.history.pushState({}, '', '/dashboard/jamaah/daftar');
-                window.location.reload();
-              }}
+              onClick={() => goTo('/dashboard/jamaah/daftar')}
               className="h-9 px-2.5 flex items-center gap-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold shadow-sm shadow-emerald-500/20 transition-all active:scale-95 shrink-0"
               title="Jamaah Baru"
             >
@@ -1123,8 +1129,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                           if (first.tgl_berangkat) paramsObj.date = first.tgl_berangkat;
                           if (first.paket) paramsObj.paket = first.paket;
                           const params = new URLSearchParams(paramsObj);
-                          window.history.pushState({}, '', `/dashboard/jamaah/daftar?${params}`);
-                          window.location.reload();
+                          goTo(`/dashboard/jamaah/daftar?${params}`);
                         }}
                         className="shrink-0 flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors rounded-lg px-2 py-1 active:scale-95"
                         title={`Tambah jamaah ke ID Umroh ${entry.idu}`}
@@ -1711,8 +1716,7 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                               if (item.tgl_berangkat) paramsObj.date = item.tgl_berangkat;
                               if (item.paket) paramsObj.paket = item.paket;
                               const params = new URLSearchParams(paramsObj);
-                              window.history.pushState({}, '', `/dashboard/jamaah/daftar?${params}`);
-                              window.location.reload();
+                              goTo(`/dashboard/jamaah/daftar?${params}`);
                             }}
                             className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all active:scale-95"
                             title={`Tambah jamaah ke ID Umroh ${item.id_umroh}`}
