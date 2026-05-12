@@ -48,17 +48,6 @@ const supabase = createClient(
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
 const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f']);
 
-// Demo agents: hardcoded slugs whose data is dummy. Bypasses all sync paths
-// (umroh/haji, manual + bg) and protects credentials from auto-clear, so the
-// dummy rows in `jamaah`/`jamaah_haji` are never overwritten or deleted by
-// sync loops trying to log in to a non-existent legacy account.
-// To retire a demo agent: remove its slug here, then DELETE its dummy rows.
-const DEMO_AGENT_SLUGS = new Set(['bagas']);
-function isDemoAgent(agentOrSlug) {
-  const slug = typeof agentOrSlug === 'string' ? agentOrSlug : agentOrSlug?.slug;
-  return !!slug && DEMO_AGENT_SLUGS.has(slug);
-}
-
 function withTimeout(promise, ms, message) {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -5344,9 +5333,6 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   const slug = req.user.slug;
 
   let agent = await getAgentById(agentId);
-  if (isDemoAgent(agent)) {
-    return res.json({ success: true, data: { initialCount: 0, syncing: false, message: 'Mode demo — sync dilewati.' } });
-  }
   if (!agent?.jamaah_username || !agent?.jamaah_password) {
     return res.status(400).json({ error: 'Belum ada credentials tersimpan' });
   }
@@ -5880,9 +5866,6 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
   }
 
   const agent = await getAgentById(agentId);
-  if (isDemoAgent(agent)) {
-    return res.json({ success: true, data: { row: null, source: 'demo', message: 'Mode demo — refresh dilewati.' } });
-  }
   if (!agent?.awapi_key) {
     return res.status(400).json({ error: 'API key Alhijaz belum tersedia. Login ulang via JamaahPage agar key ter-discover otomatis.' });
   }
@@ -5941,9 +5924,6 @@ app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) 
   }
 
   const agent = await getAgentById(agentId);
-  if (isDemoAgent(agent)) {
-    return res.json({ success: true, data: { rows: [], source: 'demo', message: 'Mode demo — refresh dilewati.' } });
-  }
   if (!agent?.awapi_key) {
     return res.status(400).json({ error: 'API key Alhijaz belum tersedia. Login ulang via JamaahPage agar key ter-discover otomatis.' });
   }
@@ -8919,9 +8899,6 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
 
   try {
     const agent = await getAgentById(agentId);
-    if (isDemoAgent(agent)) {
-      return res.json({ success: true, data: { initialCount: 0, syncing: false, message: 'Mode demo — sync dilewati.' } });
-    }
     if (!agent?.jamaah_username || !agent?.jamaah_password) {
       return res.status(400).json({
         error: 'Belum terhubung ke sistem internal. Silakan login di halaman Jamaah terlebih dahulu.'
@@ -11811,10 +11788,6 @@ setInterval(pingSupabase, KEEP_ALIVE_INTERVAL);
 async function syncOneAgent(agent) {
   const slug = agent.slug;
   const agentId = agent.id;
-  if (isDemoAgent(agent)) {
-    // Demo agent — dummy data only, never sync.
-    return;
-  }
   // Skip if ANY sync (manual or background) is already running for this agent
   const state = syncingAgents.get(agentId);
   if (state?.isSyncing) {
@@ -12487,11 +12460,6 @@ setTimeout(() => {
 async function syncHajiOneAgent(agent) {
   const slug = agent.slug;
   const agentId = agent.id;
-
-  if (isDemoAgent(agent)) {
-    // Demo agent — dummy data only, never sync.
-    return { skipped: true, reason: 'demo' };
-  }
 
   // Honor the unified mutex — skip if any sync (manual umroh/haji or umroh bg
   // fallback) is already running for this agent. We'll catch this agent on
