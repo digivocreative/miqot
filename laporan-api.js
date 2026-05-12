@@ -551,7 +551,7 @@ export function parseLaporanHtml(html) {
     const wa = $(tds[4]).text().trim();
 
     // col5: TGL LAHIR
-    const tgl_lahir = parseDateDMY($(tds[5]).text().trim());
+    const tgl_lahir = parseBirthDateDMY($(tds[5]).text().trim());
 
     // col6: PAKET
     const paket = $(tds[6]).text().trim();
@@ -672,6 +672,22 @@ function parseDateDMY(str) {
     return str;
   }
   return null; // Return null instead of raw string to prevent DB errors
+}
+
+function getJakartaYear() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+  }).formatToParts(new Date());
+  return Number(parts.find(p => p.type === 'year')?.value);
+}
+
+function parseBirthDateDMY(str) {
+  const date = parseDateDMY(str);
+  if (!date) return null;
+  const birthYear = Number(date.slice(0, 4));
+  if (!Number.isFinite(birthYear) || birthYear >= getJakartaYear()) return null;
+  return date;
 }
 
 // ── Extract JS Handlers from legacy HTML ──

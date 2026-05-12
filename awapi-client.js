@@ -127,6 +127,17 @@ export async function awapiFetchJadwal(yearCode, apiKey = null) {
 
 const PLACEHOLDER_DATE = '0000-00-00';
 
+function getJakartaDateKey(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const byType = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  return `${byType.year}-${byType.month}-${byType.day}`;
+}
+
 function safeDate(s) {
   if (!s || typeof s !== 'string') return null;
   const v = s.trim();
@@ -134,6 +145,15 @@ function safeDate(s) {
   // Strip time portion if present ("YYYY-MM-DD HH:mm:ss" → "YYYY-MM-DD")
   const datePart = v.split(' ')[0];
   if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return null;
+  return datePart;
+}
+
+function safeBirthDate(s) {
+  const datePart = safeDate(s);
+  if (!datePart) return null;
+  const currentYear = Number(getJakartaDateKey().slice(0, 4));
+  const birthYear = Number(datePart.slice(0, 4));
+  if (!Number.isFinite(birthYear) || birthYear >= currentYear) return null;
   return datePart;
 }
 
@@ -187,7 +207,7 @@ export function normalizeAwapiRow(raw, { agentId } = {}) {
     nama,
     jk: mapKelamin(raw.kelamin),
     wa: safeText(raw.hp),
-    tgl_lahir: safeDate(raw.tgl_lahir),
+    tgl_lahir: safeBirthDate(raw.tgl_lahir),
     paket: safeText(raw.paket),
     bayar: safeBigint(raw.bayar),
     sisa: safeBigint(raw.bayar_sisa),
