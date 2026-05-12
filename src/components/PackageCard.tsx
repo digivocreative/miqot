@@ -19,6 +19,7 @@ import { getDistance } from '@/data/hotelService';
 import { getTemperature } from '@/data/temperatureData';
 import { sendCapiEvent } from '@/lib/capi';
 import { trackEvent, trackPublicEvent } from '@/utils/analytics';
+import { getLandingCityName, getPackageJourneySteps } from '@/utils/journey';
 
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
@@ -44,43 +45,6 @@ interface PackageCardProps {
   /** Whether this package is currently selected for comparison */
   isComparing?: boolean;
 }
-
-const LANDING_AIRPORT_MAP: Record<string, string> = {
-  JED: 'Jeddah',
-  MED: 'Madinah',
-  CKG: 'Jakarta',
-  CGK: 'Jakarta', // Common typo handling
-  SUB: 'Surabaya',
-  KNO: 'Kualanamu',
-  CAI: 'Cairo',
-  IST: 'Istanbul',
-  DXB: 'Dubai',
-};
-
-const getRouteAirportCodes = (route?: string): string[] => {
-  return (route || '').toUpperCase().match(/[A-Z]{3}/g) || [];
-};
-
-const getRouteLegs = (route?: string): Array<{ from: string; to: string }> => {
-  return (route || '')
-    .split('/')
-    .map(segment => {
-      const [from, to] = segment.split(/\s*[-–—]\s*/).map(part => part.trim().toUpperCase());
-      return from && to ? { from, to } : null;
-    })
-    .filter((leg): leg is { from: string; to: string } => Boolean(leg));
-};
-
-const getLandingAirportCode = (pkg: UmrohPackage): string => {
-  const routeLegs = getRouteLegs(pkg.keberangkatan?.rute);
-  const code = routeLegs.length ? routeLegs[routeLegs.length - 1].to : 'JED';
-  return code || 'JED';
-};
-
-const getLandingCityName = (pkg: UmrohPackage): string => {
-  const airportCode = getLandingAirportCode(pkg);
-  return LANDING_AIRPORT_MAP[airportCode] || airportCode;
-};
 
 // Gradient presets for screenshot background
 const GRADIENT_PRESETS: { name: string; css: string }[] = [
@@ -416,74 +380,7 @@ export function PackageCard({
   }, [hotelInfo]);
 
   const journeySteps = useMemo(() => {
-    type TourConfig = {
-      label: string;
-      codes: string[];
-      cities: string[];
-      pattern: RegExp;
-      imageSrc: string;
-    };
-    type JourneyStep = {
-      label: string;
-      imageSrc: string;
-      imageAlt: string;
-      tone: 'tour' | 'madinah' | 'umroh';
-    };
-
-    const makeStep = (label: string, imageSrc?: string): JourneyStep => {
-      if (label === 'Madinah') {
-        return { label, imageSrc: '/img-brosur/nabawi-dome.png', imageAlt: 'Dome Masjid Nabawi', tone: 'madinah' };
-      }
-      if (label === 'Umroh') {
-        return { label, imageSrc: '/img-brosur/kabah.png', imageAlt: 'Kaabah', tone: 'umroh' };
-      }
-      return { label, imageSrc: imageSrc || '/flags/palestine.svg', imageAlt: `Bendera ${label.replace(/^Tur\s+/i, '')}`, tone: 'tour' };
-    };
-
-    const landingAirportCode = getLandingAirportCode(pkg);
-    const saudiLabels = landingAirportCode === 'MED' ? ['Madinah', 'Umroh'] : ['Umroh', 'Madinah'];
-    const extraCitySet = new Set(extraHotels.map(hotel => hotel.city.toLowerCase()));
-    const packageName = (pkg.nama || '').toUpperCase();
-    const tourConfigs: TourConfig[] = [
-      { label: 'Tur Dubai', codes: ['DXB'], cities: ['dubai'], pattern: /\b(DUBAI|DXB)\b/, imageSrc: '/flags/uae.png' },
-      { label: 'Tur Turki', codes: ['IST'], cities: ['istanbul', 'bursa', 'ankara', 'cappadocia'], pattern: /\b(TURKI|TURKEY|ISTANBUL|BURSA|ANKARA|CAPPADOCIA)\b/, imageSrc: '/flags/turki.png' },
-      { label: 'Tur Mesir', codes: ['CAI'], cities: ['cairo', 'alexandria'], pattern: /\b(MESIR|EGYPT|CAIRO|ALEXANDRIA)\b/, imageSrc: '/flags/mesir.png' },
-      { label: 'Tur China', codes: ['HAK', 'PEK', 'SHA', 'CAN'], cities: ['haikou', 'beijing', 'shanghai', 'guangzhou'], pattern: /\b(CHINA|TIONGKOK|HAIKOU|BEIJING|SHANGHAI|GUANGZHOU)\b/, imageSrc: '/flags/china.png' },
-      { label: 'Tur Aqsha', codes: ['AMM', 'TLV'], cities: ['aqsha', 'amman', 'petra'], pattern: /\b(AQSHA|AL AQSA|AMMAN|PETRA|JORDAN|PALESTINE)\b/, imageSrc: '/flags/palestine.svg' },
-    ];
-    const activeTours = tourConfigs.filter(tour =>
-      tour.cities.some(city => extraCitySet.has(city)) || tour.pattern.test(packageName)
-    );
-
-    const departureLegs = getRouteLegs(pkg.keberangkatan?.rute);
-    const returnCodes = getRouteAirportCodes(pkg.kepulangan?.rute);
-    let saudiLandingLegIndex = -1;
-    for (let i = departureLegs.length - 1; i >= 0; i -= 1) {
-      if (departureLegs[i].to === 'JED' || departureLegs[i].to === 'MED') {
-        saudiLandingLegIndex = i;
-        break;
-      }
-    }
-
-    const preSaudiCodes = new Set(
-      saudiLandingLegIndex > 0 ? departureLegs.slice(0, saudiLandingLegIndex).map(leg => leg.to) : []
-    );
-    const returnTransitCodes = new Set(returnCodes.slice(1, -1));
-    const preSaudiTours = activeTours.filter(tour => tour.codes.some(code => preSaudiCodes.has(code)));
-    const postSaudiTours = activeTours.filter(tour =>
-      !preSaudiTours.includes(tour) && tour.codes.some(code => returnTransitCodes.has(code))
-    );
-    const remainingTours = activeTours.filter(tour =>
-      !preSaudiTours.includes(tour) && !postSaudiTours.includes(tour)
-    );
-
-    const tourStep = (tour: TourConfig) => makeStep(tour.label, tour.imageSrc);
-    return [
-      ...preSaudiTours.map(tourStep),
-      ...remainingTours.map(tourStep),
-      ...saudiLabels.map(label => makeStep(label)),
-      ...postSaudiTours.map(tourStep),
-    ];
+    return getPackageJourneySteps(pkg, extraHotels.map(hotel => hotel.city));
   }, [extraHotels, pkg]);
 
 
