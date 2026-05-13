@@ -111,6 +111,7 @@ function shouldAutoRefreshPerlengkapan(item: JamaahItem) {
 
 // ── Props (session persistence from parent) ──
 interface JamaahPageProps {
+  agentSlug?: string;
   jamaahConnected?: boolean;
   jamaahUser?: string;
   initialSubTab?: 'umroh' | 'haji';
@@ -119,7 +120,7 @@ interface JamaahPageProps {
   onNavigate?: (path: string) => void;
 }
 
-export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab = 'umroh', onConnectionChange, onHeaderRight, onNavigate }: JamaahPageProps) {
+export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, initialSubTab = 'umroh', onConnectionChange, onHeaderRight, onNavigate }: JamaahPageProps) {
   // Fallback for callers that didn't pass onNavigate. Uses pushState +
   // popstate dispatch so DashboardLayout's listener can re-render — avoids
   // window.location.reload() which serves cached HTML via the service worker.
@@ -190,6 +191,8 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
   const pollStartRef = useRef<number>(0);
   const hasAutoSynced = useRef(false);
   const autoPerlengkapanRefreshRef = useRef<Set<string>>(new Set());
+  const canRegisterJamaah = (agentSlug || '').toLowerCase() === 'nikita';
+  const registerDisabledTitle = 'Fitur Jamaah Baru sementara hanya untuk agent Nikita';
 
   // Switch sub-tab and update URL
   const switchSubTab = useCallback((tab: 'umroh' | 'haji') => {
@@ -873,9 +876,18 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
               className="flex-1 h-9 bg-transparent text-xs text-gray-800 dark:text-white placeholder:text-gray-400 outline-none min-w-0"
             />
             <button
-              onClick={() => goTo('/dashboard/jamaah/daftar')}
-              className="h-9 px-2.5 flex items-center gap-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold shadow-sm shadow-emerald-500/20 transition-all active:scale-95 shrink-0"
-              title="Jamaah Baru"
+              onClick={() => {
+                if (!canRegisterJamaah) return;
+                goTo('/dashboard/jamaah/daftar');
+              }}
+              disabled={!canRegisterJamaah}
+              aria-disabled={!canRegisterJamaah}
+              className={`h-9 px-2.5 flex items-center gap-1 rounded-lg text-[11px] font-bold transition-all shrink-0 ${
+                canRegisterJamaah
+                  ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm shadow-emerald-500/20 active:scale-95'
+                  : 'bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed shadow-none'
+              }`}
+              title={canRegisterJamaah ? 'Jamaah Baru' : registerDisabledTitle}
             >
               <Plus size={14} strokeWidth={3} />
               Jamaah Baru
@@ -1125,14 +1137,21 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                       <button
                         type="button"
                         onClick={() => {
+                          if (!canRegisterJamaah) return;
                           const paramsObj: Record<string, string> = { idb: entry.idu, from: first.nama };
                           if (first.tgl_berangkat) paramsObj.date = first.tgl_berangkat;
                           if (first.paket) paramsObj.paket = first.paket;
                           const params = new URLSearchParams(paramsObj);
                           goTo(`/dashboard/jamaah/daftar?${params}`);
                         }}
-                        className="shrink-0 flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors rounded-lg px-2 py-1 active:scale-95"
-                        title={`Tambah jamaah ke ID Umroh ${entry.idu}`}
+                        disabled={!canRegisterJamaah}
+                        aria-disabled={!canRegisterJamaah}
+                        className={`shrink-0 flex items-center gap-1 text-[10px] font-bold border transition-colors rounded-lg px-2 py-1 ${
+                          canRegisterJamaah
+                            ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 active:scale-95'
+                            : 'text-gray-400 dark:text-slate-500 bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 cursor-not-allowed'
+                        }`}
+                        title={canRegisterJamaah ? `Tambah jamaah ke ID Umroh ${entry.idu}` : registerDisabledTitle}
                       >
                         <UserPlus size={11} strokeWidth={2.5} />
                         Tambah
@@ -1712,14 +1731,21 @@ export default function JamaahPage({ jamaahConnected, jamaahUser, initialSubTab 
                           <button
                             type="button"
                             onClick={() => {
+                              if (!canRegisterJamaah) return;
                               const paramsObj: Record<string, string> = { idb: item.id_umroh, from: item.nama };
                               if (item.tgl_berangkat) paramsObj.date = item.tgl_berangkat;
                               if (item.paket) paramsObj.paket = item.paket;
                               const params = new URLSearchParams(paramsObj);
                               goTo(`/dashboard/jamaah/daftar?${params}`);
                             }}
-                            className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all active:scale-95"
-                            title={`Tambah jamaah ke ID Umroh ${item.id_umroh}`}
+                            disabled={!canRegisterJamaah}
+                            aria-disabled={!canRegisterJamaah}
+                            className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold border transition-all ${
+                              canRegisterJamaah
+                                ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 active:scale-95'
+                                : 'bg-gray-50 dark:bg-slate-800 text-gray-400 dark:text-slate-500 border-gray-200 dark:border-slate-700 cursor-not-allowed'
+                            }`}
+                            title={canRegisterJamaah ? `Tambah jamaah ke ID Umroh ${item.id_umroh}` : registerDisabledTitle}
                           >
                             <UserPlus size={14} strokeWidth={2.2} />
                             Tambah

@@ -596,6 +596,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           {activeTab === 'jamaah' && (
             getSubTabFromPath() === 'daftar' ? (
               <UmrahRegisterPage
+                agentSlug={agentData.slug}
                 onBack={() => {
                   navigatePath('/dashboard/jamaah');
                   setJamaahRefreshKey(k => k + 1);
@@ -605,6 +606,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             ) : (
               <JamaahPage
                 key={jamaahRefreshKey}
+                agentSlug={agentData.slug}
                 jamaahConnected={jamaahConnected}
                 jamaahUser={jamaahUser}
                 initialSubTab={getSubTabFromPath() === 'haji' ? 'haji' : 'umroh'}

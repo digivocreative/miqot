@@ -9,7 +9,13 @@
 
 import * as cheerio from 'cheerio';
 
-const BASE = (process.env.INTERNAL_API_BASE || 'http://115.124.86.220') + '/aiw/staff';
+const DEFAULT_INTERNAL_API_BASE = 'http://115.124.86.220';
+const INTERNAL_API_BASE = (process.env.INTERNAL_API_BASE || DEFAULT_INTERNAL_API_BASE).replace(/\/+$/, '');
+const BASE = INTERNAL_API_BASE + '/aiw/staff';
+const LOGIN_BASE_CANDIDATES = Array.from(new Set([
+  INTERNAL_API_BASE,
+  DEFAULT_INTERNAL_API_BASE,
+])).map(base => base.replace(/\/+$/, ''));
 
 // ── In-memory session store with TTL (1 hour) ──
 const sessions = new Map();
@@ -56,91 +62,118 @@ export async function login(username, password, kantor = '2') {
   const MAX_ATTEMPTS = 3;
   const BACKOFF_BASE = 10_000; // 10s, 20s, 40s
 
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    try {
-      const body = new URLSearchParams({
-        kantor,
-        username,
-        password,
-        z: '',
-      });
+  let lastError = null;
 
-      const res = await fetch(`${BASE}/cek_login.php`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-        body: body.toString(),
-        redirect: 'manual', // Don't follow redirect — capture Set-Cookie first
-        signal: AbortSignal.timeout(30_000), // 30s timeout for login
-      });
+  for (const loginBase of LOGIN_BASE_CANDIDATES) {
+    const staffBase = `${loginBase}/aiw/staff`;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        const body = new URLSearchParams({
+          kantor,
+          username,
+          password,
+          z: '',
+        });
 
-      // Handle Apache rate-limiting (403) — wait and retry
-      if (res.status === 403) {
-        const wait = BACKOFF_BASE * Math.pow(2, attempt);
-        console.warn(`[Login] ${username}: 403 rate-limited, retry ${attempt + 1}/${MAX_ATTEMPTS} in ${wait / 1000}s`);
-        if (attempt < MAX_ATTEMPTS - 1) {
-          await new Promise(r => setTimeout(r, wait));
-          continue;
+        const res = await fetch(`${staffBase}/cek_login.php`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+          body: body.toString(),
+          redirect: 'manual', // Don't follow redirect — capture Set-Cookie first
+          signal: AbortSignal.timeout(30_000), // 30s timeout for login
+        });
+
+        // Handle Apache rate-limiting (403) — wait and retry
+        if (res.status === 403) {
+          const wait = BACKOFF_BASE * Math.pow(2, attempt);
+          console.warn(`[Login] ${username}: 403 rate-limited, retry ${attempt + 1}/${MAX_ATTEMPTS} in ${wait / 1000}s`);
+          if (attempt < MAX_ATTEMPTS - 1) {
+            await new Promise(r => setTimeout(r, wait));
+            continue;
+          }
+          return { success: false, error: 'Server rate-limit (403) — coba lagi nanti', reason: 'rate_limited' };
         }
-        return { success: false, error: 'Server rate-limit (403) — coba lagi nanti', reason: 'rate_limited' };
+
+        if (res.status === 401) {
+          return { success: false, error: 'Login gagal — username atau password salah', reason: 'invalid_credentials' };
+        }
+
+        // Extract cookies from Set-Cookie header
+        let cookies;
+        if (typeof res.headers.getSetCookie === 'function') {
+          // Node 18.14+
+          cookies = res.headers.getSetCookie();
+        } else if (typeof res.headers.raw === 'function') {
+          // Older Node / node-fetch fallback
+          cookies = res.headers.raw()['set-cookie'] || [];
+        } else {
+          // Last resort: try get
+          const raw = res.headers.get('set-cookie');
+          cookies = raw ? [raw] : [];
+        }
+
+        if (!cookies || cookies.length === 0) {
+          lastError = {
+            success: false,
+            error: 'Login sistem internal tidak mengembalikan sesi. Credential tidak dihapus otomatis.',
+            reason: 'login_no_session',
+          };
+          break;
+        }
+
+        // Extract PHPSESSID value
+        const phpSessionCookie = cookies.find(c => c.includes('PHPSESSID'));
+        if (!phpSessionCookie) {
+          lastError = {
+            success: false,
+            error: 'Login sistem internal tidak mengembalikan PHPSESSID. Credential tidak dihapus otomatis.',
+            reason: 'login_no_session',
+          };
+          break;
+        }
+        const phpSessionValue = (phpSessionCookie.split(';')[0].split('=')[1] || '').trim();
+        if (!phpSessionValue || phpSessionValue.toLowerCase() === 'deleted') {
+          lastError = {
+            success: false,
+            error: 'Login sistem internal menghapus sesi. Periksa INTERNAL_API_BASE di server.',
+            reason: 'login_deleted_session',
+          };
+          console.warn(`[Login] ${username}: ${loginBase} returned deleted PHPSESSID`);
+          break;
+        }
+
+        // Build cookie string for subsequent requests
+        const cookieString = cookies
+          .map(c => c.split(';')[0]) // take only name=value part
+          .join('; ');
+
+        // Store session keyed by username
+        sessions.set(username, {
+          cookie: cookieString,
+          kantor,
+          createdAt: Date.now(),
+        });
+
+        return {
+          success: true,
+          message: 'Berhasil login ke sistem internal',
+        };
+
+      } catch (err) {
+        if (err.cause?.code === 'ECONNREFUSED' || err.cause?.code === 'ETIMEDOUT') {
+          lastError = { success: false, error: 'Sistem internal tidak dapat dihubungi' };
+          break;
+        }
+        console.error('Laporan login error:', err.message, err.cause);
+        lastError = { success: false, error: 'Gagal menghubungi sistem internal' };
+        break;
       }
-
-      if (res.status === 401) {
-        return { success: false, error: 'Login gagal — username atau password salah', reason: 'invalid_credentials' };
-      }
-
-      // Extract cookies from Set-Cookie header
-      let cookies;
-      if (typeof res.headers.getSetCookie === 'function') {
-        // Node 18.14+
-        cookies = res.headers.getSetCookie();
-      } else if (typeof res.headers.raw === 'function') {
-        // Older Node / node-fetch fallback
-        cookies = res.headers.raw()['set-cookie'] || [];
-      } else {
-        // Last resort: try get
-        const raw = res.headers.get('set-cookie');
-        cookies = raw ? [raw] : [];
-      }
-
-      if (!cookies || cookies.length === 0) {
-        return { success: false, error: 'Login sistem internal tidak mengembalikan sesi. Credential tidak dihapus otomatis.', reason: 'login_no_session' };
-      }
-
-      // Extract PHPSESSID value
-      const phpSessionCookie = cookies.find(c => c.includes('PHPSESSID'));
-      if (!phpSessionCookie) {
-        return { success: false, error: 'Login sistem internal tidak mengembalikan PHPSESSID. Credential tidak dihapus otomatis.', reason: 'login_no_session' };
-      }
-
-      // Build cookie string for subsequent requests
-      const cookieString = cookies
-        .map(c => c.split(';')[0]) // take only name=value part
-        .join('; ');
-
-      // Store session keyed by username
-      sessions.set(username, {
-        cookie: cookieString,
-        kantor,
-        createdAt: Date.now(),
-      });
-
-      return {
-        success: true,
-        message: 'Berhasil login ke sistem internal',
-      };
-
-    } catch (err) {
-      if (err.cause?.code === 'ECONNREFUSED' || err.cause?.code === 'ETIMEDOUT') {
-        return { success: false, error: 'Sistem internal tidak dapat dihubungi' };
-      }
-      console.error('Laporan login error:', err.message, err.cause);
-      return { success: false, error: 'Gagal menghubungi sistem internal' };
     }
   }
-  return { success: false, error: 'Login gagal setelah retry' };
+  return lastError || { success: false, error: 'Login gagal setelah retry' };
 }
 
 // ── Fetch Laporan: Build URL server-side (prevent SSRF), GET with cookie ──

@@ -7915,6 +7915,13 @@ app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
 });
 
 // ── Helper: Ensure legacy session active, auto-relogin if credentials saved ──
+const JAMAAH_REGISTER_ALLOWED_SLUG = 'nikita';
+const JAMAAH_REGISTER_LOCKED_ERROR = 'Fitur Jamaah Baru sementara hanya tersedia untuk agent Nikita';
+
+function canUseJamaahRegister(agent) {
+  return String(agent?.slug || '').toLowerCase() === JAMAAH_REGISTER_ALLOWED_SLUG;
+}
+
 async function ensureLegacySession(agent) {
   if (!agent?.jamaah_username) {
     return { success: false, error: 'Belum ada kredensial sistem internal. Silakan login di halaman Jamaah.' };
@@ -7946,6 +7953,10 @@ async function ensureLegacySession(agent) {
 app.get('/api/umrah/form-options', authMiddleware, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!canUseJamaahRegister(agent)) {
+      return res.status(403).json({ error: JAMAAH_REGISTER_LOCKED_ERROR });
+    }
     const sess = await ensureLegacySession(agent);
     if (!sess.success) {
       // Respond 200 so the upstream proxy doesn't replace the body with a
@@ -7988,6 +7999,10 @@ app.get('/api/umrah/form-options', authMiddleware, async (req, res) => {
 app.post('/api/umrah/register', authMiddleware, express.json({ limit: '10mb' }), async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!canUseJamaahRegister(agent)) {
+      return res.status(403).json({ error: JAMAAH_REGISTER_LOCKED_ERROR });
+    }
     const sess = await ensureLegacySession(agent);
     if (!sess.success) {
       return res.status(400).json({ error: sess.error });
@@ -8168,6 +8183,10 @@ app.post('/api/umrah/register', authMiddleware, express.json({ limit: '10mb' }),
 app.get('/api/umrah/dependent-options', authMiddleware, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!canUseJamaahRegister(agent)) {
+      return res.status(403).json({ error: JAMAAH_REGISTER_LOCKED_ERROR });
+    }
     const sess = await ensureLegacySession(agent);
     if (!sess.success) {
       return res.status(400).json({ error: sess.error });
@@ -8223,6 +8242,12 @@ app.get('/api/umrah/paket-options', authMiddleware, adminOnly, async (req, res) 
 
 // ── Umrah Registration: OCR KTP using OpenAI Vision ──
 app.post('/api/umrah/ocr-ktp', authMiddleware, express.json({ limit: '15mb' }), async (req, res) => {
+  const agent = await getAgentById(req.user.id);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  if (!canUseJamaahRegister(agent)) {
+    return res.status(403).json({ error: JAMAAH_REGISTER_LOCKED_ERROR });
+  }
+
   const OPENAI_KEY = process.env.OPENAI_API_KEY;
   if (!OPENAI_KEY) {
     return res.status(500).json({ error: 'OPENAI_API_KEY not configured' });

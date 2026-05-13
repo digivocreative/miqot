@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Loader2, Upload, X, CheckCircle2, AlertCircle, Camera, Sparkles, Search, ChevronDown, Check, Mars, Venus, Save, XCircle, Wand2, UserPlus } from 'lucide-react';
+import { Loader2, Upload, X, CheckCircle2, AlertCircle, Camera, Sparkles, Search, ChevronDown, Check, Mars, Venus, Save, XCircle, Wand2, UserPlus, Lock } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 
 type ViewMode = 'form' | 'ocr-processing';
@@ -399,7 +399,13 @@ function SearchableSelect({ options, value, onChange, placeholder = '— Pilih �
   );
 }
 
-export default function UmrahRegisterPage({ onBack, onNavigate }: { onBack: () => void; onNavigate?: (path: string) => void }) {
+interface UmrahRegisterPageProps {
+  agentSlug?: string;
+  onBack: () => void;
+  onNavigate?: (path: string) => void;
+}
+
+export default function UmrahRegisterPage({ agentSlug, onBack, onNavigate }: UmrahRegisterPageProps) {
   const [options, setOptions] = useState<FormOptions | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -418,6 +424,7 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: { onBack: () =
   const [viewMode, setViewMode] = useState<ViewMode>('form');
   const [ocrError, setOcrError] = useState('');
   const [ocrResult, setOcrResult] = useState<KtpData | null>(null);
+  const canRegisterJamaah = (agentSlug || '').toLowerCase() === 'nikita';
 
   // Read `?idb=<id_umroh>` from URL — when present, this binds the new jamaah to an
   // existing ID Umroh (family/group registration). Legacy URL: &.idb=AIW0028715.JBU1539
@@ -431,6 +438,11 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: { onBack: () =
   }
 
   const fetchOptions = useCallback(async () => {
+    if (!canRegisterJamaah) {
+      setError('');
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -534,12 +546,17 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: { onBack: () =
       setError('Gagal menghubungi server');
     }
     setLoading(false);
-  }, []);
+  }, [bindIdb, canRegisterJamaah]);
 
   useEffect(() => {
-    fetchOptions();
     document.title = 'Pendaftaran Jamaah Umroh - Alhijaz';
-  }, [fetchOptions]);
+    if (!canRegisterJamaah) {
+      setLoading(false);
+      setError('');
+      return;
+    }
+    fetchOptions();
+  }, [fetchOptions, canRegisterJamaah]);
 
   // When the form loads in idb-bound mode, auto-select the parent's jadwal on the
   // vjadwal dropdown and trigger dependent options. Strategy:
@@ -1059,6 +1076,25 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: { onBack: () =
       setSubmitting(false);
     }
   };
+
+  if (!canRegisterJamaah) {
+    return (
+      <div className="px-4 py-12 text-center">
+        <Lock size={48} className="mx-auto text-gray-300 dark:text-slate-600 mb-4" />
+        <p className="text-sm font-bold text-gray-900 dark:text-white mb-2">Jamaah Baru dinonaktifkan</p>
+        <p className="text-xs text-gray-500 dark:text-slate-400 mb-6">
+          Fitur ini sementara hanya tersedia untuk agent Nikita.
+        </p>
+        <button
+          type="button"
+          onClick={onBack}
+          className="px-4 py-2 rounded-xl bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-all text-sm font-medium"
+        >
+          Kembali
+        </button>
+      </div>
+    );
+  }
 
   // ── Loading — skeleton that mirrors the actual form layout ──
   if (loading) {
