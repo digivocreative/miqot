@@ -11,13 +11,21 @@ import * as cheerio from 'cheerio';
 import { getSetCookies as getUndiciSetCookies } from 'undici';
 
 const DEFAULT_INTERNAL_API_BASE = 'http://115.124.86.220';
+const CLOUDFLARE_INTERNAL_API_BASE = 'https://jadwal.alhijaz.co';
 const INTERNAL_API_BASE = (process.env.INTERNAL_API_BASE || DEFAULT_INTERNAL_API_BASE).replace(/\/+$/, '');
 const BASE = INTERNAL_API_BASE + '/aiw/staff';
 const LOGIN_BASE_CANDIDATES = Array.from(new Set([
   INTERNAL_API_BASE,
   DEFAULT_INTERNAL_API_BASE,
+  CLOUDFLARE_INTERNAL_API_BASE,
 ])).map(base => base.replace(/\/+$/, ''));
 const LEGACY_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+const LEGACY_STAFF_PATH = '/aiw/staff';
+const LEGACY_INTERNAL_HOSTS = new Set([
+  new URL(DEFAULT_INTERNAL_API_BASE).host,
+  new URL(CLOUDFLARE_INTERNAL_API_BASE).host,
+  '43.134.121.246:8220',
+]);
 
 function getSetCookieHeaders(headers) {
   try {
@@ -80,6 +88,21 @@ function getCookieValue(cookieString, name) {
 
 function getSessionBase(session) {
   return session?.base || BASE;
+}
+
+function normalizeLegacyUrl(url, base = BASE) {
+  if (!url) return url;
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    try {
+      const parsed = new URL(url);
+      if (LEGACY_INTERNAL_HOSTS.has(parsed.host) && parsed.pathname.startsWith(LEGACY_STAFF_PATH)) {
+        return `${base}${parsed.pathname.slice(LEGACY_STAFF_PATH.length)}${parsed.search}`;
+      }
+    } catch { /* keep original */ }
+    return url;
+  }
+  if (url.startsWith('/')) return `${base}${url}`;
+  return `${base}/pages/${url}`;
 }
 
 // ── In-memory session store with TTL (1 hour) ──
@@ -1441,10 +1464,7 @@ function extractAllFieldsFromHtml(html) {
 
 // ── Helper: Resolve URL relative to the form page base ──
 function resolveAjaxUrl(url, base = BASE) {
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  if (url.startsWith('/')) return `${base}${url}`;
-  // Relative URL — resolve against /pages/ directory (where main.php lives)
-  return `${base}/pages/${url}`;
+  return normalizeLegacyUrl(url, base);
 }
 
 // ── Parse response text for options — tries multiple formats ──
@@ -1962,7 +1982,7 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
   const base = getSessionBase(session);
   let actionUrl;
   if (formAction.startsWith('http')) {
-    actionUrl = formAction;
+    actionUrl = normalizeLegacyUrl(formAction, base);
   } else if (formAction.startsWith('/')) {
     actionUrl = `${base}${formAction}`;
   } else {
