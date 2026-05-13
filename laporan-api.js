@@ -8,6 +8,7 @@
  */
 
 import * as cheerio from 'cheerio';
+import { getSetCookies as getUndiciSetCookies } from 'undici';
 
 const DEFAULT_INTERNAL_API_BASE = 'http://115.124.86.220';
 const INTERNAL_API_BASE = (process.env.INTERNAL_API_BASE || DEFAULT_INTERNAL_API_BASE).replace(/\/+$/, '');
@@ -19,6 +20,10 @@ const LOGIN_BASE_CANDIDATES = Array.from(new Set([
 const LEGACY_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 
 function getSetCookieHeaders(headers) {
+  try {
+    const parsed = getUndiciSetCookies(headers);
+    if (parsed?.length) return parsed;
+  } catch { /* fall through */ }
   if (typeof headers.getSetCookie === 'function') {
     return headers.getSetCookie();
   }
@@ -32,18 +37,35 @@ function getSetCookieHeaders(headers) {
 function buildCookieString(cookies) {
   const jar = new Map();
   for (const cookie of cookies || []) {
-    const [nameValue, ...attrs] = String(cookie).split(';');
-    const eq = nameValue.indexOf('=');
-    if (eq <= 0) continue;
-    const name = nameValue.slice(0, eq).trim();
-    const value = nameValue.slice(eq + 1).trim();
-    const attrText = attrs.join(';').toLowerCase();
-    const isDeleted = !value ||
-      value.toLowerCase() === 'deleted' ||
-      attrText.includes('max-age=0') ||
-      attrText.includes('01 jan 1970');
-    if (isDeleted) jar.delete(name);
-    else jar.set(name, value);
+    let name = '';
+    let value = '';
+    let deleted = false;
+
+    if (cookie && typeof cookie === 'object') {
+      name = String(cookie.name || '').trim();
+      value = String(cookie.value || '').trim();
+      deleted = !value ||
+        value.toLowerCase() === 'deleted' ||
+        cookie.maxAge === 0 ||
+        (cookie.expires instanceof Date && cookie.expires.getTime() <= Date.now());
+    } else {
+      const [nameValue, ...attrs] = String(cookie).split(';');
+      const eq = nameValue.indexOf('=');
+      if (eq <= 0) continue;
+      name = nameValue.slice(0, eq).trim();
+      value = nameValue.slice(eq + 1).trim();
+      const attrText = attrs.join(';').toLowerCase();
+      deleted = !value ||
+        value.toLowerCase() === 'deleted' ||
+        attrText.includes('max-age=0') ||
+        attrText.includes('01 jan 1970');
+    }
+
+    // Legacy often sends a valid PHPSESSID and a PHPSESSID=deleted in the same
+    // response. Treat deleted cookies as cleanup noise; protected-page validation
+    // below decides whether the remaining cookie is actually authenticated.
+    if (!name || deleted) continue;
+    jar.set(name, value);
   }
   return [...jar.entries()].map(([name, value]) => `${name}=${value}`).join('; ');
 }
