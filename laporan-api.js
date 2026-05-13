@@ -16,6 +16,49 @@ const LOGIN_BASE_CANDIDATES = Array.from(new Set([
   INTERNAL_API_BASE,
   DEFAULT_INTERNAL_API_BASE,
 ])).map(base => base.replace(/\/+$/, ''));
+const LEGACY_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+
+function getSetCookieHeaders(headers) {
+  if (typeof headers.getSetCookie === 'function') {
+    return headers.getSetCookie();
+  }
+  if (typeof headers.raw === 'function') {
+    return headers.raw()['set-cookie'] || [];
+  }
+  const raw = headers.get('set-cookie');
+  return raw ? [raw] : [];
+}
+
+function buildCookieString(cookies) {
+  const jar = new Map();
+  for (const cookie of cookies || []) {
+    const [nameValue, ...attrs] = String(cookie).split(';');
+    const eq = nameValue.indexOf('=');
+    if (eq <= 0) continue;
+    const name = nameValue.slice(0, eq).trim();
+    const value = nameValue.slice(eq + 1).trim();
+    const attrText = attrs.join(';').toLowerCase();
+    const isDeleted = !value ||
+      value.toLowerCase() === 'deleted' ||
+      attrText.includes('max-age=0') ||
+      attrText.includes('01 jan 1970');
+    if (isDeleted) jar.delete(name);
+    else jar.set(name, value);
+  }
+  return [...jar.entries()].map(([name, value]) => `${name}=${value}`).join('; ');
+}
+
+function getCookieValue(cookieString, name) {
+  for (const part of String(cookieString || '').split(';')) {
+    const [k, ...rest] = part.trim().split('=');
+    if (k === name) return rest.join('=');
+  }
+  return '';
+}
+
+function getSessionBase(session) {
+  return session?.base || BASE;
+}
 
 // ── In-memory session store with TTL (1 hour) ──
 const sessions = new Map();
@@ -66,6 +109,23 @@ export async function login(username, password, kantor = '2') {
 
   for (const loginBase of LOGIN_BASE_CANDIDATES) {
     const staffBase = `${loginBase}/aiw/staff`;
+    const bootstrapCookies = [];
+    try {
+      const bootstrapRes = await fetch(`${staffBase}/`, {
+        method: 'GET',
+        headers: {
+          'User-Agent': LEGACY_UA,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+        },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(10_000),
+      });
+      bootstrapCookies.push(...getSetCookieHeaders(bootstrapRes.headers));
+    } catch (err) {
+      console.warn(`[Login] ${username}: bootstrap ${loginBase} failed: ${err.message}`);
+    }
+
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       try {
         const body = new URLSearchParams({
@@ -79,7 +139,12 @@ export async function login(username, password, kantor = '2') {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': LEGACY_UA,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Origin': loginBase,
+            'Referer': `${staffBase}/`,
+            ...(buildCookieString(bootstrapCookies) ? { Cookie: buildCookieString(bootstrapCookies) } : {}),
           },
           body: body.toString(),
           redirect: 'manual', // Don't follow redirect — capture Set-Cookie first
@@ -101,21 +166,10 @@ export async function login(username, password, kantor = '2') {
           return { success: false, error: 'Login gagal — username atau password salah', reason: 'invalid_credentials' };
         }
 
-        // Extract cookies from Set-Cookie header
-        let cookies;
-        if (typeof res.headers.getSetCookie === 'function') {
-          // Node 18.14+
-          cookies = res.headers.getSetCookie();
-        } else if (typeof res.headers.raw === 'function') {
-          // Older Node / node-fetch fallback
-          cookies = res.headers.raw()['set-cookie'] || [];
-        } else {
-          // Last resort: try get
-          const raw = res.headers.get('set-cookie');
-          cookies = raw ? [raw] : [];
-        }
+        const cookies = getSetCookieHeaders(res.headers);
+        const cookieString = buildCookieString([...bootstrapCookies, ...cookies]);
 
-        if (!cookies || cookies.length === 0) {
+        if (!cookieString) {
           lastError = {
             success: false,
             error: 'Login sistem internal tidak mengembalikan sesi. Credential tidak dihapus otomatis.',
@@ -124,17 +178,7 @@ export async function login(username, password, kantor = '2') {
           break;
         }
 
-        // Extract PHPSESSID value
-        const phpSessionCookie = cookies.find(c => c.includes('PHPSESSID'));
-        if (!phpSessionCookie) {
-          lastError = {
-            success: false,
-            error: 'Login sistem internal tidak mengembalikan PHPSESSID. Credential tidak dihapus otomatis.',
-            reason: 'login_no_session',
-          };
-          break;
-        }
-        const phpSessionValue = (phpSessionCookie.split(';')[0].split('=')[1] || '').trim();
+        const phpSessionValue = getCookieValue(cookieString, 'PHPSESSID').trim();
         if (!phpSessionValue || phpSessionValue.toLowerCase() === 'deleted') {
           lastError = {
             success: false,
@@ -145,15 +189,34 @@ export async function login(username, password, kantor = '2') {
           break;
         }
 
-        // Build cookie string for subsequent requests
-        const cookieString = cookies
-          .map(c => c.split(';')[0]) // take only name=value part
-          .join('; ');
+        // Validate the cookie against a protected page. Without this, an
+        // unauthenticated bootstrap PHPSESSID could be mistaken for a login.
+        const validateRes = await fetch(`${staffBase}/pages/main.php?route=home`, {
+          method: 'GET',
+          headers: {
+            Cookie: cookieString,
+            'User-Agent': LEGACY_UA,
+            'Referer': `${staffBase}/`,
+          },
+          redirect: 'follow',
+          signal: AbortSignal.timeout(15_000),
+        });
+        const validateHtml = await validateRes.text();
+        if (isSessionExpiredHtml(validateHtml)) {
+          lastError = {
+            success: false,
+            error: 'Login sistem internal menghapus sesi. Periksa INTERNAL_API_BASE di server.',
+            reason: 'login_deleted_session',
+          };
+          console.warn(`[Login] ${username}: ${loginBase} returned PHPSESSID but protected page rejected it`);
+          break;
+        }
 
         // Store session keyed by username
         sessions.set(username, {
           cookie: cookieString,
           kantor,
+          base: staffBase,
           createdAt: Date.now(),
         });
 
@@ -192,8 +255,9 @@ export async function fetchLaporan(username, { kantor, agentId, tglAwal, tglAkhi
   }
 
   // Build URL server-side (prevent SSRF — don't accept raw URL from client)
+  const base = getSessionBase(session);
   const ob = `${kantor}.${agentId}`;
-  const url = `${BASE}/pages/route/laporan_data_jamaah/_claporanm.php?.ob=${encodeURIComponent(ob)}&.tgw=${encodeURIComponent(tglAwal)}&.tgk=${encodeURIComponent(tglAkhir)}&.m=${encodeURIComponent(agentId)}`;
+  const url = `${base}/pages/route/laporan_data_jamaah/_claporanm.php?.ob=${encodeURIComponent(ob)}&.tgw=${encodeURIComponent(tglAwal)}&.tgk=${encodeURIComponent(tglAkhir)}&.m=${encodeURIComponent(agentId)}`;
 
   const TIMEOUTS = [20_000, 50_000]; // 1st attempt: 20s (fast), 2nd: 50s (generous)
 
@@ -254,7 +318,8 @@ export async function fetchUmrahBookings(username) {
     return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
   }
 
-  const url = `${BASE}/pages/main.php?route=umrah`;
+  const base = getSessionBase(session);
+  const url = `${base}/pages/main.php?route=umrah`;
 
   try {
     const controller = new AbortController();
@@ -360,7 +425,8 @@ export async function fetchAwapiCredentials(username) {
     return { success: false, error: 'Session kedaluwarsa', reason: 'session_expired' };
   }
 
-  const url = `${BASE}/pages/main.php?route=api`;
+  const base = getSessionBase(session);
+  const url = `${base}/pages/main.php?route=api`;
 
   try {
     const controller = new AbortController();
@@ -423,7 +489,8 @@ export async function fetchUmrahDetail(username, idUmroh) {
     return { success: false, reason: 'session_expired', error: 'Session kedaluwarsa' };
   }
 
-  const url = `${BASE}/pages/main.php?route=umrah&act=edit&id=${idUmroh}`;
+  const base = getSessionBase(session);
+  const url = `${base}/pages/main.php?route=umrah&act=edit&id=${idUmroh}`;
 
   try {
     const controller = new AbortController();
@@ -947,7 +1014,8 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat, idb } = {}
 
   // Build URL — if tglBerangkat provided, include it as query param to trigger
   // server-side rendering of dependent fields (e.g. paket umroh for that schedule)
-  let url = `${BASE}/pages/main.php?route=umrah&act=tdaftar`;
+  const base = getSessionBase(session);
+  let url = `${base}/pages/main.php?route=umrah&act=tdaftar`;
   if (tglBerangkat) {
     url += `&tgl_berangkat=${encodeURIComponent(tglBerangkat)}&berangkat=${encodeURIComponent(tglBerangkat)}&jadwal=${encodeURIComponent(tglBerangkat)}`;
   }
@@ -965,8 +1033,8 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat, idb } = {}
       method: 'GET',
       headers: {
         Cookie: session.cookie,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': `${BASE}/pages/main.php?route=umrah`,
+        'User-Agent': LEGACY_UA,
+        'Referer': `${base}/pages/main.php?route=umrah`,
       },
       signal: controller.signal,
     });
@@ -1245,16 +1313,17 @@ export async function fetchUmrahJdaftarFields(username, jdaftarValue) {
     return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
   }
 
-  const url = `${BASE}/pages/route/data_umrah/_jdaftar.php`;
+  const base = getSessionBase(session);
+  const url = `${base}/pages/route/data_umrah/_jdaftar.php`;
 
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: {
         Cookie: session.cookie,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': LEGACY_UA,
         'X-Requested-With': 'XMLHttpRequest',
-        'Referer': `${BASE}/pages/main.php?route=umrah&act=tdaftar`,
+        'Referer': `${base}/pages/main.php?route=umrah&act=tdaftar`,
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
       },
       body: new URLSearchParams({ jdaftar: jdaftarValue }).toString(),
@@ -1349,11 +1418,11 @@ function extractAllFieldsFromHtml(html) {
 }
 
 // ── Helper: Resolve URL relative to the form page base ──
-function resolveAjaxUrl(url) {
+function resolveAjaxUrl(url, base = BASE) {
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  if (url.startsWith('/')) return `${BASE}${url}`;
+  if (url.startsWith('/')) return `${base}${url}`;
   // Relative URL — resolve against /pages/ directory (where main.php lives)
-  return `${BASE}/pages/${url}`;
+  return `${base}/pages/${url}`;
 }
 
 // ── Parse response text for options — tries multiple formats ──
@@ -1407,7 +1476,8 @@ function parseOptionsFromResponse(text) {
 async function tryPaketAjax(session, jadwal, jsHandlers) {
   if (!jsHandlers?.paketAjaxUrl) return null;
 
-  const baseUrl = resolveAjaxUrl(jsHandlers.paketAjaxUrl);
+  const base = getSessionBase(session);
+  const baseUrl = resolveAjaxUrl(jsHandlers.paketAjaxUrl, base);
   const method = jsHandlers.paketAjaxMethod || 'GET';
   const paramName = jsHandlers.paketAjaxParam || 'jadwal';
 
@@ -1450,9 +1520,9 @@ async function tryPaketAjax(session, jadwal, jsHandlers) {
       let url, body;
       const headers = {
         Cookie: session.cookie,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': LEGACY_UA,
         'X-Requested-With': 'XMLHttpRequest',
-        'Referer': `${BASE}/pages/main.php?route=umrah&act=tdaftar`,
+        'Referer': `${base}/pages/main.php?route=umrah&act=tdaftar`,
         'Accept': 'text/html, */*; q=0.01',
       };
 
@@ -1529,6 +1599,7 @@ export async function fetchUmrahDependentOptions(username, jadwal) {
 
   const combined = {};
   let lastSourceUrl = null;
+  const base = getSessionBase(session);
   // Extra fields discovered from _otb.php response (kelamin, ktp, status_nikah, etc.)
   let extraFields = null;
 
@@ -1554,9 +1625,9 @@ export async function fetchUmrahDependentOptions(username, jadwal) {
 
   // ── Step 2: Re-fetch full form for vmarketing/perwakilan (and as paket fallback) ──
   const urls = [
-    `${BASE}/pages/main.php?route=umrah&act=tdaftar&jadwal=${j}`,
-    `${BASE}/pages/main.php?route=umrah&act=tdaftar&berangkat=${j}`,
-    `${BASE}/pages/main.php?route=umrah&act=tdaftar&tgl_berangkat=${j}`,
+    `${base}/pages/main.php?route=umrah&act=tdaftar&jadwal=${j}`,
+    `${base}/pages/main.php?route=umrah&act=tdaftar&berangkat=${j}`,
+    `${base}/pages/main.php?route=umrah&act=tdaftar&tgl_berangkat=${j}`,
   ];
 
   for (const url of urls) {
@@ -1565,8 +1636,8 @@ export async function fetchUmrahDependentOptions(username, jadwal) {
         method: 'GET',
         headers: {
           Cookie: session.cookie,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Referer': `${BASE}/pages/main.php?route=umrah&act=tdaftar`,
+          'User-Agent': LEGACY_UA,
+          'Referer': `${base}/pages/main.php?route=umrah&act=tdaftar`,
         },
         signal: AbortSignal.timeout(15_000),
       });
@@ -1670,21 +1741,22 @@ export async function fetchUmrahPaketOptions(username, tglBerangkat) {
   // Based on discovered form action: pages/route/data_umrah/aksi_umrah.php
   // So dependent dropdowns likely live in the same directory: pages/route/data_umrah/*.php
   const j = encodeURIComponent(tglBerangkat);
+  const base = getSessionBase(session);
   const candidateUrls = [
     // data_umrah directory (discovered from form action)
-    `${BASE}/pages/route/data_umrah/get_paket.php?jadwal=${j}`,
-    `${BASE}/pages/route/data_umrah/paket.php?jadwal=${j}`,
-    `${BASE}/pages/route/data_umrah/_paket.php?jadwal=${j}`,
-    `${BASE}/pages/route/data_umrah/cpaket.php?jadwal=${j}`,
-    `${BASE}/pages/route/data_umrah/_cpaket.php?jadwal=${j}`,
-    `${BASE}/pages/route/data_umrah/aksi_umrah.php?act=getpaket&jadwal=${j}`,
-    `${BASE}/pages/route/data_umrah/aksi_umrah.php?route=umrah&act=getpaket&jadwal=${j}`,
-    `${BASE}/pages/route/data_umrah/aksi_umrah.php?route=umrah&act=paket&jadwal=${j}`,
+    `${base}/pages/route/data_umrah/get_paket.php?jadwal=${j}`,
+    `${base}/pages/route/data_umrah/paket.php?jadwal=${j}`,
+    `${base}/pages/route/data_umrah/_paket.php?jadwal=${j}`,
+    `${base}/pages/route/data_umrah/cpaket.php?jadwal=${j}`,
+    `${base}/pages/route/data_umrah/_cpaket.php?jadwal=${j}`,
+    `${base}/pages/route/data_umrah/aksi_umrah.php?act=getpaket&jadwal=${j}`,
+    `${base}/pages/route/data_umrah/aksi_umrah.php?route=umrah&act=getpaket&jadwal=${j}`,
+    `${base}/pages/route/data_umrah/aksi_umrah.php?route=umrah&act=paket&jadwal=${j}`,
     // Fallback: old guesses
-    `${BASE}/pages/route/umrah/_paket.php?berangkat=${j}`,
-    `${BASE}/pages/route/umrah/paket.php?berangkat=${j}`,
+    `${base}/pages/route/umrah/_paket.php?berangkat=${j}`,
+    `${base}/pages/route/umrah/paket.php?berangkat=${j}`,
     // Re-render whole form with jadwal selected (last resort)
-    `${BASE}/pages/main.php?route=umrah&act=tdaftar&jadwal=${j}`,
+    `${base}/pages/main.php?route=umrah&act=tdaftar&jadwal=${j}`,
   ];
 
   const tried = [];
@@ -1695,7 +1767,7 @@ export async function fetchUmrahPaketOptions(username, tglBerangkat) {
         method: 'GET',
         headers: {
           Cookie: session.cookie,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'User-Agent': LEGACY_UA,
           'X-Requested-With': 'XMLHttpRequest', // Common marker for AJAX requests
         },
         signal: AbortSignal.timeout(10_000),
@@ -1772,16 +1844,17 @@ export async function fetchUmrahPaketDetails(username, jadwal, paketValue) {
     `${jadwalKode}.${paketSpecific}`,   // JBU1530.PKT042.RAHMAH.Triple
     `${jadwal}.${paketValue}`,          // duplicated kode (PHP might expect this)
   ];
-  const url = `${BASE}/pages/route/data_umrah/_pkt.php`;
+  const base = getSessionBase(session);
+  const url = `${base}/pages/route/data_umrah/_pkt.php`;
 
   const parseResponse = async (compositePkt) => {
     const res = await fetch(url, {
       method: 'POST',
       headers: {
         Cookie: session.cookie,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': LEGACY_UA,
         'X-Requested-With': 'XMLHttpRequest',
-        'Referer': `${BASE}/pages/main.php?route=umrah&act=tdaftar`,
+        'Referer': `${base}/pages/main.php?route=umrah&act=tdaftar`,
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
       },
       body: new URLSearchParams({ pkt: compositePkt }).toString(),
@@ -1864,13 +1937,14 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
   }
 
   // Build the full URL.
+  const base = getSessionBase(session);
   let actionUrl;
   if (formAction.startsWith('http')) {
     actionUrl = formAction;
   } else if (formAction.startsWith('/')) {
-    actionUrl = `${BASE}${formAction}`;
+    actionUrl = `${base}${formAction}`;
   } else {
-    actionUrl = `${BASE}/pages/${formAction}`;
+    actionUrl = `${base}/pages/${formAction}`;
   }
   // Bind to existing ID Umroh so the new jamaah is grouped with the prior registration.
   if (idb) {
@@ -1938,8 +2012,8 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
       method: 'POST',
       headers: {
         Cookie: session.cookie,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': `${BASE}/pages/main.php?route=umrah&act=tdaftar`,
+        'User-Agent': LEGACY_UA,
+        'Referer': `${base}/pages/main.php?route=umrah&act=tdaftar`,
         'Content-Type': `multipart/form-data; boundary=${boundary}`,
         'Content-Length': String(bodyBuffer.length),
       },
@@ -2050,11 +2124,12 @@ export async function disconnect(username, { skipRemoteLogout = false } = {}) {
   if (session?.cookie && !skipRemoteLogout) {
     // Destroy PHP session on remote server (best-effort)
     try {
-      await fetch(`${BASE}/logout.php`, {
+      const base = getSessionBase(session);
+      await fetch(`${base}/logout.php`, {
         method: 'GET',
         headers: {
           'Cookie': session.cookie,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'User-Agent': LEGACY_UA,
         },
         redirect: 'manual', // Don't follow redirect — it creates a new orphan PHP session
         signal: AbortSignal.timeout(5_000),
