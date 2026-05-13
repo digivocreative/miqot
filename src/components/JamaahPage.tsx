@@ -88,6 +88,7 @@ type StatusFilter = 'semua' | 'belum' | 'berangkat';
 type SortKey = 'nama' | 'sisa_desc' | 'berangkat' | 'terbaru';
 
 const AUTO_PERLENGKAPAN_STALE_MS = 60 * 60 * 1000;
+const DEFAULT_HIJRIAH_YEAR = '1448';
 
 function getJamaahRefreshKey(item: Pick<JamaahItem, 'id_umroh' | 'jm_id'>) {
   return `${item.id_umroh || '-'}::${item.jm_id}`;
@@ -157,7 +158,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
 
   // Data + filters
   const [data, setData] = useState<JamaahData | null>(null);
-  const [hijriahYear, setHijriahYear] = useState('');
+  const [hijriahYear, setHijriahYear] = useState(DEFAULT_HIJRIAH_YEAR);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('semua');
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -216,7 +217,6 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
         className="h-9 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 px-2 rounded-xl border border-emerald-200 dark:border-emerald-800/40 outline-none cursor-pointer shrink-0"
         title="Filter tahun Hijriah"
       >
-        <option value="">Semua</option>
         {hijriahOptions.map(y => (
           <option key={y} value={String(y)}>{y} H</option>
         ))}
@@ -435,7 +435,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
   useEffect(() => {
     if (view === 'data' && !loadingData && !syncing && !hasAutoSynced.current && data && data.total === 0 && data.items.length === 0) {
       hasAutoSynced.current = true;
-      handleSync(false, hijriahYear || String(currentHijriYear));
+      handleSync(false, hijriahYear || DEFAULT_HIJRIAH_YEAR);
     }
   }, [view, loadingData, data]);
 
@@ -449,7 +449,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
       const newSearch = params.toString();
       const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '');
       window.history.replaceState(null, '', newUrl);
-      handleSync(false, hijriahYear || String(currentHijriYear));
+      handleSync(false, hijriahYear || DEFAULT_HIJRIAH_YEAR);
     }
   }, [view]);
 
@@ -478,7 +478,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
           await fetchJamaah(page);
         } else if (res.status === 503) {
           // API resmi disabled → fall back to full sync.
-          handleSync(false, hijriahYear || String(currentHijriYear));
+          handleSync(false, hijriahYear || DEFAULT_HIJRIAH_YEAR);
         } else {
           console.warn('[JamaahPage] Targeted refresh failed:', res.status);
           await fetchJamaah(page);
@@ -521,7 +521,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
       await fetchJamaah(1);
 
       // Then trigger sync in background (non-blocking)
-      handleSync(false, hijriahYear || String(currentHijriYear));
+      handleSync(false, hijriahYear || DEFAULT_HIJRIAH_YEAR);
     } catch {
       setError('Gagal menghubungi server');
       setView('login');
@@ -982,7 +982,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
             </span>
           )}
           <button
-            onClick={() => handleSync(false, hijriahYear || String(currentHijriYear))}
+            onClick={() => handleSync(false, hijriahYear || DEFAULT_HIJRIAH_YEAR)}
             disabled={syncing}
             className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:opacity-70 transition-opacity disabled:opacity-50"
           >
@@ -1055,7 +1055,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
               <>
                 <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Belum ada data{hijriahYear ? ` untuk ${hijriahYear} H` : ''}</p>
                 <button
-                  onClick={() => handleSync(false, hijriahYear || String(currentHijriYear))}
+                  onClick={() => handleSync(false, hijriahYear || DEFAULT_HIJRIAH_YEAR)}
                   disabled={syncing}
                   className="mt-3 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-500 text-white shadow-md shadow-emerald-500/20 hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-50"
                 >

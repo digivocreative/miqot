@@ -4701,6 +4701,13 @@ function getActiveHijriahYears() {
   return Object.keys(HIJRIAH_YEARS).sort((a, b) => Number(b) - Number(a));
 }
 
+function getRequestedSyncHijriahYears(rawYear) {
+  const year = rawYear == null ? '' : String(rawYear).trim();
+  if (!year) return { years: getActiveHijriahYears(), targeted: false };
+  if (!HIJRIAH_YEARS[year]) return { years: null, targeted: true, invalidYear: year };
+  return { years: [year], targeted: true };
+}
+
 // Defensive filter applied right before every jamaah upsert. Drops any row
 // whose jm_id isn't a real legacy `JM...` identifier, so stray code paths
 // can never again introduce ghost duplicates into the table.
@@ -5122,12 +5129,12 @@ async function ensureAwapiCredentials(agent) {
 // paths. Returns { ok, count, error?, yearsCompleted, yearsAttempted }.
 // Caller is responsible for the syncingAgents lifecycle and analytics logging
 // (so the manual path can attribute the action to a user role).
-async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } = {}) {
+async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', yearsToSync = getActiveHijriahYears() } = {}) {
   const apiKey = agent.awapi_key;
   const code = agent.awapi_code || apiKey.split('-')[0];
   const now = new Date().toISOString();
-  const yearsToSync = getActiveHijriahYears();
   const MIN_HIJRIAH_YEAR = 1447;
+  const syncYearSet = new Set(yearsToSync);
 
   // Aggregate normalized rows from all hijriah years; dedup by (id_umroh, jm_id)
   // because keberangkatan (/bh) and pendaftaran (/dh) can overlap. The /dh
@@ -5172,6 +5179,7 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } 
           if (!norm) continue;
           const yr = getHijriahYear(norm.tgl_berangkat) || yearH;
           if (Number(yr) < MIN_HIJRIAH_YEAR) continue;
+          if (!syncYearSet.has(yr)) continue;
           norm.hijriah_year = yr;
 
           const key = `${norm.id_umroh}_${norm.jm_id}`.toLowerCase();
@@ -5243,8 +5251,9 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } 
   if (listComplete && !syncingAgents.get(agentId)?.cancelled) {
     const { data: existingDbRows } = await supabase
       .from('jamaah')
-      .select('id_umroh, nama')
-      .eq('agent_id', agentId);
+      .select('id_umroh, nama, hijriah_year')
+      .eq('agent_id', agentId)
+      .in('hijriah_year', yearsToSync);
     const existingForCleanup = (existingDbRows || []).map((r) => ({
       bookingId: r.id_umroh,
       jamaahKey: String(r.nama || '').trim().toLowerCase(),
@@ -5290,7 +5299,7 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual' } 
 }
 
 // HTTP wrapper for manual sync — called from /api/laporan/sync when env+key.
-async function syncUmrahViaApi(req, res, agent) {
+async function syncUmrahViaApi(req, res, agent, { yearsToSync = getActiveHijriahYears() } = {}) {
   const agentId = req.user.id;
   const slug = req.user.slug;
 
@@ -5304,7 +5313,7 @@ async function syncUmrahViaApi(req, res, agent) {
   if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'sync_jamaah_api', {}, getClientIpUa(req));
 
   try {
-    const result = await syncUmrahViaApiCore(agentId, slug, agent, { context: 'manual' });
+    const result = await syncUmrahViaApiCore(agentId, slug, agent, { context: 'manual', yearsToSync });
     return res.json({
       success: true,
       data: {
@@ -5331,6 +5340,13 @@ async function syncUmrahViaApi(req, res, agent) {
 app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   const agentId = req.user.id;
   const slug = req.user.slug;
+  const requestedSync = getRequestedSyncHijriahYears(req.body?.hijriahYear);
+  if (!requestedSync.years) {
+    return res.status(400).json({ error: `Tahun Hijriah ${requestedSync.invalidYear} belum didukung untuk sync` });
+  }
+  const yearsToSync = requestedSync.years;
+  const targetedYearSync = requestedSync.targeted;
+  const syncYearSet = new Set(yearsToSync);
 
   let agent = await getAgentById(agentId);
   if (!agent?.jamaah_username || !agent?.jamaah_password) {
@@ -5358,7 +5374,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     }
     if (agent.awapi_key) {
       try {
-        return await syncUmrahViaApi(req, res, agent);
+        return await syncUmrahViaApi(req, res, agent, { yearsToSync });
       } catch (err) {
         console.error(`[Sync/api] ${slug} aborted, falling back to legacy:`, err.message);
         syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null });
@@ -5383,9 +5399,6 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     });
   }
 
-  // Always sync all active years — weekly chunks make this fast
-  const yearsToSync = getActiveHijriahYears();
-
   let totalItems = 0;
   let firstBatchSent = false;
   const now = new Date().toISOString();
@@ -5400,9 +5413,12 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     console.log(`[Sync] ${slug}: Phase 1 — fast umrah scan starting`);
 
     const ringkasanRes = await fetchUmrahBookings(agent.jamaah_username);
-    const bookings = ringkasanRes.success ? (ringkasanRes.bookings || []) : [];
+    const sourceBookings = ringkasanRes.success ? (ringkasanRes.bookings || []) : [];
+    const bookings = targetedYearSync
+      ? sourceBookings.filter(b => syncYearSet.has(getHijriahYear(b.tgl_berangkat)))
+      : sourceBookings;
     const listComplete = !!ringkasanRes.complete;
-    console.log(`[Sync] ${slug}: Phase 1 — ${bookings.length} bookings from list page, complete=${listComplete}`);
+    console.log(`[Sync] ${slug}: Phase 1 — ${bookings.length}/${sourceBookings.length} bookings from list page, years=${yearsToSync.join(', ')}, complete=${listComplete}`);
 
     // Maps from list page — hoisted so Phase 2 can also use them
     let bookingStafMap = new Map();
@@ -5560,21 +5576,25 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 
       // Query actual DB count for final accurate number (globalKeys may still
       // over-count if rows existed from a prior sync that share the same key)
-      const { count: actualCount } = await supabase
+      let actualCountQuery = supabase
         .from('jamaah')
         .select('*', { count: 'exact', head: true })
         .eq('agent_id', agentId);
+      if (targetedYearSync) actualCountQuery = actualCountQuery.in('hijriah_year', yearsToSync);
+      const { count: actualCount } = await actualCountQuery;
       totalItems = actualCount || globalKeys.size;
 
       console.log(`[Sync] ${slug}: Phase 1 complete — ${globalKeys.size} processed, ${actualCount} in DB, from ${uniqueIds.length} bookings (${detailErrors} errors)`);
       syncingAgents.set(agentId, { isSyncing: true, scope: 'umroh-manual', totalSynced: totalItems, phase: 1, completedYears: [], lastSync: now });
 
       // Collect completed years from Phase 1 data — counts are already accurate
-      const { data: phase1Rows } = await supabase
+      let phase1YearsQuery = supabase
         .from('jamaah')
         .select('hijriah_year')
         .eq('agent_id', agentId)
         .not('hijriah_year', 'is', null);
+      if (targetedYearSync) phase1YearsQuery = phase1YearsQuery.in('hijriah_year', yearsToSync);
+      const { data: phase1Rows } = await phase1YearsQuery;
       const phase1Years = [...new Set((phase1Rows || []).map(r => r.hijriah_year))]
         .filter(y => Number(y) >= 1447)
         .sort((a, b) => Number(b) - Number(a));
@@ -5584,10 +5604,12 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
       // failed, and abort entirely if list response was truncated or would-delete
       // exceeds safety threshold.
       if (!syncingAgents.get(agentId)?.cancelled) {
-        const { data: existingDbRows } = await supabase
+        let existingRowsQuery = supabase
           .from('jamaah')
-          .select('id_umroh, nama')
+          .select('id_umroh, nama, hijriah_year')
           .eq('agent_id', agentId);
+        if (targetedYearSync) existingRowsQuery = existingRowsQuery.in('hijriah_year', yearsToSync);
+        const { data: existingDbRows } = await existingRowsQuery;
         const existingForCleanup = (existingDbRows || []).map(r => ({
           bookingId: r.id_umroh,
           jamaahKey: String(r.nama || '').trim().toLowerCase(),
@@ -5724,9 +5746,12 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         // Success — parse and upsert (overwrites Phase 1 rows with full data)
         networkFailures = 0;
         const { items } = parseLaporanHtml(fetchResult.html);
-        if (items.length === 0) continue;
+        const scopedItems = targetedYearSync
+          ? items.filter(item => syncYearSet.has(getHijriahYear(item.tgl_berangkat) || '1447'))
+          : items;
+        if (scopedItems.length === 0) continue;
 
-        const rows = buildRows(items, agentId, now);
+        const rows = buildRows(scopedItems, agentId, now);
 
         // Fetch existing rows to (a) prevent bayar regression and (b) resolve jm_id
         // for Phase 2 items whose source (<small>) was CSS-truncated. We look up the
@@ -5804,7 +5829,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         // Back-fill enrichment for items whose CSS-truncated jm_id got dropped
         // by buildRows. Targets existing rows keyed on (id_umroh, nama), using
         // the truncated-jm_id suffix hint to disambiguate same-nama siblings.
-        await enrichJamaahFromLaporanItems(agentId, items, 'P2-manual');
+        await enrichJamaahFromLaporanItems(agentId, scopedItems, 'P2-manual');
         // Phase 2: no counter update — just keep syncing state alive
 
         // Fire CAPI Purchase events (DP & Lunas)
@@ -5818,7 +5843,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           firstBatchSent = true;
           res.json({
             success: true,
-            data: { initialCount: items.length, total: items.length, syncing: true },
+            data: { initialCount: scopedItems.length, total: scopedItems.length, syncing: true },
           });
         }
       }
