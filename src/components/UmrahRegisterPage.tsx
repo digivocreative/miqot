@@ -174,13 +174,75 @@ const DUMMY_BTN_CLASS = 'flex items-center gap-1 text-[10px] font-semibold text-
 // Labels that should NOT show the Insert (dummy-generate) button
 const NO_INSERT_BTN_LABELS = new Set(['Jenis Kelamin', 'Tanggal Berangkat', 'Paket Umroh']);
 
-function dummyValueFor(label: string): string {
+type AutoFillGender = 'male' | 'female';
+
+const AUTO_PENDAFTAR_NAMES: Record<AutoFillGender, string[]> = {
+  male: [
+    'AHMAD FAUZI RAMADHAN',
+    'MUHAMMAD FARHAN HAKIM',
+    'RIZKY ADITYA PRATAMA',
+    'HAFIZH ARYA PUTRA',
+    'FAJAR MAULANA FIRDAUS',
+    'ZAKI ABDURRAHMAN AZIZ',
+    'REZA KURNIAWAN SAPUTRA',
+    'ILHAM RIZKI MAULANA',
+    'DANI AHMAD SYAHPUTRA',
+    'YUSUF AKBAR HIDAYAT',
+  ],
+  female: [
+    'SITI AISYAH PUTRI',
+    'NUR AULIA ZAHRA',
+    'DINA AMELIA SAFITRI',
+    'RANI FEBRIANI LESTARI',
+    'INTAN NURAINI MAHARANI',
+    'AYU LESTARI RAHMA',
+    'DEWI ANGGRAINI PUTRI',
+    'LAILA FITRIANI AZZAHRA',
+    'NADIA SYIFA KAMILA',
+    'SELVI APRILIA NINGSIH',
+  ],
+};
+
+const autoPendaftarNameCursor: Record<AutoFillGender, number> = {
+  male: -1,
+  female: -1,
+};
+
+function detectAutoFillGender(text?: string): AutoFillGender | null {
+  const normalized = (text || '').toLowerCase().trim();
+  if (!normalized) return null;
+  if (/\b(perempuan|wanita|female)\b/.test(normalized) || normalized === 'p' || normalized === 'f') return 'female';
+  if (/\b(laki|laki-laki|pria|lelaki|male)\b/.test(normalized) || normalized === 'l' || normalized === 'm') return 'male';
+  return null;
+}
+
+function detectGenderFromOption(option?: SelectOption): AutoFillGender | null {
+  if (!option) return null;
+  return detectAutoFillGender(option.label) || detectAutoFillGender(option.value);
+}
+
+function findGenderOption(options: SelectOption[], gender: AutoFillGender): SelectOption | undefined {
+  return options.find(option => detectGenderFromOption(option) === gender);
+}
+
+function nextAutoPendaftarName(gender: AutoFillGender, currentValue = ''): string {
+  const names = AUTO_PENDAFTAR_NAMES[gender];
+  const current = currentValue.trim().toUpperCase();
+  for (let i = 0; i < names.length; i++) {
+    autoPendaftarNameCursor[gender] = (autoPendaftarNameCursor[gender] + 1) % names.length;
+    const candidate = names[autoPendaftarNameCursor[gender]];
+    if (candidate !== current) return candidate;
+  }
+  return names[0];
+}
+
+function dummyValueFor(label: string, gender: AutoFillGender = 'male', currentValue = ''): string {
   const l = label.toLowerCase();
   if (l.includes('no. ktp') || l.includes('nik')) return '111111111111';
   if (l.includes('telp') || l.includes('hp')) return '081234567890';
   if (l.includes('tanggal lahir') || l.includes('tgl lahir')) return '01/01/1990';
   if (l.includes('tempat lahir')) return 'Jakarta';
-  if (l.includes('nama pendaftar')) return 'AHMAD BUDI SANTOSO';
+  if (l.includes('nama pendaftar')) return nextAutoPendaftarName(gender, currentValue);
   if (l.includes('nama depan')) return 'Ahmad';
   if (l.includes('nama tengah')) return 'Budi';
   if (l.includes('nama belakang')) return 'Santoso';
@@ -1233,19 +1295,34 @@ export default function UmrahRegisterPage({ agentSlug, onBack, onNavigate }: Umr
     sections[sec].sort((a, b) => a.def.order - b.def.order);
   }
 
+  const getSelectedAutoFillGender = (): AutoFillGender => {
+    for (const [selectName, opts] of Object.entries(options.selects)) {
+      if (getFieldDef(selectName).label !== 'Jenis Kelamin') continue;
+      const selectedValue = fields[selectName] || '';
+      const selectedOption = opts.find(option => option.value === selectedValue);
+      const detected = detectGenderFromOption(selectedOption) || detectAutoFillGender(selectedValue);
+      if (detected) return detected;
+    }
+    return 'male';
+  };
+
   // ── Auto-fill all fields in "Data Jamaah" section in one click ──
   const handleAutoFillJamaah = () => {
     const entries = sections['jamaah'];
     if (!entries || entries.length === 0) return;
     const updates: Record<string, string> = {};
+    let autoFillGender = getSelectedAutoFillGender();
     for (const { name, type, def } of entries) {
       const label = def.label;
       if (type === 'select') {
         const opts = options.selects[name] || [];
         if (opts.length === 0) continue;
         if (label === 'Jenis Kelamin') {
-          const laki = opts.find(o => /^l|laki/i.test(o.label)) || opts[0];
-          if (laki) updates[name] = laki.value;
+          const genderChoice = findGenderOption(opts, autoFillGender) || findGenderOption(opts, 'male') || opts[0];
+          if (genderChoice) {
+            updates[name] = genderChoice.value;
+            autoFillGender = detectGenderFromOption(genderChoice) || autoFillGender;
+          }
           continue;
         }
         const preferred = label === 'Pekerjaan'
@@ -1255,7 +1332,7 @@ export default function UmrahRegisterPage({ agentSlug, onBack, onNavigate }: Umr
         const choice = preferred || firstUsable;
         if (choice) updates[name] = choice.value;
       } else {
-        const val = dummyValueFor(label);
+        const val = dummyValueFor(label, autoFillGender, fields[name]);
         updates[name] = label === 'Nama Pendaftar' ? val.toUpperCase() : val;
       }
     }
@@ -1318,8 +1395,8 @@ export default function UmrahRegisterPage({ agentSlug, onBack, onNavigate }: Umr
     // Gender field: render as 2-button radio-style toggle (Laki / Perempuan side-by-side)
     if (isGenderField && opts.length > 0) {
       // Identify Laki vs Perempuan options by label
-      const laki = opts.find(o => /^l|laki/i.test(o.label)) || opts[0];
-      const perempuan = opts.find(o => /^p|perempuan/i.test(o.label)) || opts[opts.length - 1];
+      const laki = findGenderOption(opts, 'male') || opts[0];
+      const perempuan = findGenderOption(opts, 'female') || opts[opts.length - 1];
       const selected = fields[name] || '';
 
       // Secondary outlined style. Border always 1px to prevent layout shift on toggle.
@@ -1414,7 +1491,7 @@ export default function UmrahRegisterPage({ agentSlug, onBack, onNavigate }: Umr
     const forceUpper = label === 'Nama Pendaftar';
     return (
       <div key={name}>
-        {renderLabelRow(label, required, hideAuto ? null : () => updateField(name, dummyValueFor(label)))}
+        {renderLabelRow(label, required, hideAuto ? null : () => updateField(name, dummyValueFor(label, getSelectedAutoFillGender(), fields[name])))}
         <input
           type={type}
           value={fields[name] || ''}
@@ -1429,7 +1506,7 @@ export default function UmrahRegisterPage({ agentSlug, onBack, onNavigate }: Umr
 
   const renderTextarea = (name: string, label: string, placeholder: string, required: boolean, hideAuto = false) => (
     <div key={name}>
-      {renderLabelRow(label, required, hideAuto ? null : () => updateField(name, dummyValueFor(label)))}
+      {renderLabelRow(label, required, hideAuto ? null : () => updateField(name, dummyValueFor(label, getSelectedAutoFillGender(), fields[name])))}
       <textarea
         value={fields[name] || ''}
         onChange={e => updateField(name, e.target.value)}
