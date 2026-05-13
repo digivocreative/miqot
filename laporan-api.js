@@ -121,6 +121,24 @@ function isSessionExpiredHtml(html) {
   return false;
 }
 
+function extractLegacyAlert(html) {
+  const match = String(html || '').match(/alert\((['"])([\s\S]*?)\1\)/i);
+  return (match?.[2] || '').replace(/\s+/g, ' ').trim();
+}
+
+function legacyLoginRejection(alertText) {
+  const message = String(alertText || '').trim();
+  if (!message) return null;
+  if (/password|username|user|login|akses|aktif|sesuai/i.test(message)) {
+    return {
+      success: false,
+      error: `Login sistem internal ditolak: ${message}`,
+      reason: /aktif/i.test(message) ? 'inactive_credentials' : 'invalid_credentials',
+    };
+  }
+  return null;
+}
+
 function cleanExpired() {
   const now = Date.now();
   for (const [key, session] of sessions) {
@@ -196,19 +214,25 @@ export async function login(username, password, kantor = '2') {
           signal: AbortSignal.timeout(30_000), // 30s timeout for login
         });
 
-        // Handle Apache rate-limiting (403) — wait and retry
-        if (res.status === 403) {
+        // Handle Apache/Cloudflare rate-limiting — wait and retry
+        if (res.status === 403 || res.status === 429) {
           const wait = BACKOFF_BASE * Math.pow(2, attempt);
-          console.warn(`[Login] ${username}: 403 rate-limited, retry ${attempt + 1}/${MAX_ATTEMPTS} in ${wait / 1000}s`);
+          console.warn(`[Login] ${username}: ${res.status} rate-limited, retry ${attempt + 1}/${MAX_ATTEMPTS} in ${wait / 1000}s`);
           if (attempt < MAX_ATTEMPTS - 1) {
             await new Promise(r => setTimeout(r, wait));
             continue;
           }
-          return { success: false, error: 'Server rate-limit (403) — coba lagi nanti', reason: 'rate_limited' };
+          return { success: false, error: `Server rate-limit (${res.status}) — coba lagi nanti`, reason: 'rate_limited' };
         }
 
         if (res.status === 401) {
           return { success: false, error: 'Login gagal — username atau password salah', reason: 'invalid_credentials' };
+        }
+
+        if (res.status !== 302) {
+          const loginHtml = await res.text().catch(() => '');
+          const rejection = legacyLoginRejection(extractLegacyAlert(loginHtml));
+          if (rejection) return rejection;
         }
 
         const cookies = getSetCookieHeaders(res.headers);
