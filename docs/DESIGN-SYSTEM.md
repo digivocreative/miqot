@@ -2,6 +2,8 @@
 
 Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 
+Terakhir diperbarui: 2026-05-13
+
 ---
 
 ## Typography
@@ -324,14 +326,20 @@ transition-colors
 
 ```
 group relative overflow-hidden
-bg-white dark:bg-slate-800
+{card.cardBg}  // gradient per fitur, dari MENU_CARDS
 rounded-2xl p-3.5
-border border-gray-100 dark:border-slate-700
+border {card.cardBorder}
 shadow-sm
-hover:shadow-lg hover:-translate-y-0.5
+{card.hoverShadow} hover:shadow-xl hover:-translate-y-0.5
 transition-all duration-200
 active:scale-[0.97]
 ```
+
+Current dashboard home grid uses `grid grid-cols-3 gap-3`. Each card has:
+- Decorative blurred color orb: `absolute -top-6 -right-6 w-20 h-20 rounded-full {card.iconBg} opacity-20 blur-2xl`.
+- Soft white overlay: `absolute inset-0 bg-gradient-to-br from-white/40 via-transparent to-transparent`.
+- Icon shell: `w-11 h-11 rounded-xl {card.iconBg} {card.iconShadow}`, white icon, feature-specific icon animation.
+- Label only on the card body (`text-[12px] font-bold`); desc exists in config but is not rendered on the current compact home grid.
 
 ### "Lihat Semua" Expand Button (Statistik)
 
@@ -842,7 +850,7 @@ flex flex-col
 
 ### AI Tools Hub (`AIToolsPage.tsx`)
 
-Hub page for AI tools & utilities — vertical stack of tool cards. Card urutan: **Brosur Jadwal**, **Landing Page**, **Bandingkan Paket**, **Kurs Hari Ini**, **Infografis Haji Plus**, **Voice Over**, **Kartu Nama** (disabled).
+Hub page for AI tools & utilities — vertical stack of tool cards. Card urutan: **Brosur Jadwal**, **Landing Page**, **Bandingkan Paket**, **Kurs Hari Ini**, **Infografis Haji Plus**, **Voice Over**, **Kartu Nama**.
 
 ```
 relative w-full text-left bg-white dark:bg-slate-800 rounded-2xl
@@ -854,7 +862,7 @@ hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] transition-all cursor
 - Icon: `text-{color}-600 dark:text-{color}-400` (Lucide — see per-tool)
 - Title: `text-sm font-bold mt-3`
 - Desc: `text-xs text-gray-400 dark:text-slate-500 mt-0.5`
-- Disabled card: `opacity-60 cursor-default` (no hover effects) + badge `"Segera Hadir"` top-right
+- Disabled card: `opacity-60 cursor-default` (no hover effects) + badge `"Segera Hadir"` top-right. Current hub keeps **Kartu Nama Digital** disabled, even though `/dashboard/ai-tools/business-card` can render if opened directly.
 
 #### Per-Tool Icon & Color
 
@@ -866,7 +874,7 @@ hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] transition-all cursor
 | Kurs Hari Ini | `Banknote` | amber |
 | Infografis Haji Plus | `BarChart3` | emerald |
 | Voice Over Generator | `Mic` | purple |
-| Kartu Nama Digital *(disabled)* | `CreditCard` | teal |
+| Kartu Nama Digital *(hub disabled)* | `CreditCard` | teal |
 
 #### "Segera Hadir" Badge
 
@@ -970,7 +978,12 @@ border border-emerald-200 dark:border-emerald-700/70
 active:scale-[0.98] disabled:opacity-70
 ```
 
-Export uses `@zumer/snapdom` with `embedFonts=true`, fallback `embedFonts=false`, `backgroundColor: #FFFFFF`, and waits for Inter + Bebas Neue font loads before capture.
+Export uses `modern-screenshot` (`domToCanvas`) with:
+- `scale: EXPORT_SCALE`, fixed `width=1080`, `height=1920`, `backgroundColor: #FFFFFF`.
+- Embedded brochure font CSS (`preferredFormat: 'woff2'`) for Inter/Bebas Neue consistency.
+- `timeout: 15000`, `fetch.requestInit.cache='force-cache'`, and SVG/control-character cleanup features.
+- Two capture attempts with `waitForFonts()`, `waitForImages(target)`, double `requestAnimationFrame`, and blank-canvas detection before blob export.
+- Per-page blob cache so the second Share tap on iOS can call `navigator.share()` inside the user-activation window.
 
 ### Voice Over Generator (`VoiceOverPage.tsx`)
 
@@ -1029,6 +1042,69 @@ animation: voResultIn 0.3s ease-out (translateY 8px→0, opacity 0→1)
 - Download MP3: solid purple CTA `bg-purple-500 text-white rounded-xl`
 - Download WAV: outline purple `text-purple-600 bg-purple-50 border border-purple-200 rounded-xl`
 
+### Kartu Nama Digital (`BusinessCardPage.tsx`)
+
+Direct route: `/dashboard/ai-tools/business-card`. Hub card is still disabled with `"Segera Hadir"`, but the page component renders when routed directly.
+
+#### Canvas Formats
+
+| Format | Size | Preview thumb |
+|--------|------|---------------|
+| Landscape | `1050 × 600` | `88 × 54` |
+| Portrait | `600 × 1020` | `54 × 88` |
+
+Design choices:
+- `d1` Emerald Split
+- `d2` Dark Navy
+- `d3` Minimal Line
+- `d4` Warm Gold
+- `d5` Full Dark
+
+#### Page Structure
+
+```
+Root: px-4 pt-4 pb-8 space-y-3.5
+Cards: bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden
+Section header: px-4 py-3 border-b text-[10px] uppercase tracking-wide
+```
+
+Format segmented control:
+```
+flex bg-gray-100 dark:bg-slate-900 rounded-lg p-0.5
+active: bg-white dark:bg-slate-700 text-gray-800 dark:text-white shadow-sm
+inactive: text-gray-400 dark:text-slate-500
+```
+
+#### Preview Scaling
+
+The real card is rendered at fixed export size, then previewed with transform scaling:
+
+```
+previewScale = min((containerWidth - 48) / CARD_SIZE[format].w, 0.6)
+Preview frame: overflow-hidden borderRadius 8 boxShadow 0 4px 24px rgba(0,0,0,0.12)
+Inner: width/height = CARD_SIZE, transform: scale(previewScale), transform-origin: top left
+```
+
+Thumbnails use the same renderer at fixed size with `thumbScale` (`88/1050` or `54/600`) so design previews match the export output.
+
+#### Data & QR
+
+- Uses agent name/photo/phone/email/website/slug from session.
+- QR generated by `qrcode` and points to the agent public link.
+- Missing photo falls back to initials via the shared `Avatar` helper.
+- Contact icons are inline SVG (`PhoneSvg`, `MailSvg`, `GlobeSvg`) for export compatibility.
+
+#### Export / Share
+
+```
+Hidden export node: fixed left -9999 top -9999, exact card width/height
+Capture: @zumer/snapdom(cardExportRef.current, { scale: 2 })
+Download: result.download({ type: 'png', filename: kartu-nama-{slug}-{format} })
+Share: result.toBlob({ type: 'png' }) → File → navigator.share({ files: [file] })
+```
+
+Keep share payload file-only. Do not add title/text/url.
+
 ### Landing Page Config (`LandingPagePage.tsx`)
 
 Mobile-first editor untuk `/dashboard/ai-tools/landing-page` dengan lebar `max-w-lg`. Halaman ini punya 3 tab: SEO landing Umroh, SEO landing Haji, dan editor Link Bio. Semua state awal memakai skeleton, bukan spinner, agar perpindahan tab terasa halus.
@@ -1049,7 +1125,7 @@ Tab:
   Custom-indicator dot: w-1.5 h-1.5 rounded-full (accent saat active, gray-300 saat inactive)
 ```
 
-Tab Bio memakai accent teal dan saat ini dibuka untuk admin dari `LandingPagePage.tsx`. Untuk non-admin, tab tetap clickable untuk menampilkan toast, tetapi tidak berpindah halaman.
+Tab Bio memakai accent teal dan tersedia untuk agent maupun admin. `LandingPagePage.tsx` menyimpan tab aktif di URL `/dashboard/ai-tools/landing-page/{umroh|haji|bio}` supaya reload/back tetap kembali ke tab yang sama.
 
 #### Accent Tokens
 
@@ -1119,9 +1195,9 @@ Button: w-full py-3 rounded-xl bg-emerald-500 text-white font-bold + Save icon
 
 #### Bio Editor Tab (`bio-editor/*`)
 
-Bio editor memakai autosave debounce dan explicit `Simpan` pada sheet. Bagian yang belum lengkap boleh tersimpan sebagai draft tersembunyi, tetapi tidak boleh dibuat visible sampai field wajib valid.
+Bio editor memakai autosave debounce dan explicit `Simpan` pada sheet. Tile baru default menyimpan intent `visible: true`; jika field wajib belum lengkap, backend tetap menerima autosave dengan config tersanitasi dan public tile component akan `return null` sampai props wajib tersedia.
 
-Editor tidak menampilkan kartu/toggle status publik. Di UI saat ini Bio dinormalisasi aktif; server tetap menghormati `enabled:false` jika konfigurasi lama/manual menyimpannya.
+Editor tidak menampilkan kartu/toggle status publik. Di UI saat ini Bio dinormalisasi aktif (`ensureBioEditorConfig` mengubah `enabled` menjadi `true` saat load/save); server masih mengembalikan 404 untuk config lama/manual yang tersimpan dengan `enabled:false` ketika dibaca tanpa token owner/admin.
 
 Main stack:
 ```
@@ -1206,6 +1282,12 @@ Validation rules:
 - `text`: `content` is required.
 - `photo`: uploaded `https://` image URL is required (via `/api/bio/:slug/photo-upload`).
 - `testi`: `quote` and `author_name` are required.
+
+Behavior:
+- Add tile: creates `{ visible: true, config: {} }`, then opens the edit sheet.
+- Toggle hidden → visible: validates required fields first; if invalid, shows notice and opens edit sheet.
+- Autosave: preserves the user's `visible` flag; do not flip incomplete visible tiles to hidden as a workaround.
+- Public page: filters `visible && !orphaned`; custom tile components also guard missing props with `return null`.
 
 Empty/hidden states:
 ```
@@ -2132,8 +2214,8 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 
 ### Export Strategy
 - Use the exporter already chosen by each feature:
-  - `modern-screenshot` for Kalkulasi DOM-to-PNG (`domToPng` with `{ scale: 3, quality: 1 }`).
-  - `@zumer/snapdom` for fixed-size social images: Share Kurs and Birthday cards.
+  - `modern-screenshot` for Brosur Jadwal (`domToCanvas` fixed 1080×1920), Compare share (`domToBlob`), Haji Plus export/simulasi (`domToPng` with high scale), and other DOM-to-PNG export surfaces that need broad CSS support.
+  - `@zumer/snapdom` for fixed-size social/card images: PackageCard share image, Share Kurs, Birthday cards, and Kartu Nama Digital.
 - For `snapdom`, capture the fixed original-size node and export JPEG (`quality: 0.9`) when the design has a solid background.
 - Wait for `document.fonts.ready` and image decode/load before snapshotting. Use a short fallback delay only after font/image readiness has been attempted.
 - Result should be rasterized to `Blob`/`File` before download/share.

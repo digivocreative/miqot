@@ -75,49 +75,58 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // Detect agent + filter slug from URL (shared state for SEO + FloatingAgentBar)
   const [currentAgent, setCurrentAgent] = useState<AgentData | null>(null);
 
-  // Load agents from Supabase on mount, then fetch card_variant from server API
+  // Custom-domain context injected by the server into window.__AGENT_CONTEXT__.
+  // When set, the agent is determined by the host (custom domain), not the path.
+  const serverAgentContext = typeof window !== 'undefined' ? window.__AGENT_CONTEXT__ : undefined;
+  const isCustomDomain = !!serverAgentContext?.customDomain;
+  const customDomainSlug = serverAgentContext?.slug || null;
+
+  // Load agents from Supabase on mount, then fetch card_variant from server API.
+  // On custom domain, agent slug comes from server context; on alhijaz.co, from URL.
   useEffect(() => {
     loadAgentsFromSupabase().then(() => {
-      const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
-      if (segments.length >= 1) {
-        const slug = segments[0]?.toLowerCase();
-        const possibleAgent = AGENTS_DATA[slug];
-        if (possibleAgent) {
-          setCurrentAgent(possibleAgent);
-          // Fetch card_variant from server API (server uses SELECT *, always reliable)
-          fetch(`/api/agent/${slug}/card-variant`)
-            .then(r => r.ok ? r.json() : null)
-            .then(data => {
-              if (data?.card_variant && data.card_variant !== 'default') {
-                const updated = { ...AGENTS_DATA[slug], card_variant: data.card_variant };
-                AGENTS_DATA[slug] = updated;
-                setCurrentAgent(updated);
-              }
-            })
-            .catch(() => {});
-        }
+      let slug: string | null = null;
+      if (customDomainSlug) {
+        slug = customDomainSlug.toLowerCase();
+      } else {
+        const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+        if (segments.length >= 1) slug = segments[0]?.toLowerCase() || null;
+      }
+      if (!slug) return;
+      const possibleAgent = AGENTS_DATA[slug];
+      if (possibleAgent) {
+        setCurrentAgent(possibleAgent);
+        fetch(`/api/agent/${slug}/card-variant`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data?.card_variant && data.card_variant !== 'default') {
+              const updated = { ...AGENTS_DATA[slug!], card_variant: data.card_variant };
+              AGENTS_DATA[slug!] = updated;
+              setCurrentAgent(updated);
+            }
+          })
+          .catch(() => {});
       }
     });
-  }, []);
+  }, [customDomainSlug]);
 
   useEffect(() => {
     const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
     // segments can be: [], ['nikita'], ['liburan-sekolah'], ['nikita', 'liburan-sekolah']
+    // On custom domain, agent is from host — segments[0] is a filter slug (or empty).
 
     let agent: AgentData | undefined;
     let filterSlugFromUrl: string | undefined;
 
-    if (segments.length >= 1) {
-      // Check if first segment is an agent slug
+    if (customDomainSlug) {
+      agent = AGENTS_DATA[customDomainSlug.toLowerCase()];
+      if (segments.length >= 1) filterSlugFromUrl = segments[0];
+    } else if (segments.length >= 1) {
       const possibleAgent = AGENTS_DATA[segments[0]?.toLowerCase()];
       if (possibleAgent) {
         agent = possibleAgent;
-        // Second segment might be a filter slug
-        if (segments.length >= 2) {
-          filterSlugFromUrl = segments[1];
-        }
+        if (segments.length >= 2) filterSlugFromUrl = segments[1];
       } else {
-        // First segment might be a filter slug
         filterSlugFromUrl = segments[0];
       }
     }
@@ -176,19 +185,22 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   }, [searchQuery, currentAgentSlug]);
 
   /**
-   * Helper to build the URL path from current agent + filter mode
+   * Helper to build the URL path from current agent + filter mode.
+   * On custom domain the host already identifies the agent, so slug is omitted.
    */
   const buildUrlPath = useCallback((mode: FilterMode) => {
-    const agentSlug = currentAgent
-      ? Object.entries(AGENTS_DATA).find(([, v]) => v === currentAgent)?.[0] || ''
-      : '';
+    const agentSlug = isCustomDomain
+      ? ''
+      : currentAgent
+        ? Object.entries(AGENTS_DATA).find(([, v]) => v === currentAgent)?.[0] || ''
+        : '';
     const filterSlug = getFilterSlug(mode);
 
     if (agentSlug && filterSlug) return `/${agentSlug}/${filterSlug}`;
     if (agentSlug) return `/${agentSlug}`;
     if (filterSlug) return `/${filterSlug}`;
     return '/';
-  }, [currentAgent]);
+  }, [currentAgent, isCustomDomain]);
 
   const toggleDarkMode = () => {
     setIsDarkMode(prev => !prev);
@@ -498,6 +510,8 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     const agentSlug = currentAgent
       ? Object.entries(AGENTS_DATA).find(([, v]) => v === currentAgent)?.[0] || ''
       : '';
+    // On custom domain, host already identifies the agent — go to host root.
+    const backHref = isCustomDomain ? '/' : (agentSlug ? `/${agentSlug}` : '/');
 
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 transition-colors duration-300">
@@ -509,7 +523,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
               disabled={isGoingBack}
               onClick={() => {
                 setIsGoingBack(true);
-                window.location.href = agentSlug ? `/${agentSlug}` : '/';
+                window.location.href = backHref;
               }}
               className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-gray-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
               title="Kembali"

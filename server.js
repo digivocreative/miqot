@@ -34,6 +34,8 @@ import {
 } from './lib/analytics-maintenance.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
+import dns from 'dns/promises';
+import cron from 'node-cron';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -77,6 +79,129 @@ async function fetchAllRows(queryBuilder) {
 }
 
 app.use(express.json({ limit: '10mb' }));
+
+// ──────────────────────────────────────────────
+// Custom Domain — host detection + redirect middleware
+// Harus dipasang sebelum semua route. Lookup agent by Host header,
+// inject ke req.customDomainAgent supaya catch-all bisa pakai context yang sama.
+// ──────────────────────────────────────────────
+
+const agentDomainCache = new Map();
+const AGENT_DOMAIN_CACHE_TTL = 5 * 60 * 1000;
+const CUSTOM_DOMAIN_ENABLED_AGENT_SLUGS = new Set(['nikita']);
+
+function isCustomDomainEnabledForSlug(slug) {
+  return CUSTOM_DOMAIN_ENABLED_AGENT_SLUGS.has(String(slug || '').toLowerCase());
+}
+
+function isCustomDomainEnabledForAgent(agent) {
+  return isCustomDomainEnabledForSlug(agent?.slug);
+}
+
+const PRIMARY_HOSTS = new Set(['alhijaz.co', 'www.alhijaz.co']);
+function isPrimaryHost(host) {
+  if (!host) return true;
+  if (PRIMARY_HOSTS.has(host)) return true;
+  if (host === 'localhost' || host.startsWith('127.') || host.startsWith('0.0.0.0')) return true;
+  // local dev tunneling / preview hosts — skip custom domain logic
+  if (host.endsWith('.localhost')) return true;
+  return false;
+}
+
+async function getAgentByCustomDomain(host) {
+  const key = (host || '').toLowerCase();
+  if (!key) return null;
+  const cached = agentDomainCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.agent;
+  }
+  const { data, error } = await supabase
+    .from('agents')
+    .select('*')
+    .ilike('custom_domain', key)
+    .eq('custom_domain_status', 'active')
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn('[custom-domain] lookup error for', key, '—', error.message);
+    return null;
+  }
+  const agent = data && isCustomDomainEnabledForAgent(data) ? data : null;
+  agentDomainCache.set(key, {
+    agent,
+    expiresAt: Date.now() + AGENT_DOMAIN_CACHE_TTL,
+  });
+  return agent;
+}
+
+function invalidateAgentDomainCache(host) {
+  if (!host) return;
+  agentDomainCache.delete(String(host).toLowerCase());
+}
+
+// 1) Host detection — set req.customDomainAgent when accessing via custom domain
+app.use(async (req, res, next) => {
+  const host = (req.hostname || '').toLowerCase();
+  if (isPrimaryHost(host)) return next();
+  try {
+    const agent = await getAgentByCustomDomain(host);
+    if (!agent) {
+      return res.status(404).type('text/plain').send('Domain not configured for this service.');
+    }
+    req.customDomainAgent = agent;
+    req.customDomain = host;
+    next();
+  } catch (err) {
+    console.error('[custom-domain] host middleware error:', err);
+    return res.status(500).type('text/plain').send('Internal Server Error');
+  }
+});
+
+// 2) Pada custom domain: redirect dashboard/auth ke alhijaz.co, 404 untuk /api/*
+app.use((req, res, next) => {
+  if (!req.customDomain) return next();
+  const path = req.path || '/';
+  const isAuthPath =
+    path.startsWith('/dashboard') ||
+    path === '/login' ||
+    path.startsWith('/login/') ||
+    path === '/register' ||
+    path.startsWith('/register/') ||
+    path === '/admin' ||
+    path.startsWith('/admin/') ||
+    path.startsWith('/reset-password');
+  if (isAuthPath) {
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    return res.redirect(301, `https://alhijaz.co${path}${qs}`);
+  }
+  if (path.startsWith('/api/')) {
+    return res.status(404).type('text/plain').send('API only available on alhijaz.co');
+  }
+  next();
+});
+
+// 3) Pada alhijaz.co: redirect /{slug}/... ke custom domain kalau agent punya
+app.use(async (req, res, next) => {
+  const host = (req.hostname || '').toLowerCase();
+  if (!PRIMARY_HOSTS.has(host)) return next();
+  const pathParts = req.path.split('/').filter(Boolean);
+  const slug = (pathParts[0] || '').toLowerCase();
+  if (!slug) return next();
+  if (RESERVED_SPA_SLUGS.has(slug)) return next();
+  if (slug.startsWith('api') || slug === 'dashboard') return next();
+  try {
+    const agent = await getAgentBySlug(slug);
+    if (!isCustomDomainEnabledForAgent(agent)) return next();
+    if (!agent?.custom_domain || agent.custom_domain_status !== 'active') return next();
+    const restPath = pathParts.slice(1).join('/');
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    const target = `https://${agent.custom_domain}/${restPath}${qs}`;
+    return res.redirect(301, target);
+  } catch (err) {
+    console.warn('[custom-domain] alhijaz redirect lookup failed:', err.message);
+    next();
+  }
+});
 
 // ── Analytics: fire-and-forget event logger ──
 function getClientIpUa(req) {
@@ -2803,6 +2928,310 @@ app.delete('/api/landing-config/og-image', authMiddleware, express.json({ limit:
   } catch (err) {
     console.error('[landing-config] OG delete error:', err);
     res.status(500).json({ error: 'Gagal menghapus gambar' });
+  }
+});
+
+// ──────────────────────────────────────────────
+// Custom Domain API
+// Agent dapat point apex domain (mis. nilanovita.com) ke VPS_PUBLIC_IP.
+// Setelah A record verified, Caddy on-demand TLS akan issue cert otomatis.
+// ──────────────────────────────────────────────
+
+const VALID_DOMAIN_REGEX = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
+const RESERVED_CUSTOM_DOMAIN_BASE = 'alhijaz.co';
+const CUSTOM_DOMAIN_DISABLED_MESSAGE = 'Fitur Custom Domain belum tersedia untuk agent ini';
+
+function validateDomainFormat(domain) {
+  if (!domain || typeof domain !== 'string') return false;
+  const d = domain.trim().toLowerCase();
+  if (d.includes('://') || d.includes('/') || d.includes(' ')) return false;
+  if (d.startsWith('www.')) return false;
+  const parts = d.split('.');
+  if (parts.length !== 2) return false;
+  return VALID_DOMAIN_REGEX.test(d);
+}
+
+function isReservedDomain(domain) {
+  const d = (domain || '').trim().toLowerCase();
+  return d === RESERVED_CUSTOM_DOMAIN_BASE || d.endsWith(`.${RESERVED_CUSTOM_DOMAIN_BASE}`);
+}
+
+async function verifyDomainDns(domain) {
+  const expectedIp = process.env.VPS_PUBLIC_IP;
+  if (!expectedIp) return false;
+  try {
+    const ips = await dns.resolve4(domain);
+    return Array.isArray(ips) && ips.includes(expectedIp);
+  } catch {
+    return false;
+  }
+}
+
+async function getResolvedIp(domain) {
+  try {
+    const ips = await dns.resolve4(domain);
+    return ips?.[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function buildCustomDomainPayload(agent, resolvedIp = null) {
+  return {
+    domain: agent?.custom_domain || null,
+    status: agent?.custom_domain_status || null,
+    verified_at: agent?.custom_domain_verified_at || null,
+    ip_required: process.env.VPS_PUBLIC_IP || null,
+    resolved_ip: resolvedIp,
+  };
+}
+
+// GET /api/config/server-ip — public, dipakai UI untuk display instruksi DNS
+app.get('/api/config/server-ip', (_req, res) => {
+  res.json({ ip: process.env.VPS_PUBLIC_IP || null });
+});
+
+// GET /api/agent/custom-domain — return config agent yang login
+app.get('/api/agent/custom-domain', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!isCustomDomainEnabledForAgent(agent)) {
+      return res.status(403).json({ error: CUSTOM_DOMAIN_DISABLED_MESSAGE });
+    }
+
+    let resolvedIp = null;
+    if (agent.custom_domain && agent.custom_domain_status === 'pending') {
+      resolvedIp = await getResolvedIp(agent.custom_domain);
+    }
+    res.json(buildCustomDomainPayload(agent, resolvedIp));
+  } catch (err) {
+    console.error('[custom-domain] GET error:', err);
+    res.status(500).json({ error: 'Gagal memuat konfigurasi domain' });
+  }
+});
+
+// POST /api/agent/custom-domain — add/update domain, status awal 'pending'
+app.post('/api/agent/custom-domain', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!isCustomDomainEnabledForAgent(agent)) {
+      return res.status(403).json({ error: CUSTOM_DOMAIN_DISABLED_MESSAGE });
+    }
+
+    const raw = (req.body?.domain || '').trim().toLowerCase();
+    if (!validateDomainFormat(raw)) {
+      return res.status(400).json({
+        error: 'Format domain tidak valid. Gunakan apex domain (mis. nilanovita.com), tanpa www, tanpa https://, tanpa path.',
+      });
+    }
+    if (isReservedDomain(raw)) {
+      return res.status(400).json({ error: 'Domain alhijaz.co dan subdomain-nya tidak dapat digunakan' });
+    }
+
+    const oldDomain = agent.custom_domain || null;
+
+    // Cek bentrok dengan agent lain (case-insensitive)
+    const { data: conflict, error: conflictErr } = await supabase
+      .from('agents')
+      .select('id')
+      .ilike('custom_domain', raw)
+      .neq('id', agent.id)
+      .limit(1)
+      .maybeSingle();
+    if (conflictErr) throw conflictErr;
+    if (conflict) {
+      return res.status(409).json({ error: 'Domain sudah dipakai agent lain' });
+    }
+
+    const { error: updateErr } = await supabase
+      .from('agents')
+      .update({
+        custom_domain: raw,
+        custom_domain_status: 'pending',
+        custom_domain_verified_at: null,
+      })
+      .eq('id', agent.id);
+    if (updateErr) throw updateErr;
+
+    invalidateAgentCache();
+    if (oldDomain && oldDomain !== raw) invalidateAgentDomainCache(oldDomain);
+    invalidateAgentDomainCache(raw);
+    console.log(`[custom-domain] Set ${raw} for agent ${agent.slug} (status=pending)`);
+
+    // Fire-and-forget immediate DNS check — kalau langsung resolve ke IP yang benar,
+    // promote ke 'active' tanpa nunggu cron 1-menit
+    (async () => {
+      try {
+        const verified = await verifyDomainDns(raw);
+        if (verified) {
+          await supabase.from('agents').update({
+            custom_domain_status: 'active',
+            custom_domain_verified_at: new Date().toISOString(),
+          }).eq('id', agent.id);
+          invalidateAgentCache();
+          invalidateAgentDomainCache(raw);
+          console.log(`[custom-domain] Immediate verify OK: ${raw}`);
+        }
+      } catch (e) {
+        console.warn(`[custom-domain] Immediate verify failed for ${raw}:`, e.message);
+      }
+    })();
+
+    res.json(buildCustomDomainPayload({
+      custom_domain: raw,
+      custom_domain_status: 'pending',
+      custom_domain_verified_at: null,
+    }));
+  } catch (err) {
+    console.error('[custom-domain] POST error:', err);
+    res.status(500).json({ error: 'Gagal menyimpan domain' });
+  }
+});
+
+// DELETE /api/agent/custom-domain — hapus domain
+app.delete('/api/agent/custom-domain', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!isCustomDomainEnabledForAgent(agent)) {
+      return res.status(403).json({ error: CUSTOM_DOMAIN_DISABLED_MESSAGE });
+    }
+
+    const oldDomain = agent.custom_domain || null;
+
+    const { error } = await supabase
+      .from('agents')
+      .update({
+        custom_domain: null,
+        custom_domain_status: null,
+        custom_domain_verified_at: null,
+      })
+      .eq('id', agent.id);
+    if (error) throw error;
+
+    invalidateAgentCache();
+    if (oldDomain) invalidateAgentDomainCache(oldDomain);
+    console.log(`[custom-domain] Removed for agent ${agent.slug}`);
+    res.json(buildCustomDomainPayload({}));
+  } catch (err) {
+    console.error('[custom-domain] DELETE error:', err);
+    res.status(500).json({ error: 'Gagal menghapus domain' });
+  }
+});
+
+// POST /api/agent/custom-domain/verify — manual trigger DNS check
+app.post('/api/agent/custom-domain/verify', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!isCustomDomainEnabledForAgent(agent)) {
+      return res.status(403).json({ error: CUSTOM_DOMAIN_DISABLED_MESSAGE });
+    }
+    if (!agent.custom_domain) {
+      return res.status(400).json({ error: 'No domain configured' });
+    }
+
+    const [verified, resolvedIp] = await Promise.all([
+      verifyDomainDns(agent.custom_domain),
+      getResolvedIp(agent.custom_domain),
+    ]);
+
+    let verifiedAt = agent.custom_domain_verified_at;
+    if (verified) {
+      verifiedAt = new Date().toISOString();
+      const { error } = await supabase.from('agents').update({
+        custom_domain_status: 'active',
+        custom_domain_verified_at: verifiedAt,
+      }).eq('id', agent.id);
+      if (error) throw error;
+      invalidateAgentCache();
+      invalidateAgentDomainCache(agent.custom_domain);
+      console.log(`[custom-domain] Manual verify OK: ${agent.custom_domain}`);
+    }
+
+    res.json({
+      domain: agent.custom_domain,
+      status: verified ? 'active' : 'pending',
+      verified_at: verified ? verifiedAt : null,
+      ip_required: process.env.VPS_PUBLIC_IP || null,
+      resolved_ip: resolvedIp,
+    });
+  } catch (err) {
+    console.error('[custom-domain] verify error:', err);
+    res.status(500).json({ error: 'Gagal memverifikasi domain' });
+  }
+});
+
+// GET /api/domains/authorize — dipanggil Caddy on-demand TLS (NO AUTH)
+// Critical: hanya boleh return 200 untuk domain yang sudah active. Kalau bocor,
+// Caddy akan issue cert untuk domain random dan kena rate limit Let's Encrypt.
+app.get('/api/domains/authorize', async (req, res) => {
+  const domain = (req.query.domain || '').toString().toLowerCase().trim();
+  if (!domain || !validateDomainFormat(domain)) {
+    return res.status(400).send('Missing or invalid domain');
+  }
+  if (isReservedDomain(domain)) {
+    return res.sendStatus(403);
+  }
+  try {
+    const { data } = await supabase
+      .from('agents')
+      .select('id, slug')
+      .ilike('custom_domain', domain)
+      .eq('custom_domain_status', 'active')
+      .limit(1)
+      .maybeSingle();
+    return data && isCustomDomainEnabledForAgent(data) ? res.sendStatus(200) : res.sendStatus(403);
+  } catch (err) {
+    console.error('[custom-domain] authorize error:', err);
+    return res.sendStatus(403);
+  }
+});
+
+// Background job: tiap 1 menit cek semua domain 'pending' dan promote ke 'active'
+// kalau A record sudah resolve ke VPS_PUBLIC_IP.
+let customDomainCronRunning = false;
+cron.schedule('* * * * *', async () => {
+  if (customDomainCronRunning) return;
+  if (!process.env.VPS_PUBLIC_IP) return;
+  customDomainCronRunning = true;
+  try {
+    const { data: pendingAgents, error } = await supabase
+      .from('agents')
+      .select('id, slug, custom_domain')
+      .eq('custom_domain_status', 'pending')
+      .not('custom_domain', 'is', null)
+      .in('slug', [...CUSTOM_DOMAIN_ENABLED_AGENT_SLUGS]);
+    if (error) {
+      console.warn('[custom-domain] cron query error:', error.message);
+      return;
+    }
+    if (!pendingAgents?.length) return;
+
+    for (const agent of pendingAgents) {
+      try {
+        const verified = await verifyDomainDns(agent.custom_domain);
+        if (verified) {
+          const { error: upErr } = await supabase.from('agents').update({
+            custom_domain_status: 'active',
+            custom_domain_verified_at: new Date().toISOString(),
+          }).eq('id', agent.id);
+          if (upErr) {
+            console.warn(`[custom-domain] cron update failed for ${agent.custom_domain}:`, upErr.message);
+          } else {
+            invalidateAgentCache();
+            invalidateAgentDomainCache(agent.custom_domain);
+            console.log(`[custom-domain] Verified: ${agent.custom_domain}`);
+          }
+        }
+      } catch (e) {
+        console.warn(`[custom-domain] cron check failed for ${agent.custom_domain}:`, e.message);
+      }
+    }
+  } finally {
+    customDomainCronRunning = false;
   }
 });
 
@@ -11734,41 +12163,57 @@ app.get('/f/:code', async (req, res, next) => {
   }
 });
 
-// SPA fallback — inject OG tags for agent slugs
+// SPA fallback — inject OG tags for agent slugs (or custom-domain agent)
 app.get('{*path}', async (req, res) => {
   const indexPath = resolve(distPath, 'index.html');
   let html = readFileSync(indexPath, 'utf-8');
 
-  // Extract slug
-  const slug = req.path.replace(/^\/+/, '').split('/')[0].toLowerCase();
-  let agent = RESERVED_SPA_SLUGS.has(slug) ? null : await getAgentBySlug(slug);
+  let agent = null;
+  let pageUrl = null;
+  let ogImageOrigin = null;
 
-  // Redirect old slugs to current slug
-  if (!agent && slug && !RESERVED_SPA_SLUGS.has(slug)) {
-    const { data: history } = await supabase
-      .from('agent_slug_history')
-      .select('agent_id')
-      .eq('old_slug', slug)
-      .order('changed_at', { ascending: false })
-      .limit(1)
-      .single();
-    if (history) {
-      const currentAgent = await getAgentById(history.agent_id);
-      if (currentAgent) {
-        const restPath = req.path.slice(slug.length + 1);
-        return res.redirect(301, `/${currentAgent.slug}${restPath}`);
+  if (req.customDomainAgent) {
+    // Access via custom domain — path adalah path agent page (/, /umroh, /haji, /bio)
+    agent = req.customDomainAgent;
+    const origin = `https://${req.customDomain}`;
+    pageUrl = `${origin}${req.originalUrl}`;
+    ogImageOrigin = origin;
+  } else {
+    // Access via alhijaz.co — slug dari path segment pertama
+    const slug = req.path.replace(/^\/+/, '').split('/')[0].toLowerCase();
+    agent = RESERVED_SPA_SLUGS.has(slug) ? null : await getAgentBySlug(slug);
+
+    // Redirect old slugs to current slug (only on alhijaz.co)
+    if (!agent && slug && !RESERVED_SPA_SLUGS.has(slug)) {
+      const { data: history } = await supabase
+        .from('agent_slug_history')
+        .select('agent_id')
+        .eq('old_slug', slug)
+        .order('changed_at', { ascending: false })
+        .limit(1)
+        .single();
+      if (history) {
+        const currentAgent = await getAgentById(history.agent_id);
+        if (currentAgent) {
+          const restPath = req.path.slice(slug.length + 1);
+          return res.redirect(301, `/${currentAgent.slug}${restPath}`);
+        }
       }
+    }
+
+    if (agent) {
+      pageUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+      ogImageOrigin = `${req.protocol}://${req.get('host')}`;
     }
   }
 
   if (agent) {
     const newTitle = `Jadwal Umroh Alhijaz | ${agent.name}`;
     const newDescription = `Dapatkan info lengkap paket umrah Alhijaz Indowisata bersama ${agent.name}. Klik untuk konsultasi via WhatsApp.`;
-    const pageUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
     // Prefer the agent's custom Umroh landing OG (if they set one via AI Tools → Landing Page).
-    // Falls back to the auto-generated /og/{slug}.png.
+    // Falls back to the auto-generated /og/{slug}.png served from alhijaz.co (file lives there).
     const customUmrohOg = agent.landing_config?.umroh?.og_image_url;
-    const ogImageUrl = customUmrohOg || `${req.protocol}://${req.get('host')}/og/${slug}.png`;
+    const ogImageUrl = customUmrohOg || `${ogImageOrigin}/og/${agent.slug}.png`;
 
     // Replace <title>
     html = html.replace(/<title>[^<]*<\/title>/i, `<title>${newTitle}</title>`);
@@ -11779,11 +12224,30 @@ app.get('{*path}', async (req, res) => {
       `<meta name="description" content="${newDescription}" />`
     );
 
-    // Remove existing OG tags
+    // Remove existing OG / canonical tags so the injected ones are authoritative
     html = html.replace(/<meta\s+property="og:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+    html = html.replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '');
 
-    // Inject OG + Twitter tags
+    // Build agent context for the SPA (read by App.tsx)
+    const hasCustomDomain = !!(
+      isCustomDomainEnabledForAgent(agent) &&
+      agent.custom_domain &&
+      agent.custom_domain_status === 'active'
+    );
+    const agentContext = JSON.stringify({
+      slug: agent.slug,
+      name: agent.name,
+      website: agent.website || null,
+      phone: agent.phone || null,
+      photo: agent.photo || null,
+      email: agent.email || null,
+      customDomain: req.customDomain || (hasCustomDomain ? agent.custom_domain : null),
+      hasCustomDomain,
+    });
+
+    // Inject OG + Twitter tags + canonical + agent context
     const metaTags = `
+    <link rel="canonical" href="${pageUrl}" />
     <meta property="og:title" content="${newTitle}" />
     <meta property="og:description" content="${newDescription}" />
     <meta property="og:url" content="${pageUrl}" />
@@ -11796,6 +12260,7 @@ app.get('{*path}', async (req, res) => {
     <meta name="twitter:title" content="${newTitle}" />
     <meta name="twitter:description" content="${newDescription}" />
     <meta name="twitter:image" content="${ogImageUrl}" />
+    <script>window.__AGENT_CONTEXT__ = ${agentContext};</script>
     `;
     html = html.replace('</head>', `${metaTags}</head>`);
 

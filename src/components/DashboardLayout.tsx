@@ -23,6 +23,7 @@ import AIToolsPage from './AIToolsPage';
 import VoiceOverPage from './VoiceOverPage';
 import BusinessCardPage from './BusinessCardPage';
 import LandingPagePage from './LandingPagePage';
+import CustomDomainPage from './CustomDomainPage';
 import HajiPlusPage from './HajiPlusPage';
 import HajiPlusExportPage from './HajiPlusExportPage';
 import KursPage from './KursPage';
@@ -106,6 +107,9 @@ function getAIToolsSubFromPath(): string | null {
     }
     if (segments.length >= 4 && segments[2] === 'haji-plus' && segments[3] === 'simulasi') {
       return 'haji-plus/simulasi';
+    }
+    if (segments.length >= 4 && segments[2] === 'landing-page' && segments[3] === 'custom-domain') {
+      return 'landing-page/custom-domain';
     }
     return segments[2];
   }
@@ -382,6 +386,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       ? 'Voice Over'
       : (activeTab === 'ai-tools' && aiSub === 'business-card')
       ? 'Kartu Nama'
+      : (activeTab === 'ai-tools' && aiSub === 'landing-page/custom-domain')
+      ? 'Custom Domain'
       : (activeTab === 'ai-tools' && aiSub === 'landing-page')
       ? 'Landing Page'
       : (activeTab === 'ai-tools' && (aiSub === 'haji-plus' || aiSub === 'haji-plus/export' || aiSub === 'haji-plus/simulasi'))
@@ -464,6 +470,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     setTimeout(() => setActiveTab('ai-tools'), 0);
                     return;
                   }
+                  // Custom Domain → go back to landing-page (parent of custom-domain)
+                  if (aiSub === 'landing-page/custom-domain') {
+                    window.history.pushState({}, '', '/dashboard/ai-tools/landing-page/umroh');
+                    document.title = 'Landing Page';
+                    setActiveTab('home');
+                    setTimeout(() => setActiveTab('ai-tools'), 0);
+                    return;
+                  }
                   window.history.pushState({}, '', '/dashboard/ai-tools');
                   setActiveTab('home');
                   setTimeout(() => setActiveTab('ai-tools'), 0);
@@ -483,6 +497,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   'voice-over': { icon: Mic, bg: 'bg-purple-50', bgDark: 'dark:bg-purple-900/20', border: 'border-purple-100', borderDark: 'dark:border-purple-800/40', color: 'text-purple-600 dark:text-purple-400', label: 'Voice Over' },
                   'business-card': { icon: CreditCard, bg: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20', border: 'border-teal-100', borderDark: 'dark:border-teal-800/40', color: 'text-teal-600 dark:text-teal-400', label: 'Kartu Nama' },
                   'landing-page': { icon: Globe, bg: 'bg-purple-50', bgDark: 'dark:bg-purple-900/20', border: 'border-purple-100', borderDark: 'dark:border-purple-800/40', color: 'text-purple-600 dark:text-purple-400', label: 'Landing Page' },
+                  'landing-page/custom-domain': { icon: Globe, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Custom Domain' },
                   'haji-plus': { icon: BarChart3, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Haji Plus' },
                   'haji-plus/export': { icon: BarChart3, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Export Infografis' },
                   'haji-plus/simulasi': { icon: BarChart3, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Haji Plus' },
@@ -640,6 +655,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             if (sub === 'kurs') return <KursPage />;
             if (sub === 'voice-over') return <VoiceOverPage />;
             if (sub === 'business-card') return <BusinessCardPage agent={agentData} />;
+            if (sub === 'landing-page/custom-domain') return <CustomDomainPage agent={{ slug: agentData.slug, name: agentData.name }} />;
             if (sub === 'landing-page') return <LandingPagePage agent={{ slug: agentData.slug, name: agentData.name, photo: agentData.photo, phone: agentData.phone, role: agentData.role }} />;
             if (sub === 'haji-plus/export') return <HajiPlusExportPage agent={agentData} />;
             if (sub === 'haji-plus/simulasi') return <HajiPlusPage agent={agentData} initialTab="simulasi" onExport={() => {

@@ -8,6 +8,10 @@ import { trackEvent } from '../utils/analytics';
 import PhotoCropModal from './PhotoCropModal';
 import BioEditorPage from './bio-editor/BioEditorPage';
 import UrlCard from './bio-editor/UrlCard';
+import CustomDomainTrigger from './CustomDomainTrigger';
+import { useCustomDomain } from '../hooks/useCustomDomain';
+import { getAgentPublicUrl } from '../lib/agentUrls';
+import { isCustomDomainEnabledForAgent } from '../lib/customDomainAccess';
 
 const TITLE_LIMIT = 60;
 const DESC_LIMIT = 160;
@@ -85,6 +89,19 @@ interface Props {
 export default function LandingPagePage({ agent }: Props) {
   const mountTracked = useRef(false);
   useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_landing_page'); mountTracked.current = true; } }, []);
+
+  const customDomainEnabled = isCustomDomainEnabledForAgent(agent.slug);
+  const { config: customDomainConfig, loading: customDomainLoading } = useCustomDomain({ enabled: customDomainEnabled });
+  const agentForUrl = useMemo(() => ({
+    slug: agent.slug,
+    custom_domain: customDomainConfig?.domain ?? null,
+    custom_domain_status: customDomainConfig?.status ?? null,
+  }), [agent.slug, customDomainConfig?.domain, customDomainConfig?.status]);
+  const goToCustomDomain = useCallback(() => {
+    if (!customDomainEnabled) return;
+    window.history.pushState({}, '', '/dashboard/ai-tools/landing-page/custom-domain');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, [customDomainEnabled]);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -327,6 +344,16 @@ export default function LandingPagePage({ agent }: Props) {
 
   return (
     <div className="max-w-lg mx-auto pt-4">
+      {/* Custom Domain trigger — shown above tabs so it's visible across Umroh/Haji/Bio */}
+      <div className="px-4 mb-3">
+        <CustomDomainTrigger
+          config={customDomainConfig}
+          loading={customDomainEnabled && customDomainLoading}
+          onClick={goToCustomDomain}
+          disabled={!customDomainEnabled}
+        />
+      </div>
+
       {/* Segmented control: Umroh / Haji Plus / Bio — same px-4 inset for all tabs */}
       <div className="px-4 mb-4">
         <div className="bg-gray-100 dark:bg-slate-800 rounded-xl p-1 flex gap-1 w-full">
@@ -363,7 +390,7 @@ export default function LandingPagePage({ agent }: Props) {
         <div className="px-4 pb-28 flex flex-col gap-3">
           <UrlCard
             label="LANDING PAGE UMROH"
-            url={`https://alhijaz.co/${agent.slug}/umroh`}
+            url={getAgentPublicUrl(agentForUrl, '/umroh')}
             copyAriaLabel="Salin link umroh"
           />
           <LandingCard
@@ -388,7 +415,7 @@ export default function LandingPagePage({ agent }: Props) {
         <div className="px-4 pb-28 flex flex-col gap-3">
           <UrlCard
             label="LANDING PAGE HAJI"
-            url={`https://alhijaz.co/${agent.slug}/haji`}
+            url={getAgentPublicUrl(agentForUrl, '/haji')}
             copyAriaLabel="Salin link haji"
           />
           <LandingCard
@@ -475,6 +502,9 @@ function SkeletonBlock({ className }: { className: string }) {
 function LandingPageSkeleton({ activeType }: { activeType: ActiveTab }) {
   return (
     <div className="max-w-lg mx-auto pt-4">
+      <div className="px-4 mb-3">
+        <SkeletonBlock className="h-14 rounded-2xl" />
+      </div>
       <div className="px-4 mb-4">
         <div className="bg-gray-100 dark:bg-slate-800 rounded-xl p-1 flex gap-1 w-full">
           <SkeletonBlock className="h-9 flex-1 rounded-lg" />
