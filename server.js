@@ -88,7 +88,7 @@ app.use(express.json({ limit: '10mb' }));
 
 const agentDomainCache = new Map();
 const AGENT_DOMAIN_CACHE_TTL = 5 * 60 * 1000;
-const CUSTOM_DOMAIN_ENABLED_AGENT_SLUGS = new Set(['nikita']);
+const CUSTOM_DOMAIN_ENABLED_AGENT_SLUGS = new Set(['nikita', 'aisyah']);
 
 function isCustomDomainEnabledForSlug(slug) {
   return CUSTOM_DOMAIN_ENABLED_AGENT_SLUGS.has(String(slug || '').toLowerCase());
