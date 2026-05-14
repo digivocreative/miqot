@@ -20,32 +20,44 @@ import FlightSharePage from './components/FlightSharePage.tsx'
 import BioPage from './components/bio/BioPage.tsx'
 import { AGENTS_DATA, loadAgentsFromSupabase } from '@/data/agents'
 
-// Register Service Worker for PWA
-const updateSW = registerSW({
-  onNeedRefresh() {
-    // Auto update when new content is available — reloads the page after the
-    // new service worker takes control so users don't have to hard-refresh.
-    updateSW(true)
-  },
-  onOfflineReady() {
-    console.log('App ready to work offline')
-  },
-  // Poll the registered SW for an updated bundle every 60s and whenever the
-  // tab regains focus. Without this, a user can sit on a stale bundle for
-  // hours after we deploy a server-side data shape change (e.g. new tile
-  // type), causing rendering mismatches that only a hard refresh fixes.
-  onRegisteredSW(_swUrl: string, registration: ServiceWorkerRegistration | undefined) {
-    if (!registration) return
-    const checkForUpdate = () => {
-      registration.update().catch(() => { /* offline — ignore */ })
-    }
-    setInterval(checkForUpdate, 60_000)
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') checkForUpdate()
-    })
-  },
-  immediate: true
-})
+// PWA scope is alhijaz.co only. On a custom domain the HTML is server-rendered
+// with `window.__AGENT_CONTEXT__` per-host, and the precached SW index.html
+// would clobber that context — so skip SW entirely and proactively clear any
+// previously installed SW + Cache Storage so reconnect/disconnect flows don't
+// serve a stale shell.
+const host = window.location.hostname
+const isPwaHost = host === 'alhijaz.co' || host === 'localhost' || host === '127.0.0.1'
+
+if (isPwaHost) {
+  const updateSW = registerSW({
+    onNeedRefresh() {
+      updateSW(true)
+    },
+    onOfflineReady() {
+      console.log('App ready to work offline')
+    },
+    onRegisteredSW(_swUrl: string, registration: ServiceWorkerRegistration | undefined) {
+      if (!registration) return
+      const checkForUpdate = () => {
+        registration.update().catch(() => { /* offline — ignore */ })
+      }
+      setInterval(checkForUpdate, 60_000)
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkForUpdate()
+      })
+    },
+    immediate: true
+  })
+} else if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations()
+    .then(regs => Promise.all(regs.map(r => r.unregister())))
+    .catch(() => { /* ignore */ })
+  if (typeof caches !== 'undefined') {
+    caches.keys()
+      .then(keys => Promise.all(keys.map(k => caches.delete(k))))
+      .catch(() => { /* ignore */ })
+  }
+}
 
 // Simple path-based routing (only /:slug/kalkulasi is valid, not bare /kalkulasi)
 const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)

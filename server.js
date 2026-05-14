@@ -11855,7 +11855,7 @@ app.get('/umroh', async (req, res, next) => {
     if (cached && (Date.now() - cached.ts) < UMROH_CACHE_TTL) {
       return res.set({
         'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'private, no-store, must-revalidate',
         'X-Cache': 'HIT',
       }).send(cached.html);
     }
@@ -11863,7 +11863,7 @@ app.get('/umroh', async (req, res, next) => {
     umrohLandingCache.set(slug, { html, ts: Date.now() });
     res.set({
       'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'public, max-age=3600',
+      'Cache-Control': 'private, no-store, must-revalidate',
       'X-Cache': 'MISS',
     }).send(html);
   } catch (err) {
@@ -11965,7 +11965,7 @@ app.get('/haji', async (req, res, next) => {
     if (cached && (Date.now() - cached.ts) < HAJI_CACHE_TTL) {
       return res.set({
         'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'private, no-store, must-revalidate',
         'X-Cache': 'HIT',
       }).send(cached.html);
     }
@@ -11973,7 +11973,7 @@ app.get('/haji', async (req, res, next) => {
     hajiLandingCache.set(slug, { html, ts: Date.now() });
     res.set({
       'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'public, max-age=3600',
+      'Cache-Control': 'private, no-store, must-revalidate',
       'X-Cache': 'MISS',
     }).send(html);
   } catch (err) {
@@ -12406,6 +12406,11 @@ app.get('{*path}', async (req, res) => {
   }
 
   res.set('Content-Type', 'text/html');
+  // HTML on custom domain embeds per-host __AGENT_CONTEXT__ — never cache it,
+  // or the next visitor on this origin gets the previous agent's shell.
+  if (req.customDomain) {
+    res.set('Cache-Control', 'private, no-store, must-revalidate');
+  }
   res.send(html);
 });
 
