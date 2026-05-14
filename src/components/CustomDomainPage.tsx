@@ -124,6 +124,28 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
 }
 
 const DOMAIN_MAX_LENGTH = 50;
+const MULTI_LABEL_PUBLIC_SUFFIXES = new Set([
+  'ac.id',
+  'biz.id',
+  'co.id',
+  'desa.id',
+  'go.id',
+  'my.id',
+  'net.id',
+  'or.id',
+  'ponpes.id',
+  'sch.id',
+  'web.id',
+]);
+
+function isAllowedCustomDomainName(domain: string) {
+  const parts = domain.split('.');
+  if (parts.length === 2) return !MULTI_LABEL_PUBLIC_SUFFIXES.has(domain);
+  if (parts.length === 3) {
+    return MULTI_LABEL_PUBLIC_SUFFIXES.has(`${parts[1]}.${parts[2]}`);
+  }
+  return false;
+}
 
 function FormState({ onCancel, onSubmitted }: { onCancel: () => void; onSubmitted: () => void }) {
   const [value, setValue] = useState('');
@@ -143,9 +165,10 @@ function FormState({ onCancel, onSubmitted }: { onCancel: () => void; onSubmitte
       return 'Tulis nama domainnya saja, tanpa "/" atau spasi';
     }
     if (v.startsWith('www.')) return 'Jangan pakai "www." di depan';
-    const parts = v.split('.');
-    if (parts.length !== 2) return 'Pakai domain pendek (mis. nilanovita.com), tanpa subdomain';
     if (!/^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(v)) return 'Format domain tidak valid';
+    if (!isAllowedCustomDomainName(v)) {
+      return 'Gunakan domain utama, tanpa subdomain';
+    }
     return null;
   }, [value]);
 

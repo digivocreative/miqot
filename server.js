@@ -2952,15 +2952,35 @@ app.delete('/api/landing-config/og-image', authMiddleware, express.json({ limit:
 const VALID_DOMAIN_REGEX = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
 const RESERVED_CUSTOM_DOMAIN_BASE = 'alhijaz.co';
 const CUSTOM_DOMAIN_DISABLED_MESSAGE = 'Fitur Custom Domain belum tersedia untuk agent ini';
+const MULTI_LABEL_PUBLIC_SUFFIXES = new Set([
+  'ac.id',
+  'biz.id',
+  'co.id',
+  'desa.id',
+  'go.id',
+  'my.id',
+  'net.id',
+  'or.id',
+  'ponpes.id',
+  'sch.id',
+  'web.id',
+]);
+
+function isAllowedCustomDomainName(domain) {
+  const parts = domain.split('.');
+  if (parts.length === 2) return !MULTI_LABEL_PUBLIC_SUFFIXES.has(domain);
+  if (parts.length === 3) {
+    return MULTI_LABEL_PUBLIC_SUFFIXES.has(`${parts[1]}.${parts[2]}`);
+  }
+  return false;
+}
 
 function validateDomainFormat(domain) {
   if (!domain || typeof domain !== 'string') return false;
   const d = domain.trim().toLowerCase();
   if (d.includes('://') || d.includes('/') || d.includes(' ')) return false;
   if (d.startsWith('www.')) return false;
-  const parts = d.split('.');
-  if (parts.length !== 2) return false;
-  return VALID_DOMAIN_REGEX.test(d);
+  return VALID_DOMAIN_REGEX.test(d) && isAllowedCustomDomainName(d);
 }
 
 function isReservedDomain(domain) {
@@ -3035,7 +3055,7 @@ app.post('/api/agent/custom-domain', authMiddleware, async (req, res) => {
     const raw = (req.body?.domain || '').trim().toLowerCase();
     if (!validateDomainFormat(raw)) {
       return res.status(400).json({
-        error: 'Format domain tidak valid. Gunakan apex domain (mis. nilanovita.com), tanpa www, tanpa https://, tanpa path.',
+        error: 'Format domain tidak valid.',
       });
     }
     if (isReservedDomain(raw)) {
