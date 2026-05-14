@@ -385,7 +385,7 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
               const valRes = await fetch(`/api/capi/${agentSlug}/validate`, { method: 'POST', headers: getAuthHeaders() });
               const valData = await valRes.json().catch(() => ({}));
               if (!cancelled) {
-                setStatusErrorDesc(DEFAULT_STATUS_ERROR_DESC);
+                setStatusErrorDesc(valData.reason || DEFAULT_STATUS_ERROR_DESC);
                 setStatus(valRes.ok && valData.valid ? 'connected' : 'error');
               }
             } catch {
@@ -533,9 +533,9 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
             showToast('CAPI tersimpan. Koneksi aktif.', 'success');
           }
         } else {
-          setStatusErrorDesc(DEFAULT_STATUS_ERROR_DESC);
+          setStatusErrorDesc(valData.reason || DEFAULT_STATUS_ERROR_DESC);
           setStatus('error');
-          showToast('Konfigurasi disimpan, tapi Pixel ID atau Access Token tidak valid.', 'error');
+          showToast(valData.reason || 'Konfigurasi disimpan, tapi Pixel ID atau Access Token tidak valid.', 'error');
         }
       } catch {
         setStatusErrorDesc('Konfigurasi disimpan, tapi koneksi ke Meta gagal divalidasi.');

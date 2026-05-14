@@ -6,6 +6,7 @@ import {
   buildCountMap,
   countMapToRows,
   computeRangeSplit,
+  computeDailyReadPlan,
   countMatches,
   tallyBy,
 } from '../lib/analytics-maintenance.js';
@@ -141,4 +142,54 @@ test('computeRangeSplit: cutoffMidnight alignment — rawStartISO is always on a
     assert.equal(split.rawStartISO, '2026-04-04T00:00:00.000Z');
     assert.equal(split.aggEndDate, '2026-04-03');
   }
+});
+
+test('computeDailyReadPlan: uses aggregate through latest rolled-up day and raw afterwards', () => {
+  const now = new Date('2026-05-14T04:00:00Z').getTime();
+  const plan = computeDailyReadPlan(
+    '2026-05-01T00:00:00.000Z',
+    '2026-05-31T23:59:59.999Z',
+    now,
+    '2026-05-13',
+  );
+
+  assert.equal(plan.useAgg, true);
+  assert.equal(plan.aggStartDate, '2026-05-01');
+  assert.equal(plan.aggEndDate, '2026-05-13');
+  assert.deepEqual(plan.rawRanges, [
+    { startISO: '2026-05-14T00:00:00.000Z', endISO: '2026-05-31T23:59:59.999Z' },
+  ]);
+});
+
+test('computeDailyReadPlan: raw starts after stale latest aggregate date', () => {
+  const now = new Date('2026-05-14T04:00:00Z').getTime();
+  const plan = computeDailyReadPlan(
+    '2026-05-01T00:00:00.000Z',
+    '2026-05-31T23:59:59.999Z',
+    now,
+    '2026-05-07',
+  );
+
+  assert.equal(plan.aggStartDate, '2026-05-01');
+  assert.equal(plan.aggEndDate, '2026-05-07');
+  assert.deepEqual(plan.rawRanges, [
+    { startISO: '2026-05-08T00:00:00.000Z', endISO: '2026-05-31T23:59:59.999Z' },
+  ]);
+});
+
+test('computeDailyReadPlan: keeps partial boundary days in raw ranges', () => {
+  const now = new Date('2026-05-14T04:00:00Z').getTime();
+  const plan = computeDailyReadPlan(
+    '2026-05-01T06:00:00.000Z',
+    '2026-05-14T04:00:00.000Z',
+    now,
+    '2026-05-13',
+  );
+
+  assert.equal(plan.aggStartDate, '2026-05-02');
+  assert.equal(plan.aggEndDate, '2026-05-13');
+  assert.deepEqual(plan.rawRanges, [
+    { startISO: '2026-05-01T06:00:00.000Z', endISO: '2026-05-01T23:59:59.999Z' },
+    { startISO: '2026-05-14T00:00:00.000Z', endISO: '2026-05-14T04:00:00.000Z' },
+  ]);
 });

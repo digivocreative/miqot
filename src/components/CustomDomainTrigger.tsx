@@ -5,37 +5,9 @@ interface Props {
   config: CustomDomainConfig | null;
   loading: boolean;
   onClick: () => void;
-  disabled?: boolean;
 }
 
-export default function CustomDomainTrigger({ config, loading, onClick, disabled = false }: Props) {
-  if (disabled) {
-    return (
-      <button
-        type="button"
-        disabled
-        className="w-full text-left bg-gray-50 dark:bg-slate-800/70 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3 opacity-75 cursor-not-allowed"
-      >
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0">
-            <Globe size={14} className="text-gray-400 dark:text-slate-500" strokeWidth={2.2} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-500 dark:text-slate-300 truncate">
-              Custom Domain
-            </p>
-            <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">
-              Belum tersedia untuk akun ini.
-            </p>
-          </div>
-          <span className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-400 dark:bg-slate-700 dark:text-slate-500">
-            Nonaktif
-          </span>
-        </div>
-      </button>
-    );
-  }
-
+export default function CustomDomainTrigger({ config, loading, onClick }: Props) {
   if (loading) {
     return (
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3">
@@ -58,7 +30,7 @@ export default function CustomDomainTrigger({ config, loading, onClick, disabled
       <button
         type="button"
         onClick={onClick}
-        className="w-full text-left bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3 hover:border-emerald-200 dark:hover:border-emerald-800/40 transition-all active:scale-[0.99]"
+        className="custom-domain-setup-card w-full text-left bg-white dark:bg-slate-800 rounded-2xl border border-transparent p-3 transition-all active:scale-[0.99]"
       >
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center shrink-0">

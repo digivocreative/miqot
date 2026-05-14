@@ -14,10 +14,12 @@ interface LogEntry {
 
 interface CircuitState {
   open: boolean;
+  permanent?: boolean;
+  reason?: string | null;
   consecutiveFailures: number;
   lastError: string | null;
   openedAt?: string;
-  resumesAt?: string;
+  resumesAt?: string | null;
 }
 
 const EVENT_OPTIONS = ['', 'Purchase', 'Contact', 'PageView', 'Search', 'ViewContent'];
@@ -124,10 +126,12 @@ export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
         <div className="mb-2 flex items-start gap-2 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-amber-700 dark:text-amber-300">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <div className="min-w-0">
-            <p className="text-[11px] font-bold">CAPI dijeda sementara</p>
+            <p className="text-[11px] font-bold">{circuit.permanent ? 'CAPI dijeda' : 'CAPI dijeda sementara'}</p>
             <p className="text-[10px] leading-relaxed opacity-80">
               {circuit.lastError || 'Meta menolak beberapa event berurutan.'}
-              {circuit.resumesAt ? ` Coba lagi otomatis ${formatDate(circuit.resumesAt)}.` : ''}
+              {circuit.permanent
+                ? ' Simpan token Meta yang valid untuk mengaktifkan lagi.'
+                : circuit.resumesAt ? ` Coba lagi otomatis ${formatDate(circuit.resumesAt)}.` : ''}
             </p>
           </div>
         </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Plane, Compass, Save, Upload, RotateCcw,
-  Loader2, AlertCircle, CheckCircle2, ImageIcon, UserCircle,
+  Loader2, AlertCircle, CheckCircle2, ImageIcon, UserCircle, Globe, X,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
@@ -97,11 +97,36 @@ export default function LandingPagePage({ agent }: Props) {
     custom_domain: customDomainConfig?.domain ?? null,
     custom_domain_status: customDomainConfig?.status ?? null,
   }), [agent.slug, customDomainConfig?.domain, customDomainConfig?.status]);
+
+  const [showCustomDomainAlert, setShowCustomDomainAlert] = useState(false);
+  const [customDomainAlertClosing, setCustomDomainAlertClosing] = useState(false);
+
+  const closeCustomDomainAlert = useCallback(() => {
+    setCustomDomainAlertClosing(true);
+    setTimeout(() => {
+      setShowCustomDomainAlert(false);
+      setCustomDomainAlertClosing(false);
+    }, 200);
+  }, []);
+
   const goToCustomDomain = useCallback(() => {
-    if (!customDomainEnabled) return;
+    if (!customDomainEnabled) {
+      setCustomDomainAlertClosing(false);
+      setShowCustomDomainAlert(true);
+      return;
+    }
     window.history.pushState({}, '', '/dashboard/ai-tools/landing-page/custom-domain');
     window.dispatchEvent(new PopStateEvent('popstate'));
   }, [customDomainEnabled]);
+
+  useEffect(() => {
+    if (!showCustomDomainAlert) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeCustomDomainAlert();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [closeCustomDomainAlert, showCustomDomainAlert]);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -339,9 +364,6 @@ export default function LandingPagePage({ agent }: Props) {
 
   if (!draft || !defaults || !currentMeta || !loaded) return null;
 
-  const umrohHasCustom = !!(loaded.umroh.title || loaded.umroh.description || loaded.umroh.og_image_url);
-  const hajiHasCustom = !!(loaded.haji.title || loaded.haji.description || loaded.haji.og_image_url);
-
   return (
     <div className="max-w-lg mx-auto pt-4">
       {/* Custom Domain trigger — shown above tabs so it's visible across Umroh/Haji/Bio */}
@@ -350,7 +372,6 @@ export default function LandingPagePage({ agent }: Props) {
           config={customDomainConfig}
           loading={customDomainEnabled && customDomainLoading}
           onClick={goToCustomDomain}
-          disabled={!customDomainEnabled}
         />
       </div>
 
@@ -362,7 +383,6 @@ export default function LandingPagePage({ agent }: Props) {
             accent="emerald"
             icon={Plane}
             label="Umroh"
-            hasCustom={umrohHasCustom}
             onClick={() => switchTab('umroh')}
           />
           <SegmentedTab
@@ -370,7 +390,6 @@ export default function LandingPagePage({ agent }: Props) {
             accent="amber"
             icon={Compass}
             label="Haji"
-            hasCustom={hajiHasCustom}
             onClick={() => switchTab('haji')}
           />
           <SegmentedTab
@@ -378,7 +397,6 @@ export default function LandingPagePage({ agent }: Props) {
             accent="teal"
             icon={UserCircle}
             label="Bio"
-            hasCustom={false}
             onClick={() => switchTab('bio')}
           />
         </div>
@@ -476,6 +494,13 @@ export default function LandingPagePage({ agent }: Props) {
         quality={0.9}
       />
 
+      {showCustomDomainAlert && (
+        <CustomDomainComingSoonAlert
+          closing={customDomainAlertClosing}
+          onClose={closeCustomDomainAlert}
+        />
+      )}
+
       {/* Toast */}
       {toast && (
         <div
@@ -491,6 +516,57 @@ export default function LandingPagePage({ agent }: Props) {
           <span>{toast.message}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+function CustomDomainComingSoonAlert({
+  closing,
+  onClose,
+}: { closing: boolean; onClose: () => void }) {
+  return (
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center px-4 ${closing ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
+      style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className={`relative w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl overflow-hidden ${closing ? 'dc-card-exit' : 'dc-card-enter'}`}
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="custom-domain-alert-title"
+      >
+        <div className="px-5 pt-5 pb-3 text-center">
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-3 right-3 w-8 h-8 rounded-xl flex items-center justify-center text-gray-400 dark:text-slate-500 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors active:scale-95"
+            aria-label="Tutup popup"
+          >
+            <X size={15} strokeWidth={2.4} />
+          </button>
+          <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 flex items-center justify-center mx-auto mb-3">
+            <Globe size={22} className="text-emerald-600 dark:text-emerald-400" strokeWidth={2.2} />
+          </div>
+          <h3 id="custom-domain-alert-title" className="text-sm font-bold text-gray-800 dark:text-white">
+            Custom Domain Hampir Siap
+          </h3>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5 leading-relaxed">
+            Mohon bersabar sebentar lagi ya 😇
+          </p>
+        </div>
+        <div className="px-5 pb-5 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-2.5 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95"
+          >
+            Mengerti
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -606,22 +682,16 @@ interface SegmentedTabProps {
   accent: 'emerald' | 'amber' | 'teal';
   icon: React.ElementType;
   label: string;
-  hasCustom: boolean;
   onClick: () => void;
   disabled?: boolean;
 }
 
-function SegmentedTab({ active, accent, icon: Icon, label, hasCustom, onClick, disabled }: SegmentedTabProps) {
+function SegmentedTab({ active, accent, icon: Icon, label, onClick, disabled }: SegmentedTabProps) {
   const activeText = accent === 'emerald'
     ? 'text-emerald-500 dark:text-emerald-400'
     : accent === 'amber'
     ? 'text-amber-500 dark:text-amber-400'
     : 'text-teal-500 dark:text-teal-400';
-  const dotColor = accent === 'emerald'
-    ? 'bg-emerald-500'
-    : accent === 'amber'
-    ? 'bg-amber-500'
-    : 'bg-teal-500';
 
   // Disabled tabs are still clickable so the parent can show a "coming soon" toast,
   // but visually look muted and don't take the active background.
@@ -640,9 +710,6 @@ function SegmentedTab({ active, accent, icon: Icon, label, hasCustom, onClick, d
     >
       <Icon size={14} strokeWidth={active ? 2.4 : 2} />
       <span className="text-[13px]">{label}</span>
-      {hasCustom && (
-        <span className={`w-1.5 h-1.5 rounded-full ${active ? dotColor : 'bg-gray-300 dark:bg-slate-500'}`} />
-      )}
     </button>
   );
 }

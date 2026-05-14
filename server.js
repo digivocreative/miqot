@@ -4251,11 +4251,27 @@ const capiPurchaseLocks = new Map(); // agentId -> Promise
 // State per agent: { failures, openedAt, lastError } — purely transient, resets on restart.
 const CAPI_CIRCUIT_THRESHOLD = 10;          // consecutive failures to open circuit
 const CAPI_CIRCUIT_COOLDOWN_MS = 30 * 60 * 1000; // 30 min pause once opened
+const CAPI_CIRCUIT_SKIP_LOG_INTERVAL_MS = 15 * 60 * 1000;
 const capiCircuit = new Map();
+const capiCircuitSkipLogAt = new Map();
+
+function isPermanentCapiAuthError(errorMessage) {
+  const msg = String(errorMessage || '').toLowerCase();
+  return (
+    msg.includes('access token could not be decrypted') ||
+    msg.includes('error validating access token') ||
+    msg.includes('invalid oauth access token') ||
+    msg.includes('invalid access token') ||
+    msg.includes('malformed access token') ||
+    msg.includes('session has expired') ||
+    msg.includes('oauth')
+  );
+}
 
 function capiCircuitIsOpen(agentId) {
   const state = capiCircuit.get(agentId);
   if (!state?.openedAt) return false;
+  if (state.permanent) return true;
   if (Date.now() - state.openedAt >= CAPI_CIRCUIT_COOLDOWN_MS) {
     // Cooldown elapsed — half-open: clear state so next fire is allowed to test recovery.
     capiCircuit.delete(agentId);
@@ -4272,11 +4288,28 @@ function capiCircuitRecordResult(agentId, ok, errorMessage) {
   const state = capiCircuit.get(agentId) || { failures: 0, openedAt: null, lastError: null };
   state.failures += 1;
   state.lastError = errorMessage || null;
+  if (isPermanentCapiAuthError(errorMessage)) {
+    state.openedAt = state.openedAt || Date.now();
+    state.permanent = true;
+    state.reason = 'auth';
+    capiCircuit.set(agentId, state);
+    console.warn(`[CAPI] Circuit LOCKED for agent ${agentId}: permanent auth/token error (${String(errorMessage || '').slice(0, 120)}). Requires valid CAPI config save/validation.`);
+    return;
+  }
   if (state.failures >= CAPI_CIRCUIT_THRESHOLD && !state.openedAt) {
     state.openedAt = Date.now();
     console.warn(`[CAPI] Circuit OPEN for agent ${agentId} after ${state.failures} consecutive failures (last: ${(errorMessage || '').slice(0, 120)}). Pausing for ${CAPI_CIRCUIT_COOLDOWN_MS / 60000} min.`);
   }
   capiCircuit.set(agentId, state);
+}
+
+function logCapiCircuitSkip(agentId, eventName, errorMessage, source = 'sync') {
+  const key = `${agentId}:${eventName}:${source}`;
+  const now = Date.now();
+  const last = capiCircuitSkipLogAt.get(key) || 0;
+  if (now - last < CAPI_CIRCUIT_SKIP_LOG_INTERVAL_MS) return;
+  capiCircuitSkipLogAt.set(key, now);
+  logCapiEvent(agentId, eventName, 'error', { errorMessage, source });
 }
 
 /**
@@ -4348,10 +4381,9 @@ async function _doProcessCapiPurchases(agentId, slug, type, upsertedIdentifiers)
   try {
     if (!upsertedIdentifiers?.length) return;
     if (capiCircuitIsOpen(agentId)) {
-      logCapiEvent(agentId, 'Purchase', 'error', {
-        errorMessage: 'CAPI circuit open: skipped Purchase sync batch',
-        source: 'sync',
-      });
+      const state = capiCircuit.get(agentId);
+      const suffix = state?.permanent ? ' (requires valid token save)' : '';
+      logCapiCircuitSkip(agentId, 'Purchase', `CAPI circuit open: skipped Purchase sync batch${suffix}`, 'sync');
       return; // skip while circuit breaker is paused
     }
 
@@ -4476,10 +4508,9 @@ async function _doProcessCapiPurchases(agentId, slug, type, upsertedIdentifiers)
       const bailMsg = circuitBailed > 0 ? `, bailed ${circuitBailed} (circuit open)` : '';
       console.log(`[CAPI] ${slug}: fired ${firedDp} DP + ${firedLunas} Lunas, skipped ${skippedByClaim} (already claimed)${bailMsg} — ${type}`);
       if (circuitBailed > 0) {
-        logCapiEvent(agentId, 'Purchase', 'error', {
-          errorMessage: `CAPI circuit open: skipped ${circuitBailed} Purchase event(s)`,
-          source: 'sync',
-        });
+        const state = capiCircuit.get(agentId);
+        const suffix = state?.permanent ? ' (requires valid token save)' : '';
+        logCapiCircuitSkip(agentId, 'Purchase', `CAPI circuit open: skipped ${circuitBailed} Purchase event(s)${suffix}`, 'sync');
       }
     }
   } catch (err) {
@@ -4729,6 +4760,10 @@ app.post('/api/capi/:slug/replay-purchases', authMiddleware, async (req, res) =>
   if (!config?.pixelId || !config?.accessToken) {
     return res.status(400).json({ error: 'CAPI belum dikonfigurasi' });
   }
+  const state = capiCircuit.get(agent.id);
+  if (state?.permanent) {
+    return res.status(409).json({ error: 'CAPI sedang dijeda karena token Meta invalid. Simpan konfigurasi dengan token valid dulu.' });
+  }
   const reason = String(req.body?.reason || 'config-change').slice(0, 80);
   const mode = req.body?.mode === 'retry-unhit' ? 'retry-unhit' : 'reset-all';
   capiCircuit.delete(agent.id);
@@ -4748,10 +4783,9 @@ app.post('/api/capi/:slug/event', async (req, res) => {
     const rawKey = req.body?.eventKey;
     const rawName = req.body?.eventName;
     const skipDefaults = { pageView: 'PageView', search: 'Search', viewContent: 'ViewContent', contact: 'Contact' };
-    logCapiEvent(agent.id, rawName || skipDefaults[rawKey] || 'CAPIEvent', 'error', {
-      errorMessage: 'CAPI circuit open: skipped browser event',
-      source: 'browser',
-    });
+    const state = capiCircuit.get(agent.id);
+    const suffix = state?.permanent ? ' (requires valid token save)' : '';
+    logCapiCircuitSkip(agent.id, rawName || skipDefaults[rawKey] || 'CAPIEvent', `CAPI circuit open: skipped browser event${suffix}`, 'browser');
     return res.json({ sent: false, reason: 'Temporarily paused (CAPI errors — admin must verify token)' });
   }
   const config = await readCapiConfig(agent.id, agent.slug);
@@ -4885,6 +4919,7 @@ app.post('/api/capi/:slug/validate', authMiddleware, async (req, res) => {
       if (isTransient) {
         return res.json({ valid: false, reason: `Temporary Meta limit: ${err.message}. Coba lagi dalam beberapa menit.` });
       }
+      capiCircuitRecordResult(agent.id, false, err.message);
       return res.json({ valid: false, error: err, reason: err.message });
     }
 
@@ -4929,14 +4964,22 @@ app.get('/api/capi/:slug/logs', authMiddleware, async (req, res) => {
   const circuit = circuitOpen && circuitState?.openedAt
     ? {
         open: true,
+        permanent: !!circuitState.permanent,
+        reason: circuitState.reason || null,
         openedAt: new Date(circuitState.openedAt).toISOString(),
-        resumesAt: new Date(circuitState.openedAt + CAPI_CIRCUIT_COOLDOWN_MS).toISOString(),
+        resumesAt: circuitState.permanent ? null : new Date(circuitState.openedAt + CAPI_CIRCUIT_COOLDOWN_MS).toISOString(),
         lastError: circuitState.lastError,
         consecutiveFailures: circuitState.failures,
       }
     : circuitState
-      ? { open: false, consecutiveFailures: circuitState.failures, lastError: circuitState.lastError }
-      : { open: false, consecutiveFailures: 0, lastError: null };
+      ? {
+          open: false,
+          permanent: !!circuitState.permanent,
+          reason: circuitState.reason || null,
+          consecutiveFailures: circuitState.failures,
+          lastError: circuitState.lastError,
+        }
+      : { open: false, permanent: false, reason: null, consecutiveFailures: 0, lastError: null };
 
   res.json({
     circuit,
@@ -10171,8 +10214,25 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
     const now7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
     const now30d = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Fetch events for the month, split between raw (<=14d) and agg (>14d).
-    const { rawEvents, aggEvents } = await fetchEventsForRange(supabase, startOfMonth, endOfMonth);
+    const sevenDaysAgo = new Date(now);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    sevenDaysAgo.setUTCHours(0, 0, 0, 0);
+    const sevenDaysAgoISO = sevenDaysAgo.toISOString();
+
+    // Period metrics use daily rollups for complete days and raw rows only for
+    // days not yet aggregated. Current-health widgets read their own 7-day
+    // window so past-month views don't accidentally hide today's activity.
+    const [
+      periodEvents,
+      last7dEvents,
+      { data: allAgents },
+    ] = await Promise.all([
+      fetchEventsForRange(supabase, startOfMonth, endOfMonth),
+      fetchEventsForRange(supabase, sevenDaysAgoISO, now.toISOString()),
+      supabase.from('agents').select('id, slug, name, photo'),
+    ]);
+    const { rawEvents, aggEvents } = periodEvents;
+    const { rawEvents: last7dRawEvents, aggEvents: last7dAggEvents } = last7dEvents;
 
     // Overview — counts sum across raw + agg
     const totalLogins = countMatches(rawEvents, aggEvents, e => e.event_name === 'login');
@@ -10182,24 +10242,25 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       e => e.event_name === 'wa_click_public' || e.event_name === 'wa_click_jamaah',
     );
 
-    // Active agents (any event in last 7 days). 7d ⊂ 14d, so raw is sufficient.
-    const { data: allAgents } = await supabase.from('agents').select('id, slug, name, photo');
+    // Active agents (any event in the current 7-day window).
     const agentList = allAgents || [];
-    const recentIds = new Set(
-      rawEvents.filter(e => new Date(e.created_at) >= new Date(now7d)).map(e => e.agent_id)
-    );
+    const recentIds = new Set();
+    for (const e of last7dRawEvents) if (e.agent_id) recentIds.add(e.agent_id);
+    for (const e of last7dAggEvents) if (e.agent_id && e.count > 0) recentIds.add(e.agent_id);
     const activeAgents = recentIds.size;
 
-    // Daily logins (last 7 days). Within retention window, use raw.
+    // Daily logins (current 7-day window).
     const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
     const dailyLogins = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
       const dateStr = d.toISOString().slice(0, 10);
-      const count = rawEvents.filter(e =>
-        e.event_name === 'login' && e.created_at.slice(0, 10) === dateStr
-      ).length;
+      const count = countMatches(
+        last7dRawEvents,
+        last7dAggEvents,
+        e => e.event_name === 'login' && (e.created_at ? e.created_at.slice(0, 10) : e.date) === dateStr,
+      );
       dailyLogins.push({ date: dateStr, day: dayNames[d.getDay()], count });
     }
 
@@ -10272,32 +10333,35 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       .map(([action, count]) => ({ action, label: ACTION_LABELS[action] || action, count }))
       .sort((a, b) => b.count - a.count);
 
-    // Health badge — always based on last 7 days from TODAY (independent of selected month).
-    // Fetches a separate 7d window so past-month views still show current health.
-    const sevenDaysAgoISO = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: last7dEvents } = await supabase
-      .from('analytics_events')
-      .select('agent_id, event_type, event_name, created_at')
-      .gte('created_at', sevenDaysAgoISO);
+    // Health badge — always based on the current 7-day window.
     const last7dByAgent = new Map();
-    for (const e of (last7dEvents || [])) {
+    for (const e of last7dRawEvents) {
       if (!e.agent_id) continue;
-      const arr = last7dByAgent.get(e.agent_id);
-      if (arr) arr.push(e); else last7dByAgent.set(e.agent_id, [e]);
+      let bucket = last7dByAgent.get(e.agent_id);
+      if (!bucket) {
+        bucket = { days: new Set(), features: new Set() };
+        last7dByAgent.set(e.agent_id, bucket);
+      }
+      bucket.days.add(e.created_at.slice(0, 10));
+      if (e.event_type === 'feature') bucket.features.add(e.event_name);
+    }
+    for (const e of last7dAggEvents) {
+      if (!e.agent_id || e.count <= 0) continue;
+      let bucket = last7dByAgent.get(e.agent_id);
+      if (!bucket) {
+        bucket = { days: new Set(), features: new Set() };
+        last7dByAgent.set(e.agent_id, bucket);
+      }
+      bucket.days.add(e.date);
+      if (e.event_type === 'feature') bucket.features.add(e.event_name);
     }
     const healthByAgent = new Map();
     for (const agent of agentList) {
-      const events = last7dByAgent.get(agent.id) || [];
-      if (events.length === 0) { healthByAgent.set(agent.id, 'dormant'); continue; }
-      const days = new Set();
-      const features = new Set();
-      for (const e of events) {
-        days.add(e.created_at.slice(0, 10));
-        if (e.event_type === 'feature') features.add(e.event_name);
-      }
+      const bucket = last7dByAgent.get(agent.id);
+      if (!bucket) { healthByAgent.set(agent.id, 'dormant'); continue; }
       let h;
-      if (days.size >= 4 && features.size >= 3) h = 'excellent';
-      else if (days.size >= 2 && features.size >= 1) h = 'good';
+      if (bucket.days.size >= 4 && bucket.features.size >= 3) h = 'excellent';
+      else if (bucket.days.size >= 2 && bucket.features.size >= 1) h = 'good';
       else h = 'fair';
       healthByAgent.set(agent.id, h);
     }
@@ -10311,7 +10375,7 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
     const todayStr = now.toISOString().slice(0, 10);
     const agentNameMap = Object.fromEntries(agentList.map(a => [a.id, a.name]));
     const agentSlugMap = Object.fromEntries(agentList.map(a => [a.id, a.slug]));
-    const recentActivity = rawEvents
+    const recentActivity = last7dRawEvents
       .filter(e => e.agent_id && e.created_at.slice(0, 10) === todayStr && e.event_name !== 'page_view')
       .slice(0, 10)
       .map(e => ({
