@@ -2,11 +2,15 @@ import { useMemo, useRef, useState } from 'react';
 import {
   Globe, Loader2, Check, Copy, RefreshCw, ExternalLink,
   AlertCircle, Trash2, Info, Clock, Server, Lock, ArrowRight,
+  Youtube, CirclePlay, X,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { useCustomDomain } from '../hooks/useCustomDomain';
 import { isCustomDomainEnabledForAgent } from '../lib/customDomainAccess';
 import type { CustomDomainConfig } from '../types/customDomain';
+
+const CUSTOM_DOMAIN_TUTORIAL_URL = 'https://youtu.be/HU4MNof3kn8';
+const CUSTOM_DOMAIN_TUTORIAL_EMBED_URL = 'https://www.youtube.com/embed/HU4MNof3kn8?autoplay=1&rel=0&modestbranding=1&playsinline=1';
 
 interface Props {
   agent: { slug: string; name: string };
@@ -42,6 +46,7 @@ export default function CustomDomainPage({ agent }: Props) {
   return (
     <div className="max-w-lg mx-auto pt-4 px-4 pb-20 space-y-3">
       {body}
+      <VideoTutorialCard />
     </div>
   );
 }
@@ -69,6 +74,133 @@ function PageSkeleton() {
     <div className="max-w-lg mx-auto pt-4 px-4 space-y-3">
       <div className="h-40 bg-gray-100 dark:bg-slate-800 rounded-2xl animate-pulse" />
       <div className="h-32 bg-gray-100 dark:bg-slate-800 rounded-2xl animate-pulse" />
+    </div>
+  );
+}
+
+function VideoTutorialCard() {
+  const tutorialReady = Boolean(CUSTOM_DOMAIN_TUTORIAL_URL);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialClosing, setTutorialClosing] = useState(false);
+
+  const closeTutorial = () => {
+    setTutorialClosing(true);
+    setTimeout(() => {
+      setShowTutorial(false);
+      setTutorialClosing(false);
+    }, 200);
+  };
+
+  const content = (
+    <>
+      <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/40 flex items-center justify-center shrink-0">
+        <Youtube size={18} className="text-red-500 dark:text-red-400" strokeWidth={2.2} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <h2 className="text-sm font-bold text-gray-800 dark:text-white truncate">
+            Video Tutorial
+          </h2>
+          <span className={`shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${
+            tutorialReady
+              ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300'
+              : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400'
+          }`}>
+            {tutorialReady ? 'YouTube' : 'Segera Hadir'}
+          </span>
+        </div>
+        <p className="text-[11px] text-gray-500 dark:text-slate-400 leading-snug mt-0.5">
+          Panduan setup sampai domain aktif.
+        </p>
+      </div>
+      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+        tutorialReady
+          ? 'bg-gray-50 dark:bg-slate-900 text-gray-400 dark:text-slate-500 group-hover:text-red-500 dark:group-hover:text-red-400'
+          : 'bg-gray-50 dark:bg-slate-900 text-gray-300 dark:text-slate-600'
+      }`}>
+        <CirclePlay size={14} strokeWidth={2.2} />
+      </div>
+    </>
+  );
+
+  if (!tutorialReady) {
+    return (
+      <section className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+        <div className="p-3 flex items-center gap-3">
+          {content}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setShowTutorial(true)}
+        aria-label="Tonton video tutorial custom domain di YouTube"
+        className="group w-full text-left bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden p-3 flex items-center gap-3 hover:border-red-100 dark:hover:border-red-800/40 transition-all active:scale-[0.99]"
+      >
+        {content}
+      </button>
+      {showTutorial && (
+        <TutorialVideoModal
+          closing={tutorialClosing}
+          onClose={closeTutorial}
+        />
+      )}
+    </>
+  );
+}
+
+function TutorialVideoModal({
+  closing,
+  onClose,
+}: { closing: boolean; onClose: () => void }) {
+  return (
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center px-4 ${closing ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
+      style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className={`relative w-full max-w-lg bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl overflow-hidden ${closing ? 'dc-card-exit' : 'dc-card-enter'}`}
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Video tutorial custom domain"
+      >
+        <div className="relative aspect-video bg-slate-950">
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-2 right-2 z-10 w-8 h-8 rounded-xl flex items-center justify-center bg-black/45 text-white hover:bg-black/60 transition-colors active:scale-95"
+            aria-label="Tutup video tutorial"
+          >
+            <X size={15} strokeWidth={2.4} />
+          </button>
+          <iframe
+            src={CUSTOM_DOMAIN_TUTORIAL_EMBED_URL}
+            title="Video tutorial custom domain"
+            className="block w-full h-full bg-slate-950"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+          />
+        </div>
+        <div className="p-3 bg-white dark:bg-slate-800 border-t border-gray-100 dark:border-slate-700">
+          <a
+            href={CUSTOM_DOMAIN_TUTORIAL_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all active:scale-95"
+          >
+            <Youtube size={15} className="text-red-500 dark:text-red-400" strokeWidth={2.2} />
+            Tonton di YouTube
+            <ExternalLink size={13} className="text-gray-400 dark:text-slate-500" strokeWidth={2.2} />
+          </a>
+        </div>
+      </div>
     </div>
   );
 }
