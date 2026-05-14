@@ -30,7 +30,7 @@ export default function CustomDomainTrigger({ config, loading, onClick }: Props)
       <button
         type="button"
         onClick={onClick}
-        className="custom-domain-setup-card w-full text-left bg-white dark:bg-slate-800 rounded-2xl border border-transparent p-3 transition-all active:scale-[0.99]"
+        className="w-full text-left bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3 hover:border-emerald-200 dark:hover:border-emerald-800/40 transition-all active:scale-[0.99]"
       >
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center shrink-0">
