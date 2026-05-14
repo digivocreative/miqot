@@ -88,14 +88,9 @@ app.use(express.json({ limit: '10mb' }));
 
 const agentDomainCache = new Map();
 const AGENT_DOMAIN_CACHE_TTL = 5 * 60 * 1000;
-const CUSTOM_DOMAIN_ENABLED_AGENT_SLUGS = new Set(['nikita', 'aisyah']);
-
-function isCustomDomainEnabledForSlug(slug) {
-  return CUSTOM_DOMAIN_ENABLED_AGENT_SLUGS.has(String(slug || '').toLowerCase());
-}
 
 function isCustomDomainEnabledForAgent(agent) {
-  return isCustomDomainEnabledForSlug(agent?.slug);
+  return Boolean(agent?.slug);
 }
 
 const PRIMARY_HOSTS = new Set(['alhijaz.co', 'www.alhijaz.co']);
@@ -3219,8 +3214,7 @@ cron.schedule('* * * * *', async () => {
       .from('agents')
       .select('id, slug, custom_domain')
       .eq('custom_domain_status', 'pending')
-      .not('custom_domain', 'is', null)
-      .in('slug', [...CUSTOM_DOMAIN_ENABLED_AGENT_SLUGS]);
+      .not('custom_domain', 'is', null);
     if (error) {
       console.warn('[custom-domain] cron query error:', error.message);
       return;
