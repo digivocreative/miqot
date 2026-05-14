@@ -118,11 +118,19 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   // Production (Cloudflare Workers): fetch via HTTP from static asset
   let html: string;
   try {
-    const { readFileSync } = await import('fs');
+    const { readFileSync, existsSync } = await import('fs');
     const { dirname, resolve } = await import('path');
     const { fileURLToPath } = await import('url');
     const __dir = dirname(fileURLToPath(import.meta.url));
-    html = readFileSync(resolve(__dir, '../../public/umroh.html'), 'utf-8');
+    // Dev (Vite SSR): TS source lives at functions/[slug]/umroh.ts → ../../public.
+    // Prod: esbuild output at functions/umroh-landing.mjs → ../public.
+    const candidates = [
+      resolve(__dir, '../public/umroh.html'),
+      resolve(__dir, '../../public/umroh.html'),
+    ];
+    const fsPath = candidates.find((p) => existsSync(p));
+    if (!fsPath) throw new Error('umroh.html not found in expected locations');
+    html = readFileSync(fsPath, 'utf-8');
   } catch {
     // Cloudflare Workers: no fs — fetch from own origin as static asset
     const res = await fetch('https://alhijaz.co/umroh.html');

@@ -66,11 +66,18 @@ async function generateHTML(slug, agentOverride) {
   const waPembiayaan = "https://api.whatsapp.com/send?phone=" + phone + "&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Program%20Pembiayaan%20Haji%20Plus%20di%20Alhijaz";
   let html;
   try {
-    const { readFileSync } = await import("fs");
+    const { readFileSync, existsSync } = await import("fs");
     const { dirname, resolve } = await import("path");
     const { fileURLToPath } = await import("url");
     const __dir = dirname(fileURLToPath(import.meta.url));
-    html = readFileSync(resolve(__dir, "../../public/haji-plus.html"), "utf-8");
+    const candidates = [
+      resolve(__dir, "../public/haji-plus.html"),
+      resolve(__dir, "../../public/haji-plus.html")
+    ];
+    const fsPath = candidates.find((p) => existsSync(p));
+    if (!fsPath)
+      throw new Error("haji-plus.html not found in expected locations");
+    html = readFileSync(fsPath, "utf-8");
   } catch {
     const res = await fetch("https://alhijaz.co/haji-plus.html");
     if (!res.ok)

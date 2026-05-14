@@ -55,7 +55,10 @@ const isDashboard = segments.length >= 1 && segments[0] === 'dashboard'
 const isResetPassword = segments.length === 1 && segments[0] === 'reset-password'
 const isFlightShare = segments.length >= 2 && segments[0] === 'f'
 const flightShareCode = isFlightShare ? segments[1] : null
-const isKalkulasi = segments.length >= 2 && segments[1] === 'kalkulasi'
+// On custom domain the agent is implicit, so /kalkulasi and /compare may be single-segment.
+const isCustomDomainHost = !!(window as unknown as { __AGENT_CONTEXT__?: { customDomain?: string | null } }).__AGENT_CONTEXT__?.customDomain
+const isKalkulasi = (segments.length >= 2 && segments[1] === 'kalkulasi')
+  || (isCustomDomainHost && segments.length === 1 && segments[0] === 'kalkulasi')
 const isCompare = (segments.length >= 2 && segments[1] === 'compare') || (segments.length === 1 && segments[0] === 'compare')
 const isCapi = segments.length >= 2 && segments[1] === 'capi'
 const isBio = segments.length >= 2 && segments[1] === 'bio'
@@ -180,11 +183,20 @@ if (!shouldAutoRedirect) {
       await loadAgentsFromSupabase()
     }
 
+    // On custom domain, /kalkulasi and /compare are single-segment and the
+    // agent comes from the host (server-injected context), not the path.
+    const ctxSlug = isCustomDomainHost
+      ? ((window as unknown as { __AGENT_CONTEXT__?: { slug?: string } }).__AGENT_CONTEXT__?.slug || '').toLowerCase()
+      : ''
     const agentSlugForKalkulasi = isKalkulasi
-      ? AGENTS_DATA[firstSlug] || null
+      ? (segments.length === 1 && ctxSlug
+          ? AGENTS_DATA[ctxSlug] || null
+          : AGENTS_DATA[firstSlug] || null)
       : null
-    const agentSlugForCompare = isCompare && segments.length >= 2
-      ? AGENTS_DATA[firstSlug] || null
+    const agentSlugForCompare = isCompare
+      ? (segments.length === 1 && ctxSlug
+          ? AGENTS_DATA[ctxSlug] || null
+          : (segments.length >= 2 ? AGENTS_DATA[firstSlug] || null : null))
       : null
 
     // Case 1: /:agent/:jadwalId (2 segments, first is agent)

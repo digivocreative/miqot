@@ -2047,9 +2047,13 @@ _________________________
             <div data-screenshot-ignore className={`grid ${currentAgent ? 'grid-cols-4' : 'grid-cols-2'} gap-2 mb-4`}>
               {/* Link (Copy URL) - deterministic desktop-friendly action */}
               {currentAgent && (() => {
+                const ctx = (window as unknown as { __AGENT_CONTEXT__?: { customDomain?: string | null } }).__AGENT_CONTEXT__;
+                const isCustomDomain = !!ctx?.customDomain;
                 const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0] || '';
-                if (!seg) return null;
-                const shareUrl = `${window.location.origin}/${seg}/${pkg.jadwalId}`;
+                if (!seg && !isCustomDomain) return null;
+                const shareUrl = isCustomDomain
+                  ? `${window.location.origin}/${pkg.jadwalId}`
+                  : `${window.location.origin}/${seg}/${pkg.jadwalId}`;
                 return (
                   <button
                     type="button"
@@ -2078,8 +2082,10 @@ _________________________
                   e.stopPropagation();
                   fireViewContent();
                   document.body.classList.add('navigating');
+                  const ctx = (window as unknown as { __AGENT_CONTEXT__?: { customDomain?: string | null } }).__AGENT_CONTEXT__;
+                  const isCustomDomain = !!ctx?.customDomain;
                   const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
-                  const base = seg ? `/${seg}/kalkulasi` : '/kalkulasi';
+                  const base = isCustomDomain ? '/kalkulasi' : (seg ? `/${seg}/kalkulasi` : '/kalkulasi');
                   setTimeout(() => {
                     window.location.href = `${base}?paket=${encodeURIComponent(pkg.jadwalId)}&transition=1`;
                   }, 280);
@@ -2092,10 +2098,15 @@ _________________________
                 <span className="text-xs font-medium text-gray-600 dark:text-slate-200">Hitung</span>
               </button>}
 
-              {/* Compare Button — only with agent slug */}
+              {/* Compare Button — only with agent slug or on custom domain */}
               {(() => {
+                const ctx = (window as unknown as { __AGENT_CONTEXT__?: { customDomain?: string | null } }).__AGENT_CONTEXT__;
+                const isCustomDomain = !!ctx?.customDomain;
                 const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
-                if (!seg) return null;
+                if (!seg && !isCustomDomain) return null;
+                const compareUrl = isCustomDomain
+                  ? `/compare?paketA=${encodeURIComponent(pkg.jadwalId)}&transition=1`
+                  : `/${seg}/compare?paketA=${encodeURIComponent(pkg.jadwalId)}&transition=1`;
                 return (
                   <button
                     type="button"
@@ -2104,7 +2115,7 @@ _________________________
                       fireViewContent();
                       document.body.classList.add('navigating');
                       setTimeout(() => {
-                        window.location.href = `/${seg}/compare?paketA=${encodeURIComponent(pkg.jadwalId)}&transition=1`;
+                        window.location.href = compareUrl;
                       }, 280);
                     }}
                     className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/30 dark:border-slate-700 dark:hover:border-violet-500"

@@ -72,8 +72,22 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     localStorage.setItem('darkMode', isDarkMode.toString());
   }, [isDarkMode]);
 
-  // Detect agent + filter slug from URL (shared state for SEO + FloatingAgentBar)
-  const [currentAgent, setCurrentAgent] = useState<AgentData | null>(null);
+  // Detect agent + filter slug from URL (shared state for SEO + FloatingAgentBar).
+  // Hydrate eagerly from server-injected __AGENT_CONTEXT__ so action buttons that
+  // depend on currentAgent (Diskusi, Hitung, etc.) render on the first paint —
+  // otherwise first-time visitors with empty AGENTS_DATA cache flash a button-less
+  // toolbar until Supabase populates the cache.
+  const [currentAgent, setCurrentAgent] = useState<AgentData | null>(() => {
+    const ctx = typeof window !== 'undefined' ? window.__AGENT_CONTEXT__ : undefined;
+    if (!ctx) return null;
+    return {
+      name: ctx.name,
+      website: ctx.website || '',
+      phone: ctx.phone || '',
+      photo: ctx.photo || '',
+      card_variant: 'default',
+    };
+  });
 
   // Custom-domain context injected by the server into window.__AGENT_CONTEXT__.
   // When set, the agent is determined by the host (custom domain), not the path.

@@ -157,10 +157,20 @@ app.use(async (req, res, next) => {
   }
 });
 
-// 2) Pada custom domain: redirect dashboard/auth ke alhijaz.co, 404 untuk /api/*
+// 2) Pada custom domain: canonicalize URL (strip own slug), redirect auth, blokir /api/* sensitif
 app.use((req, res, next) => {
   if (!req.customDomain) return next();
   const path = req.path || '/';
+  // a) Strip own-slug prefix: miqot.com/nikita/umroh → miqot.com/umroh
+  if (req.customDomainAgent) {
+    const ownSlug = String(req.customDomainAgent.slug || '').toLowerCase();
+    const firstSeg = path.split('/').filter(Boolean)[0]?.toLowerCase();
+    if (ownSlug && firstSeg && firstSeg === ownSlug) {
+      const restPath = path.replace(/^\/[^/]+/, '') || '/';
+      const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      return res.redirect(301, restPath + qs);
+    }
+  }
   const isAuthPath =
     path.startsWith('/dashboard') ||
     path === '/login' ||
@@ -175,7 +185,14 @@ app.use((req, res, next) => {
     return res.redirect(301, `https://alhijaz.co${path}${qs}`);
   }
   if (path.startsWith('/api/')) {
-    return res.status(404).type('text/plain').send('API only available on alhijaz.co');
+    const isSensitiveApi =
+      path.startsWith('/api/auth/') ||
+      path === '/api/auth' ||
+      path.startsWith('/api/admin/') ||
+      path.startsWith('/api/agent/custom-domain');
+    if (isSensitiveApi) {
+      return res.status(404).type('text/plain').send('API only available on alhijaz.co');
+    }
   }
   next();
 });
@@ -11764,6 +11781,33 @@ async function resolveSlug(slug) {
   return null;
 }
 
+// Custom-domain landing: /umroh → WordPress umroh landing for the agent owning this domain
+app.get('/umroh', async (req, res, next) => {
+  if (!req.customDomain || !req.customDomainAgent) return next();
+  const slug = String(req.customDomainAgent.slug || '').toLowerCase();
+  if (!slug) return next();
+  try {
+    const cached = umrohLandingCache.get(slug);
+    if (cached && (Date.now() - cached.ts) < UMROH_CACHE_TTL) {
+      return res.set({
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+        'X-Cache': 'HIT',
+      }).send(cached.html);
+    }
+    const html = await generateUmrohPage(slug);
+    umrohLandingCache.set(slug, { html, ts: Date.now() });
+    res.set({
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+      'X-Cache': 'MISS',
+    }).send(html);
+  } catch (err) {
+    console.error('Custom-domain umroh landing error:', err);
+    next();
+  }
+});
+
 app.get('/:slug/umroh', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
   try {
@@ -11846,6 +11890,33 @@ async function generateHajiPage(slug) {
     console.error('[Haji Landing] Pre-cache init failed:', e.message);
   }
 })();
+
+// Custom-domain landing: /haji → WordPress haji landing for the agent owning this domain
+app.get('/haji', async (req, res, next) => {
+  if (!req.customDomain || !req.customDomainAgent) return next();
+  const slug = String(req.customDomainAgent.slug || '').toLowerCase();
+  if (!slug) return next();
+  try {
+    const cached = hajiLandingCache.get(slug);
+    if (cached && (Date.now() - cached.ts) < HAJI_CACHE_TTL) {
+      return res.set({
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+        'X-Cache': 'HIT',
+      }).send(cached.html);
+    }
+    const html = await generateHajiPage(slug);
+    hajiLandingCache.set(slug, { html, ts: Date.now() });
+    res.set({
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+      'X-Cache': 'MISS',
+    }).send(html);
+  } catch (err) {
+    console.error('Custom-domain haji landing error:', err);
+    next();
+  }
+});
 
 app.get('/:slug/haji', async (req, res) => {
   const slug = req.params.slug.toLowerCase();
@@ -12082,8 +12153,8 @@ const publicPath = resolve(__dirname, 'public');
 // Serve static assets from dist/ first, then fallback to public/
 // This ensures uploaded files (e.g. agent photos in public/agents/)
 // are always accessible, even if they were added after the last build.
-app.use(express.static(distPath));
-app.use(express.static(publicPath));
+app.use(express.static(distPath, { index: false }));
+app.use(express.static(publicPath, { index: false }));
 
 // Airline code → name mapping untuk OG meta
 const AIRLINE_NAMES_SERVER = {
