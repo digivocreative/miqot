@@ -1,5 +1,5 @@
 import type { PortalBooking } from '../hooks/usePortalMe';
-import { daysUntilDate, formatLongDate } from '../utils/formatDate';
+import { daysUntilDate, formatLongDate, tripDurationDays } from '../utils/formatDate';
 
 function airlineFromCode(code?: string | null) {
   const prefix = String(code || '').trim().slice(0, 2).toUpperCase();
@@ -53,7 +53,14 @@ export default function HeroCountdown({
         </span>
       </div>
 
-      <p className="mt-2 text-sm font-medium text-emerald-100">Berangkat {formatLongDate(booking.tgl_berangkat)}</p>
+      <div className="mt-2 flex items-baseline justify-between gap-3">
+        <p className="min-w-0 truncate text-sm font-medium text-emerald-100">
+          {formatLongDate(booking.tgl_berangkat)}
+        </p>
+        <p className={`flex-none text-sm font-bold ${flight ? 'text-white' : 'italic text-emerald-200/80'}`}>
+          {flight || 'Belum dijadwalkan'}
+        </p>
+      </div>
 
       <div className="mt-4 grid grid-cols-2 gap-4 border-t border-white/20 pt-3">
         <div className="min-w-0">
@@ -61,9 +68,11 @@ export default function HeroCountdown({
           <p className="mt-0.5 truncate text-sm font-bold">{booking.paket || 'Paket Umroh'}</p>
         </div>
         <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-200">Penerbangan</p>
-          <p className={`mt-0.5 truncate text-sm font-bold ${flight ? '' : 'italic text-emerald-200/80'}`}>
-            {flight || 'Belum dijadwalkan'}
+          <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-200">Durasi</p>
+          <p className="mt-0.5 truncate text-sm font-bold">
+            {tripDurationDays(booking.tgl_berangkat, booking.tgl_pulang)
+              ? `${tripDurationDays(booking.tgl_berangkat, booking.tgl_pulang)} hari`
+              : 'Menyusul'}
           </p>
         </div>
       </div>
