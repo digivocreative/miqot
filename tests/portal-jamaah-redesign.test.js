@@ -149,15 +149,17 @@ test('PortalBackBar: back button + title + sticky header per DESIGN-SYSTEM', () 
   assert.match(src, /onBack/);
 });
 
-test('StickyWhatsAppCta: fixed bottom, emerald-500, shadow', () => {
+test('StickyWhatsAppCta: floating pill with agent photo + WhatsApp Chat button', () => {
   const src = read('src/components/portal-jamaah/components/StickyWhatsAppCta.tsx');
-  assert.match(src, /fixed bottom-0/);
-  assert.match(src, /z-40/);
+  assert.match(src, /fixed bottom-6/);
+  assert.match(src, /z-50/);
+  assert.match(src, /rounded-full/);
+  assert.match(src, /backdrop-blur-md/);
   assert.match(src, /bg-emerald-500/);
-  assert.match(src, /shadow-lg shadow-emerald-500\/30/);
-  assert.match(src, /MessageCircle/);
+  assert.match(src, /shadow-lg shadow-emerald-500\/20/);
   assert.match(src, /normalizeWaNumber/);
   assert.match(src, /max-w-lg/);
+  assert.match(src, /translate-y-\[200%\]/, 'smart scroll hide');
 });
 
 test('HeroCountdown: emerald gradient hero with text-6xl countdown', () => {
