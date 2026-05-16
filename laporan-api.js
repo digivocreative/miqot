@@ -603,6 +603,8 @@ export async function fetchUmrahDetail(username, idUmroh) {
       const jadwalCell = $(tds[1]);
       const jadwalHtml = jadwalCell.html() || '';
       const jadwalParts = jadwalHtml.split(/<br\s*\/?>/i);
+      const id_jadwal_raw = jadwalParts[0] ? cheerio.load(jadwalParts[0]).text().trim() : '';
+      const id_jadwal = /^JBU\d+$/i.test(id_jadwal_raw) ? id_jadwal_raw.toUpperCase() : null;
       const tgl_berangkat_raw = jadwalParts.length >= 2 ? cheerio.load(jadwalParts[1]).text().trim() : '';
 
       let tgl_berangkat = null;
@@ -647,6 +649,7 @@ export async function fetchUmrahDetail(username, idUmroh) {
           diskon_kantor: diskonKantor,
           diskon_marketing: diskonMarketing,
           bayar_gross: Math.max(0, hargaPaket - sisaPaket),
+          id_jadwal,
           source: 'umrah_detail',
         },
       });
