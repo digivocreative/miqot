@@ -251,5 +251,15 @@ test('PembayaranPage: blue hero + JamaahPaymentCard + CTAs', () => {
   assert.match(src, /pb-24/);
 });
 
+test('DokumenPage: amber-themed, JamaahSelector + 6 dokumen wajib', () => {
+  const src = read('src/components/portal-jamaah/pages/DokumenPage.tsx');
+  assert.match(src, /PortalBackBar/);
+  assert.match(src, /JamaahSelector/);
+  for (const doc of ['Paspor', 'Visa', 'Vaksin Meningitis', 'KTP', 'Kartu Keluarga', 'Foto']) {
+    assert.match(src, new RegExp(doc));
+  }
+  assert.match(src, /amber/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
