@@ -229,5 +229,16 @@ test('BerandaPage: composes hero + alerts + menu grid + tasks + roster', () => {
   assert.match(src, /pb-24/);
 });
 
+test('PerjalananPage: emerald hero + FlightCard + HotelCard + ItineraryList', () => {
+  const src = read('src/components/portal-jamaah/pages/PerjalananPage.tsx');
+  assert.match(src, /PortalBackBar/);
+  assert.match(src, /FlightCard/);
+  assert.match(src, /HotelCard/);
+  assert.match(src, /ItineraryList/);
+  assert.match(src, /linear-gradient.*064e3b/i, 'emerald hero gradient');
+  assert.match(src, /max-w-lg/);
+  assert.match(src, /pb-24/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
