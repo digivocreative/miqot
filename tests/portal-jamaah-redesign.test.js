@@ -196,5 +196,13 @@ test('SmartAlertsStrip: renders alerts via deriveAlerts', () => {
   assert.match(src, /bg-amber-50/);
 });
 
+test('TaskListWidget: renders deriveTopTasks output + empty-state', () => {
+  const src = read('src/components/portal-jamaah/components/TaskListWidget.tsx');
+  assert.match(src, /deriveTopTasks/);
+  assert.match(src, /Semua persiapan up-to-date/i);
+  assert.match(src, /ChevronRight/);
+  assert.match(src, /YANG PERLU ANDA LAKUKAN/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
