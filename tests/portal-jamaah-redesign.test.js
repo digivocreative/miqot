@@ -286,5 +286,20 @@ test('FaqPage: accordion of PORTAL_FAQ + escalation CTA', () => {
   assert.match(src, /useState/);
 });
 
+test('PortalDashboard: wires 7 routes + StickyWhatsAppCta + no PortalBottomNav', () => {
+  const src = read('src/components/portal-jamaah/pages/PortalDashboard.tsx');
+  assert.doesNotMatch(src, /PortalBottomNav/, 'bottom nav removed');
+  assert.match(src, /BerandaPage/);
+  assert.match(src, /PerjalananPage/);
+  assert.match(src, /PembayaranPage/);
+  assert.match(src, /DokumenPage/);
+  assert.match(src, /PerlengkapanPage/);
+  assert.match(src, /ManasikSpiritualPage/);
+  assert.match(src, /FaqPage/);
+  assert.match(src, /StickyWhatsAppCta/);
+  assert.match(src, /usePortalRoute/);
+  assert.match(src, /usePortalTheme/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
