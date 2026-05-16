@@ -70,7 +70,7 @@ export const PORTAL_MENUS: PortalMenu[] = [
     desc: 'Pertanyaan umum',
     icon: LifeBuoy,
     iconBg: 'bg-gradient-to-br from-rose-400 to-pink-600 dark:from-rose-500 dark:to-pink-700',
-    cardBg: 'bg-gradient-to-br from-rose-50 via-white to-pink-100/70 dark:from-rose-950/40 dark:via-rose-800 dark:to-slate-800',
+    cardBg: 'bg-gradient-to-br from-rose-50 via-white to-pink-100/70 dark:from-rose-950/40 dark:via-slate-800 dark:to-slate-800',
     cardBorder: 'border-rose-200/70 dark:border-rose-800/40',
     iconShadow: 'shadow-lg shadow-rose-500/30 dark:shadow-rose-900/40',
   },
