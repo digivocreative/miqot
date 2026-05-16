@@ -79,5 +79,19 @@ test('usePortalRoute: exposes 7 route IDs + navigation helpers', () => {
   assert.match(src, /goBack/);
 });
 
+test('portalMenu: 6 menus with semantic colors and lucide icons', () => {
+  const src = read('src/components/portal-jamaah/lib/portalMenu.ts');
+  assert.match(src, /export const PORTAL_MENUS/);
+  for (const id of ['perjalanan', 'pembayaran', 'dokumen', 'perlengkapan', 'manasik', 'faq']) {
+    assert.match(src, new RegExp(`id:\\s*['"]${id}['"]`), `menu ${id} missing`);
+  }
+  assert.match(src, /from-emerald-400/);
+  assert.match(src, /from-sky-400/);
+  assert.match(src, /from-amber-400/);
+  assert.match(src, /from-violet-400/);
+  assert.match(src, /from-purple-400/);
+  assert.match(src, /from-rose-400/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
