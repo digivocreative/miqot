@@ -240,5 +240,16 @@ test('PerjalananPage: emerald hero + FlightCard + HotelCard + ItineraryList', ()
   assert.match(src, /pb-24/);
 });
 
+test('PembayaranPage: blue hero + JamaahPaymentCard + CTAs', () => {
+  const src = read('src/components/portal-jamaah/pages/PembayaranPage.tsx');
+  assert.match(src, /PortalBackBar/);
+  assert.match(src, /JamaahPaymentCard/);
+  assert.match(src, /linear-gradient.*1e3a8a/i, 'blue hero');
+  assert.match(src, /Cara Transfer/i);
+  assert.match(src, /Konfirmasi/i);
+  assert.match(src, /max-w-lg/);
+  assert.match(src, /pb-24/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
