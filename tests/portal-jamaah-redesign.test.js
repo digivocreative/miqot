@@ -278,5 +278,13 @@ test('ManasikSpiritualPage: purple manasik info + spiritual checklist', () => {
   assert.match(src, /linear-gradient.*581c87/i, 'purple gradient');
 });
 
+test('FaqPage: accordion of PORTAL_FAQ + escalation CTA', () => {
+  const src = read('src/components/portal-jamaah/pages/FaqPage.tsx');
+  assert.match(src, /PortalBackBar/);
+  assert.match(src, /PORTAL_FAQ/);
+  assert.match(src, /Tidak menemukan jawaban/i);
+  assert.match(src, /useState/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
