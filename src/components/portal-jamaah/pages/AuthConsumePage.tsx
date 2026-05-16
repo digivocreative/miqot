@@ -22,8 +22,9 @@ export default function AuthConsumePage({ slug, token }: { slug: string; token: 
 
   useEffect(() => {
     let cancelled = false;
-    const promise = consumePromises.get(token) || portalApi.consumeMagicLink(token);
-    consumePromises.set(token, promise);
+    const consumeKey = `${slug}:${token}`;
+    const promise = consumePromises.get(consumeKey) || portalApi.consumeMagicLink(slug, token);
+    consumePromises.set(consumeKey, promise);
 
     promise
       .then((data) => {
@@ -44,7 +45,7 @@ export default function AuthConsumePage({ slug, token }: { slug: string; token: 
         if (cancelled) return;
         setErrorKind((err?.code || 'invalid') as ErrorKind);
         setState('error');
-        consumePromises.delete(token);
+        consumePromises.delete(consumeKey);
       });
 
     return () => {

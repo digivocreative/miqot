@@ -9,6 +9,8 @@ interface Props {
   subPath: string[];
 }
 
+const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5}$/i;
+
 function isSessionForSlug(slug: string) {
   const session = getPortalSession();
   return session && session.slug === slug ? session : null;
@@ -38,6 +40,10 @@ export default function PortalJamaahRouter({ slug, subPath }: Props) {
       return null;
     }
     return <LandingPage slug={slug} />;
+  }
+
+  if (subPath.length === 1 && PORTAL_MAGIC_CODE_REGEX.test(subPath[0])) {
+    return <AuthConsumePage slug={slug} token={subPath[0]} />;
   }
 
   if (subPath[0] === 'auth' && subPath[1]) {

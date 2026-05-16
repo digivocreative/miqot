@@ -52,8 +52,8 @@ function normalizeConsumeError(error: { error?: string; message?: string }) {
 }
 
 export const portalApi = {
-  async consumeMagicLink(token: string): Promise<ConsumeMagicLinkResult> {
-    const res = await fetch(`${API_BASE}/auth/consume/${encodeURIComponent(token)}`, {
+  async consumeMagicLink(slug: string, token: string): Promise<ConsumeMagicLinkResult> {
+    const res = await fetch(`${API_BASE}/${encodeURIComponent(slug)}/auth/consume/${encodeURIComponent(token)}`, {
       credentials: 'include',
     });
     if (!res.ok) {

@@ -110,6 +110,10 @@ function shouldAutoRefreshPerlengkapan(item: JamaahItem) {
   return incomplete && isStaleSyncedAt(item.synced_at);
 }
 
+function isBelumDPJamaah(item: Pick<JamaahItem, 'sisa' | 'bayar'>) {
+  return item.sisa > 0 && item.bayar === 0;
+}
+
 // ── Props (session persistence from parent) ──
 interface JamaahPageProps {
   agentSlug?: string;
@@ -1079,7 +1083,6 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                 if (!it.id_umroh) return;
                 groupSize.set(it.id_umroh, (groupSize.get(it.id_umroh) || 0) + 1);
               });
-              const isBelumDP = (it: JamaahItem) => it.sisa > 0 && it.bayar === 0;
               // Collapse consecutive same-id_umroh Belum DP entries into a single table card.
               type Entry =
                 | { kind: 'card'; item: JamaahItem; grpSize: number; memberIndex: number }
@@ -1089,12 +1092,12 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                 let i = 0;
                 while (i < sortedItems.length) {
                   const it = sortedItems[i];
-                  if (isBelumDP(it) && it.id_umroh) {
+                  if (isBelumDPJamaah(it) && it.id_umroh) {
                     const members: JamaahItem[] = [];
                     let j = i;
                     while (j < sortedItems.length
                            && sortedItems[j].id_umroh === it.id_umroh
-                           && isBelumDP(sortedItems[j])) {
+                           && isBelumDPJamaah(sortedItems[j])) {
                       members.push(sortedItems[j]);
                       j++;
                     }
@@ -1175,19 +1178,6 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                           <ChevronRight size={12} strokeWidth={2.5} className="transition-transform group-hover:translate-x-0.5" />
                         </button>
                       )}
-                    </div>
-                    <div className="px-3 py-2 bg-gray-50/70 dark:bg-slate-900/30 border-t border-gray-100 dark:border-slate-700/50">
-                      <MagicLinkButton
-                        jamaahId={first.id}
-                        jamaahName={first.nama}
-                        jamaahWa={first.wa}
-                        idUmroh={entry.idu}
-                        agentSlug={agentSlug || resolvedAgentSlug}
-                        agentName={resolvedAgentName}
-                        className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all active:scale-95"
-                        iconClassName="w-3.5 h-3.5 shrink-0"
-                        label="Magic Link"
-                      />
                     </div>
                   </div>
                 );
@@ -1690,7 +1680,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                       })()}
 
                       {/* ─── Section 4: Action Buttons ─── */}
-                      <div className="px-3 py-2.5 grid grid-cols-[15fr_40fr_45fr] gap-2">
+                      <div className={`px-3 py-2.5 grid gap-2 ${paymentStatus !== 'belum' ? 'grid-cols-[15fr_40fr_45fr]' : 'grid-cols-[15fr_85fr]'}`}>
                         {/* Refresh single row from Alhijaz Official API */}
                         {item.jm_id && (() => {
                           const refreshKey = getJamaahRefreshKey(item);
@@ -1743,7 +1733,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                             <span className="whitespace-nowrap">Tambah</span>
                           </button>
                         )}
-                        {item.id_umroh && (
+                        {item.id_umroh && paymentStatus !== 'belum' && (
                           <MagicLinkButton
                             jamaahId={item.id}
                             jamaahName={item.nama}

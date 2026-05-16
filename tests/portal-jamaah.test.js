@@ -46,6 +46,7 @@ test('server registers all portal jamaah routes and middleware', () => {
 
   assert.match(server, /function portalJamaahAuth\s*\(/);
   assert.match(server, /app\.post\('\/api\/portal\/jamaah\/:slug\/magic-link\/generate'/);
+  assert.match(server, /app\.get\('\/api\/portal\/jamaah\/:slug\/auth\/consume\/:token'/);
   assert.match(server, /app\.get\('\/api\/portal\/jamaah\/auth\/consume\/:token'/);
   assert.match(server, /app\.get\('\/api\/portal\/jamaah\/me'/);
   assert.match(server, /app\.get\('\/api\/portal\/jamaah\/persiapan'/);
@@ -53,7 +54,7 @@ test('server registers all portal jamaah routes and middleware', () => {
   assert.match(server, /app\.post\('\/api\/portal\/jamaah\/auth\/logout'/);
   assert.match(server, /app\.get\('\/api\/portal\/jamaah\/sessions'/);
   assert.match(server, /randomBytes\(32\)\.toString\('hex'\)/);
-  assert.match(server, /crypto\.randomUUID\(\)/);
+  assert.match(server, /PORTAL_MAGIC_CODE_REGEX/);
 });
 
 test('magic link generation is gated to agent nikita during rollout', () => {
@@ -64,16 +65,62 @@ test('magic link generation is gated to agent nikita during rollout', () => {
   assert.match(server, /Fitur Magic Link Portal Jamaah akan tersedia beberapa saat lagi/);
 });
 
-test('magic link generation reuses active unused tokens before applying rate limit', () => {
+test('magic link generation reuses active booking links before applying rate limit', () => {
   const server = read('server.js');
 
   assert.match(server, /select\('token, expires_at'\)/);
-  assert.match(server, /\.is\('consumed_at',\s*null\)/);
+  assert.match(server, /\.like\('token',\s*`\$\{slug\}:%`\)/);
+  assert.doesNotMatch(server, /magic-link\/generate[\s\S]*\.is\('consumed_at',\s*null\)[\s\S]*reused:\s*true/);
   assert.match(server, /\.gt\('expires_at',\s*new Date\(\)\.toISOString\(\)\)/);
+  assert.match(server, /\.limit\(10\)/);
+  assert.match(server, /find\(\(row\) => isPortalStoredMagicToken\(row\.token\)\)/);
+  assert.match(server, /const hasIncompatibleShortToken\s*=/);
   assert.match(server, /reused:\s*true/);
-  assert.match(server, /checkPortalRateLimit\(portalGenerateRateLimits/);
+  assert.match(server, /if \(!hasIncompatibleShortToken\) \{[\s\S]*checkPortalRateLimit\(portalGenerateRateLimits/);
   assert.match(server, /retry_after/);
   assert.match(server, /Terlalu sering membuat link/);
+});
+
+test('portal magic links are reusable booking links that expire fourteen days after departure', () => {
+  const server = read('server.js');
+
+  assert.match(server, /const PORTAL_LINK_AFTER_DEPARTURE_DAYS\s*=\s*14/);
+  assert.match(server, /function getPortalMagicLinkExpiresAt/);
+  assert.match(server, /tgl_berangkat/);
+  assert.match(server, /PORTAL_LINK_AFTER_DEPARTURE_DAYS \+ 1/);
+  assert.match(server, /function portalBookingHasDp/);
+  assert.match(server, /portalBookingHasDp\(jamaah\)/);
+  assert.match(server, /belum_dp/);
+  assert.match(server, /expiresAt\s*=\s*getPortalMagicLinkExpiresAt\(jamaah\.tgl_berangkat\)/);
+  assert.match(server, /expires_at:\s*expiresAt/);
+
+  assert.doesNotMatch(server, /if \(portalToken\.consumed_at\)[\s\S]*already_used/);
+  assert.doesNotMatch(server, /\.is\('consumed_at',\s*null\)[\s\S]*already_used/);
+  assert.match(server, /update\(\{[\s\S]*consumed_at:\s*consumedAt/);
+  assert.match(server, /Math\.min\([\s\S]*Date\.parse\(portalToken\.expires_at\)/);
+});
+
+test('magic link generation returns short mixed alphanumeric jamaah URLs scoped by slug', () => {
+  const server = read('server.js');
+
+  assert.match(server, /const PORTAL_MAGIC_CODE_LETTERS/);
+  assert.match(server, /const PORTAL_MAGIC_CODE_DIGITS/);
+  assert.match(server, /const PORTAL_MAGIC_CODE_REGEX\s*=\s*\/\^\(\?=\.\*\[a-z\]\)\(\?=\.\*\[2-9\]\)\[a-z2-9\]\{5\}\$\/i/);
+  assert.match(server, /const PORTAL_SHORT_CODE_REGEX\s*=\s*\/\^\[a-z0-9\]\{5\}\$\/i/);
+  assert.match(server, /shufflePortalMagicCode/);
+  assert.match(server, /function generatePortalMagicCode/);
+  assert.match(server, /PORTAL_MAGIC_CODE_LETTERS/);
+  assert.match(server, /PORTAL_MAGIC_CODE_DIGITS/);
+  assert.match(server, /PORTAL_MAGIC_CODE_CHARS/);
+  assert.doesNotMatch(server, /randomInt\(0,\s*100000\)/);
+  assert.doesNotMatch(server, /padStart\(5,\s*'0'\)/);
+  assert.match(server, /function formatPortalMagicUrl/);
+  assert.match(server, /function parsePortalMagicCode[\s\S]*PORTAL_SHORT_CODE_REGEX\.test\(parts\[1\]\)[\s\S]*return parts\[1\]\.toLowerCase\(\)/);
+  assert.match(server, /function isPortalStoredMagicToken[\s\S]*isPortalMagicCode\(parts\[1\]\)/);
+  assert.match(server, /buildPortalStoredToken\(slug,\s*code\)/);
+  assert.match(server, /formatPortalMagicUrl\(slug,\s*existingToken\.token\)/);
+  assert.match(server, /formatPortalMagicUrl\(slug,\s*token\)/);
+  assert.doesNotMatch(server, /url:\s*`\$\{PORTAL_BASE_URL\}\/\$\{slug\}\/jamaah\/auth\//);
 });
 
 test('server computes portal persiapan progress across 5 documents and 7 perlengkapan items', () => {

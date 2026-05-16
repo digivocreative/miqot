@@ -68,6 +68,9 @@ test('PortalJamaahRouter wires /dashboard to the authenticated dashboard page', 
   const router = read('src/components/portal-jamaah/PortalJamaahRouter.tsx');
   assert.match(router, /import\s+PortalDashboard\s+from\s+['"]\.\/pages\/PortalDashboard['"]/);
   assert.match(router, /<PortalDashboard\s+slug=\{slug\}\s+session=\{session\}/);
+  assert.match(router, /PORTAL_MAGIC_CODE_REGEX/);
+  assert.match(router, /\(\?=\.\*\[a-z\]\)\(\?=\.\*\[2-9\]\)\[a-z2-9\]\{5\}/);
+  assert.match(router, /<AuthConsumePage\s+slug=\{slug\}\s+token=\{subPath\[0\]\}/);
   assert.doesNotMatch(router, /PortalDashboardPlaceholder/);
 });
 
@@ -156,7 +159,11 @@ test('App.tsx routes /:slug/jamaah to PortalJamaahRouter', () => {
 
 test('portal API client covers auth consume and booking fallback request', () => {
   const api = read('src/components/portal-jamaah/lib/portalApi.ts');
+  const consume = read('src/components/portal-jamaah/pages/AuthConsumePage.tsx');
+
   assert.match(api, /consumeMagicLink/);
+  assert.match(api, /\/\$\{encodeURIComponent\(slug\)\}\/auth\/consume\/\$\{encodeURIComponent\(token\)\}/);
+  assert.match(consume, /portalApi\.consumeMagicLink\(slug,\s*token\)/);
   assert.match(api, /requestMagicLinkByBooking/);
   assert.match(api, /\/magic-link\/request-by-booking/);
   assert.match(api, /Authorization.*Bearer/);
@@ -200,6 +207,13 @@ test('dashboard magic link modal generates link, previews WhatsApp message, and 
   assert.match(modal, /portal_magic_link_generated/);
   assert.match(modal, /retryAfter/);
   assert.match(modal, /Tunggu/);
+  assert.match(modal, /Phone/);
+  assert.match(modal, /Ticket/);
+  assert.match(modal, /<Phone/);
+  assert.match(modal, /<Ticket/);
+  assert.match(modal, /generated\.id_umroh \|\| idUmroh/);
+  assert.match(modal, /rounded-full bg-gray-300/);
+  assert.doesNotMatch(modal, /items-start justify-between gap-3/);
   assert.match(modal, /textarea/);
   assert.match(modal, /Kirim via WhatsApp/);
   assert.match(modal, /Copy Link/);
@@ -218,10 +232,24 @@ test('dashboard has no portal jamaah menu or sessions page route, but jamaah car
   assert.doesNotMatch(layout, /KeyRound/);
   assert.doesNotMatch(jamaah, /JamaahMoreActionsButton/);
   assert.match(jamaah, /MagicLinkButton/);
-  assert.match(jamaah, /grid grid-cols-\[15fr_40fr_45fr\]/);
+  assert.match(jamaah, /grid-cols-\[15fr_40fr_45fr\]/);
+  assert.match(jamaah, /grid-cols-\[15fr_85fr\]/);
   assert.match(jamaah, /bg-violet-50/);
   assert.match(jamaah, /agentSlug=\{agentSlug/);
   assert.match(jamaah, /jamaahId=\{item\.id\}/);
+});
+
+test('dashboard hides magic link action for Belum DP jamaah cards', () => {
+  const jamaah = read('src/components/JamaahPage.tsx');
+  const belumDpBlockStart = jamaah.indexOf('key={`bdp-');
+  const belumDpBlockEnd = jamaah.indexOf('const { item, grpSize, memberIndex } = entry;', belumDpBlockStart);
+  const belumDpBlock = jamaah.slice(belumDpBlockStart, belumDpBlockEnd);
+
+  assert.notEqual(belumDpBlockStart, -1, 'Belum DP grouped card should exist');
+  assert.notEqual(belumDpBlockEnd, -1, 'Belum DP block should have a clear end');
+  assert.match(jamaah, /function isBelumDPJamaah/);
+  assert.doesNotMatch(belumDpBlock, /MagicLinkButton/);
+  assert.match(jamaah, /paymentStatus !== 'belum' && \(/);
 });
 
 test('vite dev server proxies portal jamaah API routes to local Express', () => {

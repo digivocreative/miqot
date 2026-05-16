@@ -11357,12 +11357,105 @@ app.get('/api/weather/cities', authMiddleware, async (req, res) => {
 // Portal Jamaah — backend API for jamaah-facing booking portal
 // ──────────────────────────────────────────────
 const PORTAL_BASE_URL = process.env.PORTAL_BASE_URL || 'https://alhijaz.co';
-const PORTAL_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PORTAL_SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const PORTAL_LINK_AFTER_DEPARTURE_DAYS = 14;
 const portalGenerateRateLimits = new Map();
 const portalConsumeRateLimits = new Map();
 const portalPersiapanRateLimits = new Map();
 const portalRequestBookingRateLimits = new Map();
+const PORTAL_MAGIC_CODE_LETTERS = 'abcdefghjkmnpqrstuvwxyz';
+const PORTAL_MAGIC_CODE_DIGITS = '23456789';
+const PORTAL_MAGIC_CODE_CHARS = `${PORTAL_MAGIC_CODE_LETTERS}${PORTAL_MAGIC_CODE_DIGITS}`;
+const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5}$/i;
+const PORTAL_SHORT_CODE_REGEX = /^[a-z0-9]{5}$/i;
+
+function normalizePortalSlug(slug) {
+  return String(slug || '').toLowerCase().trim();
+}
+
+function pickPortalMagicChar(chars) {
+  return chars[crypto.randomInt(chars.length)];
+}
+
+function shufflePortalMagicCode(chars) {
+  const result = [...chars];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result.join('');
+}
+
+function generatePortalMagicCode() {
+  const chars = [
+    pickPortalMagicChar(PORTAL_MAGIC_CODE_LETTERS),
+    pickPortalMagicChar(PORTAL_MAGIC_CODE_DIGITS),
+  ];
+  while (chars.length < 5) {
+    chars.push(pickPortalMagicChar(PORTAL_MAGIC_CODE_CHARS));
+  }
+  return shufflePortalMagicCode(chars);
+}
+
+function isPortalMagicCode(value) {
+  return PORTAL_MAGIC_CODE_REGEX.test(String(value || '').trim());
+}
+
+function buildPortalStoredToken(slug, code) {
+  return `${normalizePortalSlug(slug)}:${String(code || '').toLowerCase()}`;
+}
+
+function parsePortalMagicCode(token) {
+  const text = String(token || '').trim();
+  const parts = text.split(':');
+  if (parts.length === 2 && PORTAL_SHORT_CODE_REGEX.test(parts[1])) return parts[1].toLowerCase();
+  return text;
+}
+
+function isPortalStoredMagicToken(token) {
+  const parts = String(token || '').trim().split(':');
+  return parts.length === 2 && isPortalMagicCode(parts[1]);
+}
+
+function formatPortalMagicUrl(slug, token) {
+  return `${PORTAL_BASE_URL}/${normalizePortalSlug(slug)}/jamaah/${parsePortalMagicCode(token)}`;
+}
+
+function resolvePortalConsumeToken(slug, token) {
+  const rawToken = String(token || '').trim().toLowerCase();
+  if (slug && isPortalMagicCode(rawToken)) return buildPortalStoredToken(slug, rawToken);
+  return rawToken;
+}
+
+function getPortalMagicLinkExpiresAt(tgl_berangkat) {
+  const ymd = String(tgl_berangkat || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const departureStartWib = Date.parse(`${ymd}T00:00:00.000+07:00`);
+  if (!Number.isFinite(departureStartWib)) return null;
+  return new Date(departureStartWib + ((PORTAL_LINK_AFTER_DEPARTURE_DAYS + 1) * 86400000) - 1).toISOString();
+}
+
+function portalBookingHasDp(row) {
+  return toMoney(row?.bayar) > 0 || toMoney(row?.sisa) <= 0;
+}
+
+async function insertPortalMagicToken({ slug, jamaah_id, id_umroh, agent_id, expires_at }) {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const code = generatePortalMagicCode();
+    const token = buildPortalStoredToken(slug, code);
+    const { error } = await supabase.from('jamaah_portal_tokens').insert({
+      token,
+      jamaah_id,
+      id_umroh,
+      agent_id,
+      expires_at,
+    });
+    if (!error) return { token };
+    if (error.code === '23505' || /duplicate key/i.test(error.message || '')) continue;
+    return { error };
+  }
+  return { error: new Error('token_collision') };
+}
 
 // Kept in server.js because this file runs directly in Node. The matching
 // frontend/shared TypeScript version lives in src/constants/persiapan-defaults.ts.
@@ -11469,7 +11562,7 @@ function getPortalSessionToken(req) {
   return req.cookies?.jamaah_session || getPortalCookie(req, 'jamaah_session');
 }
 
-function getPortalCookieOptions(req) {
+function getPortalCookieOptions(req, maxAge = PORTAL_SESSION_TTL_MS) {
   const forwardedProto = req.headers?.['x-forwarded-proto'];
   const isHttps = req.secure || forwardedProto === 'https';
   return {
@@ -11477,7 +11570,7 @@ function getPortalCookieOptions(req) {
     secure: isHttps,
     sameSite: 'lax',
     path: '/',
-    maxAge: PORTAL_SESSION_TTL_MS,
+    maxAge,
   };
 }
 
@@ -11563,10 +11656,6 @@ async function getPortalDashboardAgent(req, slug) {
     return { error: 'forbidden', status: 403 };
   }
   return { agent: targetAgent };
-}
-
-function getPortalDatePlus(ms) {
-  return new Date(Date.now() + ms).toISOString();
 }
 
 function portalNormalizeName(value) {
@@ -11891,7 +11980,7 @@ async function buildPortalPersiapanResponse(session) {
 
 app.get('/api/agents/:slug/public', async (req, res) => {
   try {
-    const slug = String(req.params.slug || '').toLowerCase();
+    const slug = normalizePortalSlug(req.params.slug);
     const agent = await getAgentBySlug(slug);
     if (!agent) return res.status(404).json({ error: 'agent_not_found' });
     res.json({
@@ -11920,7 +12009,7 @@ app.post('/api/portal/jamaah/:slug/magic-link/request-by-booking', portalRequest
 
     const { data: rows, error } = await supabase
       .from('jamaah')
-      .select('id, id_umroh, nama, wa')
+      .select('id, id_umroh, nama, wa, bayar, sisa, tgl_berangkat')
       .eq('agent_id', agent.id)
       .eq('id_umroh', idUmroh)
       .limit(50);
@@ -11931,11 +12020,12 @@ app.post('/api/portal/jamaah/:slug/magic-link/request-by-booking', portalRequest
 
     const matched = (rows || []).find((row) => normalizePortalWaNumber(row.wa) === wa);
     if (!matched) return res.json(generic);
+    if (!portalBookingHasDp(matched)) return res.json(generic);
 
-    const token = crypto.randomUUID();
-    const expiresAt = getPortalDatePlus(PORTAL_TOKEN_TTL_MS);
-    const { error: insertError } = await supabase.from('jamaah_portal_tokens').insert({
-      token,
+    const expiresAt = getPortalMagicLinkExpiresAt(matched.tgl_berangkat);
+    if (!expiresAt) return res.json(generic);
+    const { error: insertError } = await insertPortalMagicToken({
+      slug,
       jamaah_id: matched.id,
       id_umroh: matched.id_umroh,
       agent_id: agent.id,
@@ -11974,29 +12064,40 @@ app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, async (
 
     const { data: jamaah, error } = await supabase
       .from('jamaah')
-      .select('id, id_umroh, nama')
+      .select('id, id_umroh, nama, bayar, sisa, tgl_berangkat')
       .eq('id', jamaahId)
       .eq('agent_id', agent.id)
       .maybeSingle();
     if (error) return res.status(500).json({ error: error.message });
     if (!jamaah) return res.status(404).json({ error: 'jamaah_not_found' });
     if (!jamaah.id_umroh) return res.status(400).json({ error: 'missing_id_umroh' });
+    if (!portalBookingHasDp(jamaah)) {
+      return res.status(400).json({
+        error: 'belum_dp',
+        message: 'Magic Link tersedia setelah DP tercatat.',
+      });
+    }
 
-    const { data: existingToken, error: existingTokenError } = await supabase
+    const expiresAt = getPortalMagicLinkExpiresAt(jamaah.tgl_berangkat);
+    if (!expiresAt) return res.status(400).json({ error: 'missing_tgl_berangkat' });
+
+    const slug = normalizePortalSlug(agent.slug || req.params.slug);
+    const { data: activeTokens, error: existingTokenError } = await supabase
       .from('jamaah_portal_tokens')
       .select('token, expires_at')
       .eq('jamaah_id', jamaah.id)
       .eq('agent_id', agent.id)
       .eq('id_umroh', jamaah.id_umroh)
-      .is('consumed_at', null)
+      .like('token', `${slug}:%`)
       .gt('expires_at', new Date().toISOString())
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(10);
     if (existingTokenError) {
       if (portalSchemaMissingResponse(res, existingTokenError)) return;
       return res.status(500).json({ error: existingTokenError.message });
     }
+    const existingToken = (activeTokens || []).find((row) => isPortalStoredMagicToken(row.token));
+    const hasIncompatibleShortToken = (activeTokens || []).length > 0 && !existingToken;
 
     const { count } = await supabase
       .from('jamaah')
@@ -12004,11 +12105,17 @@ app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, async (
       .eq('agent_id', agent.id)
       .eq('id_umroh', jamaah.id_umroh);
 
-    const slug = agent.slug || req.params.slug;
     if (existingToken) {
+      if (String(existingToken.expires_at || '') !== expiresAt) {
+        supabase
+          .from('jamaah_portal_tokens')
+          .update({ expires_at: expiresAt })
+          .eq('token', existingToken.token)
+          .then(() => {});
+      }
       return res.json({
-        url: `${PORTAL_BASE_URL}/${slug}/jamaah/auth/${existingToken.token}`,
-        expires_at: existingToken.expires_at,
+        url: formatPortalMagicUrl(slug, existingToken.token),
+        expires_at: expiresAt,
         jamaah_name: jamaah.nama,
         id_umroh: jamaah.id_umroh,
         anggota_count: count || 0,
@@ -12016,21 +12123,21 @@ app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, async (
       });
     }
 
-    const token = crypto.randomUUID();
-    const expiresAt = getPortalDatePlus(PORTAL_TOKEN_TTL_MS);
-    const rateKey = `agent:${req.user?.id || 'unknown'}`;
-    const rateResult = checkPortalRateLimit(portalGenerateRateLimits, rateKey, 10, 60 * 60 * 1000);
-    if (!rateResult.ok) {
-      if (rateResult.retryAfter) res.set('Retry-After', String(rateResult.retryAfter));
-      return res.status(429).json({
-        error: 'rate_limited',
-        retry_after: rateResult.retryAfter || 0,
-        message: `Terlalu sering membuat link. Coba lagi dalam ${Math.ceil((rateResult.retryAfter || 60) / 60)} menit.`,
-      });
+    if (!hasIncompatibleShortToken) {
+      const rateKey = `agent:${req.user?.id || 'unknown'}`;
+      const rateResult = checkPortalRateLimit(portalGenerateRateLimits, rateKey, 10, 60 * 60 * 1000);
+      if (!rateResult.ok) {
+        if (rateResult.retryAfter) res.set('Retry-After', String(rateResult.retryAfter));
+        return res.status(429).json({
+          error: 'rate_limited',
+          retry_after: rateResult.retryAfter || 0,
+          message: `Terlalu sering membuat link. Coba lagi dalam ${Math.ceil((rateResult.retryAfter || 60) / 60)} menit.`,
+        });
+      }
     }
 
-    const { error: insertError } = await supabase.from('jamaah_portal_tokens').insert({
-      token,
+    const { token, error: insertError } = await insertPortalMagicToken({
+      slug,
       jamaah_id: jamaah.id,
       id_umroh: jamaah.id_umroh,
       agent_id: agent.id,
@@ -12042,7 +12149,7 @@ app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, async (
     }
 
     res.json({
-      url: `${PORTAL_BASE_URL}/${slug}/jamaah/auth/${token}`,
+      url: formatPortalMagicUrl(slug, token),
       expires_at: expiresAt,
       jamaah_name: jamaah.nama,
       id_umroh: jamaah.id_umroh,
@@ -12054,9 +12161,9 @@ app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, async (
   }
 });
 
-app.get('/api/portal/jamaah/auth/consume/:token', portalConsumeLimiter, async (req, res) => {
+async function handlePortalMagicConsume(req, res) {
   try {
-    const token = String(req.params.token || '').trim();
+    const token = resolvePortalConsumeToken(req.params.slug, req.params.token);
     if (!token) return res.status(404).json({ error: 'not_found' });
 
     const { data: portalToken, error } = await supabase
@@ -12066,40 +12173,40 @@ app.get('/api/portal/jamaah/auth/consume/:token', portalConsumeLimiter, async (r
       .maybeSingle();
     if (error) return res.status(500).json({ error: error.message });
     if (!portalToken) return res.status(404).json({ error: 'not_found' });
-    if (portalToken.consumed_at) {
-      return res.status(410).json({ error: 'already_used', message: 'Link sudah digunakan' });
-    }
     if (new Date(portalToken.expires_at) < new Date()) {
       return res.status(410).json({ error: 'expired', message: 'Link sudah expired, minta link baru ke agent' });
     }
 
     const [jamaahRes, agentRes] = await Promise.all([
-      supabase.from('jamaah').select('id, nama').eq('id', portalToken.jamaah_id).maybeSingle(),
+      supabase.from('jamaah').select('id, nama, bayar, sisa, tgl_berangkat').eq('id', portalToken.jamaah_id).maybeSingle(),
       supabase.from('agents').select('id, slug').eq('id', portalToken.agent_id).maybeSingle(),
     ]);
     if (jamaahRes.error) return res.status(500).json({ error: jamaahRes.error.message });
     if (agentRes.error) return res.status(500).json({ error: agentRes.error.message });
     if (!jamaahRes.data || !agentRes.data) return res.status(404).json({ error: 'not_found' });
+    if (!portalBookingHasDp(jamaahRes.data)) {
+      return res.status(403).json({ error: 'belum_dp', message: 'Akses portal tersedia setelah DP tercatat.' });
+    }
 
     const { ip, userAgent } = getClientIpUa(req);
     const consumedAt = new Date().toISOString();
-    const { data: consumedRows, error: consumeError } = await supabase
+    const { error: consumeError } = await supabase
       .from('jamaah_portal_tokens')
       .update({
         consumed_at: consumedAt,
         consumed_ip: ip,
         consumed_user_agent: userAgent,
       })
-      .eq('token', token)
-      .is('consumed_at', null)
-      .select('token');
+      .eq('token', token);
     if (consumeError) return res.status(500).json({ error: consumeError.message });
-    if (!consumedRows?.length) {
-      return res.status(410).json({ error: 'already_used', message: 'Link sudah digunakan' });
-    }
 
     const sessionToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = getPortalDatePlus(PORTAL_SESSION_TTL_MS);
+    const tokenExpiresMs = Date.parse(portalToken.expires_at);
+    const sessionExpiresMs = Math.min(
+      Date.now() + PORTAL_SESSION_TTL_MS,
+      Number.isFinite(tokenExpiresMs) ? tokenExpiresMs : Date.now() + PORTAL_SESSION_TTL_MS
+    );
+    const expiresAt = new Date(sessionExpiresMs).toISOString();
     const { error: sessionError } = await supabase.from('jamaah_portal_sessions').insert({
       session_token: sessionToken,
       id_umroh: portalToken.id_umroh,
@@ -12110,7 +12217,7 @@ app.get('/api/portal/jamaah/auth/consume/:token', portalConsumeLimiter, async (r
     });
     if (sessionError) return res.status(500).json({ error: sessionError.message });
 
-    res.cookie('jamaah_session', sessionToken, getPortalCookieOptions(req));
+    res.cookie('jamaah_session', sessionToken, getPortalCookieOptions(req, Math.max(0, sessionExpiresMs - Date.now())));
     res.json({
       session_token: sessionToken,
       id_umroh: portalToken.id_umroh,
@@ -12122,7 +12229,10 @@ app.get('/api/portal/jamaah/auth/consume/:token', portalConsumeLimiter, async (r
     console.error('[PortalJamaah] consume error:', err.message);
     res.status(500).json({ error: 'Gagal consume magic link' });
   }
-});
+}
+
+app.get('/api/portal/jamaah/:slug/auth/consume/:token', portalConsumeLimiter, handlePortalMagicConsume);
+app.get('/api/portal/jamaah/auth/consume/:token', portalConsumeLimiter, handlePortalMagicConsume);
 
 app.get('/api/portal/jamaah/me', portalJamaahAuth, async (req, res) => {
   try {
