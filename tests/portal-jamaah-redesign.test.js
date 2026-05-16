@@ -204,5 +204,15 @@ test('TaskListWidget: renders deriveTopTasks output + empty-state', () => {
   assert.match(src, /YANG PERLU ANDA LAKUKAN/);
 });
 
+test('RosterItem: gender ring + payment overlay + visual progress bar', () => {
+  const src = read('src/components/portal-jamaah/components/RosterItem.tsx');
+  assert.match(src, /ring-pink-300/);
+  assert.match(src, /ring-blue-300/);
+  assert.match(src, /bg-emerald-500/, 'lunas overlay');
+  assert.match(src, /bg-blue-500/, 'dp overlay');
+  assert.match(src, /bg-amber-500/, 'belum overlay');
+  assert.match(src, /h-1\.5 rounded-full/, 'progress bar');
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
