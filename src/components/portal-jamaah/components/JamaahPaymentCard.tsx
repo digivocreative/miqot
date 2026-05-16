@@ -1,5 +1,6 @@
 import type { PortalJamaah } from '../hooks/usePortalMe';
 import { formatRupiah, formatRupiahFull } from '../utils/formatRupiah';
+import { toTitleCase } from '../utils/formatText';
 
 function initials(name: string) {
   return name
@@ -20,7 +21,7 @@ export default function JamaahPaymentCard({ jamaah }: { jamaah: PortalJamaah }) 
           {initials(jamaah.nama)}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{jamaah.nama}</p>
+          <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{toTitleCase(jamaah.nama)}</p>
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
             Dibayar {formatRupiah(jamaah.bayar)} · Sisa {formatRupiah(jamaah.sisa)}
           </p>

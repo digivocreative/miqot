@@ -1,5 +1,6 @@
 import { Check, Clock } from 'lucide-react';
 import type { PortalJamaah } from '../hooks/usePortalMe';
+import { toTitleCase } from '../utils/formatText';
 
 type PaymentStatus = 'lunas' | 'dp' | 'belum';
 
@@ -62,7 +63,7 @@ export default function RosterItem({
       </div>
       <div className="min-w-0 flex-1 space-y-1.5">
         <div className="flex min-w-0 items-center gap-2">
-          <p className="truncate text-sm font-bold text-gray-900 dark:text-white">{jamaah.nama}</p>
+          <p className="truncate text-sm font-bold text-gray-900 dark:text-white">{toTitleCase(jamaah.nama)}</p>
           {jamaah.is_initiator && (
             <span className="flex-none rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
               Anda

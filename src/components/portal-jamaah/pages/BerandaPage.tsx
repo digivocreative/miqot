@@ -9,6 +9,7 @@ import RosterItem from '../components/RosterItem';
 import type { PortalJamaah, PortalMeData } from '../hooks/usePortalMe';
 import { usePortalPersiapan } from '../hooks/usePortalPersiapan';
 import type { PortalRoute } from '../hooks/usePortalRoute';
+import { toTitleCase } from '../utils/formatText';
 
 function includesReadyDocument(dokumen: Record<string, unknown>, keyword: string) {
   const text = JSON.stringify(dokumen || {}).toLowerCase();
@@ -62,7 +63,7 @@ export default function BerandaPage({
           <p className="text-sm font-medium text-gray-500 dark:text-slate-400">Assalamualaikum,</p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
             {initiator?.jk === 'L' ? 'Bapak ' : initiator?.jk === 'P' ? 'Ibu ' : ''}
-            {initiator?.nama || 'Jamaah'}
+            {toTitleCase(initiator?.nama) || 'Jamaah'}
           </h1>
         </section>
 
