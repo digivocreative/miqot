@@ -269,5 +269,14 @@ test('PerlengkapanPage: violet-themed, uses existing PerlengkapanSubTab content'
   assert.match(src, /perlengkapan/i);
 });
 
+test('ManasikSpiritualPage: purple manasik info + spiritual checklist', () => {
+  const src = read('src/components/portal-jamaah/pages/ManasikSpiritualPage.tsx');
+  assert.match(src, /PortalBackBar/);
+  assert.match(src, /manasik/i);
+  assert.match(src, /spiritual/i);
+  assert.match(src, /usePortalPersiapan/);
+  assert.match(src, /linear-gradient.*581c87/i, 'purple gradient');
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
