@@ -24,6 +24,7 @@ import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
+import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { awapiFetchUmrahByKeberangkatan, awapiFetchUmrahByPendaftaran, awapiFetchUmrahById, awapiFetchJamaahById, normalizeAwapiRow, hasSuspiciousAwapiPayment, preserveExistingPaymentForSuspiciousAwapiRow, AwapiError } from './awapi-client.js';
 import {
   runAnalyticsMaintenance,
@@ -5925,7 +5926,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   // Prevent concurrent sync
   const state = syncingAgents.get(agentId);
   if (state?.isSyncing) {
-    return res.json({ success: true, data: { initialCount: 0, syncing: true, message: 'Sync sudah berjalan' } });
+    return res.json({ success: true, data: { initialCount: 0, syncing: true, message: 'Sync sudah berjalan', ...state } });
   }
 
   // ── Optional: route through Alhijaz Official API (single-pass JSON) ──
@@ -6202,11 +6203,19 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
       }
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // PHASE 2: Enrichment via laporan (slower, but fills all fields)
-    // Adds: wa, tgl_lahir, perlengkapan, dokumen, no_paspor, paspor_expired, tgl_daftar
-    // ═══════════════════════════════════════════════════════════════════
-    console.log(`[Sync] ${slug}: Phase 2 — laporan enrichment starting`);
+    const deferInlinePhase2 = shouldDeferInlineUmrohPhase2({
+      awapiSyncEnabled: process.env.AWAPI_SYNC_ENABLED === 'true',
+      awapiKey: agent.awapi_key,
+    });
+
+    if (deferInlinePhase2) {
+      console.log(`[Sync] ${slug}: Phase 2 deferred to scheduled enrichment (01:00/14:00 WIB)`);
+    } else {
+      // ═══════════════════════════════════════════════════════════════════
+      // PHASE 2: Enrichment via laporan (slower, but fills all fields)
+      // Adds: wa, tgl_lahir, perlengkapan, dokumen, no_paspor, paspor_expired, tgl_daftar
+      // ═══════════════════════════════════════════════════════════════════
+      console.log(`[Sync] ${slug}: Phase 2 — laporan enrichment starting`);
 
     // Split large date ranges into 7-day chunks — smaller = faster PHP response, fewer timeouts
     function splitRange(tglAwal, tglAkhir, chunkDays = 7) {
@@ -6418,8 +6427,9 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
       }
     }
 
-    if (timeoutCount > 0) {
-      console.log(`[Sync] ${slug}: Phase 2 — ${timeoutCount}/${fetchJobs.length} ranges timed out`);
+      if (timeoutCount > 0) {
+        console.log(`[Sync] ${slug}: Phase 2 — ${timeoutCount}/${fetchJobs.length} ranges timed out`);
+      }
     }
   } catch (err) {
     if (!firstBatchSent) throw err;
@@ -13837,58 +13847,66 @@ async function syncOneAgent(agent) {
       console.error(`[SYNC] ${slug} Phase 1 error:`, p1err.message);
     }
 
-    // ── PHASE 2: Enrichment via laporan (adds wa, tgl_lahir, perlengkapan, etc.) ──
-    // Merge year ranges + split into monthly chunks (same as manual sync)
-    const yearsToSync = getActiveHijriahYears();
-    const allRanges = yearsToSync.map(y => HIJRIAH_YEARS[y]).filter(Boolean)
-      .sort((a, b) => a.tglAwal.localeCompare(b.tglAwal));
-    const merged = [];
-    for (const r of allRanges) {
-      const last = merged[merged.length - 1];
-      if (last && r.tglAwal <= last.tglAkhir) {
-        if (r.tglAkhir > last.tglAkhir) last.tglAkhir = r.tglAkhir;
-      } else {
-        merged.push({ tglAwal: r.tglAwal, tglAkhir: r.tglAkhir });
-      }
-    }
-    function bgSplitRange(tglAwal, tglAkhir) {
-      const chunks = [];
-      let start = new Date(tglAwal);
-      const end = new Date(tglAkhir);
-      while (start <= end) {
-        const chunkEnd = new Date(start);
-        chunkEnd.setDate(chunkEnd.getDate() + 6); // 7-day chunks — less data per request = faster PHP response
-        const actualEnd = chunkEnd > end ? end : chunkEnd;
-        chunks.push({ tglAwal: start.toISOString().split('T')[0], tglAkhir: actualEnd.toISOString().split('T')[0] });
-        start = new Date(actualEnd);
-        start.setDate(start.getDate() + 1);
-      }
-      return chunks;
-    }
-
-    // Cap at 6 months into the future, sort newest-first — matches manual sync.
-    const bgToday = new Date();
-    const bgFutureCap = new Date(bgToday);
-    bgFutureCap.setMonth(bgFutureCap.getMonth() + 6);
-    const bgFutureCapStr = bgFutureCap.toISOString().split('T')[0];
-    const bgTodayStr = bgToday.toISOString().split('T')[0];
-    for (const span of merged) {
-      if (span.tglAkhir > bgFutureCapStr) span.tglAkhir = bgFutureCapStr;
-    }
-    const bgAllChunks = [];
-    for (const span of merged) {
-      if (span.tglAwal > bgFutureCapStr) continue;
-      bgAllChunks.push(...bgSplitRange(span.tglAwal, span.tglAkhir));
-    }
-    bgAllChunks.sort((a, b) => {
-      const aIsNow = a.tglAwal <= bgTodayStr && a.tglAkhir >= bgTodayStr;
-      const bIsNow = b.tglAwal <= bgTodayStr && b.tglAkhir >= bgTodayStr;
-      if (aIsNow && !bIsNow) return -1;
-      if (!aIsNow && bIsNow) return 1;
-      return Math.abs(new Date(a.tglAwal) - bgToday) - Math.abs(new Date(b.tglAwal) - bgToday);
+    const deferInlinePhase2 = shouldDeferInlineUmrohPhase2({
+      awapiSyncEnabled: process.env.AWAPI_SYNC_ENABLED === 'true',
+      awapiKey: agent.awapi_key,
     });
-    const fetchJobs = bgAllChunks;
-    console.log(`[SYNC] ${slug}: ${fetchJobs.length} chunks (7-day, capped at ${bgFutureCapStr})`);
+
+    if (deferInlinePhase2) {
+      console.log(`[SYNC] ${slug}: Phase 2 deferred to scheduled enrichment (01:00/14:00 WIB)`);
+    } else {
+      // ── PHASE 2: Enrichment via laporan (adds wa, tgl_lahir, perlengkapan, etc.) ──
+      // Merge year ranges + split into monthly chunks (same as manual sync)
+      const yearsToSync = getActiveHijriahYears();
+      const allRanges = yearsToSync.map(y => HIJRIAH_YEARS[y]).filter(Boolean)
+        .sort((a, b) => a.tglAwal.localeCompare(b.tglAwal));
+      const merged = [];
+      for (const r of allRanges) {
+        const last = merged[merged.length - 1];
+        if (last && r.tglAwal <= last.tglAkhir) {
+          if (r.tglAkhir > last.tglAkhir) last.tglAkhir = r.tglAkhir;
+        } else {
+          merged.push({ tglAwal: r.tglAwal, tglAkhir: r.tglAkhir });
+        }
+      }
+      function bgSplitRange(tglAwal, tglAkhir) {
+        const chunks = [];
+        let start = new Date(tglAwal);
+        const end = new Date(tglAkhir);
+        while (start <= end) {
+          const chunkEnd = new Date(start);
+          chunkEnd.setDate(chunkEnd.getDate() + 6); // 7-day chunks — less data per request = faster PHP response
+          const actualEnd = chunkEnd > end ? end : chunkEnd;
+          chunks.push({ tglAwal: start.toISOString().split('T')[0], tglAkhir: actualEnd.toISOString().split('T')[0] });
+          start = new Date(actualEnd);
+          start.setDate(start.getDate() + 1);
+        }
+        return chunks;
+      }
+
+      // Cap at 6 months into the future, sort newest-first — matches manual sync.
+      const bgToday = new Date();
+      const bgFutureCap = new Date(bgToday);
+      bgFutureCap.setMonth(bgFutureCap.getMonth() + 6);
+      const bgFutureCapStr = bgFutureCap.toISOString().split('T')[0];
+      const bgTodayStr = bgToday.toISOString().split('T')[0];
+      for (const span of merged) {
+        if (span.tglAkhir > bgFutureCapStr) span.tglAkhir = bgFutureCapStr;
+      }
+      const bgAllChunks = [];
+      for (const span of merged) {
+        if (span.tglAwal > bgFutureCapStr) continue;
+        bgAllChunks.push(...bgSplitRange(span.tglAwal, span.tglAkhir));
+      }
+      bgAllChunks.sort((a, b) => {
+        const aIsNow = a.tglAwal <= bgTodayStr && a.tglAkhir >= bgTodayStr;
+        const bIsNow = b.tglAwal <= bgTodayStr && b.tglAkhir >= bgTodayStr;
+        if (aIsNow && !bIsNow) return -1;
+        if (!aIsNow && bIsNow) return 1;
+        return Math.abs(new Date(a.tglAwal) - bgToday) - Math.abs(new Date(b.tglAwal) - bgToday);
+      });
+      const fetchJobs = bgAllChunks;
+      console.log(`[SYNC] ${slug}: ${fetchJobs.length} chunks (7-day, capped at ${bgFutureCapStr})`);
 
     const kantor = agent.jamaah_kantor || '2';
     let networkFailures = 0;
@@ -13995,8 +14013,9 @@ async function syncOneAgent(agent) {
       }
     }
 
-    if (timeoutCount > 0) {
-      console.log(`[SYNC] ${slug}: ${timeoutCount}/${fetchJobs.length} ranges timed out (after retries)`);
+      if (timeoutCount > 0) {
+        console.log(`[SYNC] ${slug}: ${timeoutCount}/${fetchJobs.length} ranges timed out (after retries)`);
+      }
     }
 
     console.log(`[SYNC] ${slug}: total ${totalSynced} umroh synced`);
@@ -14145,6 +14164,236 @@ async function syncOneAgent(agent) {
   }
 }
 
+function buildUmrohPhase2FetchJobs(yearsToSync = getActiveHijriahYears(), now = new Date()) {
+  const splitRange = (tglAwal, tglAkhir, chunkDays = 7) => {
+    const chunks = [];
+    let start = new Date(tglAwal);
+    const end = new Date(tglAkhir);
+    while (start <= end) {
+      const chunkEnd = new Date(start);
+      chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1);
+      const actualEnd = chunkEnd > end ? end : chunkEnd;
+      chunks.push({
+        tglAwal: start.toISOString().split('T')[0],
+        tglAkhir: actualEnd.toISOString().split('T')[0],
+      });
+      start = new Date(actualEnd);
+      start.setDate(start.getDate() + 1);
+    }
+    return chunks;
+  };
+
+  const allRanges = yearsToSync.map(y => HIJRIAH_YEARS[y]).filter(Boolean)
+    .sort((a, b) => a.tglAwal.localeCompare(b.tglAwal));
+  const merged = [];
+  for (const r of allRanges) {
+    const last = merged[merged.length - 1];
+    if (last && r.tglAwal <= last.tglAkhir) {
+      if (r.tglAkhir > last.tglAkhir) last.tglAkhir = r.tglAkhir;
+    } else {
+      merged.push({ tglAwal: r.tglAwal, tglAkhir: r.tglAkhir });
+    }
+  }
+
+  const futureCapDate = new Date(now);
+  futureCapDate.setMonth(futureCapDate.getMonth() + 6);
+  const futureCap = futureCapDate.toISOString().split('T')[0];
+  const jobs = [];
+  for (const span of merged) {
+    if (span.tglAkhir > futureCap) span.tglAkhir = futureCap;
+    if (span.tglAwal > futureCap) continue;
+    jobs.push(...splitRange(span.tglAwal, span.tglAkhir));
+  }
+  jobs.sort((a, b) => b.tglAwal.localeCompare(a.tglAwal));
+  return { jobs, futureCap };
+}
+
+async function runScheduledUmrohPhase2ForAgent(agent) {
+  const agentId = agent.id;
+  const slug = agent.slug;
+  const username = agent.jamaah_username;
+  if (!username || !agent.jamaah_password) return { skipped: true };
+
+  const existing = syncingAgents.get(agentId);
+  if (existing?.isSyncing) return { skipped: true };
+
+  const syncTime = new Date().toISOString();
+  syncingAgents.set(agentId, {
+    isSyncing: true,
+    background: true,
+    scope: 'umroh-p2',
+    phase: 2,
+    totalSynced: 0,
+    lastSync: syncTime,
+    startedAt: Date.now(),
+    username,
+  });
+
+  try {
+    await laporanDisconnect(username, { skipRemoteLogout: true });
+    const decrypted = capiDecrypt(agent.jamaah_password);
+    const kantor = agent.jamaah_kantor || '2';
+    const loginResult = await laporanLogin(username, decrypted, kantor);
+    if (!loginResult.success) {
+      const rateLimited = loginResult.reason === 'rate_limited';
+      console.error(`[SYNC/P2] ${slug}: login failed — ${loginResult.error || 'unknown reason'}`);
+      syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true, rateLimited });
+      return { loginFailed: true, rateLimited };
+    }
+
+    const { jobs, futureCap } = buildUmrohPhase2FetchJobs(getActiveHijriahYears());
+    console.log(`[SYNC/P2] ${slug}: scheduled enrichment starting — ${jobs.length} chunks, capped at ${futureCap}`);
+
+    const PARALLEL = 2;
+    let networkFailures = 0;
+    let timeoutCount = 0;
+    let totalItems = 0;
+    let updated = 0;
+
+    for (let i = 0; i < jobs.length; i += PARALLEL) {
+      if (networkFailures >= 3) {
+        console.log(`[SYNC/P2] ${slug}: aborting — legacy system unreachable`);
+        break;
+      }
+
+      const batch = jobs.slice(i, i + PARALLEL);
+      const results = await Promise.allSettled(
+        batch.map(job => fetchLaporan(username, {
+          kantor,
+          agentId: username,
+          tglAwal: job.tglAwal,
+          tglAkhir: job.tglAkhir,
+        }))
+      );
+
+      for (let j = 0; j < results.length; j++) {
+        const job = batch[j];
+        const result = results[j].status === 'fulfilled'
+          ? results[j].value
+          : { success: false, reason: 'unknown', error: results[j].reason?.message };
+
+        if (!result.success) {
+          console.log(`[SYNC/P2] ${slug} range ${job.tglAwal}: ${result.error} (${result.reason || 'unknown'})`);
+          if (result.reason === 'session_expired') {
+            await laporanDisconnect(username, { skipRemoteLogout: true });
+            await laporanLogin(username, decrypted, kantor);
+          } else if (result.reason === 'network') {
+            networkFailures++;
+          } else if (result.reason === 'timeout') {
+            timeoutCount++;
+          }
+          continue;
+        }
+
+        networkFailures = 0;
+        const { items } = parseLaporanHtml(result.html);
+        totalItems += items.length;
+        if (items.length === 0) continue;
+
+        updated += await enrichJamaahFromLaporanItems(agentId, items, 'P2-scheduled');
+        syncingAgents.set(agentId, {
+          isSyncing: true,
+          background: true,
+          scope: 'umroh-p2',
+          phase: 2,
+          totalSynced: updated,
+          lastSync: syncTime,
+          startedAt: Date.now(),
+          username,
+        });
+      }
+    }
+
+    if (timeoutCount > 0) {
+      console.log(`[SYNC/P2] ${slug}: ${timeoutCount}/${jobs.length} ranges timed out`);
+    }
+    invalidateStatsCache(agentId);
+    console.log(`[SYNC/P2] ${slug}: scheduled enrichment complete — ${updated} updated rows from ${totalItems} laporan items`);
+    return { ok: true, updated };
+  } catch (err) {
+    console.error(`[SYNC/P2] ${slug} error:`, err.message);
+    return { error: err.message };
+  } finally {
+    const cur = syncingAgents.get(agentId);
+    if (cur?.isSyncing && cur?.scope === 'umroh-p2') {
+      syncingAgents.set(agentId, {
+        isSyncing: false,
+        totalSynced: cur.totalSynced || 0,
+        lastSync: cur.lastSync || syncTime,
+      });
+    }
+    try { await laporanDisconnect(username, { skipRemoteLogout: true }); } catch {}
+  }
+}
+
+async function runScheduledUmrohPhase2Enrichment() {
+  if (process.env.AWAPI_SYNC_ENABLED !== 'true') {
+    console.log('[SYNC/P2] Scheduled enrichment skipped — AWAPI sync is disabled');
+    return;
+  }
+
+  console.log('[SYNC/P2] Starting scheduled umroh Phase 2 enrichment cycle...');
+  const startTime = Date.now();
+  const { data: agents, error } = await supabase
+    .from('agents')
+    .select('*')
+    .not('jamaah_username', 'is', null)
+    .not('jamaah_password', 'is', null)
+    .not('awapi_key', 'is', null);
+
+  if (error || !agents?.length) {
+    console.log('[SYNC/P2] No AWAPI-enabled agents with credentials found');
+    return;
+  }
+
+  let ok = 0, fail = 0, skipped = 0, loginFail = 0;
+  let abort = false;
+  const INTER_AGENT_GAP_MS = 5000;
+
+  for (const agent of agents) {
+    if (abort) { skipped++; continue; }
+    const result = await runScheduledUmrohPhase2ForAgent(agent);
+    if (result.skipped) skipped++;
+    else if (result.loginFailed) {
+      loginFail++;
+      if (result.rateLimited) {
+        console.warn(`[SYNC/P2] Aborting cycle — Apache rate-limiting at ${agent.slug}`);
+        abort = true;
+      }
+    } else if (result.error) fail++;
+    else ok++;
+
+    if (!abort) await new Promise(r => setTimeout(r, INTER_AGENT_GAP_MS));
+  }
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[SYNC/P2] Cycle complete: ${ok} OK, ${loginFail} login failed, ${fail} error, ${skipped} skipped in ${elapsed}s`);
+}
+
+function scheduleUmrohPhase2Enrichment() {
+  if (process.env.AWAPI_SYNC_ENABLED !== 'true') {
+    console.log('[SYNC/P2] Scheduled enrichment disabled because AWAPI_SYNC_ENABLED is not true');
+    return;
+  }
+
+  const scheduleNext = () => {
+    const nextRun = nextJakartaScheduleDate(new Date(), DEFAULT_UMROH_PHASE2_TIMES_WIB);
+    const delayMs = Math.max(0, nextRun.getTime() - Date.now());
+    console.log(`[SYNC/P2] Next scheduled enrichment in ${Math.round(delayMs / 60000)} minutes (${DEFAULT_UMROH_PHASE2_TIMES_WIB.join(' & ')} WIB)`);
+    setTimeout(async () => {
+      try {
+        await runScheduledUmrohPhase2Enrichment();
+      } catch (err) {
+        console.error('[SYNC/P2] Scheduled cycle error:', err.message);
+      } finally {
+        scheduleNext();
+      }
+    }, delayMs);
+  };
+
+  scheduleNext();
+}
+
 async function syncAllAgents() {
   console.log('[SYNC] Starting sync cycle...');
   const startTime = Date.now();
@@ -14256,6 +14505,7 @@ async function runSyncCycleLoop() {
 setTimeout(() => {
   runSyncCycleLoop().catch(err => console.error('[SYNC] Loop crashed:', err.message));
 }, 30 * 1000);
+scheduleUmrohPhase2Enrichment();
 
 // ── Haji background sync: dedicated loop, decoupled from umroh path ──
 // Why dedicated: when AWAPI_SYNC_ENABLED=true (umroh via official API),

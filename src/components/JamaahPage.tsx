@@ -537,9 +537,9 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
     setSyncing(true);
     setError('');
     setSyncPhase(1);
+    setSyncedCount(0);
     if (isFirstSync) {
       setView('syncing');
-      setSyncedCount(0);
       setSyncDone(false);
     }
 
@@ -572,6 +572,10 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
       setView('data');
       setPage(1);
       await fetchJamaah(1);
+
+      const nextSyncedCount = result.data.totalSynced ?? result.data.initialCount;
+      if (typeof nextSyncedCount === 'number') setSyncedCount(nextSyncedCount);
+      if (typeof result.data.phase === 'number') setSyncPhase(result.data.phase);
 
       // If still syncing remaining, start polling
       if (result.data.syncing) {
@@ -968,7 +972,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
             <span className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               {syncPhase === 2
-                ? 'Memperbarui data perlengkapan...'
+                ? 'Melengkapi dokumen & perlengkapan...'
                 : <>Menyinkronkan jamaah umroh...{syncedCount > 0 && <>{' '}(<AnimatedCounter value={syncedCount} />)</>}</>
               }
             </span>
