@@ -11,6 +11,7 @@ export function formatLongDate(value?: string | null): string {
   const date = parsePortalDate(value);
   if (!date) return 'Tanggal menyusul';
   return new Intl.DateTimeFormat('id-ID', {
+    weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
