@@ -36,7 +36,6 @@ test('portal jamaah frontend files exist', () => {
     'src/components/portal-jamaah/components/HotelCard.tsx',
     'src/components/portal-jamaah/components/FlightCard.tsx',
     'src/components/portal-jamaah/components/ItineraryList.tsx',
-    'src/components/portal-jamaah/components/LogoutMenu.tsx',
     'src/components/portal-jamaah/hooks/usePortalMe.ts',
     'src/components/portal-jamaah/hooks/usePortalPersiapan.ts',
     'src/components/portal-jamaah/hooks/usePortalTheme.ts',

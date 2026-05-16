@@ -17,7 +17,7 @@ export default function PortalBackBar({
           type="button"
           onClick={onBack}
           aria-label="Kembali"
-          className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
+          className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
         >
           <ChevronLeft className="h-5 w-5" strokeWidth={2} />
         </button>
@@ -25,7 +25,7 @@ export default function PortalBackBar({
           <p className="text-[11px] text-gray-500 dark:text-slate-400">Halaman</p>
           <p className="truncate text-sm font-bold text-gray-800 dark:text-white">{title}</p>
         </div>
-        <div className="flex h-9 w-9 flex-none items-center justify-center">{rightSlot}</div>
+        <div className="flex h-11 w-11 flex-none items-center justify-center">{rightSlot}</div>
       </div>
     </header>
   );
