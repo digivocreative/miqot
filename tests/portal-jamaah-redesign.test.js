@@ -169,5 +169,22 @@ test('HeroCountdown: emerald gradient hero with text-6xl countdown', () => {
   assert.match(src, /id_umroh/);
 });
 
+test('PortalMenuCard: card with icon badge + label + desc + tap handler', () => {
+  const src = read('src/components/portal-jamaah/components/PortalMenuCard.tsx');
+  assert.match(src, /w-12 h-12/, 'icon container should be 48x48');
+  assert.match(src, /rounded-2xl/);
+  assert.match(src, /active:scale-\[0\.97\]/);
+  assert.match(src, /text-\[13px\] font-bold/);
+  assert.match(src, /text-\[11px\]/, 'desc text size');
+  assert.match(src, /hover:-translate-y-0\.5/);
+});
+
+test('PortalMenuGrid: 3-col grid wiring PORTAL_MENUS', () => {
+  const src = read('src/components/portal-jamaah/components/PortalMenuGrid.tsx');
+  assert.match(src, /grid grid-cols-3 gap-3/);
+  assert.match(src, /PORTAL_MENUS/);
+  assert.match(src, /onNavigate/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
