@@ -121,5 +121,15 @@ test('faq: exports 8 FAQ entries with question + answer', () => {
   assert.equal(matches.length, 8, `expected 8 FAQ entries, got ${matches.length}`);
 });
 
+test('ThemeToggle: renders Sun/Moon icon button with DESIGN-SYSTEM classes', () => {
+  const src = read('src/components/portal-jamaah/components/ThemeToggle.tsx');
+  assert.match(src, /Moon/);
+  assert.match(src, /Sun/);
+  assert.match(src, /bg-gray-100\/80 dark:bg-slate-800\/80/);
+  assert.match(src, /rounded-xl/);
+  assert.match(src, /usePortalTheme/);
+  assert.match(src, /active:scale-95/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
