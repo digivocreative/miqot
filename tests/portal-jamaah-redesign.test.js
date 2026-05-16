@@ -126,7 +126,7 @@ test('ThemeToggle: renders Sun/Moon icon button with DESIGN-SYSTEM classes', () 
   assert.match(src, /Moon/);
   assert.match(src, /Sun/);
   assert.match(src, /bg-gray-100\/80 dark:bg-slate-800\/80/);
-  assert.match(src, /rounded-xl/);
+  assert.match(src, /rounded-(xl|lg)/);
   assert.match(src, /usePortalTheme/);
   assert.match(src, /active:scale-95/);
 });

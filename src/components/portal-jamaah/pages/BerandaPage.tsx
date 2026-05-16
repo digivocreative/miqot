@@ -51,9 +51,9 @@ export default function BerandaPage({
               type="button"
               onClick={onLogout}
               aria-label="Keluar"
-              className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-500 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+              className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100/80 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-500 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-red-900/20 dark:hover:text-red-400"
             >
-              <LogOut className="h-5 w-5" strokeWidth={2} />
+              <LogOut className="h-4 w-4" strokeWidth={2} />
             </button>
           </>
         }
