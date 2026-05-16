@@ -186,5 +186,15 @@ test('PortalMenuGrid: 3-col grid wiring PORTAL_MENUS', () => {
   assert.match(src, /onNavigate/);
 });
 
+test('SmartAlertsStrip: renders alerts via deriveAlerts', () => {
+  const src = read('src/components/portal-jamaah/components/SmartAlertsStrip.tsx');
+  assert.match(src, /deriveAlerts/);
+  assert.match(src, /onNavigate/);
+  assert.match(src, /ChevronRight/);
+  // Tone classes
+  assert.match(src, /bg-red-50/);
+  assert.match(src, /bg-amber-50/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
