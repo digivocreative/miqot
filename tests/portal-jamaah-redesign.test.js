@@ -214,5 +214,20 @@ test('RosterItem: gender ring + payment overlay + visual progress bar', () => {
   assert.match(src, /h-1\.5 rounded-full/, 'progress bar');
 });
 
+test('BerandaPage: composes hero + alerts + menu grid + tasks + roster', () => {
+  const src = read('src/components/portal-jamaah/pages/BerandaPage.tsx');
+  assert.match(src, /PortalTopBar/);
+  assert.match(src, /HeroCountdown/);
+  assert.match(src, /SmartAlertsStrip/);
+  assert.match(src, /PortalMenuGrid/);
+  assert.match(src, /TaskListWidget/);
+  assert.match(src, /RosterItem/);
+  assert.match(src, /ThemeToggle/);
+  assert.match(src, /usePortalPersiapan/);
+  assert.match(src, /bg-gradient-to-b from-gray-50 to-gray-100/);
+  assert.match(src, /max-w-lg/);
+  assert.match(src, /pb-24/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
