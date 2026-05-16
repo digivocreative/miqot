@@ -105,5 +105,13 @@ test('portalAlerts: deriveAlerts returns max 2 alerts in priority order', () => 
   assert.match(src, /slice\(\s*0\s*,\s*2\s*\)/);
 });
 
+test('portalTasks: derives top 3 pending tasks with category mapping', () => {
+  const src = read('src/components/portal-jamaah/lib/portalTasks.ts');
+  assert.match(src, /export function deriveTopTasks/);
+  assert.match(src, /export type TaskCategory/);
+  assert.match(src, /slice\(\s*0\s*,\s*3\s*\)/);
+  assert.match(src, /pembayaran|dokumen|perlengkapan|manasik/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
