@@ -261,5 +261,13 @@ test('DokumenPage: amber-themed, JamaahSelector + 6 dokumen wajib', () => {
   assert.match(src, /amber/);
 });
 
+test('PerlengkapanPage: violet-themed, uses existing PerlengkapanSubTab content', () => {
+  const src = read('src/components/portal-jamaah/pages/PerlengkapanPage.tsx');
+  assert.match(src, /PortalBackBar/);
+  assert.match(src, /JamaahSelector/);
+  assert.match(src, /PerlengkapanItem/);
+  assert.match(src, /perlengkapan/i);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
