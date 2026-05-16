@@ -59,5 +59,13 @@ test('redesign: deleted files no longer exist', () => {
   }
 });
 
+test('usePortalTheme: persists in localStorage and toggles dark class', () => {
+  const src = read('src/components/portal-jamaah/hooks/usePortalTheme.ts');
+  assert.match(src, /localStorage\.getItem\(['"]portalDarkMode['"]\)/);
+  assert.match(src, /classList\.toggle\(['"]dark['"]/);
+  assert.match(src, /prefers-color-scheme/);
+  assert.match(src, /export function usePortalTheme/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
