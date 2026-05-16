@@ -140,5 +140,14 @@ test('PortalTopBar: uses DESIGN-SYSTEM classes (backdrop-blur, dark mode, no bel
   assert.doesNotMatch(src, /Bell/, 'dummy bell button must be removed');
 });
 
+test('PortalBackBar: back button + title + sticky header per DESIGN-SYSTEM', () => {
+  const src = read('src/components/portal-jamaah/components/PortalBackBar.tsx');
+  assert.match(src, /sticky top-0 z-30/);
+  assert.match(src, /backdrop-blur-md/);
+  assert.match(src, /ChevronLeft/);
+  assert.match(src, /max-w-lg/);
+  assert.match(src, /onBack/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
