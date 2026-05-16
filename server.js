@@ -33,6 +33,7 @@ import {
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
+import { inferSaudiJourneyOrderFromItinerary } from './lib/journey-order.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
 import cron from 'node-cron';
@@ -1076,8 +1077,15 @@ function lookupHotelDistance(hotelName) {
   return '';
 }
 
-function buildPackageContext(pkg) {
+function buildPackageContext(pkg, itineraryCtx = null) {
   if (!pkg) return null;
+  const itineraryOrder = inferSaudiJourneyOrderFromItinerary(itineraryCtx);
+  const routeOrder = inferItineraryOrder(pkg) || {};
+  const itinerarySummary = itineraryOrder?.[0] === 'Madinah'
+    ? 'Madinah dulu sesuai PDF itinerary, lalu Mekkah/Umroh'
+    : itineraryOrder?.[0] === 'Umroh'
+      ? 'Mekkah/Umroh dulu sesuai PDF itinerary, lalu Madinah'
+      : null;
   const tiers = {};
   const hargaObj = pkg.paket_harga || {};
   for (const [tierName, pricing] of Object.entries(hargaObj)) {
@@ -1112,7 +1120,12 @@ function buildPackageContext(pkg) {
     perlengkapan_harga: pkg.perlengkapan_harga || '',
     brosur_tersedia: Boolean(pkg.brosur_cdn || pkg.brosur),
     itinerary_tersedia: Boolean(pkg.itinerary_cdn || pkg.itinerary),
-    urutan_perjalanan: inferItineraryOrder(pkg),
+    urutan_perjalanan: {
+      ...routeOrder,
+      urutan_umroh: itinerarySummary || routeOrder.urutan_umroh,
+      sumber_utama: itineraryOrder ? 'itinerary_pdf' : 'rute_pesawat',
+      urutan_dari_itinerary: itineraryOrder,
+    },
   };
 }
 
@@ -1276,9 +1289,9 @@ app.post('/api/ask-ai/:slug/:jadwalId', async (req, res) => {
   if (!pkg) {
     return res.json(getAskAiFallback(agent.name));
   }
-  const packageCtx = buildPackageContext(pkg);
-  const hotelCtx = buildHotelContext(pkg);
   const itineraryCtx = await getItineraryContext(jadwalId);
+  const packageCtx = buildPackageContext(pkg, itineraryCtx);
+  const hotelCtx = buildHotelContext(pkg);
 
   const OPENAI_KEY = process.env.OPENAI_API_KEY;
   if (!OPENAI_KEY) {
@@ -1360,6 +1373,7 @@ ATURAN WAJIB:
    - Untuk pertanyaan lain yang ga terkait brosur/itinerary: set "attachment": null.
 10. Markdown yang boleh dipakai: **bold**, *italic*, __underline__, dan "- " untuk list. Hindari heading (#), tabel, kode, atau blockquote.
 11. URUTAN PERJALANAN ("umroh dulu apa Madinah dulu", "mampir ke mana dulu", "landing di mana", "rute pesawatnya gimana"): JANGAN jawab generic. Baca field "urutan_perjalanan":
+    - Jika "urutan_dari_itinerary" terisi, itu sumber utama dari PDF itinerary. PAKAI itu meskipun berbeda dari rute pesawat.
     - "urutan_umroh" = quick summary (Mekkah dulu / Madinah dulu / mulai di kota X).
     - "catatan_rute" = info penting tentang transit atau Plus side-trip (Kairo/Dubai/Istanbul wisata sebelum ibadah). WAJIB baca dan sertakan di jawaban jika field ini terisi.
     - "rute_pesawat_lengkap" = chain kota penuh.
@@ -12787,8 +12801,33 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
       throw new Error('No data in Supabase');
     }
 
+    let journeyOrderById = new Map();
+    try {
+      const jadwalIds = data.map(row => row.jadwal_id).filter(Boolean);
+      if (jadwalIds.length) {
+        const { data: itineraryRows, error: itineraryError } = await supabase
+          .from('itineraries')
+          .select('jadwal_id, content')
+          .in('jadwal_id', jadwalIds);
+
+        if (itineraryError) {
+          console.warn('[Schedules] Itinerary order lookup failed:', itineraryError.message);
+        } else {
+          journeyOrderById = new Map(
+            (itineraryRows || [])
+              .map(row => [row.jadwal_id, inferSaudiJourneyOrderFromItinerary(row.content)])
+              .filter(([, order]) => Array.isArray(order) && order.length >= 2)
+          );
+        }
+      }
+    } catch (journeyErr) {
+      console.warn('[Schedules] Itinerary order inference failed:', journeyErr.message);
+    }
+
     const aaData = data.map(row => {
       const out = { ...row };
+      const journeyOrder = journeyOrderById.get(row.jadwal_id);
+      if (journeyOrder) out.journey_order = journeyOrder;
       // Use CDN URLs when available, then remove CDN-specific fields
       if (out.brosur_cdn) out.brosur = out.brosur_cdn;
       if (out.itinerary_cdn) out.itinerary = out.itinerary_cdn;

@@ -16,6 +16,12 @@ function isSessionForSlug(slug: string) {
   return session && session.slug === slug ? session : null;
 }
 
+function getDashboardPath(slug: string, accessCode?: string) {
+  return accessCode && PORTAL_MAGIC_CODE_REGEX.test(accessCode)
+    ? `/${slug}/jamaah/${accessCode}/dashboard`
+    : `/${slug}/jamaah/dashboard`;
+}
+
 function NotFoundPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8 font-sans">
@@ -36,13 +42,25 @@ export default function PortalJamaahRouter({ slug, subPath }: Props) {
 
   if (subPath.length === 0) {
     if (session) {
-      window.location.replace(`/${slug}/jamaah/dashboard`);
+      window.location.replace(getDashboardPath(slug, session.access_code));
       return null;
     }
     return <LandingPage slug={slug} />;
   }
 
+  if (subPath.length === 2 && PORTAL_MAGIC_CODE_REGEX.test(subPath[0]) && subPath[1] === 'dashboard') {
+    if (!session) {
+      window.location.replace(`/${slug}/jamaah/${subPath[0]}`);
+      return null;
+    }
+    return <PortalDashboard slug={slug} session={session} />;
+  }
+
   if (subPath.length === 1 && PORTAL_MAGIC_CODE_REGEX.test(subPath[0])) {
+    if (session) {
+      window.location.replace(`/${slug}/jamaah/${subPath[0]}/dashboard`);
+      return null;
+    }
     return <AuthConsumePage slug={slug} token={subPath[0]} />;
   }
 
@@ -53,6 +71,11 @@ export default function PortalJamaahRouter({ slug, subPath }: Props) {
   if (subPath[0] === 'dashboard') {
     if (!session) {
       window.location.replace(`/${slug}/jamaah`);
+      return null;
+    }
+    const dashboardPath = getDashboardPath(slug, session.access_code);
+    if (dashboardPath !== `/${slug}/jamaah/dashboard`) {
+      window.location.replace(dashboardPath);
       return null;
     }
     return <PortalDashboard slug={slug} session={session} />;

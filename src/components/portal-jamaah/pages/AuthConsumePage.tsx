@@ -9,6 +9,11 @@ type ConsumeState = 'loading' | 'success' | 'error';
 type ErrorKind = 'expired' | 'consumed' | 'invalid';
 
 const consumePromises = new Map<string, Promise<ConsumeMagicLinkResult>>();
+const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5}$/i;
+
+function getPortalDashboardPath(slug: string, token: string) {
+  return PORTAL_MAGIC_CODE_REGEX.test(token) ? `/${slug}/jamaah/${token}/dashboard` : `/${slug}/jamaah/dashboard`;
+}
 
 export default function AuthConsumePage({ slug, token }: { slug: string; token: string }) {
   const [state, setState] = useState<ConsumeState>('loading');
@@ -34,11 +39,12 @@ export default function AuthConsumePage({ slug, token }: { slug: string; token: 
           id_umroh: data.id_umroh,
           slug: data.agent_slug || slug,
           expires_at: data.expires_at,
+          access_code: PORTAL_MAGIC_CODE_REGEX.test(token) ? token : undefined,
         });
         setResult(data);
         setState('success');
         window.setTimeout(() => {
-          window.location.replace(`/${slug}/jamaah/dashboard`);
+          window.location.replace(getPortalDashboardPath(slug, token));
         }, 900);
       })
       .catch((err) => {
@@ -74,7 +80,7 @@ export default function AuthConsumePage({ slug, token }: { slug: string; token: 
             </div>
             <button
               type="button"
-              onClick={() => window.location.replace(`/${slug}/jamaah/dashboard`)}
+              onClick={() => window.location.replace(getPortalDashboardPath(slug, token))}
               className="mt-5 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-800"
             >
               Masuk ke Portal

@@ -1,6 +1,7 @@
 import { clearPortalSession, getPortalSession } from './portalSession';
 
 const API_BASE = '/api/portal/jamaah';
+const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5}$/i;
 
 export type PersiapanKind = 'tahapan' | 'spiritual';
 
@@ -31,8 +32,12 @@ async function authedFetch(path: string, options: RequestInit = {}) {
   });
 
   if (res.status === 401) {
+    const loginPath =
+      session.access_code && PORTAL_MAGIC_CODE_REGEX.test(session.access_code)
+        ? `/${session.slug}/jamaah/${session.access_code}`
+        : `/${session.slug}/jamaah`;
     clearPortalSession();
-    window.location.href = `/${session.slug}/jamaah`;
+    window.location.href = loginPath;
     throw new Error('session_expired');
   }
 

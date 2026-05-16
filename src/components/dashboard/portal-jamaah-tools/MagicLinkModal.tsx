@@ -15,21 +15,39 @@ interface Props {
   onClose: () => void;
 }
 
+function formatJamaahName(value: string) {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('id-ID');
+  if (!normalized) return 'Bapak/Ibu';
+  return normalized
+    .split(' ')
+    .map((word) => word
+      .split(/([-'])/)
+      .map((part) => {
+        if (!part || part === '-' || part === "'") return part;
+        return part.charAt(0).toLocaleUpperCase('id-ID') + part.slice(1);
+      })
+      .join(''))
+    .join(' ');
+}
+
 function buildDefaultMessage(data: PortalMagicLinkResponse, jamaahName: string, agentName: string) {
-  return `Assalamualaikum ${jamaahName} 🤲
+  return `Assalamualaikum ${jamaahName}, semoga sehat selalu ya 😊
 
-Berikut link akses Portal Jamaah untuk booking Anda di ${agentName}:
+Berikut link *Portal Jamaah* untuk perjalanan Umroh bersama *Alhijaz Indowisata*:
 
-${data.url}
+🔗 ${data.url}
 
-Di portal ini Anda bisa:
-✅ Cek persiapan dokumen & perlengkapan
-✅ Pantau pembayaran
-✅ Lihat info perjalanan & itinerary
-✅ Checklist persiapan H-30, H-7, H-1
+🕋 Di portal ini Bapak/Ibu bisa:
+📄 *Cek dokumen & perlengkapan*
+💳 *Pantau pembayaran*
+✈️ *Lihat jadwal perjalanan*
+✅ *Ikuti checklist persiapan*
 
-Link berlaku 30 hari & hanya untuk satu kali pakai.
-Jika ada pertanyaan, langsung balas pesan ini ya 🙏`;
+Link ini bisa diakses per hari ini sampai *7 hari setelah kepulangan*.
+
+Mohon disimpan baik-baik ya. Demi keamanan data jamaah, jangan dibagikan ke orang di luar keluarga atau rombongan terkait.
+
+Kalau ada yang ingin ditanyakan, langsung balas pesan ini ya 🙏`;
 }
 
 export default function MagicLinkModal({
@@ -48,6 +66,8 @@ export default function MagicLinkModal({
   const [copied, setCopied] = useState<'link' | 'message' | null>(null);
   const [retryAfter, setRetryAfter] = useState(0);
 
+  const displayJamaahName = useMemo(() => formatJamaahName(jamaahName), [jamaahName]);
+  const displayAgentName = useMemo(() => formatJamaahName(agentName), [agentName]);
   const waNumber = useMemo(() => normalizeWaNumber(jamaahWa), [jamaahWa]);
 
   async function generate() {
@@ -57,7 +77,7 @@ export default function MagicLinkModal({
       setRetryAfter(0);
       const data = await portalJamaahAdmin.generateMagicLink(agentSlug, jamaahId);
       setGenerated(data);
-      setMessage(buildDefaultMessage(data, jamaahName, agentName));
+      setMessage(buildDefaultMessage(data, displayJamaahName, displayAgentName));
       setState('success');
       trackEvent('feature', 'portal_magic_link_generated', {
         jamaah_id: jamaahId,
@@ -119,7 +139,7 @@ export default function MagicLinkModal({
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-bold text-gray-900 dark:text-slate-100">Akses Portal Jamaah</h2>
             <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-              Link ini aktif 30 hari dan hanya bisa dipakai sekali.
+              Jamaah bisa pantau progress di sini.
             </p>
           </div>
           <button
@@ -138,7 +158,7 @@ export default function MagicLinkModal({
               <Loader2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 animate-spin" />
             </div>
             <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-4">Membuat link akses...</p>
-            <p className="text-xs text-gray-500 dark:text-slate-500 mt-1">Sedang memverifikasi jamaah dan booking.</p>
+            <p className="text-xs text-gray-500 dark:text-slate-500 mt-1">Sedang memverifikasi data jamaah dan perjalanan.</p>
           </div>
         )}
 
@@ -166,7 +186,7 @@ export default function MagicLinkModal({
               <div className="rounded-2xl border border-gray-100 dark:border-slate-700 bg-gray-50/80 dark:bg-slate-900/40 p-3">
                 <div className="min-w-0">
                   <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400 dark:text-slate-500">Jamaah</p>
-                  <p className="text-sm font-bold leading-snug text-gray-900 dark:text-slate-100 break-words mt-1">{jamaahName}</p>
+                  <p className="text-sm font-bold leading-snug text-gray-900 dark:text-slate-100 break-words mt-1">{displayJamaahName}</p>
                   <div className="mt-2 flex min-w-0 items-center gap-2 text-xs text-gray-500 dark:text-slate-400">
                     <span className="inline-flex min-w-0 items-center gap-1.5">
                       <Phone className="w-3.5 h-3.5 shrink-0 text-gray-400 dark:text-slate-500" strokeWidth={2.2} />

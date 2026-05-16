@@ -78,6 +78,8 @@ export type HotelInfo = SaudiHotelInfo | CairoHotelInfo | TurkeyHotelInfo;
  */
 export type PackageHotels = Record<string, HotelInfo>;
 
+export type SaudiJourneyLabel = 'Umroh' | 'Madinah';
+
 // ============================================
 // Flight Types
 // ============================================
@@ -146,6 +148,9 @@ export interface UmrohPackage {
   // ---- Hotels ----
   /** Hotel information by tier */
   hotel: PackageHotels;
+
+  /** Saudi journey order inferred from parsed itinerary, when available */
+  journeyOrder?: SaudiJourneyLabel[];
 }
 
 // ============================================
@@ -177,6 +182,7 @@ export interface UmrohPackageRaw {
   perlengkapan_harga: string;
   paket_harga: Record<string, RoomPricing>;
   paket_hotel: Record<string, Record<string, string>>;
+  journey_order?: SaudiJourneyLabel[];
 }
 
 /**

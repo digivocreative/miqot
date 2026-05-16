@@ -188,6 +188,9 @@ function transformPackage(raw: UmrohPackageRaw): UmrohPackage {
 
     // Hotels
     hotel,
+
+    // Journey order from parsed itinerary (preferred over flight-route inference)
+    journeyOrder: Array.isArray(raw.journey_order) ? raw.journey_order : undefined,
   };
 }
 

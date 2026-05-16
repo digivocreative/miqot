@@ -72,18 +72,35 @@ export const getLandingCityName = (pkg: UmrohPackage): string => {
   return LANDING_AIRPORT_MAP[airportCode] || airportCode;
 };
 
-const getSaudiArrivalAirportCode = (pkg: UmrohPackage): string => {
-  const routeLegs = getRouteLegs(pkg.keberangkatan?.rute);
-  const finalDepartureArrival = routeLegs.length ? routeLegs[routeLegs.length - 1].to : '';
-  // Match Ask AI itinerary inference: the final arrival on the departure
-  // chain is where the ibadah route begins. JED means Umroh/Mekkah first.
-  if (SAUDI_AIRPORTS.has(finalDepartureArrival)) return finalDepartureArrival;
+const getSaudiLabelsFromRoute = (pkg: UmrohPackage): Array<'Madinah' | 'Umroh'> | null => {
+  const departureLegs = getRouteLegs(pkg.keberangkatan?.rute);
+  if (!departureLegs.length) return null;
 
-  for (let i = routeLegs.length - 1; i >= 0; i -= 1) {
-    if (SAUDI_AIRPORTS.has(routeLegs[i].to)) return routeLegs[i].to;
+  const finalDepartureArrival = departureLegs[departureLegs.length - 1].to;
+  if (finalDepartureArrival === 'MED') return ['Madinah', 'Umroh'];
+
+  if (finalDepartureArrival === 'JED') {
+    const returnLegs = getRouteLegs(pkg.kepulangan?.rute);
+    const firstReturnDeparture = returnLegs[0]?.from;
+    if (firstReturnDeparture === 'MED') return ['Umroh', 'Madinah'];
+    if (firstReturnDeparture === 'JED') return null;
+    return ['Umroh', 'Madinah'];
   }
 
-  return 'JED';
+  for (let i = departureLegs.length - 1; i >= 0; i -= 1) {
+    if (departureLegs[i].to === 'MED') return ['Madinah', 'Umroh'];
+    if (departureLegs[i].to === 'JED') return null;
+  }
+
+  return null;
+};
+
+const getSaudiLabelsFromItinerary = (pkg: UmrohPackage): Array<'Madinah' | 'Umroh'> | null => {
+  if (!Array.isArray(pkg.journeyOrder)) return null;
+  const labels = pkg.journeyOrder.filter((label): label is 'Madinah' | 'Umroh' =>
+    label === 'Madinah' || label === 'Umroh'
+  );
+  return labels.length >= 2 ? labels.slice(0, 2) : null;
 };
 
 const makeStep = (label: string, imageSrc?: string): JourneyStep => {
@@ -136,8 +153,9 @@ export function getPackageJourneySteps(pkg: UmrohPackage, extraCityNames: string
 
   const fallbackPreTours = fallbackTours.filter(tour => tour.fallbackPlacement === 'pre');
   const fallbackPostTours = fallbackTours.filter(tour => tour.fallbackPlacement === 'post');
-  const saudiArrivalCode = getSaudiArrivalAirportCode(pkg);
-  const saudiLabels = saudiArrivalCode === 'MED' ? ['Madinah', 'Umroh'] : ['Umroh', 'Madinah'];
+  const itinerarySaudiLabels = getSaudiLabelsFromItinerary(pkg);
+  const saudiLabels = itinerarySaudiLabels || getSaudiLabelsFromRoute(pkg);
+  if (!saudiLabels) return [];
   const tourStep = (tour: TourConfig) => makeStep(tour.label, tour.imageSrc);
 
   return [

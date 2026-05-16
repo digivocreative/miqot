@@ -66,11 +66,24 @@ test('portal jamaah frontend files exist', () => {
 
 test('PortalJamaahRouter wires /dashboard to the authenticated dashboard page', () => {
   const router = read('src/components/portal-jamaah/PortalJamaahRouter.tsx');
+  const consume = read('src/components/portal-jamaah/pages/AuthConsumePage.tsx');
+  const session = read('src/components/portal-jamaah/lib/portalSession.ts');
+  const api = read('src/components/portal-jamaah/lib/portalApi.ts');
+
   assert.match(router, /import\s+PortalDashboard\s+from\s+['"]\.\/pages\/PortalDashboard['"]/);
   assert.match(router, /<PortalDashboard\s+slug=\{slug\}\s+session=\{session\}/);
   assert.match(router, /PORTAL_MAGIC_CODE_REGEX/);
   assert.match(router, /\(\?=\.\*\[a-z\]\)\(\?=\.\*\[2-9\]\)\[a-z2-9\]\{5\}/);
   assert.match(router, /<AuthConsumePage\s+slug=\{slug\}\s+token=\{subPath\[0\]\}/);
+  assert.match(router, /subPath\[1\]\s*===\s*'dashboard'/);
+  assert.match(router, /\/\$\{slug\}\/jamaah\/\$\{subPath\[0\]\}\/dashboard/);
+  assert.match(router, /\/\$\{slug\}\/jamaah\/\$\{subPath\[0\]\}/);
+  assert.match(consume, /getPortalDashboardPath\(slug,\s*token\)/);
+  assert.match(consume, /access_code:\s*PORTAL_MAGIC_CODE_REGEX\.test\(token\)\s*\?\s*token\s*:\s*undefined/);
+  assert.match(session, /access_code\?:\s*string/);
+  assert.match(api, /PORTAL_MAGIC_CODE_REGEX/);
+  assert.match(api, /session\.access_code\s*&&\s*PORTAL_MAGIC_CODE_REGEX\.test\(session\.access_code\)/);
+  assert.match(api, /\/\$\{session\.slug\}\/jamaah\/\$\{session\.access_code\}/);
   assert.doesNotMatch(router, /PortalDashboardPlaceholder/);
 });
 
@@ -207,6 +220,21 @@ test('dashboard magic link modal generates link, previews WhatsApp message, and 
   assert.match(modal, /portal_magic_link_generated/);
   assert.match(modal, /retryAfter/);
   assert.match(modal, /Tunggu/);
+  assert.match(modal, /formatJamaahName/);
+  assert.match(modal, /displayJamaahName/);
+  assert.match(modal, /semoga sehat selalu/);
+  assert.match(modal, /\*Portal Jamaah\*/);
+  assert.match(modal, /\*Alhijaz Indowisata\*/);
+  assert.match(modal, /🔗/);
+  assert.match(modal, /🕋/);
+  assert.match(modal, /📄/);
+  assert.match(modal, /💳/);
+  assert.match(modal, /✈️/);
+  assert.match(modal, /✅/);
+  assert.match(modal, /\*7 hari setelah kepulangan\*/);
+  assert.match(modal, /jangan dibagikan ke orang di luar keluarga/);
+  assert.doesNotMatch(modal, /Link berlaku 30 hari & hanya untuk satu kali pakai/);
+  assert.doesNotMatch(modal, /booking/i);
   assert.match(modal, /Phone/);
   assert.match(modal, /Ticket/);
   assert.match(modal, /<Phone/);

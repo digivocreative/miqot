@@ -7,6 +7,7 @@ export interface PortalSession {
   id_umroh: string;
   slug: string;
   expires_at: string;
+  access_code?: string;
 }
 
 function hasExpired(expiresAt: string): boolean {

@@ -1814,53 +1814,55 @@ _________________________
             </div>
           </div>
 
-          <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/40">
-            <div className="mb-3 flex min-w-0 items-center gap-2">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/90 text-emerald-600 shadow-sm ring-1 ring-gray-100 dark:bg-slate-800 dark:text-emerald-400 dark:ring-slate-700">
-                <Route size={15} strokeWidth={2} />
-              </span>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-700 dark:text-slate-300">Urutan perjalanan</p>
-            </div>
-            <div
-              className="grid items-start pb-0.5"
-              style={{
-                gridTemplateColumns: journeySteps
-                  .map((_, idx) => idx < journeySteps.length - 1 ? 'minmax(max-content,1fr) clamp(56px,10vw,112px)' : 'minmax(max-content,1fr)')
-                  .join(' '),
-              }}
-            >
-              {journeySteps.map((step, idx) => (
-                <Fragment key={`${step.label}-${idx}`}>
-                  <div className="flex min-w-0 flex-col items-center text-center">
-                    <span className={`flex h-8 w-8 items-center justify-center overflow-hidden rounded-full shadow-sm ${
-                      step.tone === 'tour'
-                        ? 'bg-white/95 ring-1 ring-gray-200 dark:bg-slate-800 dark:ring-slate-700'
-                        : step.tone === 'madinah'
-                          ? 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-emerald-900/30 dark:ring-emerald-800/50'
-                          : 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-slate-800 dark:ring-emerald-800/60'
-                    }`}>
-                      <img
-                        src={step.imageSrc}
-                        alt={step.imageAlt}
-                        loading="lazy"
-                        className={step.tone === 'tour' ? 'h-[18px] w-6 rounded-[3px] object-cover shadow-[0_1px_2px_rgba(15,23,42,0.18)]' : 'h-full w-full object-contain'}
-                      />
-                    </span>
-                    <span className="mt-1.5 block whitespace-nowrap px-1 text-center text-[11px] font-semibold leading-tight text-gray-800 dark:text-slate-100">
-                      {step.label}
-                    </span>
-                  </div>
-                  {idx < journeySteps.length - 1 && (
-                    <div className="mt-4 flex w-full items-center justify-center px-1" aria-hidden="true">
-                      <span className="h-px flex-1 rounded-full bg-emerald-200 dark:bg-emerald-800/70" />
-                      <ChevronRight size={12} strokeWidth={2.2} className="mx-0.5 shrink-0 text-emerald-500 dark:text-emerald-400" />
-                      <span className="h-px flex-1 rounded-full bg-emerald-200 dark:bg-emerald-800/70" />
+          {journeySteps.length > 0 && (
+            <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/40">
+              <div className="mb-3 flex min-w-0 items-center gap-2">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/90 text-emerald-600 shadow-sm ring-1 ring-gray-100 dark:bg-slate-800 dark:text-emerald-400 dark:ring-slate-700">
+                  <Route size={15} strokeWidth={2} />
+                </span>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-gray-700 dark:text-slate-300">Urutan perjalanan</p>
+              </div>
+              <div
+                className="grid items-start pb-0.5"
+                style={{
+                  gridTemplateColumns: journeySteps
+                    .map((_, idx) => idx < journeySteps.length - 1 ? 'minmax(max-content,1fr) clamp(56px,10vw,112px)' : 'minmax(max-content,1fr)')
+                    .join(' '),
+                }}
+              >
+                {journeySteps.map((step, idx) => (
+                  <Fragment key={`${step.label}-${idx}`}>
+                    <div className="flex min-w-0 flex-col items-center text-center">
+                      <span className={`flex h-8 w-8 items-center justify-center overflow-hidden rounded-full shadow-sm ${
+                        step.tone === 'tour'
+                          ? 'bg-white/95 ring-1 ring-gray-200 dark:bg-slate-800 dark:ring-slate-700'
+                          : step.tone === 'madinah'
+                            ? 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-emerald-900/30 dark:ring-emerald-800/50'
+                            : 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-slate-800 dark:ring-emerald-800/60'
+                      }`}>
+                        <img
+                          src={step.imageSrc}
+                          alt={step.imageAlt}
+                          loading="lazy"
+                          className={step.tone === 'tour' ? 'h-[18px] w-6 rounded-[3px] object-cover shadow-[0_1px_2px_rgba(15,23,42,0.18)]' : 'h-full w-full object-contain'}
+                        />
+                      </span>
+                      <span className="mt-1.5 block whitespace-nowrap px-1 text-center text-[11px] font-semibold leading-tight text-gray-800 dark:text-slate-100">
+                        {step.label}
+                      </span>
                     </div>
-                  )}
-                </Fragment>
-              ))}
+                    {idx < journeySteps.length - 1 && (
+                      <div className="mt-4 flex w-full items-center justify-center px-1" aria-hidden="true">
+                        <span className="h-px flex-1 rounded-full bg-emerald-200 dark:bg-emerald-800/70" />
+                        <ChevronRight size={12} strokeWidth={2.2} className="mx-0.5 shrink-0 text-emerald-500 dark:text-emerald-400" />
+                        <span className="h-px flex-1 rounded-full bg-emerald-200 dark:bg-emerald-800/70" />
+                      </div>
+                    )}
+                  </Fragment>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
 
           {/* Agent Profile (only visible when URL slug matches an agent) */}
