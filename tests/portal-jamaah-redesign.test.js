@@ -160,5 +160,14 @@ test('StickyWhatsAppCta: fixed bottom, emerald-500, shadow', () => {
   assert.match(src, /max-w-lg/);
 });
 
+test('HeroCountdown: emerald gradient hero with text-6xl countdown', () => {
+  const src = read('src/components/portal-jamaah/components/HeroCountdown.tsx');
+  assert.match(src, /text-6xl/, 'countdown should be text-6xl');
+  assert.match(src, /linear-gradient.*064e3b/i);
+  assert.match(src, /Menuju Tanah Suci/i);
+  assert.match(src, /rounded-2xl/);
+  assert.match(src, /id_umroh/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
