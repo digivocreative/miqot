@@ -93,5 +93,17 @@ test('portalMenu: 6 menus with semantic colors and lucide icons', () => {
   assert.match(src, /from-rose-400/);
 });
 
+test('portalAlerts: deriveAlerts returns max 2 alerts in priority order', () => {
+  const src = read('src/components/portal-jamaah/lib/portalAlerts.ts');
+  assert.match(src, /export function deriveAlerts/);
+  assert.match(src, /export interface PortalAlert/);
+  assert.match(src, /payment|pembayaran/i);
+  assert.match(src, /dokumen/i);
+  assert.match(src, /perlengkapan/i);
+  assert.match(src, /manasik/i);
+  // Max 2 sliced
+  assert.match(src, /slice\(\s*0\s*,\s*2\s*\)/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
