@@ -68,5 +68,16 @@ test('usePortalTheme: persists in localStorage and toggles dark class', () => {
   assert.match(src, /export function usePortalTheme/);
 });
 
+test('usePortalRoute: exposes 7 route IDs + navigation helpers', () => {
+  const src = read('src/components/portal-jamaah/hooks/usePortalRoute.ts');
+  for (const id of ['beranda', 'perjalanan', 'pembayaran', 'dokumen', 'perlengkapan', 'manasik', 'faq']) {
+    assert.match(src, new RegExp(`['"]${id}['"]`), `route ${id} missing`);
+  }
+  assert.match(src, /export type PortalRoute/);
+  assert.match(src, /export function usePortalRoute/);
+  assert.match(src, /navigate/);
+  assert.match(src, /goBack/);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
