@@ -1872,7 +1872,10 @@ Haji Plus pricing calculator with package selection, export, and share.
 
 ### Package Selection Cards
 
-Two packages: RAHMAH (5-star, $15,700) and UHUD (4-star, $12,500)
+Two packages with room-type pricing. Quad is the default:
+
+- RAHMAH: Double $17,400, Triple $16,400, Quad $15,700
+- UHUD: Double $14,000, Triple $13,000, Quad $12,500
 
 ```
 p-4 rounded-2xl border-2 cursor-pointer transition-all duration-200

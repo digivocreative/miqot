@@ -5,9 +5,29 @@ import { motion, AnimatePresence } from 'framer-motion';
 import logoWhite from '@/logo-alhijaz-white.png';
 
 // ── Constants ──
+type RoomTypeId = 'double' | 'triple' | 'quad';
+
+const ROOM_TYPES = [
+  { id: 'double', label: 'Double' },
+  { id: 'triple', label: 'Triple' },
+  { id: 'quad', label: 'Quad' },
+] satisfies Array<{ id: RoomTypeId; label: string }>;
+
 const PACKAGES = [
-  { id: 'rahmah', name: 'RAHMAH', stars: 5, priceUSD: 15700, hotel: 'Lebih Nyaman dengan Hotel Bintang 5' },
-  { id: 'uhud', name: 'UHUD', stars: 4, priceUSD: 12500, hotel: 'Hotel Bintang 4 dengan Lokasi Strategis' },
+  {
+    id: 'rahmah',
+    name: 'RAHMAH',
+    stars: 5,
+    pricesUSD: { double: 17400, triple: 16400, quad: 15700 },
+    hotel: 'Lebih Nyaman dengan Hotel Bintang 5',
+  },
+  {
+    id: 'uhud',
+    name: 'UHUD',
+    stars: 4,
+    pricesUSD: { double: 14000, triple: 13000, quad: 12500 },
+    hotel: 'Hotel Bintang 4 dengan Lokasi Strategis',
+  },
 ];
 const DP_USD = 4500;
 const PELUNASAN_BULAN = 6;
@@ -28,6 +48,7 @@ interface SimulasiHajiPlusProps {
 export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
   // ── State ──
   const [selectedPkg, setSelectedPkg] = useState<string | null>(null);
+  const [selectedRoomType, setSelectedRoomType] = useState<RoomTypeId>('quad');
   const [tahunBerangkat, setTahunBerangkat] = useState(2035);
   const [jumlahJamaah, setJumlahJamaah] = useState(1);
   const [namaJamaah, setNamaJamaah] = useState('');
@@ -71,10 +92,12 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
 
   // ── Derived ──
   const pkg = PACKAGES.find(p => p.id === selectedPkg) || null;
+  const selectedRoom = ROOM_TYPES.find(r => r.id === selectedRoomType) || ROOM_TYPES[2];
+  const selectedPriceUSD = pkg ? pkg.pricesUSD[selectedRoomType] : 0;
 
   const calc = useMemo(() => {
     if (!pkg || !kursUSD) return null;
-    const totalUSD = pkg.priceUSD * jumlahJamaah;
+    const totalUSD = selectedPriceUSD * jumlahJamaah;
     const totalIDR = totalUSD * kursUSD;
     const dpUSD = DP_USD * jumlahJamaah;
     const dpIDR = dpUSD * kursUSD;
@@ -88,7 +111,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
     const inflatedKurs = kursUSD * Math.pow(1.015, diffYears);
     const estTotalIDR = totalUSD * inflatedKurs;
     return { totalUSD, totalIDR, dpUSD, dpIDR, sisaUSD, sisaIDR, deadlineLabel, diffMonths, diffYears, inflatedKurs, estTotalIDR };
-  }, [pkg, tahunBerangkat, jumlahJamaah, kursUSD]);
+  }, [pkg, selectedPriceUSD, tahunBerangkat, jumlahJamaah, kursUSD]);
 
   // ── Accent colors ──
   const isRahmah = selectedPkg === 'rahmah';
@@ -213,6 +236,9 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
           {PACKAGES.map(p => {
             const selected = selectedPkg === p.id;
             const isR = p.id === 'rahmah';
+            const cardRoomType = selectedPkg ? selectedRoomType : 'quad';
+            const cardRoom = ROOM_TYPES.find(r => r.id === cardRoomType) || ROOM_TYPES[2];
+            const cardPriceUSD = p.pricesUSD[cardRoomType];
             return (
               <button
                 key={p.id}
@@ -245,14 +271,41 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
                     ))}
                   </div>
                   <p className={`text-sm font-bold ${selected ? 'text-white' : 'text-gray-800 dark:text-white'}`}>{p.name}</p>
-                  <p className={`text-xl font-bold mt-1 ${selected ? 'text-white' : 'text-gray-800 dark:text-white'}`}>{fmtUSD(p.priceUSD)}</p>
-                  <p className={`text-[9px] mt-0.5 ${selected ? 'text-white/70' : 'text-gray-500 dark:text-slate-400'}`}>per jamaah</p>
+                  <p className={`text-xl font-bold mt-1 ${selected ? 'text-white' : 'text-gray-800 dark:text-white'}`}>{fmtUSD(cardPriceUSD)}</p>
+                  <p className={`text-[9px] mt-0.5 ${selected ? 'text-white/70' : 'text-gray-500 dark:text-slate-400'}`}>per jamaah · {cardRoom.label}</p>
                 </div>
               </button>
             );
           })}
         </div>
       </div>
+
+      {/* C. Tipe Kamar */}
+      {pkg && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2 px-1">Tipe Kamar</p>
+          <div className="grid grid-cols-3 gap-2 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl">
+            {ROOM_TYPES.map(room => {
+              const selected = selectedRoomType === room.id;
+              return (
+                <button
+                  key={room.id}
+                  onClick={() => setSelectedRoomType(room.id)}
+                  className={`py-2 rounded-lg text-[11px] font-bold transition-all duration-200 active:scale-[0.97] ${
+                    selected
+                      ? isRahmah
+                        ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                        : 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-gray-500 dark:text-slate-400'
+                  }`}
+                >
+                  {room.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* D. Tahun & Jumlah */}
       <div className="grid grid-cols-2 gap-3">
@@ -305,12 +358,12 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
           >
             <div className="px-4 pt-4 pb-3">
               <p className="text-[10px] uppercase tracking-[0.15em] text-white/60 font-medium">
-                Total Biaya · {pkg.name} {'★'.repeat(pkg.stars)}
+                Total Biaya · {pkg.name} {selectedRoom.label} {'★'.repeat(pkg.stars)}
               </p>
               <p className="text-3xl font-bold text-white mt-1">{fmtUSD(calc.totalUSD)}</p>
               <p className="text-[12px] text-white/70 mt-0.5">≈ {fmtRp(calc.totalIDR)}</p>
               {jumlahJamaah > 1 && (
-                <p className="text-[10px] text-white/50 mt-0.5">{fmtUSD(pkg.priceUSD)} × {jumlahJamaah} jamaah</p>
+                <p className="text-[10px] text-white/50 mt-0.5">{fmtUSD(selectedPriceUSD)} × {jumlahJamaah} jamaah</p>
               )}
             </div>
             <div className="px-4 py-3 bg-black/10">
@@ -484,12 +537,12 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontSize: 11, color: '#fbbf24' }}>{'★'.repeat(pkg.stars)}</div>
-                  <div style={{ fontSize: 17, fontWeight: 700, color: '#ffffff', marginTop: 2 }}>Paket {pkg.name}</div>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: '#ffffff', marginTop: 2 }}>Paket {pkg.name} {selectedRoom.label}</div>
                   <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 3, lineHeight: '1.4' }}>{pkg.hotel}</div>
                 </div>
                 <div style={{ textAlign: 'right' as const }}>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: '#ffffff' }}>{fmtUSD(pkg.priceUSD)}</div>
-                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)' }}>per jamaah</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#ffffff' }}>{fmtUSD(selectedPriceUSD)}</div>
+                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)' }}>per jamaah · {selectedRoom.label}</div>
                 </div>
               </div>
             </div>
@@ -537,7 +590,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
                   <div style={{ fontSize: 18, fontWeight: 700, color: isRahmah ? '#064e3b' : '#1e3a5f' }}>{fmtUSD(calc.totalUSD)}</div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 3 }}>
-                  <div style={{ fontSize: 9, color: '#6b7280' }}>{jumlahJamaah > 1 ? `${fmtUSD(pkg.priceUSD)} × ${jumlahJamaah} jamaah` : '1 jamaah'}</div>
+                  <div style={{ fontSize: 9, color: '#6b7280' }}>{jumlahJamaah > 1 ? `${fmtUSD(selectedPriceUSD)} × ${jumlahJamaah} jamaah` : `1 jamaah · ${selectedRoom.label}`}</div>
                   <div style={{ fontSize: 10, fontWeight: 600, color: '#6b7280' }}>≈ {fmtRp(calc.totalIDR)}</div>
                 </div>
               </div>
@@ -626,7 +679,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
               <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
                 <div className="flex flex-col">
                   <h2 className="text-lg font-bold text-gray-900 dark:text-white">Preview Penawaran</h2>
-                  <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">Simulasi Haji Plus · {pkg?.name}</span>
+                  <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">Simulasi Haji Plus · {pkg?.name} {selectedRoom.label}</span>
                 </div>
                 <button onClick={handleClosePreview} className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0">
                   <X className="w-6 h-6" />
