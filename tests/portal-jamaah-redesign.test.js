@@ -1,0 +1,63 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const rootPath = new URL('..', import.meta.url).pathname;
+
+function read(path) {
+  return readFileSync(join(rootPath, path), 'utf8');
+}
+
+function exists(path) {
+  return existsSync(join(rootPath, path));
+}
+
+// New file presence — added incrementally per task
+test('redesign: new files exist', () => {
+  const newFiles = [
+    'src/components/portal-jamaah/hooks/usePortalTheme.ts',
+    'src/components/portal-jamaah/hooks/usePortalRoute.ts',
+    'src/components/portal-jamaah/lib/faq.ts',
+    'src/components/portal-jamaah/lib/portalMenu.ts',
+    'src/components/portal-jamaah/lib/portalAlerts.ts',
+    'src/components/portal-jamaah/lib/portalTasks.ts',
+    'src/components/portal-jamaah/components/ThemeToggle.tsx',
+    'src/components/portal-jamaah/components/PortalBackBar.tsx',
+    'src/components/portal-jamaah/components/StickyWhatsAppCta.tsx',
+    'src/components/portal-jamaah/components/HeroCountdown.tsx',
+    'src/components/portal-jamaah/components/PortalMenuCard.tsx',
+    'src/components/portal-jamaah/components/PortalMenuGrid.tsx',
+    'src/components/portal-jamaah/components/SmartAlertsStrip.tsx',
+    'src/components/portal-jamaah/components/TaskListWidget.tsx',
+    'src/components/portal-jamaah/pages/BerandaPage.tsx',
+    'src/components/portal-jamaah/pages/PerjalananPage.tsx',
+    'src/components/portal-jamaah/pages/PembayaranPage.tsx',
+    'src/components/portal-jamaah/pages/DokumenPage.tsx',
+    'src/components/portal-jamaah/pages/PerlengkapanPage.tsx',
+    'src/components/portal-jamaah/pages/ManasikSpiritualPage.tsx',
+    'src/components/portal-jamaah/pages/FaqPage.tsx',
+  ];
+  for (const f of newFiles) {
+    assert.ok(exists(f), `expected ${f} to exist`);
+  }
+});
+
+test('redesign: deleted files no longer exist', () => {
+  const deleted = [
+    'src/components/portal-jamaah/components/PortalBottomNav.tsx',
+    'src/components/portal-jamaah/components/StatusCard.tsx',
+    'src/components/portal-jamaah/tabs/BerandaTab.tsx',
+    'src/components/portal-jamaah/tabs/PerjalananTab.tsx',
+    'src/components/portal-jamaah/tabs/BayarTab.tsx',
+    'src/components/portal-jamaah/tabs/PersiapanTab.tsx',
+    'src/components/portal-jamaah/tabs/persiapan/PersiapanHeader.tsx',
+    'src/components/portal-jamaah/tabs/persiapan/TahapanSubTab.tsx',
+  ];
+  for (const f of deleted) {
+    assert.ok(!exists(f), `expected ${f} to be deleted`);
+  }
+});
+
+// Helper for design-system parity checks — used by subsequent tests
+export { read, exists };
