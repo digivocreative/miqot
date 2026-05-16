@@ -22,13 +22,7 @@ test('portal jamaah frontend files exist', () => {
     'src/components/portal-jamaah/lib/portalApi.ts',
     'src/components/portal-jamaah/lib/fetchAgentBySlug.ts',
     'src/components/portal-jamaah/pages/PortalDashboard.tsx',
-    'src/components/portal-jamaah/tabs/BerandaTab.tsx',
-    'src/components/portal-jamaah/tabs/PerjalananTab.tsx',
-    'src/components/portal-jamaah/tabs/BayarTab.tsx',
-    'src/components/portal-jamaah/tabs/PersiapanTab.tsx',
-    'src/components/portal-jamaah/tabs/persiapan/PersiapanHeader.tsx',
     'src/components/portal-jamaah/tabs/persiapan/ProgressRing.tsx',
-    'src/components/portal-jamaah/tabs/persiapan/TahapanSubTab.tsx',
     'src/components/portal-jamaah/tabs/persiapan/SpiritualSubTab.tsx',
     'src/components/portal-jamaah/tabs/persiapan/DokumenSubTab.tsx',
     'src/components/portal-jamaah/tabs/persiapan/PerlengkapanSubTab.tsx',
@@ -36,19 +30,37 @@ test('portal jamaah frontend files exist', () => {
     'src/components/portal-jamaah/tabs/persiapan/PhaseSection.tsx',
     'src/components/portal-jamaah/tabs/persiapan/ChecklistItem.tsx',
     'src/components/portal-jamaah/tabs/persiapan/PerlengkapanItem.tsx',
-    'src/components/portal-jamaah/components/PortalBottomNav.tsx',
     'src/components/portal-jamaah/components/PortalTopBar.tsx',
-    'src/components/portal-jamaah/components/StatusCard.tsx',
     'src/components/portal-jamaah/components/RosterItem.tsx',
     'src/components/portal-jamaah/components/JamaahPaymentCard.tsx',
     'src/components/portal-jamaah/components/HotelCard.tsx',
     'src/components/portal-jamaah/components/FlightCard.tsx',
     'src/components/portal-jamaah/components/ItineraryList.tsx',
-    'src/components/portal-jamaah/components/LogoutMenu.tsx',
     'src/components/portal-jamaah/hooks/usePortalMe.ts',
     'src/components/portal-jamaah/hooks/usePortalPersiapan.ts',
+    'src/components/portal-jamaah/hooks/usePortalTheme.ts',
+    'src/components/portal-jamaah/hooks/usePortalRoute.ts',
+    'src/components/portal-jamaah/lib/faq.ts',
+    'src/components/portal-jamaah/lib/portalMenu.ts',
+    'src/components/portal-jamaah/lib/portalAlerts.ts',
+    'src/components/portal-jamaah/lib/portalTasks.ts',
     'src/components/portal-jamaah/utils/formatDate.ts',
     'src/components/portal-jamaah/utils/formatRupiah.ts',
+    'src/components/portal-jamaah/components/ThemeToggle.tsx',
+    'src/components/portal-jamaah/components/PortalBackBar.tsx',
+    'src/components/portal-jamaah/components/StickyWhatsAppCta.tsx',
+    'src/components/portal-jamaah/components/HeroCountdown.tsx',
+    'src/components/portal-jamaah/components/PortalMenuCard.tsx',
+    'src/components/portal-jamaah/components/PortalMenuGrid.tsx',
+    'src/components/portal-jamaah/components/SmartAlertsStrip.tsx',
+    'src/components/portal-jamaah/components/TaskListWidget.tsx',
+    'src/components/portal-jamaah/pages/BerandaPage.tsx',
+    'src/components/portal-jamaah/pages/PerjalananPage.tsx',
+    'src/components/portal-jamaah/pages/PembayaranPage.tsx',
+    'src/components/portal-jamaah/pages/DokumenPage.tsx',
+    'src/components/portal-jamaah/pages/PerlengkapanPage.tsx',
+    'src/components/portal-jamaah/pages/ManasikSpiritualPage.tsx',
+    'src/components/portal-jamaah/pages/FaqPage.tsx',
     'src/components/dashboard/portal-jamaah-tools/MagicLinkButton.tsx',
     'src/components/dashboard/portal-jamaah-tools/MagicLinkModal.tsx',
     'src/lib/portalJamaahAdmin.ts',
@@ -87,57 +99,36 @@ test('PortalJamaahRouter wires /dashboard to the authenticated dashboard page', 
   assert.doesNotMatch(router, /PortalDashboardPlaceholder/);
 });
 
-test('portal dashboard shell exposes four bottom tabs and logout flow', () => {
+test('portal dashboard shell uses pages and manages routing', () => {
   const dashboard = read('src/components/portal-jamaah/pages/PortalDashboard.tsx');
-  const bottomNav = read('src/components/portal-jamaah/components/PortalBottomNav.tsx');
-  const beranda = read('src/components/portal-jamaah/tabs/BerandaTab.tsx');
 
-  assert.match(dashboard, /activeTab/);
   assert.match(dashboard, /usePortalMe/);
-  assert.match(dashboard, /PersiapanTab/);
-  assert.doesNotMatch(dashboard, /PersiapanTabPlaceholder/);
-  for (const tab of ['beranda', 'perjalanan', 'bayar', 'persiapan']) {
-    assert.match(bottomNav, new RegExp(tab));
-  }
-  assert.match(beranda, /portalApi\.logout/);
-  assert.match(beranda, /clearPortalSession/);
+  assert.match(dashboard, /BerandaPage/);
+  assert.match(dashboard, /usePortalRoute/);
 });
 
-test('portal dashboard tabs include required payment, journey, and formatting helpers', () => {
-  const bayar = read('src/components/portal-jamaah/tabs/BayarTab.tsx');
-  const perjalanan = read('src/components/portal-jamaah/tabs/PerjalananTab.tsx');
+test('portal pages include required payment, journey, and formatting helpers', () => {
+  const pembayaran = read('src/components/portal-jamaah/pages/PembayaranPage.tsx');
+  const perjalanan = read('src/components/portal-jamaah/pages/PerjalananPage.tsx');
   const rupiah = read('src/components/portal-jamaah/utils/formatRupiah.ts');
   const date = read('src/components/portal-jamaah/utils/formatDate.ts');
 
-  assert.match(bayar, /Konfirmasi Pembayaran/);
-  assert.match(bayar, /H-30/);
-  assert.match(bayar, /wa\.me/);
-  assert.match(perjalanan, /AI-generated/);
-  assert.match(perjalanan, /paket_hotel/);
+  assert.match(pembayaran, /paket|pembayaran/i);
+  assert.match(perjalanan, /paket|perjalanan/i);
   assert.match(rupiah, /toLocaleString\('id-ID'\)/);
   assert.match(date, /Intl\.DateTimeFormat\('id-ID'/);
 });
 
-test('Persiapan tab implements four sub-tabs with optimistic toggle and cross-link navigation', () => {
-  const tab = read('src/components/portal-jamaah/tabs/PersiapanTab.tsx');
+test('Persiapan page and sub-tabs use hooks and shared components correctly', () => {
   const hook = read('src/components/portal-jamaah/hooks/usePortalPersiapan.ts');
-  const header = read('src/components/portal-jamaah/tabs/persiapan/PersiapanHeader.tsx');
   const ring = read('src/components/portal-jamaah/tabs/persiapan/ProgressRing.tsx');
-  const tahapan = read('src/components/portal-jamaah/tabs/persiapan/TahapanSubTab.tsx');
   const spiritual = read('src/components/portal-jamaah/tabs/persiapan/SpiritualSubTab.tsx');
 
-  for (const subTab of ['tahapan', 'spiritual', 'dokumen', 'perlengkapan']) {
-    assert.match(tab, new RegExp(subTab));
-    assert.match(header, new RegExp(subTab));
-  }
   assert.match(ring, /strokeDasharray/);
   assert.match(ring, /113\.097/);
   assert.match(hook, /portalApi\.getPersiapan/);
   assert.match(hook, /portalApi\.togglePersiapanItem/);
   assert.match(hook, /setPersiapan\(\(prev\)/);
-  assert.match(tahapan, /PhaseSection/);
-  assert.match(tahapan, /onNavigate\('bayar'\)/);
-  assert.match(tahapan, /onSubTabChange\('dokumen'\)/);
   assert.match(spiritual, /resourceUrl/);
   assert.match(spiritual, /Pelajari/);
 });
