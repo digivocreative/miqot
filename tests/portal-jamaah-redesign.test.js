@@ -113,5 +113,13 @@ test('portalTasks: derives top 3 pending tasks with category mapping', () => {
   assert.match(src, /pembayaran|dokumen|perlengkapan|manasik/);
 });
 
+test('faq: exports 8 FAQ entries with question + answer', () => {
+  const src = read('src/components/portal-jamaah/lib/faq.ts');
+  assert.match(src, /export const PORTAL_FAQ/);
+  // Count question entries (each entry has a 'question:' field)
+  const matches = src.match(/question:\s*['"]/g) || [];
+  assert.equal(matches.length, 8, `expected 8 FAQ entries, got ${matches.length}`);
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
