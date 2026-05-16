@@ -4,7 +4,7 @@ import {
   Eye, EyeOff, LogIn, Loader2, User, Users, Lock, Search,
   Calendar, Building2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, RefreshCw,
-  ArrowUpDown, SlidersHorizontal, X, Check, Plane, Landmark, PenLine, UserPlus, Plus, MessageCircle,
+  ArrowUpDown, SlidersHorizontal, X, Check, Plane, Landmark, PenLine, UserPlus, Plus,
 } from 'lucide-react';
 import { getAuthHeaders, getStoredSession } from './LoginPage';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
@@ -1176,7 +1176,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                         </button>
                       )}
                     </div>
-                    <div className="px-3 py-2 bg-gray-50/70 dark:bg-slate-900/30 border-t border-gray-100 dark:border-slate-700/50 grid grid-cols-2 gap-1.5">
+                    <div className="px-3 py-2 bg-gray-50/70 dark:bg-slate-900/30 border-t border-gray-100 dark:border-slate-700/50">
                       <MagicLinkButton
                         jamaahId={first.id}
                         jamaahName={first.nama}
@@ -1184,35 +1184,10 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                         idUmroh={entry.idu}
                         agentSlug={agentSlug || resolvedAgentSlug}
                         agentName={resolvedAgentName}
-                        className="min-w-0 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all active:scale-95"
-                        iconClassName="w-3 h-3 shrink-0"
+                        className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all active:scale-95"
+                        iconClassName="w-3.5 h-3.5 shrink-0"
                         label="Magic Link"
                       />
-                      {(() => {
-                        const waE164 = normalizeWaNumber(first.wa);
-                        return waE164 ? (
-                          <a
-                            href={`https://wa.me/${waE164}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="min-w-0 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95"
-                            title="Chat WhatsApp"
-                          >
-                            <MessageCircle size={12} strokeWidth={2.2} className="shrink-0" />
-                            <span className="whitespace-nowrap">WhatsApp</span>
-                          </a>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled
-                            className="min-w-0 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-slate-500 border border-gray-200 dark:border-slate-700 opacity-70"
-                            title="Nomor WhatsApp belum valid"
-                          >
-                            <MessageCircle size={12} strokeWidth={2.2} className="shrink-0" />
-                            <span className="whitespace-nowrap">WhatsApp</span>
-                          </button>
-                        );
-                      })()}
                     </div>
                   </div>
                 );
@@ -1715,7 +1690,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                       })()}
 
                       {/* ─── Section 4: Action Buttons ─── */}
-                      <div className="px-3 py-2.5 grid grid-cols-4 gap-1.5">
+                      <div className="px-3 py-2.5 grid grid-cols-[15fr_40fr_45fr] gap-2">
                         {/* Refresh single row from Alhijaz Official API */}
                         {item.jm_id && (() => {
                           const refreshKey = getJamaahRefreshKey(item);
@@ -1723,7 +1698,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                           const isRefreshing = refreshingJmId === item.jm_id || isAutoRefreshing;
                           const justRefreshed = refreshedJmId === item.jm_id;
                           const hasError = refreshErrorJmId === item.jm_id;
-                          const baseClass = 'min-w-0 flex items-center justify-center rounded-lg px-2 py-1.5 transition-all active:scale-95 border disabled:opacity-60';
+                          const baseClass = 'min-w-0 h-10 flex items-center justify-center rounded-xl transition-all active:scale-95 border disabled:opacity-60';
                           const stateClass = hasError
                             ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800/40'
                             : isAutoRefreshing
@@ -1740,13 +1715,13 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                               title={isAutoRefreshing ? 'Auto-refresh perlengkapan...' : hasError ? 'Refresh gagal — coba lagi' : justRefreshed ? 'Berhasil di-refresh' : 'Refresh data jamaah dari Alhijaz'}
                             >
                               {isRefreshing ? (
-                                <RefreshCw size={12} strokeWidth={2.2} className="animate-spin" />
+                                <RefreshCw size={14} strokeWidth={2.2} className="animate-spin" />
                               ) : hasError ? (
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
                               ) : justRefreshed ? (
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
                               ) : (
-                                <RefreshCw size={12} strokeWidth={2.2} />
+                                <RefreshCw size={14} strokeWidth={2.2} />
                               )}
                             </button>
                           );
@@ -1761,10 +1736,10 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                               const params = new URLSearchParams(paramsObj);
                               goTo(`/dashboard/jamaah/daftar?${params}`);
                             }}
-                            className="min-w-0 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold border transition-all bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 active:scale-95"
+                            className="min-w-0 h-10 flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-bold border transition-all bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 active:scale-95"
                             title={`Tambah jamaah ke ID Umroh ${item.id_umroh}`}
                           >
-                            <UserPlus size={12} strokeWidth={2.2} className="shrink-0" />
+                            <UserPlus size={14} strokeWidth={2.2} className="shrink-0" />
                             <span className="whitespace-nowrap">Tambah</span>
                           </button>
                         )}
@@ -1776,40 +1751,11 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                             idUmroh={item.id_umroh}
                             agentSlug={agentSlug || resolvedAgentSlug}
                             agentName={resolvedAgentName}
-                            className="min-w-0 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all active:scale-95"
-                            iconClassName="w-3 h-3 shrink-0"
+                            className="min-w-0 h-10 inline-flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-bold bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-400 border border-violet-200 dark:border-violet-800/40 hover:bg-violet-100 dark:hover:bg-violet-900/30 transition-all active:scale-95"
+                            iconClassName="w-3.5 h-3.5 shrink-0"
                             label="Magic Link"
                           />
                         )}
-                        {(() => {
-                          const waE164 = normalizeWaNumber(item.wa);
-                          if (waE164) {
-                            return (
-                              <a
-                                href={`https://wa.me/${waE164}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="min-w-0 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95"
-                                title="Chat WhatsApp"
-                              >
-                                <MessageCircle size={12} strokeWidth={2.2} className="shrink-0" />
-                                <span className="whitespace-nowrap">WhatsApp</span>
-                              </a>
-                            );
-                          }
-
-                          return (
-                            <button
-                              type="button"
-                              disabled
-                              className="min-w-0 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-slate-500 border border-gray-200 dark:border-slate-700 opacity-70"
-                              title="Nomor WhatsApp belum valid"
-                            >
-                              <MessageCircle size={12} strokeWidth={2.2} className="shrink-0" />
-                              <span className="whitespace-nowrap">WhatsApp</span>
-                            </button>
-                          );
-                        })()}
                       </div>
                     </div>
                     </motion.div>

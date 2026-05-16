@@ -174,6 +174,9 @@ test('dashboard portal jamaah admin client only covers magic link generation', (
 
   assert.match(api, /getAuthHeaders/);
   assert.match(api, /generateMagicLink/);
+  assert.match(api, /magicLinkCache/);
+  assert.match(api, /magicLinkInFlight/);
+  assert.match(api, /retry_after/);
   assert.match(api, /\/magic-link\/generate/);
   assert.doesNotMatch(api, /listSessions/);
   assert.doesNotMatch(api, /listUnusedTokens/);
@@ -186,10 +189,17 @@ test('dashboard magic link modal generates link, previews WhatsApp message, and 
 
   assert.match(button, /Magic Link/);
   assert.match(button, /Kirim Akses Portal/);
+  assert.match(button, /ENABLED_PORTAL_AGENT_SLUGS/);
+  assert.match(button, /'nikita'/);
+  assert.match(button, /Portal Jamaah Segera Hadir/);
+  assert.match(button, /Manfaat fitur ini/);
+  assert.match(button, /pantau pembayaran, persiapan, dokumen, dan perlengkapan/);
   assert.match(button, /<MagicLinkModal/);
   assert.match(modal, /Membuat link akses/);
   assert.match(modal, /portalJamaahAdmin\.generateMagicLink/);
   assert.match(modal, /portal_magic_link_generated/);
+  assert.match(modal, /retryAfter/);
+  assert.match(modal, /Tunggu/);
   assert.match(modal, /textarea/);
   assert.match(modal, /Kirim via WhatsApp/);
   assert.match(modal, /Copy Link/);
@@ -208,8 +218,8 @@ test('dashboard has no portal jamaah menu or sessions page route, but jamaah car
   assert.doesNotMatch(layout, /KeyRound/);
   assert.doesNotMatch(jamaah, /JamaahMoreActionsButton/);
   assert.match(jamaah, /MagicLinkButton/);
-  assert.match(jamaah, /grid grid-cols-4/);
-  assert.match(jamaah, /WhatsApp/);
+  assert.match(jamaah, /grid grid-cols-\[15fr_40fr_45fr\]/);
+  assert.match(jamaah, /bg-violet-50/);
   assert.match(jamaah, /agentSlug=\{agentSlug/);
   assert.match(jamaah, /jamaahId=\{item\.id\}/);
 });

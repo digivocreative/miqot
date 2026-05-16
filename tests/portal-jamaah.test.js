@@ -56,6 +56,26 @@ test('server registers all portal jamaah routes and middleware', () => {
   assert.match(server, /crypto\.randomUUID\(\)/);
 });
 
+test('magic link generation is gated to agent nikita during rollout', () => {
+  const server = read('server.js');
+
+  assert.match(server, /toLowerCase\(\)\s*!==\s*'nikita'/);
+  assert.match(server, /portal_feature_coming_soon/);
+  assert.match(server, /Fitur Magic Link Portal Jamaah akan tersedia beberapa saat lagi/);
+});
+
+test('magic link generation reuses active unused tokens before applying rate limit', () => {
+  const server = read('server.js');
+
+  assert.match(server, /select\('token, expires_at'\)/);
+  assert.match(server, /\.is\('consumed_at',\s*null\)/);
+  assert.match(server, /\.gt\('expires_at',\s*new Date\(\)\.toISOString\(\)\)/);
+  assert.match(server, /reused:\s*true/);
+  assert.match(server, /checkPortalRateLimit\(portalGenerateRateLimits/);
+  assert.match(server, /retry_after/);
+  assert.match(server, /Terlalu sering membuat link/);
+});
+
 test('server computes portal persiapan progress across 5 documents and 7 perlengkapan items', () => {
   const server = read('server.js');
 

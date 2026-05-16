@@ -230,4 +230,35 @@ export function hasSuspiciousAwapiPayment(row) {
   return (bayar || 0) > 0 && (sisa || 0) < 0;
 }
 
+export function preserveExistingPaymentForSuspiciousAwapiRow(row, existing) {
+  if (!hasSuspiciousAwapiPayment(row)) return row;
+  if (!existing || hasSuspiciousAwapiPayment(existing)) return null;
+
+  const preservedPayment = {
+    bayar: safeBigint(existing.bayar) || 0,
+    sisa: safeBigint(existing.sisa) || 0,
+    diskon_kantor: safeBigint(existing.diskon_kantor) || 0,
+    diskon_marketing: safeBigint(existing.diskon_marketing) || 0,
+  };
+  const rowRaw = row?.raw_data && typeof row.raw_data === 'object' ? row.raw_data : {};
+  const existingRaw = existing?.raw_data && typeof existing.raw_data === 'object' ? existing.raw_data : {};
+
+  return {
+    ...row,
+    ...preservedPayment,
+    raw_data: {
+      ...existingRaw,
+      awapi_refresh_snapshot: rowRaw,
+      payment_guard: 'preserved_existing_after_awapi_anomaly',
+      suspicious_awapi_payment_snapshot: {
+        bayar: safeBigint(row?.bayar) || 0,
+        sisa: safeBigint(row?.sisa ?? rowRaw.bayar_sisa) || 0,
+        diskon_kantor: safeBigint(row?.diskon_kantor ?? rowRaw.diskon_kantor) || 0,
+        diskon_marketing: safeBigint(row?.diskon_marketing ?? rowRaw.diskon_marketing) || 0,
+      },
+      preserved_payment_snapshot: preservedPayment,
+    },
+  };
+}
+
 export { AwapiError };

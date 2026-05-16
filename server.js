@@ -24,7 +24,7 @@ import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
-import { awapiFetchUmrahByKeberangkatan, awapiFetchUmrahByPendaftaran, awapiFetchUmrahById, awapiFetchJamaahById, normalizeAwapiRow, hasSuspiciousAwapiPayment, AwapiError } from './awapi-client.js';
+import { awapiFetchUmrahByKeberangkatan, awapiFetchUmrahByPendaftaran, awapiFetchUmrahById, awapiFetchJamaahById, normalizeAwapiRow, hasSuspiciousAwapiPayment, preserveExistingPaymentForSuspiciousAwapiRow, AwapiError } from './awapi-client.js';
 import {
   runAnalyticsMaintenance,
   fetchEventsForRange,
@@ -5414,6 +5414,49 @@ function shouldKeepExistingBayar(existing, nextBayar) {
   return !isLegacyGrossUmrahDetailPayment(existing, incomingBayar);
 }
 
+async function preserveSuspiciousAwapiRefreshPayments(agentId, rows) {
+  const incomingRows = Array.isArray(rows) ? rows : [];
+  const suspiciousRows = incomingRows.filter(hasSuspiciousAwapiPayment);
+  if (suspiciousRows.length === 0) {
+    return { rows: incomingRows, guardedCount: 0, unresolved: [] };
+  }
+
+  const bookingIds = [...new Set(suspiciousRows.map(r => r.id_umroh).filter(Boolean))];
+  const jmIds = [...new Set(suspiciousRows.map(r => r.jm_id).filter(Boolean))];
+  if (bookingIds.length === 0 || jmIds.length === 0) {
+    return { rows: incomingRows, guardedCount: 0, unresolved: suspiciousRows };
+  }
+
+  const { data: existingRows, error } = await supabase
+    .from('jamaah')
+    .select('id_umroh, jm_id, bayar, sisa, diskon_kantor, diskon_marketing, raw_data')
+    .eq('agent_id', agentId)
+    .in('id_umroh', bookingIds)
+    .in('jm_id', jmIds);
+  if (error) throw error;
+
+  const existingByKey = new Map();
+  for (const existing of existingRows || []) {
+    const key = jamaahRowKey(existing);
+    if (key) existingByKey.set(key, existing);
+  }
+
+  let guardedCount = 0;
+  const unresolved = [];
+  const guardedRows = incomingRows.map((row) => {
+    if (!hasSuspiciousAwapiPayment(row)) return row;
+    const guarded = preserveExistingPaymentForSuspiciousAwapiRow(row, existingByKey.get(jamaahRowKey(row)));
+    if (!guarded) {
+      unresolved.push(row);
+      return row;
+    }
+    guardedCount++;
+    return guarded;
+  });
+
+  return { rows: guardedRows, guardedCount, unresolved };
+}
+
 function datePlusDaysKey(date, days) {
   const d = new Date(date);
   d.setDate(d.getDate() + days);
@@ -6417,17 +6460,19 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
     if (!norm) {
       return res.status(422).json({ error: 'Data jamaah tidak lengkap untuk dinormalisasi' });
     }
-    if (hasSuspiciousAwapiPayment(norm)) {
-      return res.status(409).json({ error: 'Data pembayaran dari API resmi tidak konsisten. Jalankan sync penuh agar sistem memakai data legacy.' });
+    const guardedRefresh = await preserveSuspiciousAwapiRefreshPayments(agentId, [norm]);
+    if (guardedRefresh.unresolved.length > 0) {
+      return res.status(409).json({ error: 'Data pembayaran dari API resmi tidak konsisten dan belum ada data pembayaran valid untuk dipertahankan. Jalankan sync penuh agar sistem memakai data legacy.' });
     }
-    norm.hijriah_year = getHijriahYear(norm.tgl_berangkat) || null;
+    const rowForUpsert = guardedRefresh.rows[0];
+    rowForUpsert.hijriah_year = getHijriahYear(rowForUpsert.tgl_berangkat) || null;
 
-    const syncEvents = await detectUmrohJamaahSyncEvents(agentId, [norm], {
+    const syncEvents = await detectUmrohJamaahSyncEvents(agentId, [rowForUpsert], {
       allowNewJamaah: await hasJamaahNotificationBaseline(agentId, agent),
     });
     const { error } = await supabase
       .from('jamaah')
-      .upsert([norm], { onConflict: 'agent_id,id_umroh,jm_id' });
+      .upsert([rowForUpsert], { onConflict: 'agent_id,id_umroh,jm_id' });
     if (error) {
       console.error(`[Sync/api] ${slug} jamaah/${idJamaah} upsert error:`, error.message);
       return res.status(500).json({ error: 'Gagal menyimpan data refreshed' });
@@ -6435,11 +6480,11 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
     queueJamaahSyncNotifications(agentId, syncEvents, `refresh-jamaah/${slug}`);
 
     // Best-effort CAPI Purchase event for this single jamaah.
-    processCapiPurchases(agentId, slug, 'umroh', [{ id_umroh: norm.id_umroh, jm_id: norm.jm_id, nama: norm.nama }]).catch((e) =>
+    processCapiPurchases(agentId, slug, 'umroh', [{ id_umroh: rowForUpsert.id_umroh, jm_id: rowForUpsert.jm_id, nama: rowForUpsert.nama }]).catch((e) =>
       console.error('[CAPI/api] refresh jamaah error:', e.message)
     );
 
-    res.json({ success: true, data: { row: norm, source: 'awapi' } });
+    res.json({ success: true, data: { row: rowForUpsert, source: guardedRefresh.guardedCount > 0 ? 'awapi-payment-preserved' : 'awapi' } });
   } catch (err) {
     if (err instanceof AwapiError) {
       return res.status(502).json({ error: `Upstream API: ${err.message}`, status: err.status });
@@ -6485,11 +6530,12 @@ app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) 
     if (normalized.length === 0) {
       return res.status(422).json({ error: 'Tidak ada baris jamaah valid pada booking ini' });
     }
-    if (normalized.some(hasSuspiciousAwapiPayment)) {
-      return res.status(409).json({ error: 'Data pembayaran dari API resmi tidak konsisten. Jalankan sync penuh agar sistem memakai data legacy.' });
+    const guardedRefresh = await preserveSuspiciousAwapiRefreshPayments(agentId, normalized);
+    if (guardedRefresh.unresolved.length > 0) {
+      return res.status(409).json({ error: 'Data pembayaran dari API resmi tidak konsisten dan belum ada data pembayaran valid untuk dipertahankan. Jalankan sync penuh agar sistem memakai data legacy.' });
     }
 
-    const safeRows = filterSafeJamaahRows(normalized, 'api-refresh-umrah');
+    const safeRows = filterSafeJamaahRows(guardedRefresh.rows, 'api-refresh-umrah');
     const syncEvents = await detectUmrohJamaahSyncEvents(agentId, safeRows, {
       allowNewJamaah: await hasJamaahNotificationBaseline(agentId, agent),
     });
@@ -6511,7 +6557,7 @@ app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) 
       safeRows.map((r) => ({ id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama }))
     ).catch((e) => console.error('[CAPI/api] refresh umrah error:', e.message));
 
-    res.json({ success: true, data: { count: safeRows.length, rows: safeRows, source: 'awapi' } });
+    res.json({ success: true, data: { count: safeRows.length, rows: safeRows, source: guardedRefresh.guardedCount > 0 ? 'awapi-payment-preserved' : 'awapi' } });
   } catch (err) {
     if (err instanceof AwapiError) {
       return res.status(502).json({ error: `Upstream API: ${err.message}`, status: err.status });
@@ -11379,7 +11425,11 @@ function portalRateLimit(map, keyFn, max, windowMs) {
     const result = checkPortalRateLimit(map, key, max, windowMs);
     if (!result.ok) {
       if (result.retryAfter) res.set('Retry-After', String(result.retryAfter));
-      return res.status(429).json({ error: 'rate_limited' });
+      return res.status(429).json({
+        error: 'rate_limited',
+        retry_after: result.retryAfter || 0,
+        message: `Terlalu sering membuat link. Coba lagi dalam ${Math.ceil((result.retryAfter || 60) / 60)} menit.`,
+      });
     }
     next();
   };
@@ -11906,10 +11956,16 @@ app.post('/api/portal/jamaah/:slug/magic-link/request-by-booking', portalRequest
   }
 });
 
-app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, portalGenerateLimiter, async (req, res) => {
+app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, async (req, res) => {
   try {
     const { agent, error: agentError, status } = await getPortalDashboardAgent(req, req.params.slug);
     if (!agent) return res.status(status || 404).json({ error: agentError || 'agent_not_found' });
+    if (String(agent.slug || req.params.slug || '').toLowerCase() !== 'nikita') {
+      return res.status(403).json({
+        error: 'portal_feature_coming_soon',
+        message: 'Fitur Magic Link Portal Jamaah akan tersedia beberapa saat lagi.',
+      });
+    }
 
     const jamaahId = Number(req.body?.jamaah_id);
     if (!Number.isInteger(jamaahId) || jamaahId <= 0) {
@@ -11926,8 +11982,53 @@ app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, portalG
     if (!jamaah) return res.status(404).json({ error: 'jamaah_not_found' });
     if (!jamaah.id_umroh) return res.status(400).json({ error: 'missing_id_umroh' });
 
+    const { data: existingToken, error: existingTokenError } = await supabase
+      .from('jamaah_portal_tokens')
+      .select('token, expires_at')
+      .eq('jamaah_id', jamaah.id)
+      .eq('agent_id', agent.id)
+      .eq('id_umroh', jamaah.id_umroh)
+      .is('consumed_at', null)
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existingTokenError) {
+      if (portalSchemaMissingResponse(res, existingTokenError)) return;
+      return res.status(500).json({ error: existingTokenError.message });
+    }
+
+    const { count } = await supabase
+      .from('jamaah')
+      .select('*', { count: 'exact', head: true })
+      .eq('agent_id', agent.id)
+      .eq('id_umroh', jamaah.id_umroh);
+
+    const slug = agent.slug || req.params.slug;
+    if (existingToken) {
+      return res.json({
+        url: `${PORTAL_BASE_URL}/${slug}/jamaah/auth/${existingToken.token}`,
+        expires_at: existingToken.expires_at,
+        jamaah_name: jamaah.nama,
+        id_umroh: jamaah.id_umroh,
+        anggota_count: count || 0,
+        reused: true,
+      });
+    }
+
     const token = crypto.randomUUID();
     const expiresAt = getPortalDatePlus(PORTAL_TOKEN_TTL_MS);
+    const rateKey = `agent:${req.user?.id || 'unknown'}`;
+    const rateResult = checkPortalRateLimit(portalGenerateRateLimits, rateKey, 10, 60 * 60 * 1000);
+    if (!rateResult.ok) {
+      if (rateResult.retryAfter) res.set('Retry-After', String(rateResult.retryAfter));
+      return res.status(429).json({
+        error: 'rate_limited',
+        retry_after: rateResult.retryAfter || 0,
+        message: `Terlalu sering membuat link. Coba lagi dalam ${Math.ceil((rateResult.retryAfter || 60) / 60)} menit.`,
+      });
+    }
+
     const { error: insertError } = await supabase.from('jamaah_portal_tokens').insert({
       token,
       jamaah_id: jamaah.id,
@@ -11940,13 +12041,6 @@ app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, portalG
       return res.status(500).json({ error: 'token_insert_failed' });
     }
 
-    const { count } = await supabase
-      .from('jamaah')
-      .select('*', { count: 'exact', head: true })
-      .eq('agent_id', agent.id)
-      .eq('id_umroh', jamaah.id_umroh);
-
-    const slug = agent.slug || req.params.slug;
     res.json({
       url: `${PORTAL_BASE_URL}/${slug}/jamaah/auth/${token}`,
       expires_at: expiresAt,

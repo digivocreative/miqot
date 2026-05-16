@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hasSuspiciousAwapiPayment, normalizeAwapiRow } from '../awapi-client.js';
+import { hasSuspiciousAwapiPayment, normalizeAwapiRow, preserveExistingPaymentForSuspiciousAwapiRow } from '../awapi-client.js';
 
 function jakartaYear() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -62,4 +62,39 @@ test('hasSuspiciousAwapiPayment allows normal cicilan and lunas rows', () => {
 
   assert.equal(hasSuspiciousAwapiPayment(cicilan), false);
   assert.equal(hasSuspiciousAwapiPayment(lunas), false);
+});
+
+test('preserveExistingPaymentForSuspiciousAwapiRow keeps verified DB payment during refresh', () => {
+  const norm = normalizeAwapiRow(rawRow({
+    hp: '6281234567890',
+    bayar: '101700000',
+    bayar_sisa: -64300000,
+    diskon_kantor: '0',
+    diskon_marketing: '0',
+    paspor_nomor: 'A1234567',
+  }), { agentId: 'agent-id' });
+
+  const guarded = preserveExistingPaymentForSuspiciousAwapiRow(norm, {
+    bayar: 33900000,
+    sisa: 0,
+    diskon_kantor: 500000,
+    diskon_marketing: 250000,
+    raw_data: { payment_source: 'legacy_detail' },
+  });
+
+  assert.equal(guarded.bayar, 33900000);
+  assert.equal(guarded.sisa, 0);
+  assert.equal(guarded.diskon_kantor, 500000);
+  assert.equal(guarded.diskon_marketing, 250000);
+  assert.equal(guarded.wa, '6281234567890');
+  assert.equal(guarded.no_paspor, 'A1234567');
+  assert.equal(guarded.raw_data.payment_guard, 'preserved_existing_after_awapi_anomaly');
+  assert.deepEqual(guarded.raw_data.preserved_payment_snapshot, {
+    bayar: 33900000,
+    sisa: 0,
+    diskon_kantor: 500000,
+    diskon_marketing: 250000,
+  });
+  assert.equal(guarded.raw_data.suspicious_awapi_payment_snapshot.bayar, 101700000);
+  assert.equal(guarded.raw_data.suspicious_awapi_payment_snapshot.sisa, -64300000);
 });

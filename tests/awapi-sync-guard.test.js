@@ -17,3 +17,11 @@ test('AWAPI umroh sync falls back to legacy when payment rows are suspicious', (
   assert.match(server, /AWAPI payment anomaly/);
   assert.match(server, /throw new Error\(`AWAPI payment anomaly/);
 });
+
+test('single jamaah refresh preserves existing payment when AWAPI payment is suspicious', () => {
+  const server = read('server.js');
+
+  assert.match(server, /preserveExistingPaymentForSuspiciousAwapiRow/);
+  assert.match(server, /awapi-payment-preserved/);
+  assert.doesNotMatch(server, /if \(hasSuspiciousAwapiPayment\(norm\)\) {\s*return res\.status\(409\)/);
+});
