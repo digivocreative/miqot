@@ -131,5 +131,14 @@ test('ThemeToggle: renders Sun/Moon icon button with DESIGN-SYSTEM classes', () 
   assert.match(src, /active:scale-95/);
 });
 
+test('PortalTopBar: uses DESIGN-SYSTEM classes (backdrop-blur, dark mode, no bell)', () => {
+  const src = read('src/components/portal-jamaah/components/PortalTopBar.tsx');
+  assert.match(src, /backdrop-blur-md/);
+  assert.match(src, /bg-white\/90 dark:bg-slate-900\/90/);
+  assert.match(src, /sticky top-0 z-30/);
+  assert.match(src, /max-w-lg/);
+  assert.doesNotMatch(src, /Bell/, 'dummy bell button must be removed');
+});
+
 // Helper for design-system parity checks — used by subsequent tests
 export { read, exists };
