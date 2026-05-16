@@ -10,12 +10,31 @@ import FloatingAgentBar from '@/components/FloatingAgentBar';
 import { Loader2 } from 'lucide-react';
 import { sendCapiEvent } from '@/lib/capi';
 import { trackPublicEvent } from '@/utils/analytics';
+import PortalJamaahRouter from '@/components/portal-jamaah/PortalJamaahRouter';
 
 // ============================================
 // Main App Component
 // ============================================
 
 function App({ singlePackageId }: { singlePackageId?: string | null }) {
+  const pathSegments = window.location.pathname.split('/').filter(Boolean);
+  const portalSlug = pathSegments[0]?.toLowerCase();
+  const isPortalJamaah = pathSegments[1] === 'jamaah';
+
+  if (isPortalJamaah) {
+    if (portalSlug && AGENTS_DATA[portalSlug]) {
+      return <PortalJamaahRouter slug={portalSlug} subPath={pathSegments.slice(2)} />;
+    }
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8 font-sans">
+        <section className="w-full max-w-md rounded-2xl border border-slate-100 bg-white p-6 text-center shadow-sm">
+          <h1 className="text-xl font-bold text-slate-950">Agent tidak ditemukan</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Pastikan alamat portal yang Anda buka sudah benar.</p>
+        </section>
+      </div>
+    );
+  }
+
   // ============================================
   // Data State
   // ============================================

@@ -79,7 +79,7 @@ const bioSlug = isBio ? segments[0]?.toLowerCase() : null
 // Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
 import { getFilterModeFromSlug } from '@/utils'
 const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f']
-const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'bio']
+const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'bio', 'jamaah']
 
 // ── Auto-redirect: logged-in agents go straight to dashboard ──
 import { isSessionValid } from './utils/authUtils'

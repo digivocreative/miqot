@@ -1,16 +1,23 @@
 /// <reference types="vite/client" />
 
-interface AgentContext {
-  slug: string;
-  name: string;
-  website: string | null;
-  phone: string | null;
-  photo: string | null;
-  email: string | null;
-  customDomain: string | null;
-  hasCustomDomain: boolean;
+declare module 'virtual:pwa-register' {
+  export function registerSW(options?: {
+    immediate?: boolean;
+    onNeedRefresh?: () => void;
+    onOfflineReady?: () => void;
+    onRegistered?: (registration: ServiceWorkerRegistration | undefined) => void;
+    onRegisteredSW?: (swUrl: string, registration: ServiceWorkerRegistration | undefined) => void;
+    onRegisterError?: (error: Error) => void;
+  }): (reloadPage?: boolean) => Promise<void>;
 }
 
 interface Window {
-  __AGENT_CONTEXT__?: AgentContext;
+  __AGENT_CONTEXT__?: {
+    slug?: string;
+    name: string;
+    website?: string;
+    phone?: string;
+    photo?: string;
+    customDomain?: boolean;
+  };
 }

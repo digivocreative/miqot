@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeAwapiRow } from '../awapi-client.js';
+import { hasSuspiciousAwapiPayment, normalizeAwapiRow } from '../awapi-client.js';
 
 function jakartaYear() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -39,4 +39,27 @@ test('normalizeAwapiRow keeps plausible birth dates', () => {
 test('normalizeAwapiRow nulls current-year birth dates from AWAPI placeholders', () => {
   const norm = normalizeAwapiRow(rawRow({ tgl_lahir: `${jakartaYear()}-05-12` }), { agentId: 'agent-id' });
   assert.equal(norm.tgl_lahir, null);
+});
+
+test('hasSuspiciousAwapiPayment flags negative sisa from inflated AWAPI bayar', () => {
+  const norm = normalizeAwapiRow(rawRow({
+    bayar: '101700000',
+    bayar_sisa: -64300000,
+  }), { agentId: 'agent-id' });
+
+  assert.equal(hasSuspiciousAwapiPayment(norm), true);
+});
+
+test('hasSuspiciousAwapiPayment allows normal cicilan and lunas rows', () => {
+  const cicilan = normalizeAwapiRow(rawRow({
+    bayar: '4000000',
+    bayar_sisa: 29300000,
+  }), { agentId: 'agent-id' });
+  const lunas = normalizeAwapiRow(rawRow({
+    bayar: '33900000',
+    bayar_sisa: 0,
+  }), { agentId: 'agent-id' });
+
+  assert.equal(hasSuspiciousAwapiPayment(cicilan), false);
+  assert.equal(hasSuspiciousAwapiPayment(lunas), false);
 });

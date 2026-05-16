@@ -224,4 +224,10 @@ export function normalizeAwapiRow(raw, { agentId } = {}) {
   };
 }
 
+export function hasSuspiciousAwapiPayment(row) {
+  const bayar = safeBigint(row?.bayar);
+  const sisa = safeBigint(row?.sisa ?? row?.bayar_sisa);
+  return (bayar || 0) > 0 && (sisa || 0) < 0;
+}
+
 export { AwapiError };

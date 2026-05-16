@@ -24,7 +24,7 @@ import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
-import { awapiFetchUmrahByKeberangkatan, awapiFetchUmrahByPendaftaran, awapiFetchUmrahById, awapiFetchJamaahById, normalizeAwapiRow, AwapiError } from './awapi-client.js';
+import { awapiFetchUmrahByKeberangkatan, awapiFetchUmrahByPendaftaran, awapiFetchUmrahById, awapiFetchJamaahById, normalizeAwapiRow, hasSuspiciousAwapiPayment, AwapiError } from './awapi-client.js';
 import {
   runAnalyticsMaintenance,
   fetchEventsForRange,
@@ -5713,6 +5713,15 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
 
   const allRows = Array.from(rowsByKey.values());
   console.log(`[Sync/api/${context}] ${slug}: ${allRows.length} unique rows from ${keberangkatanYearsCompleted}/${yearsToSync.length} keberangkatan years + pendaftaran backfill (${fetchErrors} fetch errors)`);
+  const suspiciousPaymentRows = allRows.filter(hasSuspiciousAwapiPayment);
+  if (suspiciousPaymentRows.length > 0) {
+    const sample = suspiciousPaymentRows
+      .slice(0, 3)
+      .map((row) => `${row.id_umroh}/${row.jm_id}:${row.bayar}/${row.sisa}`)
+      .join(', ');
+    throw new Error(`AWAPI payment anomaly: ${suspiciousPaymentRows.length} row(s) have negative sisa; falling back to legacy sync (${sample})`);
+  }
+
   mergeJamaahSyncEvents(
     syncEvents,
     await detectUmrohJamaahSyncEvents(agentId, allRows, { allowNewJamaah: allowNewJamaahNotify })
@@ -6408,6 +6417,9 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
     if (!norm) {
       return res.status(422).json({ error: 'Data jamaah tidak lengkap untuk dinormalisasi' });
     }
+    if (hasSuspiciousAwapiPayment(norm)) {
+      return res.status(409).json({ error: 'Data pembayaran dari API resmi tidak konsisten. Jalankan sync penuh agar sistem memakai data legacy.' });
+    }
     norm.hijriah_year = getHijriahYear(norm.tgl_berangkat) || null;
 
     const syncEvents = await detectUmrohJamaahSyncEvents(agentId, [norm], {
@@ -6472,6 +6484,9 @@ app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) 
     }
     if (normalized.length === 0) {
       return res.status(422).json({ error: 'Tidak ada baris jamaah valid pada booking ini' });
+    }
+    if (normalized.some(hasSuspiciousAwapiPayment)) {
+      return res.status(409).json({ error: 'Data pembayaran dari API resmi tidak konsisten. Jalankan sync penuh agar sistem memakai data legacy.' });
     }
 
     const safeRows = filterSafeJamaahRows(normalized, 'api-refresh-umrah');
@@ -11289,6 +11304,887 @@ app.get('/api/weather/cities', authMiddleware, async (req, res) => {
       return res.json({ success: true, data: weatherCache, cached: true, stale: true });
     }
     res.status(500).json({ error: 'Gagal mengambil data cuaca' });
+  }
+});
+
+// ──────────────────────────────────────────────
+// Portal Jamaah — backend API for jamaah-facing booking portal
+// ──────────────────────────────────────────────
+const PORTAL_BASE_URL = process.env.PORTAL_BASE_URL || 'https://alhijaz.co';
+const PORTAL_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const PORTAL_SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const portalGenerateRateLimits = new Map();
+const portalConsumeRateLimits = new Map();
+const portalPersiapanRateLimits = new Map();
+const portalRequestBookingRateLimits = new Map();
+
+// Kept in server.js because this file runs directly in Node. The matching
+// frontend/shared TypeScript version lives in src/constants/persiapan-defaults.ts.
+const TAHAPAN_DEFAULTS = [
+  { id: 'dp_dibayar', title: 'DP keluarga dibayar', description: 'Pembayaran awal sudah masuk', phase: 'sekarang', autoSyncFrom: 'bayar_lunas' },
+  { id: 'vaksin_meningitis', title: 'Vaksin Meningitis', description: 'Sertifikat ICV untuk semua jamaah', phase: 'sekarang', autoSyncFrom: 'vaksin_dokumen' },
+  { id: 'pelunasan', title: 'Pelunasan sisa pembayaran', description: 'Sisa pembayaran sebelum H-30', phase: 'sekarang', autoSyncFrom: 'bayar_lunas', crossLink: 'bayar' },
+  { id: 'fisik_sehat', title: 'Persiapan fisik & kesehatan', description: 'Jalan kaki rutin, jaga pola makan, cek tensi', phase: 'sekarang' },
+  { id: 'manasik_hadir', title: 'Hadir Manasik Bersama', description: 'Sesuai jadwal dari agent', phase: 'h30' },
+  { id: 'perlengkapan_ambil', title: 'Ambil perlengkapan dari kantor', description: 'Ihram, buku doa, ID card, dll', phase: 'h30', crossLink: 'perlengkapan' },
+  { id: 'paspor_final', title: 'Pastikan paspor & dokumen final', description: 'Cek paspor expired & kelengkapan', phase: 'h30', crossLink: 'dokumen' },
+  { id: 'packing_koper', title: 'Packing koper', description: 'Bawa list barang dari agent', phase: 'h7' },
+  { id: 'cek_ulang', title: 'Cek ulang koper & dokumen', description: 'Pastikan paspor, ihram, obat-obatan', phase: 'h7' },
+  { id: 'urus_rumah', title: 'Selesaikan urusan di rumah', description: 'Titip rumah, pet, kerjaan', phase: 'h7' },
+  { id: 'konfirmasi_agent', title: 'Konfirmasi ulang ke agent', description: 'Jam kumpul di bandara', phase: 'h1' },
+  { id: 'niat_azam', title: 'Persiapan mental: niat & azam', description: 'Mantapkan niat ibadah', phase: 'h1' },
+  { id: 'tidur_cukup', title: 'Tidur cukup', description: 'Berangkat dalam kondisi prima', phase: 'h1' },
+];
+
+const SPIRITUAL_DEFAULTS = [
+  { id: 'hafal_niat_umroh', title: 'Hafal niat umroh', description: "Labbaika 'umratan", category: 'niat_doa', resourceUrl: 'https://www.youtube.com/results?search_query=niat+umroh' },
+  { id: 'hafal_doa_tawaf', title: 'Hafal doa tawaf', description: 'Doa per putaran (7 putaran)', category: 'niat_doa', resourceUrl: 'https://www.youtube.com/results?search_query=doa+tawaf' },
+  { id: 'hafal_doa_sai', title: "Hafal doa sa'i", description: 'Doa di Shafa & Marwah', category: 'niat_doa', resourceUrl: 'https://www.youtube.com/results?search_query=doa+sai' },
+  { id: 'hafal_talbiyah', title: 'Hafal talbiyah', description: 'Labbaikallahumma labbaik...', category: 'niat_doa', resourceUrl: 'https://www.youtube.com/results?search_query=talbiyah' },
+  { id: 'rukun_umroh', title: 'Rukun umroh', description: '5 rukun yang wajib dilakukan', category: 'ilmu_manasik' },
+  { id: 'wajib_umroh', title: 'Wajib umroh', description: 'Wajib yang jika ditinggalkan kena dam', category: 'ilmu_manasik' },
+  { id: 'larangan_ihram', title: 'Larangan ihram', description: 'Hal-hal yang tidak boleh saat ihram', category: 'ilmu_manasik' },
+  { id: 'tobat_istighfar', title: 'Tobat & istighfar', description: 'Bersihkan hati sebelum berangkat', category: 'persiapan_hati' },
+  { id: 'mohon_maaf', title: 'Mohon maaf ke keluarga', description: 'Silaturahmi sebelum berangkat', category: 'persiapan_hati' },
+  { id: 'mantap_niat', title: 'Memantapkan niat', description: 'Ibadah karena Allah, bukan riya', category: 'persiapan_hati' },
+];
+
+const PERLENGKAPAN_DEFAULTS = [
+  { id: 'koper_besar', title: 'Koper besar', icon: 'briefcase', handover: 'dp' },
+  { id: 'tas_kabin', title: 'Tas kabin', icon: 'backpack', handover: 'dp' },
+  { id: 'tas_paspor', title: 'Tas paspor', icon: 'wallet', handover: 'dp' },
+  { id: 'ihram', title: 'Ihram', icon: 'shirt', handover: 'manasik' },
+  { id: 'buku_doa', title: 'Buku doa & manasik', icon: 'book', handover: 'manasik' },
+  { id: 'id_card', title: 'ID card jamaah', icon: 'id-card', handover: 'manasik' },
+  { id: 'sabuk_ihram', title: 'Sabuk pinggang ihram', icon: 'belt', handover: 'manasik' },
+];
+
+function checkPortalRateLimit(map, key, max, windowMs) {
+  const now = Date.now();
+  const entry = map.get(key);
+  if (!entry || now >= entry.resetAt) {
+    map.set(key, { count: 1, resetAt: now + windowMs });
+    return { ok: true };
+  }
+  if (entry.count >= max) {
+    return { ok: false, retryAfter: Math.ceil((entry.resetAt - now) / 1000) };
+  }
+  entry.count++;
+  return { ok: true };
+}
+
+function portalRateLimit(map, keyFn, max, windowMs) {
+  return (req, res, next) => {
+    const key = keyFn(req) || 'unknown';
+    const result = checkPortalRateLimit(map, key, max, windowMs);
+    if (!result.ok) {
+      if (result.retryAfter) res.set('Retry-After', String(result.retryAfter));
+      return res.status(429).json({ error: 'rate_limited' });
+    }
+    next();
+  };
+}
+
+function portalSchemaMissingResponse(res, error) {
+  const message = String(error?.message || '');
+  if (!/schema cache|Could not find the table|jamaah_portal_|booking_persiapan/i.test(message)) {
+    return false;
+  }
+  return res.status(503).json({
+    error: 'portal_schema_missing',
+    message: 'Migration Portal Jamaah belum dijalankan di Supabase. Jalankan migrations/20260515000000_portal_jamaah.sql lalu coba lagi.',
+  });
+}
+
+function getPortalCookie(req, name) {
+  const raw = req.headers?.cookie;
+  if (!raw) return null;
+  for (const part of raw.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const key = part.slice(0, idx).trim();
+    if (key !== name) continue;
+    try {
+      return decodeURIComponent(part.slice(idx + 1).trim());
+    } catch {
+      return part.slice(idx + 1).trim();
+    }
+  }
+  return null;
+}
+
+function getPortalSessionToken(req) {
+  const auth = req.headers.authorization || '';
+  if (auth.startsWith('Bearer ')) return auth.replace('Bearer ', '').trim();
+  return req.cookies?.jamaah_session || getPortalCookie(req, 'jamaah_session');
+}
+
+function getPortalCookieOptions(req) {
+  const forwardedProto = req.headers?.['x-forwarded-proto'];
+  const isHttps = req.secure || forwardedProto === 'https';
+  return {
+    httpOnly: true,
+    secure: isHttps,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: PORTAL_SESSION_TTL_MS,
+  };
+}
+
+async function portalJamaahAuth(req, res, next) {
+  const token = getPortalSessionToken(req);
+  if (!token) return res.status(401).json({ error: 'no_session' });
+
+  try {
+    const { data: session, error } = await supabase
+      .from('jamaah_portal_sessions')
+      .select('*')
+      .eq('session_token', token)
+      .maybeSingle();
+
+    if (error) return res.status(500).json({ error: error.message });
+    if (!session) return res.status(401).json({ error: 'invalid_session' });
+    if (new Date(session.expires_at) < new Date()) return res.status(401).json({ error: 'expired' });
+
+    supabase
+      .from('jamaah_portal_sessions')
+      .update({ last_active_at: new Date().toISOString() })
+      .eq('session_token', token)
+      .then(() => {});
+
+    req.portalSession = session;
+    req.portalSessionToken = token;
+    next();
+  } catch (err) {
+    console.error('[PortalJamaah] auth error:', err.message);
+    res.status(500).json({ error: 'Gagal memvalidasi session' });
+  }
+}
+
+const portalGenerateLimiter = portalRateLimit(
+  portalGenerateRateLimits,
+  (req) => `agent:${req.user?.id || 'unknown'}`,
+  10,
+  60 * 60 * 1000
+);
+
+const portalConsumeLimiter = portalRateLimit(
+  portalConsumeRateLimits,
+  (req) => `ip:${getClientIpUa(req).ip || 'unknown'}`,
+  20,
+  60 * 1000
+);
+
+const portalPersiapanLimiter = portalRateLimit(
+  portalPersiapanRateLimits,
+  (req) => `session:${req.portalSession?.session_token || req.portalSessionToken || 'unknown'}`,
+  60,
+  60 * 1000
+);
+
+const portalRequestBookingLimiter = portalRateLimit(
+  portalRequestBookingRateLimits,
+  (req) => `ip:${getClientIpUa(req).ip || 'unknown'}`,
+  5,
+  60 * 60 * 1000
+);
+
+function normalizePortalWaNumber(wa) {
+  let cleaned = String(wa || '').replace(/\D/g, '');
+  if (!cleaned) return null;
+  if (cleaned.startsWith('620')) cleaned = '62' + cleaned.slice(3);
+  else if (cleaned.startsWith('0')) cleaned = '62' + cleaned.slice(1);
+  else if (cleaned.startsWith('8')) cleaned = '62' + cleaned;
+  else if (/^62[^8]\d{7,11}$/.test(cleaned)) cleaned = '628' + cleaned.slice(2);
+  return /^628\d{7,12}$/.test(cleaned) ? cleaned : null;
+}
+
+async function getPortalDashboardAgent(req, slug) {
+  const requestedSlug = String(slug || '').toLowerCase();
+  const targetAgent = await getAgentBySlug(requestedSlug);
+  if (!targetAgent) return { error: 'agent_not_found', status: 404 };
+
+  if (req.user?.role === 'admin') {
+    return { agent: targetAgent };
+  }
+
+  const currentAgent = await getAgentById(req.user?.id);
+  if (!currentAgent || currentAgent.id !== targetAgent.id) {
+    return { error: 'forbidden', status: 403 };
+  }
+  return { agent: targetAgent };
+}
+
+function getPortalDatePlus(ms) {
+  return new Date(Date.now() + ms).toISOString();
+}
+
+function portalNormalizeName(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function portalDaysUntil(dateStr) {
+  if (!dateStr) return null;
+  const ymd = String(dateStr).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const today = Date.parse(`${getWIBDateStr()}T00:00:00.000Z`);
+  const target = Date.parse(`${ymd}T00:00:00.000Z`);
+  if (!Number.isFinite(target)) return null;
+  return Math.ceil((target - today) / 86400000);
+}
+
+function portalPaymentPct(row) {
+  const bayar = toMoney(row?.bayar);
+  const sisa = toMoney(row?.sisa);
+  const total = bayar + Math.max(0, sisa);
+  if (total <= 0) return bayar > 0 ? 100 : 0;
+  return Math.max(0, Math.min(100, Math.round((bayar / total) * 100)));
+}
+
+const PORTAL_DOCUMENT_KEYS = ['paspor', 'ktp', 'vaksin', 'foto_46', 'buku_nikah'];
+
+function portalDocValue(dokumen, keys) {
+  const src = dokumen && typeof dokumen === 'object' ? dokumen : {};
+  return keys.some((key) => {
+    const value = src[key];
+    if (value === true || value === 1) return true;
+    if (!value || typeof value !== 'object') return false;
+    return value.verified === true
+      || value.uploaded === true
+      || value.checked === true
+      || value.status === 'diambil'
+      || value.status === 'verified'
+      || value.status === 'lengkap';
+  });
+}
+
+function portalPasporReady(row) {
+  const hasNumber = Boolean(String(row?.no_paspor || '').trim());
+  const docReady = portalDocValue(row?.dokumen, ['paspor', 'passport']);
+  if (!hasNumber && !docReady) return false;
+  if (row?.paspor_expired && row?.tgl_berangkat && String(row.paspor_expired).slice(0, 10) < String(row.tgl_berangkat).slice(0, 10)) {
+    return false;
+  }
+  return true;
+}
+
+function portalVaksinReady(row) {
+  return portalDocValue(row?.dokumen, ['vaksin_meningitis', 'vaksin', 'meningitis', 'icv']);
+}
+
+function portalDocumentReady(row, docKey) {
+  if (docKey === 'paspor') return portalPasporReady(row);
+  if (docKey === 'vaksin') return portalVaksinReady(row);
+  const aliases = {
+    ktp: ['ktp', 'KTP'],
+    foto_46: ['foto_46', 'foto', 'pas_foto', 'foto_4x6'],
+    buku_nikah: ['buku_nikah', 'nikah', 'buku nikah'],
+  };
+  return portalDocValue(row?.dokumen, aliases[docKey] || [docKey]);
+}
+
+function portalPerlengkapanEntry(perlengkapan, itemId) {
+  const src = perlengkapan && typeof perlengkapan === 'object' ? perlengkapan : {};
+  const aliases = {
+    koper_besar: ['koper_besar', 'koper'],
+    tas_kabin: ['tas_kabin', 'tas kabin'],
+    tas_paspor: ['tas_paspor', 'tas paspor'],
+    ihram: ['ihram', 'ikhram'],
+    buku_doa: ['buku_doa', 'buku doa'],
+    id_card: ['id_card', 'id card'],
+    sabuk_ihram: ['sabuk_ihram', 'sabuk'],
+  };
+  for (const key of aliases[itemId] || [itemId]) {
+    if (Object.prototype.hasOwnProperty.call(src, key)) return src[key];
+  }
+  return null;
+}
+
+function portalPerlengkapanStatus(perlengkapan, itemId) {
+  const entry = portalPerlengkapanEntry(perlengkapan, itemId);
+  if (entry && typeof entry === 'object') {
+    return {
+      status: ['diambil', 'tersedia', 'belum_siap'].includes(entry.status) ? entry.status : 'belum_siap',
+      diambil_at: entry.diambil_at || null,
+    };
+  }
+  if (entry === true || entry === 1) return { status: 'diambil', diambil_at: null };
+  if (entry === false || entry === 0) return { status: 'belum_siap', diambil_at: null };
+  return { status: 'belum_siap', diambil_at: null };
+}
+
+function portalPerlengkapanPerJamaah(rows) {
+  const out = {};
+  for (const row of rows || []) {
+    out[String(row.id)] = PERLENGKAPAN_DEFAULTS.map((item) => ({
+      ...item,
+      ...portalPerlengkapanStatus(row.perlengkapan, item.id),
+    }));
+  }
+  return out;
+}
+
+function computePortalAutoSync(item, rows) {
+  if (!item.autoSyncFrom) return null;
+  const jamaah = rows || [];
+  const totalSisa = jamaah.reduce((sum, row) => sum + Math.max(0, toMoney(row.sisa)), 0);
+  const totalBayar = jamaah.reduce((sum, row) => sum + Math.max(0, toMoney(row.bayar)), 0);
+
+  if (item.autoSyncFrom === 'bayar_lunas') {
+    if (item.id === 'dp_dibayar') return { checked: totalBayar > 0 || totalSisa <= 0 };
+    return { checked: totalSisa <= 0 };
+  }
+  if (item.autoSyncFrom === 'vaksin_dokumen') {
+    return { checked: jamaah.length > 0 && jamaah.every(portalVaksinReady) };
+  }
+  if (item.autoSyncFrom === 'paspor_dokumen') {
+    return { checked: jamaah.length > 0 && jamaah.every(portalPasporReady) };
+  }
+  return { checked: false };
+}
+
+function mergePortalPersiapanItems(defaults, savedState, rows) {
+  const state = savedState && typeof savedState === 'object' ? savedState : {};
+  return defaults.map((item) => {
+    const saved = state[item.id] && typeof state[item.id] === 'object' ? state[item.id] : {};
+    const auto = computePortalAutoSync(item, rows);
+    if (auto) {
+      return {
+        ...item,
+        checked: Boolean(auto.checked),
+        checked_at: auto.checked ? (saved.checked_at || null) : null,
+        auto_synced: true,
+      };
+    }
+    return {
+      ...item,
+      checked: saved.checked === true,
+      checked_at: saved.checked_at || null,
+      auto_synced: false,
+    };
+  });
+}
+
+function portalPercent(done, total) {
+  if (!total) return 0;
+  return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+}
+
+function computePortalProgress({ tahapan, spiritual, rows, perlengkapanPerJamaah }) {
+  const tahapanChecked = tahapan.filter((item) => item.checked).length;
+  const spiritualChecked = spiritual.filter((item) => item.checked).length;
+  const tahapanPct = portalPercent(tahapanChecked, tahapan.length);
+  const spiritualPct = portalPercent(spiritualChecked, spiritual.length);
+
+  let docDone = 0;
+  let docTotal = 0;
+  for (const row of rows || []) {
+    docTotal += PORTAL_DOCUMENT_KEYS.length;
+    for (const key of PORTAL_DOCUMENT_KEYS) {
+      if (portalDocumentReady(row, key)) docDone++;
+    }
+  }
+  const dokumenPct = portalPercent(docDone, docTotal);
+
+  const perlengkapanTotal = (rows || []).length * PERLENGKAPAN_DEFAULTS.length;
+  const perlengkapanItems = Object.values(perlengkapanPerJamaah || {}).flat();
+  const perlengkapanChecked = perlengkapanItems.filter((item) => item.status === 'diambil').length;
+  const perlengkapanPct = portalPercent(
+    perlengkapanChecked,
+    perlengkapanTotal
+  );
+
+  const totalItems = tahapan.length + spiritual.length + docTotal + perlengkapanTotal;
+  const checkedItems = tahapanChecked + spiritualChecked + docDone + perlengkapanChecked;
+  const overallPct = portalPercent(checkedItems, totalItems);
+  return {
+    overall_pct: overallPct,
+    tahapan_pct: tahapanPct,
+    spiritual_pct: spiritualPct,
+    dokumen_pct: dokumenPct,
+    perlengkapan_pct: perlengkapanPct,
+    pending_count: Math.max(0, totalItems - checkedItems),
+  };
+}
+
+async function fetchPortalBookingRows(session) {
+  const { data, error } = await supabase
+    .from('jamaah')
+    .select('id, id_umroh, jm_id, nama, jk, wa, paket, bayar, sisa, tgl_berangkat, no_paspor, paspor_expired, dokumen, perlengkapan, raw_data')
+    .eq('agent_id', session.agent_id)
+    .eq('id_umroh', session.id_umroh)
+    .order('id', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+const PORTAL_SCHEDULE_SELECT = [
+  'jadwal_id',
+  'year_code',
+  'jadwal_nama',
+  'berangkat_tgl',
+  'pulang_tgl',
+  'manasik_tgl',
+  'manasik_jam',
+  'berangkat_jam',
+  'berangkat_rute',
+  'berangkat_kode_penerbangan',
+  'pulang_jam',
+  'pulang_rute',
+  'pulang_kode_penerbangan',
+  'paket_hotel',
+  'itinerary',
+  'itinerary_cdn',
+].join(', ');
+
+async function fetchPortalSchedule(rows) {
+  const first = rows?.[0];
+  if (!first) return null;
+  const raw = first.raw_data || {};
+  const jadwalId = raw.id_jadwal || raw.jadwal_id || raw.idJadwal;
+
+  if (jadwalId) {
+    const { data, error } = await supabase
+      .from('umroh_schedules')
+      .select(PORTAL_SCHEDULE_SELECT)
+      .eq('jadwal_id', String(jadwalId))
+      .order('year_code', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!error && data) return data;
+  }
+
+  let query = supabase
+    .from('umroh_schedules')
+    .select(PORTAL_SCHEDULE_SELECT)
+    .order('berangkat_tgl', { ascending: false, nullsFirst: false })
+    .range(0, 499);
+  const departureDate = first.tgl_berangkat ? String(first.tgl_berangkat).slice(0, 10) : null;
+  if (departureDate) query = query.eq('berangkat_tgl', departureDate);
+
+  const { data, error } = await query;
+  if (error) {
+    console.warn('[PortalJamaah] schedule lookup failed:', error.message);
+    return null;
+  }
+  const paket = portalNormalizeName(first.paket);
+  return (data || []).find((row) => portalNormalizeName(row.jadwal_nama) === paket)
+    || (data || []).find((row) => paket.startsWith(portalNormalizeName(row.jadwal_nama)))
+    || null;
+}
+
+async function formatPortalSchedule(schedule) {
+  if (!schedule) return null;
+  let itineraryContent = null;
+  if (schedule.jadwal_id) {
+    itineraryContent = await getItineraryContext(schedule.jadwal_id);
+  }
+  return {
+    manasik_tgl: schedule.manasik_tgl || null,
+    manasik_jam: schedule.manasik_jam || null,
+    berangkat_jam: schedule.berangkat_jam || null,
+    berangkat_rute: schedule.berangkat_rute || null,
+    berangkat_kode_penerbangan: schedule.berangkat_kode_penerbangan || null,
+    pulang_jam: schedule.pulang_jam || null,
+    pulang_rute: schedule.pulang_rute || null,
+    pulang_kode_penerbangan: schedule.pulang_kode_penerbangan || null,
+    paket_hotel: schedule.paket_hotel || null,
+    itinerary: itineraryContent,
+    itinerary_url: schedule.itinerary_cdn || schedule.itinerary || null,
+  };
+}
+
+function formatPortalJamaah(row, initiatingJamaahId) {
+  return {
+    id: row.id,
+    nama: row.nama,
+    jk: row.jk,
+    wa: row.wa,
+    bayar: toMoney(row.bayar),
+    sisa: toMoney(row.sisa),
+    bayar_pct: portalPaymentPct(row),
+    no_paspor: row.no_paspor || null,
+    paspor_expired: row.paspor_expired || null,
+    dokumen: row.dokumen || {},
+    perlengkapan: row.perlengkapan || {},
+    is_initiator: row.id === initiatingJamaahId,
+  };
+}
+
+async function buildPortalPersiapanResponse(session) {
+  const rows = await fetchPortalBookingRows(session);
+  if (!rows.length) return { error: 'booking_not_found', status: 404 };
+
+  const { data: persiapan, error } = await supabase
+    .from('booking_persiapan')
+    .select('tahapan, spiritual')
+    .eq('id_umroh', session.id_umroh)
+    .eq('agent_id', session.agent_id)
+    .maybeSingle();
+  if (error) throw error;
+
+  const tahapan = mergePortalPersiapanItems(TAHAPAN_DEFAULTS, persiapan?.tahapan || {}, rows);
+  const spiritual = mergePortalPersiapanItems(SPIRITUAL_DEFAULTS, persiapan?.spiritual || {}, rows);
+  const perlengkapanPerJamaah = portalPerlengkapanPerJamaah(rows);
+  const progress = computePortalProgress({ tahapan, spiritual, rows, perlengkapanPerJamaah });
+
+  return {
+    tahapan,
+    spiritual,
+    perlengkapan_per_jamaah: perlengkapanPerJamaah,
+    progress,
+  };
+}
+
+app.get('/api/agents/:slug/public', async (req, res) => {
+  try {
+    const slug = String(req.params.slug || '').toLowerCase();
+    const agent = await getAgentBySlug(slug);
+    if (!agent) return res.status(404).json({ error: 'agent_not_found' });
+    res.json({
+      slug: agent.slug,
+      name: agent.name,
+      phone: agent.phone || '',
+      photo: agent.photo || '',
+      website: agent.website || '',
+    });
+  } catch (err) {
+    console.error('[PortalJamaah] public agent error:', err.message);
+    res.status(500).json({ error: 'Gagal mengambil agent' });
+  }
+});
+
+app.post('/api/portal/jamaah/:slug/magic-link/request-by-booking', portalRequestBookingLimiter, async (req, res) => {
+  const generic = { success: true, message: 'Jika data cocok, link akses akan dikirim ke WhatsApp terdaftar.' };
+  try {
+    const slug = String(req.params.slug || '').toLowerCase();
+    const idUmroh = String(req.body?.id_umroh || '').trim();
+    const wa = normalizePortalWaNumber(req.body?.wa);
+    if (!idUmroh || !wa) return res.json(generic);
+
+    const agent = await getAgentBySlug(slug);
+    if (!agent) return res.json(generic);
+
+    const { data: rows, error } = await supabase
+      .from('jamaah')
+      .select('id, id_umroh, nama, wa')
+      .eq('agent_id', agent.id)
+      .eq('id_umroh', idUmroh)
+      .limit(50);
+    if (error) {
+      console.warn('[PortalJamaah] request-by-booking lookup failed:', error.message);
+      return res.json(generic);
+    }
+
+    const matched = (rows || []).find((row) => normalizePortalWaNumber(row.wa) === wa);
+    if (!matched) return res.json(generic);
+
+    const token = crypto.randomUUID();
+    const expiresAt = getPortalDatePlus(PORTAL_TOKEN_TTL_MS);
+    const { error: insertError } = await supabase.from('jamaah_portal_tokens').insert({
+      token,
+      jamaah_id: matched.id,
+      id_umroh: matched.id_umroh,
+      agent_id: agent.id,
+      expires_at: expiresAt,
+    });
+    if (insertError) {
+      console.warn('[PortalJamaah] request-by-booking token insert failed:', insertError.message);
+      return res.json(generic);
+    }
+
+    // No WhatsApp provider is configured in this app yet. Keep the endpoint
+    // enumeration-safe and ready for a sender integration without exposing links.
+    console.log(`[PortalJamaah] Magic link requested by booking for ${slug}/${idUmroh}; token generated for jamaah ${matched.id}`);
+    return res.json(generic);
+  } catch (err) {
+    console.error('[PortalJamaah] request-by-booking error:', err.message);
+    return res.json(generic);
+  }
+});
+
+app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, portalGenerateLimiter, async (req, res) => {
+  try {
+    const { agent, error: agentError, status } = await getPortalDashboardAgent(req, req.params.slug);
+    if (!agent) return res.status(status || 404).json({ error: agentError || 'agent_not_found' });
+
+    const jamaahId = Number(req.body?.jamaah_id);
+    if (!Number.isInteger(jamaahId) || jamaahId <= 0) {
+      return res.status(400).json({ error: 'jamaah_id_required' });
+    }
+
+    const { data: jamaah, error } = await supabase
+      .from('jamaah')
+      .select('id, id_umroh, nama')
+      .eq('id', jamaahId)
+      .eq('agent_id', agent.id)
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!jamaah) return res.status(404).json({ error: 'jamaah_not_found' });
+    if (!jamaah.id_umroh) return res.status(400).json({ error: 'missing_id_umroh' });
+
+    const token = crypto.randomUUID();
+    const expiresAt = getPortalDatePlus(PORTAL_TOKEN_TTL_MS);
+    const { error: insertError } = await supabase.from('jamaah_portal_tokens').insert({
+      token,
+      jamaah_id: jamaah.id,
+      id_umroh: jamaah.id_umroh,
+      agent_id: agent.id,
+      expires_at: expiresAt,
+    });
+    if (insertError) {
+      if (portalSchemaMissingResponse(res, insertError)) return;
+      return res.status(500).json({ error: 'token_insert_failed' });
+    }
+
+    const { count } = await supabase
+      .from('jamaah')
+      .select('*', { count: 'exact', head: true })
+      .eq('agent_id', agent.id)
+      .eq('id_umroh', jamaah.id_umroh);
+
+    const slug = agent.slug || req.params.slug;
+    res.json({
+      url: `${PORTAL_BASE_URL}/${slug}/jamaah/auth/${token}`,
+      expires_at: expiresAt,
+      jamaah_name: jamaah.nama,
+      id_umroh: jamaah.id_umroh,
+      anggota_count: count || 0,
+    });
+  } catch (err) {
+    console.error('[PortalJamaah] magic-link generate error:', err.message);
+    res.status(500).json({ error: 'Gagal generate magic link' });
+  }
+});
+
+app.get('/api/portal/jamaah/auth/consume/:token', portalConsumeLimiter, async (req, res) => {
+  try {
+    const token = String(req.params.token || '').trim();
+    if (!token) return res.status(404).json({ error: 'not_found' });
+
+    const { data: portalToken, error } = await supabase
+      .from('jamaah_portal_tokens')
+      .select('*')
+      .eq('token', token)
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!portalToken) return res.status(404).json({ error: 'not_found' });
+    if (portalToken.consumed_at) {
+      return res.status(410).json({ error: 'already_used', message: 'Link sudah digunakan' });
+    }
+    if (new Date(portalToken.expires_at) < new Date()) {
+      return res.status(410).json({ error: 'expired', message: 'Link sudah expired, minta link baru ke agent' });
+    }
+
+    const [jamaahRes, agentRes] = await Promise.all([
+      supabase.from('jamaah').select('id, nama').eq('id', portalToken.jamaah_id).maybeSingle(),
+      supabase.from('agents').select('id, slug').eq('id', portalToken.agent_id).maybeSingle(),
+    ]);
+    if (jamaahRes.error) return res.status(500).json({ error: jamaahRes.error.message });
+    if (agentRes.error) return res.status(500).json({ error: agentRes.error.message });
+    if (!jamaahRes.data || !agentRes.data) return res.status(404).json({ error: 'not_found' });
+
+    const { ip, userAgent } = getClientIpUa(req);
+    const consumedAt = new Date().toISOString();
+    const { data: consumedRows, error: consumeError } = await supabase
+      .from('jamaah_portal_tokens')
+      .update({
+        consumed_at: consumedAt,
+        consumed_ip: ip,
+        consumed_user_agent: userAgent,
+      })
+      .eq('token', token)
+      .is('consumed_at', null)
+      .select('token');
+    if (consumeError) return res.status(500).json({ error: consumeError.message });
+    if (!consumedRows?.length) {
+      return res.status(410).json({ error: 'already_used', message: 'Link sudah digunakan' });
+    }
+
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = getPortalDatePlus(PORTAL_SESSION_TTL_MS);
+    const { error: sessionError } = await supabase.from('jamaah_portal_sessions').insert({
+      session_token: sessionToken,
+      id_umroh: portalToken.id_umroh,
+      agent_id: portalToken.agent_id,
+      initiating_jamaah_id: portalToken.jamaah_id,
+      expires_at: expiresAt,
+      user_agent: userAgent,
+    });
+    if (sessionError) return res.status(500).json({ error: sessionError.message });
+
+    res.cookie('jamaah_session', sessionToken, getPortalCookieOptions(req));
+    res.json({
+      session_token: sessionToken,
+      id_umroh: portalToken.id_umroh,
+      jamaah_name: jamaahRes.data.nama,
+      agent_slug: agentRes.data.slug,
+      expires_at: expiresAt,
+    });
+  } catch (err) {
+    console.error('[PortalJamaah] consume error:', err.message);
+    res.status(500).json({ error: 'Gagal consume magic link' });
+  }
+});
+
+app.get('/api/portal/jamaah/me', portalJamaahAuth, async (req, res) => {
+  try {
+    const session = req.portalSession;
+    const rows = await fetchPortalBookingRows(session);
+    if (!rows.length) return res.status(404).json({ error: 'booking_not_found' });
+
+    const [agent, scheduleRow] = await Promise.all([
+      getAgentById(session.agent_id),
+      fetchPortalSchedule(rows),
+    ]);
+    const schedule = await formatPortalSchedule(scheduleRow);
+    const first = rows[0];
+
+    res.json({
+      booking: {
+        id_umroh: session.id_umroh,
+        paket: first.paket || scheduleRow?.jadwal_nama || null,
+        tgl_berangkat: first.tgl_berangkat || scheduleRow?.berangkat_tgl || null,
+        tgl_pulang: scheduleRow?.pulang_tgl || null,
+        hari_ke_berangkat: portalDaysUntil(first.tgl_berangkat || scheduleRow?.berangkat_tgl),
+        jadwal: scheduleRow ? {
+          jadwal_id: scheduleRow.jadwal_id,
+          jadwal_nama: scheduleRow.jadwal_nama,
+          year_code: scheduleRow.year_code,
+        } : null,
+      },
+      jamaah: rows.map((row) => formatPortalJamaah(row, session.initiating_jamaah_id)),
+      agent: agent ? {
+        slug: agent.slug,
+        name: agent.name,
+        phone: agent.phone || null,
+        photo: agent.photo || null,
+        website: agent.website || null,
+      } : null,
+      schedule,
+    });
+  } catch (err) {
+    console.error('[PortalJamaah] me error:', err.message);
+    res.status(500).json({ error: 'Gagal mengambil data portal' });
+  }
+});
+
+app.get('/api/portal/jamaah/persiapan', portalJamaahAuth, async (req, res) => {
+  try {
+    const data = await buildPortalPersiapanResponse(req.portalSession);
+    if (data.error) return res.status(data.status || 500).json({ error: data.error });
+    res.json(data);
+  } catch (err) {
+    console.error('[PortalJamaah] persiapan get error:', err.message);
+    res.status(500).json({ error: 'Gagal mengambil persiapan' });
+  }
+});
+
+app.put('/api/portal/jamaah/persiapan/item', portalJamaahAuth, portalPersiapanLimiter, async (req, res) => {
+  try {
+    const { kind, item_id: itemId, checked } = req.body || {};
+    if (!['tahapan', 'spiritual'].includes(kind)) return res.status(400).json({ error: 'invalid_kind' });
+    if (!itemId || typeof itemId !== 'string') return res.status(400).json({ error: 'item_id_required' });
+    if (typeof checked !== 'boolean') return res.status(400).json({ error: 'checked_required' });
+
+    const defaults = kind === 'tahapan' ? TAHAPAN_DEFAULTS : SPIRITUAL_DEFAULTS;
+    const item = defaults.find((entry) => entry.id === itemId);
+    if (!item) return res.status(404).json({ error: 'item_not_found' });
+    if (item.autoSyncFrom) return res.status(400).json({ error: 'auto_synced_item' });
+
+    const session = req.portalSession;
+    const rows = await fetchPortalBookingRows(session);
+    if (!rows.length) return res.status(404).json({ error: 'booking_not_found' });
+
+    const { data: existing, error: readError } = await supabase
+      .from('booking_persiapan')
+      .select('tahapan, spiritual')
+      .eq('id_umroh', session.id_umroh)
+      .eq('agent_id', session.agent_id)
+      .maybeSingle();
+    if (readError) return res.status(500).json({ error: readError.message });
+
+    const now = new Date().toISOString();
+    const nextTahapan = { ...(existing?.tahapan || {}) };
+    const nextSpiritual = { ...(existing?.spiritual || {}) };
+    const target = kind === 'tahapan' ? nextTahapan : nextSpiritual;
+    target[itemId] = { checked, checked_at: checked ? now : null };
+
+    const { error: upsertError } = await supabase.from('booking_persiapan').upsert({
+      id_umroh: session.id_umroh,
+      agent_id: session.agent_id,
+      tahapan: nextTahapan,
+      spiritual: nextSpiritual,
+      updated_at: now,
+    }, { onConflict: 'id_umroh' });
+    if (upsertError) return res.status(500).json({ error: upsertError.message });
+
+    const data = await buildPortalPersiapanResponse(session);
+    if (data.error) return res.status(data.status || 500).json({ error: data.error });
+    res.json({ success: true, progress: data.progress, tahapan: data.tahapan, spiritual: data.spiritual });
+  } catch (err) {
+    console.error('[PortalJamaah] persiapan update error:', err.message);
+    res.status(500).json({ error: 'Gagal update persiapan' });
+  }
+});
+
+app.post('/api/portal/jamaah/auth/logout', portalJamaahAuth, async (req, res) => {
+  try {
+    await supabase
+      .from('jamaah_portal_sessions')
+      .delete()
+      .eq('session_token', req.portalSessionToken);
+    res.clearCookie('jamaah_session', { path: '/' });
+    res.sendStatus(204);
+  } catch (err) {
+    console.error('[PortalJamaah] logout error:', err.message);
+    res.status(500).json({ error: 'Gagal logout' });
+  }
+});
+
+app.get('/api/portal/jamaah/sessions', authMiddleware, async (req, res) => {
+  try {
+    const now = new Date().toISOString();
+    const { data: sessions, error } = await supabase
+      .from('jamaah_portal_sessions')
+      .select('id_umroh, initiating_jamaah_id, last_active_at, created_at, user_agent')
+      .eq('agent_id', req.user.id)
+      .gt('expires_at', now)
+      .order('last_active_at', { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+
+    const ids = [...new Set((sessions || []).map((s) => s.initiating_jamaah_id).filter(Boolean))];
+    const bookingIds = [...new Set((sessions || []).map((s) => s.id_umroh).filter(Boolean))];
+    const [initiatorsRes, bookingNamesRes] = await Promise.all([
+      ids.length
+        ? supabase.from('jamaah').select('id, nama').eq('agent_id', req.user.id).in('id', ids)
+        : Promise.resolve({ data: [], error: null }),
+      bookingIds.length
+        ? supabase.from('jamaah').select('id_umroh, nama').eq('agent_id', req.user.id).in('id_umroh', bookingIds).order('id', { ascending: true })
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (initiatorsRes.error) return res.status(500).json({ error: initiatorsRes.error.message });
+    if (bookingNamesRes.error) return res.status(500).json({ error: bookingNamesRes.error.message });
+
+    const initiatorNames = new Map((initiatorsRes.data || []).map((row) => [row.id, row.nama]));
+    const bookingNames = new Map();
+    for (const row of bookingNamesRes.data || []) {
+      if (!bookingNames.has(row.id_umroh)) bookingNames.set(row.id_umroh, row.nama);
+    }
+
+    res.json((sessions || []).map((session) => ({
+      id_umroh: session.id_umroh,
+      jamaah_name: initiatorNames.get(session.initiating_jamaah_id) || bookingNames.get(session.id_umroh) || null,
+      last_active_at: session.last_active_at,
+      created_at: session.created_at,
+      user_agent: session.user_agent,
+    })));
+  } catch (err) {
+    console.error('[PortalJamaah] sessions error:', err.message);
+    res.status(500).json({ error: 'Gagal mengambil sessions' });
   }
 });
 
