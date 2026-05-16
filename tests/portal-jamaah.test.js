@@ -57,6 +57,23 @@ test('server registers all portal jamaah routes and middleware', () => {
   assert.match(server, /PORTAL_MAGIC_CODE_REGEX/);
 });
 
+test('portal jamaah schedule fallback can pair by package tier and price when id_jadwal is missing', () => {
+  const server = read('server.js');
+
+  assert.match(server, /'paket_harga'/);
+  assert.match(server, /function parsePortalPackagePricing/);
+  assert.match(server, /QUARD:\s*'Quard'/);
+  assert.match(server, /QUAD:\s*'Quard'/);
+  assert.match(server, /function portalBookingTargetPrice/);
+  assert.match(server, /raw_data\?\.harga_paket/);
+  assert.match(server, /toMoney\(row\?\.bayar\) \+ Math\.max\(0,\s*toMoney\(row\?\.sisa\)\)/);
+  assert.match(server, /function getPortalSchedulePackagePrice/);
+  assert.match(server, /schedule\.paket_harga/);
+  assert.match(server, /function findPortalScheduleByPackagePrice/);
+  assert.match(server, /getPortalSchedulePackagePrice\(row,\s*packageInfo\) === targetPrice/);
+  assert.match(server, /findPortalScheduleByPackagePrice\(first,\s*data\)/);
+});
+
 test('magic link generation is gated to agent nikita during rollout', () => {
   const server = read('server.js');
 

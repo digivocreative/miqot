@@ -11898,10 +11898,53 @@ const PORTAL_SCHEDULE_SELECT = [
   'pulang_jam',
   'pulang_rute',
   'pulang_kode_penerbangan',
+  'paket_harga',
   'paket_hotel',
   'itinerary',
   'itinerary_cdn',
 ].join(', ');
+
+function parsePortalPackagePricing(paket) {
+  const normalized = portalNormalizeName(paket);
+  if (!normalized) return null;
+  const roomMatch = normalized.match(/\b(QUARD|QUAD|TRIPLE|DOUBLE|SINGLE|INFANT)\b/);
+  if (!roomMatch) return null;
+  const roomMap = {
+    QUARD: 'Quard',
+    QUAD: 'Quard',
+    TRIPLE: 'Triple',
+    DOUBLE: 'Double',
+    SINGLE: 'Single',
+    INFANT: 'Infant',
+  };
+  const room = roomMap[roomMatch[1]];
+  const tier = normalized.replace(/\b(QUARD|QUAD|TRIPLE|DOUBLE|SINGLE|INFANT)\b/g, '').replace(/\s+/g, ' ').trim();
+  if (!tier || !room) return null;
+  return { tier, room };
+}
+
+function portalBookingTargetPrice(row) {
+  const rawPrice = toMoney(row?.raw_data?.harga_paket);
+  if (rawPrice > 0) return rawPrice;
+  const total = toMoney(row?.bayar) + Math.max(0, toMoney(row?.sisa));
+  return total > 0 ? total : 0;
+}
+
+function getPortalSchedulePackagePrice(schedule, packageInfo) {
+  if (!schedule?.paket_harga || !packageInfo) return 0;
+  const tierEntry = Object.entries(schedule.paket_harga)
+    .find(([tier]) => portalNormalizeName(tier) === packageInfo.tier);
+  if (!tierEntry) return 0;
+  return toMoney(tierEntry[1]?.[packageInfo.room]);
+}
+
+function findPortalScheduleByPackagePrice(first, schedules) {
+  const packageInfo = parsePortalPackagePricing(first?.paket);
+  const targetPrice = portalBookingTargetPrice(first);
+  if (!packageInfo || targetPrice <= 0) return null;
+  const matches = (schedules || []).filter((row) => getPortalSchedulePackagePrice(row, packageInfo) === targetPrice);
+  return matches.length === 1 ? matches[0] : null;
+}
 
 async function fetchPortalSchedule(rows) {
   const first = rows?.[0];
@@ -11935,6 +11978,7 @@ async function fetchPortalSchedule(rows) {
   }
   const paket = portalNormalizeName(first.paket);
   return (data || []).find((row) => portalNormalizeName(row.jadwal_nama) === paket)
+    || findPortalScheduleByPackagePrice(first, data)
     || (data || []).find((row) => paket.startsWith(portalNormalizeName(row.jadwal_nama)))
     || null;
 }
