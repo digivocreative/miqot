@@ -1840,12 +1840,13 @@ _________________________
                             ? 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-emerald-900/30 dark:ring-emerald-800/50'
                             : 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-slate-800 dark:ring-emerald-800/60'
                       }`}>
-                        <img
-                          src={step.imageSrc}
-                          alt={step.imageAlt}
-                          loading="lazy"
-                          className={step.tone === 'tour' ? 'h-[18px] w-6 rounded-[3px] object-cover shadow-[0_1px_2px_rgba(15,23,42,0.18)]' : 'h-full w-full object-contain'}
-                        />
+                        <span
+                          role="img"
+                          aria-label={step.imageAlt}
+                          className="text-[21px] leading-none"
+                        >
+                          {step.symbol}
+                        </span>
                       </span>
                       <span className="mt-1.5 block whitespace-nowrap px-1 text-center text-[11px] font-semibold leading-tight text-gray-800 dark:text-slate-100">
                         {step.label}

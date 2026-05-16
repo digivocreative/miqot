@@ -6,6 +6,7 @@ export interface JourneyStep {
   label: string;
   imageSrc: string;
   imageAlt: string;
+  symbol: string;
   tone: JourneyStepTone;
 }
 
@@ -15,6 +16,7 @@ interface TourConfig {
   cities: string[];
   pattern: RegExp;
   imageSrc: string;
+  symbol: string;
   fallbackPlacement: 'pre' | 'post';
 }
 
@@ -40,11 +42,11 @@ const LANDING_AIRPORT_MAP: Record<string, string> = {
 };
 
 const TOUR_CONFIGS: TourConfig[] = [
-  { label: 'Tur Dubai', codes: ['DXB'], cities: ['dubai'], pattern: /\b(DUBAI|DXB)\b/i, imageSrc: '/flags/uae.png', fallbackPlacement: 'pre' },
-  { label: 'Tur Turki', codes: ['IST', 'SAW'], cities: ['istanbul', 'bursa', 'ankara', 'cappadocia'], pattern: /\b(TURKI|TURKEY|ISTANBUL|BURSA|ANKARA|CAPPADOCIA)\b/i, imageSrc: '/flags/turki.png', fallbackPlacement: 'post' },
-  { label: 'Tur Mesir', codes: ['CAI', 'ALY'], cities: ['cairo', 'alexandria'], pattern: /\b(MESIR|EGYPT|CAIRO|ALEXANDRIA)\b/i, imageSrc: '/flags/mesir.png', fallbackPlacement: 'pre' },
-  { label: 'Tur China', codes: ['HAK', 'PEK', 'SHA', 'CAN'], cities: ['haikou', 'beijing', 'shanghai', 'guangzhou'], pattern: /\b(CHINA|TIONGKOK|HAIKOU|BEIJING|SHANGHAI|GUANGZHOU)\b/i, imageSrc: '/flags/china.png', fallbackPlacement: 'pre' },
-  { label: 'Tur Aqsha', codes: ['AMM', 'TLV'], cities: ['aqsha', 'amman', 'petra'], pattern: /\b(AQSHA|AL AQSA|AMMAN|PETRA|JORDAN|PALESTINE)\b/i, imageSrc: '/flags/palestine.svg', fallbackPlacement: 'pre' },
+  { label: 'Tur Dubai', codes: ['DXB'], cities: ['dubai'], pattern: /\b(DUBAI|DXB)\b/i, imageSrc: '/flags/uae.png', symbol: '🇦🇪', fallbackPlacement: 'pre' },
+  { label: 'Tur Turki', codes: ['IST', 'SAW'], cities: ['istanbul', 'bursa', 'ankara', 'cappadocia'], pattern: /\b(TURKI|TURKEY|ISTANBUL|BURSA|ANKARA|CAPPADOCIA)\b/i, imageSrc: '/flags/turki.png', symbol: '🇹🇷', fallbackPlacement: 'post' },
+  { label: 'Tur Mesir', codes: ['CAI', 'ALY'], cities: ['cairo', 'alexandria'], pattern: /\b(MESIR|EGYPT|CAIRO|ALEXANDRIA)\b/i, imageSrc: '/flags/mesir.png', symbol: '🇪🇬', fallbackPlacement: 'pre' },
+  { label: 'Tur China', codes: ['HAK', 'PEK', 'SHA', 'CAN'], cities: ['haikou', 'beijing', 'shanghai', 'guangzhou'], pattern: /\b(CHINA|TIONGKOK|HAIKOU|BEIJING|SHANGHAI|GUANGZHOU)\b/i, imageSrc: '/flags/china.png', symbol: '🇨🇳', fallbackPlacement: 'pre' },
+  { label: 'Tur Aqsha', codes: ['AMM', 'TLV'], cities: ['aqsha', 'amman', 'petra'], pattern: /\b(AQSHA|AL AQSA|AMMAN|PETRA|JORDAN|PALESTINE)\b/i, imageSrc: '/flags/palestine.svg', symbol: '🇵🇸', fallbackPlacement: 'pre' },
 ];
 
 export const getRouteAirportCodes = (route?: string): string[] => {
@@ -105,14 +107,14 @@ const getSaudiLabelsFromItinerary = (pkg: UmrohPackage): Array<'Madinah' | 'Umro
 
 const makeStep = (label: string, imageSrc?: string): JourneyStep => {
   if (label === 'Madinah') {
-    return { label, imageSrc: '/img-brosur/nabawi-dome.png', imageAlt: 'Dome Masjid Nabawi', tone: 'madinah' };
+    return { label, imageSrc: '/img-brosur/nabawi-dome.png', imageAlt: 'Dome Masjid Nabawi', symbol: '🕌', tone: 'madinah' };
   }
 
   if (label === 'Umroh') {
-    return { label, imageSrc: '/img-brosur/kabah.png', imageAlt: 'Kaabah', tone: 'umroh' };
+    return { label, imageSrc: '/img-brosur/kabah.png', imageAlt: 'Kaabah', symbol: '🕋', tone: 'umroh' };
   }
 
-  return { label, imageSrc: imageSrc || '/flags/palestine.svg', imageAlt: `Bendera ${label.replace(/^Tur\s+/i, '')}`, tone: 'tour' };
+  return { label, imageSrc: imageSrc || '/flags/palestine.svg', imageAlt: `Bendera ${label.replace(/^Tur\s+/i, '')}`, symbol: '🌍', tone: 'tour' };
 };
 
 export function getPackageJourneySteps(pkg: UmrohPackage, extraCityNames: string[] = []): JourneyStep[] {
@@ -156,7 +158,10 @@ export function getPackageJourneySteps(pkg: UmrohPackage, extraCityNames: string
   const itinerarySaudiLabels = getSaudiLabelsFromItinerary(pkg);
   const saudiLabels = itinerarySaudiLabels || getSaudiLabelsFromRoute(pkg);
   if (!saudiLabels) return [];
-  const tourStep = (tour: TourConfig) => makeStep(tour.label, tour.imageSrc);
+  const tourStep = (tour: TourConfig): JourneyStep => ({
+    ...makeStep(tour.label, tour.imageSrc),
+    symbol: tour.symbol,
+  });
 
   return [
     ...preSaudiTours.map(tourStep),
