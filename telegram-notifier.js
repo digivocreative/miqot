@@ -16,7 +16,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import { getTodaysBirthdays } from './lib/birthdays.js';
-import { generateKursImageBuffer } from './lib/kurs-image-generator.mjs';
+import { getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATE_FILE = path.join(__dirname, 'data', 'notifier-state.json');
@@ -2760,7 +2760,7 @@ export async function sendKursUpdate() {
         for (const agent of agents) {
           if (agent.notification_prefs?.kurs_dollar === false) continue;
           try {
-            const buf = await generateKursImageBuffer({
+            const image = await getOrCreateKursShareImage({
               kurs: { usd, updatedAt: formatKursDateForShare(updatedAt) },
               agent: {
                 name: agent.name || '',
@@ -2770,7 +2770,7 @@ export async function sendKursUpdate() {
                 website: agent.website || '',
               },
             });
-            await sendTelegramPhotoToAgent(agent.telegram_chat_id, buf, caption + FOOTER, {
+            await sendTelegramPhotoToAgent(agent.telegram_chat_id, image.buffer, caption + FOOTER, {
               filename: `kurs-${agent.slug}.jpg`,
             });
             sent++;

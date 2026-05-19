@@ -46,6 +46,7 @@ export interface PortalSchedule {
   pulang_jam: string | null;
   pulang_rute: string | null;
   pulang_kode_penerbangan: string | null;
+  maskapai: string | null;
   paket_hotel: unknown;
   itinerary: unknown;
   itinerary_url?: string | null;

@@ -133,8 +133,12 @@ test('ThemeToggle: renders Sun/Moon icon button with DESIGN-SYSTEM classes', () 
 
 test('PortalTopBar: uses DESIGN-SYSTEM classes (backdrop-blur, dark mode, no bell)', () => {
   const src = read('src/components/portal-jamaah/components/PortalTopBar.tsx');
-  assert.match(src, /backdrop-blur-md/);
-  assert.match(src, /bg-white\/90 dark:bg-slate-900\/90/);
+  assert.match(src, /backdrop-blur-xl/);
+  assert.match(src, /backdrop-saturate-150/);
+  assert.match(src, /bg-white\/70/);
+  assert.match(src, /dark:bg-slate-950\/70/);
+  assert.match(src, /border-white\/60/);
+  assert.match(src, /shadow-slate-900\/5/);
   assert.match(src, /sticky top-0 z-30/);
   assert.match(src, /max-w-lg/);
   assert.doesNotMatch(src, /Bell/, 'dummy bell button must be removed');
@@ -143,7 +147,10 @@ test('PortalTopBar: uses DESIGN-SYSTEM classes (backdrop-blur, dark mode, no bel
 test('PortalBackBar: back button + title + sticky header per DESIGN-SYSTEM', () => {
   const src = read('src/components/portal-jamaah/components/PortalBackBar.tsx');
   assert.match(src, /sticky top-0 z-30/);
-  assert.match(src, /backdrop-blur-md/);
+  assert.match(src, /backdrop-blur-xl/);
+  assert.match(src, /backdrop-saturate-150/);
+  assert.match(src, /bg-white\/70/);
+  assert.match(src, /border-white\/60/);
   assert.match(src, /ChevronLeft/);
   assert.match(src, /max-w-lg/);
   assert.match(src, /onBack/);
@@ -165,19 +172,50 @@ test('StickyWhatsAppCta: floating pill with agent photo + WhatsApp Chat button',
 test('HeroCountdown: emerald gradient hero with text-6xl countdown', () => {
   const src = read('src/components/portal-jamaah/components/HeroCountdown.tsx');
   assert.match(src, /text-6xl/, 'countdown should be text-6xl');
-  assert.match(src, /linear-gradient.*064e3b/i);
+  assert.match(src, /radial-gradient\(circle at 82% 72%/);
+  assert.match(src, /linear-gradient\(145deg, #022c22 0%, #064e3b 34%, #0f766e 68%, #065f46 100%\)/i);
+  assert.match(src, /relative overflow-hidden rounded-2xl/);
+  assert.match(src, /viewBox="0 0 420 420"/);
+  assert.match(src, /opacity-\[0\.10\]/);
+  assert.match(src, /preserveAspectRatio="none"/);
+  assert.match(src, /translate\(356 58\) scale\(0\.62\)/);
+  assert.match(src, /translate\(48 390\) scale\(0\.72\)/);
+  assert.match(src, /M0 -72 18 -18 72 0/);
+  assert.match(src, /M-70 58v-126/);
+  assert.match(src, /via-amber-200\/10/);
+  assert.match(src, /rgba\(251,191,36,0\.08\)/);
+  assert.doesNotMatch(src, /translate\(356 262\) scale\(0\.62\)/);
+  assert.doesNotMatch(src, /opacity="0\.(05|08|12|13|14|18|22|26|28|35|45)"/);
+  assert.doesNotMatch(src, /backgroundSize:\s*['"]48px 84px['"]/);
   assert.match(src, /Menuju Tanah Suci/i);
   assert.match(src, /rounded-2xl/);
   assert.match(src, /id_umroh/);
+  assert.match(src, /greetingName/);
+  assert.match(src, /Assalamualaikum/);
+  assert.match(src, /booking\.jadwal\?\.jadwal_nama \|\| booking\.paket \|\| 'Paket Umroh'/);
+  assert.match(src, /leading-snug/);
+  assert.match(src, /images\.kiwi\.com\/airlines\/64\/\$\{prefix\}\.png/);
+  assert.match(src, /airline\.name/);
+  assert.match(src, /flightCodeText/);
+  assert.match(src, /flex-col items-end text-right/);
+  assert.doesNotMatch(src, /function flightLabel/);
+  assert.doesNotMatch(src, /\$\{normalized\}\s*·/);
+  assert.doesNotMatch(src, /tripDurationDays/);
+  assert.doesNotMatch(src, /Durasi/);
+  assert.doesNotMatch(src, /truncate text-sm font-bold">\{booking\.paket/);
 });
 
-test('PortalMenuCard: card with icon badge + label + desc + tap handler', () => {
+test('PortalMenuCard: card with icon badge + label-only tap handler', () => {
   const src = read('src/components/portal-jamaah/components/PortalMenuCard.tsx');
+  assert.match(src, /aspect-square/);
   assert.match(src, /w-12 h-12/, 'icon container should be 48x48');
   assert.match(src, /rounded-2xl/);
+  assert.match(src, /h-full flex-col items-center justify-center/);
+  assert.doesNotMatch(src, /min-h-\[96px\]/);
   assert.match(src, /active:scale-\[0\.97\]/);
   assert.match(src, /text-\[13px\] font-bold/);
-  assert.match(src, /text-\[11px\]/, 'desc text size');
+  assert.doesNotMatch(src, /menu\.desc/);
+  assert.doesNotMatch(src, /text-\[11px\]/, 'desc text should not render');
   assert.match(src, /hover:-translate-y-0\.5/);
 });
 
@@ -226,6 +264,15 @@ test('BerandaPage: composes hero + alerts + menu grid + tasks + roster', () => {
   assert.match(src, /RosterItem/);
   assert.match(src, /ThemeToggle/);
   assert.match(src, /usePortalPersiapan/);
+  assert.match(src, /getCompactJamaahName/);
+  assert.match(src, /greetingName=\{`\$\{greetingPrefix\} \$\{compactName\}`\}/);
+  assert.doesNotMatch(src, /getInitials/);
+  assert.doesNotMatch(src, /Semoga persiapan Umroh berjalan lancar/);
+  assert.doesNotMatch(src, /Kode Perjalanan/);
+  assert.doesNotMatch(src, /Rombongan/);
+  assert.doesNotMatch(src, /Ticket/);
+  assert.doesNotMatch(src, /Users/);
+  assert.doesNotMatch(src, /text-2xl font-bold tracking-tight text-gray-900/);
   assert.match(src, /bg-gradient-to-b from-gray-50 to-gray-100/);
   assert.match(src, /max-w-lg/);
   assert.match(src, /pb-24/);
@@ -237,6 +284,7 @@ test('PerjalananPage: emerald hero + FlightCard + HotelCard + ItineraryList', ()
   assert.match(src, /FlightCard/);
   assert.match(src, /HotelCard/);
   assert.match(src, /ItineraryList/);
+  assert.match(src, /data\.booking\.jadwal\?\.jadwal_nama \|\| data\.booking\.paket \|\| 'Paket Umroh'/);
   assert.match(src, /linear-gradient.*064e3b/i, 'emerald hero gradient');
   assert.match(src, /max-w-lg/);
   assert.match(src, /pb-24/);

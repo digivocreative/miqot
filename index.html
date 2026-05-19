@@ -100,7 +100,7 @@
       // this script detects it and forces a hard reload from the server.
       (function() {
         var p = location.pathname;
-        if (/\/[^/]+\/umroh\/?$/i.test(p) || /\/brosur\//i.test(p) || /\/itinerary\//i.test(p)) {
+        if (/\/[^/]+\/umroh\/?$/i.test(p) || /\/brosur\//i.test(p) || /\/itinerary\//i.test(p) || /\/[^/]+\/jamaah(\/|$)/i.test(p)) {
           // Mark that we're doing a bypass reload so we don't loop
           var key = '__sw_bypass_' + p;
           if (sessionStorage.getItem(key)) {

@@ -21,8 +21,9 @@ import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaket
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
 import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate } from './telegram-notifier.js';
 import { getBirthdaysForAgent } from './lib/birthdays.js';
+import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
-import { regenerateOgForAgent } from './lib/og-generator.mjs';
+import { regenerateOgForAgent, generatePortalJamaahOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { awapiFetchUmrahByKeberangkatan, awapiFetchUmrahByPendaftaran, awapiFetchUmrahById, awapiFetchJamaahById, normalizeAwapiRow, hasSuspiciousAwapiPayment, preserveExistingPaymentForSuspiciousAwapiRow, AwapiError } from './awapi-client.js';
@@ -35,6 +36,7 @@ import {
 } from './lib/analytics-maintenance.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { inferSaudiJourneyOrderFromItinerary } from './lib/journey-order.js';
+import { buildScheduleRows, hasValidPricing, serializeScheduleRows } from './lib/umroh-schedules.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
 import cron from 'node-cron';
@@ -466,6 +468,24 @@ async function fetchKursWithRetry() {
 
 scheduleKursCron();
 
+async function runKursShareCacheCleanup(reason = 'scheduled') {
+  try {
+    const stats = await cleanupKursShareCache();
+    console.log(
+      `[KursShareCache] Cleanup ${reason}: scanned=${stats.scanned}, ` +
+      `expired=${stats.deletedExpired}, size=${stats.deletedForSize}, ` +
+      `freed=${Math.round(stats.freedBytes / 1024)}KB, remaining=${Math.round(stats.remainingBytes / 1024)}KB`
+    );
+  } catch (err) {
+    console.warn('[KursShareCache] Cleanup failed:', err.message);
+  }
+}
+
+runKursShareCacheCleanup('startup');
+cron.schedule('30 3 * * *', () => {
+  runKursShareCacheCleanup('daily');
+}, { timezone: 'Asia/Jakarta' });
+
 function scheduleAnalyticsMaintenanceCron() {
   const now = new Date();
   // 02:00 WIB = 19:00 UTC previous day
@@ -507,6 +527,61 @@ app.get('/api/kurs', (req, res) => {
       stale: Date.now() - kursCache.fetchedAt > KURS_CACHE_TTL * 2,
     },
   });
+});
+
+// GET /api/kurs/share-image — per-agent kurs image, generated on demand and cached on disk.
+app.get('/api/kurs/share-image', authMiddleware, async (req, res) => {
+  try {
+    if (!kursCache || Object.keys(kursCache.rates || {}).length === 0) {
+      return res.status(503).json({
+        success: false,
+        error: 'Kurs belum tersedia, coba lagi nanti',
+      });
+    }
+
+    const usd = kursCache.rates?.USD;
+    if (!usd) {
+      return res.status(503).json({
+        success: false,
+        error: 'Kurs USD belum tersedia',
+      });
+    }
+
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ success: false, error: 'Agent not found' });
+
+    const result = await getOrCreateKursShareImage({
+      kurs: {
+        usd,
+        updatedAt: formatKursDateForShare(kursCache.updatedAt),
+      },
+      agent: {
+        name: agent.name || '',
+        phone: agent.phone || '',
+        photo: agent.photo || '',
+        slug: agent.slug || req.user.slug,
+        website: agent.website || '',
+      },
+    });
+
+    const dateForFilename = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }).replace(/-/g, '');
+    const filename = `kurs-${agent.slug || req.user.slug}-${dateForFilename}.jpg`;
+    res.set({
+      'Content-Type': 'image/jpeg',
+      'Content-Length': String(result.buffer.length),
+      'Content-Disposition': `inline; filename="${filename}"`,
+      'Cache-Control': 'no-store',
+      'X-Kurs-Image-Cache': result.cacheHit ? 'HIT' : 'MISS',
+    });
+    res.send(result.buffer);
+  } catch (err) {
+    console.error('[KursShare] Generate error:', err.message);
+    try { Sentry.captureException(err); } catch { /* noop */ }
+    res.status(500).json({
+      success: false,
+      error: 'Gagal generate gambar kurs',
+    });
+  }
 });
 
 
@@ -11888,6 +11963,7 @@ const PORTAL_SCHEDULE_SELECT = [
   'jadwal_id',
   'year_code',
   'jadwal_nama',
+  'maskapai',
   'berangkat_tgl',
   'pulang_tgl',
   'manasik_tgl',
@@ -11998,9 +12074,51 @@ async function formatPortalSchedule(schedule) {
     pulang_jam: schedule.pulang_jam || null,
     pulang_rute: schedule.pulang_rute || null,
     pulang_kode_penerbangan: schedule.pulang_kode_penerbangan || null,
+    maskapai: schedule.maskapai || null,
     paket_hotel: schedule.paket_hotel || null,
     itinerary: itineraryContent,
     itinerary_url: schedule.itinerary_cdn || schedule.itinerary || null,
+  };
+}
+
+// Resolve a 5-char magic code to the data needed for share-card rendering
+// (browser title + og:image). Returns null when the token, slug, jamaah, or
+// jadwal can't be resolved — caller should fall back to default agent meta.
+async function lookupPortalTokenMeta(slug, code) {
+  const normalizedSlug = normalizePortalSlug(slug);
+  if (!normalizedSlug || !isPortalMagicCode(code)) return null;
+  const storedToken = buildPortalStoredToken(normalizedSlug, code);
+
+  const { data: portalToken, error: tokenError } = await supabase
+    .from('jamaah_portal_tokens')
+    .select('jamaah_id, agent_id, id_umroh')
+    .eq('token', storedToken)
+    .maybeSingle();
+  if (tokenError || !portalToken) return null;
+
+  const [jamaahRes, agentRes] = await Promise.all([
+    supabase
+      .from('jamaah')
+      .select('id, id_umroh, nama, paket, bayar, sisa, tgl_berangkat, raw_data')
+      .eq('id', portalToken.jamaah_id)
+      .maybeSingle(),
+    supabase
+      .from('agents')
+      .select('slug, name, photo')
+      .eq('id', portalToken.agent_id)
+      .maybeSingle(),
+  ]);
+  const jamaah = jamaahRes.data;
+  const agent = agentRes.data;
+  if (!jamaah || !agent) return null;
+  if (agent.slug && normalizePortalSlug(agent.slug) !== normalizedSlug) return null;
+
+  const schedule = await fetchPortalSchedule([jamaah]);
+  return {
+    jamaahName: jamaah.nama || '',
+    paketName: schedule?.jadwal_nama || jamaah.paket || '',
+    maskapai: schedule?.maskapai || '',
+    agent,
   };
 }
 
@@ -12465,21 +12583,6 @@ app.get('/api/portal/jamaah/sessions', authMiddleware, async (req, res) => {
 // ──────────────────────────────────────────────
 const SCHEDULE_YEAR_CODES = ['1447', '1448', '1449'];
 
-// Upstream occasionally returns placeholder/draft paket with no real pricing
-// (e.g. { "UHUD": { "": "N/A" } } or []). These must not reach the public UI.
-function hasValidPricing(paket_harga) {
-  if (!paket_harga || typeof paket_harga !== 'object') return false;
-  for (const hotelTier of Object.values(paket_harga)) {
-    if (!hotelTier || typeof hotelTier !== 'object') continue;
-    for (const [roomType, price] of Object.entries(hotelTier)) {
-      if (!roomType) continue;
-      const n = Number(price);
-      if (Number.isFinite(n) && n > 0) return true;
-    }
-  }
-  return false;
-}
-
 async function syncUmrohSchedules() {
   console.log('[ScheduleSync] Starting...');
   const startTime = Date.now();
@@ -12835,12 +12938,33 @@ async function cleanupExpiredPackages() {
 // ──────────────────────────────────────────────
 // API: Read schedules from Supabase (with external API fallback)
 // ──────────────────────────────────────────────
+async function fetchExternalScheduleRows(yearCode) {
+  const extRes = await fetch(
+    `https://jadwal.alhijaz.co/jadwal/api-get/${yearCode}`,
+    {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(6000),
+    }
+  );
+  if (!extRes.ok) throw new Error(`External API returned ${extRes.status}`);
+  const extData = await extRes.json();
+  if (extData.status !== 'ok' || !Array.isArray(extData.aaData)) {
+    throw new Error('External API returned invalid schedule payload');
+  }
+  return extData.aaData;
+}
+
 app.get('/api/schedules/:yearCode', async (req, res) => {
   const yearCode = req.params.yearCode;
 
   if (!/^\d{4}$/.test(yearCode)) {
     return res.status(400).json({ status: 'error', error: 'Invalid year code' });
   }
+
+  let cachedRows = [];
+  let cachedError = null;
+  let upstreamRows = null;
+  let upstreamError = null;
 
   try {
     const { data, error } = await supabase
@@ -12850,14 +12974,33 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
       .order('berangkat_tgl', { ascending: true });
 
     if (error) throw error;
+    cachedRows = data || [];
+  } catch (err) {
+    cachedError = err;
+    console.error(`[Schedules] Supabase error for ${yearCode}: ${err.message}`);
+  }
 
-    if (!data || data.length === 0) {
-      throw new Error('No data in Supabase');
-    }
+  try {
+    upstreamRows = await fetchExternalScheduleRows(yearCode);
+  } catch (err) {
+    upstreamError = err;
+    console.warn(`[Schedules] External API error for ${yearCode}: ${err.message}`);
+  }
+
+  if (cachedError && !upstreamRows) {
+    return res.status(500).json({ status: 'error', error: 'Both Supabase and external API failed' });
+  }
+
+  if (cachedRows.length === 0 && !upstreamRows) {
+    return res.status(500).json({ status: 'error', error: 'No schedule data available' });
+  }
+
+  try {
+    const scheduleRows = buildScheduleRows(cachedRows, upstreamRows, yearCode);
 
     let journeyOrderById = new Map();
     try {
-      const jadwalIds = data.map(row => row.jadwal_id).filter(Boolean);
+      const jadwalIds = scheduleRows.map(row => row.jadwal_id).filter(Boolean);
       if (jadwalIds.length) {
         const { data: itineraryRows, error: itineraryError } = await supabase
           .from('itineraries')
@@ -12878,25 +13021,7 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
       console.warn('[Schedules] Itinerary order inference failed:', journeyErr.message);
     }
 
-    const aaData = data.map(row => {
-      const out = { ...row };
-      const journeyOrder = journeyOrderById.get(row.jadwal_id);
-      if (journeyOrder) out.journey_order = journeyOrder;
-      // Use CDN URLs when available, then remove CDN-specific fields
-      if (out.brosur_cdn) out.brosur = out.brosur_cdn;
-      if (out.itinerary_cdn) out.itinerary = out.itinerary_cdn;
-      delete out.brosur_cdn;
-      delete out.itinerary_cdn;
-      delete out.synced_at;
-      delete out.year_code;
-      // Coalesce nulls to empty strings for TEXT fields (frontend expects strings, not null)
-      for (const key of Object.keys(out)) {
-        if (out[key] === null && key !== 'paket_harga' && key !== 'paket_hotel') {
-          out[key] = '';
-        }
-      }
-      return out;
-    });
+    const aaData = serializeScheduleRows(scheduleRows, journeyOrderById);
 
     res.json({
       status: 'ok',
@@ -12904,18 +13029,11 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
       aaData,
     });
   } catch (err) {
-    console.error(`[Schedules] Supabase error: ${err.message}, falling back to external API`);
-    try {
-      const extRes = await fetch(
-        `https://jadwal.alhijaz.co/jadwal/api-get/${yearCode}`,
-        { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }, signal: AbortSignal.timeout(10000) }
-      );
-      if (!extRes.ok) throw new Error(`External API returned ${extRes.status}`);
-      const extData = await extRes.text();
-      res.set('Content-Type', 'application/json').send(extData);
-    } catch (extErr) {
-      res.status(500).json({ status: 'error', error: 'Both Supabase and external API failed' });
-    }
+    console.error(`[Schedules] Response build error for ${yearCode}: ${err.message}`);
+    res.status(500).json({
+      status: 'error',
+      error: upstreamError ? 'Failed to build schedule response from cached data' : 'Failed to build schedule response',
+    });
   }
 });
 
@@ -13421,6 +13539,30 @@ app.use((err, req, res, next) => {
 const distPath = resolve(__dirname, 'dist');
 const publicPath = resolve(__dirname, 'public');
 
+// Portal-jamaah share-card OG. Registered BEFORE static so we don't burn an FS
+// stat on every bot fetch. Generated on-demand; cached an hour by the CDN/bot.
+app.get('/og/jamaah/:slug/:token.png', async (req, res) => {
+  try {
+    const meta = await lookupPortalTokenMeta(req.params.slug, req.params.token);
+    if (!meta) return res.status(404).type('text/plain').send('not found');
+    const agentPhotoBuffer = await loadAgentPhotoBuffer(meta.agent.photo, meta.agent.slug);
+    const png = await generatePortalJamaahOgPng({
+      jamaahName: meta.jamaahName,
+      paketName: meta.paketName,
+      maskapai: meta.maskapai,
+      agentName: meta.agent.name,
+      agentPhotoBuffer,
+    });
+    res.set({
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=3600',
+    }).send(png);
+  } catch (err) {
+    console.error('[og/jamaah] generation failed:', err.message);
+    res.status(500).type('text/plain').send('og generation failed');
+  }
+});
+
 // Serve static assets from dist/ first, then fallback to public/
 // This ensures uploaded files (e.g. agent photos in public/agents/)
 // are always accessible, even if they were added after the last build.
@@ -13550,12 +13692,41 @@ app.get('{*path}', async (req, res) => {
   }
 
   if (agent) {
-    const newTitle = `Jadwal Umroh Alhijaz | ${agent.name}`;
-    const newDescription = `Dapatkan info lengkap paket umrah Alhijaz Indowisata bersama ${agent.name}. Klik untuk konsultasi via WhatsApp.`;
-    // Prefer the agent's custom Umroh landing OG (if they set one via AI Tools → Landing Page).
-    // Falls back to the auto-generated /og/{slug}.png served from alhijaz.co (file lives there).
-    const customUmrohOg = agent.landing_config?.umroh?.og_image_url;
-    const ogImageUrl = customUmrohOg || `${ogImageOrigin}/og/${agent.slug}.png`;
+    // Portal-jamaah paths (/[slug]/jamaah/[code]/dashboard or /[slug]/jamaah/[code])
+    // need their own title + og:image so WhatsApp shares show the booking owner
+    // instead of the agent's generic umroh-schedule card.
+    let portalMeta = null;
+    if (!req.customDomain) {
+      const segs = req.path.replace(/^\/+/, '').split('/').filter(Boolean);
+      if (segs[1] === 'jamaah' && segs[2] && isPortalMagicCode(segs[2])) {
+        try {
+          portalMeta = await lookupPortalTokenMeta(agent.slug, segs[2]);
+        } catch (err) {
+          console.warn('[spa-fallback] portal meta lookup failed:', err.message);
+        }
+      }
+    }
+
+    let newTitle;
+    let newDescription;
+    let ogImageUrl;
+    if (portalMeta) {
+      const parts = [portalMeta.jamaahName, portalMeta.paketName, portalMeta.maskapai].filter(Boolean);
+      newTitle = parts.join(' | ');
+      const descParts = [`Portal jamaah ${portalMeta.jamaahName}`];
+      if (portalMeta.paketName) descParts.push(`paket ${portalMeta.paketName}`);
+      if (agent.name) descParts.push(`bersama ${agent.name}`);
+      newDescription = `${descParts.join(' — ')}.`;
+      const segs = req.path.replace(/^\/+/, '').split('/').filter(Boolean);
+      ogImageUrl = `${ogImageOrigin}/og/jamaah/${agent.slug}/${segs[2].toLowerCase()}.png`;
+    } else {
+      newTitle = `Jadwal Umroh Alhijaz | ${agent.name}`;
+      newDescription = `Dapatkan info lengkap paket umrah Alhijaz Indowisata bersama ${agent.name}. Klik untuk konsultasi via WhatsApp.`;
+      // Prefer the agent's custom Umroh landing OG (if they set one via AI Tools → Landing Page).
+      // Falls back to the auto-generated /og/{slug}.png served from alhijaz.co (file lives there).
+      const customUmrohOg = agent.landing_config?.umroh?.og_image_url;
+      ogImageUrl = customUmrohOg || `${ogImageOrigin}/og/${agent.slug}.png`;
+    }
 
     // Replace <title>
     html = html.replace(/<title>[^<]*<\/title>/i, `<title>${newTitle}</title>`);
@@ -14786,7 +14957,7 @@ setTimeout(() => {
   runHajiSyncCycleLoop().catch(err => console.error('[HAJI-BG] Loop crashed:', err.message));
 }, 90 * 1000);
 
-// ── Umroh schedules sync: 45s after startup, then every 1 hour ──
+// ── Umroh schedules sync: 45s after startup, then every 30 minutes ──
 // Bunny file sync runs after schedule sync completes
 async function runScheduleAndBunnySync() {
   await syncUmrohSchedules();
@@ -14797,7 +14968,7 @@ setTimeout(() => {
 }, 45 * 1000);
 setInterval(() => {
   runScheduleAndBunnySync().catch(err => console.error('[ScheduleSync] Error:', err.message));
-}, 60 * 60 * 1000);
+}, 30 * 60 * 1000);
 
 // ── Bunny cleanup: expired packages (> 6 months), once daily at 03:00 WIB ──
 function scheduleBunnyCleanup() {

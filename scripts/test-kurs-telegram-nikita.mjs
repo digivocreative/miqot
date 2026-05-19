@@ -2,7 +2,8 @@
 // Usage: node scripts/test-kurs-telegram-nikita.mjs
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
-import { generateKursImageBuffer, closeKursBrowser } from '../lib/kurs-image-generator.mjs';
+import { closeKursBrowser } from '../lib/kurs-image-generator.mjs';
+import { getOrCreateKursShareImage } from '../lib/kurs-share-cache.mjs';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -51,7 +52,7 @@ const updatedAtFormatted = formatKursDateForShare(updatedAt);
 
 // 3) Generate image
 console.time('generate');
-const buf = await generateKursImageBuffer({
+const image = await getOrCreateKursShareImage({
   kurs: { usd, updatedAt: updatedAtFormatted },
   agent: {
     slug: nikita.slug,
@@ -61,8 +62,9 @@ const buf = await generateKursImageBuffer({
     website: nikita.website || '',
   },
 });
+const buf = image.buffer;
 console.timeEnd('generate');
-console.log(`Image: ${(buf.length / 1024).toFixed(1)} KB`);
+console.log(`Image: ${(buf.length / 1024).toFixed(1)} KB (cache ${image.cacheHit ? 'hit' : 'miss'})`);
 
 // 4) Build caption (mirror sendKursUpdate format)
 const dateStr = new Date().toLocaleDateString('id-ID', {

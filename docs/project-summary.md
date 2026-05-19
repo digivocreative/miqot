@@ -390,7 +390,7 @@ alhijaz/
 - **Kurs Mata Uang** — halaman kurs `/dashboard/ai-tools/kurs`:
   - Scrape dari sumber kurs, tampilkan sell rate USD & SAR
   - Compact widget di dashboard home
-  - **Share Kurs** — tombol Share muncul untuk semua agent saat USD tersedia; membuka `ShareKursModal` (full-screen) dengan single Hero USD template 1400×1000 (16:10), export JPEG via `@zumer/snapdom`, native share file-only, download, dan copy caption
+  - **Share Kurs** — tombol Share muncul untuk semua agent saat USD tersedia; membuka `ShareKursModal` (full-screen) dengan single Hero USD template 1400×1000 (16:10). File final Download/Share dibuat server-side on-demand via `/api/kurs/share-image`, cached sementara di `data/kurs-share-cache`, native share file-only, download, dan copy caption
 - **Analytics** — event tracking dashboard (`/dashboard/analytics`):
   - Track page views, actions, conversions per agent
   - Chart tren harian/mingguan, agent activity, feature/action usage, health badge
@@ -1177,7 +1177,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - **Tanya AI iOS Safari fixes** — track `visualViewport.offsetTop` (bukan hanya height) untuk handle keyboard slide-in, body-lock `position:fixed` agar auto-scroll tidak bleed, multi-leg route inference untuk Umroh start date
 - **Bio Link publik** (`/:slug/bio`) — public Linktree-style page dengan 6 theme (emerald/desert/midnight/rosegold/sunset/mono), hero (foto, tagline, badges 0-3, socials IG/TikTok/YouTube), system tiles (umroh/umroh_landing/haji/wa), custom tiles (featured/link/text/photo/testi), SSR OG injection dari `bio_config.seo`
 - **Bio editor** dengan 6 theme picker, Hero/SEO sheets, AI tagline generator (`/api/bio/:slug/tagline-generate` via OpenAI), drag reorder (@dnd-kit), tile validation, autosave debounce, fullscreen preview (90% scaled iframe di phone frame), explicit Simpan per sheet
-- **Kurs Share** — `ShareKursModal` + `KursShareTemplates` single Hero USD template; fixed 1400×1000 canvas, preview auto-fit, export JPEG via `@zumer/snapdom`, native share files-only + download + copy caption; tombol Share tersedia untuk semua agent saat USD tersedia
+- **Kurs Share** — `ShareKursModal` + `KursShareTemplates` single Hero USD template; fixed 1400×1000 canvas, preview auto-fit, final JPEG server-side on-demand lewat `/api/kurs/share-image` + disk cache TTL, native share files-only + download + copy caption; tombol Share tersedia untuk semua agent saat USD tersedia
 - **Birthday workflow** — dashboard `BirthdayWidget`, grouped `BirthdayListSheet`, `BirthdayDetailSheet`, 2 template kartu 1080×1080, WA message generator, JPEG export via `@zumer/snapdom`, dan Telegram birthday digest opt-in jam 07:00 WIB
 - **Brosur Jadwal** — AI Tools page untuk export brosur paket umroh bulanan 1080×1920 PNG dari `umroh_schedules`; helper pure di `lib/brochure-schedule.js` dan test coverage di `tests/brochure-schedule.test.js`
 - **CAPI circuit breaker** — pause per-agent setelah 10 kegagalan CAPI beruntun selama 30 menit, agar sync/public events tidak terus menembak token Meta yang error

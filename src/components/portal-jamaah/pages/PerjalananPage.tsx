@@ -102,7 +102,7 @@ export default function PerjalananPage({
 }) {
   const [fallbackItinerary, setFallbackItinerary] = useState<ItineraryDay[]>([]);
   const schedule = data.schedule;
-  const packageName = data.booking.paket || data.booking.jadwal?.jadwal_nama || 'Paket Umroh';
+  const packageName = data.booking.jadwal?.jadwal_nama || data.booking.paket || 'Paket Umroh';
   const departureCode = schedule?.berangkat_kode_penerbangan || 'TBA';
   const returnCode = schedule?.pulang_kode_penerbangan || 'TBA';
   const duration = tripDurationDays(data.booking.tgl_berangkat, data.booking.tgl_pulang);

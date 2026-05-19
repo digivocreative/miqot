@@ -36,6 +36,10 @@ export default function LandingPage({ slug }: { slug: string }) {
     };
   }, [slug]);
 
+  useEffect(() => {
+    if (agent?.name) document.title = `Portal Jamaah | ${agent.name}`;
+  }, [agent?.name]);
+
   const waLink = useMemo(() => {
     const phone = normalizeWaNumber(agent?.phone);
     return phone ? `https://wa.me/${phone}` : null;

@@ -4,7 +4,8 @@
 // Usage: node scripts/resend-kurs-all.mjs
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
-import { generateKursImageBuffer, closeKursBrowser } from '../lib/kurs-image-generator.mjs';
+import { closeKursBrowser } from '../lib/kurs-image-generator.mjs';
+import { getOrCreateKursShareImage } from '../lib/kurs-share-cache.mjs';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -68,7 +69,7 @@ for (const agent of agents) {
     continue;
   }
   try {
-    const buf = await generateKursImageBuffer({
+    const image = await getOrCreateKursShareImage({
       kurs: { usd, updatedAt: updatedAtFormatted },
       agent: {
         slug: agent.slug,
@@ -78,6 +79,7 @@ for (const agent of agents) {
         website: agent.website || '',
       },
     });
+    const buf = image.buffer;
     const form = new FormData();
     form.append('chat_id', String(agent.telegram_chat_id));
     form.append('caption', caption + FOOTER);

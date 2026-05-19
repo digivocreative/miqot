@@ -246,7 +246,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // ============================================
   // Fetch Packages (triggered by year change)
   // ============================================
-  const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 jam
+  const REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 30 menit
 
   const fetchPackages = useCallback(async (yearCode: string, silent = false) => {
     if (!silent) {
@@ -291,10 +291,10 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     fetchPackages(selectedYear);
   }, [selectedYear, fetchPackages]);
 
-  // Auto-refresh from API every 1 hour
+  // Auto-refresh from API every 30 minutes
   useEffect(() => {
     const intervalId = setInterval(() => {
-      console.log('[App] Auto-refresh triggered (1h interval)');
+      console.log('[App] Auto-refresh triggered (30m interval)');
       fetchPackages(selectedYear, /* silent */ true);
     }, REFRESH_INTERVAL_MS);
 

@@ -10,10 +10,6 @@ export const TEMPLATE_W = 1400;
 export const TEMPLATE_H = 1000;
 
 export const KURS_FONT_STACK = "'Inter', 'Inter var', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-// Only standard weights — non-standard weights (650/750/850) round inconsistently
-// across system-font fallbacks vs. Inter Variable, making text look heavier on
-// some agents' devices when snapdom captures before fonts finish loading.
-export const KURS_FONT_WEIGHTS = [600, 700, 800, 900] as const;
 
 // ═══════════════════════════════════════════════════════════════
 // Helpers
@@ -215,12 +211,11 @@ export function KursTemplate({ kurs, agent }: KursTemplateProps) {
           background: 'rgba(255,255,255,0.12)',
           border: '1px solid rgba(255,255,255,0.22)',
           boxShadow: '0 20px 60px rgba(0,0,0,0.14)',
-          backdropFilter: 'blur(10px)',
         }}>
           <FlagUS size={62} />
           <span style={{ fontSize: 40, fontWeight: 800, color: '#fff', letterSpacing: 2 }}>USD</span>
           <span style={{ width: 1, height: 42, background: 'rgba(255,255,255,0.25)' }} />
-          <span style={{ fontSize: 28, fontWeight: 600, color: '#D1FAE5' }}>US Dollar</span>
+          <span style={{ fontSize: 28, fontWeight: 600, color: '#D1FAE5', whiteSpace: 'nowrap' }}>US Dollar</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 22, whiteSpace: 'nowrap' }}>
           <span style={{
@@ -252,7 +247,7 @@ export function KursTemplate({ kurs, agent }: KursTemplateProps) {
           fontWeight: 600,
         }}>
           <span style={{ width: 58, height: 4, borderRadius: 999, background: '#F8DFA1' }} />
-          <span>per 1 USD</span>
+          <span style={{ whiteSpace: 'nowrap' }}>per 1 USD</span>
         </div>
       </div>
 
@@ -265,10 +260,9 @@ export function KursTemplate({ kurs, agent }: KursTemplateProps) {
         alignItems: 'center',
         padding: '26px 30px',
         borderRadius: 34,
-        background: 'rgba(3, 59, 45, 0.58)',
+        background: 'rgba(3, 59, 45, 0.74)',
         border: '1px solid rgba(248, 223, 161, 0.22)',
         boxShadow: '0 24px 80px rgba(0,0,0,0.18)',
-        backdropFilter: 'blur(12px)',
         position: 'relative',
         zIndex: 2,
       }}>

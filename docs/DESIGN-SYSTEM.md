@@ -2428,7 +2428,7 @@ hover:bg-gray-50 dark:hover:bg-slate-700 active:scale-95 transition-colors
 
 ## Share Kurs Modal (`ShareKursModal.tsx`)
 
-Full-screen modal untuk generate infografis kurs harian. Implementasi terbaru memakai **single Hero USD template** 16:10, export JPEG via `@zumer/snapdom`, lalu download/share/copy caption. Lazy-loaded via `React.lazy` + `Suspense` di `DashboardLayout.tsx`.
+Full-screen modal untuk generate infografis kurs harian. Implementasi terbaru memakai **single Hero USD template** 16:10. Preview tetap dirender di browser, tetapi file final Download/Share diambil dari endpoint server-side on-demand agar hasil konsisten antar perangkat. Lazy-loaded via `React.lazy` + `Suspense` di `DashboardLayout.tsx`.
 
 ### Trigger
 
@@ -2505,9 +2505,12 @@ Common: flex items-center justify-center gap-2 rounded-xl text-sm font-bold acti
 
 ### Export Flow
 
-- DOM → JPEG via `@zumer/snapdom` (`scale: 1`, `backgroundColor: '#064e3b'`)
+- `ShareKursModal` fetch `GET /api/kurs/share-image` dengan auth token.
+- Server memakai `lib/kurs-share-cache.mjs` → `lib/kurs-image-generator.mjs` untuk render Playwright JPEG 1400×1000.
+- Hasil disimpan sebagai cache disk di `data/kurs-share-cache/{YYYY-MM-DD}/` dan key berubah saat kurs, template version, foto/nama/kontak/website agent berubah.
+- Cache default: TTL 3 hari (`KURS_SHARE_CACHE_TTL_DAYS`), size cap 512 MB (`KURS_SHARE_CACHE_MAX_MB`), cleanup saat startup + harian 03:30 WIB.
 - Output blob → `File('kurs-YYYYMMDD.jpg', { type: 'image/jpeg' })`
-- JPEG quality: `0.9`; transparency tidak diperlukan karena template punya solid background.
+- JPEG quality: 88 server-side; transparency tidak diperlukan karena template punya solid background.
 - Native share: `navigator.share({ files: [file] })` — hanya `files`, tanpa `text/title/url`.
 - Download: trigger `<a download>` dengan `URL.createObjectURL(blob)`
 - Copy caption: build string dari `kurs.updatedAt`, USD rate, `agent.name`, `wa.me/{phone}`, dan website/WA fallback.

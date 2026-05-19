@@ -27,6 +27,18 @@ function computeJamaahPreparation(jamaah: PortalJamaah): number {
   return Math.round((paymentScore + passportScore + vaccineScore + equipmentScore) / 4);
 }
 
+function getGreetingPrefix(jk?: string | null): string {
+  if (jk === 'L') return 'Bapak';
+  if (jk === 'P') return 'Ibu';
+  return 'Sahabat';
+}
+
+function getCompactJamaahName(name?: string | null): string {
+  const words = toTitleCase(name).split(/\s+/).filter(Boolean);
+  if (words.length <= 2) return words.join(' ');
+  return words.slice(0, 2).join(' ');
+}
+
 export default function BerandaPage({
   data,
   onNavigate,
@@ -39,6 +51,8 @@ export default function BerandaPage({
   const { persiapan } = usePortalPersiapan();
   const initiator = data.jamaah.find((j) => j.is_initiator) || data.jamaah[0];
   const flightCode = data.schedule?.berangkat_kode_penerbangan || 'TBA';
+  const greetingPrefix = getGreetingPrefix(initiator?.jk);
+  const compactName = getCompactJamaahName(initiator?.nama) || 'Jamaah';
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 text-gray-900 dark:from-slate-900 dark:to-slate-950 dark:text-white">
@@ -59,15 +73,7 @@ export default function BerandaPage({
         }
       />
       <main className="mx-auto w-full max-w-lg space-y-6 px-4 pb-24 pt-5">
-        <section>
-          <p className="text-sm font-medium text-gray-500 dark:text-slate-400">Assalamualaikum,</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
-            {initiator?.jk === 'L' ? 'Bapak ' : initiator?.jk === 'P' ? 'Ibu ' : ''}
-            {toTitleCase(initiator?.nama) || 'Jamaah'}
-          </h1>
-        </section>
-
-        <HeroCountdown booking={data.booking} flightCode={flightCode} />
+        <HeroCountdown booking={data.booking} flightCode={flightCode} greetingName={`${greetingPrefix} ${compactName}`} />
 
         <SmartAlertsStrip data={data} onNavigate={onNavigate} />
 

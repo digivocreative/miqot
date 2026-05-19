@@ -6,12 +6,12 @@ import {
   KursTemplate,
   TEMPLATE_W,
   TEMPLATE_H,
-  KURS_FONT_WEIGHTS,
   formatKurs,
   normalizePhone,
 } from './KursShareTemplates';
 import { trackEvent } from '../utils/analytics';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
+import { getAuthHeaders } from './LoginPage';
 
 export interface ShareKursModalProps {
   open: boolean;
@@ -23,10 +23,7 @@ export interface ShareKursModalProps {
 const PREVIEW_MAX_WIDTH = 520;
 const PREVIEW_MIN_WIDTH = 280;
 const PREVIEW_FRAME_INSET = 32;
-const EXPORT_SCALE = 1;
-const EXPORT_TYPE = 'jpeg';
 const EXPORT_MIME = 'image/jpeg';
-const EXPORT_QUALITY = 0.9;
 
 export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKursModalProps) {
   const [isExporting, setIsExporting] = useState(false);
@@ -77,35 +74,25 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
     setTimeout(() => setToast(null), 2500);
   };
 
-  const waitForFonts = async () => {
-    try {
-      if (!document.fonts) return;
-      // Explicitly request every weight the template uses so the browser
-      // actually downloads them — `fonts.ready` only awaits in-flight loads.
-      await Promise.all(
-        KURS_FONT_WEIGHTS.map(w =>
-          document.fonts.load(`${w} 16px Inter`).catch(() => null)
-        )
-      );
-      await document.fonts.ready;
-    } catch {}
-  };
-
   const yyyymmdd = () => {
     const d = new Date();
     return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   };
 
   const captureKursBlob = async (): Promise<Blob> => {
-    if (!exportRef.current) throw new Error('Template belum siap');
-    await waitForFonts();
-    const { snapdom } = await import('@zumer/snapdom');
-    const result = await snapdom(exportRef.current, {
-      scale: EXPORT_SCALE,
-      backgroundColor: '#064e3b',
-      embedFonts: true,
+    const res = await fetch('/api/kurs/share-image', {
+      headers: getAuthHeaders(),
+      cache: 'no-store',
     });
-    return await result.toBlob({ type: EXPORT_TYPE, quality: EXPORT_QUALITY });
+    if (!res.ok) {
+      let message = 'Gagal generate gambar, coba lagi';
+      try {
+        const json = await res.json();
+        if (json?.error) message = json.error;
+      } catch {}
+      throw new Error(message);
+    }
+    return await res.blob();
   };
 
   const handleDownload = async () => {
@@ -117,7 +104,7 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
       trackEvent('action', 'download_share_kurs');
     } catch (e) {
       console.error('[ShareKurs] Download gagal:', e);
-      showToast('Gagal generate gambar, coba lagi');
+      showToast(e instanceof Error ? e.message : 'Gagal generate gambar, coba lagi');
     } finally {
       setIsExporting(false);
     }
@@ -139,7 +126,7 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         console.error('[ShareKurs] Share gagal:', e);
-        showToast('Share gagal, coba lagi');
+        showToast(e instanceof Error ? e.message : 'Share gagal, coba lagi');
       }
     } finally {
       setIsExporting(false);

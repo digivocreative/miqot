@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { PortalSession } from '../lib/portalSession';
 import { usePortalMe } from '../hooks/usePortalMe';
@@ -67,6 +68,15 @@ export default function PortalDashboard({ slug, session }: { slug: string; sessi
       window.location.href = `/${data?.agent?.slug || slug}/jamaah`;
     }
   }
+
+  const initiatorBeforeReady = data?.jamaah.find((j) => j.is_initiator) || data?.jamaah[0];
+  const paketName = data?.booking.jadwal?.jadwal_nama || data?.booking.paket || '';
+  const maskapai = data?.schedule?.maskapai || '';
+  useEffect(() => {
+    if (!initiatorBeforeReady) return;
+    const parts = [initiatorBeforeReady.nama, paketName, maskapai].filter(Boolean);
+    if (parts.length) document.title = parts.join(' | ');
+  }, [initiatorBeforeReady, paketName, maskapai]);
 
   if (loading) return <LoadingScreen />;
   if (error) return <ErrorScreen onRetry={refetch} />;

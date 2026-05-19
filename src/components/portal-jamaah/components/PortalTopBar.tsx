@@ -8,7 +8,7 @@ export default function PortalTopBar({
   rightSlot?: ReactNode;
 }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md dark:border-slate-700/50">
+    <header className="sticky top-0 z-30 border-b border-white/60 bg-white/70 shadow-sm shadow-slate-900/5 backdrop-blur-xl backdrop-saturate-150 dark:border-white/10 dark:bg-slate-950/70 dark:shadow-black/20">
       <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3 px-4 py-2">
         <img
           src="/logo-alhijaz.webp"
