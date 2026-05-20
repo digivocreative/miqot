@@ -17,6 +17,7 @@ import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import { getTodaysBirthdays } from './lib/birthdays.js';
 import { getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
+import { buildNotifierPackagesUrl } from './lib/notifier-package-source.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATE_FILE = path.join(__dirname, 'data', 'notifier-state.json');
@@ -379,7 +380,7 @@ async function fetchAllPackages() {
   const allPackages = [];
   for (const yearCode of YEAR_CODES) {
     try {
-      const res = await fetch(`${BASE_URL}/api/api-get/${yearCode}`);
+      const res = await fetch(buildNotifierPackagesUrl(BASE_URL, yearCode));
       if (!res.ok) { warn(`API error for ${yearCode}: ${res.status}`); continue; }
       const data = await res.json();
       if (data.status !== 'ok' || !Array.isArray(data.aaData)) continue;

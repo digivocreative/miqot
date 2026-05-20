@@ -70,6 +70,18 @@ interface HajiJamaah {
   jenis: string | null;
   status_bayar: string | null;
   status_berangkat: string | null;
+  nomor_porsi: string | null;
+  nomor_spph: string | null;
+  tgl_lahir: string | null;
+  no_paspor: string | null;
+  paspor_expired: string | null;
+  paket_harga: number | string | null;
+  diskon_marketing: number | string | null;
+  diskon_kantor: number | string | null;
+  bayar: number | string | null;
+  sisa: number | string | null;
+  tgl_daftar: string | null;
+  tgl_berangkat: string | null;
   bpih_url: string | null;
   surat_pernyataan_url: string | null;
   synced_at: string | null;
@@ -85,6 +97,7 @@ interface HajiStats {
   belumBayar: number;
   byTahun: Record<string, number>;
   byJenis: Record<string, number>;
+  daftarYears?: string[];
   lastSync: string | null;
 }
 
@@ -131,6 +144,29 @@ function formatSyncTime(d: string | null) {
     if (diffHr < 24) return `${diffHr}j lalu`;
     return date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }) + ', ' + date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
   } catch { return d; }
+}
+
+function formatShortDate(value: string | null) {
+  if (!value) return '-';
+  const ymd = String(value).slice(0, 10);
+  try {
+    const date = new Date(`${ymd}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return ymd || '-';
+    return date.toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return ymd || '-';
+  }
+}
+
+function formatUsd(value: number | string | null) {
+  if (value === null || value === undefined || value === '') return '-';
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '-';
+  return `USD ${n.toLocaleString('id-ID')}`;
 }
 
 // ── Document Viewer with auth proxy ──
@@ -277,6 +313,9 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
   const [searchQuery, setSearchQuery] = useState('');
   const [thnMasehi, setThnMasehi] = useState('');
   const [jenisFilter, setJenisFilter] = useState('');
+  const [daftarYear, setDaftarYear] = useState('');
+  const [statusBayarFilter, setStatusBayarFilter] = useState('');
+  const [paketFilter, setPaketFilter] = useState('');
   const [page, setPage] = useState(1);
   const LIMIT = 10;
 
@@ -301,6 +340,9 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
   const hasAutoSynced = useRef(false);
 
   const tahunOptions = stats ? Object.keys(stats.byTahun).sort((a, b) => b.localeCompare(a)) : [];
+  const listDaftarYears = [...new Set(jamaahList.map(item => String(item.tgl_daftar || '').slice(0, 4)).filter(yearValue => /^\d{4}$/.test(yearValue)))];
+  const daftarYearOptions = [...new Set([...(stats?.daftarYears || []), ...listDaftarYears])].sort((a, b) => b.localeCompare(a));
+  const hasAdvancedFilters = Boolean(jenisFilter || daftarYear || statusBayarFilter || paketFilter);
 
   // Register compact year selector into dashboard header (parent controls placement
   // next to the dark-mode toggle). Matches the Umroh tab for visual consistency.
@@ -424,6 +466,9 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
       if (searchQuery) params.set('search', searchQuery);
       if (thnMasehi) params.set('thn_masehi', thnMasehi);
       if (jenisFilter) params.set('jenis', jenisFilter);
+      if (daftarYear) params.set('daftar_year', daftarYear);
+      if (statusBayarFilter) params.set('status_bayar', statusBayarFilter);
+      if (paketFilter) params.set('paket_filter', paketFilter);
       const res = await fetch(`/api/haji/jamaah?${params}`, { headers: { ...getAuthHeaders() } });
       const result = await res.json();
       if (result.success) {
@@ -439,7 +484,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
       setError('Gagal menghubungi server');
     }
     setLoading(false);
-  }, [searchQuery, thnMasehi, jenisFilter, page]);
+  }, [searchQuery, thnMasehi, jenisFilter, daftarYear, statusBayarFilter, paketFilter, page]);
 
   // ── Load data when view=data ──
   useEffect(() => {
@@ -447,7 +492,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
       fetchStats();
       fetchJamaah(page);
     }
-  }, [view, searchQuery, thnMasehi, jenisFilter, page]);
+  }, [view, searchQuery, thnMasehi, jenisFilter, daftarYear, statusBayarFilter, paketFilter, page]);
 
   // ── Resume polling if server-side sync is still in progress (e.g. after page refresh) ──
   useEffect(() => {
@@ -711,38 +756,133 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all active:scale-95 shrink-0 ${
-                showFilters || jenisFilter
+                showFilters || hasAdvancedFilters
                   ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
                   : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400'
               }`}
             >
-              <SlidersHorizontal size={14} />
+              <motion.span
+                animate={{ rotate: showFilters ? 90 : 0 }}
+                transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+              >
+                <SlidersHorizontal size={14} />
+              </motion.span>
             </button>
           </div>
 
-          {showFilters && (
-            <div className="border-t border-gray-50 dark:border-slate-700/50 px-3 py-2.5">
-              <div className="flex gap-1.5">
-                {([
-                  ['', 'Semua'],
-                  ['HAJI KEMENAG', 'Kemenag'],
-                  ['AMITRA', 'Amitra'],
-                ] as [string, string][]).map(([key, label]) => (
-                  <button
-                    key={key}
-                    onClick={() => { setJenisFilter(key); setPage(1); }}
-                    className={`flex-1 h-8 px-2 py-0 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all ${
-                      jenisFilter === key
-                        ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
-                        : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          <AnimatePresence initial={false}>
+            {showFilters && (
+              <motion.div
+                key="haji-filter-panel"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                style={{ overflow: 'hidden' }}
+                className="border-t border-gray-50 dark:border-slate-700/50"
+              >
+                <motion.div
+                  initial={{ y: -8 }}
+                  animate={{ y: 0 }}
+                  exit={{ y: -6 }}
+                  transition={{ duration: 0.22, ease: 'easeOut' }}
+                  className="px-3 py-3 space-y-3"
+                >
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="space-y-1">
+                      <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Tahun Daftar</span>
+                      <select
+                        value={daftarYear}
+                        onChange={e => { setDaftarYear(e.target.value); setPage(1); }}
+                        className="w-full h-8 px-2 rounded-lg bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[10px] font-bold text-gray-700 dark:text-slate-200 outline-none"
+                      >
+                        <option value="">Semua</option>
+                        {daftarYearOptions.map(year => (
+                          <option key={year} value={year}>{year}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="space-y-1">
+                      <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Status Bayar</span>
+                      <select
+                        value={statusBayarFilter}
+                        onChange={e => { setStatusBayarFilter(e.target.value); setPage(1); }}
+                        className="w-full h-8 px-2 rounded-lg bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[10px] font-bold text-gray-700 dark:text-slate-200 outline-none"
+                      >
+                        <option value="">Semua</option>
+                        <option value="BELUM BAYAR">Belum</option>
+                        <option value="CICILAN">Cicilan</option>
+                        <option value="LUNAS">Lunas</option>
+                        <option value="LEBIH BAYAR">Lebih</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Jenis</p>
+                    <div className="flex gap-1.5">
+                      {([
+                        ['', 'Semua'],
+                        ['HAJI KEMENAG', 'Kemenag'],
+                        ['AMITRA', 'Amitra'],
+                      ] as [string, string][]).map(([key, label]) => (
+                        <button
+                          key={key}
+                          onClick={() => { setJenisFilter(key); setPage(1); }}
+                          className={`flex-1 h-8 px-2 py-0 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all ${
+                            jenisFilter === key
+                              ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                              : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Paket</p>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {([
+                        ['', 'Semua'],
+                        ['RAHMAH', 'Rahmah'],
+                        ['UHUD', 'Uhud'],
+                      ] as [string, string][]).map(([key, label]) => (
+                        <button
+                          key={key}
+                          onClick={() => { setPaketFilter(key); setPage(1); }}
+                          className={`h-8 px-2 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all ${
+                            paketFilter === key
+                              ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                              : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {hasAdvancedFilters && (
+                    <button
+                      onClick={() => {
+                        setJenisFilter('');
+                        setDaftarYear('');
+                        setStatusBayarFilter('');
+                        setPaketFilter('');
+                        setPage(1);
+                      }}
+                      className="w-full h-8 rounded-lg text-[10px] font-bold text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700"
+                    >
+                      Reset Filter
+                    </button>
+                  )}
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Error */}
@@ -883,7 +1023,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                       <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{item.nama || '-'}</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
-                          {item.id_haji} • {item.paket_detail || item.paket || '-'}
+                          {item.nomor_porsi || item.id_haji} • {item.paket_detail || item.paket || '-'}
                         </p>
                         {item.notes && (
                           <span className="shrink-0 text-[8px] font-bold uppercase tracking-wide text-amber-500 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-[1px] rounded">Note</span>
@@ -926,6 +1066,18 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                               <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{item.thn_hijriyah || '-'} {item.thn_masehi ? `(${item.thn_masehi})` : ''}</p>
                             </div>
                             <div>
+                              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Berangkat</p>
+                              <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{formatShortDate(item.tgl_berangkat)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">No. Porsi</p>
+                              <p className="text-xs font-semibold text-gray-700 dark:text-slate-200 truncate">{item.nomor_porsi || '-'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">No. SPPH</p>
+                              <p className="text-xs font-semibold text-gray-700 dark:text-slate-200 truncate">{item.nomor_spph || '-'}</p>
+                            </div>
+                            <div>
                               <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Jenis</p>
                               <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{item.jenis || '-'}</p>
                             </div>
@@ -944,6 +1096,30 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                             <div>
                               <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Status</p>
                               <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{item.status_bayar || '-'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Harga Paket</p>
+                              <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{formatUsd(item.paket_harga)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Terbayar</p>
+                              <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{formatUsd(item.bayar)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Sisa</p>
+                              <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{formatUsd(item.sisa)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Tgl Daftar</p>
+                              <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{formatShortDate(item.tgl_daftar)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Paspor</p>
+                              <p className="text-xs font-semibold text-gray-700 dark:text-slate-200 truncate">{item.no_paspor || '-'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Exp Paspor</p>
+                              <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{formatShortDate(item.paspor_expired)}</p>
                             </div>
                             {!item.notes && editingNoteId !== `${item.id_haji}_${item.id_jamaah}` && (
                               <div className="flex items-end">

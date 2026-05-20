@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hasSuspiciousAwapiPayment, normalizeAwapiRow, preserveExistingPaymentForSuspiciousAwapiRow } from '../awapi-client.js';
+import {
+  hasSuspiciousAwapiPayment,
+  normalizeAwapiHajiRow,
+  normalizeAwapiRow,
+  parseAwapiResponseText,
+  preserveExistingPaymentForSuspiciousAwapiRow,
+} from '../awapi-client.js';
 
 function jakartaYear() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -28,6 +34,107 @@ function rawRow(overrides = {}) {
     ...overrides,
   };
 }
+
+function rawHajiRow(overrides = {}) {
+  return {
+    id_haji: 'HAJ20270001',
+    id_jamaah: 'JM999999990000099001',
+    nomor_porsi: '3000123456',
+    nomor_spph: 'SPPH-123',
+    nama: 'AHMAD HAJI',
+    kelamin: 'Laki-laki',
+    tgl_lahir: `${jakartaYear() - 55}-01-20`,
+    hp: '628123456789',
+    paspor_nomor: '0',
+    paspor_expired: '0000-00-00',
+    paket: 'RAHMAH Quard',
+    paket_harga: '120000000',
+    diskon_marketing: '500000',
+    diskon_kantor: '250000',
+    bayar: '4500000',
+    bayar_sisa: '115500000',
+    bayar_status: 'CICILAN',
+    tgl_daftar: `${jakartaYear()}-04-15 10:12:30`,
+    tgl_berangkat: `${jakartaYear() + 1}-06-01`,
+    thn_berangkat_masehi: String(jakartaYear() + 1),
+    thn_berangkat_hijriyah: '1448',
+    staff: 'STAFF HAJI',
+    dokumen: { ktp: true },
+    dokumen_bpih: 'http://115.124.86.220/aiw/staff/pages/dokumen/bpih.pdf',
+    ...overrides,
+  };
+}
+
+test('parseAwapiResponseText tolerates PHP warning before JSON payload', () => {
+  const parsed = parseAwapiResponseText('<br><b>Warning</b>: Undefined variable $cek<br>{"status":"true","aaData":[{"id_haji":"HAJ1"}]}');
+
+  assert.equal(parsed.status, 'true');
+  assert.deepEqual(parsed.aaData, [{ id_haji: 'HAJ1' }]);
+});
+
+test('normalizeAwapiHajiRow maps official haji API row without legacy-only null overwrites', () => {
+  const norm = normalizeAwapiHajiRow(rawHajiRow(), { agentId: 'agent-id' });
+
+  assert.equal(norm.agent_id, 'agent-id');
+  assert.equal(norm.id_haji, 'HAJ20270001');
+  assert.equal(norm.id_jamaah, 'JM999999990000099001');
+  assert.equal(norm.nomor_porsi, '3000123456');
+  assert.equal(norm.nomor_spph, 'SPPH-123');
+  assert.equal(norm.nama, 'AHMAD HAJI');
+  assert.equal(norm.jk, 'L');
+  assert.equal(norm.telp, '628123456789');
+  assert.equal(norm.tgl_lahir, `${jakartaYear() - 55}-01-20`);
+  assert.equal(norm.no_paspor, null);
+  assert.equal(norm.paspor_expired, null);
+  assert.equal(norm.paket, 'RAHMAH Quard');
+  assert.equal(norm.paket_detail, 'RAHMAH Quard');
+  assert.equal(norm.paket_harga, 120000000);
+  assert.equal(norm.diskon_marketing, 500000);
+  assert.equal(norm.diskon_kantor, 250000);
+  assert.equal(norm.bayar, 4500000);
+  assert.equal(norm.sisa, 115500000);
+  assert.equal(norm.status_bayar, 'CICILAN');
+  assert.equal(norm.tgl_daftar, `${jakartaYear()}-04-15`);
+  assert.equal(norm.tgl_berangkat, `${jakartaYear() + 1}-06-01`);
+  assert.equal(norm.thn_masehi, String(jakartaYear() + 1));
+  assert.equal(norm.thn_hijriyah, '1448');
+  assert.equal(norm.staff, 'STAFF HAJI');
+  assert.deepEqual(norm.dokumen, { ktp: true });
+  assert.equal(norm.bpih_url, 'http://115.124.86.220/aiw/staff/pages/dokumen/bpih.pdf');
+  assert.ok(norm.synced_at);
+  assert.equal(Object.hasOwn(norm, 'alamat'), false);
+  assert.equal(Object.hasOwn(norm, 'perwakilan'), false);
+  assert.equal(Object.hasOwn(norm, 'marketing'), false);
+  assert.equal(Object.hasOwn(norm, 'jenis'), false);
+  assert.equal(Object.hasOwn(norm, 'status_berangkat'), false);
+  assert.equal(Object.hasOwn(norm, 'surat_pernyataan_url'), false);
+});
+
+test('normalizeAwapiHajiRow derives payment status when bayar_status is missing', () => {
+  const belum = normalizeAwapiHajiRow(rawHajiRow({ bayar_status: '', bayar: '0', bayar_sisa: '120000000' }), { agentId: 'agent-id' });
+  const lunas = normalizeAwapiHajiRow(rawHajiRow({ bayar_status: '', bayar: '120000000', bayar_sisa: '0' }), { agentId: 'agent-id' });
+
+  assert.equal(belum.status_bayar, 'BELUM BAYAR');
+  assert.equal(lunas.status_bayar, 'LUNAS');
+});
+
+test('normalizeAwapiHajiRow nulls zero-date placeholders with time portions', () => {
+  const norm = normalizeAwapiHajiRow(rawHajiRow({
+    tgl_lahir: '0000-00-00 00:00:00',
+    paspor_expired: '0000-00-00 00:00:00',
+    tgl_daftar: '0000-00-00 00:00:00',
+    tgl_berangkat: '0000-00-00 00:00:00',
+    thn_berangkat_masehi: '0',
+    thn_berangkat_hijriyah: '0',
+  }), { agentId: 'agent-id' });
+
+  assert.equal(norm.tgl_lahir, null);
+  assert.equal(norm.paspor_expired, null);
+  assert.equal(norm.tgl_daftar, null);
+  assert.equal(norm.tgl_berangkat, null);
+  assert.equal(norm.thn_masehi, null);
+  assert.equal(norm.thn_hijriyah, null);
+});
 
 test('normalizeAwapiRow keeps plausible birth dates', () => {
   const norm = normalizeAwapiRow(rawRow(), { agentId: 'agent-id' });

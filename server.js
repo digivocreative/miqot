@@ -26,7 +26,19 @@ import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent, generatePortalJamaahOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
-import { awapiFetchUmrahByKeberangkatan, awapiFetchUmrahByPendaftaran, awapiFetchUmrahById, awapiFetchJamaahById, normalizeAwapiRow, hasSuspiciousAwapiPayment, preserveExistingPaymentForSuspiciousAwapiRow, AwapiError } from './awapi-client.js';
+import {
+  awapiFetchUmrahByKeberangkatan,
+  awapiFetchUmrahByPendaftaran,
+  awapiFetchUmrahById,
+  awapiFetchJamaahById,
+  awapiFetchHajiByKeberangkatan,
+  awapiFetchHajiByPendaftaran,
+  normalizeAwapiHajiRow,
+  normalizeAwapiRow,
+  hasSuspiciousAwapiPayment,
+  preserveExistingPaymentForSuspiciousAwapiRow,
+  AwapiError,
+} from './awapi-client.js';
 import {
   runAnalyticsMaintenance,
   fetchEventsForRange,
@@ -5943,6 +5955,164 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
   };
 }
 
+const HAJI_API_DEPARTURE_LOOKBACK_YEARS = 1;
+const HAJI_API_DEPARTURE_LOOKAHEAD_YEARS = 15;
+
+function getJakartaCalendarYear(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+  }).formatToParts(now);
+  return Number(parts.find(p => p.type === 'year')?.value || now.getFullYear());
+}
+
+function getHajiApiDepartureMasehiYears(now = new Date()) {
+  const currentYear = getJakartaCalendarYear(now);
+  const years = [];
+  for (
+    let y = currentYear - HAJI_API_DEPARTURE_LOOKBACK_YEARS;
+    y <= currentYear + HAJI_API_DEPARTURE_LOOKAHEAD_YEARS;
+    y++
+  ) {
+    years.push(String(y));
+  }
+  return years;
+}
+
+async function syncHajiViaApiCore(agentId, slug, agent, {
+  context = 'manual',
+  departureYears = getHajiApiDepartureMasehiYears(),
+  registrationHijriahYears = getActiveHijriahYears(),
+} = {}) {
+  const apiKey = agent.awapi_key;
+  const code = agent.awapi_code || apiKey?.split('-')[0];
+  if (!apiKey || !code) {
+    throw new Error('AWAPI haji credential tidak tersedia');
+  }
+
+  const now = new Date().toISOString();
+  const rowsByKey = new Map();
+  const fetchedBookingIds = new Set();
+  const successfulBookingIds = new Set();
+  const successfulJamaahPerBooking = new Map();
+  let fetchErrors = 0;
+  let upsertErrors = 0;
+  let firstUpsertError = null;
+  const normalizedDepartureYears = [...new Set((departureYears || []).map(String).filter(Boolean))].sort();
+  const normalizedRegistrationYears = [...new Set((registrationHijriahYears || []).map(String).filter(Boolean))].sort((a, b) => Number(b) - Number(a));
+
+  const recordRow = (norm) => {
+    const key = `${norm.id_haji}_${norm.id_jamaah}`.toLowerCase();
+    rowsByKey.set(key, norm);
+    fetchedBookingIds.add(norm.id_haji);
+    successfulBookingIds.add(norm.id_haji);
+    const jamaahSet = successfulJamaahPerBooking.get(norm.id_haji) || new Set();
+    jamaahSet.add(norm.id_jamaah);
+    successfulJamaahPerBooking.set(norm.id_haji, jamaahSet);
+  };
+
+  const fetchPlans = [
+    ...normalizedDepartureYears.map(year => ({
+      source: 'keberangkatan',
+      endpoint: `bm/${year}`,
+      fetchRows: () => awapiFetchHajiByKeberangkatan(apiKey, code, { tahun: year }),
+    })),
+    ...normalizedRegistrationYears.map(year => ({
+      source: 'pendaftaran',
+      endpoint: `dh/${year}`,
+      fetchRows: () => awapiFetchHajiByPendaftaran(apiKey, code, { tahun: year, hijriah: true }),
+    })),
+  ];
+
+  for (const plan of fetchPlans) {
+    try {
+      const { rows } = await plan.fetchRows();
+      for (const raw of rows) {
+        const norm = normalizeAwapiHajiRow(raw, { agentId });
+        if (!norm) continue;
+        recordRow(norm);
+      }
+      console.log(`[haji-api/${context}] ${slug} ${plan.endpoint}: ${rows.length} rows`);
+    } catch (err) {
+      fetchErrors++;
+      console.warn(`[haji-api/${context}] ${slug} ${plan.endpoint} failed: ${err.message}`);
+    }
+  }
+
+  const allRows = Array.from(rowsByKey.values());
+  console.log(`[haji-api/${context}] ${slug}: ${allRows.length} unique haji rows from ${normalizedDepartureYears.length} departure years + ${normalizedRegistrationYears.length} registration years (${fetchErrors} fetch errors)`);
+
+  const BATCH = 50;
+  let upserted = 0;
+  for (let i = 0; i < allRows.length; i += BATCH) {
+    const batch = allRows.slice(i, i + BATCH);
+    const hajiCapiIds = batch.map(r => ({ id_haji: r.id_haji, id_jamaah: r.id_jamaah }));
+    const { error } = await supabase
+      .from('jamaah_haji')
+      .upsert(batch, {
+        onConflict: 'agent_id,id_haji,id_jamaah',
+        defaultToNull: false,
+      });
+    if (error) {
+      upsertErrors++;
+      if (!firstUpsertError) firstUpsertError = error.message;
+      console.error(`[haji-api/${context}] ${slug} upsert batch error:`, error.message);
+    } else {
+      upserted += batch.length;
+      processCapiPurchases(agentId, slug, 'haji', hajiCapiIds).catch(e =>
+        console.error(`[CAPI/haji-api/${context}] Purchase error:`, e.message)
+      );
+    }
+  }
+
+  if (upsertErrors > 0) {
+    throw new Error(`Haji API upsert failed in ${upsertErrors} batch(es): ${firstUpsertError || 'unknown error'}`);
+  }
+
+  if (fetchErrors > 0) {
+    throw new Error(`Haji API fetch incomplete: ${fetchErrors} endpoint(s) failed`);
+  }
+
+  const cleanupYears = new Set(normalizedDepartureYears);
+  if (!syncingAgents.get(agentId)?.cancelled && cleanupYears.size > 0) {
+    const { data: existingRows } = await supabase
+      .from('jamaah_haji')
+      .select('id_haji, id_jamaah, thn_masehi')
+      .eq('agent_id', agentId)
+      .in('thn_masehi', [...cleanupYears]);
+    const plan = computeSafeDeletions({
+      listComplete: true,
+      fetchedBookingIds,
+      successfulBookingIds,
+      successfulJamaahPerBooking,
+      existingRows: (existingRows || []).map(r => ({ bookingId: r.id_haji, jamaahKey: r.id_jamaah })),
+      maxDeletePercent: 0.3,
+    });
+    if (plan.decision === 'skip') {
+      console.warn(`[haji-api/${context}] ${slug} cleanup skipped: ${plan.reason} (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+    } else if (plan.toDelete.length > 0) {
+      const deletedCount = await executeHajiDeletions(slug, agentId, plan.toDelete);
+      console.log(`[haji-api/${context}] ${slug}: removed ${deletedCount} stale haji (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+    }
+  }
+
+  const { error: bumpErr } = await supabase
+    .from('agents')
+    .update({ last_jamaah_haji_sync_at: now })
+    .eq('id', agentId);
+  if (bumpErr) console.warn(`[haji-api/${context}] ${slug} bump last_jamaah_haji_sync_at failed:`, bumpErr.message);
+  invalidateStatsCache(agentId);
+
+  return {
+    ok: true,
+    count: upserted,
+    uniqueHaji: fetchedBookingIds.size,
+    syncedAt: now,
+    departureYears: normalizedDepartureYears,
+    registrationHijriahYears: normalizedRegistrationYears,
+  };
+}
+
 // HTTP wrapper for manual sync — called from /api/laporan/sync when env+key.
 async function syncUmrahViaApi(req, res, agent, { yearsToSync = getActiveHijriahYears() } = {}) {
   const agentId = req.user.id;
@@ -9611,7 +9781,13 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
 
   try {
     const agent = await getAgentById(agentId);
-    if (!agent?.jamaah_username || !agent?.jamaah_password) {
+    const awapiEnabled = process.env.AWAPI_SYNC_ENABLED === 'true';
+    if (awapiEnabled && !agent?.awapi_key && (!agent?.jamaah_username || !agent?.jamaah_password)) {
+      return res.status(400).json({
+        error: 'AWAPI haji belum tersedia untuk agent ini dan credential legacy tidak ada untuk discovery API key.',
+      });
+    }
+    if (!awapiEnabled && (!agent?.jamaah_username || !agent?.jamaah_password)) {
       return res.status(400).json({
         error: 'Belum terhubung ke sistem internal. Silakan login di halaman Jamaah terlebih dahulu.'
       });
@@ -9624,6 +9800,29 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     }
 
     syncingAgents.set(agentId, { isSyncing: true, scope: 'haji-manual', totalSynced: 0, lastSync: null, startedAt: Date.now() });
+
+    if (awapiEnabled) {
+      const awapiAgent = await ensureAwapiCredentials(agent);
+      if (!awapiAgent?.awapi_key) {
+        syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
+        return res.status(400).json({
+          error: 'AWAPI haji belum tersedia untuk agent ini. Silakan login ulang agar API key dapat ditemukan.',
+        });
+      }
+
+      const apiResult = await syncHajiViaApiCore(agentId, slug, awapiAgent, { context: 'manual' });
+      syncingAgents.set(agentId, { isSyncing: false, totalSynced: apiResult.count, lastSync: apiResult.syncedAt });
+      return res.json({
+        success: true,
+        data: {
+          initialCount: apiResult.count,
+          total: apiResult.count,
+          uniqueHaji: apiResult.uniqueHaji,
+          syncing: false,
+          source: 'awapi',
+        },
+      });
+    }
 
     // Login fresh to legacy system
     await laporanDisconnect(agent.jamaah_username);
@@ -9750,7 +9949,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     if (firstRows.length > 0) {
       const { error: firstErr } = await supabase
         .from('jamaah_haji')
-        .upsert(firstRows, { onConflict: 'agent_id,id_haji,id_jamaah' });
+        .upsert(firstRows, { onConflict: 'agent_id,id_haji,id_jamaah', defaultToNull: false });
       if (firstErr) console.error('[haji-sync] First batch upsert error:', firstErr.message);
 
       // Fire CAPI Purchase events (DP & Lunas) for Haji
@@ -9845,7 +10044,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
                 const bgCapiIds = bgRows.map(r => ({ id_haji: r.id_haji, id_jamaah: r.id_jamaah }));
                 const { error } = await supabase
                   .from('jamaah_haji')
-                  .upsert(bgRows, { onConflict: 'agent_id,id_haji,id_jamaah' });
+                  .upsert(bgRows, { onConflict: 'agent_id,id_haji,id_jamaah', defaultToNull: false });
                 if (error) console.error('[haji-sync] BG batch error:', error.message);
                 processCapiPurchases(agentId, slug, 'haji', bgCapiIds).catch(e =>
                   console.error(`[CAPI] Haji BG batch Purchase error:`, e.message)
@@ -10013,8 +10212,11 @@ app.get('/api/haji/jamaah', authMiddleware, async (req, res) => {
       search = '',
       thn_hijriyah = '',
       thn_masehi = '',
+      daftar_year = '',
       jenis = '',
       status_bayar = '',
+      paket_filter = '',
+      follow_up = '',
       page = '1',
       limit = '20'
     } = req.query;
@@ -10025,8 +10227,13 @@ app.get('/api/haji/jamaah', authMiddleware, async (req, res) => {
       .eq('agent_id', agentId)
       .order('id_haji', { ascending: false });
 
+    const escapePostgrestFilterValue = (value) => String(value || '')
+      .replace(/[,()*%]/g, (c) => '\\' + c)
+      .slice(0, 100);
+
     if (search) {
-      query = query.or(`nama.ilike.%${search}%,id_haji.ilike.%${search}%,id_jamaah.ilike.%${search}%`);
+      const safeSearch = escapePostgrestFilterValue(search);
+      query = query.or(`nama.ilike.%${safeSearch}%,id_haji.ilike.%${safeSearch}%,id_jamaah.ilike.%${safeSearch}%,nomor_porsi.ilike.%${safeSearch}%,nomor_spph.ilike.%${safeSearch}%,telp.ilike.%${safeSearch}%`);
     }
     if (thn_hijriyah) {
       query = query.eq('thn_hijriyah', thn_hijriyah);
@@ -10034,11 +10241,38 @@ app.get('/api/haji/jamaah', authMiddleware, async (req, res) => {
     if (thn_masehi) {
       query = query.eq('thn_masehi', thn_masehi);
     }
+    const daftarYear = String(daftar_year || '').trim();
+    if (/^\d{4}$/.test(daftarYear)) {
+      query = query
+        .gte('tgl_daftar', `${daftarYear}-01-01`)
+        .lt('tgl_daftar', `${Number(daftarYear) + 1}-01-01`);
+    }
     if (jenis) {
       query = query.eq('jenis', jenis);
     }
     if (status_bayar) {
       query = query.eq('status_bayar', status_bayar);
+    }
+    if (paket_filter) {
+      const safePaket = escapePostgrestFilterValue(paket_filter);
+      query = query.or(`paket.ilike.%${safePaket}%,paket_detail.ilike.%${safePaket}%`);
+    }
+    switch (follow_up) {
+      case 'bpih_ready':
+        query = query.not('bpih_url', 'is', null);
+        break;
+      case 'bpih_missing':
+        query = query.or('bpih_url.is.null,bpih_url.eq.');
+        break;
+      case 'paspor_missing':
+        query = query.or('no_paspor.is.null,no_paspor.eq.');
+        break;
+      case 'telp_missing':
+        query = query.or('telp.is.null,telp.eq.');
+        break;
+      case 'has_notes':
+        query = query.not('notes', 'is', null);
+        break;
     }
 
     const pageNum = parseInt(page);
@@ -10118,9 +10352,8 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
     const [{ data: yearsData, error: yearsErr }, { data: agentRow }] = await Promise.all([
       supabase
         .from('jamaah_haji')
-        .select('thn_masehi')
-        .eq('agent_id', agentId)
-        .not('thn_masehi', 'is', null),
+        .select('thn_masehi, tgl_daftar')
+        .eq('agent_id', agentId),
       supabase
         .from('agents')
         .select('last_jamaah_haji_sync_at')
@@ -10130,6 +10363,10 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
     if (yearsErr) throw yearsErr;
 
     const availableYears = computeAvailableYears(yearsData || []);
+    const daftarYears = [...new Set((yearsData || [])
+      .map(row => String(row.tgl_daftar || '').slice(0, 4))
+      .filter(yearValue => /^\d{4}$/.test(yearValue)))]
+      .sort((a, b) => b.localeCompare(a));
 
     // Default: current year if present, else closest year (ties prefer future).
     let year = typeof req.query.year === 'string' ? req.query.year : null;
@@ -10163,6 +10400,7 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
     const byTahun = {};
     (yearsData || []).forEach(d => {
       const key = d.thn_masehi || 'unknown';
+      if (!/^\d{4}$/.test(key)) return;
       byTahun[key] = (byTahun[key] || 0) + 1;
     });
 
@@ -10192,6 +10430,7 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
 
         // new fields
         availableYears,
+        daftarYears,
         masehiYear: year || null,
         lebihBayar,
         lunasPercent,
@@ -14241,8 +14480,14 @@ async function syncOneAgent(agent) {
       invalidateStatsCache(agentId);
     }
 
-    // ── Haji sync (reuse same session) ──
-    try {
+    // ── Haji legacy sync (reuse same session) ──
+    // In AWAPI mode this legacy scraper is handled by the dedicated 2x/day
+    // scheduled enrichment, so the regular umroh background path does not
+    // scrape haji opportunistically.
+    if (process.env.AWAPI_SYNC_ENABLED === 'true') {
+      console.log(`[SYNC] ${slug}: inline haji legacy skipped — scheduled enrichment owns it`);
+    } else {
+      try {
       const sessionCookies = getSessionCookie(agent.jamaah_username);
       if (sessionCookies) {
         // Switch scope so HajiPage sees haji-specific counter instead of umroh leftover.
@@ -14310,7 +14555,7 @@ async function syncOneAgent(agent) {
                 const hajiCapiIds = allHajiRows.map(r => ({ id_haji: r.id_haji, id_jamaah: r.id_jamaah }));
                 const { error: hajiErr } = await supabase
                   .from('jamaah_haji')
-                  .upsert(allHajiRows, { onConflict: 'agent_id,id_haji,id_jamaah' });
+                  .upsert(allHajiRows, { onConflict: 'agent_id,id_haji,id_jamaah', defaultToNull: false });
                 if (hajiErr) console.error(`[SYNC] ${slug} haji batch error:`, hajiErr.message);
                 else processCapiPurchases(agentId, slug, 'haji', hajiCapiIds).catch(e =>
                   console.error(`[CAPI] Haji inline background Purchase error:`, e.message)
@@ -14352,9 +14597,10 @@ async function syncOneAgent(agent) {
 
         await backfillHajiPaketDetail(agentId, slug, sessionCookies);
       }
-    } catch (hajiErr) {
-      console.error(`[SYNC] ${slug} haji error:`, hajiErr.message);
-      // Don't fail the whole sync if haji fails
+      } catch (hajiErr) {
+        console.error(`[SYNC] ${slug} haji error:`, hajiErr.message);
+        // Don't fail the whole sync if haji fails
+      }
     }
 
     // Query final actual DB count
@@ -14721,15 +14967,10 @@ setTimeout(() => {
   runSyncCycleLoop().catch(err => console.error('[SYNC] Loop crashed:', err.message));
 }, 30 * 1000);
 scheduleUmrohPhase2Enrichment();
+scheduleHajiLegacyEnrichment();
 
-// ── Haji background sync: dedicated loop, decoupled from umroh path ──
-// Why dedicated: when AWAPI_SYNC_ENABLED=true (umroh via official API),
-// syncOneAgent returns early after API success and never reaches the inline
-// haji block — leaving haji bg sync dead. This loop owns its own legacy
-// session per agent (haji has no API yet) and runs independently so umroh's
-// 10min API cycle stays untouched. Inline haji block in syncOneAgent is
-// kept as a fallback path that fires only when umroh API throws.
-async function syncHajiOneAgent(agent) {
+// ── Haji sync: AWAPI owns the frequent sync; legacy scraper enriches sparse fields on schedule. ──
+async function syncHajiLegacyOneAgent(agent, { scope = 'haji-legacy' } = {}) {
   const slug = agent.slug;
   const agentId = agent.id;
 
@@ -14742,7 +14983,7 @@ async function syncHajiOneAgent(agent) {
   }
 
   syncingAgents.set(agentId, {
-    isSyncing: true, background: true, scope: 'haji-bg',
+    isSyncing: true, background: true, scope,
     totalSynced: 0, lastSync: null, startedAt: Date.now(),
     username: agent.jamaah_username,
   });
@@ -14752,7 +14993,7 @@ async function syncHajiOneAgent(agent) {
     const decrypted = capiDecrypt(agent.jamaah_password);
     const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
     if (!loginResult.success) {
-      console.error(`[HAJI-BG] ${slug}: login failed — ${loginResult.error || 'unknown reason'}`);
+      console.error(`[HAJI-LEGACY] ${slug}: login failed — ${loginResult.error || 'unknown reason'}`);
       const rateLimited = loginResult.reason === 'rate_limited';
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true, rateLimited });
       return { loginFailed: true, rateLimited };
@@ -14760,7 +15001,7 @@ async function syncHajiOneAgent(agent) {
 
     const sessionCookies = getSessionCookie(agent.jamaah_username);
     if (!sessionCookies) {
-      console.warn(`[HAJI-BG] ${slug}: no session cookie after login`);
+      console.warn(`[HAJI-LEGACY] ${slug}: no session cookie after login`);
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
       return { loginFailed: true };
     }
@@ -14768,7 +15009,7 @@ async function syncHajiOneAgent(agent) {
     const syncTime = new Date().toISOString();
     const { rows: hajiList, complete: hajiListComplete } = await fetchHajiList(sessionCookies);
     const uniqueIds = [...new Set(hajiList.map(h => h.id_haji))];
-    console.log(`[HAJI-BG] ${slug}: found ${uniqueIds.length} unique haji entries, complete=${hajiListComplete}`);
+    console.log(`[HAJI-LEGACY] ${slug}: found ${uniqueIds.length} unique haji entries, complete=${hajiListComplete}`);
 
     const fetchedBookingIds = new Set(uniqueIds);
     const successfulBookingIds = new Set();
@@ -14828,15 +15069,15 @@ async function syncHajiOneAgent(agent) {
             const hajiCapiIds = allHajiRows.map(r => ({ id_haji: r.id_haji, id_jamaah: r.id_jamaah }));
             const { error: hajiErr } = await supabase
               .from('jamaah_haji')
-              .upsert(allHajiRows, { onConflict: 'agent_id,id_haji,id_jamaah' });
-            if (hajiErr) console.error(`[HAJI-BG] ${slug} batch error:`, hajiErr.message);
+              .upsert(allHajiRows, { onConflict: 'agent_id,id_haji,id_jamaah', defaultToNull: false });
+            if (hajiErr) console.error(`[HAJI-LEGACY] ${slug} batch error:`, hajiErr.message);
             else processCapiPurchases(agentId, slug, 'haji', hajiCapiIds).catch(e =>
               console.error(`[CAPI] Haji dedicated background Purchase error:`, e.message)
             );
             hajiSynced += allHajiRows.length;
             allHajiRows.length = 0;
             syncingAgents.set(agentId, {
-              isSyncing: true, background: true, scope: 'haji-bg',
+              isSyncing: true, background: true, scope,
               totalSynced: hajiSynced, lastSync: syncTime,
               startedAt: Date.now(), username: agent.jamaah_username,
             });
@@ -14845,7 +15086,7 @@ async function syncHajiOneAgent(agent) {
 
         if (i + HAJI_BATCH < uniqueIds.length) await new Promise(r => setTimeout(r, 100));
       }
-      console.log(`[HAJI-BG] ${slug}: ${hajiSynced} haji jamaah synced`);
+      console.log(`[HAJI-LEGACY] ${slug}: ${hajiSynced} haji jamaah synced`);
     }
 
     const { data: existingHajiRows } = await supabase
@@ -14861,28 +15102,28 @@ async function syncHajiOneAgent(agent) {
       maxDeletePercent: 0.3,
     });
     if (plan.decision === 'skip') {
-      console.warn(`[HAJI-BG] ${slug} cleanup skipped: ${plan.reason} (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+      console.warn(`[HAJI-LEGACY] ${slug} cleanup skipped: ${plan.reason} (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
     } else if (plan.toDelete.length > 0) {
       const deletedCount = await executeHajiDeletions(slug, agentId, plan.toDelete);
-      console.log(`[HAJI-BG] ${slug}: removed ${deletedCount} stale haji (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+      console.log(`[HAJI-LEGACY] ${slug}: removed ${deletedCount} stale haji (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
     }
 
     const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: syncTime }).eq('id', agentId);
-    if (bumpErr) console.warn(`[HAJI-BG] ${slug} bump last_jamaah_haji_sync_at failed:`, bumpErr.message);
+    if (bumpErr) console.warn(`[HAJI-LEGACY] ${slug} bump last_jamaah_haji_sync_at failed:`, bumpErr.message);
     invalidateStatsCache(agentId);
 
     await backfillHajiPaketDetail(agentId, slug, sessionCookies);
 
     return { ok: true };
   } catch (err) {
-    console.error(`[HAJI-BG] ${slug} error:`, err.message);
+    console.error(`[HAJI-LEGACY] ${slug} error:`, err.message);
     return { error: err.message };
   } finally {
-    // Only release the lock if we still own it (scope haji-bg). A manual sync
+    // Only release the lock if we still own it. A manual sync
     // that started during our run would have its own scope and we must not
     // clobber its state.
     const cur = syncingAgents.get(agentId);
-    if (cur?.isSyncing && cur?.scope === 'haji-bg') {
+    if (cur?.isSyncing && cur?.scope === scope) {
       syncingAgents.set(agentId, {
         isSyncing: false,
         totalSynced: cur.totalSynced || 0,
@@ -14893,18 +15134,76 @@ async function syncHajiOneAgent(agent) {
   }
 }
 
+async function syncHajiOneAgent(agent) {
+  const slug = agent.slug;
+  const agentId = agent.id;
+
+  if (process.env.AWAPI_SYNC_ENABLED !== 'true') {
+    return { skipped: true, reason: 'awapi_disabled' };
+  }
+
+  const existing = syncingAgents.get(agentId);
+  if (existing?.isSyncing) {
+    return { skipped: true };
+  }
+
+  syncingAgents.set(agentId, {
+    isSyncing: true,
+    background: true,
+    scope: 'haji-api',
+    totalSynced: 0,
+    lastSync: null,
+    startedAt: Date.now(),
+  });
+
+  try {
+    const awapiAgent = await ensureAwapiCredentials(agent);
+    if (!awapiAgent?.awapi_key) {
+      console.warn(`[HAJI-API] ${slug}: no AWAPI key available`);
+      return { skipped: true, reason: 'missing_awapi_key' };
+    }
+
+    const result = await syncHajiViaApiCore(agentId, slug, awapiAgent, { context: 'background' });
+    syncingAgents.set(agentId, {
+      isSyncing: false,
+      totalSynced: result.count,
+      lastSync: result.syncedAt,
+    });
+    return { ok: true };
+  } catch (err) {
+    console.error(`[HAJI-API] ${slug} error:`, err.message);
+    return { error: err.message };
+  } finally {
+    const cur = syncingAgents.get(agentId);
+    if (cur?.isSyncing && cur?.scope === 'haji-api') {
+      syncingAgents.set(agentId, {
+        isSyncing: false,
+        totalSynced: cur.totalSynced || 0,
+        lastSync: cur.lastSync || null,
+      });
+    }
+  }
+}
+
 async function syncAllAgentsHaji() {
-  console.log('[HAJI-BG] Starting haji sync cycle...');
+  if (process.env.AWAPI_SYNC_ENABLED !== 'true') {
+    console.log('[HAJI-API] Background sync disabled because AWAPI_SYNC_ENABLED is not true');
+    return;
+  }
+
+  console.log('[HAJI-API] Starting haji AWAPI sync cycle...');
   const startTime = Date.now();
 
   const { data: agents, error } = await supabase
     .from('agents')
-    .select('*')
-    .not('jamaah_username', 'is', null)
-    .not('jamaah_password', 'is', null);
+    .select('*');
 
-  if (error || !agents?.length) {
-    console.log('[HAJI-BG] No agents with credentials found');
+  const eligibleAgents = (agents || []).filter(agent =>
+    agent.awapi_key || (agent.jamaah_username && agent.jamaah_password)
+  );
+
+  if (error || !eligibleAgents.length) {
+    console.log('[HAJI-API] No agents with AWAPI key or legacy credentials found');
     return;
   }
 
@@ -14914,7 +15213,7 @@ async function syncAllAgentsHaji() {
   let abort = false;
   const INTER_AGENT_GAP_MS = 5000;
 
-  for (const agent of agents) {
+  for (const agent of eligibleAgents) {
     if (abort) { skipped++; continue; }
     try {
       const result = await syncHajiOneAgent(agent);
@@ -14922,13 +15221,13 @@ async function syncAllAgentsHaji() {
       else if (result.loginFailed) {
         loginFail++;
         if (result.rateLimited) {
-          console.warn(`[HAJI-BG] Aborting cycle — Apache rate-limiting at ${agent.slug}`);
+          console.warn(`[HAJI-API] Aborting cycle — Apache rate-limiting at ${agent.slug}`);
           abort = true;
         }
       } else if (result.error) fail++;
       else ok++;
     } catch (err) {
-      console.error(`[HAJI-BG] ${agent.slug} uncaught:`, err.message);
+      console.error(`[HAJI-API] ${agent.slug} uncaught:`, err.message);
       fail++;
     }
     if (!abort) {
@@ -14937,24 +15236,88 @@ async function syncAllAgentsHaji() {
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[HAJI-BG] Cycle complete: ${ok} OK, ${loginFail} login failed, ${fail} error, ${skipped} skipped in ${elapsed}s`);
+  console.log(`[HAJI-API] Cycle complete: ${ok} OK, ${loginFail} login failed, ${fail} error, ${skipped} skipped in ${elapsed}s`);
 }
 
-const HAJI_SYNC_COOLDOWN_MS = 30 * 60 * 1000; // matches legacy bg cadence
+async function runScheduledHajiLegacyEnrichment() {
+  console.log('[HAJI-LEGACY] Starting scheduled haji legacy enrichment cycle...');
+  const startTime = Date.now();
+
+  const { data: agents, error } = await supabase
+    .from('agents')
+    .select('*')
+    .not('jamaah_username', 'is', null)
+    .not('jamaah_password', 'is', null);
+
+  if (error || !agents?.length) {
+    console.log('[HAJI-LEGACY] No agents with credentials found');
+    return;
+  }
+
+  let ok = 0, fail = 0, skipped = 0, loginFail = 0;
+  let abort = false;
+  const INTER_AGENT_GAP_MS = 5000;
+
+  for (const agent of agents) {
+    if (abort) { skipped++; continue; }
+    try {
+      const result = await syncHajiLegacyOneAgent(agent, { scope: 'haji-legacy' });
+      if (result.skipped) skipped++;
+      else if (result.loginFailed) {
+        loginFail++;
+        if (result.rateLimited) {
+          console.warn(`[HAJI-LEGACY] Aborting cycle — Apache rate-limiting at ${agent.slug}`);
+          abort = true;
+        }
+      } else if (result.error) fail++;
+      else ok++;
+    } catch (err) {
+      console.error(`[HAJI-LEGACY] ${agent.slug} uncaught:`, err.message);
+      fail++;
+    }
+    if (!abort) {
+      await new Promise(r => setTimeout(r, INTER_AGENT_GAP_MS));
+    }
+  }
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[HAJI-LEGACY] Cycle complete: ${ok} OK, ${loginFail} login failed, ${fail} error, ${skipped} skipped in ${elapsed}s`);
+}
+
+function scheduleHajiLegacyEnrichment() {
+  const scheduleNext = () => {
+    const nextRun = nextJakartaScheduleDate(new Date(), DEFAULT_UMROH_PHASE2_TIMES_WIB);
+    const delayMs = Math.max(0, nextRun.getTime() - Date.now());
+    console.log(`[HAJI-LEGACY] Next scheduled enrichment in ${Math.round(delayMs / 60000)} minutes (${DEFAULT_UMROH_PHASE2_TIMES_WIB.join(' & ')} WIB)`);
+    setTimeout(async () => {
+      try {
+        await runScheduledHajiLegacyEnrichment();
+      } catch (err) {
+        console.error('[HAJI-LEGACY] Scheduled cycle error:', err.message);
+      } finally {
+        scheduleNext();
+      }
+    }, delayMs);
+  };
+
+  scheduleNext();
+}
+
+const HAJI_AWAPI_SYNC_COOLDOWN_MS = 30 * 60 * 1000;
 async function runHajiSyncCycleLoop() {
   while (true) {
     try {
       await syncAllAgentsHaji();
     } catch (err) {
-      console.error('[HAJI-BG] Cycle error:', err.message);
+      console.error('[HAJI-API] Cycle error:', err.message);
     }
-    await new Promise(r => setTimeout(r, HAJI_SYNC_COOLDOWN_MS));
+    await new Promise(r => setTimeout(r, HAJI_AWAPI_SYNC_COOLDOWN_MS));
   }
 }
 // Start 90s after boot — well after the umroh API loop (30s) so the very
 // first haji cycle doesn't compete for boot resources.
 setTimeout(() => {
-  runHajiSyncCycleLoop().catch(err => console.error('[HAJI-BG] Loop crashed:', err.message));
+  runHajiSyncCycleLoop().catch(err => console.error('[HAJI-API] Loop crashed:', err.message));
 }, 90 * 1000);
 
 // ── Umroh schedules sync: 45s after startup, then every 30 minutes ──

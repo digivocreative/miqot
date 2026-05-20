@@ -900,49 +900,72 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                   : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400'
               }`}
             >
-              <SlidersHorizontal size={14} />
+              <motion.span
+                animate={{ rotate: filterOpen ? 90 : 0 }}
+                transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+              >
+                <SlidersHorizontal size={14} />
+              </motion.span>
             </button>
           </div>
 
           {/* Expandable panel */}
-          {filterOpen && (
-            <div className="border-t border-gray-50 dark:border-slate-700/50 px-3 py-2.5 space-y-2">
-              {/* Status pills */}
-              <div className="flex gap-1.5">
-                {([
-                  ['semua', `Semua ${data?.counts.semua ?? 0}`],
-                  ['belum', `Belum Lunas ${data?.counts.belumLunas ?? 0}`],
-                  ['berangkat', `Berangkat ${data?.counts.berangkat ?? 0}`],
-                ] as [StatusFilter, string][]).map(([key, label]) => (
-                  <button
-                    key={key}
-                    onClick={() => { setStatusFilter(key); setPage(1); }}
-                    className={`flex-1 h-8 px-2 py-0 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all ${
-                      statusFilter === key
-                        ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
-                        : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Sort */}
-              <div className="relative">
-                <ArrowUpDown size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                <select
-                  value={sortKey}
-                  onChange={e => { setSortKey(e.target.value as SortKey); setPage(1); }}
-                  className="w-full h-8 appearance-none pl-7 pr-3 py-0 bg-gray-50 dark:bg-slate-900 border border-gray-100 dark:border-slate-700 rounded-lg text-[11px] font-semibold text-gray-600 dark:text-slate-300 outline-none cursor-pointer"
+          <AnimatePresence initial={false}>
+            {filterOpen && (
+              <motion.div
+                key="umroh-filter-panel"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                style={{ overflow: 'hidden' }}
+                className="border-t border-gray-50 dark:border-slate-700/50"
+              >
+                <motion.div
+                  initial={{ y: -8 }}
+                  animate={{ y: 0 }}
+                  exit={{ y: -6 }}
+                  transition={{ duration: 0.22, ease: 'easeOut' }}
+                  className="px-3 py-2.5 space-y-2"
                 >
-                  {SORT_OPTIONS.map(o => (
-                    <option key={o.key} value={o.key}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
+                  {/* Status pills */}
+                  <div className="flex gap-1.5">
+                    {([
+                      ['semua', `Semua ${data?.counts.semua ?? 0}`],
+                      ['belum', `Belum Lunas ${data?.counts.belumLunas ?? 0}`],
+                      ['berangkat', `Berangkat ${data?.counts.berangkat ?? 0}`],
+                    ] as [StatusFilter, string][]).map(([key, label]) => (
+                      <button
+                        key={key}
+                        onClick={() => { setStatusFilter(key); setPage(1); }}
+                        className={`flex-1 h-8 px-2 py-0 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all ${
+                          statusFilter === key
+                            ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                            : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Sort */}
+                  <div className="relative">
+                    <ArrowUpDown size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    <select
+                      value={sortKey}
+                      onChange={e => { setSortKey(e.target.value as SortKey); setPage(1); }}
+                      className="w-full h-8 appearance-none pl-7 pr-3 py-0 bg-gray-50 dark:bg-slate-900 border border-gray-100 dark:border-slate-700 rounded-lg text-[11px] font-semibold text-gray-600 dark:text-slate-300 outline-none cursor-pointer"
+                    >
+                      {SORT_OPTIONS.map(o => (
+                        <option key={o.key} value={o.key}>{o.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Active filter chip */}

@@ -220,6 +220,7 @@ export async function syncHajiData(sessionCookies, agentId, supabase, agentSlug 
       .from('jamaah_haji')
       .upsert(allRows, {
         onConflict: 'agent_id,id_haji,id_jamaah',
+        defaultToNull: false,
       });
 
     if (error) {

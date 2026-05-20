@@ -31,10 +31,51 @@ const PACKAGES = [
 ];
 const DP_USD = 4500;
 const PELUNASAN_BULAN = 6;
+const OFFER_CARD_WIDTH = 400;
+const OFFER_CARD_HEIGHT = 600;
 
 // ── Helpers ──
 const fmtUSD = (n: number) => `$${n.toLocaleString('en-US')}`;
 const fmtRp = (n: number) => `Rp${Math.round(n).toLocaleString('id-ID')}`;
+
+const waitForExportImage = async (img: HTMLImageElement) => {
+  if (img.complete && img.naturalWidth > 0) return;
+
+  if (typeof img.decode === 'function') {
+    try {
+      await img.decode();
+      return;
+    } catch {
+      // Fall back to load/error listeners for cross-origin or cached images.
+    }
+  }
+
+  await new Promise<void>(resolve => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      img.removeEventListener('load', finish);
+      img.removeEventListener('error', finish);
+      resolve();
+    };
+    const timeout = window.setTimeout(finish, 500);
+    img.addEventListener('load', finish, { once: true });
+    img.addEventListener('error', finish, { once: true });
+  });
+};
+
+const prepareOfferCardForCapture = async (el: HTMLElement) => {
+  try {
+    await document.fonts?.ready;
+  } catch {
+    // Continue export even if the browser cannot report font readiness.
+  }
+
+  const images = Array.from(el.querySelectorAll('img'));
+  await Promise.all(images.map(waitForExportImage));
+};
 
 interface SimulasiHajiPlusProps {
   agent?: {
@@ -133,10 +174,8 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
     setExporting(true);
     try {
       const { domToPng } = await import('modern-screenshot');
-      const [dataUrl] = await Promise.all([
-        domToPng(el, { scale: 3, quality: 1 }),
-        new Promise(r => setTimeout(r, 1000)),
-      ]);
+      await prepareOfferCardForCapture(el);
+      const dataUrl = await domToPng(el, { scale: 3, quality: 1 });
       const res = await fetch(dataUrl);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -470,16 +509,21 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
           <div
             ref={cardRef}
             style={{
-              width: 400,
+              width: OFFER_CARD_WIDTH,
+              height: OFFER_CARD_HEIGHT,
               backgroundColor: '#ffffff',
               fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif",
               color: '#1f2937',
+              lineHeight: 1.18,
+              overflow: 'hidden',
+              display: 'grid',
+              gridTemplateRows: '56px 60px 96px 206px 104px 78px',
             }}
           >
             {/* Header */}
             <div style={{
               background: 'linear-gradient(135deg, #450a0a, #7f1d1d, #991b1b)',
-              padding: '20px 24px',
+              padding: '10px 24px',
               position: 'relative',
               overflow: 'hidden',
             }}>
@@ -493,23 +537,23 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
                 background: 'radial-gradient(circle at 80% 20%, rgba(239,68,68,0.35), transparent 60%)',
               }} />
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <img src={logoWhite} style={{ height: 28, width: 'auto' }} alt="Alhijaz" />
+                <img src={logoWhite} style={{ height: 22, width: 'auto' }} alt="Alhijaz" />
                 {agent && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ textAlign: 'right' as const }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#ffffff' }}>{agent.name}</div>
-                      <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>{agentPhone}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                    <div style={{ textAlign: 'right' as const, maxWidth: 150 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent.name}</div>
+                      <div style={{ fontSize: 8.4, color: 'rgba(255,255,255,0.76)', marginTop: 1 }}>Konsultan Haji Plus</div>
                     </div>
-                    <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <div style={{ position: 'relative', width: 36, height: 36, flexShrink: 0 }}>
                       {agent.photo ? (
-                        <img src={agent.photo} crossOrigin="anonymous" style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.2)' }} alt="" />
+                        <img src={agent.photo} crossOrigin="anonymous" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.25)', display: 'block' }} alt="" />
                       ) : (
-                        <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 600, color: '#ffffff' }}>
+                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#ffffff', border: '2px solid rgba(255,255,255,0.18)' }}>
                           {agentInitials}
                         </div>
                       )}
-                      <div style={{ position: 'absolute', top: -2, left: -2, width: 16, height: 16, borderRadius: '50%', background: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #991b1b' }}>
-                        <svg width="8" height="8" viewBox="0 0 10 10" fill="none"><path d="M2 5.5L4 7.5L8 3" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      <div style={{ position: 'absolute', top: -2, right: -2, width: 15, height: 15, borderRadius: '50%', background: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #ffffff' }}>
+                        <svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M2 5.5L4 7.5L8 3" stroke="white" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"/></svg>
                       </div>
                     </div>
                   </div>
@@ -518,125 +562,113 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
             </div>
 
             {/* Title + Nama */}
-            <div style={{ padding: '22px 24px 18px', textAlign: 'center' as const }}>
-              <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.2em', color: '#9ca3af' }}>Simulasi Biaya Haji Plus</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: '#1f2937', marginTop: 8, lineHeight: '1.2' }}>{namaJamaah || 'Calon Jamaah'}</div>
+            <div style={{ padding: '12px 24px 8px', textAlign: 'center' as const }}>
+              <div style={{ fontSize: 8.8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0, color: '#6b7280' }}>Simulasi Biaya Haji Plus</div>
+              <div style={{ fontSize: 23, fontWeight: 750, color: '#1f2937', marginTop: 4, lineHeight: '1.05', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{namaJamaah || 'Calon Jamaah'}</div>
             </div>
 
             {/* Paket Card */}
             <div style={{
-              margin: '12px 24px 0',
+              margin: '6px 24px 8px',
               borderRadius: 14,
-              padding: '18px 20px',
+              padding: '12px 16px',
               background: isRahmah ? 'linear-gradient(135deg, #064e3b, #047857)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
               position: 'relative',
               overflow: 'hidden',
             }}>
               <div style={{ position: 'absolute', top: -15, right: -15, width: 60, height: 60, borderRadius: '50%', background: 'rgba(255,255,255,0.07)' }} />
               <div style={{ position: 'absolute', bottom: -20, left: -10, width: 45, height: 45, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: 11, color: '#fbbf24' }}>{'★'.repeat(pkg.stars)}</div>
-                  <div style={{ fontSize: 17, fontWeight: 700, color: '#ffffff', marginTop: 2 }}>Paket {pkg.name} {selectedRoom.label}</div>
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 3, lineHeight: '1.4' }}>{pkg.hotel}</div>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '100%' }}>
+                <div style={{ minWidth: 0, maxWidth: 178 }}>
+                  <div style={{ fontSize: 10, color: '#fbbf24' }}>{'★'.repeat(pkg.stars)}</div>
+                  <div style={{ fontSize: 17, fontWeight: 750, color: '#ffffff', marginTop: 3, lineHeight: '1.1', whiteSpace: 'nowrap' as const }}>Paket {pkg.name}</div>
+                  <div style={{ fontSize: 9.2, color: 'rgba(255,255,255,0.82)', marginTop: 5 }}>Hotel Bintang {pkg.stars}</div>
                 </div>
-                <div style={{ textAlign: 'right' as const }}>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: '#ffffff' }}>{fmtUSD(selectedPriceUSD)}</div>
-                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)' }}>per jamaah · {selectedRoom.label}</div>
+                <div style={{ textAlign: 'right' as const, flexShrink: 0 }}>
+                  <div style={{ display: 'inline-block', fontSize: 8.5, fontWeight: 700, color: '#ffffff', padding: '3px 7px', borderRadius: 999, background: 'rgba(255,255,255,0.18)', marginBottom: 6 }}>Tipe kamar {selectedRoom.label}</div>
+                  <div style={{ fontSize: 8.5, color: 'rgba(255,255,255,0.76)', marginBottom: 2 }}>Harga per jamaah</div>
+                  <div style={{ fontSize: 24, fontWeight: 750, color: '#ffffff', lineHeight: '1' }}>{fmtUSD(selectedPriceUSD)}</div>
                 </div>
               </div>
             </div>
 
             {/* Rincian Pembayaran — Invoice Card */}
             <div style={{
-              margin: '14px 24px 0',
+              margin: '0 24px 10px',
               borderRadius: 12,
               border: '1px solid #e5e7eb',
               overflow: 'hidden',
+              display: 'grid',
+              gridTemplateRows: '34px 55px 55px 1fr',
             }}>
-              {/* Card Header */}
-              <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
-                <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.15em', color: '#64748b' }}>Rincian Pembayaran</div>
+              <div style={{ padding: '0 16px', background: '#f8fafc', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center' }}>
+                <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0, color: '#64748b' }}>Rincian Pembayaran</div>
               </div>
 
-              {/* Row: DP */}
-              <div style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+              <div style={{ padding: '0 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column' as const, justifyContent: 'center' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#1f2937' }}>DP Pendaftaran</div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1f2937' }}>{fmtUSD(calc.dpUSD)}</div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 3 }}>
-                  <div style={{ fontSize: 9, color: '#94a3b8' }}>Dibayar saat pendaftaran</div>
-                  <div style={{ fontSize: 9, color: '#94a3b8' }}>≈ {fmtRp(calc.dpIDR)}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 2 }}>
+                  <div style={{ fontSize: 9.5, color: '#64748b' }}>Dibayar saat pendaftaran</div>
+                  <div style={{ fontSize: 9.5, color: '#64748b', fontWeight: 600 }}>≈ {fmtRp(calc.dpIDR)}</div>
                 </div>
               </div>
 
-              {/* Row: Pelunasan */}
-              <div style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+              <div style={{ padding: '0 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column' as const, justifyContent: 'center' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#1f2937' }}>Sisa Pelunasan</div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1f2937' }}>{fmtUSD(calc.sisaUSD)}</div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 3 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 2 }}>
                   <div style={{ fontSize: 9, color: '#d97706' }}>Maks. {calc.deadlineLabel}</div>
-                  <div style={{ fontSize: 9, color: '#94a3b8' }}>≈ {fmtRp(calc.sisaIDR)}</div>
+                  <div style={{ fontSize: 9.5, color: '#64748b', fontWeight: 600 }}>≈ {fmtRp(calc.sisaIDR)}</div>
                 </div>
               </div>
 
-              {/* Row: Total */}
-              <div style={{ padding: '14px 16px', background: isRahmah ? '#ecfdf5' : '#eff6ff' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: isRahmah ? '#064e3b' : '#1e3a5f' }}>Total Biaya</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: isRahmah ? '#064e3b' : '#1e3a5f' }}>{fmtUSD(calc.totalUSD)}</div>
+              <div style={{ padding: '0 16px', background: isRahmah ? '#ecfdf5' : '#eff6ff', display: 'flex', flexDirection: 'column' as const, justifyContent: 'center' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', columnGap: 12, alignItems: 'baseline' }}>
+                  <div style={{ fontSize: 12.8, fontWeight: 750, color: isRahmah ? '#064e3b' : '#1e3a5f', lineHeight: 1.05, whiteSpace: 'nowrap' as const }}>Total Biaya</div>
+                  <div style={{ fontSize: 18, fontWeight: 750, color: isRahmah ? '#064e3b' : '#1e3a5f', lineHeight: 1 }}>{fmtUSD(calc.totalUSD)}</div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 3 }}>
-                  <div style={{ fontSize: 9, color: '#6b7280' }}>{jumlahJamaah > 1 ? `${fmtUSD(selectedPriceUSD)} × ${jumlahJamaah} jamaah` : `1 jamaah · ${selectedRoom.label}`}</div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: '#6b7280' }}>≈ {fmtRp(calc.totalIDR)}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', columnGap: 12, alignItems: 'baseline', marginTop: 5 }}>
+                  <div style={{ fontSize: 9.4, color: '#475569', whiteSpace: 'nowrap' as const }}>{jumlahJamaah > 1 ? `${fmtUSD(selectedPriceUSD)} × ${jumlahJamaah} jamaah` : `1 jamaah · ${selectedRoom.label}`}</div>
+                  <div style={{ fontSize: 10.8, fontWeight: 750, color: '#334155', whiteSpace: 'nowrap' as const }}>≈ {fmtRp(calc.totalIDR)}</div>
                 </div>
               </div>
             </div>
 
-            {/* Jadwal Keberangkatan */}
-            <div style={{
-              margin: '12px 24px 0',
-              borderRadius: 10,
-              padding: '14px 16px',
-              background: isRahmah ? 'linear-gradient(135deg, #064e3b, #047857)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
-              position: 'relative',
-              overflow: 'hidden',
-            }}>
-              <div style={{ position: 'absolute', top: -10, right: -10, width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }} />
-              <div style={{ position: 'relative' }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#ffffff' }}>🕋 Berangkat Tahun {tahunBerangkat}</div>
-                <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.6)', marginTop: 3 }}>Insya Allah · ±{calc.diffMonths} bulan dari sekarang</div>
+            {/* Ringkasan Jadwal & Estimasi */}
+            <div style={{ margin: '0 24px 10px', padding: '8px 14px', borderRadius: 11, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: 9, fontWeight: 750, color: '#64748b', marginBottom: 6 }}>Ringkasan Jadwal & Estimasi</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 8.8, color: '#64748b', fontWeight: 700 }}>Berangkat</div>
+                  <div style={{ fontSize: 14, fontWeight: 750, color: isRahmah ? '#064e3b' : '#1e3a5f', marginTop: 2 }}>Tahun {tahunBerangkat}</div>
+                  <div style={{ fontSize: 8.5, color: '#64748b', marginTop: 4 }}>Pelunasan maks. {calc.deadlineLabel}</div>
+                </div>
+                <div style={{ textAlign: 'right' as const }}>
+                  <div style={{ fontSize: 8.8, color: '#64748b', fontWeight: 700 }}>Est. IDR</div>
+                  <div style={{ fontSize: 13, fontWeight: 750, color: '#334155', marginTop: 2 }}>≈ {fmtRp(calc.estTotalIDR)}</div>
+                  <div style={{ fontSize: 8.5, color: '#64748b', marginTop: 4 }}>{fmtRp(calc.inflatedKurs)}/USD</div>
+                </div>
               </div>
-            </div>
-
-            {/* Proyeksi Inflasi */}
-            <div style={{ margin: '12px 24px 0', padding: '12px 16px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-              <div style={{ fontSize: 9, fontWeight: 600, color: '#94a3b8', marginBottom: 6 }}>PROYEKSI KURS IDR/USD (inflasi ~1.5%/thn)</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <div style={{ fontSize: 10, color: '#64748b' }}>Est. kurs tahun {tahunBerangkat}</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>{fmtRp(calc.inflatedKurs)}/USD</div>
+              <div style={{ fontSize: 8.1, color: '#64748b', marginTop: 5, whiteSpace: 'nowrap' as const }}>
+                Simulasi kurs 1.5%/tahun. Kurs saat ini {fmtRp(kursUSD)}/USD.
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
-                <div style={{ fontSize: 10, color: '#64748b' }}>Est. total dalam IDR</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>≈ {fmtRp(calc.estTotalIDR)}</div>
-              </div>
-            </div>
-
-            {/* Kurs Note */}
-            <div style={{ padding: '10px 24px 12px', textAlign: 'center' as const, fontSize: 8, color: '#9ca3af' }}>
-              Kurs saat ini: {fmtRp(kursUSD)}/USD (Bank Mandiri, {kursDate})
             </div>
 
             {/* Footer */}
             <div style={{
               background: 'linear-gradient(135deg, #450a0a, #7f1d1d, #991b1b)',
-              padding: '16px 24px',
+              padding: '0 24px',
               textAlign: 'center' as const,
               position: 'relative',
               overflow: 'hidden',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}>
               <div style={{
                 position: 'absolute', inset: 0, opacity: 0.06,
@@ -647,16 +679,20 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
                 position: 'absolute', bottom: 0, left: 0, width: 120, height: 120,
                 background: 'radial-gradient(circle at 20% 80%, rgba(239,68,68,0.3), transparent 60%)',
               }} />
-              <div style={{ position: 'relative' }}>
+              <div style={{ position: 'relative', width: '100%' }}>
                 {agent ? (
                   <>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#ffffff' }}>Hubungi {agent.name}</div>
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', marginTop: 4 }}>
+                    <div style={{ fontSize: 8.8, fontWeight: 700, color: 'rgba(255,255,255,0.68)' }}>Amankan Porsi Haji Plus Sekarang</div>
+                    <div style={{ fontSize: 15, fontWeight: 750, color: '#ffffff', marginTop: 3, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>Hubungi {agent.name}</div>
+                    <div style={{ fontSize: 9.8, color: 'rgba(255,255,255,0.78)', marginTop: 4, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {agentPhone}{agent.website ? ` · ${agent.website}` : ''}
                     </div>
                   </>
                 ) : (
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>alhijazindowisata.com</div>
+                  <>
+                    <div style={{ fontSize: 8.8, fontWeight: 700, color: 'rgba(255,255,255,0.68)' }}>Amankan Porsi Haji Plus Sekarang</div>
+                    <div style={{ fontSize: 9.8, color: 'rgba(255,255,255,0.78)', marginTop: 4 }}>alhijazindowisata.com</div>
+                  </>
                 )}
               </div>
             </div>
