@@ -8542,11 +8542,121 @@ async function pollActiveFlights() {
   }
 }
 
+function escapePostgrestFilterValue(value) {
+  return String(value || '')
+    .replace(/[,()*%]/g, (c) => '\\' + c)
+    .slice(0, 100);
+}
+
+function dateOnly(date) {
+  return date.toISOString().split('T')[0];
+}
+
+function addDaysDateOnly(baseDate, days) {
+  const d = new Date(baseDate);
+  d.setDate(d.getDate() + days);
+  return dateOnly(d);
+}
+
+function objectValues(obj) {
+  if (!obj || typeof obj !== 'object') return [];
+  return Object.values(obj);
+}
+
+function hasText(value) {
+  return String(value || '').trim().length > 0;
+}
+
+function isUmrohPasporMissing(row) {
+  const doc = row.dokumen && typeof row.dokumen === 'object' ? row.dokumen : {};
+  return !hasText(row.no_paspor) && doc.paspor !== true && doc.passport !== true;
+}
+
+function isUmrohPasporExpiring(row) {
+  if (!row.paspor_expired || !row.tgl_berangkat) return false;
+  const exp = new Date(row.paspor_expired);
+  const dep = new Date(row.tgl_berangkat);
+  if (Number.isNaN(exp.getTime()) || Number.isNaN(dep.getTime())) return false;
+  const validUntil = new Date(dep);
+  validUntil.setMonth(validUntil.getMonth() + 6);
+  return exp <= validUntil;
+}
+
+function isUmrohDocumentsIncomplete(row) {
+  const values = objectValues(row.dokumen);
+  return isUmrohPasporMissing(row) || isUmrohPasporExpiring(row) || values.length === 0 || values.some(v => !Boolean(v));
+}
+
+function isUmrohEquipmentPending(row) {
+  const values = objectValues(row.perlengkapan);
+  return values.length === 0 || !values.some(v => Boolean(v));
+}
+
+function isUmrohEquipmentIncomplete(row) {
+  const values = objectValues(row.perlengkapan);
+  return values.length === 0 || values.some(v => !Boolean(v));
+}
+
+function filterUmrohRowsInMemory(rows, {
+  documentFilter = '',
+  equipmentFilter = '',
+  notesFilter = '',
+  packageFilter = '',
+  scheduleMap = new Map(),
+} = {}) {
+  const packageNeedle = String(packageFilter || '').trim().toLowerCase();
+  return (rows || []).filter(row => {
+    switch (documentFilter) {
+      case 'paspor_missing':
+        if (!isUmrohPasporMissing(row)) return false;
+        break;
+      case 'paspor_expiring':
+        if (!isUmrohPasporExpiring(row)) return false;
+        break;
+      case 'documents_incomplete':
+        if (!isUmrohDocumentsIncomplete(row)) return false;
+        break;
+    }
+
+    switch (equipmentFilter) {
+      case 'equipment_pending':
+        if (!isUmrohEquipmentPending(row)) return false;
+        break;
+      case 'equipment_incomplete':
+        if (!isUmrohEquipmentIncomplete(row)) return false;
+        break;
+    }
+
+    switch (notesFilter) {
+      case 'has_notes':
+        if (!hasText(row.notes)) return false;
+        break;
+      case 'no_notes':
+        if (hasText(row.notes)) return false;
+        break;
+    }
+
+    if (packageNeedle) {
+      const scheduleName = scheduleMap.get(row.raw_data?.id_jadwal) || '';
+      const haystack = `${row.paket || ''} ${scheduleName}`.toLowerCase();
+      if (!haystack.includes(packageNeedle)) return false;
+    }
+
+    return true;
+  });
+}
+
 // Jamaah list: read from Supabase with filters, search, pagination, sorting
 app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   const {
     hijriahYear,
     status,   // 'belum' | 'berangkat'
+    payment_status = '',
+    departure_window = '',
+    document_filter = '',
+    equipment_filter = '',
+    notes_filter = '',
+    package_filter = '',
     search,
     sort,     // 'nama' | 'sisa_desc' | 'berangkat' | 'terbaru'
     page = '1',
@@ -8599,12 +8709,39 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
     query = query.gte('tgl_berangkat', todayStr).lte('tgl_berangkat', cutoffStr);
   }
 
+  switch (payment_status) {
+    case 'belum_dp':
+      query = query.gt('sisa', 0).eq('bayar', 0);
+      break;
+    case 'belum_lunas':
+      query = query.gt('sisa', 0);
+      break;
+    case 'lunas':
+      query = query.or('sisa.eq.0,sisa.is.null');
+      break;
+    case 'lebih_bayar':
+      query = query.lt('sisa', 0);
+      break;
+  }
+
+  switch (departure_window) {
+    case '30':
+      query = query.gte('tgl_berangkat', todayStr).lte('tgl_berangkat', addDaysDateOnly(new Date(), 30));
+      break;
+    case '60':
+      query = query.gte('tgl_berangkat', todayStr).lte('tgl_berangkat', addDaysDateOnly(new Date(), 60));
+      break;
+    case '90':
+      query = query.gte('tgl_berangkat', todayStr).lte('tgl_berangkat', addDaysDateOnly(new Date(), 90));
+      break;
+    case 'departed':
+      query = query.lt('tgl_berangkat', todayStr);
+      break;
+  }
+
   if (search) {
     // Escape PostgREST .or() filter metacharacters to prevent filter injection.
-    // Attackers could otherwise break out via commas, parens, or `%`/`*` wildcards.
-    const safeSearch = String(search)
-      .replace(/[,()*%]/g, (c) => '\\' + c)  // escape PostgREST syntax chars
-      .slice(0, 100);                         // cap length defensively
+    const safeSearch = escapePostgrestFilterValue(search);
     query = query.or(`nama.ilike.%${safeSearch}%,id_umroh.ilike.%${safeSearch}%,wa.ilike.%${safeSearch}%`);
   }
 
@@ -8616,13 +8753,22 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 
+  const scheduleMap = await getScheduleMap();
+  const filteredRows = filterUmrohRowsInMemory(allRows || [], {
+    documentFilter: document_filter,
+    equipmentFilter: equipment_filter,
+    notesFilter: notes_filter,
+    packageFilter: package_filter,
+    scheduleMap,
+  });
+
   // Collapse belum-DP rows with the same id_umroh into a single "unit" for
   // pagination purposes. Other rows remain 1-unit each.
   const isBelumDP = (r) => (r.sisa || 0) > 0 && (r.bayar || 0) === 0;
   const groupFirstIdx = new Map();
   const groupMembers = new Map();
   const units = []; // each unit = { kind: 'group'|'solo', members: Row[] }
-  (allRows || []).forEach((r) => {
+  filteredRows.forEach((r) => {
     if (isBelumDP(r) && r.id_umroh) {
       if (!groupFirstIdx.has(r.id_umroh)) {
         groupFirstIdx.set(r.id_umroh, units.length);
@@ -8645,18 +8791,15 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   // Helper: apply year filter to count queries
   const applyYearFilter = (q) => hijriahYear ? q.eq('hijriah_year', hijriahYear) : q.gte('hijriah_year', MIN_HIJRIAH_YEAR);
 
-  // Run 6 independent reads in parallel: 1×RTT instead of 6×RTT.
-  // - schedules: cached in memory (TTL 5min), so usually free after first request
-  // - the others hit Supabase but don't depend on each other
+  // Run independent reads in parallel: the counts hit Supabase but don't
+  // depend on each other.
   const [
-    scheduleMap,
     syncRes,
     totalRes,
     belumRes,
     berangkatRes,
     piutangRes,
   ] = await Promise.all([
-    getScheduleMap(),
     supabase.from('agents').select('last_jamaah_sync_at').eq('id', req.user.id).maybeSingle(),
     applyYearFilter(supabase.from('jamaah').select('*', { count: 'exact', head: true }).eq('agent_id', req.user.id)),
     applyYearFilter(supabase.from('jamaah').select('*', { count: 'exact', head: true }).eq('agent_id', req.user.id).gt('sisa', 0)),
@@ -10336,8 +10479,12 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
   try {
     const agentId = req.user.id;
 
+    const requestedMode = req.query.mode === 'pendaftaran' ? 'pendaftaran' : 'keberangkatan';
     const requestedYear = req.query.year || '';
-    const cacheKey = `haji:${agentId}:${requestedYear}`;
+    const requestedDaftarYear = typeof req.query.daftar_year === 'string' && /^\d{4}$/.test(req.query.daftar_year)
+      ? req.query.daftar_year
+      : '';
+    const cacheKey = `haji:${agentId}:${requestedMode}:${requestedYear}:${requestedDaftarYear}`;
     const cached = statsCacheGet(cacheKey);
     if (cached) {
       return res.json(cached);
@@ -10370,16 +10517,26 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
 
     // Default: current year if present, else closest year (ties prefer future).
     let year = typeof req.query.year === 'string' ? req.query.year : null;
-    if (!year) {
-      year = pickDefaultYear(availableYears, new Date().getFullYear());
+    let daftarYear = requestedDaftarYear;
+    if (!year && !daftarYear) {
+      if (requestedMode === 'pendaftaran') {
+        daftarYear = pickDefaultYear(daftarYears, new Date().getFullYear());
+      } else {
+        year = pickDefaultYear(availableYears, new Date().getFullYear());
+      }
     }
 
     // Filtered fetch for all aggregates.
     let q = supabase
       .from('jamaah_haji')
-      .select('id_haji, thn_hijriyah, thn_masehi, status_bayar, status_berangkat, jenis, paket, paket_detail')
+      .select('id_haji, thn_hijriyah, thn_masehi, tgl_daftar, status_bayar, status_berangkat, jenis, paket, paket_detail')
       .eq('agent_id', agentId);
     if (year) q = q.eq('thn_masehi', year);
+    if (daftarYear) {
+      q = q
+        .gte('tgl_daftar', `${daftarYear}-01-01`)
+        .lt('tgl_daftar', `${Number(daftarYear) + 1}-01-01`);
+    }
 
     const { data, error } = await q;
     if (error) throw error;
@@ -10432,6 +10589,7 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
         availableYears,
         daftarYears,
         masehiYear: year || null,
+        daftarYear,
         lebihBayar,
         lunasPercent,
         komisi: {
@@ -13778,6 +13936,20 @@ app.use((err, req, res, next) => {
 const distPath = resolve(__dirname, 'dist');
 const publicPath = resolve(__dirname, 'public');
 
+function detectImageContentType(buffer, fallback = 'image/jpeg') {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return fallback;
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
+    return 'image/png';
+  }
+  if (buffer[0] === 0xff && buffer[1] === 0xd8) {
+    return 'image/jpeg';
+  }
+  if (buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp';
+  }
+  return fallback;
+}
+
 // Portal-jamaah share-card OG. Registered BEFORE static so we don't burn an FS
 // stat on every bot fetch. Generated on-demand; cached an hour by the CDN/bot.
 app.get('/og/jamaah/:slug/:token.png', async (req, res) => {
@@ -13805,6 +13977,29 @@ app.get('/og/jamaah/:slug/:token.png', async (req, res) => {
 // Serve static assets from dist/ first, then fallback to public/
 // This ensures uploaded files (e.g. agent photos in public/agents/)
 // are always accessible, even if they were added after the last build.
+app.get('/agents/:file', async (req, res, next) => {
+  const match = String(req.params.file || '').match(/^([a-z0-9-]+)\.(jpe?g|png|webp)$/i);
+  if (!match) return next();
+
+  const slug = match[1].toLowerCase();
+  const ext = match[2].toLowerCase();
+  const fallbackContentType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+
+  try {
+    const agent = await getAgentBySlug(slug);
+    const photoBuffer = await loadAgentPhotoBuffer(agent?.photo, slug);
+    if (!photoBuffer) return next();
+
+    res.set({
+      'Content-Type': detectImageContentType(photoBuffer, fallbackContentType),
+      'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+    });
+    return res.send(photoBuffer);
+  } catch (err) {
+    console.warn(`[agents-photo] failed to serve ${slug}:`, err.message);
+    return next();
+  }
+});
 app.use(express.static(distPath, { index: false }));
 app.use(express.static(publicPath, { index: false }));
 

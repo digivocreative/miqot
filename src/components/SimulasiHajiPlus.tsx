@@ -33,10 +33,61 @@ const DP_USD = 4500;
 const PELUNASAN_BULAN = 6;
 const OFFER_CARD_WIDTH = 400;
 const OFFER_CARD_HEIGHT = 600;
+const ISLAMIC_PATTERN_BACKGROUND = `url("data:image/svg+xml,${encodeURIComponent(`
+<svg width="56" height="56" viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg">
+  <g fill="none" stroke="white" stroke-width="0.75" stroke-linecap="round" stroke-linejoin="round" opacity="0.5">
+    <path d="M28 6L33 21L50 28L33 35L28 50L23 35L6 28L23 21Z"/>
+    <path d="M28 13L31 23L43 28L31 33L28 43L25 33L13 28L25 23Z"/>
+    <path d="M0 28C7 18 14 18 21 28S35 38 42 28S49 18 56 28"/>
+    <path d="M28 0V56M0 28H56"/>
+  </g>
+  <g fill="white" opacity="0.16">
+    <circle cx="28" cy="28" r="1.7"/>
+    <circle cx="0" cy="0" r="1.1"/>
+    <circle cx="56" cy="0" r="1.1"/>
+    <circle cx="0" cy="56" r="1.1"/>
+    <circle cx="56" cy="56" r="1.1"/>
+  </g>
+</svg>
+`)}")`;
 
 // ── Helpers ──
 const fmtUSD = (n: number) => `$${n.toLocaleString('en-US')}`;
 const fmtRp = (n: number) => `Rp${Math.round(n).toLocaleString('id-ID')}`;
+
+const normalizeAgentSlug = (slug?: string) => String(slug || '').trim().toLowerCase();
+const isAgentPhotoFileName = (fileName: string) => /^[a-z0-9-]+\.(jpe?g|png|webp)$/i.test(fileName);
+
+const getSameOriginAgentPhotoPath = (rawPhoto?: string) => {
+  const photo = rawPhoto?.trim() || '';
+  if (!photo) return '';
+
+  if (photo.startsWith('/agents/')) return photo;
+  if (photo.startsWith('agents/')) return `/${photo}`;
+
+  try {
+    const url = new URL(photo);
+    const marker = '/agent-photos/';
+    const markerIndex = url.pathname.indexOf(marker);
+    if (markerIndex < 0) return '';
+
+    const storagePath = decodeURIComponent(url.pathname.slice(markerIndex + marker.length));
+    const fileName = storagePath.split('/').pop() || '';
+    return isAgentPhotoFileName(fileName) ? `/agents/${fileName}` : '';
+  } catch {
+    return '';
+  }
+};
+
+const resolveSelfHostedAgentPhoto = (agent?: { slug?: string; photo?: string }) => {
+  const photo = getSameOriginAgentPhotoPath(agent?.photo);
+  if (photo) return photo;
+
+  const slug = normalizeAgentSlug(agent?.slug);
+  if (slug) return `/agents/${slug}.jpg`;
+
+  return '';
+};
 
 const waitForExportImage = async (img: HTMLImageElement) => {
   if (img.complete && img.naturalWidth > 0) return;
@@ -82,6 +133,7 @@ interface SimulasiHajiPlusProps {
     name: string;
     phone: string;
     website: string;
+    slug?: string;
     photo?: string;
   };
 }
@@ -90,7 +142,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
   // ── State ──
   const [selectedPkg, setSelectedPkg] = useState<string | null>(null);
   const [selectedRoomType, setSelectedRoomType] = useState<RoomTypeId>('quad');
-  const [tahunBerangkat, setTahunBerangkat] = useState(2035);
+  const [tahunBerangkat, setTahunBerangkat] = useState(2036);
   const [jumlahJamaah, setJumlahJamaah] = useState(1);
   const [namaJamaah, setNamaJamaah] = useState('');
   const [kursUSD, setKursUSD] = useState<number | null>(null);
@@ -101,6 +153,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [agentPhotoFailed, setAgentPhotoFailed] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
   // ── Fetch Kurs ──
@@ -173,6 +226,10 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
     if (!el || exporting) return;
     setExporting(true);
     try {
+      if (agentPhotoFailed) {
+        setAgentPhotoFailed(false);
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      }
       const { domToPng } = await import('modern-screenshot');
       await prepareOfferCardForCapture(el);
       const dataUrl = await domToPng(el, { scale: 3, quality: 1 });
@@ -234,6 +291,11 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
   const agentInitials = agent?.name
     ? agent.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()
     : 'AH';
+  const agentPhotoSrc = useMemo(() => resolveSelfHostedAgentPhoto(agent), [agent]);
+
+  useEffect(() => {
+    setAgentPhotoFailed(false);
+  }, [agentPhotoSrc]);
 
   return (
     <div className="px-4 pt-4 pb-8 space-y-4">
@@ -357,7 +419,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
             onChange={e => setTahunBerangkat(Number(e.target.value))}
             className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-colors appearance-none"
           >
-            {Array.from({ length: 6 }, (_, i) => 2035 + i).map(y => (
+            {Array.from({ length: 6 }, (_, i) => 2036 + i).map(y => (
               <option key={y} value={y}>{y}</option>
             ))}
           </select>
@@ -528,9 +590,10 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
               overflow: 'hidden',
             }}>
               <div style={{
-                position: 'absolute', inset: 0, opacity: 0.06,
-                backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M20 4l4 8h-8l4-8zm0 32l-4-8h8l-4 8zm-16-16l8-4v8l-8-4zm32 0l-8 4v-8l8 4z' fill='white' fill-opacity='1'/%3E%3C/svg%3E")`,
-                backgroundSize: '40px 40px',
+                position: 'absolute', inset: 0, opacity: 0.14,
+                backgroundImage: ISLAMIC_PATTERN_BACKGROUND,
+                backgroundSize: '56px 56px',
+                backgroundPosition: 'center',
               }} />
               <div style={{
                 position: 'absolute', top: 0, right: 0, width: 160, height: 160,
@@ -545,15 +608,15 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
                       <div style={{ fontSize: 8.4, color: 'rgba(255,255,255,0.76)', marginTop: 1 }}>Konsultan Haji Plus</div>
                     </div>
                     <div style={{ position: 'relative', width: 36, height: 36, flexShrink: 0 }}>
-                      {agent.photo ? (
-                        <img src={agent.photo} crossOrigin="anonymous" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.25)', display: 'block' }} alt="" />
+                      {agentPhotoSrc && !agentPhotoFailed ? (
+                        <img src={agentPhotoSrc} crossOrigin="anonymous" onError={() => setAgentPhotoFailed(true)} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.25)', display: 'block' }} alt="" />
                       ) : (
                         <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#ffffff', border: '2px solid rgba(255,255,255,0.18)' }}>
                           {agentInitials}
                         </div>
                       )}
-                      <div style={{ position: 'absolute', top: -2, right: -2, width: 15, height: 15, borderRadius: '50%', background: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #ffffff' }}>
-                        <svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M2 5.5L4 7.5L8 3" stroke="white" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      <div style={{ position: 'absolute', top: -1, right: -1, width: 13, height: 13, borderRadius: '50%', background: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #ffffff' }}>
+                        <svg width="8" height="8" viewBox="0 0 10 10" fill="none"><path d="M2 5.5L4 7.5L8 3" stroke="white" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>
                       </div>
                     </div>
                   </div>
@@ -671,9 +734,10 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
               justifyContent: 'center',
             }}>
               <div style={{
-                position: 'absolute', inset: 0, opacity: 0.06,
-                backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M20 4l4 8h-8l4-8zm0 32l-4-8h8l-4 8zm-16-16l8-4v8l-8-4zm32 0l-8 4v-8l8 4z' fill='white' fill-opacity='1'/%3E%3C/svg%3E")`,
-                backgroundSize: '40px 40px',
+                position: 'absolute', inset: 0, opacity: 0.11,
+                backgroundImage: ISLAMIC_PATTERN_BACKGROUND,
+                backgroundSize: '56px 56px',
+                backgroundPosition: 'center',
               }} />
               <div style={{
                 position: 'absolute', bottom: 0, left: 0, width: 120, height: 120,

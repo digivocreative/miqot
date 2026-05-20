@@ -44,7 +44,7 @@ export default function HajiPlusPage({ agent, onExport, initialTab }: HajiPlusPa
   const mountTracked = useRef(false);
   useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_haji_plus'); mountTracked.current = true; } }, []);
 
-  const [activeTab, setActiveTab] = useState<HajiPlusTab>(initialTab || 'statistik');
+  const [activeTab, setActiveTab] = useState<HajiPlusTab>(initialTab || 'simulasi');
   const [data, setData] = useState<HajiPlusData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -67,8 +67,8 @@ export default function HajiPlusPage({ agent, onExport, initialTab }: HajiPlusPa
   const currentYear = new Date().getFullYear();
 
   const TAB_CONFIG = [
-    { id: 'statistik' as const, label: 'Statistik', icon: BarChart3Icon },
     { id: 'simulasi' as const, label: 'Simulasi', icon: Calculator },
+    { id: 'statistik' as const, label: 'Statistik', icon: BarChart3Icon },
   ];
 
   const switchTab = (tab: HajiPlusTab) => {

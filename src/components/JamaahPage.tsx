@@ -84,7 +84,11 @@ interface JamaahData {
 }
 
 type ViewState = 'loading' | 'login' | 'connecting' | 'syncing' | 'data';
-type StatusFilter = 'semua' | 'belum' | 'berangkat';
+type PaymentFilter = 'semua' | 'belum_dp' | 'belum_lunas' | 'lunas' | 'lebih_bayar';
+type DepartureFilter = 'semua' | '30' | '60' | '90' | 'departed';
+type DocumentFilter = 'semua' | 'paspor_missing' | 'paspor_expiring' | 'documents_incomplete';
+type EquipmentFilter = 'semua' | 'equipment_pending' | 'equipment_incomplete';
+type NotesFilter = 'semua' | 'has_notes' | 'no_notes';
 type SortKey = 'nama' | 'sisa_desc' | 'berangkat' | 'terbaru';
 
 const AUTO_PERLENGKAPAN_STALE_MS = 60 * 60 * 1000;
@@ -166,7 +170,12 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
   // Data + filters
   const [data, setData] = useState<JamaahData | null>(null);
   const [hijriahYear, setHijriahYear] = useState(DEFAULT_HIJRIAH_YEAR);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('semua');
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('semua');
+  const [departureFilter, setDepartureFilter] = useState<DepartureFilter>('semua');
+  const [documentFilter, setDocumentFilter] = useState<DocumentFilter>('semua');
+  const [equipmentFilter, setEquipmentFilter] = useState<EquipmentFilter>('semua');
+  const [notesFilter, setNotesFilter] = useState<NotesFilter>('semua');
+  const [packageFilter, setPackageFilter] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('terbaru');
@@ -199,6 +208,25 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
   const pollStartRef = useRef<number>(0);
   const hasAutoSynced = useRef(false);
   const autoPerlengkapanRefreshRef = useRef<Set<string>>(new Set());
+  const activeFilterCount = [
+    paymentFilter !== 'semua',
+    departureFilter !== 'semua',
+    documentFilter !== 'semua',
+    equipmentFilter !== 'semua',
+    notesFilter !== 'semua',
+    Boolean(packageFilter.trim()),
+  ].filter(Boolean).length;
+  const hasAdvancedFilters = activeFilterCount > 0;
+  const resetUmrohFilters = useCallback(() => {
+    setPaymentFilter('semua');
+    setDepartureFilter('semua');
+    setDocumentFilter('semua');
+    setEquipmentFilter('semua');
+    setNotesFilter('semua');
+    setPackageFilter('');
+    setPage(1);
+  }, []);
+
   // Switch sub-tab and update URL
   const switchSubTab = useCallback((tab: 'umroh' | 'haji') => {
     setSubTab(tab);
@@ -385,7 +413,12 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
       const params = new URLSearchParams({ page: String(p), limit: '10' });
       if (sortKey) params.set('sort', sortKey);
       if (hijriahYear) params.set('hijriahYear', hijriahYear);
-      if (statusFilter !== 'semua') params.set('status', statusFilter);
+      if (paymentFilter !== 'semua') params.set('payment_status', paymentFilter);
+      if (departureFilter !== 'semua') params.set('departure_window', departureFilter);
+      if (documentFilter !== 'semua') params.set('document_filter', documentFilter);
+      if (equipmentFilter !== 'semua') params.set('equipment_filter', equipmentFilter);
+      if (notesFilter !== 'semua') params.set('notes_filter', notesFilter);
+      if (packageFilter.trim()) params.set('package_filter', packageFilter.trim());
       if (searchQuery) params.set('search', searchQuery);
 
       const res = await fetch(`/api/laporan/jamaah?${params}`, { headers: { ...getAuthHeaders() } });
@@ -399,12 +432,12 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
       setError('Gagal menghubungi server');
     }
     setLoadingData(false);
-  }, [hijriahYear, statusFilter, searchQuery, sortKey, page]);
+  }, [hijriahYear, paymentFilter, departureFilter, documentFilter, equipmentFilter, notesFilter, packageFilter, searchQuery, sortKey, page]);
 
   // ── Load data when view=data or filters change ──
   useEffect(() => {
     if (view === 'data') fetchJamaah(page);
-  }, [view, hijriahYear, statusFilter, searchQuery, sortKey, page]);
+  }, [view, hijriahYear, paymentFilter, departureFilter, documentFilter, equipmentFilter, notesFilter, packageFilter, searchQuery, sortKey, page]);
 
   // ── Resume polling if server-side sync is still in progress (e.g. after page refresh) ──
   useEffect(() => {
@@ -848,6 +881,36 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
       { key: 'berangkat', label: 'Berangkat terdekat' },
       { key: 'terbaru', label: 'Terbaru' },
     ];
+    const PAYMENT_OPTIONS: { key: PaymentFilter; label: string }[] = [
+      { key: 'semua', label: `Semua (${data?.counts.semua ?? 0})` },
+      { key: 'belum_dp', label: 'Belum DP' },
+      { key: 'belum_lunas', label: `Belum Lunas (${data?.counts.belumLunas ?? 0})` },
+      { key: 'lunas', label: 'Lunas' },
+      { key: 'lebih_bayar', label: 'Lebih Bayar' },
+    ];
+    const DEPARTURE_OPTIONS: { key: DepartureFilter; label: string }[] = [
+      { key: 'semua', label: 'Semua' },
+      { key: '30', label: '30 hari' },
+      { key: '60', label: '60 hari' },
+      { key: '90', label: '90 hari' },
+      { key: 'departed', label: 'Sudah berangkat' },
+    ];
+    const DOCUMENT_OPTIONS: { key: DocumentFilter; label: string }[] = [
+      { key: 'semua', label: 'Semua' },
+      { key: 'paspor_missing', label: 'Paspor kosong' },
+      { key: 'paspor_expiring', label: 'Paspor exp dekat' },
+      { key: 'documents_incomplete', label: 'Belum lengkap' },
+    ];
+    const EQUIPMENT_OPTIONS: { key: EquipmentFilter; label: string }[] = [
+      { key: 'semua', label: 'Semua' },
+      { key: 'equipment_pending', label: 'Belum ambil' },
+      { key: 'equipment_incomplete', label: 'Belum lengkap' },
+    ];
+    const NOTES_OPTIONS: { key: NotesFilter; label: string }[] = [
+      { key: 'semua', label: 'Semua' },
+      { key: 'has_notes', label: 'Ada catatan' },
+      { key: 'no_notes', label: 'Belum ada' },
+    ];
 
     return (
       <div className={`px-4 pt-4 pb-8 space-y-2 transition-opacity ${loadingData && data ? 'opacity-50 pointer-events-none' : ''}`}>
@@ -895,7 +958,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
             <button
               onClick={() => setFilterOpen(!filterOpen)}
               className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all active:scale-95 shrink-0 ${
-                filterOpen || statusFilter !== 'semua'
+                filterOpen || hasAdvancedFilters
                   ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
                   : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400'
               }`}
@@ -926,42 +989,114 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                   animate={{ y: 0 }}
                   exit={{ y: -6 }}
                   transition={{ duration: 0.22, ease: 'easeOut' }}
-                  className="px-3 py-2.5 space-y-2"
+                  className="px-3 py-3 space-y-3"
                 >
-                  {/* Status pills */}
-                  <div className="flex gap-1.5">
-                    {([
-                      ['semua', `Semua ${data?.counts.semua ?? 0}`],
-                      ['belum', `Belum Lunas ${data?.counts.belumLunas ?? 0}`],
-                      ['berangkat', `Berangkat ${data?.counts.berangkat ?? 0}`],
-                    ] as [StatusFilter, string][]).map(([key, label]) => (
-                      <button
-                        key={key}
-                        onClick={() => { setStatusFilter(key); setPage(1); }}
-                        className={`flex-1 h-8 px-2 py-0 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all ${
-                          statusFilter === key
-                            ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
-                            : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700'
-                        }`}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <label className="min-w-0 space-y-1">
+                      <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Status Bayar</span>
+                      <select
+                        value={paymentFilter}
+                        onChange={e => { setPaymentFilter(e.target.value as PaymentFilter); setPage(1); }}
+                        className="w-full h-9 px-2 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[11px] font-bold text-gray-700 dark:text-slate-200 outline-none"
                       >
-                        {label}
-                      </button>
-                    ))}
+                        {PAYMENT_OPTIONS.map(o => (
+                          <option key={o.key} value={o.key}>{o.label}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="min-w-0 space-y-1">
+                      <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Keberangkatan</span>
+                      <select
+                        value={departureFilter}
+                        onChange={e => { setDepartureFilter(e.target.value as DepartureFilter); setPage(1); }}
+                        className="w-full h-9 px-2 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[11px] font-bold text-gray-700 dark:text-slate-200 outline-none"
+                      >
+                        {DEPARTURE_OPTIONS.map(o => (
+                          <option key={o.key} value={o.key}>{o.label}</option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
 
-                  {/* Sort */}
-                  <div className="relative">
-                    <ArrowUpDown size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                    <select
-                      value={sortKey}
-                      onChange={e => { setSortKey(e.target.value as SortKey); setPage(1); }}
-                      className="w-full h-8 appearance-none pl-7 pr-3 py-0 bg-gray-50 dark:bg-slate-900 border border-gray-100 dark:border-slate-700 rounded-lg text-[11px] font-semibold text-gray-600 dark:text-slate-300 outline-none cursor-pointer"
-                    >
-                      {SORT_OPTIONS.map(o => (
-                        <option key={o.key} value={o.key}>{o.label}</option>
-                      ))}
-                    </select>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <label className="min-w-0 space-y-1">
+                      <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Dokumen</span>
+                      <select
+                        value={documentFilter}
+                        onChange={e => { setDocumentFilter(e.target.value as DocumentFilter); setPage(1); }}
+                        className="w-full h-9 px-2 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[11px] font-bold text-gray-700 dark:text-slate-200 outline-none"
+                      >
+                        {DOCUMENT_OPTIONS.map(o => (
+                          <option key={o.key} value={o.key}>{o.label}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="min-w-0 space-y-1">
+                      <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Perlengkapan</span>
+                      <select
+                        value={equipmentFilter}
+                        onChange={e => { setEquipmentFilter(e.target.value as EquipmentFilter); setPage(1); }}
+                        className="w-full h-9 px-2 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[11px] font-bold text-gray-700 dark:text-slate-200 outline-none"
+                      >
+                        {EQUIPMENT_OPTIONS.map(o => (
+                          <option key={o.key} value={o.key}>{o.label}</option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <label className="min-w-0 space-y-1">
+                      <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Catatan</span>
+                      <select
+                        value={notesFilter}
+                        onChange={e => { setNotesFilter(e.target.value as NotesFilter); setPage(1); }}
+                        className="w-full h-9 px-2 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[11px] font-bold text-gray-700 dark:text-slate-200 outline-none"
+                      >
+                        {NOTES_OPTIONS.map(o => (
+                          <option key={o.key} value={o.key}>{o.label}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="min-w-0 space-y-1">
+                      <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Urutkan</span>
+                      <div className="relative">
+                        <ArrowUpDown size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                        <select
+                          value={sortKey}
+                          onChange={e => { setSortKey(e.target.value as SortKey); setPage(1); }}
+                          className="w-full h-9 appearance-none pl-7 pr-3 py-0 bg-gray-50 dark:bg-slate-900 border border-gray-100 dark:border-slate-700 rounded-xl text-[11px] font-bold text-gray-600 dark:text-slate-300 outline-none cursor-pointer"
+                        >
+                          {SORT_OPTIONS.map(o => (
+                            <option key={o.key} value={o.key}>{o.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </label>
+                  </div>
+
+                  <label className="space-y-1 block">
+                    <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Paket/Jadwal</span>
+                    <input
+                      type="text"
+                      value={packageFilter}
+                      onChange={e => { setPackageFilter(e.target.value); setPage(1); }}
+                      placeholder="Cari paket atau jadwal..."
+                      className="w-full h-9 px-2.5 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[11px] font-bold text-gray-700 dark:text-slate-200 placeholder:text-gray-400 dark:placeholder:text-slate-500 outline-none"
+                    />
+                  </label>
+
+                  {hasAdvancedFilters && (
+                    <button
+                      onClick={resetUmrohFilters}
+                      className="w-full h-9 rounded-xl text-[11px] font-bold text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700"
+                    >
+                      Reset Filter
+                    </button>
+                  )}
                 </motion.div>
               </motion.div>
             )}
@@ -969,18 +1104,15 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
         </div>
 
         {/* Active filter chip */}
-        {statusFilter !== 'semua' && !filterOpen && (
+        {hasAdvancedFilters && !filterOpen && (
           <div className="flex items-center gap-1">
             <div className="inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-full px-2.5 py-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
               <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
-                {statusFilter === 'belum'
-                  ? `Belum Lunas ${data?.counts.belumLunas ?? 0}`
-                  : `Berangkat ${data?.counts.berangkat ?? 0}`
-                }
+                {activeFilterCount} filter aktif
               </span>
               <button
-                onClick={() => { setStatusFilter('semua'); setPage(1); }}
+                onClick={resetUmrohFilters}
                 className="text-emerald-500 hover:text-emerald-700 transition-colors"
               >
                 <X size={10} />

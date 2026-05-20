@@ -15,7 +15,9 @@ export interface HajiStatsData {
   lebihBayar: number;
   lunasPercent: number;
   availableYears: string[];
+  daftarYears: string[];
   masehiYear: string | null;
+  daftarYear: string | null;
   lastSync: string | null;
   komisi: {
     stage1: number;
@@ -100,18 +102,23 @@ function HajiSkeleton() {
 }
 
 // ── Component ──
+type HajiStatsMode = 'pendaftaran' | 'keberangkatan';
+
 interface Props {
   selectedYear: string;
-  onYearsLoaded?: (years: string[], defaultYear: string | null) => void;
+  mode: HajiStatsMode;
+  onModeChange: (mode: HajiStatsMode) => void;
+  onYearsLoaded?: (years: { keberangkatan: string[]; pendaftaran: string[] }, defaultYear: string | null) => void;
 }
 
-export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Props) {
+export default function StatistikHajiSection({ selectedYear, mode, onModeChange, onYearsLoaded }: Props) {
   const [data, setData] = useState<HajiStatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [kursUSD, setKursUSD] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const statsRequestSeqRef = useRef(0);
   const onYearsLoadedRef = useRef(onYearsLoaded);
   onYearsLoadedRef.current = onYearsLoaded;
 
@@ -128,27 +135,39 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
   }, []);
 
   const fetchStats = useCallback(async (year?: string) => {
+    const requestId = ++statsRequestSeqRef.current;
     setLoading(true);
     setError('');
     try {
       const params = new URLSearchParams();
+      params.set('mode', mode);
       const yr = year !== undefined ? year : selectedYear;
-      if (yr) params.set('year', yr);
+      if (yr) {
+        if (mode === 'pendaftaran') params.set('daftar_year', yr);
+        else params.set('year', yr);
+      }
       const res = await fetch(`/api/haji/stats?${params}`, { headers: { ...getAuthHeaders() } });
       const json = await res.json();
+      if (requestId !== statsRequestSeqRef.current) return;
       if (json.success) {
         setData(json.data);
-        onYearsLoadedRef.current?.(json.data.availableYears || [], json.data.masehiYear || null);
+        const keberangkatan = json.data.availableYears || [];
+        const pendaftaran = json.data.daftarYears || [];
+        onYearsLoadedRef.current?.(
+          { keberangkatan, pendaftaran },
+          mode === 'pendaftaran' ? (json.data.daftarYear || pendaftaran[0] || null) : (json.data.masehiYear || null),
+        );
       } else {
         setError(json.error || 'Gagal memuat statistik haji');
       }
     } catch {
+      if (requestId !== statsRequestSeqRef.current) return;
       setError('Gagal menghubungi server');
     }
-    setLoading(false);
-  }, [selectedYear]);
+    if (requestId === statsRequestSeqRef.current) setLoading(false);
+  }, [selectedYear, mode]);
 
-  useEffect(() => { fetchStats(selectedYear); }, [selectedYear, fetchStats]);
+  useEffect(() => { fetchStats(selectedYear); }, [selectedYear, mode, fetchStats]);
 
   useEffect(() => () => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -239,6 +258,30 @@ export default function StatistikHajiSection({ selectedYear, onYearsLoaded }: Pr
 
   return (
     <div className={`px-4 pt-4 pb-8 space-y-3 max-w-lg mx-auto transition-opacity ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
+      <div className="flex gap-1 bg-gray-100 dark:bg-slate-800 p-1 rounded-xl">
+        <button
+          type="button"
+          onClick={() => onModeChange('pendaftaran')}
+          className={`flex-1 h-9 rounded-lg text-xs font-bold transition-all ${
+            mode === 'pendaftaran'
+              ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+              : 'bg-transparent text-gray-500 dark:text-slate-400'
+          }`}
+        >
+          Pendaftaran
+        </button>
+        <button
+          type="button"
+          onClick={() => onModeChange('keberangkatan')}
+          className={`flex-1 h-9 rounded-lg text-xs font-bold transition-all ${
+            mode === 'keberangkatan'
+              ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+              : 'bg-transparent text-gray-500 dark:text-slate-400'
+          }`}
+        >
+          Keberangkatan
+        </button>
+      </div>
 
       {isEmptyForYear ? (
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-6 text-center">

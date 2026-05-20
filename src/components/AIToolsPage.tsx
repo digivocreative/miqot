@@ -29,15 +29,6 @@ const TOOLS: Tool[] = [
     active: true,
   },
   {
-    id: 'landing-page',
-    name: 'Landing Page',
-    desc: 'Atur SEO & link preview saat link dibagikan',
-    icon: Globe,
-    color: 'purple',
-    route: 'landing-page',
-    active: true,
-  },
-  {
     id: 'compare',
     name: 'Bandingkan Paket',
     desc: 'Temukan perbedaan dari 2 paket umroh',
@@ -57,11 +48,20 @@ const TOOLS: Tool[] = [
   },
   {
     id: 'haji-plus',
-    name: 'Infografis Haji Plus',
-    desc: 'Grafik data jamaah haji plus per tahun',
+    name: 'Simulasi Haji Plus',
+    desc: 'Buat penawaran untuk calon jamaah haji',
     icon: BarChart3,
     color: 'emerald',
     route: 'haji-plus',
+    active: true,
+  },
+  {
+    id: 'landing-page',
+    name: 'Landing Page',
+    desc: 'Atur SEO & link preview saat link dibagikan',
+    icon: Globe,
+    color: 'purple',
+    route: 'landing-page',
     active: true,
   },
   {

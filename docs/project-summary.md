@@ -149,7 +149,7 @@ alhijaz/
 │   │   ├── CapiEventLog.tsx       # CAPI event log viewer — pagination, filtering, auto-refresh 30s (~222 lines)
 │   │   ├── CompactCard.tsx        # Compact card variant (~131 lines)
 │   │   ├── PhotoCropModal.tsx     # Reusable photo crop modal (react-easy-crop) (~181 lines)
-│   │   ├── AIToolsPage.tsx        # AI Tools hub page (tool cards grid — Brosur Jadwal, Landing Page, Compare, Kurs, Haji Plus, Voice Over, Kartu Nama) (~152 lines)
+│   │   ├── AIToolsPage.tsx        # AI Tools hub page (tool cards grid — Brosur Jadwal, Compare, Kurs, Simulasi Haji Plus, Landing Page, Voice Over, Kartu Nama) (~152 lines)
 │   │   ├── SettingsPage.tsx       # Unified settings: iOS segmented control (3 tabs: Profil, Telegram, CAPI) (~257 lines)
 │   │   ├── FloatingAgentBar.tsx   # Floating WhatsApp CTA bar (~107 lines)
 │   │   ├── AgentProfile.tsx       # Agent info card on package page (~85 lines)
@@ -431,7 +431,7 @@ alhijaz/
     - Credit system: 25K karakter/agent/bulan, stored in `ai_credits` table, auto-reset setiap 30 hari
     - Char limit: 1000 karakter per script
   - **Kurs Hari Ini** (`/dashboard/ai-tools/kurs`): Cek & hitung kurs valas USD/SAR
-  - **Infografis Haji Plus** (`/dashboard/ai-tools/haji-plus`): Visualisasi data jamaah Haji Plus per tahun, grafik Recharts (multi-color bar chart), stat cards ber-icon, dan fitur export infografis PNG.
+  - **Simulasi Haji Plus** (`/dashboard/ai-tools/haji-plus`): Buat penawaran untuk calon jamaah haji; default tab menampilkan kalkulator harga Haji Plus dengan export PNG dan share native.
   - **Simulasi Haji Plus** (`/dashboard/ai-tools/haji-plus/simulasi`): Kalkulator harga Haji Plus — pilih paket RAHMAH/UHUD, pilih tipe kamar Double/Triple/Quad (default Quad), DP $4,500/orang, pelunasan 6 bulan sebelum berangkat, proyeksi inflasi 1.5%/tahun, export PNG + share via native share.
   - **Kartu Nama Digital** (`/dashboard/ai-tools/business-card`): generator sudah tersedia di route langsung, tetapi kartu hub masih `Segera Hadir`/disabled. Mendukung 5 desain, format landscape/portrait, QR code ke link agent, export PNG resolusi tinggi via `@zumer/snapdom`, dan native share file-only.
 

@@ -112,6 +112,20 @@ function fmtTgl(d: string): string {
   } catch { return d; }
 }
 
+function pickNearestMasehiYear(years: string[], currentYear = new Date().getFullYear()): string {
+  const validYears = (years || []).filter(y => /^\d{4}$/.test(String(y)));
+  if (validYears.length === 0) return '';
+  const current = String(currentYear);
+  if (validYears.includes(current)) return current;
+  const currentNumber = Number(current);
+  return [...validYears].sort((a, b) => {
+    const distanceA = Math.abs(Number(a) - currentNumber);
+    const distanceB = Math.abs(Number(b) - currentNumber);
+    if (distanceA !== distanceB) return distanceA - distanceB;
+    return Number(b) - Number(a);
+  })[0];
+}
+
 function fmtSync(d: string | null): string {
   if (!d) return '-';
   try {
@@ -386,7 +400,9 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   const [statTab, setStatTab] = useState<'umroh' | 'haji' | 'tren'>(safeInitialTab);
   // Year state split: hijriah for Umroh+Tren, masehi for Haji
   const [selectedYearMasehi, setSelectedYearMasehi] = useState('');
+  const [hajiStatsMode, setHajiStatsMode] = useState<'pendaftaran' | 'keberangkatan'>('pendaftaran');
   const [hajiAvailableYears, setHajiAvailableYears] = useState<string[]>([]);
+  const [hajiDaftarYears, setHajiDaftarYears] = useState<string[]>([]);
   const [data, setData] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -596,12 +612,28 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
     const merged = [...new Set([...data.availableYears, ...allYears])];
     return merged.filter(y => Number(y) >= 1447).sort((a, b) => b.localeCompare(a));
   }, [data, allYears]);
+  const hajiHeaderYears = hajiStatsMode === 'pendaftaran' ? hajiDaftarYears : hajiAvailableYears;
+
+  const handleHajiStatsModeChange = useCallback((nextMode: 'pendaftaran' | 'keberangkatan') => {
+    setHajiStatsMode(nextMode);
+    const nextYears = nextMode === 'pendaftaran' ? hajiDaftarYears : hajiAvailableYears;
+    if (nextYears.length > 0 && (!selectedYearMasehi || !nextYears.includes(selectedYearMasehi))) {
+      setSelectedYearMasehi(pickNearestMasehiYear(nextYears));
+    }
+  }, [hajiAvailableYears, hajiDaftarYears, selectedYearMasehi]);
+
+  useEffect(() => {
+    if (statTab !== 'haji' || hajiHeaderYears.length === 0) return;
+    if (!selectedYearMasehi || !hajiHeaderYears.includes(selectedYearMasehi)) {
+      setSelectedYearMasehi(pickNearestMasehiYear(hajiHeaderYears));
+    }
+  }, [statTab, hajiHeaderYears, selectedYearMasehi]);
 
   useEffect(() => {
     if (!onHeaderRight) return;
 
     if (statTab === 'haji') {
-      if (hajiAvailableYears.length === 0) { onHeaderRight(null); return; }
+      if (hajiHeaderYears.length === 0) { onHeaderRight(null); return; }
       onHeaderRight(
         <select
           value={selectedYearMasehi}
@@ -609,7 +641,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
           className="h-8 text-[10px] font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2 pr-6 outline-none appearance-none cursor-pointer shrink-0"
           style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
         >
-          {hajiAvailableYears.map(y => <option key={y} value={y}>{y} M</option>)}
+          {hajiHeaderYears.map(y => <option key={y} value={y}>{y} M</option>)}
         </select>
       );
       return;
@@ -627,7 +659,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         {hijriahDropdownYears.map(y => <option key={y} value={y}>{y} H</option>)}
       </select>
     );
-  }, [statTab, data, selectedYear, selectedYearMasehi, hijriahDropdownYears, hajiAvailableYears, onHeaderRight]);
+  }, [statTab, data, selectedYear, selectedYearMasehi, hijriahDropdownYears, hajiHeaderYears, onHeaderRight]);
 
   // Sync handler
   const handleSync = async () => {
@@ -1084,8 +1116,11 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         }>
           <StatistikHajiSection
             selectedYear={selectedYearMasehi}
+            mode={hajiStatsMode}
+            onModeChange={handleHajiStatsModeChange}
             onYearsLoaded={(years, defaultYear) => {
-              setHajiAvailableYears(years);
+              setHajiAvailableYears(years.keberangkatan);
+              setHajiDaftarYears(years.pendaftaran);
               if (!selectedYearMasehi && defaultYear) {
                 setSelectedYearMasehi(defaultYear);
               }

@@ -850,7 +850,7 @@ flex flex-col
 
 ### AI Tools Hub (`AIToolsPage.tsx`)
 
-Hub page for AI tools & utilities — vertical stack of tool cards. Card urutan: **Brosur Jadwal**, **Landing Page**, **Bandingkan Paket**, **Kurs Hari Ini**, **Infografis Haji Plus**, **Voice Over**, **Kartu Nama**.
+Hub page for AI tools & utilities — vertical stack of tool cards. Card urutan: **Brosur Jadwal**, **Bandingkan Paket**, **Kurs Hari Ini**, **Simulasi Haji Plus**, **Landing Page**, **Voice Over**, **Kartu Nama**.
 
 ```
 relative w-full text-left bg-white dark:bg-slate-800 rounded-2xl
@@ -872,7 +872,7 @@ hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] transition-all cursor
 | Landing Page | `Globe` | purple |
 | Bandingkan Paket (Compare) | `ArrowLeftRight` | violet |
 | Kurs Hari Ini | `Banknote` | amber |
-| Infografis Haji Plus | `BarChart3` | emerald |
+| Simulasi Haji Plus | `BarChart3` | emerald |
 | Voice Over Generator | `Mic` | purple |
 | Kartu Nama Digital *(hub disabled)* | `CreditCard` | teal |
 
