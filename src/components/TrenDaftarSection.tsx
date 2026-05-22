@@ -4,6 +4,7 @@ import {
   CheckCircle, Package, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import { pickNearestMasehiYear } from './StatistikPage';
 import {
   ResponsiveContainer, BarChart, Bar, AreaChart, Area,
   CartesianGrid, XAxis, YAxis, Tooltip,
@@ -40,6 +41,9 @@ interface TrenData {
   agentRanking: AgentRank[];
   paketRanking: PaketRank[];
 }
+
+interface HajiYearsData { keberangkatan: string[]; pendaftaran: string[]; }
+type HajiRankingMode = 'pendaftaran' | 'keberangkatan';
 
 // ── Helpers ──
 
@@ -124,6 +128,143 @@ function AgentRankingSection({ agents, year }: { agents: AgentRank[]; year: stri
   return (
     <Card title="Ranking Agent" extra={<span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">{year}H</span>}>
       <AgentRankingList agents={agents} />
+    </Card>
+  );
+}
+
+// ── Haji Agent Ranking Section (independent fetch + mode toggle) ──
+
+function HajiAgentRankingSection() {
+  const [mode, setMode] = useState<HajiRankingMode>('keberangkatan');
+  const [years, setYears] = useState<HajiYearsData>({ keberangkatan: [], pendaftaran: [] });
+  const [yearsLoaded, setYearsLoaded] = useState(false);
+  const [selectedYear, setSelectedYear] = useState('');
+  const [data, setData] = useState<AgentRank[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const requestIdRef = useRef(0);
+
+  const activeYears = mode === 'keberangkatan' ? years.keberangkatan : years.pendaftaran;
+
+  // Fetch years list once on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/laporan/tren-daftar/haji-years', { headers: { ...getAuthHeaders() } });
+        const json = await res.json();
+        if (cancelled) return;
+        if (json.success) {
+          setYears(json.data);
+          const initialActive = (mode === 'keberangkatan' ? json.data.keberangkatan : json.data.pendaftaran) as string[];
+          setSelectedYear(pickNearestMasehiYear(initialActive));
+          setYearsLoaded(true);
+          // If both lists empty, no fetch will follow — clear loading here.
+          if (!initialActive.length) { setData([]); setLoading(false); }
+        } else {
+          setError(json.error || 'Gagal memuat tahun haji');
+          setLoading(false);
+          setYearsLoaded(true);
+        }
+      } catch {
+        if (!cancelled) { setError('Gagal terhubung ke server'); setLoading(false); setYearsLoaded(true); }
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // When mode changes, re-pick selectedYear if current is not in new mode's list
+  useEffect(() => {
+    if (!yearsLoaded) return;
+    if (!activeYears.length) {
+      // Mode has no data → clear year, show empty state.
+      if (selectedYear !== '') setSelectedYear('');
+      setData([]);
+      setLoading(false);
+      return;
+    }
+    if (!activeYears.includes(selectedYear)) {
+      setSelectedYear(pickNearestMasehiYear(activeYears));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, years, yearsLoaded]);
+
+  // Fetch ranking whenever mode + year settle on a valid combo
+  useEffect(() => {
+    if (!yearsLoaded || !selectedYear) {
+      // Initial mount (waiting for years) OR empty mode handled by mode-watcher effect.
+      return;
+    }
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    setError('');
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/laporan/tren-daftar/haji-ranking?mode=${mode}&year=${selectedYear}`,
+          { headers: { ...getAuthHeaders() } }
+        );
+        const json = await res.json();
+        if (requestId !== requestIdRef.current) return; // stale response
+        if (json.success) setData(json.data.ranking);
+        else setError(json.error || 'Gagal memuat ranking haji');
+      } catch {
+        if (requestId === requestIdRef.current) setError('Gagal terhubung ke server');
+      } finally {
+        if (requestId === requestIdRef.current) setLoading(false);
+      }
+    })();
+  }, [mode, selectedYear, yearsLoaded]);
+
+  const headerExtra = (
+    <div className="flex items-center gap-1.5">
+      <div className="flex p-0.5 bg-gray-100 dark:bg-slate-700 rounded-md">
+        {(['pendaftaran', 'keberangkatan'] as HajiRankingMode[]).map(m => (
+          <button key={m}
+            onClick={() => setMode(m)}
+            className={`px-2 py-0.5 text-[9px] font-semibold rounded-[5px] transition-all ${
+              mode === m
+                ? 'bg-white dark:bg-slate-600 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                : 'text-gray-400 dark:text-slate-400'
+            }`}>
+            {m === 'pendaftaran' ? 'Pdftr' : 'Brkt'}
+          </button>
+        ))}
+      </div>
+      <select
+        value={selectedYear}
+        onChange={e => setSelectedYear(e.target.value)}
+        disabled={activeYears.length === 0}
+        className="h-6 text-[10px] font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-md px-1.5 pr-5 outline-none appearance-none cursor-pointer disabled:opacity-50"
+        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 4px center' }}
+      >
+        {activeYears.length === 0 && <option value="">—</option>}
+        {activeYears.map(y => <option key={y} value={y}>{y} M</option>)}
+      </select>
+    </div>
+  );
+
+  return (
+    <Card title="Ranking Agent Haji" extra={headerExtra}>
+      {loading && (
+        <div className="space-y-2 py-1">
+          {[0, 1, 2].map(i => (
+            <div key={i} className="h-8 rounded bg-gray-100 dark:bg-slate-700 animate-pulse" />
+          ))}
+        </div>
+      )}
+      {!loading && error && (
+        <p className="text-[11px] text-red-500 dark:text-red-400 text-center py-3">{error}</p>
+      )}
+      {!loading && !error && data && data.length === 0 && (
+        <p className="text-[11px] text-gray-400 dark:text-slate-500 text-center py-3">
+          {selectedYear
+            ? `Belum ada data jamaah haji untuk tahun ${selectedYear} M`
+            : 'Belum ada data jamaah haji'}
+        </p>
+      )}
+      {!loading && !error && data && data.length > 0 && <AgentRankingList agents={data} />}
     </Card>
   );
 }
@@ -234,6 +375,9 @@ export default function TrenDaftarSection({ selectedYear }: { selectedYear: stri
 
       {/* Ranking Agent */}
       <AgentRankingSection agents={d.agentRanking} year={d.period} />
+
+      {/* Ranking Agent Haji */}
+      <HajiAgentRankingSection />
 
       {/* Section 2: Pendaftaran per Bulan */}
       <Card title="Pendaftaran per Bulan" extra={
