@@ -9651,6 +9651,60 @@ app.get('/api/laporan/tren-daftar/haji-years', authMiddleware, adminOnly, async 
   }
 });
 
+// ── Tren Daftar Haji: Agent Ranking (Admin only) ──
+app.get('/api/laporan/tren-daftar/haji-ranking', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const year = String(req.query.year || '').trim();
+    if (!/^\d{4}$/.test(year)) {
+      return res.status(400).json({ error: 'year wajib diisi (4-digit masehi)' });
+    }
+    const mode = req.query.mode === 'pendaftaran' ? 'pendaftaran' : 'keberangkatan';
+
+    let query = supabase
+      .from('jamaah_haji')
+      .select('agent_id')
+      .not('agent_id', 'is', null)
+      .order('agent_id', { ascending: true })
+      .order('id_haji', { ascending: true })
+      .order('id_jamaah', { ascending: true });
+
+    if (mode === 'keberangkatan') {
+      query = query.eq('thn_masehi', year);
+    } else {
+      const yearStart = `${year}-01-01`;
+      const yearEnd = `${Number(year) + 1}-01-01`;
+      query = query.gte('tgl_daftar', yearStart).lt('tgl_daftar', yearEnd);
+    }
+
+    const rows = await fetchAllRows(query);
+
+    const agentMap = {};
+    rows.forEach(r => { agentMap[r.agent_id] = (agentMap[r.agent_id] || 0) + 1; });
+    const agentIds = Object.keys(agentMap);
+
+    const { data: agentRows, error: agentErr } = agentIds.length > 0
+      ? await supabase.from('agents').select('id, slug, name, photo').in('id', agentIds)
+      : { data: [], error: null };
+    if (agentErr) throw agentErr;
+
+    const agentInfo = Object.fromEntries((agentRows || []).map(a => [a.id, a]));
+    const ranking = Object.entries(agentMap)
+      .filter(([id]) => agentInfo[id])
+      .map(([id, count]) => ({
+        slug: agentInfo[id].slug,
+        name: agentInfo[id].name,
+        photo: agentInfo[id].photo || '',
+        count,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    res.json({ success: true, data: { ranking, mode, year } });
+  } catch (err) {
+    console.error('[TrenDaftar/Haji] Ranking error:', err.message);
+    res.status(500).json({ error: 'Gagal mengambil ranking agent haji' });
+  }
+});
+
 // ──────────────────────────────────────────────
 // API: Stats — aggregated jamaah statistics
 // ──────────────────────────────────────────────
