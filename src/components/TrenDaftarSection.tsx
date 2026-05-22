@@ -76,18 +76,18 @@ function Card({ title, extra, children }: { title: string; extra?: React.ReactNo
   );
 }
 
-// ── Agent Ranking Sub-component ──
+// ── Reusable Agent Ranking List (pure render) ──
 
 const RANK_BAR_COLORS = ['bg-emerald-500', 'bg-blue-500', 'bg-violet-500', 'bg-amber-500', 'bg-pink-500'];
 const AVATAR_COLORS = ['bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400', 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400', 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400', 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400'];
 
-function AgentRankingSection({ agents, year }: { agents: AgentRank[]; year: string }) {
+function AgentRankingList({ agents }: { agents: AgentRank[] }) {
   const [showAll, setShowAll] = useState(false);
   const maxCount = agents[0]?.count || 1;
   const visible = showAll ? agents : agents.slice(0, 5);
 
   return (
-    <Card title="Ranking Agent" extra={<span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">{year}H</span>}>
+    <>
       {visible.map((agent, i) => (
         <div key={agent.slug} className={`flex items-center gap-2.5 py-2 ${i < visible.length - 1 ? 'border-b border-gray-50 dark:border-slate-700/50' : ''}`}>
           <span className={`text-[10px] font-bold w-4 text-center ${i === 0 ? 'text-amber-500' : 'text-gray-500 dark:text-slate-400'}`}>#{i + 1}</span>
@@ -114,6 +114,16 @@ function AgentRankingSection({ agents, year }: { agents: AgentRank[]; year: stri
           {showAll ? <><ChevronUp size={12} /> Tutup</> : <><ChevronDown size={12} /> Lihat semua agent</>}
         </button>
       )}
+    </>
+  );
+}
+
+// ── Umroh Agent Ranking Section (wraps list in Card) ──
+
+function AgentRankingSection({ agents, year }: { agents: AgentRank[]; year: string }) {
+  return (
+    <Card title="Ranking Agent" extra={<span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">{year}H</span>}>
+      <AgentRankingList agents={agents} />
     </Card>
   );
 }
