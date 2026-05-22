@@ -50,6 +50,13 @@ import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromNam
 import { inferSaudiJourneyOrderFromItinerary } from './lib/journey-order.js';
 import { appendUrlVersion, buildScheduleRows, hasValidPricing, serializeScheduleRows } from './lib/umroh-schedules.js';
 import { buildCdnMetadataUpdate, getCdnFileDecision } from './lib/cdn-file-sync.js';
+import {
+  CURRENCY_NAMES,
+  isKursCacheRefreshDue,
+  isKursToday,
+  parseMandiriKursHtml,
+  shouldReplaceKursCache,
+} from './lib/kurs-mandiri.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
 import cron from 'node-cron';
@@ -302,15 +309,8 @@ setInterval(() => {
 // ============ KURS BANK MANDIRI ============
 let kursCache = null; // { rates: { USD: number, ... }, updatedAt: string, fetchedAt: number }
 const KURS_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
-
-const CURRENCY_NAMES = {
-  AUD: 'Australian Dollar', CAD: 'Canadian Dollar', CHF: 'Swiss Franc',
-  CNY: 'Chinese Yuan', DKK: 'Danish Krone', EUR: 'Euro',
-  GBP: 'British Pound', HKD: 'Hong Kong Dollar', JPY: 'Japanese Yen',
-  MYR: 'Malaysian Ringgit', NOK: 'Norwegian Krone', NZD: 'New Zealand Dollar',
-  SAR: 'Saudi Riyal', SEK: 'Swedish Krona', SGD: 'Singapore Dollar',
-  THB: 'Thai Baht', USD: 'US Dollar',
-};
+const KURS_REFRESH_INTERVAL = Number(process.env.KURS_REFRESH_INTERVAL_MS || 30 * 60 * 1000); // 30 minutes
+let kursRefreshInFlight = null;
 
 async function loadKursFromSupabase() {
   try {
@@ -331,18 +331,6 @@ async function loadKursFromSupabase() {
     console.error('[Kurs] Supabase load error:', err.message);
     return false;
   }
-}
-
-// Check if kurs updatedAt matches today's date (WIB)
-function isKursToday(updatedAt) {
-  if (!updatedAt) return false;
-  const now = new Date();
-  const dd = String(now.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit' })).padStart(2, '0');
-  const mm = String(now.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', month: '2-digit' })).padStart(2, '0');
-  const yy = String(now.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', year: '2-digit' })).padStart(2, '0');
-  const today = `${dd}/${mm}/${yy}`;
-  const fetchedDate = updatedAt.split(' ')[0];
-  return fetchedDate === today;
 }
 
 // Returns true if fetched data is from today, false otherwise
@@ -368,39 +356,20 @@ async function fetchKursMandiri() {
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const html = await res.text();
-
-    const cheerio = await import('cheerio');
-    const $ = cheerio.load(html);
-
-    const rates = {};
-    let updatedAt = null;
-
-    $('table thead th, table tr:first-child th').each((_, el) => {
-      const text = $(el).text();
-      if (text.includes('TT Counter')) {
-        const match = text.match(/(\d{2}\/\d{2}\/\d{2})\s*-\s*(\d{2}:\d{2})\s*WIB/);
-        if (match) updatedAt = `${match[1]} ${match[2]} WIB`;
-      }
-    });
-
-    $('table tr').each((_, row) => {
-      const cells = $(row).find('td');
-      if (cells.length < 5) return;
-      const currency = $(cells[0]).text().trim().toUpperCase();
-      if (!CURRENCY_NAMES[currency]) return;
-      const ttJualText = $(cells[4]).text().trim().replace(/[^\d.,]/g, '');
-      const parsed = parseFloat(ttJualText.replace(/\./g, '').replace(',', '.'));
-      if (!isNaN(parsed)) {
-        rates[currency] = Math.round(parsed);
-      }
-    });
+    const { rates, updatedAt } = parseMandiriKursHtml(html);
 
     if (Object.keys(rates).length > 0) {
-      kursCache = {
+      const nextCache = {
         rates,
         updatedAt: updatedAt || new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
         fetchedAt: Date.now(),
       };
+      if (!shouldReplaceKursCache(kursCache, nextCache)) {
+        console.log(`[Kurs] Fetched older data (${nextCache.updatedAt}); keeping cache ${kursCache.updatedAt}`);
+        kursCache.fetchedAt = Date.now();
+        return isKursToday(kursCache.updatedAt);
+      }
+      kursCache = nextCache;
       console.log(`[Kurs] Fetched ${Object.keys(rates).length} currencies. USD=${rates.USD}, SAR=${rates.SAR}, date=${updatedAt}`);
 
       // Persist to Supabase
@@ -415,7 +384,7 @@ async function fetchKursMandiri() {
         console.error('[Kurs] Supabase persist error:', err.message);
       }
 
-      return isKursToday(updatedAt);
+      return isKursToday(kursCache.updatedAt);
     } else {
       console.warn('[Kurs] Gagal parse rates dari halaman Bank Mandiri');
       return false;
@@ -426,6 +395,18 @@ async function fetchKursMandiri() {
   }
 }
 
+async function refreshKursIfDue({ force = false } = {}) {
+  if (!force && !isKursCacheRefreshDue(kursCache, Date.now(), KURS_REFRESH_INTERVAL)) {
+    return isKursToday(kursCache?.updatedAt);
+  }
+  if (!kursRefreshInFlight) {
+    kursRefreshInFlight = fetchKursMandiri().finally(() => {
+      kursRefreshInFlight = null;
+    });
+  }
+  return kursRefreshInFlight;
+}
+
 // On startup: load from Supabase, then fetch fresh if cache is missing or stale.
 // Telegram broadcast is NOT triggered here — only after the scheduled daily
 // scrape (10:02 WIB) succeeds. This prevents re-broadcasting whenever the
@@ -434,10 +415,10 @@ async function fetchKursMandiri() {
   const loaded = await loadKursFromSupabase();
   if (!loaded) {
     console.log('[Kurs] No Supabase cache, attempting first fetch...');
-    await fetchKursMandiri();
-  } else if (!isKursToday(kursCache?.updatedAt)) {
-    console.log('[Kurs] Cached kurs is not from today, fetching fresh...');
-    await fetchKursMandiri();
+    await refreshKursIfDue({ force: true });
+  } else if (isKursCacheRefreshDue(kursCache, Date.now(), KURS_REFRESH_INTERVAL)) {
+    console.log('[Kurs] Cached kurs is due for refresh, fetching fresh...');
+    await refreshKursIfDue({ force: true });
   }
 })();
 
@@ -524,7 +505,10 @@ function scheduleAnalyticsMaintenanceCron() {
 scheduleAnalyticsMaintenanceCron();
 
 // GET /api/kurs — Kurs semua mata uang (public, no auth)
-app.get('/api/kurs', (req, res) => {
+app.get('/api/kurs', async (req, res) => {
+  if (isKursCacheRefreshDue(kursCache, Date.now(), KURS_REFRESH_INTERVAL)) {
+    await refreshKursIfDue();
+  }
   if (!kursCache || Object.keys(kursCache.rates).length === 0) {
     return res.json({
       success: false,
