@@ -93,3 +93,24 @@ test('serializeScheduleRows: uses CDN URLs and strips storage-only fields', () =
   assert.equal('year_code' in rows[0], false);
   assert.equal(rows[0].manasik_tgl, '');
 });
+
+test('serializeScheduleRows: can prefer source URLs over stale CDN URLs', () => {
+  const rows = serializeScheduleRows([
+    {
+      jadwal_id: 'JBU1540',
+      year_code: '1448',
+      jadwal_nama: 'PROMO PLUS DUBAI 11 HARI',
+      brosur: 'https://origin/brosur-current.webp',
+      itinerary: 'https://origin/itinerary-current.pdf',
+      brosur_cdn: 'https://cdn/brosur-stale.webp',
+      itinerary_cdn: 'https://cdn/itinerary-stale.pdf',
+      paket_harga: { HEMAT: { Quard: '31200000' } },
+      paket_hotel: { HEMAT: {} },
+    },
+  ], new Map(), { preferSourceUrls: true });
+
+  assert.equal(rows[0].brosur, 'https://origin/brosur-current.webp');
+  assert.equal(rows[0].itinerary, 'https://origin/itinerary-current.pdf');
+  assert.equal('brosur_cdn' in rows[0], false);
+  assert.equal('itinerary_cdn' in rows[0], false);
+});

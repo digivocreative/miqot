@@ -427,7 +427,7 @@ async function fetchKursMandiri() {
 
 // On startup: load from Supabase, then fetch fresh if cache is missing or stale.
 // Telegram broadcast is NOT triggered here — only after the scheduled daily
-// scrape (09:15 WIB) succeeds. This prevents re-broadcasting whenever the
+// scrape (10:02 WIB) succeeds. This prevents re-broadcasting whenever the
 // server restarts during the day.
 (async () => {
   const loaded = await loadKursFromSupabase();
@@ -445,9 +445,9 @@ const KURS_MAX_RETRIES = 8;
 
 function scheduleKursCron() {
   const now = new Date();
-  // 09:15 WIB = 02:15 UTC
+  // 10:02 WIB = 03:02 UTC
   const next = new Date(now);
-  next.setUTCHours(2, 15, 0, 0);
+  next.setUTCHours(3, 2, 0, 0);
   if (next <= now) {
     next.setUTCDate(next.getUTCDate() + 1);
   }
@@ -13418,7 +13418,9 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
       console.warn('[Schedules] Itinerary order inference failed:', journeyErr.message);
     }
 
-    const aaData = serializeScheduleRows(scheduleRows, journeyOrderById);
+    const aaData = serializeScheduleRows(scheduleRows, journeyOrderById, {
+      preferSourceUrls: Array.isArray(upstreamRows),
+    });
 
     res.json({
       status: 'ok',
