@@ -9624,6 +9624,33 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
   }
 });
 
+// ── Tren Daftar Haji: Available Masehi Years (Admin only) ──
+app.get('/api/laporan/tren-daftar/haji-years', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const data = await fetchAllRows(
+      supabase
+        .from('jamaah_haji')
+        .select('thn_masehi, tgl_daftar')
+        .order('agent_id', { ascending: true })
+        .order('id_haji', { ascending: true })
+        .order('id_jamaah', { ascending: true })
+    );
+
+    const keberangkatan = [...new Set(
+      data.map(d => String(d.thn_masehi || '')).filter(y => /^\d{4}$/.test(y))
+    )].sort((a, b) => Number(b) - Number(a));
+
+    const pendaftaran = [...new Set(
+      data.map(d => String(d.tgl_daftar || '').slice(0, 4)).filter(y => /^\d{4}$/.test(y))
+    )].sort((a, b) => Number(b) - Number(a));
+
+    res.json({ success: true, data: { keberangkatan, pendaftaran } });
+  } catch (err) {
+    console.error('[TrenDaftar/Haji] Years error:', err.message);
+    res.status(500).json({ error: 'Gagal mengambil data tahun haji' });
+  }
+});
+
 // ──────────────────────────────────────────────
 // API: Stats — aggregated jamaah statistics
 // ──────────────────────────────────────────────
