@@ -135,7 +135,7 @@ function AgentRankingSection({ agents, year }: { agents: AgentRank[]; year: stri
 // ── Haji Agent Ranking Section (independent fetch + mode toggle) ──
 
 function HajiAgentRankingSection() {
-  const [mode, setMode] = useState<HajiRankingMode>('keberangkatan');
+  const [mode, setMode] = useState<HajiRankingMode>('pendaftaran');
   const [years, setYears] = useState<HajiYearsData>({ keberangkatan: [], pendaftaran: [] });
   const [yearsLoaded, setYearsLoaded] = useState(false);
   const [selectedYear, setSelectedYear] = useState('');
