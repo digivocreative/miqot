@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Users, Calendar, Star, TrendingUp, TrendingDown, Clock,
+  TrendingDown, Clock,
   CheckCircle, Package, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
@@ -228,7 +228,7 @@ function HajiAgentRankingSection() {
                 ? 'bg-white dark:bg-slate-600 text-emerald-600 dark:text-emerald-400 shadow-sm'
                 : 'text-gray-400 dark:text-slate-400'
             }`}>
-            {m === 'pendaftaran' ? 'Pdftr' : 'Brkt'}
+            {m === 'pendaftaran' ? 'Daftar' : 'Berangkat'}
           </button>
         ))}
       </div>
@@ -246,7 +246,7 @@ function HajiAgentRankingSection() {
   );
 
   return (
-    <Card title="Ranking Agent Haji" extra={headerExtra}>
+    <Card title="Haji" extra={headerExtra}>
       {loading && (
         <div className="space-y-2 py-1">
           {[0, 1, 2].map(i => (
@@ -328,50 +328,9 @@ export default function TrenDaftarSection({ selectedYear }: { selectedYear: stri
   if (!data) return null;
 
   const d = data;
-  const growthPositive = d.summary.growthPct >= 0;
 
   return (
     <div className={`px-4 pt-4 pb-8 space-y-3 transition-opacity ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
-
-      {/* Section 1: Stat Cards */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
-          <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center border border-emerald-100 dark:border-emerald-800/40 mb-2">
-            <Users size={16} className="text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <p className="text-2xl font-bold text-gray-800 dark:text-white">{d.summary.totalDaftar}</p>
-          <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Total Daftar {d.period}H</p>
-          <span className={`inline-block mt-1.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-md ${
-            growthPositive ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400' : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
-          }`}>{growthPositive ? '+' : ''}{d.summary.growthPct}%{d.summary.growthLabel && d.summary.growthMonths < 12 ? ` (${d.summary.growthLabel})` : ''} vs {d.periodPrev}H</span>
-        </div>
-
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center border border-blue-100 dark:border-blue-800/40 mb-2">
-            <Calendar size={16} className="text-blue-600 dark:text-blue-400" />
-          </div>
-          <p className="text-2xl font-bold text-gray-800 dark:text-white">{d.summary.avgPerMonth}</p>
-          <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Rata-rata / Bulan</p>
-        </div>
-
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
-          <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center border border-amber-100 dark:border-amber-800/40 mb-2">
-            <Star size={16} className="text-amber-600 dark:text-amber-400" />
-          </div>
-          <p className="text-lg font-bold text-gray-800 dark:text-white">{d.summary.peakMonth}</p>
-          <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Bulan Puncak</p>
-          <span className="inline-block mt-1.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400">{d.summary.peakMonthCount} jamaah</span>
-        </div>
-
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
-          <div className="w-8 h-8 rounded-lg bg-violet-50 dark:bg-violet-900/20 flex items-center justify-center border border-violet-100 dark:border-violet-800/40 mb-2">
-            <TrendingUp size={16} className="text-violet-600 dark:text-violet-400" />
-          </div>
-          <p className={`text-2xl font-bold ${growthPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{growthPositive ? '+' : ''}{d.summary.growthPct}%</p>
-          <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Growth YoY</p>
-          <span className="inline-block mt-1.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-600 dark:bg-violet-900/20 dark:text-violet-400">{d.summary.totalDaftarPrev} &rarr; {d.summary.totalDaftar}</span>
-        </div>
-      </div>
 
       {/* Ranking Agent */}
       <AgentRankingSection agents={d.agentRanking} year={d.period} />
