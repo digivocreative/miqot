@@ -112,7 +112,7 @@ function fmtTgl(d: string): string {
   } catch { return d; }
 }
 
-function pickNearestMasehiYear(years: string[], currentYear = new Date().getFullYear()): string {
+export function pickNearestMasehiYear(years: string[], currentYear = new Date().getFullYear()): string {
   const validYears = (years || []).filter(y => /^\d{4}$/.test(String(y)));
   if (validYears.length === 0) return '';
   const current = String(currentYear);
