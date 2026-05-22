@@ -93,11 +93,11 @@ test('serializeScheduleRows: uses CDN URLs and strips storage-only fields', () =
       itinerary: 'https://origin/itinerary.pdf',
       brosur_cdn: 'https://cdn/brosur.pdf',
       itinerary_cdn: 'https://cdn/itinerary.pdf',
-      brosur_source_sha256: 'hidden',
+      brosur_source_sha256: 'abcdef1234567890',
       brosur_source_bytes: 123,
       brosur_source_content_type: 'image/webp',
       brosur_cdn_synced_at: '2026-05-22T00:00:00.000Z',
-      itinerary_source_sha256: 'hidden',
+      itinerary_source_sha256: '1234567890abcdef',
       itinerary_source_bytes: 456,
       itinerary_source_content_type: 'application/pdf',
       itinerary_cdn_synced_at: '2026-05-22T00:00:00.000Z',
@@ -109,8 +109,8 @@ test('serializeScheduleRows: uses CDN URLs and strips storage-only fields', () =
   ], new Map([['JBU1522', ['Madinah', 'Umroh']]]));
 
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].brosur, 'https://cdn/brosur.pdf');
-  assert.equal(rows[0].itinerary, 'https://cdn/itinerary.pdf');
+  assert.equal(rows[0].brosur, 'https://cdn/brosur.pdf?v=abcdef1234567890');
+  assert.equal(rows[0].itinerary, 'https://cdn/itinerary.pdf?v=1234567890abcdef');
   assert.deepEqual(rows[0].journey_order, ['Madinah', 'Umroh']);
   assert.equal('brosur_cdn' in rows[0], false);
   assert.equal('itinerary_cdn' in rows[0], false);
@@ -125,6 +125,22 @@ test('serializeScheduleRows: uses CDN URLs and strips storage-only fields', () =
   assert.equal('synced_at' in rows[0], false);
   assert.equal('year_code' in rows[0], false);
   assert.equal(rows[0].manasik_tgl, '');
+});
+
+test('serializeScheduleRows: appends CDN fingerprint version to URLs with existing query', () => {
+  const rows = serializeScheduleRows([
+    {
+      jadwal_id: 'JBU1540',
+      brosur: 'https://cdn/brosur/JBU1540.webp?foo=bar',
+      brosur_cdn: 'https://cdn/brosur/JBU1540.webp?foo=bar',
+      brosur_source_sha256: 'c1da861192806388ff04e27fede330d71f2b632cd5d154845fd56479e12e358b',
+    },
+  ]);
+
+  assert.equal(
+    rows[0].brosur,
+    'https://cdn/brosur/JBU1540.webp?foo=bar&v=c1da861192806388'
+  );
 });
 
 test('serializeScheduleRows: remains CDN-first when source URLs are also present', () => {

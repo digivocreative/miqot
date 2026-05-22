@@ -24,7 +24,7 @@ const DEFAULT_YEAR_CODE = '1448'; // Hijri year code
 // Cache Constants
 // ============================================
 
-const PACKAGES_CACHE_PREFIX = 'umroh_packages_cache_';
+const PACKAGES_CACHE_PREFIX = 'umroh_packages_cache_v2_';
 const PACKAGES_CACHE_TTL_MS = 30 * 60 * 1000; // 30 menit
 
 // ============================================

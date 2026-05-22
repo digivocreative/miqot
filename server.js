@@ -48,7 +48,7 @@ import {
 } from './lib/analytics-maintenance.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { inferSaudiJourneyOrderFromItinerary } from './lib/journey-order.js';
-import { buildScheduleRows, hasValidPricing, serializeScheduleRows } from './lib/umroh-schedules.js';
+import { appendUrlVersion, buildScheduleRows, hasValidPricing, serializeScheduleRows } from './lib/umroh-schedules.js';
 import { buildCdnMetadataUpdate, getCdnFileDecision } from './lib/cdn-file-sync.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
@@ -1044,12 +1044,16 @@ function getAskAiFallback(agentName) {
 function resolveAskAiAttachment(pkg, attachmentType) {
   if (!pkg || !attachmentType) return null;
   if (attachmentType === 'brosur') {
-    const url = pkg.brosur_cdn || pkg.brosur;
+    const url = pkg.brosur_cdn
+      ? appendUrlVersion(pkg.brosur_cdn, pkg.brosur_source_sha256)
+      : pkg.brosur;
     if (!url) return null;
     return { type: 'brosur', url: String(url), title: pkg.jadwal_nama || pkg.nama || 'Brosur' };
   }
   if (attachmentType === 'itinerary') {
-    const url = pkg.itinerary_cdn || pkg.itinerary;
+    const url = pkg.itinerary_cdn
+      ? appendUrlVersion(pkg.itinerary_cdn, pkg.itinerary_source_sha256)
+      : pkg.itinerary;
     if (!url) return null;
     return { type: 'itinerary', url: String(url), title: pkg.jadwal_nama || pkg.nama || 'Itinerary' };
   }
@@ -3998,7 +4002,9 @@ app.get('/api/bio/:slug/featured-paket-preview', async (req, res) => {
       maskapai: paket.maskapai || '',
       seat_total: paket.seat_total ?? null,
       seat_sisa: paket.seat_sisa ?? null,
-      image_url: paket.brosur_cdn || paket.brosur || null,
+      image_url: paket.brosur_cdn
+        ? appendUrlVersion(paket.brosur_cdn, paket.brosur_source_sha256)
+        : (paket.brosur || null),
       anchor_price: anchorPrice ? Number(anchorPrice) : null,
     },
   });
@@ -12376,6 +12382,7 @@ const PORTAL_SCHEDULE_SELECT = [
   'paket_hotel',
   'itinerary',
   'itinerary_cdn',
+  'itinerary_source_sha256',
 ].join(', ');
 
 function parsePortalPackagePricing(paket) {
@@ -12475,7 +12482,9 @@ async function formatPortalSchedule(schedule) {
     maskapai: schedule.maskapai || null,
     paket_hotel: schedule.paket_hotel || null,
     itinerary: itineraryContent,
-    itinerary_url: schedule.itinerary_cdn || schedule.itinerary || null,
+    itinerary_url: schedule.itinerary_cdn
+      ? appendUrlVersion(schedule.itinerary_cdn, schedule.itinerary_source_sha256)
+      : (schedule.itinerary || null),
   };
 }
 
