@@ -188,7 +188,7 @@ function HajiAgentRankingSection() {
       setSelectedYear(pickNearestMasehiYear(activeYears));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, years, yearsLoaded]);
+  }, [mode, yearsLoaded]);
 
   // Fetch ranking whenever mode + year settle on a valid combo
   useEffect(() => {
@@ -264,7 +264,7 @@ function HajiAgentRankingSection() {
             : 'Belum ada data jamaah haji'}
         </p>
       )}
-      {!loading && !error && data && data.length > 0 && <AgentRankingList agents={data} />}
+      {!loading && !error && data && data.length > 0 && <AgentRankingList key={`${mode}-${selectedYear}`} agents={data} />}
     </Card>
   );
 }
