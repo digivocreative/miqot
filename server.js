@@ -49,6 +49,7 @@ import {
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { inferSaudiJourneyOrderFromItinerary } from './lib/journey-order.js';
 import { buildScheduleRows, hasValidPricing, serializeScheduleRows } from './lib/umroh-schedules.js';
+import { buildCdnMetadataUpdate, getCdnFileDecision } from './lib/cdn-file-sync.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
 import cron from 'node-cron';
@@ -13045,37 +13046,6 @@ async function syncUmrohSchedules() {
         synced_at: new Date().toISOString(),
       }));
 
-      // Detect brosur/itinerary URL changes → invalidate CDN URLs
-      // External API appends a random token to URLs on each request (e.g. -nSDGrYQ),
-      // so strip it before comparing to avoid false "URL changed" detections.
-      const stripUrlToken = (url) => url?.replace(/-[A-Za-z0-9]+$/, '') || '';
-      const { data: existing } = await supabase
-        .from('umroh_schedules')
-        .select('jadwal_id, brosur, itinerary, brosur_cdn, itinerary_cdn')
-        .eq('year_code', year);
-      if (existing?.length) {
-        const oldMap = new Map(existing.map(e => [e.jadwal_id, e]));
-        for (const row of rows) {
-          const old = oldMap.get(row.jadwal_id);
-          if (!old) continue;
-          if (old.brosur_cdn && stripUrlToken(old.brosur) !== stripUrlToken(row.brosur)) {
-            // Source URL changed — delete old file from Bunny, null out CDN URL
-            if (getBunnyEnabled()) {
-              try { await bunnyDelete(old.brosur_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, '')); } catch {}
-            }
-            await supabase.from('umroh_schedules').update({ brosur_cdn: null }).eq('jadwal_id', row.jadwal_id).eq('year_code', year);
-            console.log(`[ScheduleSync] ${row.jadwal_id}: brosur URL changed, CDN invalidated`);
-          }
-          if (old.itinerary_cdn && stripUrlToken(old.itinerary) !== stripUrlToken(row.itinerary)) {
-            if (getBunnyEnabled()) {
-              try { await bunnyDelete(old.itinerary_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, '')); } catch {}
-            }
-            await supabase.from('umroh_schedules').update({ itinerary_cdn: null }).eq('jadwal_id', row.jadwal_id).eq('year_code', year);
-            console.log(`[ScheduleSync] ${row.jadwal_id}: itinerary URL changed, CDN invalidated`);
-          }
-        }
-      }
-
       const { error } = await supabase
         .from('umroh_schedules')
         .upsert(rows, { onConflict: 'jadwal_id,year_code' });
@@ -13157,7 +13127,7 @@ async function bunnyUpload(path, buffer, contentType) {
         'Content-Type': contentType || 'application/octet-stream',
       },
       body: buffer,
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(120000),
     }
   );
   if (!res.ok) throw new Error(`Bunny upload failed: ${res.status} ${res.statusText}`);
@@ -13179,7 +13149,7 @@ async function downloadFile(url) {
   const normalizedUrl = url.replace('http://', 'https://');
   const res = await fetch(normalizedUrl, {
     headers: { 'User-Agent': 'Mozilla/5.0' },
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(120000),
   });
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   const contentType = res.headers.get('content-type') || 'application/octet-stream';
@@ -13198,7 +13168,8 @@ async function downloadFile(url) {
     else if (contentType.includes('png')) ext = '.png';
   }
   const buffer = Buffer.from(await res.arrayBuffer());
-  return { buffer, contentType, ext };
+  const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+  return { buffer, contentType, ext, bytes: buffer.length, sha256 };
 }
 
 async function syncFilesToBunny() {
@@ -13209,77 +13180,100 @@ async function syncFilesToBunny() {
 
   console.log('[BunnySync] Starting...');
   const startTime = Date.now();
-  let uploaded = 0, skipped = 0, errors = 0;
+  let uploaded = 0, metadataUpdated = 0, skipped = 0, errors = 0;
+  let uploadsSincePause = 0;
 
   const { data: packages, error } = await supabase
     .from('umroh_schedules')
-    .select('jadwal_id, year_code, brosur, itinerary, brosur_cdn, itinerary_cdn');
+    .select([
+      'jadwal_id',
+      'year_code',
+      'brosur',
+      'itinerary',
+      'brosur_cdn',
+      'itinerary_cdn',
+      'brosur_source_sha256',
+      'brosur_source_bytes',
+      'brosur_source_content_type',
+      'brosur_cdn_synced_at',
+      'itinerary_source_sha256',
+      'itinerary_source_bytes',
+      'itinerary_source_content_type',
+      'itinerary_cdn_synced_at',
+    ].join(', '));
 
   if (error || !packages?.length) {
-    console.log('[BunnySync] No packages to sync');
+    if (error) console.error('[BunnySync] Package fetch failed:', error.message);
+    else console.log('[BunnySync] No packages to sync');
     return;
   }
 
-  for (const pkg of packages) {
-    // Sync brosur
-    if (pkg.brosur && !pkg.brosur_cdn) {
-      try {
-        const { buffer, contentType, ext } = await downloadFile(pkg.brosur);
-        const path = `brosur/${pkg.jadwal_id}${ext || '.webp'}`;
-        await bunnyUpload(path, buffer, contentType);
-        const cdnUrl = `https://${BUNNY_CDN_HOSTNAME}/${path}`;
-        await supabase
-          .from('umroh_schedules')
-          .update({ brosur_cdn: cdnUrl })
-          .eq('jadwal_id', pkg.jadwal_id)
-          .eq('year_code', pkg.year_code);
-        uploaded++;
-      } catch (err) {
-        console.error(`[BunnySync] Brosur ${pkg.jadwal_id}: ${err.message}`);
-        errors++;
-      }
-    } else if (pkg.brosur_cdn && pkg.brosur) {
-      // Check if source URL changed (itinerary updated)
-      const expectedSlug = pkg.brosur.split('/').pop();
-      const cachedSlug = pkg.brosur_cdn.split('/').pop().replace(/\.[^.]+$/, '');
-      if (cachedSlug !== pkg.jadwal_id) {
-        // CDN filename always uses jadwal_id, so check if origin URL changed
-        // by re-downloading and re-uploading
-        skipped++;
-      } else {
-        skipped++;
-      }
-    } else {
-      skipped++;
-    }
+  const fileConfigs = [
+    { kind: 'brosur', folder: 'brosur', sourceField: 'brosur', cdnField: 'brosur_cdn', fallbackExt: '.webp', label: 'Brosur' },
+    { kind: 'itinerary', folder: 'itinerary', sourceField: 'itinerary', cdnField: 'itinerary_cdn', fallbackExt: '.pdf', label: 'Itinerary' },
+  ];
 
-    // Sync itinerary
-    if (pkg.itinerary && !pkg.itinerary_cdn) {
+  for (const pkg of packages) {
+    for (const config of fileConfigs) {
       try {
-        const { buffer, contentType, ext } = await downloadFile(pkg.itinerary);
-        const path = `itinerary/${pkg.jadwal_id}${ext || '.pdf'}`;
-        await bunnyUpload(path, buffer, contentType);
+        if (!pkg[config.sourceField]) {
+          skipped++;
+          continue;
+        }
+
+        const file = await downloadFile(pkg[config.sourceField]);
+        const fileMeta = {
+          sha256: file.sha256,
+          bytes: file.bytes,
+          contentType: file.contentType,
+        };
+        const decision = getCdnFileDecision(pkg, config.kind, fileMeta);
+        if (decision.action === 'skip') {
+          skipped++;
+          continue;
+        }
+        if (decision.action === 'verify_cdn') {
+          const cdnFile = await downloadFile(pkg[config.cdnField]);
+          if (cdnFile.sha256 === fileMeta.sha256 && cdnFile.bytes === fileMeta.bytes) {
+            const update = buildCdnMetadataUpdate(config.kind, pkg[config.cdnField], fileMeta);
+            await supabase
+              .from('umroh_schedules')
+              .update(update)
+              .eq('jadwal_id', pkg.jadwal_id)
+              .eq('year_code', pkg.year_code);
+            metadataUpdated++;
+            console.log(`[BunnySync] ${config.label} ${pkg.jadwal_id}: metadata updated (cdn unchanged)`);
+            continue;
+          }
+        }
+
+        const path = `${config.folder}/${pkg.jadwal_id}${file.ext || config.fallbackExt}`;
+        await bunnyUpload(path, file.buffer, file.contentType);
         const cdnUrl = `https://${BUNNY_CDN_HOSTNAME}/${path}`;
+        const update = buildCdnMetadataUpdate(config.kind, cdnUrl, fileMeta);
         await supabase
           .from('umroh_schedules')
-          .update({ itinerary_cdn: cdnUrl })
+          .update(update)
           .eq('jadwal_id', pkg.jadwal_id)
           .eq('year_code', pkg.year_code);
         uploaded++;
+        uploadsSincePause++;
+        console.log(`[BunnySync] ${config.label} ${pkg.jadwal_id}: uploaded (${decision.reason})`);
       } catch (err) {
-        console.error(`[BunnySync] Itinerary ${pkg.jadwal_id}: ${err.message}`);
+        console.error(`[BunnySync] ${config.label} ${pkg.jadwal_id}: ${err.message}`);
         errors++;
       }
-    } else {
-      skipped++;
     }
 
     // Small delay to avoid hammering origin server
-    if (uploaded > 0 && uploaded % 5 === 0) await new Promise(r => setTimeout(r, 1000));
+    if (uploadsSincePause >= 5) {
+      uploadsSincePause = 0;
+      await new Promise(r => setTimeout(r, 1000));
+    }
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[BunnySync] Complete: ${uploaded} uploaded, ${skipped} skipped, ${errors} errors in ${elapsed}s`);
+  console.log(`[BunnySync] Complete: ${uploaded} uploaded, ${metadataUpdated} metadata updated, ${skipped} skipped, ${errors} errors in ${elapsed}s`);
 }
 
 // ──────────────────────────────────────────────
@@ -13335,22 +13329,6 @@ async function cleanupExpiredPackages() {
 // ──────────────────────────────────────────────
 // API: Read schedules from Supabase (with external API fallback)
 // ──────────────────────────────────────────────
-async function fetchExternalScheduleRows(yearCode) {
-  const extRes = await fetch(
-    `https://jadwal.alhijaz.co/jadwal/api-get/${yearCode}`,
-    {
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(6000),
-    }
-  );
-  if (!extRes.ok) throw new Error(`External API returned ${extRes.status}`);
-  const extData = await extRes.json();
-  if (extData.status !== 'ok' || !Array.isArray(extData.aaData)) {
-    throw new Error('External API returned invalid schedule payload');
-  }
-  return extData.aaData;
-}
-
 app.get('/api/schedules/:yearCode', async (req, res) => {
   const yearCode = req.params.yearCode;
 
@@ -13360,9 +13338,6 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
 
   let cachedRows = [];
   let cachedError = null;
-  let upstreamRows = null;
-  let upstreamError = null;
-
   try {
     const { data, error } = await supabase
       .from('umroh_schedules')
@@ -13377,23 +13352,16 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
     console.error(`[Schedules] Supabase error for ${yearCode}: ${err.message}`);
   }
 
-  try {
-    upstreamRows = await fetchExternalScheduleRows(yearCode);
-  } catch (err) {
-    upstreamError = err;
-    console.warn(`[Schedules] External API error for ${yearCode}: ${err.message}`);
+  if (cachedError) {
+    return res.status(500).json({ status: 'error', error: 'Failed to read schedule data' });
   }
 
-  if (cachedError && !upstreamRows) {
-    return res.status(500).json({ status: 'error', error: 'Both Supabase and external API failed' });
-  }
-
-  if (cachedRows.length === 0 && !upstreamRows) {
+  if (cachedRows.length === 0) {
     return res.status(500).json({ status: 'error', error: 'No schedule data available' });
   }
 
   try {
-    const scheduleRows = buildScheduleRows(cachedRows, upstreamRows, yearCode);
+    const scheduleRows = buildScheduleRows(cachedRows, null, yearCode);
 
     let journeyOrderById = new Map();
     try {
@@ -13418,9 +13386,7 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
       console.warn('[Schedules] Itinerary order inference failed:', journeyErr.message);
     }
 
-    const aaData = serializeScheduleRows(scheduleRows, journeyOrderById, {
-      preferSourceUrls: Array.isArray(upstreamRows),
-    });
+    const aaData = serializeScheduleRows(scheduleRows, journeyOrderById);
 
     res.json({
       status: 'ok',
@@ -13431,7 +13397,7 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
     console.error(`[Schedules] Response build error for ${yearCode}: ${err.message}`);
     res.status(500).json({
       status: 'error',
-      error: upstreamError ? 'Failed to build schedule response from cached data' : 'Failed to build schedule response',
+      error: 'Failed to build schedule response from cached data',
     });
   }
 });
@@ -15518,17 +15484,32 @@ setTimeout(() => {
 }, 90 * 1000);
 
 // ── Umroh schedules sync: 45s after startup, then every 30 minutes ──
-// Bunny file sync runs after schedule sync completes
-async function runScheduleAndBunnySync() {
+async function runScheduleSync() {
   await syncUmrohSchedules();
-  await syncFilesToBunny();
 }
 setTimeout(() => {
-  runScheduleAndBunnySync().catch(err => console.error('[ScheduleSync] Error:', err.message));
+  runScheduleSync().catch(err => console.error('[ScheduleSync] Error:', err.message));
 }, 45 * 1000);
 setInterval(() => {
-  runScheduleAndBunnySync().catch(err => console.error('[ScheduleSync] Error:', err.message));
+  runScheduleSync().catch(err => console.error('[ScheduleSync] Error:', err.message));
 }, 30 * 60 * 1000);
+
+// ── Bunny file sync: once daily. It fingerprints source files and uploads only changes. ──
+function scheduleDailyBunnySync() {
+  const nextRun = nextJakartaScheduleDate(new Date(), ['03:30']);
+  const delayMs = Math.max(0, nextRun.getTime() - Date.now());
+  console.log(`[BunnySync] Next daily file sync in ${Math.round(delayMs / 60000)} minutes (03:30 WIB)`);
+  setTimeout(async () => {
+    try {
+      await syncFilesToBunny();
+    } catch (err) {
+      console.error('[BunnySync] Daily sync error:', err.message);
+    } finally {
+      scheduleDailyBunnySync();
+    }
+  }, delayMs);
+}
+scheduleDailyBunnySync();
 
 // ── Bunny cleanup: expired packages (> 6 months), once daily at 03:00 WIB ──
 function scheduleBunnyCleanup() {

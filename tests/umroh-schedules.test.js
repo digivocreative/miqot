@@ -66,6 +66,23 @@ test('buildScheduleRows: upstream packages are authoritative while preserving CD
   assert.equal(rows[1].year_code, '1448');
 });
 
+test('buildScheduleRows: cached rows can be served without upstream data', () => {
+  const cachedRows = [
+    {
+      jadwal_id: 'JBU1540',
+      year_code: '1448',
+      jadwal_nama: 'PROMO PLUS DUBAI 11 HARI',
+      berangkat_tgl: '2026-07-12',
+      paket_harga: { HEMAT: { Quard: '31200000' } },
+      brosur_cdn: 'https://cdn/brosur.webp',
+    },
+  ];
+
+  const rows = buildScheduleRows(cachedRows, null, '1448');
+
+  assert.deepEqual(rows, cachedRows);
+});
+
 test('serializeScheduleRows: uses CDN URLs and strips storage-only fields', () => {
   const rows = serializeScheduleRows([
     {
@@ -76,6 +93,14 @@ test('serializeScheduleRows: uses CDN URLs and strips storage-only fields', () =
       itinerary: 'https://origin/itinerary.pdf',
       brosur_cdn: 'https://cdn/brosur.pdf',
       itinerary_cdn: 'https://cdn/itinerary.pdf',
+      brosur_source_sha256: 'hidden',
+      brosur_source_bytes: 123,
+      brosur_source_content_type: 'image/webp',
+      brosur_cdn_synced_at: '2026-05-22T00:00:00.000Z',
+      itinerary_source_sha256: 'hidden',
+      itinerary_source_bytes: 456,
+      itinerary_source_content_type: 'application/pdf',
+      itinerary_cdn_synced_at: '2026-05-22T00:00:00.000Z',
       synced_at: '2026-05-19T08:00:00.000Z',
       manasik_tgl: null,
       paket_harga: { UHUD: { Quard: '33900000' } },
@@ -89,12 +114,20 @@ test('serializeScheduleRows: uses CDN URLs and strips storage-only fields', () =
   assert.deepEqual(rows[0].journey_order, ['Madinah', 'Umroh']);
   assert.equal('brosur_cdn' in rows[0], false);
   assert.equal('itinerary_cdn' in rows[0], false);
+  assert.equal('brosur_source_sha256' in rows[0], false);
+  assert.equal('brosur_source_bytes' in rows[0], false);
+  assert.equal('brosur_source_content_type' in rows[0], false);
+  assert.equal('brosur_cdn_synced_at' in rows[0], false);
+  assert.equal('itinerary_source_sha256' in rows[0], false);
+  assert.equal('itinerary_source_bytes' in rows[0], false);
+  assert.equal('itinerary_source_content_type' in rows[0], false);
+  assert.equal('itinerary_cdn_synced_at' in rows[0], false);
   assert.equal('synced_at' in rows[0], false);
   assert.equal('year_code' in rows[0], false);
   assert.equal(rows[0].manasik_tgl, '');
 });
 
-test('serializeScheduleRows: can prefer source URLs over stale CDN URLs', () => {
+test('serializeScheduleRows: remains CDN-first when source URLs are also present', () => {
   const rows = serializeScheduleRows([
     {
       jadwal_id: 'JBU1540',
@@ -107,10 +140,10 @@ test('serializeScheduleRows: can prefer source URLs over stale CDN URLs', () => 
       paket_harga: { HEMAT: { Quard: '31200000' } },
       paket_hotel: { HEMAT: {} },
     },
-  ], new Map(), { preferSourceUrls: true });
+  ], new Map());
 
-  assert.equal(rows[0].brosur, 'https://origin/brosur-current.webp');
-  assert.equal(rows[0].itinerary, 'https://origin/itinerary-current.pdf');
+  assert.equal(rows[0].brosur, 'https://cdn/brosur-stale.webp');
+  assert.equal(rows[0].itinerary, 'https://cdn/itinerary-stale.pdf');
   assert.equal('brosur_cdn' in rows[0], false);
   assert.equal('itinerary_cdn' in rows[0], false);
 });
