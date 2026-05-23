@@ -343,6 +343,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
   const listDaftarYears = [...new Set(jamaahList.map(item => String(item.tgl_daftar || '').slice(0, 4)).filter(yearValue => /^\d{4}$/.test(yearValue)))];
   const daftarYearOptions = [...new Set([...(stats?.daftarYears || []), ...listDaftarYears])].sort((a, b) => b.localeCompare(a));
   const hasAdvancedFilters = Boolean(jenisFilter || daftarYear || statusBayarFilter || paketFilter);
+  const hasActiveHajiListQuery = Boolean(searchQuery.trim()) || hasAdvancedFilters || Boolean(thnMasehi);
 
   // Register compact year selector into dashboard header (parent controls placement
   // next to the dark-mode toggle). Matches the Umroh tab for visual consistency.
@@ -525,11 +526,11 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
 
   // ── Auto-sync on first load if connected but no data ──
   useEffect(() => {
-    if (view === 'data' && !loading && !syncing && !hasAutoSynced.current && total === 0 && jamaahList.length === 0) {
+    if (view === 'data' && !loading && !syncing && !hasAutoSynced.current && !hasActiveHajiListQuery && stats && stats.total === 0 && total === 0 && jamaahList.length === 0) {
       hasAutoSynced.current = true;
       handleSync();
     }
-  }, [view, loading, total, jamaahList.length]);
+  }, [view, loading, syncing, stats?.total, total, jamaahList.length, hasActiveHajiListQuery]);
 
   // ── Login ──
   const handleLogin = async (e: React.FormEvent) => {

@@ -217,6 +217,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
     Boolean(packageFilter.trim()),
   ].filter(Boolean).length;
   const hasAdvancedFilters = activeFilterCount > 0;
+  const hasActiveUmrohListQuery = Boolean(searchQuery.trim()) || hasAdvancedFilters;
   const resetUmrohFilters = useCallback(() => {
     setPaymentFilter('semua');
     setDepartureFilter('semua');
@@ -470,11 +471,11 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
 
   // ── Auto-sync on first load if connected but no data ──
   useEffect(() => {
-    if (view === 'data' && !loadingData && !syncing && !hasAutoSynced.current && data && data.total === 0 && data.items.length === 0) {
+    if (view === 'data' && !loadingData && !syncing && !hasAutoSynced.current && !hasActiveUmrohListQuery && data && data.counts.semua === 0 && data.total === 0 && data.items.length === 0) {
       hasAutoSynced.current = true;
       handleSync(false, hijriahYear || DEFAULT_HIJRIAH_YEAR);
     }
-  }, [view, loadingData, data]);
+  }, [view, loadingData, syncing, data, hasActiveUmrohListQuery, hijriahYear]);
 
   // ── Auto-sync trigger from external pages (e.g., after new jamaah registration) ──
   useEffect(() => {

@@ -1,6 +1,6 @@
 # Alhijaz Indowisata — Project Summary
 
-Terakhir diperbarui: 2026-05-13
+Terakhir diperbarui: 2026-05-22
 
 ## 1. Identitas & Tujuan Project
 
@@ -17,7 +17,7 @@ Terakhir diperbarui: 2026-05-13
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
-| **Database** | Supabase (PostgreSQL) — 18 tabel utama: `agents`, `agent_slug_history`, `capi_configs`, `capi_event_logs`, `jamaah`, `jamaah_haji`, `calendar_events`, `calendar_insights`, `ai_credits`, `ask_ai_cache`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events`, `analytics_events_daily`, `umroh_schedules`, `kurs_cache` |
+| **Database** | Supabase (PostgreSQL) — 21 tabel utama: `agents`, `agent_slug_history`, `capi_configs`, `capi_event_logs`, `jamaah`, `jamaah_haji`, `calendar_events`, `calendar_insights`, `ai_credits`, `ask_ai_cache`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events`, `analytics_events_daily`, `umroh_schedules`, `kurs_cache`, `jamaah_portal_tokens`, `jamaah_portal_sessions`, `booking_persiapan` |
 | **Telegram** | Telegram Bot API — group alerts (node-cron) + per-agent DM (deep link connect, departure reminders, pembayaran masuk) |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
@@ -79,14 +79,14 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~12910 lines) — API, proxy, auth, register, sync, stats, birthday lookup, AI insight, AI tools, Tanya AI (public), flight tracking, analytics (+ daily aggregation), CAPI event logs, PIN auth, landing-config, bio-config (+ AI tagline-generate), umrah register (form-scrape + OCR KTP), SPA serve
+├── server.js              # Express backend (~15748 lines) — API, proxy, auth, register, sync, stats, birthday lookup, AI insight, AI tools, Tanya AI (public), flight tracking, analytics (+ daily aggregation), CAPI event logs, PIN auth, landing-config, bio-config (+ AI tagline-generate), umrah register (form-scrape + OCR KTP), Portal Jamaah (magic link issue/consume/me/persiapan), Haji AWAPI sync, Haji agent ranking, CDN fingerprint sync, SPA serve
 ├── instrument.mjs         # Sentry initialization (must be imported before everything else)
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
 ├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
 ├── haji-api.js             # Haji data scraper (HTTP session + Cheerio, parallel batch sync to `jamaah_haji` table)
 ├── jamaah-api.js           # Legacy: Playwright-based jamaah scraping (deprecated, replaced by laporan-api.js)
 ├── awapi-client.js         # Alhijaz Official API client (post-2026-04-26 umroh sync via official API instead of legacy scrape)
-├── telegram-notifier.js    # Telegram alerts (~3040 lines) — seat, price, weekly, AI insights, per-agent departure reminders, cicilan/pelunasan masuk, birthday digest, kurs update
+├── telegram-notifier.js    # Telegram alerts (~3041 lines) — seat, price, weekly, AI insights, per-agent departure reminders, cicilan/pelunasan masuk, birthday digest, kurs update
 ├── deploy-webhook.js       # GitHub webhook listener (port 9000) → auto deploy
 ├── deploy.sh               # Deploy script: pull, install, build, restart systemd
 ├── Dockerfile              # Docker multi-stage build
@@ -98,7 +98,7 @@ alhijaz/
 │   ├── main.tsx            # Entry point — routing, PWA registration, page resolution
 │   ├── App.tsx             # Main SPA component — package list, filters, layout
 │   ├── index.css           # Global CSS (TailwindCSS + custom animations)
-│   ├── components/         # 57 top-level React components + feature folders
+│   ├── components/         # 58 top-level React components + feature folders (portal-jamaah, dashboard, bio, bio-editor)
 │   │   ├── PackageCard.tsx        # Card paket umroh (komponen terbesar, ~2610 lines) — flag overlay, "Diskusi" button (Tanya AI), share link row
 │   │   ├── DashboardProfile.tsx   # Edit profile + photo crop + card variant picker + Telegram + AIW internal system + PIN management (~2351 lines)
 │   │   ├── CapiPage.tsx           # Meta Conversion API config UI + event log (~2144 lines)
@@ -156,8 +156,19 @@ alhijaz/
 │   │   ├── PinInput.tsx           # 6-digit PIN input component (visual boxes, error state) (~59 lines)
 │   │   ├── ShareKursModal.tsx     # Fullscreen modal untuk preview + share/download infografis kurs 16:10 (JPG) (~293 lines)
 │   │   ├── KursShareTemplates.tsx # Single Hero USD kurs share template — fixed 1400×1000 canvas (~332 lines)
-│   │   ├── bio/                   # Public Link Bio page (`/:slug/bio`) — themed hero, socials, system tiles (umroh/umroh_landing/haji/wa), custom content tiles (featured/link/text/photo/testi), client-side meta refresh
-│   │   ├── bio-editor/            # Dashboard Bio editor — autosave, theme picker, hero/SEO sheets (incl. AI tagline-generate), tile validation, drag reorder, fullscreen preview, edit/add tile sheets, photo upload field, paket picker
+│   │   ├── CustomDomainPage.tsx   # Feature-gated custom domain management — DNS status, verification steps, embed tutorial
+│   │   ├── CustomDomainTrigger.tsx # Compact card untuk dashboard sidebar (loading/empty/active/setup states)
+│   │   ├── bio/                   # Public Link Bio page (`/:slug/bio`) — 12 files (~768 lines): BioPage, BioHero, BioSocialRow, KaabaIcon, WhatsAppIcon, TileFeatured, TileProduct, TileWA, TileLink, TilePhoto, TileTestimonial, TileText
+│   │   ├── bio-editor/            # Dashboard Bio editor — 18 files (~2742 lines): BioEditorPage, TileList/Row, SheetEditTile/Hero/Seo/AddTile/Base, PaketPicker, PhotoUploadField, HeroCard, SaveToast, UrlCard, SeoCard, HintBanner, ThemePicker, BottomBar, LinkIconPicker
+│   │   ├── dashboard/             # Agent-side magic link controls — MagicLinkButton (132 lines, gated on 'nikita' slug for rollout), MagicLinkModal (272 lines: WhatsApp/SMS/copy distribution)
+│   │   ├── portal-jamaah/         # Portal Jamaah jamaah-facing app (`/:slug/jamaah/...`) — magic link auth, 7-route state machine, ~2300 lines across:
+│   │   │   ├── PortalJamaahRouter.tsx     # Top-level router resolves landing / auth-consume / dashboard / error states
+│   │   │   ├── pages/                     # 11 pages: PortalDashboard (state machine), BerandaPage (home), PerjalananPage, PembayaranPage, DokumenPage, PerlengkapanPage, ManasikSpiritualPage, FaqPage, LandingPage (magic form), AuthConsumePage, AuthErrorPage
+│   │   │   ├── components/                # 17 components: HeroCountdown, StickyWhatsAppCta, RosterItem, SmartAlertsStrip, KodeBookingForm, ItineraryList, TaskListWidget, JamaahPaymentCard, FlightCard, AgentHeaderBar, HotelCard, PortalBackBar, PortalMenuCard, PortalTopBar, PortalMenuGrid, ThemeToggle, MagicLinkSuccessCard
+│   │   │   ├── hooks/                     # usePortalRoute (state machine), usePortalMe (profile/booking/agent), usePortalPersiapan (checklist), usePortalTheme
+│   │   │   ├── lib/                       # portalSession (sessionStorage + magic-code regex), portalApi (logout/refetch), portalMenu (PORTAL_MENUS constant), portalTasks (derive urgent tasks), portalAlerts, faq, fetchAgentBySlug
+│   │   │   ├── tabs/persiapan/            # Subcomponents untuk rendering preparation checklist
+│   │   │   └── utils/                     # formatDate, formatRupiah, formatText helpers
 │   │   └── index.ts               # Barrel re-exports
 │   ├── data/
 │   │   ├── agents.ts           # Agent data + Supabase fetch + fallback
@@ -247,25 +258,47 @@ alhijaz/
 │   └── *.png, *.svg, *.webp # Logos, icons
 │
 ├── lib/                    # Shared server-side pure/business logic
-│   ├── brochure-schedule.js  # Harga/hotel cleanup, sold-out parsing, grouping package by month for Brosur Jadwal
 │   ├── analytics-maintenance.js # Daily analytics aggregation + raw/CAPI log retention cleanup
 │   ├── birthdays.js          # Birthday lookup/date helpers
+│   ├── brochure-schedule.js  # Harga/hotel cleanup, sold-out parsing, grouping package by month for Brosur Jadwal
+│   ├── cdn-file-sync.js      # CDN file sync decisions (skip/upload/verify) by comparing SHA256 fingerprints
 │   ├── haji-stats.js         # Haji stats + document/pernyataan helpers
+│   ├── jamaah-phase2-policy.js # Schedule Jakarta-time umroh Phase 2 notification windows (default 01:00 & 14:00 WIB)
+│   ├── journey-order.js      # Infer Saudi itinerary sequence (Madinah-first vs Umroh-first) from day-by-day schedule text
 │   ├── kurs-image-generator.mjs # Kurs image generation helper
+│   ├── kurs-mandiri.js       # Parse + normalize Bank Mandiri exchange rate timestamps (WIB → ISO)
+│   ├── kurs-share-cache.mjs  # Versioned cache directory for generated kurs share JPEG (TTL + size limit, slug-safe names)
+│   ├── notifier-package-source.js # Build notifier API endpoint URL for paket schedule
 │   ├── og-generator.mjs      # OG image generation helper
-│   └── sync-cleanup.js       # Cleanup guard helpers for jamaah sync
+│   ├── sync-cleanup.js       # Cleanup guard helpers for jamaah sync (`computeSafeDeletions`, listComplete check)
+│   └── umroh-schedules.js    # Merge cached + upstream schedule rows with versioning; append SHA256 fingerprints to file URLs
 │
 ├── data/
 │   ├── notifier-state.json  # Telegram notifier state (persisted snapshot)
 │   └── capi/                # Local CAPI config files (dev only, deprecated)
 └── tests/                   # node:test smoke/unit coverage for pure logic
+    ├── analytics-maintenance.test.js
     ├── awapi-client.test.js
+    ├── awapi-sync-guard.test.js     # AWAPI sync validation/safeguards
     ├── birthdays.test.js
     ├── brochure-schedule.test.js
-    ├── haji-stats.test.js
+    ├── cdn-file-sync.test.js         # CDN sync decisions (skip/upload/verify by SHA256)
     ├── haji-pernyataan.test.js
-    └── analytics-maintenance.test.js
+    ├── haji-stats.test.js
+    ├── jamaah-phase2-policy.test.js  # Phase 2 schedule time calc across WIB boundaries
+    ├── journey-order.test.js         # Madinah-first vs Umroh-first detection
+    ├── kurs-mandiri.test.js          # Mandiri timestamp parsing + date key generation
+    ├── kurs-share-cache.test.js      # Cache eviction, TTL, slug safety
+    ├── notifier-package-source.test.js # URL builder smoke test
+    ├── portal-jamaah.test.js         # Portal Jamaah migration tables (RLS, FK, JSONB)
+    ├── portal-jamaah-redesign.test.js # Portal Jamaah redesign component file inventory
+    └── umroh-schedules.test.js       # Schedule row merging + version append
 ```
+
+### Migrations (recent)
+- `migrations/20260515000000_portal_jamaah.sql` — `jamaah_portal_tokens`, `jamaah_portal_sessions`, `booking_persiapan` (RLS-protected)
+- `migrations/20260520000000_haji_awapi_columns.sql` — 13 kolom baru di `jamaah_haji` (porsi, spph, paspor, finansial, tanggal, dokumen JSONB) + composite indexes
+- `migrations/20260522000000_umroh_schedule_cdn_fingerprints.sql` — 8 kolom CDN sync (sha256/bytes/content-type/synced_at) untuk brosur & itinerary di `umroh_schedules`
 
 ## 4. Konvensi & Aturan
 
@@ -302,6 +335,15 @@ alhijaz/
   - Fallback responses: "Waduh, koneksinya lagi lambat, Kak 😅 Coba chat [agent] langsung aja ya."
   - iOS Safari keyboard handling (body-lock `position:fixed`, `visualViewport.offsetTop` tracking, auto-scroll undo)
 - Landing page per agent (`/:slug/umroh`, `/:slug/haji`) dengan OG tags untuk social sharing (custom title/description/OG image per agent via Landing Page config)
+- **Portal Jamaah** (`/:slug/jamaah[/<magic-code>][/dashboard]`) — jamaah-facing companion app dengan magic-link auth (no password):
+  - **Akses**: agent generate magic link dari dashboard (`MagicLinkButton` + `MagicLinkModal` di `src/components/dashboard/`) → distribusi via WhatsApp/SMS/copy → jamaah klik link, token dikonsumsi sekali, session cookie tersimpan
+  - **Self-service entry**: `/:slug/jamaah` LandingPage punya form "Kode Booking + WhatsApp" yang request magic link langsung (rate-limited public endpoint), syarat booking sudah DP
+  - **Magic code regex**: `/^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5}$/i` (5-char alphanumeric, harus ada huruf + digit 2-9; menghindari 0/1/i/l/o yang sulit dibaca)
+  - **7-route state machine** di `PortalDashboard` (via `usePortalRoute` hook): `beranda` (home, default), `perjalanan` (itinerary penerbangan + hotel), `pembayaran` (status DP/lunas + history card), `dokumen` (checklist 6 dokumen wajib), `perlengkapan` (status perlengkapan), `manasik` (resource spiritual prep), `faq` (accordion)
+  - **Beranda**: `HeroCountdown` (departure countdown gradient emerald + flight info), `SmartAlertsStrip` (tone-aware alerts merah/amber/violet/purple), `TaskListWidget` (urgent tasks kategori), `PortalMenuGrid` 3×3 (6 menu dengan icon + accent color), roster jamaah grup (`RosterItem` dengan gender ring + payment status overlay + progress bar)
+  - **StickyWhatsAppCta**: pill footer emerald-white gradient yang muncul saat scroll up, hilang saat scroll down
+  - **PortalTopBar / PortalBackBar**: glassmorphism header (backdrop-blur-xl + saturate-150) per DESIGN-SYSTEM
+  - **ThemeToggle**: dark mode toggle per session jamaah (independent dari agent theme), persisted di sessionStorage
 - Link Bio publik (`/:slug/bio`) — halaman personal Linktree-style untuk agent dengan hero profile, badge, social links, tile WhatsApp, jadwal Umroh, Haji Plus, featured paket, custom link, teks, foto, dan testimoni. Public page hanya merender bagian `visible && !orphaned`.
 - Single package view (`/:agent/:jadwalId`) — deep link ke 1 paket tertentu, OG meta injection untuk bot/crawler
 - Dark mode, PWA install, offline support
@@ -331,7 +373,7 @@ alhijaz/
   - Progress bar Status Pembayaran (lunas vs belum lunas)
   - Month-over-month comparison badges
   - Sync ulang data langsung dari halaman Statistik
-  - **Tren Pendaftaran** (Admin only) — 12 section analytics: monthly growth, revenue, gender/age distribution, agent rankings, package popularity, lead time, conversion rates
+  - **Tren Pendaftaran** (Admin only) — 12 section analytics: monthly growth, revenue, gender/age distribution, agent rankings, package popularity, lead time, conversion rates. Termasuk **Ranking Agent Haji** (`HajiAgentRankingSection`) di tab Tren Daftar dengan toggle Pendaftaran/Keberangkatan (default Pendaftaran) — mengkonsumsi `/api/laporan/tren-daftar/haji-years` + `/api/laporan/tren-daftar/haji-ranking`. Komponen reusable `AgentRankingList` di-extract untuk dipakai bersama list ranking umroh.
   - **Statistik Haji** lazy section (`StatistikHajiSection`) untuk ringkasan jamaah Haji per tahun
 - Kalkulasi harga (hitung harga per tipe kamar + generate PDF quotation)
 - Compare 2 paket side-by-side
@@ -366,6 +408,7 @@ alhijaz/
     - Dummy-fill buttons (emerald micro-buttons "Insert data dummy" untuk dev/testing)
     - File upload: file_ktp preview + preview modal sebelum submit
     - `POST /api/umrah/register` → submit ke legacy system dengan multipart form
+  - **Magic Link generator** (per jamaah, agent-only): tombol di `JamaahPage`/`HajiPage` membuka `MagicLinkModal` (272 lines) → endpoint `POST /api/portal/jamaah/:slug/magic-link/generate` return URL + expires_at + anggota_count → distribusi WhatsApp/SMS/copy. Token disimpan di `jamaah_portal_tokens`, reuse jika masih valid
   - Tab Haji (`HajiPage.tsx`): login ke legacy system, sync, list jamaah haji
     - Card collapsed: avatar (gender ring, lunas checkmark), nama, `{id_haji} • {paket}`, tahun masehi keberangkatan (orange bold)
     - Card expanded: detail grid (Thn Hijriyah, Jenis, Perwakilan, Marketing, Staff, Status Bayar), telp, alamat
@@ -626,8 +669,23 @@ surat_pernyataan_url TEXT              -- URL surat pernyataan
 capi_purchase_status TEXT              -- "dp" | "lunas" (CAPI Purchase event dedup)
 notes                TEXT              -- catatan agent untuk jamaah haji
 notes_updated_at     TIMESTAMPTZ       -- timestamp update catatan
+-- AWAPI sync enrichment (migration 20260520000000_haji_awapi_columns.sql):
+nomor_porsi          TEXT              -- nomor porsi haji
+nomor_spph           TEXT              -- nomor SPPH
+no_paspor            TEXT              -- nomor paspor
+paspor_expired       TEXT              -- tanggal expired paspor
+paket_harga          BIGINT            -- harga paket dari AWAPI
+diskon_marketing     BIGINT            -- diskon marketing (mengurangi komisi net agent)
+diskon_kantor        BIGINT            -- diskon kantor
+bayar                BIGINT            -- jumlah sudah dibayar
+sisa                 BIGINT            -- sisa pembayaran
+tgl_lahir            DATE              -- tanggal lahir
+tgl_daftar           DATE              -- tanggal pendaftaran
+tgl_berangkat        DATE              -- tanggal keberangkatan (lebih granular dari thn_masehi)
+dokumen              JSONB             -- dokumen checklist
 synced_at            TIMESTAMPTZ DEFAULT NOW()
 -- UNIQUE(agent_id, id_haji, id_jamaah)
+-- Composite indexes: (agent_id, tgl_daftar), (agent_id, tgl_berangkat), (agent_id, tgl_lahir)
 ```
 
 ### Tabel `flight_status`
@@ -776,6 +834,15 @@ paket_harga                  JSONB             -- harga per tipe kamar
 paket_hotel                  JSONB             -- info hotel per tier
 brosur_cdn                   TEXT              -- URL brosur CDN
 itinerary_cdn                TEXT              -- URL itinerary CDN
+-- CDN fingerprints (migration 20260522000000_umroh_schedule_cdn_fingerprints.sql):
+brosur_sha256                TEXT              -- SHA256 brosur source untuk cache-bust detection
+brosur_bytes                 BIGINT            -- ukuran bytes brosur
+brosur_content_type          TEXT              -- MIME type brosur
+brosur_synced_at             TIMESTAMPTZ       -- timestamp upload terakhir ke Bunny CDN
+itinerary_sha256             TEXT              -- SHA256 itinerary source
+itinerary_bytes              BIGINT            -- ukuran bytes itinerary
+itinerary_content_type       TEXT              -- MIME type itinerary
+itinerary_synced_at          TIMESTAMPTZ       -- timestamp upload terakhir ke Bunny CDN
 synced_at                    TIMESTAMPTZ DEFAULT NOW()
 -- PRIMARY KEY (jadwal_id, year_code)
 -- Indexes: year_code, berangkat_tgl
@@ -804,6 +871,48 @@ created_at      TIMESTAMPTZ DEFAULT NOW()
 -- Index: idx_ask_ai_cache_lookup ON (agent_id, jadwal_id, question_hash)
 -- Index: idx_ask_ai_cache_created ON (created_at)
 -- TTL: 7 hari (enforced at query time via `created_at >= now() - 7 days` filter)
+```
+
+### Tabel `jamaah_portal_tokens`
+One-time magic link tokens untuk Portal Jamaah (`/:slug/jamaah`). RLS-protected.
+```
+token             TEXT PRIMARY KEY   -- 5-char alphanumeric (regex /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5}$/i)
+agent_id          UUID NOT NULL      -- FK to agents.id (CASCADE)
+id_umroh          TEXT NOT NULL      -- ID booking umroh
+jamaah_id         TEXT               -- ID jamaah utama (head of group)
+phone_e164        TEXT               -- nomor WA tujuan magic link
+issued_by         TEXT               -- "agent" | "self_service"
+issued_at         TIMESTAMPTZ DEFAULT NOW()
+consumed_at       TIMESTAMPTZ        -- timestamp first consume (null = belum dipakai)
+consumed_session_id UUID             -- FK ke jamaah_portal_sessions
+expires_at        TIMESTAMPTZ        -- TTL token
+meta              JSONB              -- metadata distribusi (channel, source, etc.)
+-- Index: (agent_id, id_umroh), (phone_e164)
+```
+
+### Tabel `jamaah_portal_sessions`
+Multi-user session untuk Portal Jamaah (cookie `jamaah_session`).
+```
+id              UUID PRIMARY KEY     -- session id (random UUID)
+token           TEXT                 -- FK to jamaah_portal_tokens.token
+agent_id        UUID NOT NULL        -- FK to agents.id (CASCADE)
+id_umroh        TEXT NOT NULL        -- booking scope
+created_at      TIMESTAMPTZ DEFAULT NOW()
+last_seen_at    TIMESTAMPTZ          -- aktivitas terakhir (touched on /me, /persiapan, etc.)
+expires_at      TIMESTAMPTZ          -- cookie TTL
+user_agent      TEXT                 -- browser fingerprint untuk audit
+ip              TEXT
+-- Index: (agent_id, id_umroh), (last_seen_at)
+```
+
+### Tabel `booking_persiapan`
+Per-booking preparation checklist (JSONB) untuk Portal Jamaah.
+```
+agent_id        UUID NOT NULL        -- FK to agents.id (CASCADE)
+id_umroh        TEXT NOT NULL        -- ID booking umroh
+data            JSONB                -- { tahapan: [{ id, label, done }], spiritual: [{ id, label, done, substeps[] }] }
+updated_at      TIMESTAMPTZ DEFAULT NOW()
+-- PRIMARY KEY (agent_id, id_umroh)
 ```
 
 ### Data Paket Umroh (External API)
@@ -885,6 +994,21 @@ Sumber kebenaran paket tetap external API `https://jadwal.alhijaz.co/jadwal/api-
 | DELETE | `/api/laporan/credentials` | Bearer | Delete saved credentials from Supabase |
 | GET | `/api/laporan/tren-daftar/years` | Bearer+Admin | Get available Hijriah years for tren daftar |
 | GET | `/api/laporan/tren-daftar` | Bearer+Admin | Get registration trend data (monthly breakdown, rankings) |
+| GET | `/api/laporan/tren-daftar/haji-years` | Bearer+Admin | Get distinct years untuk Haji ranking (`{keberangkatan, pendaftaran}` dari `jamaah_haji.thn_masehi` + `tgl_daftar`) |
+| GET | `/api/laporan/tren-daftar/haji-ranking` | Bearer+Admin | Haji agent ranking. Query: `year` (YYYY, required), `mode` (`pendaftaran` default \| `keberangkatan`). Return: `{ranking: [{slug, name, photo, count}], mode, year}` desc by count |
+
+### Portal Jamaah (Magic Link)
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| POST | `/api/portal/jamaah/:slug/magic-link/request-by-booking` | Rate-limited (public) | Self-service: jamaah submit id_umroh + WA → send magic link via WhatsApp jika booking sudah DP |
+| POST | `/api/portal/jamaah/:slug/magic-link/generate` | Bearer (agent) | Agent generate magic link untuk jamaah. Body: `{ jamaah_id }`. Response: `{ url, expires_at, jamaah_name, id_umroh, anggota_count }`. Reuse token jika masih valid |
+| GET | `/api/portal/jamaah/:slug/auth/consume/:token` | Rate-limited (public) | Consume magic token, validasi DP, create session, set `jamaah_session` cookie, redirect ke dashboard |
+| GET | `/api/portal/jamaah/auth/consume/:token` | Rate-limited (public) | Alt consume endpoint (slug optional, resolve dari token) |
+| GET | `/api/portal/jamaah/me` | Portal session cookie | Return booking + jamaah roster + agent info + schedule details untuk session aktif |
+| GET | `/api/portal/jamaah/persiapan` | Portal session cookie | Return preparation checklist (tahapan + spiritual + substeps) dengan progress |
+| PUT | `/api/portal/jamaah/persiapan/item` | Portal session cookie | Toggle individual prep item checked/unchecked → update `booking_persiapan.data` (rate-limited) |
+| POST | `/api/portal/jamaah/auth/logout` | Portal session cookie | Hapus session row + clear `jamaah_session` cookie |
+| GET | `/api/portal/jamaah/sessions` | Bearer (agent) | List session aktif untuk agent (admin view, audit) |
 
 ### Telegram
 | Method | Path | Auth | Deskripsi |
@@ -1181,6 +1305,14 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - **Birthday workflow** — dashboard `BirthdayWidget`, grouped `BirthdayListSheet`, `BirthdayDetailSheet`, 2 template kartu 1080×1080, WA message generator, JPEG export via `@zumer/snapdom`, dan Telegram birthday digest opt-in jam 07:00 WIB
 - **Brosur Jadwal** — AI Tools page untuk export brosur paket umroh bulanan 1080×1920 PNG dari `umroh_schedules`; helper pure di `lib/brochure-schedule.js` dan test coverage di `tests/brochure-schedule.test.js`
 - **CAPI circuit breaker** — pause per-agent setelah 10 kegagalan CAPI beruntun selama 30 menit, agar sync/public events tidak terus menembak token Meta yang error
+- **Portal Jamaah** (`/:slug/jamaah`) — companion app jamaah-facing dengan magic-link auth (no password). 7-route state machine (beranda, perjalanan, pembayaran, dokumen, perlengkapan, manasik, faq), self-service entry via kode booking + WA, atau distribusi link dari agent (`MagicLinkButton` + `MagicLinkModal`). Glassmorphism PortalTopBar, HeroCountdown departure timer, SmartAlertsStrip tone-aware, TaskListWidget urgent kategori, PortalMenuGrid 3-col, RosterItem dengan gender ring + payment overlay, StickyWhatsAppCta pill footer, ThemeToggle independent. 3 tabel baru: `jamaah_portal_tokens`, `jamaah_portal_sessions`, `booking_persiapan` (RLS-protected). 9 endpoint `/api/portal/jamaah/*`. Komponen di `src/components/portal-jamaah/` (17 components + 11 pages + 4 hooks + 7 lib helpers).
+- **Haji AWAPI enrichment** — `jamaah_haji` mendapat 13 kolom baru (nomor_porsi, nomor_spph, no_paspor, paspor_expired, paket_harga, diskon_marketing, diskon_kantor, bayar, sisa, tgl_lahir, tgl_daftar, tgl_berangkat, dokumen JSONB) + composite indexes. Memungkinkan Statistik Haji menampilkan data finansial dan timing lebih granular.
+- **Ranking Agent Haji** di Tren Daftar — `HajiAgentRankingSection` dengan toggle Pendaftaran/Keberangkatan (default Pendaftaran). Komponen `AgentRankingList` di-extract reusable. Endpoints: `/api/laporan/tren-daftar/haji-years` + `/api/laporan/tren-daftar/haji-ranking`.
+- **CDN file sync** — `lib/cdn-file-sync.js` + `lib/umroh-schedules.js` mirror brosur/itinerary ke Bunny CDN dengan SHA256 fingerprint check. 8 kolom baru di `umroh_schedules` (sha256/bytes/content-type/synced_at per file type) untuk skip re-upload identik.
+- **Phase 2 notif scheduling** — `lib/jamaah-phase2-policy.js` menghitung jadwal notif umroh Phase 2 dalam timezone Asia/Jakarta (default 01:00 & 14:00 WIB).
+- **Journey order inference** — `lib/journey-order.js` mendeteksi urutan itinerary (Madinah-first vs Umroh-first) dari pattern text per hari, untuk context Tanya AI dan UI portal.
+- **Sync fix**: extract `id_jadwal` dari legacy umrah-detail scrape untuk linkage yang konsisten antara `jamaah` dan `umroh_schedules`.
+- **CustomDomainPage/CustomDomainTrigger** — komponen feature-gated untuk custom domain agent (DNS status, verification, embed tutorial). Status: scaffold, belum aktif untuk semua agent.
 
 ### Rencana / Backlog
 - [TODO] Perluas test suite ke route/API integration dan komponen React utama
@@ -1220,7 +1352,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - **PackageCard.tsx terlalu besar** (~2610 baris) — perlu di-split ke sub-components
 - **DashboardProfile.tsx terlalu besar** (~2351 baris) — profile + telegram + PIN management + card variant picker, bisa di-split
 - **CapiPage.tsx terlalu besar** (~2144 baris) — bisa di-modularisasi
-- **server.js monolith** (~12910 baris) — perlu di-split ke route modules (ask-ai, landing-config, bio-config, umrah-register, birthdays, analytics, ai-tools bisa jadi kandidat)
+- **server.js monolith** (~15748 baris) — perlu di-split ke route modules (ask-ai, landing-config, bio-config, umrah-register, birthdays, analytics, ai-tools, portal-jamaah, awapi-haji bisa jadi kandidat)
 - **JamaahPage.tsx besar** (~1968 baris) — view + filter + pagination + entry ke UmrahRegisterPage + notes, bisa di-split per concern
 - **UmrahRegisterPage.tsx sangat besar** (~1808 baris) — form config + OCR + SearchableSelect + preview modal bisa dipecah
 - **HajiPage.tsx besar** (~1238 baris) — list, login legacy, notes, document viewer popup
@@ -1229,7 +1361,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - **No error boundary** — React errors bisa crash seluruh app
 - **modern-screenshot alignment** — Export image (ComparePage, Haji Plus Export) rawan mengalami vertical overlap jika grid dicampur dengan flexbox; gunakan block layout standar untuk export elements.
 - **CAPI endpoints tidak pakai auth** — hanya dilindungi oleh agent slug (not secret)
-- **telegram-notifier.js besar** (~3040 baris) — bisa di-modularisasi
+- **telegram-notifier.js besar** (~3041 baris) — bisa di-modularisasi
 - **jamaah-api.js masih ada** — file Playwright-based yang deprecated, bisa dihapus
 - **AirLabs API quota** — 1000 calls/bulan di free tier, tracked di `flight_status` table
 - **Flight share `flight_status` column** — harus di-add manual via SQL jika belum ada

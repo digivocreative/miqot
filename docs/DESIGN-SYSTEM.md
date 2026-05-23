@@ -2,7 +2,7 @@
 
 Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 
-Terakhir diperbarui: 2026-05-13
+Terakhir diperbarui: 2026-05-22
 
 ---
 
@@ -2566,6 +2566,249 @@ Body modules:
 - Recent events list with compact metadata.
 
 Use dense card spacing (`space-y-3`, `p-3.5`) because this modal is operational, not editorial.
+
+---
+
+## Portal Jamaah (`src/components/portal-jamaah/`)
+
+Jamaah-facing companion app diakses via `/:slug/jamaah[/<magic-code>][/dashboard]`. Independent dari design tokens dashboard agent — pakai layout `max-w-lg` yang sama, namun dengan signature glassmorphism + emerald gradient yang membedakan branding "untuk jamaah" vs "untuk agent". Dark mode toggleable per session jamaah (independent), persisted di sessionStorage via `usePortalTheme`.
+
+### Sticky Headers — Glassmorphism Pattern
+
+Semua header portal pakai pattern glassmorphism yang sama (PortalTopBar + PortalBackBar). Berbeda dari dashboard header (`bg-white/90`) — portal pakai backdrop saturate + ring border tipis untuk kesan "frosted glass".
+
+```
+sticky top-0 z-30
+border-b border-white/60 dark:border-white/10
+bg-white/70 dark:bg-slate-950/70
+shadow-sm shadow-slate-900/5 dark:shadow-black/20
+backdrop-blur-xl backdrop-saturate-150
+```
+
+#### `PortalTopBar.tsx`
+Inner: `max-w-lg mx-auto px-4 py-3 flex items-center justify-between`. Kiri = Alhijaz logo + title, kanan = optional right-slot (ThemeToggle, dll).
+
+#### `PortalBackBar.tsx`
+Identik PortalTopBar tapi center berisi judul halaman. Back button kiri:
+```
+flex items-center justify-center h-11 w-11 rounded-xl
+bg-white/10 border border-white/60 dark:border-white/10
+text-slate-700 dark:text-slate-200
+```
+Title: kecil "Halaman" + bold judul. Pakai di sub-pages (Perjalanan, Pembayaran, dst).
+
+### `HeroCountdown.tsx` — Departure Timer
+
+Card hero di Beranda dengan countdown ke tanggal keberangkatan. Visual paling kaya di portal.
+
+```
+relative overflow-hidden rounded-2xl
+border border-emerald-200/10
+p-5 text-white
+shadow-lg shadow-emerald-950/15
+```
+
+Background: multi-layer
+1. Linear gradient base `from-emerald-700 via-teal-700 to-emerald-800`
+2. Radial gradient overlay (teal undertone, top-right glow)
+3. Decorative SVG pattern overlay (opacity-10)
+4. Floating blur-glow circle bottom-right (`bg-emerald-400/20 blur-3xl`)
+
+Konten: label uppercase "Berangkat dalam" + countdown digit besar (`text-3xl font-bold`) + tanggal long format + flight info row (kode pesawat, jam) di bawah.
+
+### `PortalMenuCard.tsx` & `PortalMenuGrid.tsx` — Menu Tiles
+
+Grid 3×3 tiles dengan accent color per kategori (`PORTAL_MENUS` constant di `portal-jamaah/lib/portalMenu.ts`). Pakai frosted glass overlay supaya tidak terlalu jenuh.
+
+#### Grid Container
+```
+grid grid-cols-3 gap-3
+```
+
+#### Card
+```
+group relative aspect-square overflow-hidden rounded-2xl
+border p-3.5 shadow-sm
+transition-all duration-200
+active:scale-[0.97] hover:-translate-y-0.5 hover:shadow-xl
+${menu.cardBg} ${menu.cardBorder}
+```
+
+Layer dalam:
+- Frosted overlay: `absolute inset-0 bg-gradient-to-br from-white/40 via-transparent to-transparent pointer-events-none`
+- Icon wrap (`ring-1` warna senada): `h-9 w-9 rounded-xl ${menu.iconBg} ring-1 ring-inset ${menu.iconRing}`
+- Floating blob top-right: `absolute -top-4 -right-4 h-16 w-16 rounded-full ${menu.blob} opacity-20 group-hover:opacity-30 transition-opacity blur-xl`
+- Label bawah: `text-[11px] font-semibold text-slate-700 dark:text-slate-100 leading-tight`
+
+#### Accent Per Menu (`PORTAL_MENUS`)
+
+| Menu | iconBg | cardBg | accent |
+|------|--------|--------|--------|
+| Perjalanan | `bg-emerald-100/80` | `bg-emerald-50/70` | emerald |
+| Pembayaran | `bg-amber-100/80` | `bg-amber-50/70` | amber |
+| Dokumen | `bg-blue-100/80` | `bg-blue-50/70` | blue |
+| Perlengkapan | `bg-violet-100/80` | `bg-violet-50/70` | violet |
+| Manasik | `bg-purple-100/80` | `bg-purple-50/70` | purple |
+| FAQ | `bg-pink-100/80` | `bg-pink-50/70` | pink |
+
+### `SmartAlertsStrip.tsx` — Tone-Aware Alerts
+
+Banner alerts di Beranda. Setiap alert punya `tone` (red/amber/violet/purple) yang menentukan bg+icon+text.
+
+Wrapper: `space-y-2.5`
+
+Per-alert button:
+```
+flex w-full items-center gap-3 rounded-2xl border p-4 text-left
+transition active:scale-[0.98]
+${tone.card}
+```
+
+Tone tokens (red contoh):
+```js
+{
+  card: 'bg-red-50 border-red-100 dark:bg-red-900/20 dark:border-red-800/40',
+  iconWrap: 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-300',
+  text: 'text-red-700 dark:text-red-200'
+}
+```
+
+Icon wrap: `h-10 w-10 rounded-xl flex items-center justify-center`. Chevron `ChevronRight` ukuran 18 di kanan sebagai indikator clickable.
+
+### `TaskListWidget.tsx` — Urgent Tasks
+
+List task per kategori (pembayaran, dokumen, perlengkapan, manasik) dengan icon color match kategori.
+
+Wrapper: `space-y-3`
+
+Per-task:
+```
+flex w-full items-center gap-3 rounded-xl
+border border-gray-100 bg-white p-4 text-left shadow-sm
+transition active:scale-[0.98]
+hover:border-emerald-100
+dark:border-slate-700 dark:bg-slate-800 dark:hover:border-emerald-700
+```
+
+Icon wrap: `h-10 w-10 rounded-xl` dengan accent kategori (sky/amber/violet/purple). Empty state: emerald checkmark "Semua tugas tuntas, semoga lancar ya".
+
+### `StickyWhatsAppCta.tsx` — Pill Footer
+
+Persistent floating CTA WhatsApp ke agent. Muncul-hilang berdasarkan scroll direction.
+
+```
+fixed bottom-6 left-4 right-4 z-50 max-w-lg mx-auto
+bg-gradient-to-r from-emerald-50 via-white to-white
+dark:from-emerald-950/40 dark:via-slate-800 dark:to-slate-800
+backdrop-blur-md
+border border-emerald-100 dark:border-emerald-800/50
+shadow-2xl rounded-full
+flex items-center justify-between p-2 pl-3
+transition-all duration-300 ease-in-out
+```
+
+State: `translate-y-0 opacity-100` (visible, scroll up) / `translate-y-24 opacity-0 pointer-events-none` (hidden, scroll down). Trigger berdasarkan `useScrollDirection` hook lokal.
+
+### `RosterItem.tsx` — Jamaah Roster Card
+
+Item per anggota jamaah dengan avatar, gender ring, payment status overlay, dan progress bar prep.
+
+```
+flex items-center gap-3 rounded-2xl
+border border-gray-100 bg-white p-4 shadow-sm
+dark:border-slate-700 dark:bg-slate-800
+```
+
+Avatar: `h-12 w-12 rounded-full bg-emerald-50 dark:bg-emerald-900/30` + ring gender (`ring-2 ring-pink-300` P, `ring-2 ring-blue-300` L). Corner badge status:
+- Lunas → `bg-emerald-500` ✓
+- DP → `bg-blue-500` clock
+- Belum → `bg-amber-500` "?"
+
+Progress bar prep (di bawah nama):
+- 100% → `bg-emerald-500`
+- ≥50% → `bg-amber-500`
+- < 50% → `bg-rose-500`
+
+### `JamaahPaymentCard.tsx` — Payment Summary
+
+```
+rounded-2xl border border-slate-100 bg-white p-4 shadow-sm
+dark:border-slate-700 dark:bg-slate-800
+```
+
+Header: avatar + nama + status badge. Body: nominal sudah bayar + sisa. Footer: progress bar amber (`bg-amber-500`) jika masih ada sisa, emerald jika lunas.
+
+### `FlightCard.tsx`, `HotelCard.tsx`, `ItineraryList.tsx` — Travel Cards
+
+Pattern data card neutral untuk halaman Perjalanan.
+
+```
+rounded-2xl border border-gray-100 bg-white p-4 shadow-sm
+dark:border-slate-700 dark:bg-slate-800
+```
+
+Header umum: icon wrap `h-10 w-10 rounded-xl` + uppercase label `text-[10px] font-semibold tracking-wide text-slate-500` + title `text-sm font-bold`.
+
+- **FlightCard**: icon emerald (`bg-emerald-50 text-emerald-600`), label "KEBERANGKATAN"/"PULANG", code badge kanan (`bg-gray-100 px-2 py-1 rounded-md text-xs font-mono`).
+- **HotelCard**: icon slate neutral (`bg-slate-100`), label "MEKKAH"/"MADINAH", lokasi `MapPin` + room type.
+- **ItineraryList**: day badges (`h-9 w-9 rounded-xl bg-emerald-50 text-emerald-600 font-bold text-xs`) "D1", "D2", dst. Dividers `border-b border-gray-100`. "Lihat semua hari" expand button jika > 3 hari.
+
+### `ThemeToggle.tsx`
+
+```
+flex h-9 w-9 items-center justify-center rounded-lg
+bg-gray-100/80 dark:bg-slate-800/80
+text-gray-500 dark:text-slate-300
+transition-colors hover:bg-gray-200 dark:hover:bg-slate-700
+active:scale-95
+```
+
+`Sun` icon (light) atau `Moon` icon (dark). State persisted via `usePortalTheme` → sessionStorage key.
+
+### `AgentHeaderBar.tsx`
+
+Header bar di halaman LandingPage (sebelum login magic link) yang menampilkan info agent.
+
+```
+border-b border-slate-100 bg-white
+flex items-center justify-between px-4 py-3
+```
+
+Light-only (tidak ada dark variant di komponen ini karena LandingPage sendiri sudah pakai bg netral). Avatar `h-10 w-10 bg-emerald-50` fallback initials emerald, badge kanan `bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-1 rounded-full` = "Alhijaz".
+
+### `KodeBookingForm.tsx` — Magic Link Self-Service
+
+Form di LandingPage untuk jamaah request magic link sendiri. Input "Kode Booking" + input "WhatsApp" + button submit. Validasi length/format inline. Disabled state saat loading dengan spinner.
+
+### `MagicLinkSuccessCard.tsx`
+
+Konfirmasi setelah magic link berhasil dikirim ke WhatsApp jamaah. Card hijau dengan checkmark icon emerald + pesan "Tautan portal sudah dikirim ke WhatsApp ...".
+
+### Magic Link Auth Flow Tokens
+
+- **Token regex**: `/^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5}$/i` — 5 char alphanumeric, exclude 0/1/i/l/o (sulit dibaca), wajib ada huruf + digit 2-9.
+- **Session cookie**: `jamaah_session` HTTP-only, expires sesuai `jamaah_portal_sessions.expires_at`.
+- **Storage scope**: portal state pakai `sessionStorage` (bukan `localStorage`) karena tab-scope cocok untuk akses sementara.
+
+### Agent-Side Magic Link Controls (`src/components/dashboard/`)
+
+#### `MagicLinkButton.tsx`
+Tombol kecil di row jamaah (di `JamaahPage` / `HajiPage`) untuk trigger modal. Saat ini gated untuk agent `nikita` selama rollout.
+
+```
+inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg
+bg-emerald-50 dark:bg-emerald-900/30
+text-emerald-600 dark:text-emerald-400
+text-[11px] font-semibold
+hover:bg-emerald-100 dark:hover:bg-emerald-900/50
+```
+
+#### `MagicLinkModal.tsx`
+Modal full-screen yang panggil `POST /api/portal/jamaah/:slug/magic-link/generate` lalu menampilkan link + tombol distribusi:
+- WhatsApp (deep link `wa.me/<phone>?text=...` dengan pesan default)
+- SMS (untuk perangkat support)
+- Copy to clipboard
+- Show expires_at + anggota_count (jika booking punya rombongan)
 
 ---
 
