@@ -3,7 +3,7 @@ import { AlertCircle, Loader2 } from 'lucide-react';
 import type { PortalSession } from '../lib/portalSession';
 import { usePortalMe } from '../hooks/usePortalMe';
 import { usePortalTheme } from '../hooks/usePortalTheme';
-import { usePortalRoute } from '../hooks/usePortalRoute';
+import { usePortalRoute, type PortalRoute } from '../hooks/usePortalRoute';
 import { portalApi } from '../lib/portalApi';
 import { clearPortalSession } from '../lib/portalSession';
 import { clearPortalMeCache } from '../hooks/usePortalMe';
@@ -52,9 +52,19 @@ function ErrorScreen({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-export default function PortalDashboard({ slug, session }: { slug: string; session: PortalSession }) {
+export default function PortalDashboard({
+  slug,
+  session,
+  initialRoute,
+  dashboardPath,
+}: {
+  slug: string;
+  session: PortalSession;
+  initialRoute: PortalRoute;
+  dashboardPath: string;
+}) {
   usePortalTheme();
-  const { route, navigate, goBack } = usePortalRoute('beranda');
+  const { route, navigate, goBack } = usePortalRoute(initialRoute, dashboardPath);
   const { data, loading, error, refetch } = usePortalMe();
 
   async function handleLogout() {

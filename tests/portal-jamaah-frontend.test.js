@@ -99,6 +99,30 @@ test('PortalJamaahRouter wires /dashboard to the authenticated dashboard page', 
   assert.doesNotMatch(router, /PortalDashboardPlaceholder/);
 });
 
+test('PortalJamaahRouter and usePortalRoute preserve menu slugs for reloads', () => {
+  const router = read('src/components/portal-jamaah/PortalJamaahRouter.tsx');
+  const dashboard = read('src/components/portal-jamaah/pages/PortalDashboard.tsx');
+  const routeHook = read('src/components/portal-jamaah/hooks/usePortalRoute.ts');
+
+  assert.match(router, /PORTAL_DASHBOARD_ROUTES/);
+  assert.match(router, /parseDashboardRoute/);
+  assert.match(router, /subPath\[2\]/);
+  assert.match(router, /subPath\[1\]/);
+  assert.match(router, /initialRoute=\{initialRoute\}/);
+  assert.match(router, /dashboardPath=\{dashboardPath\}/);
+  assert.match(router, /appendDashboardRoute\(dashboardPath,\s*initialRoute\)/);
+
+  assert.match(dashboard, /initialRoute:\s*PortalRoute/);
+  assert.match(dashboard, /dashboardPath:\s*string/);
+  assert.match(dashboard, /usePortalRoute\(initialRoute,\s*dashboardPath\)/);
+
+  assert.match(routeHook, /dashboardPath/);
+  assert.match(routeHook, /window\.history\.pushState/);
+  assert.match(routeHook, /popstate/);
+  assert.match(routeHook, /routeFromPath/);
+  assert.match(routeHook, /next === 'beranda'\s*\?\s*base\s*:/);
+});
+
 test('portal dashboard shell uses pages and manages routing', () => {
   const dashboard = read('src/components/portal-jamaah/pages/PortalDashboard.tsx');
 
