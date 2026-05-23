@@ -129,7 +129,7 @@ export default function CalendarInsight({ onNavigate }: CalendarInsightProps) {
         >
           {/* Pulsing dot */}
           <div className="relative flex-shrink-0">
-            <div className="w-2 h-2 rounded-full bg-emerald-500" style={{ animation: 'pulse-glow 2s ease-in-out infinite' }} />
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse-glow" />
           </div>
 
           {/* Sparkle icon */}
@@ -296,15 +296,6 @@ export default function CalendarInsight({ onNavigate }: CalendarInsightProps) {
           </>
         )}
       </AnimatePresence>
-
-      {/* Pulse glow animation */}
-      <style>{`
-        @keyframes pulse-glow {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.3); }
-          50% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-        }
-      `}
-      </style>
     </>
   );
 }

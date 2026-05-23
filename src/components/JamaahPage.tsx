@@ -5,10 +5,12 @@ import {
   Calendar, Building2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, RefreshCw,
   ArrowUpDown, SlidersHorizontal, X, Check, Plane, Landmark, PenLine, UserPlus, Plus,
+  FileText, Download, Share2, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { getAuthHeaders, getStoredSession } from './LoginPage';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import { normalizeWaNumber, formatWaDisplay } from '../utils/phone';
+import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import HajiPage from './HajiPage';
 import MagicLinkButton from './dashboard/portal-jamaah-tools/MagicLinkButton';
 
@@ -67,7 +69,7 @@ interface JamaahItem {
   paspor_expired: string | null;
   diskon_kantor: number | null;
   diskon_marketing: number | null;
-  raw_data: { staf?: string; status_bayar?: string; [key: string]: unknown } | null;
+  raw_data: { staf?: string; status_bayar?: string; dokumen_pernyataan?: unknown; [key: string]: unknown } | null;
   synced_at: string;
   notes: string | null;
   notes_updated_at: string | null;
@@ -126,10 +128,19 @@ function mergeRefreshedJamaahItem(current: JamaahItem, fresh: Partial<JamaahItem
     mergedRawData = { ...mergedRawData, staf: current.raw_data.staf };
   }
 
+  let mergedDokumen = current.dokumen;
+  if (fresh.dokumen !== undefined && fresh.dokumen !== null) {
+    mergedDokumen = {
+      ...(current.dokumen || {}),
+      ...(fresh.dokumen || {}),
+    };
+  }
+
   return {
     ...current,
     ...fresh,
     raw_data: mergedRawData,
+    dokumen: mergedDokumen,
     notes: current.notes,
     notes_updated_at: current.notes_updated_at,
   };
@@ -137,6 +148,262 @@ function mergeRefreshedJamaahItem(current: JamaahItem, fresh: Partial<JamaahItem
 
 function isBelumDPJamaah(item: Pick<JamaahItem, 'sisa' | 'bayar'>) {
   return item.sisa > 0 && item.bayar === 0;
+}
+
+function normalizeDocumentPath(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const text = value.trim();
+  if (!text || ['0', 'false', 'null', 'undefined', '-'].includes(text.toLowerCase())) return '';
+  return text;
+}
+
+function getPernyataanDocumentUrl(item: Pick<JamaahItem, 'raw_data'>): string {
+  return normalizeDocumentPath(item.raw_data?.dokumen_pernyataan);
+}
+
+function hasPernyataanDocument(item: Pick<JamaahItem, 'raw_data' | 'dokumen'>): boolean {
+  return Boolean(getPernyataanDocumentUrl(item) || item.dokumen?.pernyataan);
+}
+
+function resolveUmrohPernyataanUrl(url: string, idJamaah: string): string {
+  const params = new URLSearchParams();
+  if (url) params.set('url', url);
+  if (idJamaah) params.set('idJamaah', idJamaah);
+  return `/api/laporan/jamaah/doc-proxy?${params.toString()}`;
+}
+
+function resolveDocumentFormatUrl(url: string, format: 'html' | 'pdf'): string {
+  const nextUrl = new URL(url, window.location.origin);
+  if (format === 'pdf') nextUrl.searchParams.set('format', 'pdf');
+  else nextUrl.searchParams.delete('format');
+  return `${nextUrl.pathname}${nextUrl.search}`;
+}
+
+function buildPernyataanPdfFilename(jamaahName: string): string {
+  const slug = (jamaahName || 'jamaah')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'jamaah';
+  return `surat-pernyataan-${slug}.pdf`;
+}
+
+function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jamaahName: string; onClose: () => void }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [error, setError] = useState('');
+  const [scale, setScale] = useState(1);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const pinchRef = useRef({ startDist: 0, startScale: 1 });
+  const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+  function applyPernyataanZoom(nextScale: number) {
+    try {
+      const documentElement = iframeRef.current?.contentDocument?.documentElement;
+      if (!documentElement) return;
+      documentElement.style.setProperty('zoom', String(nextScale));
+      documentElement.style.setProperty('transform-origin', 'top center');
+    } catch {
+      // Blob previews are same-origin in normal browsers; ignore restricted fallbacks.
+    }
+  }
+
+  const getTouchDistance = (touches: React.TouchList) => {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 2) {
+      pinchRef.current.startDist = getTouchDistance(e.touches);
+      pinchRef.current.startScale = scale;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 2 && pinchRef.current.startDist > 0) {
+      e.preventDefault();
+      const dist = getTouchDistance(e.touches);
+      const ratio = dist / pinchRef.current.startDist;
+      setScale(Math.min(3, Math.max(1, +(pinchRef.current.startScale * ratio).toFixed(2))));
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (scale < 1.1) setScale(1);
+  };
+
+  const zoomIn = () => setScale(prev => Math.min(3, +(prev + 0.25).toFixed(2)));
+  const zoomOut = () => setScale(prev => Math.max(1, +(prev - 0.25).toFixed(2)));
+  const resetZoom = () => setScale(1);
+
+  const handleDownloadPdf = useCallback(async () => {
+    const pdfUrl = resolveDocumentFormatUrl(url, 'pdf');
+    try {
+      setExportingPdf(true);
+      const res = await fetch(pdfUrl, { headers: { ...getAuthHeaders() }, cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const fileName = buildPernyataanPdfFilename(jamaahName);
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+
+      if (canShareFiles([file])) {
+        try {
+          await navigator.share({
+            title: 'Surat Pernyataan',
+            text: `Surat Pernyataan ${jamaahName}`,
+            files: [file],
+          });
+        } catch (shareErr: any) {
+          if (shareErr?.name !== 'AbortError') downloadBlob(blob, fileName);
+        }
+      } else {
+        downloadBlob(blob, fileName);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Gagal mengunduh PDF');
+    } finally {
+      setExportingPdf(false);
+    }
+  }, [url, jamaahName]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        setError('');
+        setScale(1);
+        const res = await fetch(url, { headers: { ...getAuthHeaders() }, cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        if (!cancelled) {
+          setBlobUrl(URL.createObjectURL(blob));
+          setLoading(false);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(err.message || 'Gagal memuat surat pernyataan');
+          setLoading(false);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [url]);
+
+  useEffect(() => {
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+  }, [blobUrl]);
+
+  useEffect(() => {
+    applyPernyataanZoom(scale);
+  }, [scale, blobUrl]);
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
+      initial={{ opacity: 0, y: '100%' }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: '100%' }}
+      transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+    >
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700 shrink-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl">
+        <div className="flex flex-col min-w-0">
+          <p className="text-sm font-bold text-gray-800 dark:text-white">Surat Pernyataan</p>
+          <span className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{jamaahName}</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
+          title="Tutup"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      <div
+        className="relative flex-1 overflow-auto bg-gray-100 dark:bg-slate-950"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {blobUrl && !loading && !error && (
+          <div className="fixed bottom-24 right-4 z-20 flex justify-end pointer-events-none">
+            <div className="pointer-events-auto flex items-center gap-0.5 bg-black/70 backdrop-blur-md rounded-full px-1 py-1 shadow-lg">
+              <button
+                type="button"
+                onClick={zoomOut}
+                disabled={scale <= 1}
+                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                aria-label="Zoom out"
+              >
+                <ZoomOut size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={resetZoom}
+                className="min-w-[44px] text-center text-xs font-semibold text-white px-1 py-1 rounded-full hover:bg-white/20 transition-colors"
+                aria-label="Reset zoom"
+              >
+                {Math.round(scale * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={zoomIn}
+                disabled={scale >= 3}
+                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                aria-label="Zoom in"
+              >
+                <ZoomIn size={18} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="min-h-full flex items-center justify-center">
+            <Loader2 size={28} className="animate-spin text-emerald-500" />
+          </div>
+        ) : error ? (
+          <div className="min-h-full flex flex-col items-center justify-center gap-3 px-8">
+            <p className="text-sm text-red-500 font-medium text-center">{error}</p>
+            <button type="button" onClick={onClose} className="text-xs text-gray-500 underline">Tutup</button>
+          </div>
+        ) : (
+          <iframe
+            ref={iframeRef}
+            src={blobUrl || ''}
+            onLoad={() => applyPernyataanZoom(scale)}
+            className="block h-full min-h-full w-full border-0 bg-gray-100 dark:bg-slate-950"
+            title={`Surat Pernyataan ${jamaahName}`}
+          />
+        )}
+      </div>
+
+      {blobUrl && (
+        <div className="shrink-0 p-4 border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            disabled={exportingPdf}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98]"
+          >
+            {exportingPdf ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : useShareLabel ? (
+              <Share2 size={18} />
+            ) : (
+              <Download size={18} />
+            )}
+            {exportingPdf ? 'Menyiapkan PDF...' : useShareLabel ? 'Bagikan PDF' : 'Unduh PDF'}
+          </button>
+        </div>
+      )}
+    </motion.div>
+  );
 }
 
 // ── Props (session persistence from parent) ──
@@ -210,6 +477,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
   const [expandedId, setExpandedId] = useState<number | null>(null);
   // Modal state for "Lihat Semua" on a Belum DP group card
   const [expandedGroupModal, setExpandedGroupModal] = useState<{ idu: string; members: JamaahItem[] } | null>(null);
+  const [pernyataanViewer, setPernyataanViewer] = useState<{ url: string; jamaahName: string } | null>(null);
 
   // Per-row refresh (Phase 4 — single-jamaah pull from API resmi)
   const [refreshingJmId, setRefreshingJmId] = useState<string | null>(null);
@@ -1383,6 +1651,8 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
               const safeSisaForPct = Math.max(0, item.sisa);
               const total = item.bayar + safeSisaForPct;
               const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((item.bayar / total) * 100))) : 0;
+              const pernyataanDocumentUrl = getPernyataanDocumentUrl(item);
+              const hasPernyataanDocumentButton = hasPernyataanDocument(item);
 
               // Check if Phase 2 has enriched this jamaah (any Phase 2 field has data)
               const isEnriched = !!(item.wa || item.tgl_lahir || item.no_paspor || (item.perlengkapan && Object.keys(item.perlengkapan).length > 0));
@@ -1739,6 +2009,33 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                       ) : null}
                       </AnimatePresence>
 
+                      {hasPernyataanDocumentButton && (
+                        <div className="bg-gray-50/80 dark:bg-slate-900/40 px-3 pt-2.5 pb-1">
+                          <button
+                            type="button"
+                            aria-label="Buka surat pernyataan"
+                            onClick={() => setPernyataanViewer({
+                              url: resolveUmrohPernyataanUrl(pernyataanDocumentUrl, item.jm_id),
+                              jamaahName: item.nama,
+                            })}
+                            className="w-full flex items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white/90 dark:bg-slate-800/90 px-3 py-2.5 text-left hover:border-emerald-200 dark:hover:border-emerald-800/60 hover:bg-emerald-50/35 dark:hover:bg-emerald-900/10 transition-all active:scale-[0.99]"
+                          >
+                            <span className="flex min-w-0 items-center gap-2.5">
+                              <span className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-900/25 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                                <FileText size={15} strokeWidth={2.3} />
+                              </span>
+                              <span className="min-w-0">
+                                <span className="block text-[12px] font-bold text-gray-800 dark:text-white truncate">Surat Pernyataan</span>
+                                <span className="block text-[10px] font-medium text-gray-400 dark:text-slate-500 truncate">Formulir & perjanjian jamaah</span>
+                              </span>
+                            </span>
+                            <span className="w-7 h-7 rounded-lg bg-gray-50 dark:bg-slate-900/50 text-gray-400 dark:text-slate-500 flex items-center justify-center shrink-0">
+                              <ChevronRight size={15} strokeWidth={2.4} />
+                            </span>
+                          </button>
+                        </div>
+                      )}
+
                       {/* ─── Section 3: Perlengkapan & Paspor (tinted block) ─── */}
                       {(() => {
                         // Normalize perlengkapan key for cross-format compatibility:
@@ -1940,8 +2237,8 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
         )}
 
         {/* Pagination */}
-        {data && data.totalPages > 1 && (
-          <div className="flex flex-col items-center gap-2 pt-1">
+          {data && data.totalPages > 1 && (
+            <div className="flex flex-col items-center gap-2 pt-1">
             <div className="flex items-center gap-1.5">
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
@@ -1986,12 +2283,22 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
             <span className="text-[10px] text-gray-400 dark:text-slate-500">
               {((page - 1) * 10) + 1}–{Math.min(page * 10, data.total)} dari {data.total} jamaah
             </span>
-          </div>
-        )}
+            </div>
+          )}
 
-        {/* Belum DP group — Lihat Semua modal */}
-        <AnimatePresence>
-        {expandedGroupModal && (
+          <AnimatePresence>
+          {pernyataanViewer && (
+            <UmrohPernyataanViewer
+              url={pernyataanViewer.url}
+              jamaahName={pernyataanViewer.jamaahName}
+              onClose={() => setPernyataanViewer(null)}
+            />
+          )}
+          </AnimatePresence>
+
+          {/* Belum DP group — Lihat Semua modal */}
+          <AnimatePresence>
+          {expandedGroupModal && (
           <motion.div
             key="group-modal"
             className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4 bg-black/60 backdrop-blur-sm"

@@ -21,6 +21,7 @@ import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaket
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
 import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate } from './telegram-notifier.js';
 import { getBirthdaysForAgent } from './lib/birthdays.js';
+import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCacheableHtmlDocument, JAMAAH_DOCUMENT_TYPES } from './lib/jamaah-document-cache.js';
 import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent, generatePortalJamaahOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
@@ -5327,6 +5328,16 @@ function filterSafeJamaahRows(rows, context) {
   return safe;
 }
 
+function plainObjectOrEmpty(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function mergeUmrohDokumen(existingDokumen, incomingDokumen) {
+  const existing = plainObjectOrEmpty(existingDokumen);
+  const incoming = plainObjectOrEmpty(incomingDokumen);
+  return { ...existing, ...incoming };
+}
+
 // Phase 2 back-fill: merge enrichment fields from parsed laporan items into
 // existing jamaah rows when their `jm_id` was CSS-truncated and got dropped
 // by buildRows. Matches on (agent_id, id_umroh, nama) and narrows same-name
@@ -5385,8 +5396,9 @@ async function enrichJamaahFromLaporanItems(agentId, items, context) {
     }
     if (item.dokumen && Object.keys(item.dokumen).length > 0) {
       const existingD = target.dokumen || {};
-      const changed = Object.keys(item.dokumen).some(k => item.dokumen[k] !== existingD[k]);
-      if (changed) patch.dokumen = item.dokumen;
+      const mergedD = mergeUmrohDokumen(target.dokumen, item.dokumen);
+      const changed = Object.keys(mergedD).some(k => mergedD[k] !== existingD[k]);
+      if (changed) patch.dokumen = mergedD;
     }
 
     if (Object.keys(patch).length === 0) { noPatch++; continue; }
@@ -5597,7 +5609,7 @@ async function fetchExistingJamaahByBooking(agentId, rows) {
     const ids = bookingIds.slice(i, i + CHUNK);
     const { data, error } = await supabase
       .from('jamaah')
-      .select('id_umroh, jm_id, nama, paket, bayar, sisa, tgl_berangkat, tgl_daftar, raw_data')
+      .select('id_umroh, jm_id, nama, paket, bayar, sisa, tgl_berangkat, tgl_daftar, raw_data, dokumen')
       .eq('agent_id', agentId)
       .in('id_umroh', ids);
     if (error) {
@@ -6360,7 +6372,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
             deduped.set(key, row);
             globalKeys.add(key); // Track globally for accurate counter
           }
-          const dedupedRows = Array.from(deduped.values());
+          const dedupedRows = await preserveLegacyUmrohRawDataForRows(agentId, Array.from(deduped.values()));
 
           const BATCH = 50;
           for (let b = 0; b < dedupedRows.length; b += BATCH) {
@@ -6586,7 +6598,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         const rowIduIds = [...new Set(rows.map(r => r.id_umroh).filter(Boolean))];
         const { data: existingPhase1, error: paymentLookupErr } = await supabase
           .from('jamaah')
-          .select('id_umroh, nama, jm_id, bayar, sisa, raw_data')
+          .select('id_umroh, nama, jm_id, bayar, sisa, raw_data, dokumen')
           .eq('agent_id', agentId)
           .in('nama', rowNames)
           .in('id_umroh', rowIduIds);
@@ -6618,6 +6630,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           // Keyed by jm_id so same-name siblings don't contaminate each other.
           const jmIdKey = `${row.id_umroh}_${row.jm_id}`.toLowerCase();
           const existingPayment = existingPaymentByJmId.get(jmIdKey);
+          row.dokumen = mergeUmrohDokumen(existingPayment?.dokumen, row.dokumen);
           if (shouldKeepExistingBayar(existingPayment, row.bayar)) {
             row.bayar = existingPayment.bayar;
           }
@@ -8646,8 +8659,27 @@ function filterUmrohRowsInMemory(rows, {
       if (!haystack.includes(packageNeedle)) return false;
     }
 
-    return true;
+  return true;
   });
+}
+
+async function getCachedUmrohPernyataanJmIds(agentId, rows) {
+  const jmIds = [...new Set((rows || []).map(r => r?.jm_id).filter(Boolean))];
+  if (!agentId || jmIds.length === 0) return new Set();
+
+  const { data, error } = await supabase
+    .from('jamaah_document_cache')
+    .select('jm_id')
+    .eq('agent_id', agentId)
+    .eq('document_type', JAMAAH_DOCUMENT_TYPES.UMROH_PERNYATAAN)
+    .in('jm_id', jmIds);
+
+  if (error) {
+    console.warn('[jamaah] cached surat pernyataan lookup failed:', error.message);
+    return new Set();
+  }
+
+  return new Set((data || []).map(row => row.jm_id).filter(Boolean));
 }
 
 // Jamaah list: read from Supabase with filters, search, pagination, sorting
@@ -8791,6 +8823,7 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
   const pageUnits = units.slice(offset, offset + limitNum);
   const data = pageUnits.flatMap(u => u.members);
   const count = totalUnits;
+  const cachedPernyataanJmIds = await getCachedUmrohPernyataanJmIds(req.user.id, data);
 
   // Helper: apply year filter to count queries
   const applyYearFilter = (q) => hijriahYear ? q.eq('hijriah_year', hijriahYear) : q.gte('hijriah_year', MIN_HIJRIAH_YEAR);
@@ -8813,6 +8846,9 @@ app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
 
   const enrichedItems = data.map(r => ({
     ...r,
+    dokumen: cachedPernyataanJmIds.has(r.jm_id)
+      ? { ...plainObjectOrEmpty(r.dokumen), pernyataan: true }
+      : r.dokumen,
     jadwal_nama: scheduleMap.get(r.raw_data?.id_jadwal) || null,
   }));
 
@@ -10696,11 +10732,179 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/haji/doc-proxy — proxy internal documents to avoid Mixed Content
-app.get('/api/haji/doc-proxy', authMiddleware, async (req, res) => {
+function normalizeTemporaryDocumentUrl(value) {
+  if (typeof value !== 'string') return '';
+  const text = value.trim();
+  if (!text || ['0', 'false', 'null', 'undefined', '-'].includes(text.toLowerCase())) return '';
+  return text;
+}
+
+async function agentOwnsUmrohJamaah(agentId, idJamaah) {
+  if (!agentId || !idJamaah || !/^JM/i.test(idJamaah)) return false;
+
+  const { data, error } = await supabase
+    .from('jamaah')
+    .select('id')
+    .eq('agent_id', agentId)
+    .eq('jm_id', idJamaah)
+    .limit(1);
+
+  if (error) {
+    console.warn(`[doc-proxy] Jamaah ownership check failed for ${idJamaah}:`, error.message);
+    return false;
+  }
+
+  return (data || []).length > 0;
+}
+
+async function getCachedJamaahDocument(agentId, idJamaah, documentType) {
+  if (!agentId || !idJamaah || !documentType) return null;
+
+  const { data, error } = await supabase
+    .from('jamaah_document_cache')
+    .select('content_html, content_type, source_url, fetched_at, html_sha256')
+    .eq('agent_id', agentId)
+    .eq('jm_id', idJamaah)
+    .eq('document_type', documentType)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(`[doc-proxy] Document cache lookup failed for ${idJamaah}:`, error.message);
+    return null;
+  }
+
+  return data?.content_html ? data : null;
+}
+
+async function saveCachedJamaahDocument({ agentId, idJamaah, documentType, sourceUrl, contentType, buffer }) {
+  const row = buildJamaahDocumentCacheRow({
+    agentId,
+    idJamaah,
+    documentType,
+    sourceUrl,
+    contentType,
+    buffer,
+  });
+  if (!row) return null;
+
+  const { error } = await supabase
+    .from('jamaah_document_cache')
+    .upsert(row, { onConflict: 'agent_id,jm_id,document_type' });
+
+  if (error) {
+    console.warn(`[doc-proxy] Document cache save failed for ${idJamaah}:`, error.message);
+    return null;
+  }
+
+  return row;
+}
+
+let jamaahDocumentPdfBrowserPromise = null;
+
+async function renderJamaahDocumentPdf(html) {
+  const { chromium } = await import('playwright');
+  if (!jamaahDocumentPdfBrowserPromise) {
+    jamaahDocumentPdfBrowserPromise = chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    });
+  }
+
+  const browser = await jamaahDocumentPdfBrowserPromise;
+  const page = await browser.newPage({ viewport: { width: 1240, height: 1754 } });
   try {
-    const { url } = req.query;
-    if (!url) return res.status(400).json({ error: 'URL parameter required' });
+    await page.setContent(html, { waitUntil: 'networkidle', timeout: 15000 });
+    const pdf = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '0', right: '0', bottom: '0', left: '0' },
+    });
+    return Buffer.from(pdf);
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+function buildDocumentFilename(baseName, extension) {
+  const safeBase = String(baseName || 'surat-pernyataan')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'surat-pernyataan';
+  return `${safeBase}.${extension}`;
+}
+
+async function sendJamaahDocumentHtmlOrPdf(res, rawHtml, { format = 'html', cacheStatus = 'BYPASS', filenameBase = 'surat-pernyataan' } = {}) {
+  const printableHtml = buildPrintableJamaahDocumentHtml(rawHtml, { title: 'Surat Pernyataan' });
+
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('X-Document-Cache', cacheStatus);
+
+  if (format === 'pdf') {
+    const filename = buildDocumentFilename(filenameBase, 'pdf');
+    const pdf = await renderJamaahDocumentPdf(printableHtml);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(pdf);
+  }
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  return res.send(Buffer.from(printableHtml, 'utf8'));
+}
+
+async function resolveFreshUmrohPernyataanUrl(agent, idJamaah) {
+  if (process.env.AWAPI_SYNC_ENABLED !== 'true') return '';
+  if (!agent?.awapi_key || !idJamaah || !/^JM/i.test(idJamaah)) return '';
+
+  try {
+    const code = agent.awapi_code || agent.awapi_key.split('-')[0];
+    const { rows } = await awapiFetchJamaahById(agent.awapi_key, code, idJamaah);
+    const matchingRow = (rows || []).find(row => String(row?.id_jamaah || '').trim() === idJamaah) || rows?.[0];
+    return normalizeTemporaryDocumentUrl(matchingRow?.dokumen_pernyataan);
+  } catch (err) {
+    console.warn(`[doc-proxy] Fresh umroh pernyataan URL lookup failed for ${idJamaah}:`, err.message);
+    return '';
+  }
+}
+
+async function proxyInternalDocument(req, res) {
+  try {
+    const urlParam = Array.isArray(req.query.url) ? req.query.url[0] : req.query.url;
+    const idJamaahParam = Array.isArray(req.query.idJamaah) ? req.query.idJamaah[0] : req.query.idJamaah;
+    const refreshCacheParam = Array.isArray(req.query.refresh) ? req.query.refresh[0] : req.query.refresh;
+    const formatParam = Array.isArray(req.query.format) ? req.query.format[0] : req.query.format;
+    const format = String(formatParam || '').toLowerCase() === 'pdf' ? 'pdf' : 'html';
+    const refreshCache = ['1', 'true', 'yes'].includes(String(refreshCacheParam || '').toLowerCase());
+    const agent = await getAgentById(req.user.id);
+    let targetUrl = normalizeTemporaryDocumentUrl(urlParam);
+    let cacheKey = null;
+
+    // AWAPI Umroh `dokumen_pernyataan` URLs are short-lived. When the caller
+    // provides idJamaah, use a stored HTML snapshot first, then resolve a fresh
+    // URL just-in-time only when the cache is empty or explicitly refreshed.
+    if (idJamaahParam) {
+      const idJamaah = String(idJamaahParam).trim();
+      if (await agentOwnsUmrohJamaah(req.user.id, idJamaah)) {
+        cacheKey = { idJamaah, documentType: JAMAAH_DOCUMENT_TYPES.UMROH_PERNYATAAN };
+        if (!refreshCache) {
+          const cached = await getCachedJamaahDocument(req.user.id, idJamaah, JAMAAH_DOCUMENT_TYPES.UMROH_PERNYATAAN);
+          if (cached) {
+            return sendJamaahDocumentHtmlOrPdf(res, cached.content_html, {
+              format,
+              cacheStatus: 'HIT',
+              filenameBase: `surat-pernyataan-${idJamaah}`,
+            });
+          }
+        }
+        const freshUrl = await resolveFreshUmrohPernyataanUrl(agent, idJamaah);
+        if (freshUrl) targetUrl = freshUrl;
+      } else {
+        console.warn(`[doc-proxy] Skipped fresh umroh pernyataan URL lookup for non-owned jamaah ${idJamaah}`);
+      }
+    }
+
+    if (!targetUrl) return res.status(400).json({ error: 'URL parameter required' });
 
     // Security: only allow proxying to the known internal server
     const BASE_INTERNAL = process.env.INTERNAL_API_BASE || 'http://115.124.86.220';
@@ -10708,7 +10912,6 @@ app.get('/api/haji/doc-proxy', authMiddleware, async (req, res) => {
     // was repointed (e.g. via tunnel/proxy) are stored as absolute URLs to the old
     // host. Rewrite them to the current BASE_INTERNAL so old DB rows still resolve.
     const LEGACY_INTERNAL_HOSTS = ['http://115.124.86.220', 'https://115.124.86.220'];
-    let targetUrl = url;
 
     // Resolve relative paths
     if (targetUrl.startsWith('/')) {
@@ -10730,7 +10933,6 @@ app.get('/api/haji/doc-proxy', authMiddleware, async (req, res) => {
     }
 
     // Get session cookies for PHP pages (pernyataan needs auth)
-    const agent = await getAgentById(req.user.id);
     const sessionCookies = agent?.jamaah_username ? getSessionCookie(agent.jamaah_username) : null;
 
     const headers = {};
@@ -10739,25 +10941,64 @@ app.get('/api/haji/doc-proxy', authMiddleware, async (req, res) => {
     const response = await fetch(targetUrl, { headers, redirect: 'follow' });
 
     if (!response.ok) {
+      if (cacheKey) {
+        const cached = await getCachedJamaahDocument(req.user.id, cacheKey.idJamaah, cacheKey.documentType);
+        if (cached) {
+          return sendJamaahDocumentHtmlOrPdf(res, cached.content_html, {
+            format,
+            cacheStatus: 'STALE',
+            filenameBase: `surat-pernyataan-${cacheKey.idJamaah}`,
+          });
+        }
+      }
       return res.status(response.status).json({ error: `Failed to fetch document: ${response.status}` });
     }
 
     // Forward content type
     const contentType = response.headers.get('content-type');
-    if (contentType) res.setHeader('Content-Type', contentType);
-
-    // Forward content disposition if present (for PDF downloads)
-    const disposition = response.headers.get('content-disposition');
-    if (disposition) res.setHeader('Content-Disposition', disposition);
 
     // Stream the response body
     const buffer = Buffer.from(await response.arrayBuffer());
+    if (cacheKey && isCacheableHtmlDocument(contentType)) {
+      const cachedRow = await saveCachedJamaahDocument({
+        agentId: req.user.id,
+        idJamaah: cacheKey.idJamaah,
+        documentType: cacheKey.documentType,
+        sourceUrl: targetUrl,
+        contentType,
+        buffer,
+      });
+      return sendJamaahDocumentHtmlOrPdf(res, cachedRow?.content_html || buffer.toString('utf8'), {
+        format,
+        cacheStatus: cachedRow ? 'MISS-STORED' : 'BYPASS',
+        filenameBase: `surat-pernyataan-${cacheKey.idJamaah}`,
+      });
+    }
+
+    if (format === 'pdf' && isCacheableHtmlDocument(contentType)) {
+      return sendJamaahDocumentHtmlOrPdf(res, buffer.toString('utf8'), {
+        format,
+        cacheStatus: 'BYPASS',
+      });
+    }
+
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    if (contentType) res.setHeader('Content-Type', contentType);
+    const disposition = response.headers.get('content-disposition');
+    if (disposition) res.setHeader('Content-Disposition', disposition);
     res.send(buffer);
   } catch (err) {
     console.error('[doc-proxy] Error:', err.message);
     res.status(500).json({ error: 'Gagal memuat dokumen' });
   }
-});
+}
+
+// GET /api/haji/doc-proxy — proxy internal documents to avoid Mixed Content
+app.get('/api/haji/doc-proxy', authMiddleware, proxyInternalDocument);
+
+// GET /api/laporan/jamaah/doc-proxy — proxy Umroh documents from AWAPI/legacy
+app.get('/api/laporan/jamaah/doc-proxy', authMiddleware, proxyInternalDocument);
 
 // ──────────────────────────────────────────────
 // Analytics API
@@ -14660,7 +14901,7 @@ async function syncOneAgent(agent) {
         const laporanNames = items.map(it => it.nama).filter(Boolean);
         const { data: bgExistingPayments, error: bgPaymentLookupErr } = await supabase
           .from('jamaah')
-          .select('id_umroh, nama, jm_id, bayar, sisa, raw_data')
+          .select('id_umroh, nama, jm_id, bayar, sisa, raw_data, dokumen')
           .eq('agent_id', agentId)
           .in('nama', laporanNames);
         if (bgPaymentLookupErr) console.warn(`[SYNC] ${slug} bayar lookup error:`, bgPaymentLookupErr.message);
@@ -14685,6 +14926,7 @@ async function syncOneAgent(agent) {
             // bayar normally should not regress. Exception: old Phase 1 detail
             // rows were grossed up by discounts; let Phase 2 correct those.
             const bgExistingPayment = bgExistingPaymentByJmId.get(`${row.id_umroh}_${row.jm_id}`.toLowerCase());
+            row.dokumen = mergeUmrohDokumen(bgExistingPayment?.dokumen, row.dokumen);
             if (shouldKeepExistingBayar(bgExistingPayment, row.bayar)) {
               row.bayar = bgExistingPayment.bayar;
             }

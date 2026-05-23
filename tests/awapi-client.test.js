@@ -149,6 +149,16 @@ test('normalizeAwapiRow nulls current-year birth dates from AWAPI placeholders',
   assert.equal(norm.tgl_lahir, null);
 });
 
+test('normalizeAwapiRow marks dokumen_pernyataan as a ready umroh document', () => {
+  const norm = normalizeAwapiRow(rawRow({
+    dokumen: { paspor: true },
+    dokumen_pernyataan: 'surat/pernyataan/AIW0028902.pdf',
+  }), { agentId: 'agent-id' });
+
+  assert.equal(norm.raw_data.dokumen_pernyataan, 'surat/pernyataan/AIW0028902.pdf');
+  assert.deepEqual(norm.dokumen, { paspor: true, pernyataan: true });
+});
+
 test('preserveLegacyUmrohRawData keeps legacy staff when AWAPI refresh omits it', () => {
   const norm = normalizeAwapiRow(rawRow({
     perlengkapan: { koper: true },
@@ -178,6 +188,28 @@ test('preserveLegacyUmrohRawData exposes AWAPI staff as staf when present', () =
   });
 
   assert.equal(merged.raw_data.staf, 'PAK RIZAL');
+});
+
+test('preserveLegacyUmrohRawData keeps existing surat pernyataan markers when incoming rows omit them', () => {
+  const norm = normalizeAwapiRow(rawRow({
+    dokumen: { paspor: true },
+  }), { agentId: 'agent-id' });
+
+  const merged = preserveLegacyUmrohRawData(norm, {
+    raw_data: {
+      dokumen_pernyataan: 'http://115.124.86.220/dok/pernyataan/SM01078-token',
+    },
+    dokumen: {
+      paspor: true,
+      pernyataan: true,
+    },
+  });
+
+  assert.equal(merged.raw_data.dokumen_pernyataan, 'http://115.124.86.220/dok/pernyataan/SM01078-token');
+  assert.deepEqual(merged.dokumen, {
+    paspor: true,
+    pernyataan: true,
+  });
 });
 
 test('hasSuspiciousAwapiPayment flags negative sisa from inflated AWAPI bayar', () => {

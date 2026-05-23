@@ -254,6 +254,27 @@ function safePaspor(v) {
   return t;
 }
 
+function hasReadyDocument(v) {
+  if (v === null || v === undefined) return false;
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v !== 0;
+  const t = safeText(v);
+  if (!t) return false;
+  return !['0', 'false', 'null', 'undefined', '-'].includes(t.toLowerCase());
+}
+
+function normalizeUmrohDokumen(raw) {
+  const dokumen = raw?.dokumen && typeof raw.dokumen === 'object' && !Array.isArray(raw.dokumen)
+    ? { ...raw.dokumen }
+    : {};
+
+  if (Object.hasOwn(raw || {}, 'dokumen_pernyataan')) {
+    dokumen.pernyataan = hasReadyDocument(raw.dokumen_pernyataan);
+  }
+
+  return Object.keys(dokumen).length > 0 ? dokumen : null;
+}
+
 function safeYear(v) {
   const t = safeText(v);
   if (!t || t === '0') return null;
@@ -302,7 +323,7 @@ export function normalizeAwapiRow(raw, { agentId } = {}) {
     no_paspor: safePaspor(raw.paspor_nomor),
     paspor_expired: safeDate(raw.paspor_expired),
     perlengkapan: raw.perlengkapan && typeof raw.perlengkapan === 'object' ? raw.perlengkapan : null,
-    dokumen: raw.dokumen && typeof raw.dokumen === 'object' ? raw.dokumen : null,
+    dokumen: normalizeUmrohDokumen(raw),
     diskon_kantor: safeBigint(raw.diskon_kantor),
     diskon_marketing: safeBigint(raw.diskon_marketing),
     raw_data: raw,
@@ -320,6 +341,9 @@ export function preserveLegacyUmrohRawData(row, existing) {
   const incomingRaw = safeRawObject(row.raw_data);
   const existingRaw = safeRawObject(existing?.raw_data);
   const raw_data = { ...existingRaw, ...incomingRaw };
+  if (!hasReadyDocument(incomingRaw.dokumen_pernyataan) && hasReadyDocument(existingRaw.dokumen_pernyataan)) {
+    raw_data.dokumen_pernyataan = existingRaw.dokumen_pernyataan;
+  }
 
   const incomingStaff = safeText(incomingRaw.staf) || safeText(incomingRaw.staff);
   const existingStaff = safeText(existingRaw.staf) || safeText(existingRaw.staff);
@@ -334,7 +358,15 @@ export function preserveLegacyUmrohRawData(row, existing) {
     raw_data.id_jadwal = existingScheduleId;
   }
 
-  return { ...row, raw_data };
+  const incomingDokumen = safeRawObject(row.dokumen);
+  const existingDokumen = safeRawObject(existing?.dokumen);
+  const dokumen = { ...existingDokumen, ...incomingDokumen };
+
+  return {
+    ...row,
+    raw_data,
+    dokumen: Object.keys(dokumen).length > 0 ? dokumen : row.dokumen,
+  };
 }
 
 /**

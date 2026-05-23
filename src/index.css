@@ -65,6 +65,7 @@ body {
   .animate-icon-twinkle  { animation: icon-twinkle  2.4s ease-in-out infinite; transform-origin: center; }
   .animate-icon-spin-slow{ animation: icon-spin-slow 12s linear      infinite; transform-origin: center; }
   .animate-icon-rise     { animation: icon-rise     3s   ease-in-out infinite; transform-origin: center; }
+  .animate-pulse-glow    { animation: pulse-glow    2s   ease-in-out infinite; }
 }
 
 @keyframes icon-float {
@@ -95,6 +96,10 @@ body {
 @keyframes icon-rise {
   0%, 100% { transform: translateY(0) scale(1); }
   50%      { transform: translateY(-1.5px) scale(1.05); }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.3); }
+  50%      { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
 }
 
 /* Custom scrollbar */
