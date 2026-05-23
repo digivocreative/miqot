@@ -114,6 +114,27 @@ function shouldAutoRefreshPerlengkapan(item: JamaahItem) {
   return incomplete && isStaleSyncedAt(item.synced_at);
 }
 
+function mergeRefreshedJamaahItem(current: JamaahItem, fresh: Partial<JamaahItem>): JamaahItem {
+  let mergedRawData = current.raw_data;
+  if (fresh.raw_data !== undefined && fresh.raw_data !== null) {
+    mergedRawData = {
+      ...(current.raw_data || {}),
+      ...(fresh.raw_data || {}),
+    };
+  }
+  if (current.raw_data?.staf && mergedRawData && !mergedRawData.staf) {
+    mergedRawData = { ...mergedRawData, staf: current.raw_data.staf };
+  }
+
+  return {
+    ...current,
+    ...fresh,
+    raw_data: mergedRawData,
+    notes: current.notes,
+    notes_updated_at: current.notes_updated_at,
+  };
+}
+
 function isBelumDPJamaah(item: Pick<JamaahItem, 'sisa' | 'bayar'>) {
   return item.sisa > 0 && item.bayar === 0;
 }
@@ -284,7 +305,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
           ...prev,
           items: prev.items.map(j =>
             j.jm_id === item.jm_id && j.id_umroh === item.id_umroh
-              ? { ...j, ...fresh, notes: j.notes, notes_updated_at: j.notes_updated_at }
+              ? mergeRefreshedJamaahItem(j, fresh)
               : j
           ),
         } : prev);

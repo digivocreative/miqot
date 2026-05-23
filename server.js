@@ -37,6 +37,7 @@ import {
   normalizeAwapiRow,
   hasSuspiciousAwapiPayment,
   preserveExistingPaymentForSuspiciousAwapiRow,
+  preserveLegacyUmrohRawData,
   AwapiError,
 } from './awapi-client.js';
 import {
@@ -5611,6 +5612,16 @@ async function fetchExistingJamaahByBooking(agentId, rows) {
   return existingByKey;
 }
 
+async function preserveLegacyUmrohRawDataForRows(agentId, rows) {
+  const incomingRows = Array.isArray(rows) ? rows : [];
+  if (incomingRows.length === 0) return incomingRows;
+
+  const existingByKey = await fetchExistingJamaahByBooking(agentId, incomingRows);
+  return incomingRows.map((row) => (
+    preserveLegacyUmrohRawData(row, existingByKey.get(jamaahRowKey(row)))
+  ));
+}
+
 async function detectUmrohJamaahSyncEvents(agentId, rows, options = {}) {
   const deduped = new Map();
   for (const row of rows || []) {
@@ -5847,7 +5858,7 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
     }
   }
 
-  const allRows = Array.from(rowsByKey.values());
+  const allRows = await preserveLegacyUmrohRawDataForRows(agentId, Array.from(rowsByKey.values()));
   console.log(`[Sync/api/${context}] ${slug}: ${allRows.length} unique rows from ${keberangkatanYearsCompleted}/${yearsToSync.length} keberangkatan years + pendaftaran backfill (${fetchErrors} fetch errors)`);
   const suspiciousPaymentRows = allRows.filter(hasSuspiciousAwapiPayment);
   if (suspiciousPaymentRows.length > 0) {
@@ -6720,7 +6731,8 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
     if (!norm) {
       return res.status(422).json({ error: 'Data jamaah tidak lengkap untuk dinormalisasi' });
     }
-    const guardedRefresh = await preserveSuspiciousAwapiRefreshPayments(agentId, [norm]);
+    const [legacyPreservedNorm] = await preserveLegacyUmrohRawDataForRows(agentId, [norm]);
+    const guardedRefresh = await preserveSuspiciousAwapiRefreshPayments(agentId, [legacyPreservedNorm]);
     if (guardedRefresh.unresolved.length > 0) {
       return res.status(409).json({ error: 'Data pembayaran dari API resmi tidak konsisten dan belum ada data pembayaran valid untuk dipertahankan. Jalankan sync penuh agar sistem memakai data legacy.' });
     }
@@ -6790,7 +6802,8 @@ app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) 
     if (normalized.length === 0) {
       return res.status(422).json({ error: 'Tidak ada baris jamaah valid pada booking ini' });
     }
-    const guardedRefresh = await preserveSuspiciousAwapiRefreshPayments(agentId, normalized);
+    const legacyPreservedRows = await preserveLegacyUmrohRawDataForRows(agentId, normalized);
+    const guardedRefresh = await preserveSuspiciousAwapiRefreshPayments(agentId, legacyPreservedRows);
     if (guardedRefresh.unresolved.length > 0) {
       return res.status(409).json({ error: 'Data pembayaran dari API resmi tidak konsisten dan belum ada data pembayaran valid untuk dipertahankan. Jalankan sync penuh agar sistem memakai data legacy.' });
     }

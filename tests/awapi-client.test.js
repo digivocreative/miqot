@@ -6,6 +6,7 @@ import {
   normalizeAwapiRow,
   parseAwapiResponseText,
   preserveExistingPaymentForSuspiciousAwapiRow,
+  preserveLegacyUmrohRawData,
 } from '../awapi-client.js';
 
 function jakartaYear() {
@@ -148,6 +149,37 @@ test('normalizeAwapiRow nulls current-year birth dates from AWAPI placeholders',
   assert.equal(norm.tgl_lahir, null);
 });
 
+test('preserveLegacyUmrohRawData keeps legacy staff when AWAPI refresh omits it', () => {
+  const norm = normalizeAwapiRow(rawRow({
+    perlengkapan: { koper: true },
+  }), { agentId: 'agent-id' });
+
+  const merged = preserveLegacyUmrohRawData(norm, {
+    raw_data: {
+      staf: 'BU ANITA',
+      id_jadwal: 'JADWAL-1448-01',
+    },
+  });
+
+  assert.equal(merged.raw_data.staf, 'BU ANITA');
+  assert.equal(merged.raw_data.id_jadwal, 'JADWAL-1448-01');
+  assert.deepEqual(merged.perlengkapan, { koper: true });
+});
+
+test('preserveLegacyUmrohRawData exposes AWAPI staff as staf when present', () => {
+  const norm = normalizeAwapiRow(rawRow({
+    staff: 'PAK RIZAL',
+  }), { agentId: 'agent-id' });
+
+  const merged = preserveLegacyUmrohRawData(norm, {
+    raw_data: {
+      staf: 'BU ANITA',
+    },
+  });
+
+  assert.equal(merged.raw_data.staf, 'PAK RIZAL');
+});
+
 test('hasSuspiciousAwapiPayment flags negative sisa from inflated AWAPI bayar', () => {
   const norm = normalizeAwapiRow(rawRow({
     bayar: '101700000',
@@ -195,6 +227,7 @@ test('preserveExistingPaymentForSuspiciousAwapiRow keeps verified DB payment dur
   assert.equal(guarded.diskon_marketing, 250000);
   assert.equal(guarded.wa, '6281234567890');
   assert.equal(guarded.no_paspor, 'A1234567');
+  assert.equal(guarded.raw_data.payment_source, 'legacy_detail');
   assert.equal(guarded.raw_data.payment_guard, 'preserved_existing_after_awapi_anomaly');
   assert.deepEqual(guarded.raw_data.preserved_payment_snapshot, {
     bayar: 33900000,

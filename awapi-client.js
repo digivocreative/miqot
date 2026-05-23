@@ -310,6 +310,33 @@ export function normalizeAwapiRow(raw, { agentId } = {}) {
   };
 }
 
+function safeRawObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+export function preserveLegacyUmrohRawData(row, existing) {
+  if (!row) return row;
+
+  const incomingRaw = safeRawObject(row.raw_data);
+  const existingRaw = safeRawObject(existing?.raw_data);
+  const raw_data = { ...existingRaw, ...incomingRaw };
+
+  const incomingStaff = safeText(incomingRaw.staf) || safeText(incomingRaw.staff);
+  const existingStaff = safeText(existingRaw.staf) || safeText(existingRaw.staff);
+  if (incomingStaff) {
+    raw_data.staf = incomingStaff;
+  } else if (!safeText(raw_data.staf) && existingStaff) {
+    raw_data.staf = existingStaff;
+  }
+
+  const existingScheduleId = safeText(existingRaw.id_jadwal);
+  if (!safeText(raw_data.id_jadwal) && existingScheduleId) {
+    raw_data.id_jadwal = existingScheduleId;
+  }
+
+  return { ...row, raw_data };
+}
+
 /**
  * Project a raw Haji API row into the shape of the `jamaah_haji` table.
  *
@@ -375,13 +402,13 @@ export function preserveExistingPaymentForSuspiciousAwapiRow(row, existing) {
     diskon_marketing: safeBigint(existing.diskon_marketing) || 0,
   };
   const rowRaw = row?.raw_data && typeof row.raw_data === 'object' ? row.raw_data : {};
-  const existingRaw = existing?.raw_data && typeof existing.raw_data === 'object' ? existing.raw_data : {};
+  const preservedRaw = preserveLegacyUmrohRawData(row, existing)?.raw_data || {};
 
   return {
     ...row,
     ...preservedPayment,
     raw_data: {
-      ...existingRaw,
+      ...preservedRaw,
       awapi_refresh_snapshot: rowRaw,
       payment_guard: 'preserved_existing_after_awapi_anomaly',
       suspicious_awapi_payment_snapshot: {
