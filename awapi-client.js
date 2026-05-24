@@ -23,6 +23,13 @@
  * which is computed by the caller from `tgl_berangkat`).
  */
 
+import {
+  PAYMENT_SOURCE_AWAPI,
+  isAwapiPaymentSource,
+  stampPaymentRaw,
+  stripLegacyPaymentRawForAwapi,
+} from './lib/jamaah-payment-provenance.js';
+
 const BASE = process.env.AWAPI_BASE || 'http://115.124.86.220';
 const DEFAULT_TIMEOUT_MS = 20_000;
 const RETRY_DELAY_MS = 800;
@@ -306,6 +313,7 @@ export function normalizeAwapiRow(raw, { agentId } = {}) {
   const jm_id = safeText(raw.id_jamaah);
   const nama = safeText(raw.nama);
   if (!id_umroh || !jm_id || !nama) return null;
+  const syncedAt = new Date().toISOString();
 
   return {
     agent_id: agentId,
@@ -326,8 +334,8 @@ export function normalizeAwapiRow(raw, { agentId } = {}) {
     dokumen: normalizeUmrohDokumen(raw),
     diskon_kantor: safeBigint(raw.diskon_kantor),
     diskon_marketing: safeBigint(raw.diskon_marketing),
-    raw_data: raw,
-    synced_at: new Date().toISOString(),
+    raw_data: stampPaymentRaw(raw, PAYMENT_SOURCE_AWAPI, syncedAt),
+    synced_at: syncedAt,
   };
 }
 
@@ -340,7 +348,10 @@ export function preserveLegacyUmrohRawData(row, existing) {
 
   const incomingRaw = safeRawObject(row.raw_data);
   const existingRaw = safeRawObject(existing?.raw_data);
-  const raw_data = { ...existingRaw, ...incomingRaw };
+  const rawBase = isAwapiPaymentSource(incomingRaw)
+    ? stripLegacyPaymentRawForAwapi(existingRaw)
+    : existingRaw;
+  const raw_data = { ...rawBase, ...incomingRaw };
   if (!hasReadyDocument(incomingRaw.dokumen_pernyataan) && hasReadyDocument(existingRaw.dokumen_pernyataan)) {
     raw_data.dokumen_pernyataan = existingRaw.dokumen_pernyataan;
   }
@@ -434,7 +445,10 @@ export function preserveExistingPaymentForSuspiciousAwapiRow(row, existing) {
     diskon_marketing: safeBigint(existing.diskon_marketing) || 0,
   };
   const rowRaw = row?.raw_data && typeof row.raw_data === 'object' ? row.raw_data : {};
+  const existingRaw = safeRawObject(existing?.raw_data);
   const preservedRaw = preserveLegacyUmrohRawData(row, existing)?.raw_data || {};
+  if (existingRaw.payment_source) preservedRaw.payment_source = existingRaw.payment_source;
+  if (existingRaw.payment_synced_at) preservedRaw.payment_synced_at = existingRaw.payment_synced_at;
 
   return {
     ...row,

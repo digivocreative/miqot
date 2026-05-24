@@ -28,6 +28,9 @@ import { regenerateOgForAgent, generatePortalJamaahOgPng, loadAgentPhotoBuffer }
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import {
+  prepareLegacyPaymentRowForUpsert,
+} from './lib/jamaah-payment-provenance.js';
+import {
   awapiFetchUmrahByKeberangkatan,
   awapiFetchUmrahByPendaftaran,
   awapiFetchUmrahById,
@@ -5634,6 +5637,28 @@ async function preserveLegacyUmrohRawDataForRows(agentId, rows) {
   ));
 }
 
+async function prepareLegacyPaymentRowsForUpsert(agentId, rows, timestamp) {
+  const incomingRows = Array.isArray(rows) ? rows : [];
+  if (incomingRows.length === 0) return incomingRows;
+
+  const existingByKey = await fetchExistingJamaahByBooking(agentId, incomingRows);
+  return incomingRows.map((row) => {
+    const existing = existingByKey.get(jamaahRowKey(row));
+    const merged = preserveLegacyUmrohRawData(row, existing);
+    return prepareLegacyPaymentRowForUpsert(merged, existing, timestamp);
+  });
+}
+
+function splitLegacyRowsByPaymentPayload(rows) {
+  const withPayment = [];
+  const enrichmentOnly = [];
+  for (const row of rows || []) {
+    if (Object.hasOwn(row || {}, 'bayar')) withPayment.push(row);
+    else enrichmentOnly.push(row);
+  }
+  return [withPayment, enrichmentOnly].filter(group => group.length > 0);
+}
+
 async function detectUmrohJamaahSyncEvents(agentId, rows, options = {}) {
   const deduped = new Map();
   for (const row of rows || []) {
@@ -5913,9 +5938,8 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
   }
 
   // Fire notifications only after a fully successful sync. If the throw above
-  // triggers, syncOneAgent falls back to legacy scrape — legacy bayar may lag
-  // behind API, overwriting the row with a stale lower value, which makes the
-  // next API cycle re-detect the same payment delta and re-fire the notif.
+  // triggers a legacy fallback, payment rows already claimed by AWAPI remain
+  // protected by raw_data.payment_source.
   queueJamaahSyncNotifications(agentId, syncEvents, `api/${context}/${slug}`);
 
   // Cleanup: only run if all years fetched successfully.
@@ -6372,21 +6396,23 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
             deduped.set(key, row);
             globalKeys.add(key); // Track globally for accurate counter
           }
-          const dedupedRows = await preserveLegacyUmrohRawDataForRows(agentId, Array.from(deduped.values()));
+          const dedupedRows = await prepareLegacyPaymentRowsForUpsert(agentId, Array.from(deduped.values()), now);
 
           const BATCH = 50;
-          for (let b = 0; b < dedupedRows.length; b += BATCH) {
-            const upsertBatch = filterSafeJamaahRows(dedupedRows.slice(b, b + BATCH), 'P1-manual');
-            if (upsertBatch.length === 0) continue;
-            const batchEvents = await detectUmrohJamaahSyncEvents(agentId, upsertBatch, { allowNewJamaah: allowNewJamaahNotify });
-            const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
-            if (error) console.error(`[Sync] ${slug} Phase 1 upsert error:`, error.message);
-            else {
-              mergeJamaahSyncEvents(syncEvents, batchEvents);
-              const upsertedIds = upsertBatch.map(r => ({ id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama }));
-              processCapiPurchases(agentId, slug, 'umroh', upsertedIds).catch(e =>
-                console.error(`[CAPI] Manual sync Phase 1 Purchase error:`, e.message)
-              );
+          for (const rowGroup of splitLegacyRowsByPaymentPayload(dedupedRows)) {
+            for (let b = 0; b < rowGroup.length; b += BATCH) {
+              const upsertBatch = filterSafeJamaahRows(rowGroup.slice(b, b + BATCH), 'P1-manual');
+              if (upsertBatch.length === 0) continue;
+              const batchEvents = await detectUmrohJamaahSyncEvents(agentId, upsertBatch, { allowNewJamaah: allowNewJamaahNotify });
+              const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id', defaultToNull: false });
+              if (error) console.error(`[Sync] ${slug} Phase 1 upsert error:`, error.message);
+              else {
+                mergeJamaahSyncEvents(syncEvents, batchEvents);
+                const upsertedIds = upsertBatch.map(r => ({ id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama }));
+                processCapiPurchases(agentId, slug, 'umroh', upsertedIds).catch(e =>
+                  console.error(`[CAPI] Manual sync Phase 1 Purchase error:`, e.message)
+                );
+              }
             }
           }
           syncingAgents.set(agentId, { isSyncing: true, scope: 'umroh-manual', totalSynced: globalKeys.size, phase: 1, completedYears: [], lastSync: now });
@@ -6655,14 +6681,17 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           }
           return true;
         });
+        const guardedRows = await prepareLegacyPaymentRowsForUpsert(agentId, safeRows, now);
         const BATCH = 50;
-        for (let b = 0; b < safeRows.length; b += BATCH) {
-          const upsertBatch = filterSafeJamaahRows(safeRows.slice(b, b + BATCH), 'P2-manual');
-          if (upsertBatch.length === 0) continue;
-          const batchEvents = await detectUmrohJamaahSyncEvents(agentId, upsertBatch, { allowNewJamaah: allowNewJamaahNotify });
-          const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
-          if (error) console.error(`[Sync] ${slug} Phase 2 range ${job.tglAwal} error:`, error.message);
-          else mergeJamaahSyncEvents(syncEvents, batchEvents);
+        for (const rowGroup of splitLegacyRowsByPaymentPayload(guardedRows)) {
+          for (let b = 0; b < rowGroup.length; b += BATCH) {
+            const upsertBatch = filterSafeJamaahRows(rowGroup.slice(b, b + BATCH), 'P2-manual');
+            if (upsertBatch.length === 0) continue;
+            const batchEvents = await detectUmrohJamaahSyncEvents(agentId, upsertBatch, { allowNewJamaah: allowNewJamaahNotify });
+            const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id', defaultToNull: false });
+            if (error) console.error(`[Sync] ${slug} Phase 2 range ${job.tglAwal} error:`, error.message);
+            else mergeJamaahSyncEvents(syncEvents, batchEvents);
+          }
         }
         // Back-fill enrichment for items whose CSS-truncated jm_id got dropped
         // by buildRows. Targets existing rows keyed on (id_umroh, nama), using
@@ -14742,14 +14771,17 @@ async function syncOneAgent(agent) {
               }
             }
 
+            const guardedRows = await prepareLegacyPaymentRowsForUpsert(agentId, dedupedRows, syncTime);
             const BATCH = 50;
-            for (let b = 0; b < dedupedRows.length; b += BATCH) {
-              const upsertBatch = filterSafeJamaahRows(dedupedRows.slice(b, b + BATCH), 'P1-bg');
-              if (upsertBatch.length === 0) continue;
-              const batchEvents = await detectUmrohJamaahSyncEvents(agentId, upsertBatch, { allowNewJamaah: allowNewJamaahNotify });
-              const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id' });
-              if (error) console.error(`[SYNC] ${slug} Phase 1 upsert error:`, error.message);
-              else mergeJamaahSyncEvents(syncEvents, batchEvents);
+            for (const rowGroup of splitLegacyRowsByPaymentPayload(guardedRows)) {
+              for (let b = 0; b < rowGroup.length; b += BATCH) {
+                const upsertBatch = filterSafeJamaahRows(rowGroup.slice(b, b + BATCH), 'P1-bg');
+                if (upsertBatch.length === 0) continue;
+                const batchEvents = await detectUmrohJamaahSyncEvents(agentId, upsertBatch, { allowNewJamaah: allowNewJamaahNotify });
+                const { error } = await supabase.from('jamaah').upsert(upsertBatch, { onConflict: 'agent_id,id_umroh,jm_id', defaultToNull: false });
+                if (error) console.error(`[SYNC] ${slug} Phase 1 upsert error:`, error.message);
+                else mergeJamaahSyncEvents(syncEvents, batchEvents);
+              }
             }
           }
         }
@@ -14931,15 +14963,18 @@ async function syncOneAgent(agent) {
               row.bayar = bgExistingPayment.bayar;
             }
           }
-          allNewRows.push(...rows);
-          const safeRows = filterSafeJamaahRows(rows, 'P2-bg');
-          if (safeRows.length > 0) {
-            const batchEvents = await detectUmrohJamaahSyncEvents(agentId, safeRows, { allowNewJamaah: allowNewJamaahNotify });
-            const { error } = await supabase
-              .from('jamaah')
-              .upsert(safeRows, { onConflict: 'agent_id,id_umroh,jm_id' });
-            if (error) console.error(`[SYNC] ${slug} range ${job.tglAwal} batch error:`, error.message);
-            else mergeJamaahSyncEvents(syncEvents, batchEvents);
+          const guardedRows = await prepareLegacyPaymentRowsForUpsert(agentId, rows, syncTime);
+          allNewRows.push(...guardedRows);
+          for (const rowGroup of splitLegacyRowsByPaymentPayload(guardedRows)) {
+            const safeRows = filterSafeJamaahRows(rowGroup, 'P2-bg');
+            if (safeRows.length > 0) {
+              const batchEvents = await detectUmrohJamaahSyncEvents(agentId, safeRows, { allowNewJamaah: allowNewJamaahNotify });
+              const { error } = await supabase
+                .from('jamaah')
+                .upsert(safeRows, { onConflict: 'agent_id,id_umroh,jm_id', defaultToNull: false });
+              if (error) console.error(`[SYNC] ${slug} range ${job.tglAwal} batch error:`, error.message);
+              else mergeJamaahSyncEvents(syncEvents, batchEvents);
+            }
           }
           // Phase 2 is enrichment, not new-jamaah-count. Don't re-count — same jamaah
           // appears across multiple 7-day chunks which would inflate the counter.

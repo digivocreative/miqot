@@ -144,6 +144,13 @@ test('normalizeAwapiRow keeps plausible birth dates', () => {
   assert.equal(norm.tgl_berangkat, `${jakartaYear()}-08-15`);
 });
 
+test('normalizeAwapiRow stamps AWAPI as payment provenance', () => {
+  const norm = normalizeAwapiRow(rawRow(), { agentId: 'agent-id' });
+
+  assert.equal(norm.raw_data.payment_source, 'awapi');
+  assert.match(norm.raw_data.payment_synced_at, /^\d{4}-\d{2}-\d{2}T/);
+});
+
 test('normalizeAwapiRow nulls current-year birth dates from AWAPI placeholders', () => {
   const norm = normalizeAwapiRow(rawRow({ tgl_lahir: `${jakartaYear()}-05-12` }), { agentId: 'agent-id' });
   assert.equal(norm.tgl_lahir, null);
@@ -174,6 +181,36 @@ test('preserveLegacyUmrohRawData keeps legacy staff when AWAPI refresh omits it'
   assert.equal(merged.raw_data.staf, 'BU ANITA');
   assert.equal(merged.raw_data.id_jadwal, 'JADWAL-1448-01');
   assert.deepEqual(merged.perlengkapan, { koper: true });
+});
+
+test('preserveLegacyUmrohRawData drops legacy payment raw when AWAPI takes over payment', () => {
+  const norm = normalizeAwapiRow(rawRow({
+    bayar: '15000000',
+    bayar_sisa: '13900000',
+  }), { agentId: 'agent-id' });
+
+  const merged = preserveLegacyUmrohRawData(norm, {
+    raw_data: {
+      source: 'umrah_detail',
+      bayar_gross: 5000000,
+      harga_paket: 28900000,
+      status_bayar: 'CICILAN',
+      staf: 'BU ANITA',
+      id_jadwal: 'JBU1508',
+    },
+  });
+
+  assert.equal(merged.bayar, 15000000);
+  assert.equal(merged.sisa, 13900000);
+  assert.equal(merged.raw_data.payment_source, 'awapi');
+  assert.equal(merged.raw_data.bayar, '15000000');
+  assert.equal(merged.raw_data.bayar_sisa, '13900000');
+  assert.equal(Object.hasOwn(merged.raw_data, 'bayar_gross'), false);
+  assert.equal(Object.hasOwn(merged.raw_data, 'harga_paket'), false);
+  assert.equal(Object.hasOwn(merged.raw_data, 'status_bayar'), false);
+  assert.equal(Object.hasOwn(merged.raw_data, 'source'), false);
+  assert.equal(merged.raw_data.staf, 'BU ANITA');
+  assert.equal(merged.raw_data.id_jadwal, 'JBU1508');
 });
 
 test('preserveLegacyUmrohRawData exposes AWAPI staff as staf when present', () => {
