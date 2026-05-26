@@ -63,6 +63,7 @@ import {
   parseMandiriKursHtml,
   shouldReplaceKursCache,
 } from './lib/kurs-mandiri.js';
+import { shouldRunBackgroundJobs } from './lib/background-jobs.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
 import cron from 'node-cron';
@@ -500,7 +501,11 @@ async function fetchKursWithRetry() {
   }
 }
 
-scheduleKursCron();
+if (shouldRunBackgroundJobs()) {
+  scheduleKursCron();
+} else {
+  console.log('[BackgroundJobs] Disabled — skipping kurs daily fetch and Telegram broadcast scheduler');
+}
 
 async function runKursShareCacheCleanup(reason = 'scheduled') {
   try {
@@ -14593,7 +14598,11 @@ app.get('{*path}', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Alhijaz server running on http://localhost:${PORT}`);
-  initNotifier();
+  if (shouldRunBackgroundJobs()) {
+    initNotifier();
+  } else {
+    console.log('[BackgroundJobs] Disabled — skipping Telegram notifier cron jobs');
+  }
 });
 
 // ── Keep Supabase alive (prevent free-tier pausing) ──
