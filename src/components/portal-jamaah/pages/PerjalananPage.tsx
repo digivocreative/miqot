@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Sparkles } from 'lucide-react';
 import PortalBackBar from '../components/PortalBackBar';
 import FlightCard from '../components/FlightCard';
 import HotelCard from '../components/HotelCard';
@@ -38,7 +37,7 @@ function detectRoomType(paket?: string | null) {
   if (lower.includes('double')) return 'Double';
   if (lower.includes('triple')) return 'Triple';
   if (lower.includes('quad')) return 'Quad';
-  return 'Tipe kamar sesuai paket';
+  return null;
 }
 
 function detectRoomKey(paket?: string | null) {
@@ -47,6 +46,21 @@ function detectRoomKey(paket?: string | null) {
   if (lower.includes('triple')) return 'triple';
   if (lower.includes('quad')) return 'quad';
   return '';
+}
+
+function formatPackageTitle(value?: string | null) {
+  const raw = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return 'Paket Umroh';
+
+  return raw
+    .toLocaleLowerCase('id-ID')
+    .split(' ')
+    .map((token) =>
+      /\d/.test(token)
+        ? token.toLocaleUpperCase('id-ID')
+        : token.replace(/[a-zA-Z][a-zA-Z']*/g, (word) => word.charAt(0).toLocaleUpperCase('id-ID') + word.slice(1))
+    )
+    .join(' ');
 }
 
 function parseHotelName(value: unknown) {
@@ -71,7 +85,7 @@ function hotelEntries(paketHotel: unknown, paketName?: string | null) {
       city: /madinah/i.test(city) ? 'Madinah' : 'Makkah',
       name: parseHotelName(value),
       location: /madinah/i.test(city) ? 'Area Masjid Nabawi' : 'Area Masjidil Haram',
-      duration: 'Durasi sesuai itinerary',
+      duration: 'Detail malam mengikuti itinerary',
       roomType: detectRoomType(paketName),
     }));
 }
@@ -103,6 +117,7 @@ export default function PerjalananPage({
   const [fallbackItinerary, setFallbackItinerary] = useState<ItineraryDay[]>([]);
   const schedule = data.schedule;
   const packageName = data.booking.jadwal?.jadwal_nama || data.booking.paket || 'Paket Umroh';
+  const displayPackageName = formatPackageTitle(packageName);
   const departureCode = schedule?.berangkat_kode_penerbangan || 'TBA';
   const returnCode = schedule?.pulang_kode_penerbangan || 'TBA';
   const duration = tripDurationDays(data.booking.tgl_berangkat, data.booking.tgl_pulang);
@@ -142,11 +157,11 @@ export default function PerjalananPage({
       <PortalBackBar title="Perjalanan" onBack={onBack} />
       <main className="mx-auto w-full max-w-lg space-y-5 px-4 pb-24 pt-5">
         <section
-          className="rounded-2xl p-6 text-white shadow-sm"
+          className="rounded-2xl p-5 text-white shadow-sm"
           style={{ background: 'linear-gradient(135deg, #064e3b 0%, #0F6E56 50%, #065f46 100%)' }}
         >
           <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Paket</p>
-          <h1 className="mt-2 text-2xl font-bold leading-tight tracking-tight">{packageName}</h1>
+          <h1 className="mt-2 text-xl font-bold leading-tight tracking-tight">{displayPackageName}</h1>
           <p className="mt-2 text-sm font-medium text-emerald-100">
             {data.booking.jadwal?.year_code || new Date().getFullYear()} · {airlineFromCode(departureCode)}
           </p>
@@ -207,22 +222,10 @@ export default function PerjalananPage({
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Itinerary Harian</p>
             <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-700 dark:bg-violet-900/20 dark:text-violet-300">
-              <Sparkles className="h-3 w-3" strokeWidth={2} />
-              AI-generated
+              Rencana perjalanan
             </span>
           </div>
-          <ItineraryList items={visibleItinerary} />
-          {schedule?.itinerary_url && (
-            <a
-              href={schedule.itinerary_url}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-3 flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-sm font-bold text-gray-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-            >
-              <CalendarDays className="h-4 w-4" strokeWidth={2} />
-              Buka itinerary lengkap
-            </a>
-          )}
+          <ItineraryList items={visibleItinerary} itineraryUrl={schedule?.itinerary_url} />
         </section>
       </main>
     </div>

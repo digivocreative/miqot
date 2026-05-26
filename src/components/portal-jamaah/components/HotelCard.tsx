@@ -11,8 +11,10 @@ export default function HotelCard({
   name: string;
   location: string;
   duration: string;
-  roomType: string;
+  roomType?: string | null;
 }) {
+  const details = [duration, roomType].filter(Boolean).join(' · ');
+
   return (
     <section className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="flex items-start gap-3">
@@ -26,9 +28,7 @@ export default function HotelCard({
             <MapPin className="h-3.5 w-3.5" strokeWidth={2} />
             <span>{location}</span>
           </div>
-          <p className="mt-3 text-xs text-gray-500 dark:text-slate-400">
-            {duration} · {roomType}
-          </p>
+          {details && <p className="mt-3 text-xs text-gray-500 dark:text-slate-400">{details}</p>}
         </div>
       </div>
     </section>

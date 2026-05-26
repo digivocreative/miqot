@@ -8,7 +8,7 @@ export interface ItineraryDay {
   location?: string | null;
 }
 
-export default function ItineraryList({ items }: { items: ItineraryDay[] }) {
+export default function ItineraryList({ items, itineraryUrl }: { items: ItineraryDay[]; itineraryUrl?: string | null }) {
   const [expanded, setExpanded] = useState(false);
   const visibleItems = useMemo(() => (expanded ? items : items.slice(0, 3)), [expanded, items]);
   const remaining = Math.max(0, items.length - visibleItems.length);
@@ -19,6 +19,17 @@ export default function ItineraryList({ items }: { items: ItineraryDay[] }) {
         <CalendarDays className="mx-auto h-8 w-8 text-slate-300 dark:text-slate-600" strokeWidth={2} />
         <p className="mt-3 text-sm font-semibold text-gray-900 dark:text-white">Itinerary belum tersedia</p>
         <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-slate-400">Agent akan membagikan detail perjalanan saat jadwal final.</p>
+        {itineraryUrl && (
+          <a
+            href={itineraryUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 dark:border-slate-700 dark:text-slate-200"
+          >
+            <CalendarDays className="h-4 w-4" strokeWidth={2} />
+            Buka itinerary lengkap
+          </a>
+        )}
       </section>
     );
   }
@@ -49,6 +60,18 @@ export default function ItineraryList({ items }: { items: ItineraryDay[] }) {
         >
           Lihat {remaining} hari lainnya
         </button>
+      )}
+
+      {itineraryUrl && (
+        <a
+          href={itineraryUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 dark:border-slate-700 dark:text-slate-200"
+        >
+          <CalendarDays className="h-4 w-4" strokeWidth={2} />
+          Buka itinerary lengkap
+        </a>
       )}
     </section>
   );

@@ -154,6 +154,15 @@ test('PortalBackBar: back button + title + sticky header per DESIGN-SYSTEM', () 
   assert.match(src, /ChevronLeft/);
   assert.match(src, /max-w-lg/);
   assert.match(src, /onBack/);
+  assert.match(src, /px-4 py-2/, 'sub-page header should match dashboard header height');
+  assert.match(src, /h-9 w-9/, 'back button should use compact dashboard-height control sizing');
+  assert.match(src, /bg-gray-100\/80/);
+  assert.match(src, /text-gray-700/);
+  assert.match(src, /min-w-0 flex-1 truncate text-sm font-bold text-gray-900/);
+  assert.match(src, /ThemeToggle/);
+  assert.match(src, /rightSlot \?\? <ThemeToggle \/>/);
+  assert.doesNotMatch(src, />Halaman</);
+  assert.doesNotMatch(src, /text-center/);
 });
 
 test('StickyWhatsAppCta: floating pill with agent photo + WhatsApp Chat button', () => {
@@ -280,12 +289,28 @@ test('BerandaPage: composes hero + alerts + menu grid + tasks + roster', () => {
 
 test('PerjalananPage: emerald hero + FlightCard + HotelCard + ItineraryList', () => {
   const src = read('src/components/portal-jamaah/pages/PerjalananPage.tsx');
+  const itinerary = read('src/components/portal-jamaah/components/ItineraryList.tsx');
+  const hotel = read('src/components/portal-jamaah/components/HotelCard.tsx');
   assert.match(src, /PortalBackBar/);
   assert.match(src, /FlightCard/);
   assert.match(src, /HotelCard/);
   assert.match(src, /ItineraryList/);
   assert.match(src, /data\.booking\.jadwal\?\.jadwal_nama \|\| data\.booking\.paket \|\| 'Paket Umroh'/);
   assert.match(src, /linear-gradient.*064e3b/i, 'emerald hero gradient');
+  assert.match(src, /formatPackageTitle/);
+  assert.match(src, /displayPackageName/);
+  assert.match(src, /className="rounded-2xl p-5 text-white shadow-sm"/);
+  assert.match(src, /text-xl font-bold leading-tight tracking-tight/);
+  assert.match(src, /Rencana perjalanan/);
+  assert.match(src, /itineraryUrl=\{schedule\?\.itinerary_url\}/);
+  assert.doesNotMatch(src, /AI-generated/);
+  assert.doesNotMatch(src, /Durasi sesuai itinerary/);
+  assert.doesNotMatch(src, /Tipe kamar sesuai paket/);
+  assert.doesNotMatch(src, /schedule\?\.itinerary_url && \(/);
+  assert.match(itinerary, /itineraryUrl\?: string \| null/);
+  assert.match(itinerary, /Buka itinerary lengkap/);
+  assert.match(itinerary, /href=\{itineraryUrl\}/);
+  assert.match(hotel, /\[duration, roomType\]\.filter\(Boolean\)\.join\(' · '\)/);
   assert.match(src, /max-w-lg/);
   assert.match(src, /pb-24/);
 });
