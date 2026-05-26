@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # Telegram notification config
-TG_TOKEN="8684613765:AAFNdoxhNPwrRIjFA3Xi0K2GoWjHF0HTT7c"
+TG_TOKEN="8684613765:AAE6AJg15u-N8SKWBaeGpasWpQVwD2SMC7c"
 TG_CHAT_ID="1473701939"
 
 send_telegram() {
