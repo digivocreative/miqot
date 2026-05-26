@@ -3,9 +3,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-# Telegram notification config
-TG_TOKEN="8684613765:AAE6AJg15u-N8SKWBaeGpasWpQVwD2SMC7c"
-TG_CHAT_ID="1473701939"
+# Telegram notification config (injected via systemd EnvironmentFile=/home/ubuntu/miqot/.env)
+TG_TOKEN="${TELEGRAM_DEPLOY_BOT_TOKEN:?TELEGRAM_DEPLOY_BOT_TOKEN not set}"
+TG_CHAT_ID="${TELEGRAM_DEPLOY_CHAT_ID:?TELEGRAM_DEPLOY_CHAT_ID not set}"
 
 send_telegram() {
   local message="$1"
