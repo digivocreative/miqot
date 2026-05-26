@@ -27,6 +27,7 @@ import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent, generatePortalJamaahOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
+import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
 import {
   prepareLegacyPaymentRowForUpsert,
 } from './lib/jamaah-payment-provenance.js';
@@ -105,6 +106,40 @@ async function fetchAllRows(queryBuilder) {
     from += PAGE_SIZE;
   }
   return allRows;
+}
+
+function umrohPhase1EnrichmentKey(row) {
+  return `${row?.id_umroh || ''}_${row?.jm_id || ''}`.toLowerCase();
+}
+
+async function mergeExistingUmrohPhase1Enrichment(agentId, rows) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  if (safeRows.length === 0) return [];
+
+  const existingIduIds = [...new Set(safeRows.map(r => r.id_umroh).filter(Boolean))];
+  const existingJmIds = [...new Set(safeRows.map(r => r.jm_id).filter(Boolean))];
+  if (existingIduIds.length === 0 || existingJmIds.length === 0) {
+    return safeRows.map(row => preserveUmrohPhase1Enrichment(row, null));
+  }
+
+  const { data: existingRows, error } = await supabase
+    .from('jamaah')
+    .select('id_umroh, jm_id, wa, tgl_lahir, perlengkapan, dokumen, no_paspor, paspor_expired, hijriah_year')
+    .eq('agent_id', agentId)
+    .in('id_umroh', existingIduIds)
+    .in('jm_id', existingJmIds);
+
+  if (error) {
+    console.warn('[Sync/P1] existing enrichment lookup failed:', error.message);
+    return safeRows.map(row => preserveUmrohPhase1Enrichment(row, null));
+  }
+
+  const existingLookup = new Map();
+  (existingRows || []).forEach(row => {
+    existingLookup.set(umrohPhase1EnrichmentKey(row), row);
+  });
+
+  return safeRows.map(row => preserveUmrohPhase1Enrichment(row, existingLookup.get(umrohPhase1EnrichmentKey(row))));
 }
 
 app.use(express.json({ limit: '10mb' }));
@@ -6212,6 +6247,8 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     return res.json({ success: true, data: { initialCount: 0, syncing: true, message: 'Sync sudah berjalan', ...state } });
   }
 
+  let awapiFallbackUsed = false;
+
   // ── Optional: route through Alhijaz Official API (single-pass JSON) ──
   // Opt-in via env. Falls through to legacy if disabled, lazy-discovery
   // can't get a key, or new path errors out before sending any response.
@@ -6230,6 +6267,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
         return await syncUmrahViaApi(req, res, agent, { yearsToSync });
       } catch (err) {
         console.error(`[Sync/api] ${slug} aborted, falling back to legacy:`, err.message);
+        awapiFallbackUsed = true;
         syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null });
         if (res.headersSent) return; // can't fall back if response already started
       }
@@ -6396,7 +6434,8 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
             deduped.set(key, row);
             globalKeys.add(key); // Track globally for accurate counter
           }
-          const dedupedRows = await prepareLegacyPaymentRowsForUpsert(agentId, Array.from(deduped.values()), now);
+          const enrichedRows = await mergeExistingUmrohPhase1Enrichment(agentId, Array.from(deduped.values()));
+          const dedupedRows = await prepareLegacyPaymentRowsForUpsert(agentId, enrichedRows, now);
 
           const BATCH = 50;
           for (const rowGroup of splitLegacyRowsByPaymentPayload(dedupedRows)) {
@@ -6491,10 +6530,11 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     const deferInlinePhase2 = shouldDeferInlineUmrohPhase2({
       awapiSyncEnabled: process.env.AWAPI_SYNC_ENABLED === 'true',
       awapiKey: agent.awapi_key,
+      forceInline: awapiFallbackUsed,
     });
 
     if (deferInlinePhase2) {
-      console.log(`[Sync] ${slug}: Phase 2 deferred to scheduled enrichment (01:00/14:00 WIB)`);
+      console.log(`[Sync] ${slug}: Phase 2 deferred to scheduled enrichment (${DEFAULT_UMROH_PHASE2_TIMES_WIB.join('/')} WIB)`);
     } else {
       // ═══════════════════════════════════════════════════════════════════
       // PHASE 2: Enrichment via laporan (slower, but fills all fields)
@@ -14594,6 +14634,7 @@ async function syncOneAgent(agent) {
   // the legacy field formats and undo the API-fresh values).
   // Lazy-discover key for agents who logged in before Phase 1 — silent best-
   // effort, falls through to legacy if it can't get a key.
+  let awapiFallbackUsed = false;
   if (process.env.AWAPI_SYNC_ENABLED === 'true') {
     agent = await ensureAwapiCredentials(agent);
     if (!agent?.jamaah_username || !agent?.jamaah_password) {
@@ -14614,6 +14655,7 @@ async function syncOneAgent(agent) {
       return;
     } catch (err) {
       console.error(`[SYNC/api/bg] ${slug} aborted, falling back to legacy:`, err.message);
+      awapiFallbackUsed = true;
       syncingAgents.set(agentId, { isSyncing: true, background: true, scope: 'umroh-bg', totalSynced: 0, lastSync: null, startedAt: Date.now(), username: agent.jamaah_username });
       // fall through to legacy
     }
@@ -14724,53 +14766,7 @@ async function syncOneAgent(agent) {
               bgGlobalKeys.add(key);
               deduped.set(key, row);
             }
-            const dedupedRows = Array.from(deduped.values());
-
-            // Fetch existing records to preserve Phase 2 enrichment data.
-            // Match on (id_umroh, jm_id) — the canonical per-row identity.
-            const existingIduIds = dedupedRows.map(r => r.id_umroh);
-            const existingJmIds = dedupedRows.map(r => r.jm_id);
-            const { data: existingRows } = await supabase
-              .from('jamaah')
-              .select('id_umroh, jm_id, wa, tgl_lahir, perlengkapan, dokumen, no_paspor, paspor_expired, hijriah_year')
-              .eq('agent_id', agentId)
-              .in('id_umroh', existingIduIds)
-              .in('jm_id', existingJmIds);
-            const existingLookup = {};
-            (existingRows || []).forEach(r => {
-              existingLookup[`${r.id_umroh}_${r.jm_id}`.toLowerCase()] = r;
-            });
-
-            // Merge: preserve enrichment fields from existing records
-            for (const row of dedupedRows) {
-              const existing = existingLookup[`${row.id_umroh}_${row.jm_id}`.toLowerCase()];
-              if (existing) {
-                // Preserve Phase 2 enrichment — don't overwrite with null/empty
-                row.wa = existing.wa || null;
-                row.tgl_lahir = existing.tgl_lahir || null;
-                row.perlengkapan = (existing.perlengkapan && Object.keys(existing.perlengkapan).length > 0) ? existing.perlengkapan : {};
-                row.dokumen = (existing.dokumen && Object.keys(existing.dokumen).length > 0) ? existing.dokumen : {};
-                row.no_paspor = existing.no_paspor || null;
-                row.paspor_expired = existing.paspor_expired || null;
-                // Preserve hijriah_year if Phase 1 can't determine it but DB has it
-                if (!row.hijriah_year && existing.hijriah_year) {
-                  row.hijriah_year = existing.hijriah_year;
-                }
-                // Default to 1447 only if neither Phase 1 nor DB has a year
-                if (!row.hijriah_year) row.hijriah_year = '1447';
-              } else {
-                // New record — set enrichment fields to defaults
-                row.wa = null;
-                row.tgl_lahir = null;
-                row.perlengkapan = {};
-                row.dokumen = {};
-                row.no_paspor = null;
-                row.paspor_expired = null;
-                // Default to 1447 for truly new jamaah without date
-                if (!row.hijriah_year) row.hijriah_year = '1447';
-              }
-            }
-
+            const dedupedRows = await mergeExistingUmrohPhase1Enrichment(agentId, Array.from(deduped.values()));
             const guardedRows = await prepareLegacyPaymentRowsForUpsert(agentId, dedupedRows, syncTime);
             const BATCH = 50;
             for (const rowGroup of splitLegacyRowsByPaymentPayload(guardedRows)) {
@@ -14827,10 +14823,11 @@ async function syncOneAgent(agent) {
     const deferInlinePhase2 = shouldDeferInlineUmrohPhase2({
       awapiSyncEnabled: process.env.AWAPI_SYNC_ENABLED === 'true',
       awapiKey: agent.awapi_key,
+      forceInline: awapiFallbackUsed,
     });
 
     if (deferInlinePhase2) {
-      console.log(`[SYNC] ${slug}: Phase 2 deferred to scheduled enrichment (01:00/14:00 WIB)`);
+      console.log(`[SYNC] ${slug}: Phase 2 deferred to scheduled enrichment (${DEFAULT_UMROH_PHASE2_TIMES_WIB.join('/')} WIB)`);
     } else {
       // ── PHASE 2: Enrichment via laporan (adds wa, tgl_lahir, perlengkapan, etc.) ──
       // Merge year ranges + split into monthly chunks (same as manual sync)
