@@ -10,12 +10,13 @@ function read(path) {
   return readFileSync(join(rootPath, path), 'utf8');
 }
 
-test('AWAPI umroh sync falls back to legacy when payment rows are suspicious', () => {
+test('AWAPI umroh sync preserves existing payment when payment rows are suspicious', () => {
   const server = read('server.js');
 
   assert.match(server, /hasSuspiciousAwapiPayment/);
-  assert.match(server, /AWAPI payment anomaly/);
-  assert.match(server, /throw new Error\(`AWAPI payment anomaly/);
+  assert.match(server, /preserveSuspiciousAwapiPayments\(agentId,\s*allRows\)/);
+  assert.match(server, /guardedAwapiRows\.guardedCount/);
+  assert.doesNotMatch(server, /const suspiciousPaymentRows = allRows\.filter\(hasSuspiciousAwapiPayment\);[\s\S]{0,700}throw new Error\(`AWAPI payment anomaly/);
 });
 
 test('single jamaah refresh preserves existing payment when AWAPI payment is suspicious', () => {
