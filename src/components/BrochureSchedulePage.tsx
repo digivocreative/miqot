@@ -147,6 +147,37 @@ const FILTER_DIM_LABELS: Record<FilterDim, string> = {
 const TYPE_UMROH_SAJA = 'UMROH SAJA';
 const TYPE_UMROH_RAHMAH = 'UMROH RAHMAH';
 const TYPE_UMROH_PROMO = 'UMROH PROMO';
+const TYPE_UMROH_MUSIM_DINGIN = 'UMROH MUSIM DINGIN';
+
+interface MusimDinginWindow {
+  yearOfDec: number;
+}
+
+// Pilih musim dingin terdekat relatif "today".
+//   - Today di bulan Des  → window = Des(year)   + Jan(year+1)
+//   - Today di bulan Jan  → window = Des(year-1) + Jan(year)        (current winter)
+//   - Today Feb–Nov       → window = Des(year)   + Jan(year+1)      (next winter)
+function getMusimDinginWindow(today: Date): MusimDinginWindow {
+  const month = today.getUTCMonth(); // 0=Jan, 11=Des
+  const year = today.getUTCFullYear();
+  if (month === 11) return { yearOfDec: year };
+  if (month === 0) return { yearOfDec: year - 1 };
+  return { yearOfDec: year };
+}
+
+function isMusimDinginPackage(pkg: BrochurePackage, dinginWindow: MusimDinginWindow): boolean {
+  const iso = pkg.berangkat_tgl;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  const dt = new Date(`${iso}T00:00:00.000Z`);
+  if (Number.isNaN(dt.getTime())) return false;
+  // Round-trip check: reject calendar overflow like '2026-11-31' (parses to Dec 1).
+  // Same pattern as formatTglID in BrochureScheduleTemplate.tsx.
+  const [, mm, dd] = iso.split('-').map(Number);
+  if (dt.getUTCMonth() + 1 !== mm || dt.getUTCDate() !== dd) return false;
+  const y = dt.getUTCFullYear();
+  const m = dt.getUTCMonth();
+  return (y === dinginWindow.yearOfDec && m === 11) || (y === dinginWindow.yearOfDec + 1 && m === 0);
+}
 
 function isRahmahPackage(pkg: BrochurePackage): boolean {
   return /\bRAHMAH\b/i.test(pkg.nama);
@@ -156,7 +187,8 @@ function isPromoPackage(pkg: BrochurePackage): boolean {
   return pkg.isPromo === true || /\bPROMO\b/i.test(pkg.nama);
 }
 
-function matchesPackageType(pkg: BrochurePackage, type: string): boolean {
+function matchesPackageType(pkg: BrochurePackage, type: string, musimDinginWindow: MusimDinginWindow): boolean {
+  if (type === TYPE_UMROH_MUSIM_DINGIN) return isMusimDinginPackage(pkg, musimDinginWindow);
   if (type === TYPE_UMROH_RAHMAH) return isRahmahPackage(pkg);
   if (type === TYPE_UMROH_PROMO) return isPromoPackage(pkg);
   return derivePackageType(pkg.nama) === type;
@@ -166,6 +198,7 @@ function brochureLabelForType(type: string, fallback: string): string {
   if (type === TYPE_UMROH_SAJA) return 'REGULER';
   if (type === TYPE_UMROH_RAHMAH) return 'RAHMAH';
   if (type === TYPE_UMROH_PROMO) return 'PROMO';
+  if (type === TYPE_UMROH_MUSIM_DINGIN) return 'MUSIM DINGIN';
   return fallback || type;
 }
 
@@ -268,6 +301,10 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     [availableOnly, allPackages],
   );
 
+  // Musim Dingin window dihitung sekali per session (window tidak bergeser
+  // mid-day untuk use case ini). Deps kosong intentional.
+  const musimDinginWindow = useMemo(() => getMusimDinginWindow(new Date()), []);
+
   // Available right-side options per filter dimension. Only includes values
   // that actually have at least one matching package, so users can't pick a
   // dead end. When "Tersedia saja" is active, options are also based only on
@@ -282,6 +319,9 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     if (filterDim === 'tipe') {
       const present = new Set(optionPackages.map(p => derivePackageType(p.nama)));
       const ordered: Array<{ value: string; label: string }> = [];
+      if (optionPackages.some(p => isMusimDinginPackage(p, musimDinginWindow))) {
+        ordered.push({ value: TYPE_UMROH_MUSIM_DINGIN, label: 'Umroh Musim Dingin' });
+      }
       if (present.has(TYPE_UMROH_SAJA)) ordered.push({ value: TYPE_UMROH_SAJA, label: 'Umroh Saja' });
       if (optionPackages.some(isRahmahPackage)) ordered.push({ value: TYPE_UMROH_RAHMAH, label: 'Umroh Rahmah' });
       if (optionPackages.some(isPromoPackage)) ordered.push({ value: TYPE_UMROH_PROMO, label: 'Umroh Promo' });
@@ -295,7 +335,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       return [...set].sort(compareAirlineOptions).map(m => ({ value: m, label: m }));
     }
     return [];
-  }, [filterDim, months, optionPackages, availableOnly]);
+  }, [filterDim, months, optionPackages, availableOnly, musimDinginWindow]);
 
   // Whenever the dimension changes (or the available values list refreshes),
   // make sure the selected value is still valid; otherwise pick the first.
@@ -396,7 +436,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       const opt = availableValues.find(v => v.value === filterValue);
       const brochureLabel = brochureLabelForType(filterValue, opt?.label || filterValue);
       const matches = allPackages
-        .filter(p => matchesPackageType(p, filterValue))
+        .filter(p => matchesPackageType(p, filterValue, musimDinginWindow))
         // Span multiple months → sort by departure date so rows read chronologically.
         .sort((a, b) => String(a.berangkat_tgl).localeCompare(String(b.berangkat_tgl)));
       return { filterLabel: brochureLabel, filteredPackages: applyAvailability(matches), showFullDate: true };
@@ -406,7 +446,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       .filter(p => p.maskapai === filterValue)
       .sort((a, b) => String(a.berangkat_tgl).localeCompare(String(b.berangkat_tgl)));
     return { filterLabel: filterValue, filteredPackages: applyAvailability(matches), showFullDate: true };
-  }, [filterDim, filterValue, months, allPackages, availableValues, availableOnly]);
+  }, [filterDim, filterValue, months, allPackages, availableValues, availableOnly, musimDinginWindow]);
 
   const activeImagePages = useMemo(
     () => splitPackagesIntoPages(filteredPackages, `${filterDim}-${filterValue ?? 'none'}${availableOnly ? '-available' : ''}`, filterLabel),
