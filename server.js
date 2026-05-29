@@ -19,6 +19,7 @@ import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration, fetchAwapiCredentials } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
+import { buildBerangkatMendatang } from './lib/laporan-stats.js';
 import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate } from './telegram-notifier.js';
 import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCacheableHtmlDocument, JAMAAH_DOCUMENT_TYPES } from './lib/jamaah-document-cache.js';
@@ -9888,7 +9889,6 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
       .gte('tgl_berangkat', todayStr)
       .order('tgl_berangkat', { ascending: true })
       .order('nama', { ascending: true });
-    if (year) bebQ = bebQ.eq('hijriah_year', year);
 
     let jbQ = supabase.from('jamaah').select('*', { count: 'exact', head: true })
       .match(baseMatch).gte('tgl_daftar', monthStart).lt('tgl_daftar', monthEnd);
@@ -9949,35 +9949,10 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     }, 0);
     const lastSync = syncResult.data?.last_jamaah_sync_at || null;
 
+    // Berangkat Mendatang is an operational upcoming list, so it must cross
+    // Hijriah-year boundaries (e.g. 13 Jun 2026 = 1447H, 18 Jun 2026 = 1448H).
+    const { berangkatBulanIni, berangkatSegera, berangkatBulan } = buildBerangkatMendatang(bebRows, todayStr);
     const todayDate = new Date(todayStr);
-
-    let berangkatBulanIni = [];
-    let berangkatSegera = 0;
-    let berangkatBulan = null;
-
-    if (bebRows && bebRows.length > 0) {
-      const firstMonth = bebRows[0].tgl_berangkat.substring(0, 7);
-      berangkatBulanIni = bebRows
-        .filter(r => r.tgl_berangkat && r.tgl_berangkat.substring(0, 7) === firstMonth)
-        .map(r => {
-          const dep = new Date(r.tgl_berangkat);
-          const diffDays = Math.ceil((dep.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
-          return {
-            nama: r.nama,
-            paket: r.paket,
-            jk: r.jk,
-            tgl_berangkat: r.tgl_berangkat,
-            hari_lagi: diffDays,
-            lunas: !r.sisa || r.sisa === 0,
-            sisa: r.sisa || 0,
-            wa: r.wa,
-          };
-        });
-      berangkatSegera = berangkatBulanIni.length;
-      // Format month label: "Maret 2026"
-      const fm = new Date(firstMonth + '-01');
-      berangkatBulan = fm.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
-    }
 
     // ── lunasPercent ──
     const total = totalJamaah || 0;
