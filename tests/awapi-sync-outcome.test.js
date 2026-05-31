@@ -14,6 +14,9 @@ test('clean fetch with rows → full (notify + cleanup + bump)', () => {
 test('clean fetch with ZERO rows → full, not hardfail (agent has no jamaah)', () => {
   const o = classifyAwapiSyncOutcome({ fetchErrors: 0, upsertErrors: 0, anyRowsFetched: false });
   assert.equal(o.kind, 'full');
+  assert.equal(o.shouldBump, true);
+  assert.equal(o.shouldNotify, true);
+  assert.equal(o.shouldCleanup, true);
 });
 
 test('some endpoints failed but rows fetched → partial (bump only, no notify/cleanup)', () => {
@@ -35,6 +38,9 @@ test('fetch errors AND no rows fetched → hardfail (caller falls back to legacy
 test('upsert errors → hardfail even if rows were fetched', () => {
   const o = classifyAwapiSyncOutcome({ fetchErrors: 0, upsertErrors: 2, anyRowsFetched: true });
   assert.equal(o.kind, 'hardfail');
+  assert.equal(o.shouldBump, false);
+  assert.equal(o.shouldNotify, false);
+  assert.equal(o.shouldCleanup, false);
 });
 
 test('reason is a non-empty string for every kind', () => {
