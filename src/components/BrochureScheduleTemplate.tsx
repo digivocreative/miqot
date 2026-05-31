@@ -251,8 +251,8 @@ function getTheme(variant: 'default' | 'winter'): BrochureTheme {
   return variant === 'winter' ? WINTER_THEME : CLASSIC_THEME;
 }
 
-// Moderate snow: positions chosen to avoid the package table (which sits roughly
-// 560–1180px down the 1620px canvas). Values are in template px on the 1080×1620 art.
+// Moderate snow over the 1080x1620 art. Positions (template px) are chosen so
+// every flake stays visible regardless of table height: see WINTER_SNOWFLAKES.
 interface SnowflakeSpec {
   top?: number; left?: number; right?: number; bottom?: number;
   size: number; color: string; opacity: number; stroke: number;
@@ -262,12 +262,16 @@ interface SnowflakeSpec {
 const SNOWFLAKE_PATH = 'M12 2v20M2 12h20M5 5l14 14M19 5L5 19';
 
 const WINTER_SNOWFLAKES: ReadonlyArray<SnowflakeSpec> = [
-  { top: 120, right: 150, size: 64, color: '#BCD9FF', opacity: 0.85, stroke: 1.6 },
-  { top: 250, left: 70,  size: 40, color: '#9EC3F5', opacity: 0.8,  stroke: 1.8 },
-  { top: 470, right: 110, size: 52, color: '#BCD9FF', opacity: 0.75, stroke: 1.6 },
-  { bottom: 360, left: 120, size: 38, color: '#9EC3F5', opacity: 0.8, stroke: 1.8 },
-  { bottom: 430, right: 90, size: 46, color: '#BCD9FF', opacity: 0.7, stroke: 1.7 },
-  { bottom: 250, left: 220, size: 34, color: '#9EC3F5', opacity: 0.7, stroke: 1.8 },
+  // Top three sit above the table top (~440px) — always clear of the table,
+  // placed off-centre so they never collide with the centred title text.
+  { top: 110, right: 150, size: 60, color: '#BCD9FF', opacity: 0.85, stroke: 1.6 },
+  { top: 250, left: 78,   size: 38, color: '#9EC3F5', opacity: 0.8,  stroke: 1.8 },
+  { top: 380, right: 116, size: 42, color: '#BCD9FF', opacity: 0.75, stroke: 1.6 },
+  // Lower three hug the ~50px side margins beside the table, so they stay
+  // visible regardless of how many rows the table grows to.
+  { top: 660,    left: 8,  size: 30, color: '#9EC3F5', opacity: 0.7,  stroke: 1.8 },
+  { top: 980,    right: 8, size: 28, color: '#BCD9FF', opacity: 0.7,  stroke: 1.7 },
+  { bottom: 250, left: 10, size: 32, color: '#9EC3F5', opacity: 0.72, stroke: 1.8 },
 ];
 
 function Snowflake({ spec }: { spec: SnowflakeSpec }) {
