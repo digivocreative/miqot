@@ -157,7 +157,7 @@ interface BrochureTheme {
   canvasBackground: string;   // full-page background
   topBar: string;             // 10px accent bar at the very top
   patternUrl: string;         // geometric pattern data-URI
-  landmarkFilter: string;     // APPENDED to each landmark img's existing filter ('' = classic)
+  landmarkFilter: string;     // APPENDED to each landmark img's existing filter ('' = classic). MUST start with a leading space when non-empty (it concatenates onto an existing filter string).
   paketUmrohColor: string;    // "PAKET UMROH" text
   paketUmrohShadow: string;   // textShadow on "PAKET UMROH"
   titleShadowColor: string;   // offset duplicate layer behind the big title
@@ -249,6 +249,46 @@ const WINTER_THEME: BrochureTheme = {
 
 function getTheme(variant: 'default' | 'winter'): BrochureTheme {
   return variant === 'winter' ? WINTER_THEME : CLASSIC_THEME;
+}
+
+// Moderate snow: positions chosen to avoid the package table (which sits roughly
+// 560–1180px down the 1620px canvas). Values are in template px on the 1080×1620 art.
+interface SnowflakeSpec {
+  top?: number; left?: number; right?: number; bottom?: number;
+  size: number; color: string; opacity: number; stroke: number;
+}
+const WINTER_SNOWFLAKES: ReadonlyArray<SnowflakeSpec> = [
+  { top: 120, right: 150, size: 64, color: '#BCD9FF', opacity: 0.85, stroke: 1.6 },
+  { top: 250, left: 70,  size: 40, color: '#9EC3F5', opacity: 0.8,  stroke: 1.8 },
+  { top: 470, right: 110, size: 52, color: '#BCD9FF', opacity: 0.75, stroke: 1.6 },
+  { bottom: 360, left: 120, size: 38, color: '#9EC3F5', opacity: 0.8, stroke: 1.8 },
+  { bottom: 430, right: 90, size: 46, color: '#BCD9FF', opacity: 0.7, stroke: 1.7 },
+  { bottom: 250, left: 220, size: 34, color: '#9EC3F5', opacity: 0.7, stroke: 1.8 },
+];
+
+function Snowflake({ spec }: { spec: SnowflakeSpec }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width={spec.size}
+      height={spec.size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={spec.color}
+      strokeWidth={spec.stroke}
+      strokeLinecap="round"
+      style={{
+        position: 'absolute',
+        top: spec.top, left: spec.left, right: spec.right, bottom: spec.bottom,
+        opacity: spec.opacity,
+        zIndex: 1,
+        pointerEvents: 'none',
+        filter: 'drop-shadow(0 1px 2px rgba(80,130,200,0.25))',
+      }}
+    >
+      <path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" />
+    </svg>
+  );
 }
 
 const TABLE_COLUMNS = '104px 444px 88px 140px 172px';
@@ -514,6 +554,27 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
         }}
       />
 
+      {variant === 'winter' && (
+        <>
+          {WINTER_SNOWFLAKES.map((spec, i) => (
+            <Snowflake key={`flake-${i}`} spec={spec} />
+          ))}
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 220,
+              zIndex: 1,
+              pointerEvents: 'none',
+              background: 'radial-gradient(130% 100% at 50% 135%, #EEF5FF 42%, rgba(238,245,255,0) 72%)',
+            }}
+          />
+        </>
+      )}
+
       {/* Header bar — uniform 50px insets on all sides */}
       <div style={{
         height: 150,
@@ -605,6 +666,35 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
             filter: theme.titleDropShadow,
           }}>{monthTitle}</span>
         </div>
+        {variant === 'winter' && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+            width: 'max-content',
+            maxWidth: '100%',
+            margin: '12px auto 0',
+            padding: '8px 22px 9px',
+            borderRadius: 999,
+            background: `linear-gradient(90deg, ${W_BLUE_BRIGHT} 0%, ${W_NAVY} 100%)`,
+            border: `1px solid ${W_FROST}`,
+            boxShadow: '0 8px 20px rgba(30,58,138,0.25)',
+            color: '#FFFFFF',
+            fontSize: 26,
+            fontWeight: 800,
+            lineHeight: 1,
+            letterSpacing: 0.3,
+          }}>
+            <svg aria-hidden="true" width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={1.9} strokeLinecap="round" style={{ flexShrink: 0 }}>
+              <path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" />
+            </svg>
+            UMROH SEJUK &amp; NYAMAN
+            <svg aria-hidden="true" width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={1.9} strokeLinecap="round" style={{ flexShrink: 0 }}>
+              <path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" />
+            </svg>
+          </div>
+        )}
         <div style={{
           display: 'flex',
           alignItems: 'center',
