@@ -10172,6 +10172,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
           uniqueHaji: apiResult.uniqueHaji,
           syncing: false,
           source: 'awapi',
+          partial: apiResult.partial || false,
         },
       });
     }
@@ -15716,6 +15717,7 @@ async function syncHajiOneAgent(agent) {
       totalSynced: result.count,
       lastSync: result.syncedAt,
     });
+    console.log(`[HAJI-API] ${slug}: ${result.partial ? 'partial' : 'complete'} — ${result.count} rows`);
     return { ok: true };
   } catch (err) {
     console.error(`[HAJI-API] ${slug} error:`, err.message);
