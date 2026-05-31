@@ -433,8 +433,8 @@ git commit -m "chore(sync): surface partial flag in bg log and manual sync respo
 
 - [ ] **Step 1: Run the full test suite**
 
-Run: `node --test tests/`
-Expected: PASS — all tests, including the existing `tests/awapi-sync-guard.test.js`, `tests/jamaah-auto-sync.test.js`, `tests/jamaah-phase2-policy.test.js`, and the two new files. No failures.
+Run: `node --test tests/*.test.js` (Node 22 reads a bare `tests/` as a module path, so use the glob)
+Expected: PASS — all tests, including the existing `tests/awapi-sync-guard.test.js`, `tests/jamaah-auto-sync.test.js`, `tests/jamaah-phase2-policy.test.js`, and the two new files. No failures. (Verified 2026-05-31: 266 tests, 266 pass.)
 
 - [ ] **Step 2: Confirm no other caller of `syncUmrahViaApiCore` was missed**
 
