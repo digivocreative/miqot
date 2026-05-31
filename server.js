@@ -27,6 +27,7 @@ import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImag
 import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent, generatePortalJamaahOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
+import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
 import {
@@ -5974,21 +5975,26 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
     }
   }
 
-  if (upsertErrors > 0) {
-    throw new Error(`API upsert failed in ${upsertErrors} batch(es): ${firstUpsertError || 'unknown error'}`);
+  const anyRowsFetched = rowsByKey.size > 0;
+  const outcome = classifyAwapiSyncOutcome({ fetchErrors, upsertErrors, anyRowsFetched });
+
+  // Hard failure → throw so the caller (syncOneAgent / sync handler) falls back
+  // to the legacy scrape. Partial/full return normally — no legacy fallback —
+  // which is what stops the API<->legacy flap. See
+  // docs/superpowers/specs/2026-05-31-umroh-sync-fix-a-design.md
+  if (outcome.kind === 'hardfail') {
+    throw new Error(firstUpsertError ? `${outcome.reason}: ${firstUpsertError}` : outcome.reason);
   }
 
-  if (fetchErrors > 0) {
-    throw new Error(`API fetch incomplete: ${fetchErrors} endpoint(s) failed`);
+  // Fire notifications only on a fully successful sync. On a partial cycle we
+  // keep the rows we did fetch and retry next cycle; we never notify on
+  // half-complete data (preserves Pattern 8 intent).
+  if (outcome.shouldNotify) {
+    queueJamaahSyncNotifications(agentId, syncEvents, `api/${context}/${slug}`);
   }
 
-  // Fire notifications only after a fully successful sync. If the throw above
-  // triggers a legacy fallback, payment rows already claimed by AWAPI remain
-  // protected by raw_data.payment_source.
-  queueJamaahSyncNotifications(agentId, syncEvents, `api/${context}/${slug}`);
-
-  // Cleanup: only run if all years fetched successfully.
-  if (listComplete && !syncingAgents.get(agentId)?.cancelled) {
+  // Cleanup: only on a fully successful sync (shouldCleanup === full).
+  if (outcome.shouldCleanup && !syncingAgents.get(agentId)?.cancelled) {
     const { data: existingDbRows } = await supabase
       .from('jamaah')
       .select('id_umroh, nama, hijriah_year')
@@ -6015,22 +6021,32 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
     }
   }
 
-  // Fire CAPI Purchase events (DP & Lunas) — fire-and-forget.
-  const upsertedIds = rowsForUpsert.map((r) => ({ id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama }));
-  processCapiPurchases(agentId, slug, 'umroh', upsertedIds).catch((e) =>
-    console.error(`[CAPI/api/${context}] sync error:`, e.message)
-  );
+  // Fire CAPI Purchase events (DP & Lunas) — fire-and-forget. Full success only.
+  if (outcome.shouldNotify) {
+    const upsertedIds = rowsForUpsert.map((r) => ({ id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama }));
+    processCapiPurchases(agentId, slug, 'umroh', upsertedIds).catch((e) =>
+      console.error(`[CAPI/api/${context}] sync error:`, e.message)
+    );
+  }
 
-  // Persist last sync timestamp at agent level (skip_noop_update trigger).
-  const { error: bumpErr } = await supabase
-    .from('agents')
-    .update({ last_jamaah_sync_at: now })
-    .eq('id', agentId);
-  if (bumpErr) console.warn(`[Sync/api/${context}] ${slug} bump last_jamaah_sync_at failed:`, bumpErr.message);
-  invalidateStatsCache(agentId);
+  // Bump last sync timestamp on every completed cycle (partial or full) so the
+  // UI "last sync" label reflects reality, not only clean cycles.
+  if (outcome.shouldBump) {
+    const { error: bumpErr } = await supabase
+      .from('agents')
+      .update({ last_jamaah_sync_at: now })
+      .eq('id', agentId);
+    if (bumpErr) console.warn(`[Sync/api/${context}] ${slug} bump last_jamaah_sync_at failed:`, bumpErr.message);
+    invalidateStatsCache(agentId);
+  }
+
+  if (outcome.kind === 'partial') {
+    console.warn(`[Sync/api/${context}] ${slug}: partial sync — ${outcome.reason} (${keberangkatanYearsCompleted}/${yearsToSync.length} keberangkatan years); kept fetched rows, no legacy fallback`);
+  }
 
   return {
-    ok: fetchErrors === 0,
+    ok: outcome.kind === 'full',
+    partial: outcome.kind === 'partial',
     count: upserted,
     yearsCompleted: keberangkatanYearsCompleted,
     yearsAttempted: yearsToSync.length,
