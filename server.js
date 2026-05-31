@@ -6235,6 +6235,7 @@ async function syncUmrahViaApi(req, res, agent, { yearsToSync = getActiveHijriah
         total: result.count,
         syncing: false,
         source: 'awapi',
+        partial: result.partial || false,
         yearsCompleted: result.yearsCompleted,
         yearsAttempted: result.yearsAttempted,
       },
@@ -14655,7 +14656,7 @@ async function syncOneAgent(agent) {
         lastSync: result.syncedAt,
         completedYears: [],
       });
-      console.log(`[SYNC/api/bg] ${slug}: complete — ${result.count} rows in ${result.yearsCompleted}/${result.yearsAttempted} years`);
+      console.log(`[SYNC/api/bg] ${slug}: ${result.partial ? 'partial' : 'complete'} — ${result.count} rows in ${result.yearsCompleted}/${result.yearsAttempted} years`);
       return;
     } catch (err) {
       console.error(`[SYNC/api/bg] ${slug} aborted, falling back to legacy:`, err.message);
