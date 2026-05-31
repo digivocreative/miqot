@@ -257,6 +257,10 @@ interface SnowflakeSpec {
   top?: number; left?: number; right?: number; bottom?: number;
   size: number; color: string; opacity: number; stroke: number;
 }
+// Six-point star, shared by the scattered Snowflake component and the inline
+// ribbon flakes (single source of truth for the shape).
+const SNOWFLAKE_PATH = 'M12 2v20M2 12h20M5 5l14 14M19 5L5 19';
+
 const WINTER_SNOWFLAKES: ReadonlyArray<SnowflakeSpec> = [
   { top: 120, right: 150, size: 64, color: '#BCD9FF', opacity: 0.85, stroke: 1.6 },
   { top: 250, left: 70,  size: 40, color: '#9EC3F5', opacity: 0.8,  stroke: 1.8 },
@@ -286,7 +290,7 @@ function Snowflake({ spec }: { spec: SnowflakeSpec }) {
         filter: 'drop-shadow(0 1px 2px rgba(80,130,200,0.25))',
       }}
     >
-      <path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" />
+      <path d={SNOWFLAKE_PATH} />
     </svg>
   );
 }
@@ -687,11 +691,11 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
             letterSpacing: 0.3,
           }}>
             <svg aria-hidden="true" width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={1.9} strokeLinecap="round" style={{ flexShrink: 0 }}>
-              <path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" />
+              <path d={SNOWFLAKE_PATH} />
             </svg>
             UMROH SEJUK &amp; NYAMAN
             <svg aria-hidden="true" width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={1.9} strokeLinecap="round" style={{ flexShrink: 0 }}>
-              <path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" />
+              <path d={SNOWFLAKE_PATH} />
             </svg>
           </div>
         )}
