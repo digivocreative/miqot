@@ -48,6 +48,12 @@ export interface BrochureScheduleTemplateProps {
    * unambiguous. Defaults to false (day-only) for the Bulan filter.
    */
   showFullDate?: boolean;
+  /**
+   * Visual theme. 'winter' switches the brand-chrome palette to icy blue and
+   * enables winter-only decorations (snowflakes, drift, ribbon). Defaults to
+   * 'default' (the classic red/gold brochure). See CLASSIC_THEME / WINTER_THEME.
+   */
+  variant?: 'default' | 'winter';
 }
 
 // Order matters: the first matching pattern wins. Foreign extensions are
@@ -127,6 +133,172 @@ const ISLAMIC_PATTERN_BG = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3
 const DOME_IMAGE = '/img-brosur/nabawi-dome.png';
 const KABAH_IMAGE = '/img-brosur/kabah.png';
 const NABAWI_WIDE_IMAGE = '/img-brosur/nabawi-wide.png';
+
+// Winter palette (Direction B — "Winter Wonderland"). Tunable; values mirror the
+// approved visual-companion mockup.
+const W_NAVY_DARK = '#172554';
+const W_NAVY = '#1E3A8A';
+const W_BLUE = '#1D4ED8';
+const W_BLUE_BRIGHT = '#2563EB';
+const W_SKY = '#7DD3FC';
+const W_FROST = '#BFDBFE';
+const W_FROST_2 = '#CFE0FB';
+
+// Winter geometric pattern: same paths as ISLAMIC_PATTERN_BG but blue strokes.
+const WINTER_PATTERN_BG = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%232563EB' stroke-opacity='.30' stroke-width='2'%3E%3Cpath d='M60 6 75 45 114 60 75 75 60 114 45 75 6 60 45 45Z'/%3E%3Cpath d='M60 24 72 60 60 96 48 60Z'/%3E%3Ccircle cx='60' cy='60' r='18'/%3E%3Cpath d='M24 24 45 45M96 24 75 45M96 96 75 75M24 96 45 75'/%3E%3C/g%3E%3Cg fill='none' stroke='%231E3A8A' stroke-opacity='.30' stroke-width='1.5'%3E%3Cpath d='M0 60h120M60 0v120'/%3E%3C/g%3E%3C/svg%3E\")";
+
+const WINTER_CANVAS_BACKGROUND = [
+  'radial-gradient(circle at 50% 14%, rgba(37,99,235,0.10) 0%, rgba(37,99,235,0) 44%)',
+  'radial-gradient(ellipse at 50% 103%, rgba(191,219,254,0.55) 0%, rgba(207,224,251,0.4) 42%, rgba(247,251,255,0) 76%)',
+  'linear-gradient(180deg, #CFE0FB 0%, #EAF2FF 28%, #F7FBFF 60%, #E3EDFF 100%)',
+].join(', ');
+
+interface BrochureTheme {
+  canvasBackground: string;   // full-page background
+  topBar: string;             // 10px accent bar at the very top
+  patternUrl: string;         // geometric pattern data-URI
+  landmarkFilter: string;     // APPENDED to each landmark img's existing filter ('' = classic). MUST start with a leading space when non-empty (it concatenates onto an existing filter string).
+  paketUmrohColor: string;    // "PAKET UMROH" text
+  paketUmrohShadow: string;   // textShadow on "PAKET UMROH"
+  titleShadowColor: string;   // offset duplicate layer behind the big title
+  titleOutline: string;       // 7px outer stroke on the big title
+  titleGradient: string;      // fill gradient of the big title
+  titleStroke: string;        // 2px inner stroke on the big title
+  titleDropShadow: string;    // drop-shadow filter on the big title
+  headerDivider: string;      // gradient line under the logo
+  urlPillBorder: string;      // border of the URL pill
+  urlPillText: string;        // URL pill text color
+  tableBorder: string;        // table outer border
+  tableHeader: string;        // table header row gradient
+  rowLine: string;            // row separators
+  badgeGradient: string;      // date badge gradient (non-sold-out)
+  badgeBorder: string;        // date badge border
+  dayCountColor: string;      // "HARI" number (non-sold-out)
+  priceColor: string;         // price + "Jt" + "Hubungi kami"
+  footnoteBg: string;         // truncation footnote background
+  footnoteText: string;       // truncation footnote text
+  footnoteDivider: string;    // dashed divider above footnote
+  footerGradient: string;     // agent footer pill gradient
+  footerBorder: string;       // agent footer pill border
+  avatarBorder: string;       // border ring around agent photo
+  footerLabel: string;        // "Info & Pendaftaran:" + agent name accent
+}
+
+// CLASSIC = exact current values → non-winter render is unchanged.
+const CLASSIC_THEME: BrochureTheme = {
+  canvasBackground: CANVAS_BACKGROUND,
+  topBar: `linear-gradient(90deg, ${DARK_RED} 0%, ${BRAND_RED} 42%, #F0445F 62%, ${BRAND_RED} 100%)`,
+  patternUrl: ISLAMIC_PATTERN_BG,
+  landmarkFilter: '',
+  paketUmrohColor: BRAND_RED,
+  paketUmrohShadow: '0 4px 0 rgba(248,223,161,0.65)',
+  titleShadowColor: PALE_GOLD,
+  titleOutline: PALE_GOLD,
+  titleGradient: `linear-gradient(180deg, #FF5A70 0%, ${BRAND_RED} 34%, #A4001D 68%, ${DARK_RED} 100%)`,
+  titleStroke: DEEP_RED,
+  titleDropShadow: 'drop-shadow(0 2px 0 rgba(255,255,255,0.38)) drop-shadow(0 11px 15px rgba(90,0,16,0.18))',
+  headerDivider: `linear-gradient(90deg, ${BRAND_RED} 0%, ${PALE_GOLD} 48%, rgba(200,16,46,0) 100%)`,
+  urlPillBorder: PALE_GOLD,
+  urlPillText: DEEP_RED,
+  tableBorder: ROW_LINE,
+  tableHeader: `linear-gradient(90deg, ${DEEP_RED} 0%, ${BRAND_RED} 100%)`,
+  rowLine: ROW_LINE,
+  badgeGradient: `linear-gradient(145deg, ${DEEP_RED} 0%, ${BRAND_RED} 100%)`,
+  badgeBorder: PALE_GOLD,
+  dayCountColor: DEEP_RED,
+  priceColor: DEEP_RED,
+  footnoteBg: CREAM,
+  footnoteText: DEEP_RED,
+  footnoteDivider: GOLD,
+  footerGradient: `linear-gradient(135deg, ${DARK_RED} 0%, ${DEEP_RED} 44%, ${BRAND_RED} 100%)`,
+  footerBorder: PALE_GOLD,
+  avatarBorder: PALE_GOLD,
+  footerLabel: PALE_GOLD,
+};
+
+const WINTER_THEME: BrochureTheme = {
+  canvasBackground: WINTER_CANVAS_BACKGROUND,
+  topBar: `linear-gradient(90deg, ${W_NAVY_DARK} 0%, ${W_BLUE_BRIGHT} 55%, ${W_SKY} 100%)`,
+  patternUrl: WINTER_PATTERN_BG,
+  landmarkFilter: ' grayscale(0.4) sepia(1) hue-rotate(178deg) saturate(1.9) brightness(1.05)',
+  paketUmrohColor: W_NAVY,
+  paketUmrohShadow: '0 4px 0 rgba(255,255,255,0.7)',
+  titleShadowColor: W_FROST_2,
+  titleOutline: '#FFFFFF',
+  titleGradient: `linear-gradient(180deg, #60A5FA 0%, ${W_BLUE} 38%, ${W_NAVY} 72%, ${W_NAVY_DARK} 100%)`,
+  titleStroke: W_NAVY,
+  titleDropShadow: 'drop-shadow(0 2px 0 rgba(255,255,255,0.6)) drop-shadow(0 11px 15px rgba(23,37,84,0.18))',
+  headerDivider: `linear-gradient(90deg, ${W_BLUE_BRIGHT} 0%, ${W_FROST} 48%, rgba(37,99,235,0) 100%)`,
+  urlPillBorder: W_FROST,
+  urlPillText: W_NAVY,
+  tableBorder: W_FROST_2,
+  tableHeader: `linear-gradient(90deg, ${W_NAVY_DARK} 0%, ${W_BLUE_BRIGHT} 100%)`,
+  rowLine: '#E5EDFB',
+  badgeGradient: `linear-gradient(145deg, ${W_NAVY} 0%, ${W_BLUE_BRIGHT} 100%)`,
+  badgeBorder: '#FFFFFF',
+  dayCountColor: W_BLUE,
+  priceColor: W_BLUE,
+  footnoteBg: '#EAF2FF',
+  footnoteText: W_NAVY,
+  footnoteDivider: W_BLUE_BRIGHT,
+  footerGradient: `linear-gradient(135deg, ${W_NAVY_DARK} 0%, ${W_NAVY} 45%, ${W_BLUE_BRIGHT} 100%)`,
+  footerBorder: W_FROST,
+  avatarBorder: W_FROST,
+  footerLabel: W_FROST,
+};
+
+function getTheme(variant: 'default' | 'winter'): BrochureTheme {
+  return variant === 'winter' ? WINTER_THEME : CLASSIC_THEME;
+}
+
+// Moderate snow over the 1080x1620 art. Positions (template px) are chosen so
+// every flake stays visible regardless of table height: see WINTER_SNOWFLAKES.
+interface SnowflakeSpec {
+  top?: number; left?: number; right?: number; bottom?: number;
+  size: number; color: string; opacity: number; stroke: number;
+}
+// Six-point star, shared by the scattered Snowflake component and the inline
+// ribbon flakes (single source of truth for the shape).
+const SNOWFLAKE_PATH = 'M12 2v20M2 12h20M5 5l14 14M19 5L5 19';
+
+const WINTER_SNOWFLAKES: ReadonlyArray<SnowflakeSpec> = [
+  // Top three sit above the table top (~440px) — always clear of the table,
+  // placed off-centre so they never collide with the centred title text.
+  { top: 110, right: 150, size: 60, color: '#BCD9FF', opacity: 0.85, stroke: 1.6 },
+  { top: 250, left: 78,   size: 38, color: '#9EC3F5', opacity: 0.8,  stroke: 1.8 },
+  { top: 380, right: 116, size: 42, color: '#BCD9FF', opacity: 0.75, stroke: 1.6 },
+  // Lower three hug the ~50px side margins beside the table, so they stay
+  // visible regardless of how many rows the table grows to.
+  { top: 660,    left: 8,  size: 30, color: '#9EC3F5', opacity: 0.7,  stroke: 1.8 },
+  { top: 980,    right: 8, size: 28, color: '#BCD9FF', opacity: 0.7,  stroke: 1.7 },
+  { bottom: 250, left: 10, size: 32, color: '#9EC3F5', opacity: 0.72, stroke: 1.8 },
+];
+
+function Snowflake({ spec }: { spec: SnowflakeSpec }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width={spec.size}
+      height={spec.size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={spec.color}
+      strokeWidth={spec.stroke}
+      strokeLinecap="round"
+      style={{
+        position: 'absolute',
+        top: spec.top, left: spec.left, right: spec.right, bottom: spec.bottom,
+        opacity: spec.opacity,
+        zIndex: 1,
+        pointerEvents: 'none',
+        filter: 'drop-shadow(0 1px 2px rgba(80,130,200,0.25))',
+      }}
+    >
+      <path d={SNOWFLAKE_PATH} />
+    </svg>
+  );
+}
+
 const TABLE_COLUMNS = '104px 444px 88px 140px 172px';
 const PACKAGE_NAME_FONT_SIZE = 25;
 
@@ -292,7 +464,8 @@ function formatDepartureMonthName(iso: string): string {
   return MONTH_FULL_ID[d.getUTCMonth()];
 }
 
-export function BrochureScheduleTemplate({ month, agent, showFullDate = false }: BrochureScheduleTemplateProps) {
+export function BrochureScheduleTemplate({ month, agent, showFullDate = false, variant = 'default' }: BrochureScheduleTemplateProps) {
+  const theme = getTheme(variant);
   const photo = agent.photo || avatarFallback(agent.name);
   const phone = formatPhoneDisplay(agent.phone);
   const landingUrl = landingUrlForAgent(agent);
@@ -316,7 +489,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
       overflow: 'hidden',
       fontFamily: BROCHURE_FONT_STACK,
       fontSynthesis: 'none',
-      background: CANVAS_BACKGROUND,
+      background: theme.canvasBackground,
       color: INK,
       display: 'flex',
       flexDirection: 'column',
@@ -330,7 +503,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
           left: 0,
           right: 0,
           height: 10,
-          background: `linear-gradient(90deg, ${DARK_RED} 0%, ${BRAND_RED} 42%, #F0445F 62%, ${BRAND_RED} 100%)`,
+          background: theme.topBar,
           zIndex: 10,
         }}
       />
@@ -340,7 +513,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
         right: -90,
         width: 500,
         height: 500,
-        backgroundImage: ISLAMIC_PATTERN_BG,
+        backgroundImage: theme.patternUrl,
         backgroundSize: '132px 132px',
         opacity: 0.24,
         transform: 'rotate(7deg)',
@@ -352,7 +525,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
         bottom: 104,
         width: 620,
         height: 620,
-        backgroundImage: ISLAMIC_PATTERN_BG,
+        backgroundImage: theme.patternUrl,
         backgroundSize: '140px 140px',
         opacity: 0.17,
         transform: 'rotate(-9deg)',
@@ -369,7 +542,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
           height: 'auto',
           objectFit: 'contain',
           opacity: 0.11,
-          filter: 'saturate(0.85)',
+          filter: `saturate(0.85)${theme.landmarkFilter}`,
           zIndex: 0,
         }}
       />
@@ -384,10 +557,31 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
           height: 'auto',
           objectFit: 'contain',
           opacity: 0.07,
-          filter: 'saturate(0.7)',
+          filter: `saturate(0.7)${theme.landmarkFilter}`,
           zIndex: 0,
         }}
       />
+
+      {variant === 'winter' && (
+        <>
+          {WINTER_SNOWFLAKES.map((spec, i) => (
+            <Snowflake key={`flake-${i}`} spec={spec} />
+          ))}
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 220,
+              zIndex: 1,
+              pointerEvents: 'none',
+              background: 'radial-gradient(130% 100% at 50% 135%, #EEF5FF 42%, rgba(238,245,255,0) 72%)',
+            }}
+          />
+        </>
+      )}
 
       {/* Header bar — uniform 50px insets on all sides */}
       <div style={{
@@ -413,7 +607,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
           right: 50,
           bottom: 0,
           height: 2,
-          background: `linear-gradient(90deg, ${BRAND_RED} 0%, ${PALE_GOLD} 48%, rgba(200,16,46,0) 100%)`,
+          background: theme.headerDivider,
           opacity: 0.75,
         }} />
         <img
@@ -440,8 +634,8 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
       }}>
         <div style={{
           fontSize: 78, fontWeight: 900, lineHeight: 0.92, letterSpacing: 0,
-          color: BRAND_RED,
-          textShadow: '0 4px 0 rgba(248,223,161,0.65)',
+          color: theme.paketUmrohColor,
+          textShadow: theme.paketUmrohShadow,
         }}>PAKET UMROH</div>
         <div style={{
           position: 'relative',
@@ -457,7 +651,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
             position: 'absolute',
             inset: '0 22px 11px',
             transform: 'translateY(6px)',
-            color: PALE_GOLD,
+            color: theme.titleShadowColor,
             opacity: 0.95,
             zIndex: 0,
           }}>{monthTitle}</span>
@@ -465,19 +659,19 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
             position: 'absolute',
             inset: '0 22px 11px',
             color: 'transparent',
-            WebkitTextStroke: `7px ${PALE_GOLD}`,
+            WebkitTextStroke: `7px ${theme.titleOutline}`,
             zIndex: 1,
           }}>{monthTitle}</span>
           <span style={{
             position: 'relative',
             zIndex: 3,
-            color: BRAND_RED,
-            backgroundImage: `linear-gradient(180deg, #FF5A70 0%, ${BRAND_RED} 34%, #A4001D 68%, ${DARK_RED} 100%)`,
+            color: theme.paketUmrohColor,
+            backgroundImage: theme.titleGradient,
             backgroundClip: 'text',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
-            WebkitTextStroke: `2px ${DEEP_RED}`,
-            filter: 'drop-shadow(0 2px 0 rgba(255,255,255,0.38)) drop-shadow(0 11px 15px rgba(90,0,16,0.18))',
+            WebkitTextStroke: `2px ${theme.titleStroke}`,
+            filter: theme.titleDropShadow,
           }}>{monthTitle}</span>
         </div>
         <div style={{
@@ -490,9 +684,9 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
           margin: '5px auto 0',
           borderRadius: 999,
           background: 'rgba(255,255,255,0.78)',
-          border: `2px solid ${PALE_GOLD}`,
+          border: `2px solid ${theme.urlPillBorder}`,
           boxShadow: '0 9px 25px rgba(90,0,16,0.08)',
-          color: DEEP_RED,
+          color: theme.urlPillText,
           fontSize: 24,
           fontWeight: 900,
           lineHeight: 1,
@@ -507,7 +701,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
         borderRadius: 26,
         overflow: 'hidden',
         background: '#FFFFFF',
-        border: `2px solid ${ROW_LINE}`,
+        border: `2px solid ${theme.tableBorder}`,
         boxShadow: '0 26px 54px rgba(90,0,16,0.14)',
         position: 'relative',
         zIndex: 2,
@@ -517,7 +711,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
         <div style={{
           display: 'grid',
           gridTemplateColumns: TABLE_COLUMNS,
-          background: `linear-gradient(90deg, ${DEEP_RED} 0%, ${BRAND_RED} 100%)`,
+          background: theme.tableHeader,
           color: '#fff',
           fontFamily: BROCHURE_ROBOTO_CONDENSED_FONT_STACK,
           fontWeight: 600,
@@ -557,7 +751,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
               height: rowH,
               alignItems: 'center',
               padding: '0 14px',
-              borderTop: i === 0 ? 'none' : `1px solid ${ROW_LINE}`,
+              borderTop: i === 0 ? 'none' : `1px solid ${theme.rowLine}`,
               letterSpacing: 0.15,
             }}>
               <span style={{
@@ -567,9 +761,9 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
                 borderRadius: 10,
                 background: isSoldOut
                   ? 'linear-gradient(145deg, #475569 0%, #1F2937 100%)'
-                  : `linear-gradient(145deg, ${DEEP_RED} 0%, ${BRAND_RED} 100%)`,
+                  : theme.badgeGradient,
                 color: '#fff',
-                border: `2px solid ${PALE_GOLD}`,
+                border: `2px solid ${theme.badgeBorder}`,
                 boxShadow: '0 8px 16px rgba(90,0,16,0.18)',
                 display: 'flex',
                 flexDirection: 'column',
@@ -655,7 +849,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
               </span>
               <span style={{
                 textAlign: 'center',
-                color: isSoldOut ? '#374151' : DEEP_RED,
+                color: isSoldOut ? '#374151' : theme.dayCountColor,
                 fontFamily: BROCHURE_OSWALD_FONT_STACK,
                 fontWeight: 500,
                 fontSynthesis: 'none',
@@ -754,11 +948,11 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
                   </span>
                 ) : typeof p.harga === 'number' ? (
                   <>
-                    <span style={{ fontSize: 40, color: DEEP_RED, fontWeight: 900, letterSpacing: -0.4 }}>{formatHargaJt(p.harga)}</span>
-                    <span style={{ fontSize: 20, color: DEEP_RED, fontWeight: 800 }}> Jt</span>
+                    <span style={{ fontSize: 40, color: theme.priceColor, fontWeight: 900, letterSpacing: -0.4 }}>{formatHargaJt(p.harga)}</span>
+                    <span style={{ fontSize: 20, color: theme.priceColor, fontWeight: 800 }}> Jt</span>
                   </>
                 ) : (
-                  <span style={{ fontSize: 22, color: DEEP_RED, fontWeight: 800 }}>Hubungi kami</span>
+                  <span style={{ fontSize: 22, color: theme.priceColor, fontWeight: 800 }}>Hubungi kami</span>
                 )}
               </span>
             </div>
@@ -768,13 +962,13 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
         {/* Truncation footnote */}
         {month.truncatedCount > 0 && (
           <div style={{
-            background: CREAM,
-            color: DEEP_RED,
+            background: theme.footnoteBg,
+            color: theme.footnoteText,
             fontWeight: 700,
             fontSize: 20,
             padding: '14px 18px',
             textAlign: 'center',
-            borderTop: `1px dashed ${GOLD}`,
+            borderTop: `1px dashed ${theme.footnoteDivider}`,
           }}>
             + {month.truncatedCount} paket lainnya — hubungi {agent.name?.trim() || 'kami'}
           </div>
@@ -805,7 +999,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
             width: 'auto',
             objectFit: 'contain',
             opacity: 0.23,
-            filter: 'saturate(0.62) contrast(0.82) brightness(1.14) drop-shadow(0 18px 34px rgba(90,0,16,0.04))',
+            filter: `saturate(0.62) contrast(0.82) brightness(1.14) drop-shadow(0 18px 34px rgba(90,0,16,0.04))${theme.landmarkFilter}`,
             WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
             maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
           }}
@@ -821,7 +1015,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
             width: 'auto',
             objectFit: 'contain',
             opacity: 0.23,
-            filter: 'saturate(0.62) contrast(0.82) brightness(1.14) drop-shadow(0 18px 34px rgba(90,0,16,0.04))',
+            filter: `saturate(0.62) contrast(0.82) brightness(1.14) drop-shadow(0 18px 34px rgba(90,0,16,0.04))${theme.landmarkFilter}`,
             WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
             maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
           }}
@@ -838,8 +1032,8 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
         margin: '0 50px 56px',
         padding: '20px 26px',
         borderRadius: 26,
-        background: `linear-gradient(135deg, ${DARK_RED} 0%, ${DEEP_RED} 44%, ${BRAND_RED} 100%)`,
-        border: `3px solid ${PALE_GOLD}`,
+        background: theme.footerGradient,
+        border: `3px solid ${theme.footerBorder}`,
         display: 'flex',
         alignItems: 'center',
         gap: 24,
@@ -857,7 +1051,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
             }}
             style={{
               width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover',
-              border: `5px solid ${PALE_GOLD}`,
+              border: `5px solid ${theme.avatarBorder}`,
               boxShadow: '0 10px 26px rgba(0,0,0,0.24)',
             }}
           />
@@ -880,7 +1074,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false }:
           </span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-          <span style={{ fontSize: 24, color: PALE_GOLD, fontWeight: 800, letterSpacing: 0 }}>
+          <span style={{ fontSize: 24, color: theme.footerLabel, fontWeight: 800, letterSpacing: 0 }}>
             Info &amp; Pendaftaran:
           </span>
           <strong style={{ fontSize: agentNameFontSize, fontWeight: 900, color: '#fff', lineHeight: 1.05, marginTop: 3 }}>

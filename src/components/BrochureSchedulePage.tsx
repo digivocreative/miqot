@@ -319,10 +319,10 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     if (filterDim === 'tipe') {
       const present = new Set(optionPackages.map(p => derivePackageType(p.nama)));
       const ordered: Array<{ value: string; label: string }> = [];
+      if (present.has(TYPE_UMROH_SAJA)) ordered.push({ value: TYPE_UMROH_SAJA, label: 'Umroh Saja' });
       if (optionPackages.some(p => isMusimDinginPackage(p, musimDinginWindow))) {
         ordered.push({ value: TYPE_UMROH_MUSIM_DINGIN, label: 'Umroh Musim Dingin' });
       }
-      if (present.has(TYPE_UMROH_SAJA)) ordered.push({ value: TYPE_UMROH_SAJA, label: 'Umroh Saja' });
       if (optionPackages.some(isRahmahPackage)) ordered.push({ value: TYPE_UMROH_RAHMAH, label: 'Umroh Rahmah' });
       if (optionPackages.some(isPromoPackage)) ordered.push({ value: TYPE_UMROH_PROMO, label: 'Umroh Promo' });
       for (const t of PACKAGE_TYPES) {
@@ -803,6 +803,9 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
 
   const previewReady = previewScale > 0;
   const hasResults = filteredPackages.length > 0;
+  // Winter brochure theme: only the Tipe Paket → Umroh Musim Dingin filter.
+  const brochureVariant: 'default' | 'winter' =
+    filterDim === 'tipe' && filterValue === TYPE_UMROH_MUSIM_DINGIN ? 'winter' : 'default';
 
   return (
     <div style={{ paddingBottom: '2rem' }}>
@@ -899,7 +902,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
                         transformOrigin: 'top left',
                       }}
                     >
-                      <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} />
+                      <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} />
                     </div>
                   </div>
 
@@ -966,7 +969,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
             ref={(node) => { exportPageRefs.current[index] = node; }}
             style={{ width: BROCHURE_W, height: BROCHURE_H }}
           >
-            <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} />
+            <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} />
           </div>
         ))}
       </div>
