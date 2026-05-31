@@ -319,10 +319,10 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     if (filterDim === 'tipe') {
       const present = new Set(optionPackages.map(p => derivePackageType(p.nama)));
       const ordered: Array<{ value: string; label: string }> = [];
+      if (present.has(TYPE_UMROH_SAJA)) ordered.push({ value: TYPE_UMROH_SAJA, label: 'Umroh Saja' });
       if (optionPackages.some(p => isMusimDinginPackage(p, musimDinginWindow))) {
         ordered.push({ value: TYPE_UMROH_MUSIM_DINGIN, label: 'Umroh Musim Dingin' });
       }
-      if (present.has(TYPE_UMROH_SAJA)) ordered.push({ value: TYPE_UMROH_SAJA, label: 'Umroh Saja' });
       if (optionPackages.some(isRahmahPackage)) ordered.push({ value: TYPE_UMROH_RAHMAH, label: 'Umroh Rahmah' });
       if (optionPackages.some(isPromoPackage)) ordered.push({ value: TYPE_UMROH_PROMO, label: 'Umroh Promo' });
       for (const t of PACKAGE_TYPES) {

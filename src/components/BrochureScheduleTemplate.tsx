@@ -674,35 +674,6 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
             filter: theme.titleDropShadow,
           }}>{monthTitle}</span>
         </div>
-        {variant === 'winter' && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 10,
-            width: 'max-content',
-            maxWidth: '100%',
-            margin: '12px auto 0',
-            padding: '8px 22px 9px',
-            borderRadius: 999,
-            background: `linear-gradient(90deg, ${W_BLUE_BRIGHT} 0%, ${W_NAVY} 100%)`,
-            border: `1px solid ${W_FROST}`,
-            boxShadow: '0 8px 20px rgba(30,58,138,0.25)',
-            color: '#FFFFFF',
-            fontSize: 26,
-            fontWeight: 800,
-            lineHeight: 1,
-            letterSpacing: 0.3,
-          }}>
-            <svg aria-hidden="true" width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={1.9} strokeLinecap="round" style={{ flexShrink: 0 }}>
-              <path d={SNOWFLAKE_PATH} />
-            </svg>
-            UMROH SEJUK &amp; NYAMAN
-            <svg aria-hidden="true" width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={1.9} strokeLinecap="round" style={{ flexShrink: 0 }}>
-              <path d={SNOWFLAKE_PATH} />
-            </svg>
-          </div>
-        )}
         <div style={{
           display: 'flex',
           alignItems: 'center',
