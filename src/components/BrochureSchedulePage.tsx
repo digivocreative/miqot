@@ -803,6 +803,9 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
 
   const previewReady = previewScale > 0;
   const hasResults = filteredPackages.length > 0;
+  // Winter brochure theme: only the Tipe Paket → Umroh Musim Dingin filter.
+  const brochureVariant: 'default' | 'winter' =
+    filterDim === 'tipe' && filterValue === TYPE_UMROH_MUSIM_DINGIN ? 'winter' : 'default';
 
   return (
     <div style={{ paddingBottom: '2rem' }}>
@@ -899,7 +902,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
                         transformOrigin: 'top left',
                       }}
                     >
-                      <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} />
+                      <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} />
                     </div>
                   </div>
 
@@ -966,7 +969,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
             ref={(node) => { exportPageRefs.current[index] = node; }}
             style={{ width: BROCHURE_W, height: BROCHURE_H }}
           >
-            <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} />
+            <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} />
           </div>
         ))}
       </div>
