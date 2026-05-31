@@ -6145,7 +6145,6 @@ async function syncHajiViaApiCore(agentId, slug, agent, {
   let upserted = 0;
   for (let i = 0; i < allRows.length; i += BATCH) {
     const batch = allRows.slice(i, i + BATCH);
-    const hajiCapiIds = batch.map(r => ({ id_haji: r.id_haji, id_jamaah: r.id_jamaah }));
     const { error } = await supabase
       .from('jamaah_haji')
       .upsert(batch, {
@@ -6158,52 +6157,71 @@ async function syncHajiViaApiCore(agentId, slug, agent, {
       console.error(`[haji-api/${context}] ${slug} upsert batch error:`, error.message);
     } else {
       upserted += batch.length;
-      processCapiPurchases(agentId, slug, 'haji', hajiCapiIds).catch(e =>
-        console.error(`[CAPI/haji-api/${context}] Purchase error:`, e.message)
-      );
     }
   }
 
-  if (upsertErrors > 0) {
-    throw new Error(`Haji API upsert failed in ${upsertErrors} batch(es): ${firstUpsertError || 'unknown error'}`);
+  const anyRowsFetched = rowsByKey.size > 0;
+  const outcome = classifyAwapiSyncOutcome({ fetchErrors, upsertErrors, anyRowsFetched });
+
+  // Hard failure → throw. Haji has no legacy fallback, so the caller
+  // (syncHajiOneAgent / sync handler) just logs and skips this cycle.
+  // Partial/full return normally and bump the label. See
+  // docs/superpowers/specs/2026-05-31-haji-sync-fix-a-design.md
+  if (outcome.kind === 'hardfail') {
+    throw new Error(firstUpsertError ? `${outcome.reason}: ${firstUpsertError}` : outcome.reason);
   }
 
-  if (fetchErrors > 0) {
-    throw new Error(`Haji API fetch incomplete: ${fetchErrors} endpoint(s) failed`);
-  }
-
-  const cleanupYears = new Set(normalizedDepartureYears);
-  if (!syncingAgents.get(agentId)?.cancelled && cleanupYears.size > 0) {
-    const { data: existingRows } = await supabase
-      .from('jamaah_haji')
-      .select('id_haji, id_jamaah, thn_masehi')
-      .eq('agent_id', agentId)
-      .in('thn_masehi', [...cleanupYears]);
-    const plan = computeSafeDeletions({
-      listComplete: true,
-      fetchedBookingIds,
-      successfulBookingIds,
-      successfulJamaahPerBooking,
-      existingRows: (existingRows || []).map(r => ({ bookingId: r.id_haji, jamaahKey: r.id_jamaah })),
-      maxDeletePercent: 0.3,
-    });
-    if (plan.decision === 'skip') {
-      console.warn(`[haji-api/${context}] ${slug} cleanup skipped: ${plan.reason} (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
-    } else if (plan.toDelete.length > 0) {
-      const deletedCount = await executeHajiDeletions(slug, agentId, plan.toDelete);
-      console.log(`[haji-api/${context}] ${slug}: removed ${deletedCount} stale haji (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+  // Cleanup: full success only.
+  if (outcome.shouldCleanup) {
+    const cleanupYears = new Set(normalizedDepartureYears);
+    if (!syncingAgents.get(agentId)?.cancelled && cleanupYears.size > 0) {
+      const { data: existingRows } = await supabase
+        .from('jamaah_haji')
+        .select('id_haji, id_jamaah, thn_masehi')
+        .eq('agent_id', agentId)
+        .in('thn_masehi', [...cleanupYears]);
+      const plan = computeSafeDeletions({
+        listComplete: true,
+        fetchedBookingIds,
+        successfulBookingIds,
+        successfulJamaahPerBooking,
+        existingRows: (existingRows || []).map(r => ({ bookingId: r.id_haji, jamaahKey: r.id_jamaah })),
+        maxDeletePercent: 0.3,
+      });
+      if (plan.decision === 'skip') {
+        console.warn(`[haji-api/${context}] ${slug} cleanup skipped: ${plan.reason} (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+      } else if (plan.toDelete.length > 0) {
+        const deletedCount = await executeHajiDeletions(slug, agentId, plan.toDelete);
+        console.log(`[haji-api/${context}] ${slug}: removed ${deletedCount} stale haji (wouldDelete=${plan.wouldDelete}/${plan.totalExisting})`);
+      }
     }
   }
 
-  const { error: bumpErr } = await supabase
-    .from('agents')
-    .update({ last_jamaah_haji_sync_at: now })
-    .eq('id', agentId);
-  if (bumpErr) console.warn(`[haji-api/${context}] ${slug} bump last_jamaah_haji_sync_at failed:`, bumpErr.message);
-  invalidateStatsCache(agentId);
+  // Fire CAPI Purchase events once, on full success only (was per-batch before).
+  if (outcome.shouldNotify) {
+    const hajiCapiIds = allRows.map(r => ({ id_haji: r.id_haji, id_jamaah: r.id_jamaah }));
+    processCapiPurchases(agentId, slug, 'haji', hajiCapiIds).catch(e =>
+      console.error(`[CAPI/haji-api/${context}] Purchase error:`, e.message)
+    );
+  }
+
+  // Bump on every completed cycle (partial + full) so the HajiPage label is honest.
+  if (outcome.shouldBump) {
+    const { error: bumpErr } = await supabase
+      .from('agents')
+      .update({ last_jamaah_haji_sync_at: now })
+      .eq('id', agentId);
+    if (bumpErr) console.warn(`[haji-api/${context}] ${slug} bump last_jamaah_haji_sync_at failed:`, bumpErr.message);
+    invalidateStatsCache(agentId);
+  }
+
+  if (outcome.kind === 'partial') {
+    console.warn(`[haji-api/${context}] ${slug}: partial sync — ${outcome.reason}; kept fetched rows, no fallback`);
+  }
 
   return {
-    ok: true,
+    ok: outcome.kind === 'full',
+    partial: outcome.kind === 'partial',
     count: upserted,
     uniqueHaji: fetchedBookingIds.size,
     syncedAt: now,
