@@ -111,7 +111,7 @@ test('SimulasiHajiPlus export uses stronger consultation copy and safer projecti
   assert.match(source, /Konsultan Haji Plus/);
   assert.match(source, /Amankan Porsi Haji Plus Sekarang/);
   assert.doesNotMatch(source, /Konsultasi & Booking Seat/);
-  assert.match(source, /kurs \+1\.5%\/th/);
+  assert.match(source, /kurs \+\{pctLabel\(kursRate\)\}\/th/);
   assert.doesNotMatch(source, /inflasi ~1\.5%\/thn/);
   assert.doesNotMatch(source, /±\{calc\.diffMonths\} bulan dari sekarang/);
 });
@@ -205,9 +205,30 @@ test('PriceLadder renders ladder rows with normalized bars and departure emphasi
 test('SimulasiHajiPlus export invoice uses the departure-year price', () => {
   const source = read('src/components/SimulasiHajiPlus.tsx');
   assert.match(source, /Estimasi harga \{tahunBerangkat\}/);          // paket card label
+  assert.match(source, /Proyeksi Harga Per Jamaah/);
+  assert.match(source, /Estimasi harga di \{tahunBerangkat\}/);
+  assert.doesNotMatch(source, /Proyeksi Harga Paket \/ jamaah/);
+  assert.doesNotMatch(source, /Estimasi harga asli di \{tahunBerangkat\}/);
   assert.match(source, /fmtUSD\(calc\.escalatedPriceUSD\)/);          // paket card price
   assert.match(source, /fmtUSD\(calc\.escalatedTotalUSD\)/);          // invoice total
   assert.match(source, /harga dasar/);                                // base reference
   assert.doesNotMatch(source, /fmtUSD\(calc\.totalUSD\)/);            // old field gone
   assert.doesNotMatch(source, /fmtRp\(calc\.totalIDR\)/);
+});
+
+test('SimulasiHajiPlus lets the agent choose price and kurs escalation rates', () => {
+  const source = read('src/components/SimulasiHajiPlus.tsx');
+  // option lists + dynamic-rate state defaulting to the constants
+  assert.match(source, /const PRICE_RATE_OPTIONS = \[0\.01, 0\.015, 0\.02, 0\.025, 0\.03\]/);
+  assert.match(source, /const KURS_RATE_OPTIONS = \[0\.005, 0\.01, 0\.015, 0\.02, 0\.025\]/);
+  assert.match(source, /useState\(PRICE_ESCALATION_RATE\)/);
+  assert.match(source, /useState\(KURS_INFLATION_RATE\)/);
+  assert.match(source, /setPriceRate\(Number\(e\.target\.value\)\)/);
+  assert.match(source, /setKursRate\(Number\(e\.target\.value\)\)/);
+  // threaded into the calc
+  assert.match(source, /computeHajiPlusEscalation\(\{[\s\S]*priceRate,[\s\S]*kursRate,[\s\S]*\}\)/);
+  // labels are dynamic, not hardcoded rate literals
+  assert.match(source, /estimasi ~\{pctLabel\(priceRate\)\}\/th/);
+  assert.match(source, /kurs \+\{pctLabel\(kursRate\)\}\/th/);
+  assert.doesNotMatch(source, /~2\.5%\/th/);
 });

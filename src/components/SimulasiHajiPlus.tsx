@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Info, User, Calendar, Users, Loader2, FileText, X, Share2 } from 'lucide-react';
+import { Info, User, Calendar, Users, Loader2, FileText, X, Share2, TrendingUp } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import logoWhite from '@/logo-alhijaz-white.png';
 import PriceLadder from './PriceLadder';
-import { computeHajiPlusEscalation, condenseLadder } from '@/lib/hajiPlusPricing';
+import { computeHajiPlusEscalation, condenseLadder, PRICE_ESCALATION_RATE, KURS_INFLATION_RATE } from '@/lib/hajiPlusPricing';
 
 // ── Constants ──
 type RoomTypeId = 'double' | 'triple' | 'quad';
@@ -56,6 +56,11 @@ const ISLAMIC_PATTERN_BACKGROUND = `url("data:image/svg+xml,${encodeURIComponent
 // ── Helpers ──
 const fmtUSD = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 const fmtRp = (n: number) => `Rp${Math.round(n).toLocaleString('id-ID')}`;
+
+// Agent-selectable escalation rates (defaults = the exported constants).
+const PRICE_RATE_OPTIONS = [0.01, 0.015, 0.02, 0.025, 0.03];
+const KURS_RATE_OPTIONS = [0.005, 0.01, 0.015, 0.02, 0.025];
+const pctLabel = (r: number) => `${+(r * 100).toFixed(1)}%`;
 
 const normalizeAgentSlug = (slug?: string) => String(slug || '').trim().toLowerCase();
 const isAgentPhotoFileName = (fileName: string) => /^[a-z0-9-]+\.(jpe?g|png|webp)$/i.test(fileName);
@@ -146,6 +151,8 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
   const [selectedRoomType, setSelectedRoomType] = useState<RoomTypeId>('quad');
   const [tahunBerangkat, setTahunBerangkat] = useState(2036);
   const [jumlahJamaah, setJumlahJamaah] = useState(1);
+  const [priceRate, setPriceRate] = useState(PRICE_ESCALATION_RATE);
+  const [kursRate, setKursRate] = useState(KURS_INFLATION_RATE);
   const [namaJamaah, setNamaJamaah] = useState('');
   const [kursUSD, setKursUSD] = useState<number | null>(null);
   const [kursDate, setKursDate] = useState('');
@@ -201,13 +208,15 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
       currentYear,
       kursUSD,
       dpPerJamaahUSD: DP_USD,
+      priceRate,
+      kursRate,
     });
     const deadlineDate = new Date(tahunBerangkat, 0, 1);
     deadlineDate.setMonth(deadlineDate.getMonth() - PELUNASAN_BULAN);
     const deadlineLabel = deadlineDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
     const diffMonths = Math.max(0, Math.round((new Date(tahunBerangkat, 0, 1).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30)));
     return { ...esc, deadlineLabel, diffMonths, currentYear };
-  }, [pkg, selectedPriceUSD, tahunBerangkat, jumlahJamaah, kursUSD]);
+  }, [pkg, selectedPriceUSD, tahunBerangkat, jumlahJamaah, kursUSD, priceRate, kursRate]);
 
   const exportLadder = useMemo(() => (calc ? condenseLadder(calc.ladder, 5) : []), [calc]);
 
@@ -451,6 +460,38 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
         </div>
       </div>
 
+      {/* D2. Asumsi Kenaikan */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
+          <label className="flex items-center gap-1 text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">
+            <TrendingUp size={10} /> Kenaikan Harga
+          </label>
+          <select
+            value={priceRate}
+            onChange={e => setPriceRate(Number(e.target.value))}
+            className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-colors appearance-none"
+          >
+            {PRICE_RATE_OPTIONS.map(r => (
+              <option key={r} value={r}>{pctLabel(r)} / th</option>
+            ))}
+          </select>
+        </div>
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
+          <label className="flex items-center gap-1 text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">
+            <TrendingUp size={10} /> Kenaikan Kurs
+          </label>
+          <select
+            value={kursRate}
+            onChange={e => setKursRate(Number(e.target.value))}
+            className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-colors appearance-none"
+          >
+            {KURS_RATE_OPTIONS.map(r => (
+              <option key={r} value={r}>{pctLabel(r)} / th</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {/* E. Hasil Simulasi */}
       {pkg && calc && (
         <div className="space-y-4" style={{ animation: 'slideUp 350ms ease-out' }}>
@@ -532,12 +573,12 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
           {/* E2b. Proyeksi Harga */}
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide">Proyeksi Harga Paket / jamaah</p>
-              <span className={`text-[10px] font-bold ${isRahmah ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}`}>estimasi ~2.5%/th</span>
+              <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide">Proyeksi Harga Per Jamaah</p>
+              <span className={`text-[10px] font-bold ${isRahmah ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}`}>estimasi ~{pctLabel(priceRate)}/th</span>
             </div>
             <PriceLadder ladder={calc.ladder} accent={isRahmah ? 'emerald' : 'blue'} />
             <p className="text-[10px] text-gray-500 dark:text-slate-400 mt-3">
-              Estimasi harga asli di {tahunBerangkat}. Est. Rp memakai kurs +1.5%/th.
+              Estimasi harga di {tahunBerangkat}
             </p>
           </div>
 
@@ -560,7 +601,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
           <div className="bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-700/50 rounded-xl px-3 py-2.5 flex items-start gap-2">
             <Info size={12} className="text-gray-500 dark:text-slate-400 flex-shrink-0 mt-0.5" />
             <p className="text-[10px] text-gray-500 dark:text-slate-400 leading-relaxed">
-              Estimasi. Harga paket diproyeksikan naik ~2.5%/th & kurs ~1.5%/th sampai tahun berangkat; angka final ditetapkan Alhijaz. Kurs Bank Mandiri ({kursDate}).
+              Estimasi. Harga paket diproyeksikan naik ~{pctLabel(priceRate)}/th & kurs ~{pctLabel(kursRate)}/th sampai tahun berangkat; angka final ditetapkan Alhijaz. Kurs Bank Mandiri ({kursDate}).
             </p>
           </div>
 
@@ -719,8 +760,8 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
             {/* Proyeksi Harga Paket */}
             <div style={{ margin: '0 24px 10px', padding: '8px 14px', borderRadius: 11, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-                <div style={{ fontSize: 9, fontWeight: 750, color: '#64748b' }}>Proyeksi Harga Paket / jamaah</div>
-                <div style={{ fontSize: 8.5, fontWeight: 700, color: isRahmah ? '#059669' : '#2563eb' }}>estimasi ~2.5%/th</div>
+                <div style={{ fontSize: 9, fontWeight: 750, color: '#64748b' }}>Proyeksi Harga Per Jamaah</div>
+                <div style={{ fontSize: 8.5, fontWeight: 700, color: isRahmah ? '#059669' : '#2563eb' }}>estimasi ~{pctLabel(priceRate)}/th</div>
               </div>
               {exportLadder.map((e, i) => {
                 const width = 45 + (exportLadder.length > 1 ? (i / (exportLadder.length - 1)) * 55 : 55);
@@ -736,7 +777,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
                 );
               })}
               <div style={{ fontSize: 8.1, color: '#64748b', marginTop: 6, borderTop: '1px dashed #cbd5e1', paddingTop: 5, whiteSpace: 'nowrap' as const }}>
-                Estimasi total {tahunBerangkat} ≈ {fmtRp(calc.estTotalIDR)} · kurs +1.5%/th (kini {fmtRp(kursUSD)}/USD).
+                Estimasi total {tahunBerangkat} ≈ {fmtRp(calc.estTotalIDR)} · kurs +{pctLabel(kursRate)}/th (kini {fmtRp(kursUSD)}/USD).
               </div>
             </div>
 
