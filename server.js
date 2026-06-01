@@ -6,7 +6,7 @@ setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
 
 import express from 'express';
 import * as Sentry from '@sentry/node';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config'; // ⚠️ Harus sebelum import file lokal agar env var terbaca
@@ -72,6 +72,7 @@ import {
   shouldReplaceKursCache,
 } from './lib/kurs-mandiri.js';
 import { shouldRunBackgroundJobs } from './lib/background-jobs.js';
+import { parseSyncCooldownMs, computeFirstCycleDelayMs } from './lib/sync-schedule.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
 import cron from 'node-cron';
@@ -15539,15 +15540,52 @@ setTimeout(async () => {
 
 // Chain-scheduled sync: next cycle starts a fixed cooldown AFTER the previous
 // finishes. Prevents cycle-overlap regardless of how long a single cycle takes.
-// API path: 10min cooldown (cycle ~1.5min, refresh per agent ~12min).
-// Legacy path: longer cooldown still appropriate due to slower scrape pipeline.
-const SYNC_COOLDOWN_MS = process.env.AWAPI_SYNC_ENABLED === 'true'
-  ? 10 * 60 * 1000   // 10 minutes
-  : 30 * 60 * 1000;  // 30 minutes (legacy)
+// Cooldown is env-overridable via SYNC_COOLDOWN_MINUTES (default 30m). It used to
+// be a hardcoded 10m on the API path, but re-upserting every agent's jamaah every
+// 10m generated sustained write IO that drained the Supabase Disk IO budget
+// (incident 2026-06-01). See lib/sync-schedule.js.
+const SYNC_COOLDOWN_MS = parseSyncCooldownMs(process.env);
+
+// Persist when the last full sync cycle completed so repeated restarts (e.g. a
+// deploy) don't each fire a fresh full-fleet sync on boot. Tiny JSON, atomic
+// write (tmp + rename), tolerant of missing/corrupt files. No DB read on boot.
+const SYNC_STATE_FILE = resolve(__dirname, 'data', 'sync-state.json');
+function readLastSyncCycleAt() {
+  try {
+    const v = JSON.parse(readFileSync(SYNC_STATE_FILE, 'utf-8'))?.lastGlobalSyncCycleAt;
+    const ms = v ? Date.parse(v) : NaN;
+    return Number.isFinite(ms) ? ms : null;
+  } catch {
+    return null;
+  }
+}
+function writeLastSyncCycleAt(ms) {
+  try {
+    const dir = resolve(__dirname, 'data');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const tmp = SYNC_STATE_FILE + '.tmp';
+    writeFileSync(tmp, JSON.stringify({ lastGlobalSyncCycleAt: new Date(ms).toISOString() }, null, 2));
+    renameSync(tmp, SYNC_STATE_FILE);
+  } catch (err) {
+    console.warn('[SYNC] Failed to persist sync-state:', err.message);
+  }
+}
+
 async function runSyncCycleLoop() {
+  // Anti restart-storm: if a cycle completed within the cooldown, delay the first
+  // run by the remaining time instead of syncing immediately on boot.
+  const lastAt = readLastSyncCycleAt();
+  if (lastAt != null) {
+    const delay = computeFirstCycleDelayMs(lastAt, Date.now(), SYNC_COOLDOWN_MS);
+    if (delay > 0) {
+      console.log(`[SYNC] Last cycle ${Math.round((Date.now() - lastAt) / 60000)}m ago — delaying first cycle ${Math.round(delay / 60000)}m (anti restart-storm)`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
   while (true) {
     try {
       await syncAllAgents();
+      writeLastSyncCycleAt(Date.now());
     } catch (err) {
       console.error('[SYNC] Cycle error:', err.message);
     }
@@ -15555,6 +15593,7 @@ async function runSyncCycleLoop() {
   }
 }
 setTimeout(() => {
+  console.log(`[SYNC] Cooldown ${Math.round(SYNC_COOLDOWN_MS / 60000)}m (SYNC_COOLDOWN_MINUTES)`);
   runSyncCycleLoop().catch(err => console.error('[SYNC] Loop crashed:', err.message));
 }, 30 * 1000);
 scheduleUmrohPhase2Enrichment();

@@ -546,7 +546,7 @@ alhijaz/
   - **raw_data = sumber kebenaran**: untuk row AWAPI, `raw_data` menyimpan payload mentah + provenance dan **tak pernah ditimpa** oleh jalur legacy → bisa dipakai merekonstruksi kolom turunan (mis. perbaikan `tgl_berangkat`). Conflict target upsert: umroh `agent_id,id_umroh,jm_id`; haji `agent_id,id_haji,id_jamaah`.
   - **Cleanup guard** (`lib/sync-cleanup.js` → `computeSafeDeletions`): penghapusan row jamaah yang hilang dari sumber hanya dijalankan saat sync `full` (bukan `partial`), dan hanya bila daftar terbukti lengkap — cegah jamaah terhapus karena fetch sebagian. CAPI Purchase juga hanya di-fire saat `full`.
 - **Background jobs gating** (`lib/background-jobs.js`): cron kurs & init Telegram notifier hanya jalan kalau `shouldRunBackgroundJobs()` true — default production, atau dev/test yang set `ENABLE_BACKGROUND_JOBS=true`.
-- Background sync jamaah (semua agent, chain-scheduled — siklus berikutnya mulai setelah yang sebelumnya selesai): umroh AWAPI **tiap 10 menit** (`SYNC_COOLDOWN_MS`, mulai 30 dtk setelah boot via `runSyncCycleLoop`), umroh legacy **tiap 30 menit** bila AWAPI nonaktif, haji AWAPI **tiap 30 menit** (`runHajiSyncCycleLoop`, mulai 90 dtk setelah boot), plus enrichment legacy haji terjadwal terpisah (~30 menit) untuk mengisi field yang sengaja dikosongkan API
+- Background sync jamaah (semua agent, chain-scheduled — siklus berikutnya mulai setelah yang sebelumnya selesai): umroh AWAPI **default tiap 30 menit** (`SYNC_COOLDOWN_MS` via `parseSyncCooldownMs`, override env `SYNC_COOLDOWN_MINUTES`; mulai 30 dtk setelah boot via `runSyncCycleLoop`, dengan guard anti restart-storm yang menunda siklus pertama bila baru saja sync — state di `data/sync-state.json`), umroh legacy **tiap 30 menit** bila AWAPI nonaktif, haji AWAPI **tiap 30 menit** (`runHajiSyncCycleLoop`, mulai 90 dtk setelah boot), plus enrichment legacy haji terjadwal terpisah (~30 menit) untuk mengisi field yang sengaja dikosongkan API. Cooldown AWAPI dulu hardcoded 10 mnt; dinaikkan jadi 30 mnt (env-driven) karena re-upsert seluruh jamaah tiap 10 mnt menguras Disk IO budget Supabase (insiden 2026-06-01)
 - Calendar sync (scrape FullCalendar dari internal system, setiap 12 jam via `setInterval`)
   - Login ke internal system → fetch halaman Beranda → parse FullCalendar events JSON
   - Fetch detail popup via `_jmodal.php` per event → parse HTML table (group, pesawat, jam, paket, PAX, staff, TL)
@@ -1270,7 +1270,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Telegram notification preferences (15 visible toggles, per-agent toggle, JSONB in agents table)
 - Pembayaran masuk detection (sync-time comparison, split cicilan vs pelunasan, auto-notify agent via Telegram DM)
 - Settings page: iOS segmented control tab bar (Lucide icons), Telegram brand badge with animations, skeleton loading, disconnect confirmation dialog
-- Background sync jamaah (chain-scheduled: umroh AWAPI ~10 min, haji AWAPI ~30 min; all agents, single kantor per agent, 6-month widened fetch range)
+- Background sync jamaah (chain-scheduled: umroh AWAPI default ~30 min via `SYNC_COOLDOWN_MINUTES`, haji AWAPI ~30 min; all agents, single kantor per agent, 6-month widened fetch range)
 - Single package view (deep link ke 1 paket)
 - Quotation PDF dengan logo bank (BCA, BSI, Mandiri)
 - Calendar scraping & display (internal system → Supabase → dashboard mini calendar + bottom sheet)
