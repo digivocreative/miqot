@@ -36,3 +36,21 @@ test('hook exposes category CRUD wired to categoryOps with reassign-on-delete', 
   assert.match(hook, /deleteCategoryAndReassign\(store\.tourPhases, store\.tourSteps, 'phase'/);
   assert.match(hook, /if \(!res\) return;/);
 });
+
+test('CategoryManager wires the store, icons, counts, reorder, and reassign-delete', () => {
+  const mgr = read('src/components/wa-copy/admin/CategoryManager.tsx');
+  assert.match(mgr, /useWaCopyContent\(\)/);
+  assert.match(mgr, /resolveCategoryIcon/);
+  assert.match(mgr, /konten/);                 // per-category count label
+  assert.match(mgr, /DeleteCategoryPanel/);    // delete delegates to reassign panel
+  assert.match(mgr, /CategoryEditor/);         // create/edit delegates to the form
+  assert.match(mgr, /onExit/);                 // returns to the content list
+  assert.match(mgr, /backRequest/);            // handles parent back requests
+});
+
+test('DeleteCategoryPanel reassigns to another category and blocks when none remain', () => {
+  const panel = read('src/components/wa-copy/admin/DeleteCategoryPanel.tsx');
+  assert.match(panel, /Pindahkan/);
+  assert.match(panel, /others/);
+  assert.match(panel, /onConfirm\(reassignTo\)/);
+});
