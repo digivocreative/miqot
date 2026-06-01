@@ -82,3 +82,18 @@ test('MediaUploadField validates, uploads with auth headers, and reports back', 
   assert.match(src, /accept=\{ACCEPT_ATTR\}/);
   assert.match(src, /import MediaView from '\.\/MediaView'/);
 });
+
+test('all three editors render MediaUploadField and include media in the draft', () => {
+  const files = [
+    'src/components/wa-copy/admin/FaqEditor.tsx',
+    'src/components/wa-copy/admin/CaptionEditor.tsx',
+    'src/components/wa-copy/admin/TourLeaderEditor.tsx',
+  ];
+  for (const f of files) {
+    const src = read(f);
+    assert.match(src, /import MediaUploadField from '\.\/MediaUploadField'/, `${f} missing import`);
+    assert.match(src, /<MediaUploadField value=\{media\} onChange=\{setMedia\} \/>/, `${f} missing field`);
+    assert.match(src, /initial\?\.media\?\.\[0\] \?\? null/, `${f} missing media state init`);
+    assert.match(src, /media: media \? \[media\] : \[\]/, `${f} missing media in draft`);
+  }
+});

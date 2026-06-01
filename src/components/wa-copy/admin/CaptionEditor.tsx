@@ -2,15 +2,17 @@ import { useRef, useState } from 'react';
 import { useAgentContext } from '../hooks/useAgentContext';
 import { CAPTION_CATEGORIES } from '../lib/captions';
 import { AGENT_TOKENS, PACKAGE_TOKENS, TOKEN_LABELS, usesPackageToken } from '../lib/placeholders';
-import type { CaptionCategory, CaptionEntry } from '../lib/types';
+import type { CaptionCategory, CaptionEntry, MediaAttachment } from '../lib/types';
 import PreviewText from '../tabs/caption/PreviewText';
 import Toggle from './Toggle';
+import MediaUploadField from './MediaUploadField';
 
 export interface CaptionDraft {
   category: CaptionCategory;
   packageAware: boolean;
   template: string;
   active: boolean;
+  media?: MediaAttachment[];
 }
 
 interface CaptionEditorProps {
@@ -31,6 +33,7 @@ export default function CaptionEditor({ initial, onSave, onCancel }: CaptionEdit
   const [template, setTemplate] = useState(initial?.template ?? '');
   const [packageAware, setPackageAware] = useState(initial?.packageAware ?? usesPackageToken(initial?.template ?? ''));
   const [active, setActive] = useState(initial?.active ?? true);
+  const [media, setMedia] = useState<MediaAttachment | null>(initial?.media?.[0] ?? null);
 
   const insertToken = (token: string) => {
     const tokenStr = `{${token}}`;
@@ -54,7 +57,7 @@ export default function CaptionEditor({ initial, onSave, onCancel }: CaptionEdit
 
   const handleSave = () => {
     if (!canSave) return;
-    onSave({ category, packageAware, template: template.trim(), active });
+    onSave({ category, packageAware, template: template.trim(), active, media: media ? [media] : [] });
   };
 
   return (
@@ -122,6 +125,11 @@ export default function CaptionEditor({ initial, onSave, onCancel }: CaptionEdit
             <p className="text-xs text-gray-400 dark:text-slate-500">Pratinjau muncul di sini.</p>
           )}
         </div>
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Media (Opsional)</label>
+        <MediaUploadField value={media} onChange={setMedia} />
       </div>
 
       <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700">

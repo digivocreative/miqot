@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { FAQ_CATEGORIES } from '../lib/faq';
-import type { AgentFaqEntry, FaqCategory } from '../lib/types';
+import type { AgentFaqEntry, FaqCategory, MediaAttachment } from '../lib/types';
 import Toggle from './Toggle';
+import MediaUploadField from './MediaUploadField';
 
 export interface FaqDraft {
   category: FaqCategory;
   question: string;
   answer: string;
   active: boolean;
+  media?: MediaAttachment[];
 }
 
 interface FaqEditorProps {
@@ -25,11 +27,12 @@ export default function FaqEditor({ initial, onSave, onCancel }: FaqEditorProps)
   const [question, setQuestion] = useState(initial?.question ?? '');
   const [answer, setAnswer] = useState(initial?.answer ?? '');
   const [active, setActive] = useState(initial?.active ?? true);
+  const [media, setMedia] = useState<MediaAttachment | null>(initial?.media?.[0] ?? null);
 
   const canSave = question.trim().length > 0 && answer.trim().length > 0;
   const handleSave = () => {
     if (!canSave) return;
-    onSave({ category, question: question.trim(), answer: answer.trim(), active });
+    onSave({ category, question: question.trim(), answer: answer.trim(), active, media: media ? [media] : [] });
   };
 
   return (
@@ -65,6 +68,11 @@ export default function FaqEditor({ initial, onSave, onCancel }: FaqEditorProps)
           placeholder="Tulis jawaban yang jelas dan ramah…"
           className={`${INPUT_CLASS} resize-y leading-6`}
         />
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Media (Opsional)</label>
+        <MediaUploadField value={media} onChange={setMedia} />
       </div>
 
       <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700">

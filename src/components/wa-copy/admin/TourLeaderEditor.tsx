@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { TOUR_PHASES } from '../lib/tourleader';
-import type { TourPhase, TourStep } from '../lib/types';
+import type { TourPhase, TourStep, MediaAttachment } from '../lib/types';
 import Toggle from './Toggle';
+import MediaUploadField from './MediaUploadField';
 
 export interface TourDraft {
   phase: TourPhase;
   title: string;
   body: string;
   active: boolean;
+  media?: MediaAttachment[];
 }
 
 interface TourLeaderEditorProps {
@@ -25,11 +27,12 @@ export default function TourLeaderEditor({ initial, onSave, onCancel }: TourLead
   const [title, setTitle] = useState(initial?.title ?? '');
   const [body, setBody] = useState(initial?.body ?? '');
   const [active, setActive] = useState(initial?.active ?? true);
+  const [media, setMedia] = useState<MediaAttachment | null>(initial?.media?.[0] ?? null);
 
   const canSave = title.trim().length > 0 && body.trim().length > 0;
   const handleSave = () => {
     if (!canSave) return;
-    onSave({ phase, title: title.trim(), body: body.trim(), active });
+    onSave({ phase, title: title.trim(), body: body.trim(), active, media: media ? [media] : [] });
   };
 
   return (
@@ -65,6 +68,11 @@ export default function TourLeaderEditor({ initial, onSave, onCancel }: TourLead
           placeholder="Tulis panduan dalam bentuk paragraf naratif…"
           className={`${INPUT_CLASS} resize-y leading-6`}
         />
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Media (Opsional)</label>
+        <MediaUploadField value={media} onChange={setMedia} />
       </div>
 
       <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700">
