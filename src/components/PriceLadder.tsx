@@ -14,6 +14,8 @@ export default function PriceLadder({ ladder, accent }: PriceLadderProps) {
     ? 'text-emerald-700 dark:text-emerald-400'
     : 'text-blue-700 dark:text-blue-400';
 
+  if (!ladder.length) return null;
+
   return (
     <div className="space-y-1.5">
       {ladder.map((e, i) => {

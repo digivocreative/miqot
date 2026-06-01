@@ -27,8 +27,19 @@ test('SimulasiHajiPlus keeps Quad as default and calculates from selected room p
 
   assert.match(source, /useState<RoomTypeId>\('quad'\)/);
   assert.match(source, /selectedPriceUSD\s*=\s*pkg\s*\?\s*pkg\.pricesUSD\[selectedRoomType\]\s*:\s*0/);
-  assert.match(source, /const\s+totalUSD\s*=\s*selectedPriceUSD\s*\*\s*jumlahJamaah/);
-  assert.doesNotMatch(source, /const\s+totalUSD\s*=\s*pkg\.priceUSD\s*\*\s*jumlahJamaah/);
+  assert.match(source, /computeHajiPlusEscalation\(\{[\s\S]*basePriceUSD:\s*selectedPriceUSD/);
+  assert.match(source, /calc\.escalatedTotalUSD/);
+  assert.doesNotMatch(source, /Math\.pow\(1\.015,/); // inline kurs math moved into the helper
+});
+
+test('SimulasiHajiPlus on-screen result shows escalated total, base reference, and a ladder', () => {
+  const source = read('src/components/SimulasiHajiPlus.tsx');
+  assert.match(source, /import\s+PriceLadder\s+from\s+'\.\/PriceLadder'/);
+  assert.match(source, /import\s+\{\s*computeHajiPlusEscalation,\s*condenseLadder[\s\S]*from\s+'@\/lib\/hajiPlusPricing'/);
+  assert.match(source, /const fmtUSD = .*Math\.round/);
+  assert.match(source, /fmtUSD\(calc\.escalatedTotalUSD\)/);
+  assert.match(source, /harga dasar/);
+  assert.match(source, /<PriceLadder[\s\S]*ladder=\{calc\.ladder\}/);
 });
 
 test('SimulasiHajiPlus starts departure-year choices at 2036', () => {

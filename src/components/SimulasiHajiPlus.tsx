@@ -3,6 +3,8 @@ import { Info, User, Calendar, Users, Loader2, FileText, X, Share2 } from 'lucid
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import logoWhite from '@/logo-alhijaz-white.png';
+import PriceLadder from './PriceLadder';
+import { computeHajiPlusEscalation, condenseLadder } from '@/lib/hajiPlusPricing';
 
 // ── Constants ──
 type RoomTypeId = 'double' | 'triple' | 'quad';
@@ -52,7 +54,7 @@ const ISLAMIC_PATTERN_BACKGROUND = `url("data:image/svg+xml,${encodeURIComponent
 `)}")`;
 
 // ── Helpers ──
-const fmtUSD = (n: number) => `$${n.toLocaleString('en-US')}`;
+const fmtUSD = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 const fmtRp = (n: number) => `Rp${Math.round(n).toLocaleString('id-ID')}`;
 
 const normalizeAgentSlug = (slug?: string) => String(slug || '').trim().toLowerCase();
@@ -191,21 +193,23 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
 
   const calc = useMemo(() => {
     if (!pkg || !kursUSD) return null;
-    const totalUSD = selectedPriceUSD * jumlahJamaah;
-    const totalIDR = totalUSD * kursUSD;
-    const dpUSD = DP_USD * jumlahJamaah;
-    const dpIDR = dpUSD * kursUSD;
-    const sisaUSD = totalUSD - dpUSD;
-    const sisaIDR = sisaUSD * kursUSD;
+    const currentYear = new Date().getFullYear();
+    const esc = computeHajiPlusEscalation({
+      basePriceUSD: selectedPriceUSD,
+      jumlahJamaah,
+      tahunBerangkat,
+      currentYear,
+      kursUSD,
+      dpPerJamaahUSD: DP_USD,
+    });
     const deadlineDate = new Date(tahunBerangkat, 0, 1);
     deadlineDate.setMonth(deadlineDate.getMonth() - PELUNASAN_BULAN);
     const deadlineLabel = deadlineDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
     const diffMonths = Math.max(0, Math.round((new Date(tahunBerangkat, 0, 1).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30)));
-    const diffYears = Math.max(1, tahunBerangkat - new Date().getFullYear());
-    const inflatedKurs = kursUSD * Math.pow(1.015, diffYears);
-    const estTotalIDR = totalUSD * inflatedKurs;
-    return { totalUSD, totalIDR, dpUSD, dpIDR, sisaUSD, sisaIDR, deadlineLabel, diffMonths, diffYears, inflatedKurs, estTotalIDR };
+    return { ...esc, deadlineLabel, diffMonths };
   }, [pkg, selectedPriceUSD, tahunBerangkat, jumlahJamaah, kursUSD]);
+
+  const exportLadder = useMemo(() => (calc ? condenseLadder(calc.ladder, 5) : []), [calc]);
 
   // ── Accent colors ──
   const isRahmah = selectedPkg === 'rahmah';
@@ -459,17 +463,17 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
           >
             <div className="px-4 pt-4 pb-3">
               <p className="text-[10px] uppercase tracking-[0.15em] text-white/60 font-medium">
-                Total Biaya · {pkg.name} {selectedRoom.label} {'★'.repeat(pkg.stars)}
+                Estimasi Tahun {tahunBerangkat} · {pkg.name} {selectedRoom.label} {'★'.repeat(pkg.stars)}
               </p>
-              <p className="text-3xl font-bold text-white mt-1">{fmtUSD(calc.totalUSD)}</p>
-              <p className="text-[12px] text-white/70 mt-0.5">≈ {fmtRp(calc.totalIDR)}</p>
-              {jumlahJamaah > 1 && (
-                <p className="text-[10px] text-white/50 mt-0.5">{fmtUSD(selectedPriceUSD)} × {jumlahJamaah} jamaah</p>
-              )}
+              <p className="text-3xl font-bold text-white mt-1">{fmtUSD(calc.escalatedTotalUSD)}</p>
+              <p className="text-[12px] text-white/70 mt-0.5">≈ {fmtRp(calc.estTotalIDR)}</p>
+              <p className="text-[10px] text-white/50 mt-0.5">
+                {fmtUSD(calc.escalatedPriceUSD)} × {jumlahJamaah} jamaah · harga dasar {new Date().getFullYear()}: {fmtUSD(calc.baseTotalUSD)}
+              </p>
             </div>
             <div className="px-4 py-3 bg-black/10">
               <div className="h-2 rounded-lg overflow-hidden flex mb-2">
-                <div className="bg-emerald-400" style={{ width: `${(calc.dpUSD / calc.totalUSD) * 100}%` }} />
+                <div className="bg-emerald-400" style={{ width: `${(calc.dpUSD / calc.escalatedTotalUSD) * 100}%` }} />
                 <div className="bg-amber-400 flex-1" />
               </div>
               <div className="flex justify-between text-[10px]">
@@ -525,6 +529,18 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
             </div>
           </div>
 
+          {/* E2b. Proyeksi Harga */}
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide">Proyeksi Harga Paket / jamaah</p>
+              <span className={`text-[10px] font-bold ${isRahmah ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}`}>naik ~2.5%/th</span>
+            </div>
+            <PriceLadder ladder={calc.ladder} accent={isRahmah ? 'emerald' : 'blue'} />
+            <p className="text-[10px] text-gray-500 dark:text-slate-400 mt-3">
+              Estimasi harga asli di {tahunBerangkat}. Est. Rp memakai kurs +1.5%/th.
+            </p>
+          </div>
+
           {/* E3. Nama Calon Jamaah */}
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4">
             <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">
@@ -544,7 +560,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
           <div className="bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-700/50 rounded-xl px-3 py-2.5 flex items-start gap-2">
             <Info size={12} className="text-gray-500 dark:text-slate-400 flex-shrink-0 mt-0.5" />
             <p className="text-[10px] text-gray-500 dark:text-slate-400 leading-relaxed">
-              Harga dalam USD. Estimasi IDR berdasarkan kurs Bank Mandiri ({kursDate}) dan dapat berubah sewaktu-waktu.
+              Estimasi. Harga paket diproyeksikan naik ~2.5%/th & kurs ~1.5%/th sampai tahun berangkat; angka final ditetapkan Alhijaz. Kurs Bank Mandiri ({kursDate}).
             </p>
           </div>
 
