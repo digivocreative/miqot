@@ -78,3 +78,21 @@ test('condenseLadder returns every row when already within the cap', () => {
   const r = computeHajiPlusEscalation({ ...baseInput, tahunBerangkat: 2029 }); // 4 rows
   assert.equal(condenseLadder(r.ladder, 5).length, 4);
 });
+
+test('honors explicit priceRate and kursRate', () => {
+  const r = computeHajiPlusEscalation({ ...baseInput, priceRate: 0.03, kursRate: 0.02 });
+  assert.ok(Math.abs(r.escalatedPriceUSD - 15700 * Math.pow(1.03, 10)) < 1e-6, `price ${r.escalatedPriceUSD}`);
+  assert.ok(Math.abs(r.inflatedKurs - 15500 * Math.pow(1.02, 10)) < 1e-6, `kurs ${r.inflatedKurs}`);
+  // ladder uses priceRate end-to-end
+  assert.ok(Math.abs(r.ladder[r.ladder.length - 1].priceUSD - 15700 * Math.pow(1.03, 10)) < 1e-6);
+  assert.ok(Math.abs(r.ladder[1].priceUSD - 15700 * Math.pow(1.03, 1)) < 1e-6);
+  // estTotalIDR compounds both chosen rates
+  assert.ok(Math.abs(r.estTotalIDR - 15700 * Math.pow(1.03, 10) * 15500 * Math.pow(1.02, 10)) < 1e-3);
+});
+
+test('omitting priceRate/kursRate falls back to the constants', () => {
+  const withDefaults = computeHajiPlusEscalation(baseInput);
+  const explicit = computeHajiPlusEscalation({ ...baseInput, priceRate: PRICE_ESCALATION_RATE, kursRate: KURS_INFLATION_RATE });
+  assert.equal(withDefaults.escalatedPriceUSD, explicit.escalatedPriceUSD);
+  assert.equal(withDefaults.inflatedKurs, explicit.inflatedKurs);
+});

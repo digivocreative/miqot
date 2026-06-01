@@ -13,19 +13,22 @@ export const KURS_INFLATION_RATE = 0.015;   // USD->IDR kurs growth per year
 
 /**
  * @param {{ basePriceUSD:number, jumlahJamaah:number, tahunBerangkat:number,
- *           currentYear:number, kursUSD:number, dpPerJamaahUSD:number }} input
+ *           currentYear:number, kursUSD:number, dpPerJamaahUSD:number,
+ *           priceRate?:number, kursRate?:number }} input
  * @returns {import('./hajiPlusPricing').EscalationResult}
  */
 export function computeHajiPlusEscalation(input) {
   const { basePriceUSD, jumlahJamaah, tahunBerangkat, currentYear, kursUSD, dpPerJamaahUSD } = input;
+  const pRate = input.priceRate ?? PRICE_ESCALATION_RATE;
+  const kRate = input.kursRate ?? KURS_INFLATION_RATE;
   const years = Math.max(1, tahunBerangkat - currentYear);
 
-  const escalatedPriceUSD = basePriceUSD * Math.pow(1 + PRICE_ESCALATION_RATE, years);
+  const escalatedPriceUSD = basePriceUSD * Math.pow(1 + pRate, years);
   const baseTotalUSD = basePriceUSD * jumlahJamaah;
   const escalatedTotalUSD = escalatedPriceUSD * jumlahJamaah;
   const dpUSD = dpPerJamaahUSD * jumlahJamaah;
   const sisaUSD = escalatedTotalUSD - dpUSD;
-  const inflatedKurs = kursUSD * Math.pow(1 + KURS_INFLATION_RATE, years);
+  const inflatedKurs = kursUSD * Math.pow(1 + kRate, years);
   const estTotalIDR = escalatedTotalUSD * inflatedKurs;
   const dpIDR = dpUSD * kursUSD;       // paid now -> today's kurs
   const sisaIDR = sisaUSD * inflatedKurs; // paid at departure -> inflated kurs
@@ -34,7 +37,7 @@ export function computeHajiPlusEscalation(input) {
   for (let i = 0; i <= years; i++) {
     ladder.push({
       year: i === years ? tahunBerangkat : currentYear + i,
-      priceUSD: basePriceUSD * Math.pow(1 + PRICE_ESCALATION_RATE, i),
+      priceUSD: basePriceUSD * Math.pow(1 + pRate, i),
       isDeparture: i === years,
     });
   }

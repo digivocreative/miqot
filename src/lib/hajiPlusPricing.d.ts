@@ -14,6 +14,8 @@ export interface EscalationInput {
   currentYear: number;
   kursUSD: number;
   dpPerJamaahUSD: number;
+  priceRate?: number;
+  kursRate?: number;
 }
 
 export interface EscalationResult {
