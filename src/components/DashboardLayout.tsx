@@ -4,7 +4,7 @@ import {
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
   BarChart3, Loader2, Sparkles,
   CalendarRange, ExternalLink, TrendingUp, Mic, CreditCard,
-  DollarSign, ChevronRight, Globe, Share2, FileImage,
+  DollarSign, ChevronRight, Globe, Share2, FileImage, FileText,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
@@ -28,6 +28,9 @@ import HajiPlusPage from './HajiPlusPage';
 import HajiPlusExportPage from './HajiPlusExportPage';
 import KursPage from './KursPage';
 import BrochureSchedulePage from './BrochureSchedulePage';
+import WaCopyPage from './wa-copy/WaCopyPage';
+import WaCopyAdminPage from './wa-copy/admin/WaCopyAdminPage';
+import WhatsAppIcon from './common/WhatsAppIcon';
 import UmrahRegisterPage from './UmrahRegisterPage';
 import CuacaWidget from './CuacaWidget';
 import BirthdayWidget from './BirthdayWidget';
@@ -37,26 +40,28 @@ import { trackEvent } from '../utils/analytics';
 const ShareKursModal = lazy(() => import('./ShareKursModal'));
 const BirthdayDetailSheet = lazy(() => import('./BirthdayDetailSheet'));
 
-type TabId = 'home' | 'settings' | 'kalkulasi' | 'caption' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools';
+type TabId = 'home' | 'settings' | 'wa-copy' | 'caption' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'konten' | 'ai-tools';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
-  kalkulasi: 'kalkulasi',
+  'wa-copy': 'wa-copy',
   agents: 'agents',
   jamaah: 'jamaah',
   statistik: 'statistik',
   settings: 'settings',
   analytics: 'analytics',
+  konten: 'konten',
   'ai-tools': 'ai-tools',
 };
 
 const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
-  kalkulasi: 'kalkulasi',
+  'wa-copy': 'wa-copy',
   agents: 'agents',
   jamaah: 'jamaah',
   statistik: 'statistik',
   settings: 'settings',
   analytics: 'analytics',
+  konten: 'konten',
   'ai-tools': 'ai-tools',
 };
 
@@ -119,12 +124,13 @@ function getAIToolsSubFromPath(): string | null {
 const TAB_TITLES: Record<TabId, string> = {
   home: 'Dashboard',
   settings: 'Settings',
-  kalkulasi: 'Kalkulasi',
+  'wa-copy': 'WA Copy',
   caption: 'Caption',
   agents: 'Agents',
   jamaah: 'Jamaah',
   statistik: 'Statistik',
   analytics: 'Analytics',
+  konten: 'Konten',
   'ai-tools': 'Tools',
 };
 
@@ -190,8 +196,8 @@ const MENU_CARDS: MenuCard[] = [
     iconAnim: 'animate-icon-rise',
   },
   {
-    id: 'kalkulasi', label: 'Kalkulasi', desc: 'Hitung harga paket',
-    icon: Calculator, color: 'text-blue-600 dark:text-blue-400',
+    id: 'wa-copy', label: 'WA Copy', desc: 'Caption, FAQ & tour leader',
+    icon: WhatsAppIcon, color: 'text-blue-600 dark:text-blue-400',
     bgLight: 'bg-blue-50', bgDark: 'dark:bg-blue-900/20',
     borderLight: 'border-blue-100', borderDark: 'dark:border-blue-800/40',
     cardBg: 'bg-gradient-to-br from-sky-50 via-white to-indigo-100/70 dark:from-blue-950/40 dark:via-slate-800 dark:to-slate-800',
@@ -251,6 +257,19 @@ const MENU_CARDS: MenuCard[] = [
     iconAnim: 'animate-icon-rise',
     adminOnly: true,
   },
+  {
+    id: 'konten', label: 'Konten', desc: 'Kelola konten WA Copy',
+    icon: FileText, color: 'text-indigo-600 dark:text-indigo-400',
+    bgLight: 'bg-indigo-50', bgDark: 'dark:bg-indigo-900/20',
+    borderLight: 'border-indigo-100', borderDark: 'dark:border-indigo-800/40',
+    cardBg: 'bg-gradient-to-br from-indigo-50 via-white to-violet-100/70 dark:from-indigo-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-indigo-200/70 dark:border-indigo-800/40',
+    iconBg: 'bg-gradient-to-br from-indigo-400 to-violet-600 dark:from-indigo-500 dark:to-violet-700',
+    iconShadow: 'shadow-lg shadow-indigo-500/30 dark:shadow-indigo-900/40',
+    hoverShadow: 'hover:shadow-indigo-300/40 dark:hover:shadow-indigo-900/30',
+    iconAnim: 'animate-icon-breathe',
+    adminOnly: true,
+  },
 ];
 
 export default function DashboardLayout({ session, onLogout }: { session: AuthSession; onLogout: () => void }) {
@@ -278,6 +297,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [showComingSoon, setShowComingSoon] = useState(false);
   // Analytics header slot for month dropdown
   const [analyticsHeaderRight, setAnalyticsHeaderRight] = useState<React.ReactNode>(null);
+  const [kontenEditorOpen, setKontenEditorOpen] = useState(false);
+  const [kontenBackRequest, setKontenBackRequest] = useState(0);
   // Flight status position
   const [flightCount, setFlightCount] = useState(-1); // -1 = not loaded yet
 
@@ -398,6 +419,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       ? 'Compare'
       : (activeTab === 'ai-tools' && aiSub === 'brosur-jadwal')
       ? 'Brosur Jadwal'
+      : (activeTab === 'ai-tools' && aiSub === 'kalkulasi')
+      ? 'Kalkulasi'
       : TAB_TITLES[activeTab] || 'Dashboard';
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -459,6 +482,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   setJamaahRefreshKey(k => k + 1);
                   return;
                 }
+                // Konten editor → back to the previous internal Konten list view
+                if (activeTab === 'konten' && kontenEditorOpen) {
+                  setKontenBackRequest(n => n + 1);
+                  return;
+                }
                 // If on AI Tools sub-page, go back appropriately
                 if (activeTab === 'ai-tools' && getAIToolsSubFromPath()) {
                   const aiSub = getAIToolsSubFromPath();
@@ -504,6 +532,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   'kurs': { icon: TrendingUp, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Kurs Hari Ini' },
                   'compare': { icon: ArrowLeftRight, bg: 'bg-violet-50', bgDark: 'dark:bg-violet-900/20', border: 'border-violet-100', borderDark: 'dark:border-violet-800/40', color: 'text-violet-600 dark:text-violet-400', label: 'Compare' },
                   'brosur-jadwal': { icon: FileImage, bg: 'bg-rose-50', bgDark: 'dark:bg-rose-900/20', border: 'border-rose-100', borderDark: 'dark:border-rose-800/40', color: 'text-rose-600 dark:text-rose-400', label: 'Brosur Jadwal' },
+                  'kalkulasi': { icon: Calculator, bg: 'bg-blue-50', bgDark: 'dark:bg-blue-900/20', border: 'border-blue-100', borderDark: 'dark:border-blue-800/40', color: 'text-blue-600 dark:text-blue-400', label: 'Kalkulasi' },
                 };
                 const sub = aiSub && AI_SUB_STYLES[aiSub] ? AI_SUB_STYLES[aiSub] : null;
                 if (sub) {
@@ -594,11 +623,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           {activeTab === 'settings' && (
             <SettingsPage agent={agentData} onUpdated={refreshAgent} initialTab={getSettingsTabFromPath()} />
           )}
-          {activeTab === 'kalkulasi' && (
-            <KalkulasiPage agent={{
-              name: agentData.name, website: agentData.website,
-              phone: agentData.phone, photo: agentData.photo,
-            }} hideHeader />
+          {activeTab === 'wa-copy' && (
+            <WaCopyPage isAdmin={isAdmin} />
           )}
           {activeTab === 'agents' && isAdmin && (
             <div className="px-4 pt-4">
@@ -638,6 +664,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           {activeTab === 'analytics' && isAdmin && (
             <AnalyticsPage onHeaderRight={setAnalyticsHeaderRight} />
           )}
+          {activeTab === 'konten' && isAdmin && (
+            <WaCopyAdminPage
+              backRequest={kontenBackRequest}
+              onEditingChange={setKontenEditorOpen}
+            />
+          )}
 
           {activeTab === 'ai-tools' && (() => {
             const sub = getAIToolsSubFromPath();
@@ -648,6 +680,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               photo: agentData.photo || '',
               website: agentData.website || '',
             }} />;
+            if (sub === 'kalkulasi') return <KalkulasiPage agent={{
+              name: agentData.name, website: agentData.website,
+              phone: agentData.phone, photo: agentData.photo,
+            }} hideHeader />;
             if (sub === 'compare') return <ComparePage agent={{
               name: agentData.name, website: agentData.website,
               phone: agentData.phone, photo: agentData.photo,
@@ -675,7 +711,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 agentSlug={agentData.slug}
                 onNavigate={(toolId) => {
                   window.history.pushState({}, '', `/dashboard/ai-tools/${toolId}`);
-                  document.title = toolId === 'voice-over' ? 'Voice Over' : toolId === 'business-card' ? 'Kartu Nama' : toolId === 'landing-page' ? 'Landing Page' : toolId === 'haji-plus' ? 'Haji Plus' : toolId === 'kurs' ? 'Kurs Hari Ini' : toolId === 'compare' ? 'Compare' : toolId === 'brosur-jadwal' ? 'Brosur Jadwal' : 'Tools';
+                  document.title = toolId === 'voice-over' ? 'Voice Over' : toolId === 'business-card' ? 'Kartu Nama' : toolId === 'landing-page' ? 'Landing Page' : toolId === 'haji-plus' ? 'Haji Plus' : toolId === 'kurs' ? 'Kurs Hari Ini' : toolId === 'compare' ? 'Compare' : toolId === 'brosur-jadwal' ? 'Brosur Jadwal' : toolId === 'kalkulasi' ? 'Kalkulasi' : 'Tools';
                   // Force re-render by toggling tab
                   setActiveTab('home');
                   setTimeout(() => setActiveTab('ai-tools'), 0);
@@ -724,7 +760,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             return;
           }
           const eventMap: Record<string, string> = {
-            jamaah: 'open_jamaah', kalkulasi: 'open_kalkulasi',
+            jamaah: 'open_jamaah', 'wa-copy': 'open_wa_copy',
             settings: 'open_settings', analytics: 'open_analytics', 'ai-tools': 'open_ai_tools',
           };
           if (eventMap[card.id]) trackEvent('feature', eventMap[card.id]);

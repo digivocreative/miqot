@@ -1,0 +1,88 @@
+import type { ElementType } from 'react';
+import type { FaqEntry } from '../../portal-jamaah/lib/faq';
+
+// Re-export so WA Copy consumers can import the shared FAQ shape from one place.
+export type { FaqEntry };
+
+export type WaTab = 'caption' | 'faq' | 'tourleader';
+
+export type CaptionCategory =
+  | 'sentuhan_hati'
+  | 'mumpung_sempat'
+  | 'ringan_kantong'
+  | 'kata_jamaah'
+  | 'aman_tepercaya'
+  | 'tips_info';
+
+export type FaqCategory =
+  | 'pembayaran'
+  | 'dokumen'
+  | 'keberangkatan'
+  | 'fasilitas'
+  | 'umum';
+
+export type TourPhase = 'sebelum' | 'saat' | 'setelah';
+
+export interface CaptionEntry {
+  id: string;
+  category: CaptionCategory;
+  packageAware: boolean;
+  template: string;
+  order: number;
+  active: boolean;
+}
+
+/** FaqEntry = { id, question, answer } reused from portal-jamaah. */
+export interface AgentFaqEntry extends FaqEntry {
+  category: FaqCategory;
+  order: number;
+  active: boolean;
+}
+
+export interface TourStep {
+  id: string;
+  phase: TourPhase;
+  title: string;
+  body: string;
+  order: number;
+  active: boolean;
+}
+
+// ── Placeholder engine ──────────────────────────────────────────────
+export type SegmentKind = 'plain' | 'agent' | 'package' | 'unfilled';
+
+export interface Segment {
+  text: string;
+  kind: SegmentKind;
+}
+
+export type AgentToken = 'nama' | 'wa' | 'link';
+export type PackageToken = 'paket' | 'harga' | 'tanggal' | 'maskapai' | 'hari';
+export type PlaceholderToken = AgentToken | PackageToken;
+
+export interface AgentContext {
+  nama: string;
+  wa: string;
+  link: string;
+}
+
+export interface PackageContext {
+  paket: string;
+  harga: string;
+  tanggal: string;
+  maskapai: string;
+  hari: string;
+}
+
+export interface PlaceholderContext {
+  agent: AgentContext | null;
+  pkg: PackageContext | null;
+}
+
+// ── Category / phase display metadata ───────────────────────────────
+export interface CategoryMeta<T extends string> {
+  value: T;
+  label: string;
+  icon: ElementType;
+  tip: string;
+}

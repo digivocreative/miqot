@@ -5,6 +5,7 @@ import { TelegramSection } from './DashboardProfile';
 import CapiPage from './CapiPage';
 import { trackEvent } from '../utils/analytics';
 import { getAuthHeaders } from './LoginPage';
+import SegmentedControl from './common/SegmentedControl';
 
 interface AgentData {
   slug: string;
@@ -70,27 +71,12 @@ export default function SettingsPage({ agent, onUpdated, initialTab }: { agent: 
       {/* Segmented Control Tab Bar */}
       <div className="sticky top-[53px] z-20 bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700">
         <div className="max-w-lg mx-auto px-4 py-2">
-          <div className="flex gap-1 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl w-full">
-            {TAB_CONFIG.map(tab => {
-              const isActive = activeTab === tab.id;
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => switchTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 active:opacity-70 ${
-                    isActive
-                      ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-500 dark:text-emerald-400 font-semibold'
-                      : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium'
-                  }`}
-                  style={isActive ? { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } : undefined}
-                >
-                  <Icon size={13} strokeWidth={2.2} />
-                  <span className="text-[11px]">{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
+          <SegmentedControl
+            options={TAB_CONFIG.map(t => ({ value: t.id, label: t.label, icon: t.icon }))}
+            value={activeTab}
+            onChange={switchTab}
+            accent="emerald"
+          />
         </div>
       </div>
 
