@@ -2,7 +2,7 @@
 
 Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 
-Terakhir diperbarui: 2026-05-22
+Terakhir diperbarui: 2026-06-01
 
 ---
 
@@ -95,6 +95,8 @@ Terakhir diperbarui: 2026-05-22
 | Pernyataan button | `violet-50` bg, `violet-600` text, `border-violet-100` | `violet-900/20`, `violet-400`, `violet-800/40` |
 | WhatsApp button | `bg-emerald-500 text-white` (filled) | same |
 | Avatar/Gender ring | Same as Jamaah Page | same |
+
+Mata uang Haji ditampilkan dalam **USD** (bukan Rupiah): `paket_harga`/`bayar`/`sisa` diformat `formatUsd(n)` → `USD {n.toLocaleString('id-ID')}`. Filter & panel filter lanjutan Haji mengikuti pola **Advanced Filter Panel** (lihat Jamaah Page Components).
 
 ### Haji Plus Page Colors
 
@@ -372,6 +374,25 @@ bg-emerald-500 text-white shadow-md shadow-emerald-500/20
 bg-gray-50 dark:bg-slate-900 text-gray-500 border border-gray-200
 ```
 
+#### Advanced Filter Panel (Jamaah & Haji)
+
+Panel filter lanjutan menggantikan baris chip lama. Group filter: status pembayaran (`belum_dp`/`belum_lunas`/`lunas`/`lebih_bayar`), window keberangkatan (30/60/90/`departed`), dokumen, perlengkapan, catatan, dan teks paket. Tiap group dilabeli:
+
+```
+text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500
+```
+
+Expand/collapse beranimasi via Framer Motion `AnimatePresence initial={false}`:
+
+```
+key: "umroh-filter-panel" / "haji-filter-panel"
+initial: { height: 0, opacity: 0 }
+animate: { height: 'auto', opacity: 1 }
+exit:    { height: 0, opacity: 0 }
+transition: { duration: 0.28, ease: [0.22, 1, 0.36, 1] }
+overflow: hidden
+```
+
 #### Jamaah Card (Collapsed)
 
 ```
@@ -414,10 +435,19 @@ px-3 pb-3 pt-2 border-t border-gray-50 dark:border-slate-700/50 space-y-3
 ```
 
 Sections:
-1. **Payment card** — progress bar + bayar/sisa amounts
+1. **Payment card** — progress bar + bayar/sisa amounts. Persen di-clamp 0–100 (`safeSisaForPct = Math.max(0, sisa)`; `pct = total>0 ? clamp(round(bayar/total*100),0,100) : 0`) supaya sisa negatif (lebih bayar) tidak merusak bar.
 2. **Info grid 2×2** — WhatsApp, Tgl Lahir, Tgl Daftar, Berangkat
-3. **Perlengkapan/Dokumen** — flex-wrap badge pills (✓/✗)
-4. **Action buttons** — WhatsApp + Tagih
+3. **Surat Pernyataan** — tombol `text-sm font-bold text-gray-800 dark:text-white` membuka `UmrohPernyataanViewer` (lihat di bawah)
+4. **Perlengkapan/Dokumen** — flex-wrap badge pills (✓/✗)
+5. **Action buttons** — WhatsApp + Tagih
+
+#### Surat Pernyataan Viewer (`UmrohPernyataanViewer`)
+
+Modal fullscreen yang merender HTML surat pernyataan dari cache via proxy ter-auth `GET /api/laporan/jamaah/doc-proxy` (server membungkus body ke shell A4 794×1123 print-ready). Kontrol:
+- **Zoom**: pinch / tombol, min 1.0 max 3.0 step 0.25
+- **Unduh PDF**: `format=pdf` dari proxy (`Content-Disposition: attachment`)
+- **Bagikan PDF**: `navigator.share()` (file-only) di perangkat touch
+- Rendering via `<iframe>` dengan responsive scaling agar muat lebar viewport
 
 #### Sync Indicator
 
@@ -897,7 +927,7 @@ Ketika navigasi ke AI Tools sub-page, header icon + label di-override sesuai sub
 
 ### Brosur Jadwal (`BrochureSchedulePage.tsx`)
 
-Tool export brosur paket umroh bulanan di `/dashboard/ai-tools/brosur-jadwal`. Preview selalu mengikuti rasio export asli **1080 x 1920** dan hasil akhir berupa PNG.
+Tool export brosur paket umroh bulanan di `/dashboard/ai-tools/brosur-jadwal`. Preview selalu mengikuti rasio export asli **1080 x 1620 (2:3)** dan hasil akhir berupa PNG. Template menerima prop `variant: 'default' | 'winter'` (lihat **Winter Variant** di bawah).
 
 #### Page Shell
 
@@ -920,18 +950,18 @@ inactive: bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300
 
 ```
 width: 100%
-aspect-ratio: 1080 / 1920
+aspect-ratio: 1080 / 1620
 border-radius: 18px
 overflow: hidden
 background: #fff
 box-shadow: 0 12px 40px rgba(0,0,0,0.18)
 ```
 
-The real template is rendered at `BROCHURE_W=1080`, `BROCHURE_H=1920`, then previewed with `transform: scale(previewScale)`. Keep this scaling model so preview and exported PNG stay 1:1.
+The real template is rendered at `BROCHURE_W=1080`, `BROCHURE_H=1620` (2:3), then previewed with `transform: scale(previewScale)`. Keep this scaling model so preview and exported PNG stay 1:1.
 
 #### Export Template (`BrochureScheduleTemplate.tsx`)
 
-Brand colors:
+Brand colors are tokenized into a theme object selected by `getTheme(variant)`. **Classic theme** (`variant='default'`):
 
 | Token | Value | Usage |
 |-------|-------|-------|
@@ -942,6 +972,8 @@ Brand colors:
 | `PALE_GOLD` | `#F8DFA1` | headline stroke, divider |
 | `CREAM` | `#FFF8EC` | alternate table rows |
 | `ROW_LINE` | `#F0D8B5` | table borders |
+| `INK` | `#241A1C` | body / package text |
+| `MUTED` | `#6F6264` | secondary text |
 
 Template structure:
 - Header: Alhijaz logo left, "5 Pasti Umrah" badge right.
@@ -954,6 +986,42 @@ Template structure:
 - Harga uses cheapest valid room price in priority `Quard → Triple → Double`; `Infant` is ignored.
 - Sold-out packages (`seat_sisa <= 0`) render a rotated red `SOLD OUT` stamp instead of price.
 - Footer includes agent photo/name, formatted local WhatsApp number, and WhatsApp CTA styling.
+
+#### Winter Variant ("Musim Dingin")
+
+`BrochureScheduleTemplate` accepts `variant: 'default' | 'winter'` (default `'default'`). `BrochureSchedulePage` sets `variant='winter'` when the brosur filter is **Tipe Paket → "UMROH MUSIM DINGIN"** (`filterDim==='tipe' && filterValue==='UMROH MUSIM DINGIN'`); the exported label becomes **"MUSIM DINGIN"**. Winter swaps the entire red/gold chrome for an icy-blue palette and adds winter-only decorations.
+
+**Winter theme tokens** (icy blue):
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `W_NAVY_DARK` | `#172554` | deep gradient stop, top-bar/footer base |
+| `W_NAVY` | `#1E3A8A` | headline, date-badge / table-header stop |
+| `W_BLUE` | `#1D4ED8` | day count + price text |
+| `W_BLUE_BRIGHT` | `#2563EB` | top-bar mid, table-header end, dividers |
+| `W_SKY` | `#7DD3FC` | top-bar light stop |
+| `W_FROST` | `#BFDBFE` | URL-pill border, avatar ring, footer labels |
+| `W_FROST_2` | `#CFE0FB` | frost accents |
+
+Classic → Winter mapping for the major surfaces:
+
+| Surface | Classic | Winter |
+|---------|---------|--------|
+| Top-bar gradient | `#5A0010 → #C8102E → #F0445F → #C8102E` | `#172554 → #2563EB → #7DD3FC` |
+| "PAKET UMROH" text | `#C8102E` (gold shadow) | `#1E3A8A` (white shadow) |
+| Month title gradient | `#FF5A70 → #C8102E → #A4001D → #5A0010` | `#60A5FA → #1D4ED8 → #1E3A8A → #172554` |
+| Title outline / stroke | `#F8DFA1` / `#870018` | `#FFFFFF` / `#1E3A8A` |
+| Table header gradient | `#870018 → #C8102E` | `#172554 → #2563EB` |
+| Row dividers | `#F0D8B5` | `#E5EDFB` |
+| Date badge (non-sold) | `#870018 → #C8102E`, border `#F8DFA1` | `#1E3A8A → #2563EB`, border `#FFFFFF` |
+| Day count + price | `#870018` | `#1D4ED8` |
+| Footnote | bg `#FFF8EC`, text `#870018` | bg `#EAF2FF`, text `#1E3A8A` |
+| Footer gradient | `#5A0010 → #870018 → #C8102E` | `#172554 → #1E3A8A → #2563EB` |
+
+**Winter decorations** (rendered only when `variant==='winter'`):
+- **Snowflakes** — 6 SVG flakes drawn from `SNOWFLAKE_PATH = 'M12 2v20M2 12h20M5 5l14 14M19 5L5 19'` (six-point star), `viewBox="0 0 24 24"`, `strokeLinecap="round"`, `filter: drop-shadow(0 1px 2px rgba(80,130,200,0.25))`, `pointer-events:none`, `zIndex:1`. Sizes 28–60px, colors `#BCD9FF`/`#9EC3F5`, opacity 0.7–0.85. Top 3 sit above the table; bottom 3 hug the side margins (`left:8`/`right:8`) so they stay visible at any row count.
+- **Snow drift** — full-width element at `bottom:0`, `height:220px`, `background: radial-gradient(130% 100% at 50% 135%, #EEF5FF 42%, rgba(238,245,255,0) 72%)`, `pointer-events:none`.
+- **No ribbon** — a winter tagline ribbon was prototyped then dropped; it does not render.
 
 #### Action Bar
 
@@ -979,7 +1047,7 @@ active:scale-[0.98] disabled:opacity-70
 ```
 
 Export uses `modern-screenshot` (`domToCanvas`) with:
-- `scale: EXPORT_SCALE`, fixed `width=1080`, `height=1920`, `backgroundColor: #FFFFFF`.
+- `scale: EXPORT_SCALE`, fixed `width=1080`, `height=1620`, `backgroundColor: #FFFFFF`.
 - Embedded brochure font CSS (`preferredFormat: 'woff2'`) for Inter/Bebas Neue consistency.
 - `timeout: 15000`, `fetch.requestInit.cache='force-cache'`, and SVG/control-character cleanup features.
 - Two capture attempts with `waitForFonts()`, `waitForImages(target)`, double `requestAnimationFrame`, and blank-canvas detection before blob export.
@@ -2217,7 +2285,7 @@ Legend dots: `w-2 h-2 rounded-full bg-{color}` + `text-[10px] font-medium`
 
 ### Export Strategy
 - Use the exporter already chosen by each feature:
-  - `modern-screenshot` for Brosur Jadwal (`domToCanvas` fixed 1080×1920), Compare share (`domToBlob`), Haji Plus export/simulasi (`domToPng` with high scale), and other DOM-to-PNG export surfaces that need broad CSS support.
+  - `modern-screenshot` for Brosur Jadwal (`domToCanvas` fixed 1080×1620), Compare share (`domToBlob`), Haji Plus export/simulasi (`domToPng` with high scale), and other DOM-to-PNG export surfaces that need broad CSS support.
   - `@zumer/snapdom` for fixed-size social/card images: PackageCard share image, Share Kurs, Birthday cards, and Kartu Nama Digital.
 - For `snapdom`, capture the fixed original-size node and export JPEG (`quality: 0.9`) when the design has a solid background.
 - Wait for `document.fonts.ready` and image decode/load before snapshotting. Use a short fallback delay only after font/image readiness has been attempted.
