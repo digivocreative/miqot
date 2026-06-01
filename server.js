@@ -561,7 +561,7 @@ function scheduleAnalyticsMaintenanceCron() {
   }, msUntil);
 }
 
-scheduleAnalyticsMaintenanceCron();
+if (shouldRunBackgroundJobs()) scheduleAnalyticsMaintenanceCron();
 
 // GET /api/kurs — Kurs semua mata uang (public, no auth)
 app.get('/api/kurs', async (req, res) => {
@@ -3375,7 +3375,7 @@ app.get('/api/domains/authorize', async (req, res) => {
 // Background job: tiap 1 menit cek semua domain 'pending' dan promote ke 'active'
 // kalau A record sudah resolve ke VPS_PUBLIC_IP.
 let customDomainCronRunning = false;
-cron.schedule('* * * * *', async () => {
+if (shouldRunBackgroundJobs()) cron.schedule('* * * * *', async () => {
   if (customDomainCronRunning) return;
   if (!process.env.VPS_PUBLIC_IP) return;
   customDomainCronRunning = true;
@@ -15569,8 +15569,9 @@ async function syncAllAgents() {
   console.log(`[SYNC] Cycle complete: ${ok} OK, ${loginFail} login failed, ${fail} error, ${skipped} skipped in ${elapsed}s (parallel=${PARALLEL})`);
 }
 
-// Clean up old 1446 H data (one-time, 15s after startup)
-setTimeout(async () => {
+// Clean up old 1446 H data (one-time, 15s after startup). Gated so local dev
+// (NODE_ENV != production) never DELETEs prod jamaah rows.
+if (shouldRunBackgroundJobs()) setTimeout(async () => {
   try {
     const oldYears = ['1439','1440','1441','1442','1443','1444','1445','1446'];
     const { error, count } = await supabase
@@ -15639,12 +15640,14 @@ async function runSyncCycleLoop() {
     await new Promise(r => setTimeout(r, SYNC_COOLDOWN_MS));
   }
 }
-setTimeout(() => {
-  console.log(`[SYNC] Cooldown ${Math.round(SYNC_COOLDOWN_MS / 60000)}m (SYNC_COOLDOWN_MINUTES)`);
-  runSyncCycleLoop().catch(err => console.error('[SYNC] Loop crashed:', err.message));
-}, 30 * 1000);
-scheduleUmrohPhase2Enrichment();
-scheduleHajiLegacyEnrichment();
+if (shouldRunBackgroundJobs()) {
+  setTimeout(() => {
+    console.log(`[SYNC] Cooldown ${Math.round(SYNC_COOLDOWN_MS / 60000)}m (SYNC_COOLDOWN_MINUTES)`);
+    runSyncCycleLoop().catch(err => console.error('[SYNC] Loop crashed:', err.message));
+  }, 30 * 1000);
+  scheduleUmrohPhase2Enrichment();
+  scheduleHajiLegacyEnrichment();
+}
 
 // ── Haji sync: AWAPI owns the frequent sync; legacy scraper enriches sparse fields on schedule. ──
 async function syncHajiLegacyOneAgent(agent, { scope = 'haji-legacy' } = {}) {
@@ -15994,7 +15997,7 @@ async function runHajiSyncCycleLoop() {
 }
 // Start 90s after boot — well after the umroh API loop (30s) so the very
 // first haji cycle doesn't compete for boot resources.
-setTimeout(() => {
+if (shouldRunBackgroundJobs()) setTimeout(() => {
   runHajiSyncCycleLoop().catch(err => console.error('[HAJI-API] Loop crashed:', err.message));
 }, 90 * 1000);
 
@@ -16002,12 +16005,14 @@ setTimeout(() => {
 async function runScheduleSync() {
   await syncUmrohSchedules();
 }
-setTimeout(() => {
-  runScheduleSync().catch(err => console.error('[ScheduleSync] Error:', err.message));
-}, 45 * 1000);
-setInterval(() => {
-  runScheduleSync().catch(err => console.error('[ScheduleSync] Error:', err.message));
-}, 30 * 60 * 1000);
+if (shouldRunBackgroundJobs()) {
+  setTimeout(() => {
+    runScheduleSync().catch(err => console.error('[ScheduleSync] Error:', err.message));
+  }, 45 * 1000);
+  setInterval(() => {
+    runScheduleSync().catch(err => console.error('[ScheduleSync] Error:', err.message));
+  }, 30 * 60 * 1000);
+}
 
 // ── Bunny file sync: once daily. It fingerprints source files and uploads only changes. ──
 function scheduleDailyBunnySync() {
@@ -16024,7 +16029,7 @@ function scheduleDailyBunnySync() {
     }
   }, delayMs);
 }
-scheduleDailyBunnySync();
+if (shouldRunBackgroundJobs()) scheduleDailyBunnySync();
 
 // ── Bunny cleanup: expired packages (> 6 months), once daily at 03:00 WIB ──
 function scheduleBunnyCleanup() {
@@ -16041,7 +16046,7 @@ function scheduleBunnyCleanup() {
     }, 24 * 60 * 60 * 1000);
   }, msUntil);
 }
-scheduleBunnyCleanup();
+if (shouldRunBackgroundJobs()) scheduleBunnyCleanup();
 
 // ── Calendar sync: every 12 hours (shared data, doesn't change often) ──
 async function runCalendarSync() {
@@ -16057,16 +16062,20 @@ async function runCalendarSync() {
 }
 
 // Initial calendar sync 60s after startup, then every 12 hours
-setTimeout(runCalendarSync, 60 * 1000);
-setInterval(runCalendarSync, 12 * 60 * 60 * 1000);
+if (shouldRunBackgroundJobs()) {
+  setTimeout(runCalendarSync, 60 * 1000);
+  setInterval(runCalendarSync, 12 * 60 * 60 * 1000);
+}
 
 // ── Itinerary background sync: 2 min after startup, then every 12 hours ──
-setTimeout(() => {
-  syncAllItineraries().catch(err => console.error('[ItinerarySync] Error:', err.message));
-}, 2 * 60 * 1000);
-setInterval(() => {
-  syncAllItineraries().catch(err => console.error('[ItinerarySync] Error:', err.message));
-}, 12 * 60 * 60 * 1000);
+if (shouldRunBackgroundJobs()) {
+  setTimeout(() => {
+    syncAllItineraries().catch(err => console.error('[ItinerarySync] Error:', err.message));
+  }, 2 * 60 * 1000);
+  setInterval(() => {
+    syncAllItineraries().catch(err => console.error('[ItinerarySync] Error:', err.message));
+  }, 12 * 60 * 60 * 1000);
+}
 
 // ── AI Insight: generate daily at 01:00 WIB + on startup if stale ──
 function scheduleInsightCron() {
@@ -16085,10 +16094,10 @@ function scheduleInsightCron() {
     }, 24 * 60 * 60 * 1000);
   }, msUntil);
 }
-scheduleInsightCron();
+if (shouldRunBackgroundJobs()) scheduleInsightCron();
 
 // ── AI Insight: warm up cache from Supabase on startup, regenerate if stale ──
-setTimeout(async () => {
+if (shouldRunBackgroundJobs()) setTimeout(async () => {
   try {
     // Warm up cache from Supabase first
     if (!insightCache) {
@@ -16112,7 +16121,7 @@ setTimeout(async () => {
 }, 90 * 1000); // 90s after startup (after calendar sync has a chance to run)
 
 // ── Haji Plus sync: daily at 05:00 WIB + on startup ──
-setTimeout(() => syncHajiPlusData(), 10 * 1000); // 10s after startup
+if (shouldRunBackgroundJobs()) setTimeout(() => syncHajiPlusData(), 10 * 1000); // 10s after startup
 
 function scheduleHajiPlusCron() {
   const now = new Date();
@@ -16130,10 +16139,10 @@ function scheduleHajiPlusCron() {
     }, 24 * 60 * 60 * 1000);
   }, msUntil);
 }
-scheduleHajiPlusCron();
+if (shouldRunBackgroundJobs()) scheduleHajiPlusCron();
 
 // ── Flight Status cron: poll every 1 hour ──
-setInterval(async () => {
+if (shouldRunBackgroundJobs()) setInterval(async () => {
   try {
     await pollActiveFlights();
   } catch (err) {
@@ -16147,7 +16156,7 @@ setTimeout(async () => {
 }, 5 * 1000);
 
 // Initial flight poll 5 min after startup (increased from 2 min to reduce restart impact)
-setTimeout(async () => {
+if (shouldRunBackgroundJobs()) setTimeout(async () => {
   try {
     await pollActiveFlights();
   } catch (err) {
@@ -16186,4 +16195,4 @@ function scheduleFlightCleanup() {
     }, 24 * 60 * 60 * 1000);
   }, msUntil);
 }
-scheduleFlightCleanup();
+if (shouldRunBackgroundJobs()) scheduleFlightCleanup();
