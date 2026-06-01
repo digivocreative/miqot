@@ -14,22 +14,9 @@ export interface MediaAttachment {
 
 export type WaTab = 'caption' | 'faq' | 'tourleader';
 
-export type CaptionCategory =
-  | 'sentuhan_hati'
-  | 'mumpung_sempat'
-  | 'ringan_kantong'
-  | 'kata_jamaah'
-  | 'aman_tepercaya'
-  | 'tips_info';
-
-export type FaqCategory =
-  | 'pembayaran'
-  | 'dokumen'
-  | 'keberangkatan'
-  | 'fasilitas'
-  | 'umum';
-
-export type TourPhase = 'sebelum' | 'saat' | 'setelah';
+export type CaptionCategory = string;
+export type FaqCategory = string;
+export type TourPhase = string;
 
 export interface CaptionEntry {
   id: string;
@@ -91,9 +78,18 @@ export interface PlaceholderContext {
 }
 
 // ── Category / phase display metadata ───────────────────────────────
-export interface CategoryMeta<T extends string> {
+export interface CategoryMeta<T extends string = string> {
   value: T;
   label: string;
-  icon: ElementType;
+  iconName: string;
+  /** @deprecated transitional — removed in the icon-migration cleanup task. */
+  icon?: ElementType;
+  tip: string;
+  order: number;
+}
+
+export interface CategoryDraft {
+  label: string;
+  iconName: string;
   tip: string;
 }

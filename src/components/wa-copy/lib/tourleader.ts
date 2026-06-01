@@ -2,9 +2,9 @@ import { ListChecks, Compass, Home } from 'lucide-react';
 import type { CategoryMeta, TourPhase, TourStep } from './types';
 
 export const TOUR_PHASES: CategoryMeta<TourPhase>[] = [
-  { value: 'sebelum', label: 'Sebelum', icon: ListChecks, tip: 'Persiapan & briefing sebelum keberangkatan.' },
-  { value: 'saat', label: 'Saat', icon: Compass, tip: 'Pendampingan selama perjalanan & ibadah.' },
-  { value: 'setelah', label: 'Setelah', icon: Home, tip: 'Kepulangan & menjaga silaturahmi.' },
+  { value: 'sebelum', label: 'Sebelum', icon: ListChecks, iconName: 'ListChecks', order: 1, tip: 'Persiapan & briefing sebelum keberangkatan.' },
+  { value: 'saat', label: 'Saat', icon: Compass, iconName: 'Compass', order: 2, tip: 'Pendampingan selama perjalanan & ibadah.' },
+  { value: 'setelah', label: 'Setelah', icon: Home, iconName: 'Home', order: 3, tip: 'Kepulangan & menjaga silaturahmi.' },
 ];
 
 export const TOUR_SEED: TourStep[] = [
