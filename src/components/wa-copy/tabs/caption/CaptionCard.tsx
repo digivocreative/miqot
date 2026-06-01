@@ -48,14 +48,14 @@ export default function CaptionCard({ entry, categoryLabel, agentCtx, pkgCtx, sh
           )}
         </div>
       </div>
-      <div className="p-4">
-        <PreviewText template={entry.template} ctx={ctx} />
-      </div>
       {entry.media?.[0] && (
-        <div className="px-4 pb-4 -mt-1">
+        <div className="px-4 pt-4">
           <MediaView media={entry.media[0]} />
         </div>
       )}
+      <div className="p-4">
+        <PreviewText template={entry.template} ctx={ctx} />
+      </div>
       <div className="flex border-t border-gray-100 dark:border-slate-700">
         <button
           onClick={handleCopy}
