@@ -40,3 +40,24 @@ test('types.ts defines MediaAttachment and adds media[] to the three entries', (
   const count = (src.match(/media\?:\s*MediaAttachment\[\]/g) || []).length;
   assert.ok(count >= 3, `expected media?: MediaAttachment[] on 3 interfaces, found ${count}`);
 });
+
+test('FE media.ts mirrors the authoritative allowlist + caps (no drift)', () => {
+  const lib = read('lib/wa-copy-media.js');
+  const fe = read('src/components/wa-copy/lib/media.ts');
+  const mimes = [
+    'image/png', 'image/jpeg', 'image/webp',
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ];
+  for (const m of mimes) {
+    assert.ok(lib.includes(m), `lib missing ${m}`);
+    assert.ok(fe.includes(m), `FE media.ts missing ${m}`);
+  }
+  for (const cap of ['6 * 1024 * 1024', '10 * 1024 * 1024']) {
+    assert.ok(fe.includes(cap), `FE media.ts missing cap ${cap}`);
+  }
+  assert.match(fe, /MEDIA_UPLOAD_URL\s*=\s*'\/api\/admin\/wa-copy\/media'/);
+  assert.match(fe, /export function fileToBase64/);
+  assert.match(fe, /export function validateMediaFile/);
+});
