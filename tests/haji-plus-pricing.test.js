@@ -31,6 +31,9 @@ test('escalates the package price ~2.5%/yr to the departure year', () => {
 test('floors years at 1 for a current/past departure year', () => {
   const r = computeHajiPlusEscalation({ ...baseInput, tahunBerangkat: 2026 });
   assert.equal(r.years, 1);
+  assert.equal(r.ladder.length, 2);
+  assert.equal(r.ladder[1].year, 2026);        // departure label pinned to tahunBerangkat
+  assert.equal(r.ladder[1].isDeparture, true);
 });
 
 test('DP is fixed and sisa is the escalated remainder', () => {
@@ -45,6 +48,7 @@ test('IDR applies both kurs inflation and escalation; DP stays at today kurs', (
   assert.ok(Math.abs(r.inflatedKurs - expectedKurs) < 1e-6);
   assert.ok(Math.abs(r.estTotalIDR - r.escalatedTotalUSD * expectedKurs) < 1e-3);
   assert.equal(r.dpIDR, 4500 * 15500);
+  assert.ok(Math.abs(r.sisaIDR - r.sisaUSD * r.inflatedKurs) < 1e-3);
 });
 
 test('ladder spans now to departure, strictly increasing, last flagged', () => {

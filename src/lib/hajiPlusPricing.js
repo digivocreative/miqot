@@ -14,6 +14,7 @@ export const KURS_INFLATION_RATE = 0.015;   // USD->IDR kurs growth per year
 /**
  * @param {{ basePriceUSD:number, jumlahJamaah:number, tahunBerangkat:number,
  *           currentYear:number, kursUSD:number, dpPerJamaahUSD:number }} input
+ * @returns {import('./hajiPlusPricing').EscalationResult}
  */
 export function computeHajiPlusEscalation(input) {
   const { basePriceUSD, jumlahJamaah, tahunBerangkat, currentYear, kursUSD, dpPerJamaahUSD } = input;
@@ -32,7 +33,7 @@ export function computeHajiPlusEscalation(input) {
   const ladder = [];
   for (let i = 0; i <= years; i++) {
     ladder.push({
-      year: currentYear + i,
+      year: i === years ? tahunBerangkat : currentYear + i,
       priceUSD: basePriceUSD * Math.pow(1 + PRICE_ESCALATION_RATE, i),
       isDeparture: i === years,
     });

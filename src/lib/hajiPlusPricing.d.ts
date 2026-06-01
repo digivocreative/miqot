@@ -1,5 +1,5 @@
-export const PRICE_ESCALATION_RATE: number;
-export const KURS_INFLATION_RATE: number;
+export const PRICE_ESCALATION_RATE: 0.025;
+export const KURS_INFLATION_RATE: 0.015;
 
 export interface LadderEntry {
   year: number;
