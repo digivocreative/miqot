@@ -61,3 +61,12 @@ test('FE media.ts mirrors the authoritative allowlist + caps (no drift)', () => 
   assert.match(fe, /export function fileToBase64/);
   assert.match(fe, /export function validateMediaFile/);
 });
+
+test('MediaView renders image vs file and an optional download link', () => {
+  const src = read('src/components/wa-copy/admin/MediaView.tsx');
+  assert.match(src, /media\.kind === 'image'/);
+  assert.match(src, /<img/);
+  assert.match(src, /download=\{media\.name\}/);
+  assert.match(src, /formatBytes\(media\.size\)/);
+  assert.match(src, /download\s*=\s*true/);
+});
