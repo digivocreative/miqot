@@ -54,7 +54,14 @@ export function patchCategory(list, value, patch) {
   });
 }
 
-/** Swap a category's order with its neighbour (sorted by order). No-op at bounds. */
+/**
+ * Swap a category's order with its neighbour (sorted by order). No-op at bounds.
+ * `dir === 'up'` moves toward a lower order number (earlier in the list).
+ * @param {import('./categoryOps').CategoryRecord[]} list
+ * @param {string} value id of the category to move
+ * @param {'up' | 'down'} dir
+ * @returns {import('./categoryOps').CategoryRecord[]}
+ */
 export function reorderCategory(list, value, dir) {
   const sorted = [...list].sort((a, b) => a.order - b.order);
   const idx = sorted.findIndex(c => c.value === value);

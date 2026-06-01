@@ -19,6 +19,7 @@ test('slugifyCategory normalizes labels and falls back to "kategori"', () => {
   assert.equal(slugifyCategory('Ringan di Kantong'), 'ringan-di-kantong');
   assert.equal(slugifyCategory('Tips & Info!'), 'tips-info');
   assert.equal(slugifyCategory('   '), 'kategori');
+  assert.equal(slugifyCategory('---'), 'kategori'); // symbol-only collapses to the fallback
 });
 
 test('uniqueCategoryValue de-duplicates with numeric suffixes', () => {
@@ -58,6 +59,11 @@ test('reorderCategory swaps order with the neighbour and is a no-op at bounds', 
   assert.equal(up.find(c => c.value === 'a').order, 2);
   const noop = reorderCategory(cats(), 'a', 'up');
   assert.deepEqual(noop, cats());
+  const down = reorderCategory(cats(), 'b', 'down');
+  assert.equal(down.find(c => c.value === 'b').order, 3);
+  assert.equal(down.find(c => c.value === 'c').order, 2);
+  assert.deepEqual(reorderCategory(cats(), 'c', 'down'), cats()); // last element, down = no-op
+  assert.deepEqual(reorderCategory(cats(), 'zzz', 'up'), cats()); // unknown value = no-op
 });
 
 test('deleteCategoryAndReassign moves items to the target with appended order, no orphans', () => {
@@ -77,7 +83,7 @@ test('deleteCategoryAndReassign moves items to the target with appended order, n
 
 test('deleteCategoryAndReassign rejects invalid deletions (null result)', () => {
   const one = [{ value: 'only', label: 'Only', iconName: 'Tag', tip: '', order: 1 }];
-  assert.equal(deleteCategoryAndReassign(one, [], 'category', 'only', 'only'), null); // last category
+  assert.equal(deleteCategoryAndReassign(one, [], 'category', 'only', 'other'), null); // last category (length<=1 guard, isolated)
   assert.equal(deleteCategoryAndReassign(cats(), [], 'category', 'a', 'a'), null);      // same target
   assert.equal(deleteCategoryAndReassign(cats(), [], 'category', 'a', 'zzz'), null);    // missing target
 });
