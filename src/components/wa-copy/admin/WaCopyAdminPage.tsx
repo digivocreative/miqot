@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Settings2 } from 'lucide-react';
 import SegmentedControl from '../../common/SegmentedControl';
 import { useWaCopyContent } from '../hooks/useWaCopyContent';
 import { useToast, ToastPill } from '../hooks/useToast';
@@ -8,6 +8,7 @@ import ContentList, { type ContentRow } from './ContentList';
 import CaptionEditor from './CaptionEditor';
 import FaqEditor from './FaqEditor';
 import TourLeaderEditor from './TourLeaderEditor';
+import CategoryManager from './CategoryManager';
 
 const TYPE_OPTIONS = [
   { value: 'faq' as WaTab, label: 'FAQ' },
@@ -60,10 +61,11 @@ export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: Wa
   const [type, setType] = useState<WaTab>('faq');
   // null = list view; { id: null } = create new; { id } = edit existing.
   const [editing, setEditing] = useState<{ id: string | null } | null>(null);
+  const [managing, setManaging] = useState(false);
 
   useEffect(() => {
-    onEditingChange?.(editing !== null);
-  }, [editing, onEditingChange]);
+    onEditingChange?.(editing !== null || managing);
+  }, [editing, managing, onEditingChange]);
 
   useEffect(() => {
     return () => onEditingChange?.(false);
@@ -71,14 +73,20 @@ export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: Wa
 
   useEffect(() => {
     if (!backRequest) return;
+    if (managing) return;
     setEditing(current => (current ? null : current));
-  }, [backRequest]);
+  }, [backRequest, managing]);
 
   const closeEditor = () => setEditing(null);
   const afterSave = () => {
     showToast('Konten tersimpan');
     setEditing(null);
   };
+
+  // ── Category manager view ─────────────────────────────────────────
+  if (managing) {
+    return <CategoryManager kind={type} backRequest={backRequest} onExit={() => setManaging(false)} />;
+  }
 
   // ── Editor view ───────────────────────────────────────────────────
   if (editing) {
@@ -172,13 +180,22 @@ export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: Wa
     <div className="px-4 pt-4 pb-8 space-y-4" style={{ paddingBottom: '2rem' }}>
       <SegmentedControl options={TYPE_OPTIONS} value={type} onChange={setType} accent="emerald" />
 
-      <button
-        onClick={() => setEditing({ id: null })}
-        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 active:scale-95 transition-all"
-      >
-        <Plus size={16} />
-        Tambah
-      </button>
+      <div className="flex gap-2">
+        <button
+          onClick={() => setEditing({ id: null })}
+          className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 active:scale-95 transition-all"
+        >
+          <Plus size={16} />
+          Tambah
+        </button>
+        <button
+          onClick={() => setManaging(true)}
+          className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-gray-600 dark:text-slate-300 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 active:scale-95 transition-all"
+        >
+          <Settings2 size={16} />
+          Kelola Kategori
+        </button>
+      </div>
 
       <ContentList rows={rows} onToggle={onToggle} onReorder={onReorder} onEdit={id => setEditing({ id })} />
 

@@ -23,6 +23,9 @@ test('WA Copy admin page reports edit state and handles parent back requests', (
 
   assert.match(admin, /interface WaCopyAdminPageProps \{[\s\S]*backRequest\?: number;[\s\S]*onEditingChange\?: \(editing: boolean\) => void;[\s\S]*\}/);
   assert.match(admin, /export default function WaCopyAdminPage\(\{ backRequest = 0, onEditingChange \}: WaCopyAdminPageProps\)/);
-  assert.match(admin, /onEditingChange\?\.\(editing !== null\)/);
+  assert.match(admin, /onEditingChange\?\.\(editing !== null \|\| managing\)/);
+  assert.match(admin, /const \[managing, setManaging\] = useState\(false\)/);
+  assert.match(admin, /<CategoryManager\s+kind=\{type\}\s+backRequest=\{backRequest\}\s+onExit=\{\(\) => setManaging\(false\)\}/);
+  assert.match(admin, /Kelola Kategori/);
   assert.match(admin, /setEditing\(current => \(current \? null : current\)\)/);
 });
