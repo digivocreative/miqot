@@ -127,7 +127,7 @@ async function mergeExistingUmrohPhase1Enrichment(agentId, rows) {
 
   const { data: existingRows, error } = await supabase
     .from('jamaah')
-    .select('id_umroh, jm_id, wa, tgl_lahir, perlengkapan, dokumen, no_paspor, paspor_expired, hijriah_year')
+    .select('id_umroh, jm_id, wa, tgl_lahir, perlengkapan, dokumen, no_paspor, paspor_expired, hijriah_year, tgl_berangkat')
     .eq('agent_id', agentId)
     .in('id_umroh', existingIduIds)
     .in('jm_id', existingJmIds);

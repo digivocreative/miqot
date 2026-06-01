@@ -9,6 +9,7 @@
 
 import * as cheerio from 'cheerio';
 import { getSetCookies as getUndiciSetCookies } from 'undici';
+import { parseLegacyDmyDate } from './lib/legacy-date-parse.js';
 
 const DEFAULT_INTERNAL_API_BASE = 'http://115.124.86.220';
 const CLOUDFLARE_INTERNAL_API_BASE = 'https://jadwal.alhijaz.co';
@@ -434,26 +435,10 @@ export async function fetchUmrahBookings(username) {
       const tgl_daftar_raw = col1[1] || '';
       const tgl_berangkat_raw = col2[1] || '';
       
-      const months = { 'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12', 'Okt': '10', 'Agt': '08' };
-
-      // Parse DD MMM YYYY to YYYY-MM-DD
-      let tgl_berangkat = null;
-      if (tgl_berangkat_raw) {
-          const m = tgl_berangkat_raw.match(/(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/);
-          if (m) {
-             const mName = m[2].substring(0, 3);
-             tgl_berangkat = `${m[3]}-${months[mName] || '01'}-${m[1].padStart(2, '0')}`;
-          }
-      }
-
-      let tgl_daftar = null;
-      if (tgl_daftar_raw) {
-          const m = tgl_daftar_raw.match(/(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/);
-          if (m) {
-             const mName = m[2].substring(0, 3);
-             tgl_daftar = `${m[3]}-${months[mName] || '01'}-${m[1].padStart(2, '0')}`;
-          }
-      }
+      // Parse DD MMM YYYY to YYYY-MM-DD (English + Indonesian months via the
+      // shared MONTH_TOKEN_MAP; unknown token -> null, never a fabricated date).
+      const tgl_berangkat = parseLegacyDmyDate(tgl_berangkat_raw);
+      const tgl_daftar = parseLegacyDmyDate(tgl_daftar_raw);
 
       if (id_umroh) {
         bookings.push({
@@ -607,15 +592,10 @@ export async function fetchUmrahDetail(username, idUmroh) {
       const id_jadwal = /^JBU\d+$/i.test(id_jadwal_raw) ? id_jadwal_raw.toUpperCase() : null;
       const tgl_berangkat_raw = jadwalParts.length >= 2 ? cheerio.load(jadwalParts[1]).text().trim() : '';
 
-      let tgl_berangkat = null;
-      if (tgl_berangkat_raw) {
-        const months = { 'JAN': '01', 'FEB': '02', 'MAR': '03', 'APR': '04', 'MAY': '05', 'JUN': '06',
-                         'JUL': '07', 'AUG': '08', 'SEP': '09', 'OCT': '10', 'NOV': '11', 'DEC': '12' };
-        const m = tgl_berangkat_raw.match(/(\d{1,2})\s+([A-Z]+)\s+(\d{4})/i);
-        if (m) {
-          tgl_berangkat = `${m[3]}-${months[m[2].toUpperCase()] || '01'}-${m[1].padStart(2, '0')}`;
-        }
-      }
+      // English + Indonesian months via the shared MONTH_TOKEN_MAP. An unknown
+      // token (e.g. Indonesian "Des") must NOT silently become January — leave
+      // null so the Phase-1 merge keeps the existing (correct) departure date.
+      const tgl_berangkat = parseLegacyDmyDate(tgl_berangkat_raw);
 
       // col[4]: HARGA PAKET (rupiah string "38.700.000")
       const hargaPaket = parseRupiah($(tds[4]).text().trim());
