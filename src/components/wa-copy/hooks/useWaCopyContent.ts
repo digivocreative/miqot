@@ -2,7 +2,13 @@ import { useEffect, useState } from 'react';
 import { CAPTION_SEED, CAPTION_CATEGORIES } from '../lib/captions';
 import { WA_COPY_FAQ_SEED, FAQ_CATEGORIES } from '../lib/faq';
 import { TOUR_SEED, TOUR_PHASES } from '../lib/tourleader';
-import type { AgentFaqEntry, CaptionEntry, CategoryMeta, TourStep } from '../lib/types';
+import type { AgentFaqEntry, CaptionEntry, CategoryDraft, CategoryMeta, TourStep } from '../lib/types';
+import {
+  appendCategory,
+  patchCategory,
+  reorderCategory,
+  deleteCategoryAndReassign,
+} from '../lib/categoryOps';
 
 const WA_COPY_LATENCY_MS = 350;
 
@@ -117,6 +123,67 @@ function reorderTour(id: string, dir: 'up' | 'down'): void {
   emit();
 }
 
+// ── Category mutations ──────────────────────────────────────────────
+function createCaptionCategory(draft: CategoryDraft): void {
+  store.captionCategories = appendCategory(store.captionCategories, draft);
+  emit();
+}
+function updateCaptionCategory(value: string, patch: Partial<CategoryDraft>): void {
+  store.captionCategories = patchCategory(store.captionCategories, value, patch);
+  emit();
+}
+function reorderCaptionCategory(value: string, dir: 'up' | 'down'): void {
+  store.captionCategories = reorderCategory(store.captionCategories, value, dir);
+  emit();
+}
+function deleteCaptionCategory(value: string, reassignTo: string): void {
+  const res = deleteCategoryAndReassign(store.captionCategories, store.captions, 'category', value, reassignTo);
+  if (!res) return;
+  store.captionCategories = res.categories;
+  store.captions = res.items;
+  emit();
+}
+
+function createFaqCategory(draft: CategoryDraft): void {
+  store.faqCategories = appendCategory(store.faqCategories, draft);
+  emit();
+}
+function updateFaqCategory(value: string, patch: Partial<CategoryDraft>): void {
+  store.faqCategories = patchCategory(store.faqCategories, value, patch);
+  emit();
+}
+function reorderFaqCategory(value: string, dir: 'up' | 'down'): void {
+  store.faqCategories = reorderCategory(store.faqCategories, value, dir);
+  emit();
+}
+function deleteFaqCategory(value: string, reassignTo: string): void {
+  const res = deleteCategoryAndReassign(store.faqCategories, store.faqs, 'category', value, reassignTo);
+  if (!res) return;
+  store.faqCategories = res.categories;
+  store.faqs = res.items;
+  emit();
+}
+
+function createTourCategory(draft: CategoryDraft): void {
+  store.tourPhases = appendCategory(store.tourPhases, draft);
+  emit();
+}
+function updateTourCategory(value: string, patch: Partial<CategoryDraft>): void {
+  store.tourPhases = patchCategory(store.tourPhases, value, patch);
+  emit();
+}
+function reorderTourCategory(value: string, dir: 'up' | 'down'): void {
+  store.tourPhases = reorderCategory(store.tourPhases, value, dir);
+  emit();
+}
+function deleteTourCategory(value: string, reassignTo: string): void {
+  const res = deleteCategoryAndReassign(store.tourPhases, store.tourSteps, 'phase', value, reassignTo);
+  if (!res) return;
+  store.tourPhases = res.categories;
+  store.tourSteps = res.items;
+  emit();
+}
+
 export interface UseWaCopyContent {
   captions: CaptionEntry[];
   faqs: AgentFaqEntry[];
@@ -124,6 +191,18 @@ export interface UseWaCopyContent {
   captionCategories: CategoryMeta[];
   faqCategories: CategoryMeta[];
   tourPhases: CategoryMeta[];
+  createCaptionCategory: typeof createCaptionCategory;
+  updateCaptionCategory: typeof updateCaptionCategory;
+  reorderCaptionCategory: typeof reorderCaptionCategory;
+  deleteCaptionCategory: typeof deleteCaptionCategory;
+  createFaqCategory: typeof createFaqCategory;
+  updateFaqCategory: typeof updateFaqCategory;
+  reorderFaqCategory: typeof reorderFaqCategory;
+  deleteFaqCategory: typeof deleteFaqCategory;
+  createTourCategory: typeof createTourCategory;
+  updateTourCategory: typeof updateTourCategory;
+  reorderTourCategory: typeof reorderTourCategory;
+  deleteTourCategory: typeof deleteTourCategory;
   loading: boolean;
   createCaption: typeof createCaption;
   updateCaption: typeof updateCaption;
@@ -179,6 +258,18 @@ export function useWaCopyContent(): UseWaCopyContent {
     captionCategories: store.captionCategories,
     faqCategories: store.faqCategories,
     tourPhases: store.tourPhases,
+    createCaptionCategory,
+    updateCaptionCategory,
+    reorderCaptionCategory,
+    deleteCaptionCategory,
+    createFaqCategory,
+    updateFaqCategory,
+    reorderFaqCategory,
+    deleteFaqCategory,
+    createTourCategory,
+    updateTourCategory,
+    reorderTourCategory,
+    deleteTourCategory,
     loading,
     createCaption,
     updateCaption,

@@ -21,7 +21,7 @@ export function patchCategory<T extends CategoryRecord>(
   patch: Partial<CategoryDraftInput>,
 ): T[];
 export function reorderCategory<T extends CategoryRecord>(list: T[], value: string, dir: 'up' | 'down'): T[];
-export function deleteCategoryAndReassign<C extends CategoryRecord, T extends Record<string, unknown>>(
+export function deleteCategoryAndReassign<C extends CategoryRecord, T extends { order: number }>(
   list: C[],
   items: T[],
   field: string,
