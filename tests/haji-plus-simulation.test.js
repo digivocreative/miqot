@@ -74,7 +74,7 @@ test('SimulasiHajiPlus displays room type in the exported offer labels', () => {
 
   assert.match(source, /Tipe kamar[\s\S]*\{selectedRoom\.label\}/);
   assert.match(source, /Simulasi Haji Plus\s+·\s+\{pkg\?\.name\}\s+\{selectedRoom\.label\}/);
-  assert.match(source, /\{fmtUSD\(selectedPriceUSD\)\}\s*×\s*\{jumlahJamaah\}\s*jamaah/);
+  assert.match(source, /\{fmtUSD\(calc\.escalatedPriceUSD\)\}\s*×\s*\{jumlahJamaah\}\s*jamaah/);
 });
 
 test('SimulasiHajiPlus export waits for fonts and images before capture', () => {
