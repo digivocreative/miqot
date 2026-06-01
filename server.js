@@ -28,6 +28,12 @@ import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
 import { regenerateOgForAgent, generatePortalJamaahOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
+import {
+  validateMedia,
+  kindFromMime,
+  extFromMime,
+  safeBaseName,
+} from './lib/wa-copy-media.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
 import {
@@ -13588,6 +13594,39 @@ async function downloadFile(url) {
   const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
   return { buffer, contentType, ext, bytes: buffer.length, sha256 };
 }
+
+// ── WA Copy: admin media upload → Bunny CDN ─────────────────────────
+app.post('/api/admin/wa-copy/media', authMiddleware, adminOnly, express.json({ limit: '16mb' }), async (req, res) => {
+  // 16mb body limit: a 10MB doc inflates to ~13.7MB once base64-encoded.
+  try {
+    if (!getBunnyEnabled()) {
+      return res.status(503).json({ error: 'Penyimpanan media belum dikonfigurasi' });
+    }
+    const { mime, name, data } = req.body || {};
+    if (typeof data !== 'string' || !data) {
+      return res.status(400).json({ error: 'Data berkas kosong' });
+    }
+    const base64 = data.startsWith('data:') ? data.slice(data.indexOf(',') + 1) : data;
+    const buffer = Buffer.from(base64, 'base64');
+    const validationError = validateMedia({ mime, size: buffer.length });
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+    const path = `wa-copy/${Date.now()}-${safeBaseName(name)}.${extFromMime(mime)}`;
+    await bunnyUpload(path, buffer, mime);
+    return res.json({
+      success: true,
+      url: `https://${BUNNY_CDN_HOSTNAME}/${path}`,
+      kind: kindFromMime(mime),
+      mime,
+      name: typeof name === 'string' && name ? name : path.split('/').pop(),
+      size: buffer.length,
+    });
+  } catch (err) {
+    console.error('[wa-copy] media upload error:', err);
+    return res.status(500).json({ error: 'Gagal mengunggah media' });
+  }
+});
 
 async function syncFilesToBunny() {
   if (!getBunnyEnabled()) {
