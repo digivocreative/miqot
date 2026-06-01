@@ -56,14 +56,14 @@ export default function FaqAccordionItem({ entry, open, onToggle, showToast }: F
             className="overflow-hidden"
           >
             <div className="border-t border-gray-100 px-4 pb-3 pt-3 dark:border-slate-700/50">
-              <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/40">
-                <p className="text-[13px] leading-relaxed text-gray-600 dark:text-slate-300 whitespace-pre-wrap">{entry.answer}</p>
-              </div>
               {entry.media?.[0] && (
-                <div className="mt-3">
+                <div className="mb-3">
                   <MediaView media={entry.media[0]} />
                 </div>
               )}
+              <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/40">
+                <p className="text-[13px] leading-relaxed text-gray-600 dark:text-slate-300 whitespace-pre-wrap">{entry.answer}</p>
+              </div>
               <div className="mt-3 flex gap-2">
                 <button
                   type="button"
