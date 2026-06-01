@@ -29,3 +29,14 @@ test('wa-copy media path gets a 16mb json parser registered before the global 10
   assert.ok(globalParser >= 0, 'global 10mb json parser missing');
   assert.ok(scoped < globalParser, 'scoped 16mb parser must be registered before the global 10mb parser');
 });
+
+test('types.ts defines MediaAttachment and adds media[] to the three entries', () => {
+  const src = read('src/components/wa-copy/lib/types.ts');
+  assert.match(src, /export interface MediaAttachment\s*{/);
+  for (const field of ['url:', 'kind:', 'mime:', 'name:', 'size:']) {
+    assert.ok(src.includes(field), `MediaAttachment missing ${field}`);
+  }
+  assert.match(src, /kind:\s*'image'\s*\|\s*'file'/);
+  const count = (src.match(/media\?:\s*MediaAttachment\[\]/g) || []).length;
+  assert.ok(count >= 3, `expected media?: MediaAttachment[] on 3 interfaces, found ${count}`);
+});

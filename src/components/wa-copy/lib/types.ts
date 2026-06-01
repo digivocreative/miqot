@@ -4,6 +4,14 @@ import type { FaqEntry } from '../../portal-jamaah/lib/faq';
 // Re-export so WA Copy consumers can import the shared FAQ shape from one place.
 export type { FaqEntry };
 
+export interface MediaAttachment {
+  url: string;           // Bunny CDN public URL
+  kind: 'image' | 'file';
+  mime: string;          // e.g. image/png, application/pdf
+  name: string;          // original filename (display + download)
+  size: number;          // bytes
+}
+
 export type WaTab = 'caption' | 'faq' | 'tourleader';
 
 export type CaptionCategory =
@@ -30,6 +38,7 @@ export interface CaptionEntry {
   template: string;
   order: number;
   active: boolean;
+  media?: MediaAttachment[];
 }
 
 /** FaqEntry = { id, question, answer } reused from portal-jamaah. */
@@ -37,6 +46,7 @@ export interface AgentFaqEntry extends FaqEntry {
   category: FaqCategory;
   order: number;
   active: boolean;
+  media?: MediaAttachment[];
 }
 
 export interface TourStep {
@@ -46,6 +56,7 @@ export interface TourStep {
   body: string;
   order: number;
   active: boolean;
+  media?: MediaAttachment[];
 }
 
 // ── Placeholder engine ──────────────────────────────────────────────
