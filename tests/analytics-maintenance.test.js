@@ -219,23 +219,37 @@ test('retentionCutoffISO: cutoff is invariant to the hour-of-day of now', () => 
   }
 });
 
-// Minimal Supabase test double: by default skips aggregation (latest aggregate =
-// yesterday) and records the `created_at` cutoff each table's DELETE was issued
-// with. With { failAggregate: true } the aggregate-date lookup errors, which makes
-// the aggregation step throw — exercising the "aggregation failed" branch.
+// Minimal Supabase test double. Records the `created_at` cutoff each table's
+// DELETE was issued with, and which tables were fetched with `.order()`.
+// Options:
+//   latestAgg     — date returned by fetchLatestAggregateDate (default yesterday)
+//   failAggregate — aggregate-date lookup errors → aggregation setup throws
+//   dayHasEvents  — analytics_events fetch returns a row (forces an upsert)
+//   aggUpsertError— analytics_events_daily upsert errors (a day fails to aggregate)
 function makeMockSupabase(yesterdayKey, opts = {}) {
   const deletedCutoffs = {};
+  const ordered = new Set();
   function builder(table) {
     let op = 'select';
     const chain = {
       select() { op = 'select'; return chain; },
       delete() { op = 'delete'; return chain; },
-      upsert() { return Promise.resolve({ error: null }); },
+      upsert() {
+        if (table === 'analytics_events_daily' && opts.aggUpsertError) {
+          return Promise.resolve({ error: { message: 'simulated upsert failure' } });
+        }
+        return Promise.resolve({ error: null });
+      },
       lte() { return chain; },
       gte() { return chain; },
-      order() { return chain; },
+      order() { ordered.add(table); return chain; },
       limit() { return chain; },
-      range() { return Promise.resolve({ data: [], error: null }); },
+      range() {
+        if (table === 'analytics_events' && opts.dayHasEvents) {
+          return Promise.resolve({ data: [{ agent_id: 'a1', event_type: 'x', event_name: 'y' }], error: null });
+        }
+        return Promise.resolve({ data: [], error: null });
+      },
       lt(col, val) {
         if (op === 'delete') {
           if (col === 'created_at') deletedCutoffs[table] = val;
@@ -248,14 +262,14 @@ function makeMockSupabase(yesterdayKey, opts = {}) {
           if (opts.failAggregate) {
             return Promise.resolve({ data: null, error: { message: 'simulated aggregate lookup failure' } });
           }
-          return Promise.resolve({ data: { date: yesterdayKey }, error: null });
+          return Promise.resolve({ data: { date: opts.latestAgg || yesterdayKey }, error: null });
         }
         return Promise.resolve({ data: null, error: null });
       },
     };
     return chain;
   }
-  return { from: builder, deletedCutoffs };
+  return { from: builder, deletedCutoffs, ordered };
 }
 
 test('runAnalyticsMaintenance: prunes capi_event_logs at 5d and analytics_events at 14d', async () => {
@@ -296,4 +310,34 @@ test('runAnalyticsMaintenance: prunes capi_event_logs even when analytics aggreg
   // analytics_events raw must NOT be deleted when aggregation failed — those rows
   // haven't been rolled up yet, so deleting them would lose data.
   assert.equal(supabase.deletedCutoffs['analytics_events'], undefined, 'analytics_events raw kept when aggregation fails');
+});
+
+test('runAnalyticsMaintenance: a single day that fails to aggregate does not wedge cleanup', async () => {
+  // This is the prod incident: one poisoned day (2026-05-20) threw on every run and,
+  // because the throw escaped the catch-up loop, disabled cleanup entirely. A per-day
+  // failure must be isolated so the rest of the cycle (incl. cleanup) still completes.
+  const now = new Date();
+  const y = new Date(now); y.setUTCHours(0, 0, 0, 0); y.setUTCDate(y.getUTCDate() - 1);
+  const yKey = y.toISOString().slice(0, 10);
+  const before = new Date(y); before.setUTCDate(before.getUTCDate() - 1);
+  const latestAgg = before.toISOString().slice(0, 10); // loop processes exactly one day
+
+  const supabase = makeMockSupabase(yKey, { latestAgg, dayHasEvents: true, aggUpsertError: true });
+  await maintenance.runAnalyticsMaintenance(supabase);
+
+  assert.ok(
+    supabase.deletedCutoffs['analytics_events'],
+    'analytics cleanup still runs even though a day failed to aggregate',
+  );
+});
+
+test('aggregateAnalyticsDay: paginated fetch is ordered for deterministic paging', async () => {
+  // .range() pagination without ORDER BY can skip/duplicate rows across pages.
+  const supabase = makeMockSupabase('2026-05-31', { dayHasEvents: true });
+  await maintenance.aggregateAnalyticsDay(
+    supabase,
+    '2026-05-20T00:00:00.000Z',
+    '2026-05-21T00:00:00.000Z',
+  );
+  assert.ok(supabase.ordered.has('analytics_events'), 'analytics_events fetch uses .order() for stable pagination');
 });
