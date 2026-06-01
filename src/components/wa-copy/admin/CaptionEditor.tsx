@@ -1,8 +1,7 @@
 import { useRef, useState } from 'react';
 import { useAgentContext } from '../hooks/useAgentContext';
-import { CAPTION_CATEGORIES } from '../lib/captions';
 import { AGENT_TOKENS, PACKAGE_TOKENS, TOKEN_LABELS, usesPackageToken } from '../lib/placeholders';
-import type { CaptionCategory, CaptionEntry, MediaAttachment } from '../lib/types';
+import type { CaptionCategory, CaptionEntry, CategoryMeta, MediaAttachment } from '../lib/types';
 import PreviewText from '../tabs/caption/PreviewText';
 import Toggle from './Toggle';
 import MediaUploadField from './MediaUploadField';
@@ -16,6 +15,7 @@ export interface CaptionDraft {
 }
 
 interface CaptionEditorProps {
+  categories: CategoryMeta[];
   initial?: CaptionEntry;
   onSave: (draft: CaptionDraft) => void;
   onCancel: () => void;
@@ -25,11 +25,11 @@ const INPUT_CLASS =
   'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400';
 const LABEL_CLASS = 'block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300 mb-1.5';
 
-export default function CaptionEditor({ initial, onSave, onCancel }: CaptionEditorProps) {
+export default function CaptionEditor({ categories, initial, onSave, onCancel }: CaptionEditorProps) {
   const agentCtx = useAgentContext();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const [category, setCategory] = useState<CaptionCategory>(initial?.category ?? CAPTION_CATEGORIES[0].value);
+  const [category, setCategory] = useState<CaptionCategory>(initial?.category ?? categories[0]?.value ?? '');
   const [template, setTemplate] = useState(initial?.template ?? '');
   const [packageAware, setPackageAware] = useState(initial?.packageAware ?? usesPackageToken(initial?.template ?? ''));
   const [active, setActive] = useState(initial?.active ?? true);
@@ -65,7 +65,7 @@ export default function CaptionEditor({ initial, onSave, onCancel }: CaptionEdit
       <div>
         <label className={LABEL_CLASS}>Kategori</label>
         <select value={category} onChange={e => setCategory(e.target.value as CaptionCategory)} className={INPUT_CLASS}>
-          {CAPTION_CATEGORIES.map(c => (
+          {categories.map(c => (
             <option key={c.value} value={c.value}>
               {c.label}
             </option>

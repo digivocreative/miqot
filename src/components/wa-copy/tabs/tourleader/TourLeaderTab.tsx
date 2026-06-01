@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Inbox } from 'lucide-react';
 import { useWaCopyContent } from '../../hooks/useWaCopyContent';
-import { TOUR_PHASES } from '../../lib/tourleader';
+import { resolveCategoryIcon } from '../../lib/categoryIcons';
 import type { TourPhase } from '../../lib/types';
 import CategoryChips from '../caption/CategoryChips';
 import TourStepCard from './TourStepCard';
@@ -11,23 +11,26 @@ interface TourLeaderTabProps {
 }
 
 export default function TourLeaderTab({ showToast }: TourLeaderTabProps) {
-  const { tourSteps } = useWaCopyContent();
-  const [activePhase, setActivePhase] = useState<TourPhase>('sebelum');
+  const { tourSteps, tourPhases } = useWaCopyContent();
+  const [activePhase, setActivePhase] = useState<TourPhase>('');
 
-  const meta = TOUR_PHASES.find(p => p.value === activePhase) ?? TOUR_PHASES[0];
+  const phases = [...tourPhases].sort((a, b) => a.order - b.order);
+  const resolvedPhase = phases.some(p => p.value === activePhase) ? activePhase : (phases[0]?.value ?? '');
+
+  const meta = phases.find(p => p.value === resolvedPhase) ?? phases[0];
   const visible = tourSteps
-    .filter(t => t.active && t.phase === activePhase)
+    .filter(t => t.active && t.phase === resolvedPhase)
     .sort((a, b) => a.order - b.order);
 
   return (
     <div className="px-4 pt-4 pb-8 space-y-4">
       <CategoryChips
-        options={TOUR_PHASES.map(p => ({ value: p.value, label: p.label, icon: p.icon }))}
-        value={activePhase}
+        options={phases.map(p => ({ value: p.value, label: p.label, icon: resolveCategoryIcon(p.iconName) }))}
+        value={resolvedPhase}
         onChange={setActivePhase}
       />
       <p className="rounded-xl border border-blue-100 dark:border-blue-800/30 bg-blue-50/70 dark:bg-blue-900/15 p-3 text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-        {meta.tip}
+        {meta?.tip}
       </p>
 
       {visible.length === 0 ? (

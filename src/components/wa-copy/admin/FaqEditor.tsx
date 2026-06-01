@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { FAQ_CATEGORIES } from '../lib/faq';
-import type { AgentFaqEntry, FaqCategory, MediaAttachment } from '../lib/types';
+import type { AgentFaqEntry, CategoryMeta, FaqCategory, MediaAttachment } from '../lib/types';
 import Toggle from './Toggle';
 import MediaUploadField from './MediaUploadField';
 
@@ -13,6 +12,7 @@ export interface FaqDraft {
 }
 
 interface FaqEditorProps {
+  categories: CategoryMeta[];
   initial?: AgentFaqEntry;
   onSave: (draft: FaqDraft) => void;
   onCancel: () => void;
@@ -22,8 +22,8 @@ const INPUT_CLASS =
   'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400';
 const LABEL_CLASS = 'block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300 mb-1.5';
 
-export default function FaqEditor({ initial, onSave, onCancel }: FaqEditorProps) {
-  const [category, setCategory] = useState<FaqCategory>(initial?.category ?? FAQ_CATEGORIES[0].value);
+export default function FaqEditor({ categories, initial, onSave, onCancel }: FaqEditorProps) {
+  const [category, setCategory] = useState<FaqCategory>(initial?.category ?? categories[0]?.value ?? '');
   const [question, setQuestion] = useState(initial?.question ?? '');
   const [answer, setAnswer] = useState(initial?.answer ?? '');
   const [active, setActive] = useState(initial?.active ?? true);
@@ -40,7 +40,7 @@ export default function FaqEditor({ initial, onSave, onCancel }: FaqEditorProps)
       <div>
         <label className={LABEL_CLASS}>Kategori</label>
         <select value={category} onChange={e => setCategory(e.target.value as FaqCategory)} className={INPUT_CLASS}>
-          {FAQ_CATEGORIES.map(c => (
+          {categories.map(c => (
             <option key={c.value} value={c.value}>
               {c.label}
             </option>

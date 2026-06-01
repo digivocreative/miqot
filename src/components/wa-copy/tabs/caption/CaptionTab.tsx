@@ -4,7 +4,7 @@ import { ChevronDown, Inbox, Package } from 'lucide-react';
 import { useWaCopyContent } from '../../hooks/useWaCopyContent';
 import { useAgentContext } from '../../hooks/useAgentContext';
 import { useSelectedPackage } from '../../hooks/useSelectedPackage';
-import { CAPTION_CATEGORIES } from '../../lib/captions';
+import { resolveCategoryIcon } from '../../lib/categoryIcons';
 import type { CaptionCategory } from '../../lib/types';
 import CategoryChips from './CategoryChips';
 import CaptionCard from './CaptionCard';
@@ -15,18 +15,24 @@ interface CaptionTabProps {
 }
 
 export default function CaptionTab({ showToast }: CaptionTabProps) {
-  const { captions } = useWaCopyContent();
+  const { captions, captionCategories } = useWaCopyContent();
   const agentCtx = useAgentContext();
   const pkg = useSelectedPackage();
-  const [activeCategory, setActiveCategory] = useState<CaptionCategory>('sentuhan_hati');
+  const [activeCategory, setActiveCategory] = useState<CaptionCategory>('');
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  const activeMeta = CAPTION_CATEGORIES.find(c => c.value === activeCategory) ?? CAPTION_CATEGORIES[0];
+  const categories = [...captionCategories].sort((a, b) => a.order - b.order);
+  const resolvedCategory = categories.some(c => c.value === activeCategory)
+    ? activeCategory
+    : (categories[0]?.value ?? '');
+
+  const activeMeta = categories.find(c => c.value === resolvedCategory) ?? categories[0];
+  const labelOf = (value: string) => categories.find(c => c.value === value)?.label ?? value;
   const visible = captions
-    .filter(c => c.active && c.category === activeCategory)
+    .filter(c => c.active && c.category === resolvedCategory)
     .sort((a, b) => a.order - b.order);
 
-  const firstNonEmpty = CAPTION_CATEGORIES.find(c =>
+  const firstNonEmpty = categories.find(c =>
     captions.some(cap => cap.active && cap.category === c.value),
   );
 
@@ -55,12 +61,12 @@ export default function CaptionTab({ showToast }: CaptionTabProps) {
 
       {/* Category chips + micro-tip */}
       <CategoryChips
-        options={CAPTION_CATEGORIES.map(c => ({ value: c.value, label: c.label, icon: c.icon }))}
-        value={activeCategory}
+        options={categories.map(c => ({ value: c.value, label: c.label, icon: resolveCategoryIcon(c.iconName) }))}
+        value={resolvedCategory}
         onChange={setActiveCategory}
       />
       <p className="rounded-xl border border-blue-100 dark:border-blue-800/30 bg-blue-50/70 dark:bg-blue-900/15 p-3 text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-        {activeMeta.tip}
+        {activeMeta?.tip}
       </p>
 
       {/* List / empty */}
@@ -71,7 +77,7 @@ export default function CaptionTab({ showToast }: CaptionTabProps) {
           <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
             Kategori ini belum punya caption aktif.
           </p>
-          {firstNonEmpty && firstNonEmpty.value !== activeCategory && (
+          {firstNonEmpty && firstNonEmpty.value !== resolvedCategory && (
             <button
               onClick={() => setActiveCategory(firstNonEmpty.value)}
               className="mt-4 px-4 py-2 rounded-xl bg-emerald-500 text-white text-xs font-bold active:scale-95 transition"
@@ -86,6 +92,7 @@ export default function CaptionTab({ showToast }: CaptionTabProps) {
             <CaptionCard
               key={entry.id}
               entry={entry}
+              categoryLabel={labelOf(entry.category)}
               agentCtx={agentCtx}
               pkgCtx={pkg.selectedCtx}
               showToast={showToast}

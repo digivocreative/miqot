@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { TOUR_PHASES } from '../lib/tourleader';
-import type { TourPhase, TourStep, MediaAttachment } from '../lib/types';
+import type { CategoryMeta, TourPhase, TourStep, MediaAttachment } from '../lib/types';
 import Toggle from './Toggle';
 import MediaUploadField from './MediaUploadField';
 
@@ -13,6 +12,7 @@ export interface TourDraft {
 }
 
 interface TourLeaderEditorProps {
+  categories: CategoryMeta[];
   initial?: TourStep;
   onSave: (draft: TourDraft) => void;
   onCancel: () => void;
@@ -22,8 +22,8 @@ const INPUT_CLASS =
   'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400';
 const LABEL_CLASS = 'block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300 mb-1.5';
 
-export default function TourLeaderEditor({ initial, onSave, onCancel }: TourLeaderEditorProps) {
-  const [phase, setPhase] = useState<TourPhase>(initial?.phase ?? TOUR_PHASES[0].value);
+export default function TourLeaderEditor({ categories, initial, onSave, onCancel }: TourLeaderEditorProps) {
+  const [phase, setPhase] = useState<TourPhase>(initial?.phase ?? categories[0]?.value ?? '');
   const [title, setTitle] = useState(initial?.title ?? '');
   const [body, setBody] = useState(initial?.body ?? '');
   const [active, setActive] = useState(initial?.active ?? true);
@@ -40,7 +40,7 @@ export default function TourLeaderEditor({ initial, onSave, onCancel }: TourLead
       <div>
         <label className={LABEL_CLASS}>Fase</label>
         <select value={phase} onChange={e => setPhase(e.target.value as TourPhase)} className={INPUT_CLASS}>
-          {TOUR_PHASES.map(p => (
+          {categories.map(p => (
             <option key={p.value} value={p.value}>
               {p.label}
             </option>

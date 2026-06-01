@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Inbox, LayoutGrid, Search } from 'lucide-react';
 import { useWaCopyContent } from '../../hooks/useWaCopyContent';
-import { FAQ_CATEGORIES } from '../../lib/faq';
+import { resolveCategoryIcon } from '../../lib/categoryIcons';
 import type { FaqCategory } from '../../lib/types';
 import CategoryChips from '../caption/CategoryChips';
 import FaqAccordionItem from './FaqAccordionItem';
@@ -12,24 +12,27 @@ interface FaqTabProps {
   showToast: (msg: string) => void;
 }
 
-const catIndex = (c: FaqCategory) => FAQ_CATEGORIES.findIndex(x => x.value === c);
-
 export default function FaqTab({ showToast }: FaqTabProps) {
-  const { faqs } = useWaCopyContent();
+  const { faqs, faqCategories } = useWaCopyContent();
   const [query, setQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<FaqFilter>('all');
   const [openId, setOpenId] = useState<string | null>(null);
 
+  const categories = [...faqCategories].sort((a, b) => a.order - b.order);
+  const catIndex = (c: FaqCategory) => categories.findIndex(x => x.value === c);
+  const resolved: FaqFilter =
+    activeCategory === 'all' || categories.some(c => c.value === activeCategory) ? activeCategory : 'all';
+
   const q = query.trim().toLowerCase();
   const visible = faqs
     .filter(f => f.active)
-    .filter(f => activeCategory === 'all' || f.category === activeCategory)
+    .filter(f => resolved === 'all' || f.category === resolved)
     .filter(f => !q || f.question.toLowerCase().includes(q) || f.answer.toLowerCase().includes(q))
     .sort((a, b) => catIndex(a.category) - catIndex(b.category) || a.order - b.order);
 
   const chipOptions = [
     { value: 'all' as FaqFilter, label: 'Semua', icon: LayoutGrid },
-    ...FAQ_CATEGORIES.map(c => ({ value: c.value as FaqFilter, label: c.label, icon: c.icon })),
+    ...categories.map(c => ({ value: c.value as FaqFilter, label: c.label, icon: resolveCategoryIcon(c.iconName) })),
   ];
 
   return (
@@ -45,7 +48,7 @@ export default function FaqTab({ showToast }: FaqTabProps) {
         />
       </div>
 
-      <CategoryChips options={chipOptions} value={activeCategory} onChange={setActiveCategory} />
+      <CategoryChips options={chipOptions} value={resolved} onChange={setActiveCategory} />
 
       {visible.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 dark:border-slate-700 bg-white/70 dark:bg-slate-800/60 py-12 px-6 text-center">

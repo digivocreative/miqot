@@ -2,23 +2,19 @@ import { useState } from 'react';
 import { Check, Copy, Send } from 'lucide-react';
 import { resolveToPlain } from '../../lib/placeholders';
 import { copyToClipboard, shareCaption } from '../../utils/waLink';
-import { CAPTION_CATEGORIES } from '../../lib/captions';
 import type { AgentContext, CaptionEntry, PackageContext } from '../../lib/types';
 import PreviewText from './PreviewText';
 import MediaView from '../../admin/MediaView';
 
-const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
-  CAPTION_CATEGORIES.map(c => [c.value, c.label]),
-);
-
 interface CaptionCardProps {
   entry: CaptionEntry;
+  categoryLabel: string;
   agentCtx: AgentContext;
   pkgCtx: PackageContext | null;
   showToast: (msg: string) => void;
 }
 
-export default function CaptionCard({ entry, agentCtx, pkgCtx, showToast }: CaptionCardProps) {
+export default function CaptionCard({ entry, categoryLabel, agentCtx, pkgCtx, showToast }: CaptionCardProps) {
   const [copied, setCopied] = useState(false);
   const ctx = { agent: agentCtx, pkg: pkgCtx };
 
@@ -43,7 +39,7 @@ export default function CaptionCard({ entry, agentCtx, pkgCtx, showToast }: Capt
       <div className="px-4 py-3 border-b border-gray-50 dark:border-slate-700/50">
         <div className="flex items-center gap-2">
           <span className="text-[9px] font-bold uppercase tracking-wide bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-2 py-0.5 rounded-full">
-            {CATEGORY_LABEL[entry.category]}
+            {categoryLabel}
           </span>
           {entry.packageAware && (
             <span className="text-[9px] font-bold uppercase tracking-wide bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full">

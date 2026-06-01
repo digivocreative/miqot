@@ -3,9 +3,6 @@ import { Plus } from 'lucide-react';
 import SegmentedControl from '../../common/SegmentedControl';
 import { useWaCopyContent } from '../hooks/useWaCopyContent';
 import { useToast, ToastPill } from '../hooks/useToast';
-import { CAPTION_CATEGORIES } from '../lib/captions';
-import { FAQ_CATEGORIES } from '../lib/faq';
-import { TOUR_PHASES } from '../lib/tourleader';
 import type { WaTab } from '../lib/types';
 import ContentList, { type ContentRow } from './ContentList';
 import CaptionEditor from './CaptionEditor';
@@ -17,13 +14,6 @@ const TYPE_OPTIONS = [
   { value: 'caption' as WaTab, label: 'Caption' },
   { value: 'tourleader' as WaTab, label: 'Tour Leader' },
 ];
-
-const CAPTION_LABEL: Record<string, string> = Object.fromEntries(CAPTION_CATEGORIES.map(c => [c.value, c.label]));
-const FAQ_LABEL: Record<string, string> = Object.fromEntries(FAQ_CATEGORIES.map(c => [c.value, c.label]));
-const PHASE_LABEL: Record<string, string> = Object.fromEntries(TOUR_PHASES.map(p => [p.value, p.label]));
-const CAPTION_ORDER = CAPTION_CATEGORIES.map(c => c.value);
-const FAQ_ORDER = FAQ_CATEGORIES.map(c => c.value);
-const PHASE_ORDER = TOUR_PHASES.map(p => p.value);
 
 const firstLine = (s: string) => s.split('\n')[0].slice(0, 80);
 
@@ -56,6 +46,16 @@ function buildRows<T extends { id: string; order: number; active: boolean }>(
 /** Internal admin editor for global WA Copy content (gated by admin role in DashboardLayout). */
 export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: WaCopyAdminPageProps) {
   const content = useWaCopyContent();
+  const sortByOrder = (a: { order: number }, b: { order: number }) => a.order - b.order;
+  const captionCats = [...content.captionCategories].sort(sortByOrder);
+  const faqCats = [...content.faqCategories].sort(sortByOrder);
+  const phaseCats = [...content.tourPhases].sort(sortByOrder);
+  const CAPTION_LABEL: Record<string, string> = Object.fromEntries(captionCats.map(c => [c.value, c.label]));
+  const FAQ_LABEL: Record<string, string> = Object.fromEntries(faqCats.map(c => [c.value, c.label]));
+  const PHASE_LABEL: Record<string, string> = Object.fromEntries(phaseCats.map(c => [c.value, c.label]));
+  const CAPTION_ORDER = captionCats.map(c => c.value);
+  const FAQ_ORDER = faqCats.map(c => c.value);
+  const PHASE_ORDER = phaseCats.map(c => c.value);
   const { toast, showToast } = useToast();
   const [type, setType] = useState<WaTab>('faq');
   // null = list view; { id: null } = create new; { id } = edit existing.
@@ -87,6 +87,7 @@ export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: Wa
       return (
         <div style={{ paddingBottom: '2rem' }}>
           <CaptionEditor
+            categories={captionCats}
             initial={initial}
             onCancel={closeEditor}
             onSave={draft => {
@@ -104,6 +105,7 @@ export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: Wa
       return (
         <div style={{ paddingBottom: '2rem' }}>
           <FaqEditor
+            categories={faqCats}
             initial={initial}
             onCancel={closeEditor}
             onSave={draft => {
@@ -120,6 +122,7 @@ export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: Wa
     return (
       <div style={{ paddingBottom: '2rem' }}>
         <TourLeaderEditor
+          categories={phaseCats}
           initial={initial}
           onCancel={closeEditor}
           onSave={draft => {
