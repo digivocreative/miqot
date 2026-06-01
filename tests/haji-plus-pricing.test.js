@@ -4,6 +4,7 @@ import {
   PRICE_ESCALATION_RATE,
   KURS_INFLATION_RATE,
   computeHajiPlusEscalation,
+  condenseLadder,
 } from '../src/lib/hajiPlusPricing.js';
 
 const baseInput = {
@@ -62,4 +63,18 @@ test('ladder spans now to departure, strictly increasing, last flagged', () => {
   for (let i = 1; i < r.ladder.length; i++) {
     assert.ok(r.ladder[i].priceUSD > r.ladder[i - 1].priceUSD);
   }
+});
+
+test('condenseLadder keeps at most 5 rows incl. first and last with departure flag', () => {
+  const r = computeHajiPlusEscalation(baseInput); // 11 rows (2026..2036)
+  const rows = condenseLadder(r.ladder, 5);
+  assert.ok(rows.length <= 5);
+  assert.equal(rows[0].year, 2026);
+  assert.equal(rows[rows.length - 1].year, 2036);
+  assert.equal(rows[rows.length - 1].isDeparture, true);
+});
+
+test('condenseLadder returns every row when already within the cap', () => {
+  const r = computeHajiPlusEscalation({ ...baseInput, tahunBerangkat: 2029 }); // 4 rows
+  assert.equal(condenseLadder(r.ladder, 5).length, 4);
 });

@@ -44,3 +44,18 @@ export function computeHajiPlusEscalation(input) {
     dpUSD, sisaUSD, inflatedKurs, estTotalIDR, dpIDR, sisaIDR, ladder,
   };
 }
+
+/**
+ * Reduce a ladder to at most `maxRows` evenly-spaced entries, always keeping the
+ * first (today) and last (departure) rows.
+ * @param {LadderEntry[]} ladder
+ * @param {number} [maxRows=5]
+ * @returns {LadderEntry[]}
+ */
+export function condenseLadder(ladder, maxRows = 5) {
+  if (ladder.length <= maxRows) return ladder.slice();
+  const last = ladder.length - 1;
+  const indices = [];
+  for (let i = 0; i < maxRows; i++) indices.push(Math.round((i * last) / (maxRows - 1)));
+  return [...new Set(indices)].map(i => ladder[i]);
+}
