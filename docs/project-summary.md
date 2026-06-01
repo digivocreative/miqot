@@ -1,6 +1,6 @@
 # Alhijaz Indowisata — Project Summary
 
-Terakhir diperbarui: 2026-05-22
+Terakhir diperbarui: 2026-06-01
 
 ## 1. Identitas & Tujuan Project
 
@@ -17,7 +17,7 @@ Terakhir diperbarui: 2026-05-22
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
-| **Database** | Supabase (PostgreSQL) — 21 tabel utama: `agents`, `agent_slug_history`, `capi_configs`, `capi_event_logs`, `jamaah`, `jamaah_haji`, `calendar_events`, `calendar_insights`, `ai_credits`, `ask_ai_cache`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events`, `analytics_events_daily`, `umroh_schedules`, `kurs_cache`, `jamaah_portal_tokens`, `jamaah_portal_sessions`, `booking_persiapan` |
+| **Database** | Supabase (PostgreSQL) — 22 tabel utama: `agents`, `agent_slug_history`, `capi_configs`, `capi_event_logs`, `jamaah`, `jamaah_haji`, `calendar_events`, `calendar_insights`, `ai_credits`, `ask_ai_cache`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events`, `analytics_events_daily`, `umroh_schedules`, `kurs_cache`, `jamaah_portal_tokens`, `jamaah_portal_sessions`, `booking_persiapan`, `jamaah_document_cache` |
 | **Telegram** | Telegram Bot API — group alerts (node-cron) + per-agent DM (deep link connect, departure reminders, pembayaran masuk) |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
@@ -114,7 +114,7 @@ alhijaz/
 │   │   ├── LandingPagePage.tsx    # Landing page config — 3 tab Umroh/Haji/Bio; SEO title/description/OG image untuk /:slug/umroh & /:slug/haji, plus entry point Bio editor (~907 lines)
 │   │   ├── AgentManagementPage.tsx # Admin: manage all agents CRUD + approval (~851 lines)
 │   │   ├── FlightSharePage.tsx    # Public flight share page /f/:code — hero card, map, boarding pass, weather, agent CTA (~830 lines)
-│   │   ├── BrochureScheduleTemplate.tsx # 1080×1920 Brosur Jadwal export template — red/gold Alhijaz layout, package table, sold-out stamp (~916 lines)
+│   │   ├── BrochureScheduleTemplate.tsx # 1080×1620 (2:3) Brosur Jadwal export template — `variant` prop (default red/gold | winter icy-blue), tokenized theme, package table, sold-out stamp, winter-only snowflakes + snow drift
 │   │   ├── SimulasiHajiPlus.tsx   # Haji Plus simulation calculator — package pricing, USD→IDR, inflation projection, export PNG (~676 lines)
 │   │   ├── LoginPage.tsx          # Login + JWT session management (~724 lines)
 │   │   ├── AnalyticsPage.tsx      # Analytics dashboard with event tracking charts + agent drill-down modal (~616 lines)
@@ -259,15 +259,21 @@ alhijaz/
 │
 ├── lib/                    # Shared server-side pure/business logic
 │   ├── analytics-maintenance.js # Daily analytics aggregation + raw/CAPI log retention cleanup
+│   ├── awapi-sync-outcome.js # `classifyAwapiSyncOutcome` — pure decision helper untuk tail sync umroh AWAPI (full/partial/hardfail → shouldBump/shouldNotify/shouldCleanup)
+│   ├── background-jobs.js    # `shouldRunBackgroundJobs` + `parseEnvBoolean` — gate cron/notifier by NODE_ENV (override `ENABLE_BACKGROUND_JOBS`)
 │   ├── birthdays.js          # Birthday lookup/date helpers
 │   ├── brochure-schedule.js  # Harga/hotel cleanup, sold-out parsing, grouping package by month for Brosur Jadwal
 │   ├── cdn-file-sync.js      # CDN file sync decisions (skip/upload/verify) by comparing SHA256 fingerprints
 │   ├── haji-stats.js         # Haji stats + document/pernyataan helpers
+│   ├── jamaah-document-cache.js # Cache HTML surat pernyataan AWAPI + wrap jadi shell A4 print-ready (794×1123, SHA256 dedup, strip <script>)
+│   ├── jamaah-payment-provenance.js # Guard provenance pembayaran — cegah kolom legacy (bayar/sisa/diskon) menimpa data AWAPI; stamp `payment_source` awapi|legacy di raw_data
+│   ├── jamaah-phase1-enrichment.js # Preserve enrichment user (wa/tgl_lahir/no_paspor/perlengkapan/dokumen) lintas sync; default `hijriah_year` '1447'
 │   ├── jamaah-phase2-policy.js # Schedule Jakarta-time umroh Phase 2 notification windows (default 01:00 & 14:00 WIB)
 │   ├── journey-order.js      # Infer Saudi itinerary sequence (Madinah-first vs Umroh-first) from day-by-day schedule text
 │   ├── kurs-image-generator.mjs # Kurs image generation helper
 │   ├── kurs-mandiri.js       # Parse + normalize Bank Mandiri exchange rate timestamps (WIB → ISO)
 │   ├── kurs-share-cache.mjs  # Versioned cache directory for generated kurs share JPEG (TTL + size limit, slug-safe names)
+│   ├── laporan-stats.js      # `buildBerangkatMendatang` — ringkasan keberangkatan terdekat (group bulan pertama, hari_lagi, lunas/sisa) untuk dashboard laporan
 │   ├── notifier-package-source.js # Build notifier API endpoint URL for paket schedule
 │   ├── og-generator.mjs      # OG image generation helper
 │   ├── sync-cleanup.js       # Cleanup guard helpers for jamaah sync (`computeSafeDeletions`, listComplete check)
@@ -276,21 +282,41 @@ alhijaz/
 ├── data/
 │   ├── notifier-state.json  # Telegram notifier state (persisted snapshot)
 │   └── capi/                # Local CAPI config files (dev only, deprecated)
-└── tests/                   # node:test smoke/unit coverage for pure logic
+└── tests/                   # node:test smoke/unit coverage for pure logic (jalankan: `node --test tests/*.test.js`)
     ├── analytics-maintenance.test.js
     ├── awapi-client.test.js
+    ├── awapi-partial-no-fallback.test.js # Fix A: partial fetch TIDAK fallback ke legacy, bump label tetap jalan
     ├── awapi-sync-guard.test.js     # AWAPI sync validation/safeguards
+    ├── awapi-sync-outcome.test.js   # classifyAwapiSyncOutcome (full/partial/hardfail flags)
+    ├── background-jobs.test.js      # shouldRunBackgroundJobs/parseEnvBoolean gating
     ├── birthdays.test.js
     ├── brochure-schedule.test.js
+    ├── calendar-insight-style.test.js
     ├── cdn-file-sync.test.js         # CDN sync decisions (skip/upload/verify by SHA256)
+    ├── haji-awapi-sync.test.js       # Haji AWAPI sync core (keberangkatan/pendaftaran fetch, normalisasi row)
+    ├── haji-filters.test.js          # Haji jamaah filters (tahun daftar, status bayar, paket)
+    ├── haji-page-currency.test.js    # Haji format USD (paket/bayar/sisa)
     ├── haji-pernyataan.test.js
+    ├── haji-plus-simulation.test.js  # Kalkulator Simulasi Haji Plus (harga USD per tipe kamar, proyeksi)
+    ├── haji-stats-daftar-year.test.js # Statistik Haji per tahun pendaftaran vs keberangkatan
     ├── haji-stats.test.js
+    ├── jamaah-advanced-filters.test.js # Filter lanjutan Umroh (bayar/keberangkatan/dokumen/perlengkapan/catatan)
+    ├── jamaah-auto-sync.test.js
+    ├── jamaah-document-cache.test.js # Cache row build + printable A4 HTML wrapper
+    ├── jamaah-filter-animation.test.js # Animasi expand/collapse panel filter (Framer Motion)
+    ├── jamaah-payment-provenance.test.js # Guard provenance pembayaran (awapi vs legacy)
+    ├── jamaah-payment-ui.test.js     # Persentase pembayaran ter-clamp 0–100 (handle sisa negatif)
+    ├── jamaah-pernyataan-document.test.js # Surat pernyataan: marker `dokumen.pernyataan` durable lintas sync
+    ├── jamaah-phase1-enrichment.test.js # preserveUmrohPhase1Enrichment (preserve data user)
     ├── jamaah-phase2-policy.test.js  # Phase 2 schedule time calc across WIB boundaries
+    ├── jamaah-refresh-staff.test.js  # Merge raw_data (preserve `staf` legacy) saat refresh
     ├── journey-order.test.js         # Madinah-first vs Umroh-first detection
     ├── kurs-mandiri.test.js          # Mandiri timestamp parsing + date key generation
     ├── kurs-share-cache.test.js      # Cache eviction, TTL, slug safety
+    ├── laporan-stats.test.js         # buildBerangkatMendatang (group bulan, hari_lagi, lunas/sisa)
     ├── notifier-package-source.test.js # URL builder smoke test
     ├── portal-jamaah.test.js         # Portal Jamaah migration tables (RLS, FK, JSONB)
+    ├── portal-jamaah-frontend.test.js # Portal Jamaah frontend (route URL-sync, komponen)
     ├── portal-jamaah-redesign.test.js # Portal Jamaah redesign component file inventory
     └── umroh-schedules.test.js       # Schedule row merging + version append
 ```
@@ -299,6 +325,7 @@ alhijaz/
 - `migrations/20260515000000_portal_jamaah.sql` — `jamaah_portal_tokens`, `jamaah_portal_sessions`, `booking_persiapan` (RLS-protected)
 - `migrations/20260520000000_haji_awapi_columns.sql` — 13 kolom baru di `jamaah_haji` (porsi, spph, paspor, finansial, tanggal, dokumen JSONB) + composite indexes
 - `migrations/20260522000000_umroh_schedule_cdn_fingerprints.sql` — 8 kolom CDN sync (sha256/bytes/content-type/synced_at) untuk brosur & itinerary di `umroh_schedules`
+- `migrations/20260523000000_jamaah_document_cache.sql` — tabel `jamaah_document_cache` (`agent_id` UUID FK CASCADE, `jm_id`, `document_type`, `content_html`, `html_sha256`, `source_url`, `content_type`, `fetched_at`/`updated_at`; UNIQUE `(agent_id, jm_id, document_type)`, RLS-protected) untuk cache surat pernyataan AWAPI
 
 ## 4. Konvensi & Aturan
 
@@ -386,7 +413,7 @@ alhijaz/
   - Tab Umroh: sync dari sistem internal legacy, filter, sort, pagination
     - Progressive sync: first 10 jamaah shown immediately, rest synced in background
     - Fetch range diperlebar 6 bulan sebelum awal tahun Hijriah untuk capture jamaah yang didaftarkan lebih awal
-    - Filter by hijriah year, payment status, departure window
+    - **Filter lanjutan** (panel expand/collapse beranimasi Framer Motion, easing `[0.22,1,0.36,1]` 0.28s): tahun Hijriah, status pembayaran (`belum_dp`/`belum_lunas`/`lunas`/`lebih_bayar`), window keberangkatan (30/60/90 hari/`departed`), dokumen (`paspor_missing`/`paspor_expiring`/`documents_incomplete`), perlengkapan (`equipment_pending`/`equipment_incomplete`), catatan (`has_notes`/`no_notes`), dan filter teks paket — menggantikan baris chip lama
     - Sort by nama, sisa pembayaran, berangkat terdekat, pendaftaran terbaru
     - Perlengkapan & dokumen tracking (batik, bergo, paspor, dll)
     - Catatan agent per jamaah (`notes`, `notes_updated_at`) dan tampilan diskon kantor/marketing dari AWAPI
@@ -394,7 +421,9 @@ alhijaz/
       - **Belum Bayar** (bayar=0): avatar amber "?", amount amber, card tint amber tipis (`bg-amber-50/60`)
       - **Sudah DP** (bayar>0, sisa>0): avatar blue clock, amount blue, card normal
       - **Lunas** (sisa≤0): avatar green checkmark, "✓ Lunas" emerald, card normal
-    - Expanded detail: progress bar + bayar/sisa warna mengikuti status (emerald/blue/amber)
+    - Expanded detail: progress bar + bayar/sisa warna mengikuti status (emerald/blue/amber). Persentase pembayaran di-**clamp 0–100** (`safeSisaForPct = Math.max(0, sisa)`) agar sisa negatif (lebih bayar) tidak merusak bar
+    - **Surat Pernyataan viewer**: tombol "Surat Pernyataan" membuka modal fullscreen (`UmrohPernyataanViewer`) — render HTML cache via `/api/laporan/jamaah/doc-proxy`, zoom 1×–3× (step 0.25), "Unduh PDF", dan "Bagikan PDF" (native share di mobile). Marker `dokumen.pernyataan` durable lintas sync
+    - Progressive sync menampilkan `totalSynced`/`initialCount`/`phase` secara incremental; label Phase 2: "Melengkapi dokumen & perlengkapan". Refresh merge `raw_data` (preserve `staf` legacy) lewat `mergeRefreshedJamaahItem`
     - **Defensive guard**: `filterSafeJamaahRows` — blokir ghost rows (`__name_` prefix) saat upsert ke Supabase
   - **Jamaah Baru / Umrah Self-Registration** (`/dashboard/jamaah/daftar`, via `UmrahRegisterPage.tsx`):
     - Scrape form HTML dari sistem internal (`GET /api/umrah/form-options`) — selects, inputs, textareas, hidden fields
@@ -409,9 +438,11 @@ alhijaz/
     - File upload: file_ktp preview + preview modal sebelum submit
     - `POST /api/umrah/register` → submit ke legacy system dengan multipart form
   - **Magic Link generator** (per jamaah, agent-only): tombol di `JamaahPage`/`HajiPage` membuka `MagicLinkModal` (272 lines) → endpoint `POST /api/portal/jamaah/:slug/magic-link/generate` return URL + expires_at + anggota_count → distribusi WhatsApp/SMS/copy. Token disimpan di `jamaah_portal_tokens`, reuse jika masih valid
-  - Tab Haji (`HajiPage.tsx`): login ke legacy system, sync, list jamaah haji
+  - Tab Haji (`HajiPage.tsx`): sync AWAPI-first (`AWAPI_SYNC_ENABLED`), list jamaah haji; scraper legacy turun jadi scheduled enrichment (bukan loop utama 30 menit)
     - Card collapsed: avatar (gender ring, lunas checkmark), nama, `{id_haji} • {paket}`, tahun masehi keberangkatan (orange bold)
     - Card expanded: detail grid (Thn Hijriyah, Jenis, Perwakilan, Marketing, Staff, Status Bayar), telp, alamat
+    - **Filter lanjutan** (panel beranimasi sama seperti Umroh): tahun pendaftaran (`daftar_year`, dari range `tgl_daftar`), status bayar, dan filter teks paket
+    - **Mata uang USD**: `paket_harga`/`bayar`/`sisa` diformat `formatUsd` (`USD {n.toLocaleString('id-ID')}`), bukan Rupiah
     - Action buttons (30/50/20): BPIH (blue), Pernyataan (violet), WhatsApp icon (emerald filled)
     - BPIH & Pernyataan → full-screen document viewer popup (iframe, framer-motion slide-up animation, native share)
     - URL routing: slug-based tab switching di Jamaah page
@@ -450,8 +481,10 @@ alhijaz/
   - **Brosur Jadwal** (`/dashboard/ai-tools/brosur-jadwal`, tool pertama di hub):
     - Generate brosur paket umroh per bulan dari `umroh_schedules` cache dan profil agent.
     - Endpoint `GET /api/ai-tools/brosur-jadwal-bulan` mengambil paket mendatang (default 24 bulan, query `monthsAhead` max 36), memilih harga termurah valid dengan prioritas `Quard → Triple → Double`, mengabaikan harga `Infant`, dan menandai sold out bila `seat_sisa <= 0`.
-    - Preview/export memakai template fixed **1080×1920** (`BrochureScheduleTemplate`) dengan layout merah/gold Alhijaz, logo, badge "5 Pasti Umrah", tabel paket, hotel Mekkah/Madinah, harga jutaan, stamp `SOLD OUT`, dan footer agent.
+    - Preview/export memakai template fixed **1080×1620 (2:3)** (`BrochureScheduleTemplate`) dengan layout merah/gold Alhijaz, logo, badge "5 Pasti Umrah", tabel paket, hotel Mekkah/Madinah, harga jutaan, stamp `SOLD OUT`, dan footer agent.
     - Jika paket dalam 1 bulan lebih dari 10, frontend split otomatis menjadi beberapa gambar (`PACKAGES_PER_IMAGE=10`) agar tabel tetap terbaca.
+    - **Filter berdasarkan** (Tipe Paket / Maskapai / Durasi) di header brosur. Tipe Paket `UMROH MUSIM DINGIN` menyaring paket yang berangkat di window **Desember–Januari** dan otomatis mengaktifkan **tema Winter "Musim Dingin"**.
+    - **Tema Winter**: `BrochureScheduleTemplate` punya prop `variant: 'default' | 'winter'` (default `'default'`). `BrochureSchedulePage` set `variant='winter'` saat `filterDim==='tipe' && filterValue==='UMROH MUSIM DINGIN'`. Variant winter mengganti seluruh chrome merah/gold jadi palet biru es (navy/blue/frost), label brosur jadi "MUSIM DINGIN", plus dekorasi winter-only: 6 snowflake SVG (six-point star) + snow drift radial-gradient di dasar kanvas. (Tagline ribbon sempat dibuat lalu dibatalkan — tidak dirender.)
     - Export PNG via `modern-screenshot` (`domToCanvas`) dengan embedded font CSS, blank-canvas guard, dan cache blob per halaman. Tombol Download selalu tersedia; tombol Share muncul pada perangkat touch/native-share dan fallback ke download jika share file tidak didukung.
   - **Landing Page** (`/dashboard/ai-tools/landing-page`):
     - Segmented tab: **Umroh** (emerald accent) | **Haji** (amber accent) | **Bio** (teal accent). Tab Bio tersedia untuk agent/admin dan URL tab tersimpan di `/dashboard/ai-tools/landing-page/{umroh|haji|bio}`.
@@ -475,7 +508,7 @@ alhijaz/
     - Char limit: 1000 karakter per script
   - **Kurs Hari Ini** (`/dashboard/ai-tools/kurs`): Cek & hitung kurs valas USD/SAR
   - **Simulasi Haji Plus** (`/dashboard/ai-tools/haji-plus`): Buat penawaran untuk calon jamaah haji; default tab menampilkan kalkulator harga Haji Plus dengan export PNG dan share native.
-  - **Simulasi Haji Plus** (`/dashboard/ai-tools/haji-plus/simulasi`): Kalkulator harga Haji Plus — pilih paket RAHMAH/UHUD, pilih tipe kamar Double/Triple/Quad (default Quad), DP $4,500/orang, pelunasan 6 bulan sebelum berangkat, proyeksi inflasi 1.5%/tahun, export PNG + share via native share.
+  - **Simulasi Haji Plus** (`/dashboard/ai-tools/haji-plus/simulasi`): Kalkulator harga Haji Plus — pilih paket RAHMAH/UHUD, pilih tipe kamar Double/Triple/Quad (default Quad), DP $4,500/orang, pilih tahun keberangkatan **2036–2041** (default 2036), pelunasan 6 bulan sebelum berangkat, proyeksi inflasi 1.5%/tahun (harga dasar aktual Mei 2026), export PNG + share via native share.
   - **Kartu Nama Digital** (`/dashboard/ai-tools/business-card`): generator sudah tersedia di route langsung, tetapi kartu hub masih `Segera Hadir`/disabled. Mendukung 5 desain, format landscape/portrait, QR code ke link agent, export PNG resolusi tinggi via `@zumer/snapdom`, dan native share file-only.
 
 ### Fitur Infrastruktur
@@ -496,10 +529,16 @@ alhijaz/
     - Anti-duplikat via state keys per agent per hari
   - **Pembayaran masuk** detection: saat sync jamaah, bandingkan `bayar` before vs after → pisahkan event `pembayaran_cicilan` dan `pembayaran_pelunasan` untuk notifikasi agent
   - **Birthday digest**: opt-in digest harian jam 07:00 WIB untuk jamaah yang ulang tahun hari ini, dengan inline keyboard WhatsApp
+  - **Passport reminder** (`passportReminder`, **09:30 WIB**): jamaah berangkat ≤30 hari yang paspornya belum kumpul ATAU expired sebelum berangkat. Paspor dianggap collected jika `dokumen.paspor === true` ATAU `no_paspor` sudah terisi. Per-agent, gated `notification_prefs.paspor`, anti-duplikat via state key `paspor_{slug}_{today}`
   - **Notification preferences**: per-agent toggle/default (`jamaah_baru`, `departure`, `paspor`, `pelunasan`, `perlengkapan`, `manasik`, `birthday_digest`, `seat_alert`, `paket_baru`, `perubahan_harga`, `pembayaran_cicilan`, `pembayaran_pelunasan`, `ringkasan_mingguan`, `flight_status`, `kurs_dollar`; backend compatibility juga menyimpan `pembayaran_masuk` dan hidden default `insight_harian`). Disimpan di `agents.notification_prefs` (JSONB)
   - Deep link connect: agent klik tombol di dashboard → Telegram bot auto-link chat_id
   - Concurrency protection: `isCheckRunning` flag prevents overlapping `checkAndNotify` cycles
-- AWAPI official sync path: jika `AWAPI_SYNC_ENABLED=true` dan agent punya `awapi_key`, sync umroh memakai Alhijaz Official API (`awapi-client.js`) dengan fallback ke legacy HTML scrape jika discovery/API gagal.
+- AWAPI official sync path: jika `AWAPI_SYNC_ENABLED=true` dan agent punya `awapi_key`, sync umroh & haji memakai Alhijaz Official API (`awapi-client.js`).
+  - **Outcome classifier** (`lib/awapi-sync-outcome.js` → `classifyAwapiSyncOutcome`): hasil sync dipetakan ke `full` / `partial` / `hardfail`. Hanya `hardfail` (upsert gagal, atau fetch gagal & tidak ada row sama sekali) yang throw → trigger fallback legacy scrape. **Fix A (2026-05-31)**: `partial` (sebagian endpoint gagal tapi ada row) TIDAK fallback ke legacy lagi — supaya label "last sync" tetap di-bump (`last_jamaah_sync_at`) dan tidak ada flap notif. Notifikasi + CAPI + cleanup hanya jalan saat `full`. Manual sync response & background log kini menyertakan flag `partial`/`status`. Diterapkan ke umroh (`syncUmrahViaApiCore`) dan haji (`syncHajiViaApiCore`).
+  - **Payment provenance guard** (`lib/jamaah-payment-provenance.js`): setelah sync AWAPI pertama, kolom legacy (`bayar`/`sisa`/`diskon_kantor`/`diskon_marketing`) tidak boleh menimpa data AWAPI. Setiap row di-stamp `payment_source` (`awapi`|`legacy`) + `payment_synced_at` di `raw_data`; Phase 2 enrichment legacy jadi payment-free.
+  - **Phase 1 enrichment preservation** (`lib/jamaah-phase1-enrichment.js`): data input user (`wa`, `tgl_lahir`, `no_paspor`, `paspor_expired`, `perlengkapan`, `dokumen`) di-preserve lintas sync agar tidak hilang saat row API menimpa.
+  - **Surat pernyataan cache** (`lib/jamaah-document-cache.js` + tabel `jamaah_document_cache`): HTML surat pernyataan AWAPI di-cache (SHA256 dedup) dan disajikan via proxy ter-auth `GET /api/laporan/jamaah/doc-proxy` (format `html`|`pdf`, A4 print-ready, `Cache-Control: no-store`). Marker `dokumen.pernyataan` durable lintas sync (`mergeUmrohDokumen`).
+- **Background jobs gating** (`lib/background-jobs.js`): cron kurs & init Telegram notifier hanya jalan kalau `shouldRunBackgroundJobs()` true — default production, atau dev/test yang set `ENABLE_BACKGROUND_JOBS=true`.
 - Background sync jamaah (semua agent, setiap 1 jam, per kantor agent masing-masing)
 - Calendar sync (scrape FullCalendar dari internal system, setiap 12 jam via `setInterval`)
   - Login ke internal system → fetch halaman Beranda → parse FullCalendar events JSON
@@ -1303,7 +1342,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - **Bio editor** dengan 6 theme picker, Hero/SEO sheets, AI tagline generator (`/api/bio/:slug/tagline-generate` via OpenAI), drag reorder (@dnd-kit), tile validation, autosave debounce, fullscreen preview (90% scaled iframe di phone frame), explicit Simpan per sheet
 - **Kurs Share** — `ShareKursModal` + `KursShareTemplates` single Hero USD template; fixed 1400×1000 canvas, preview auto-fit, final JPEG server-side on-demand lewat `/api/kurs/share-image` + disk cache TTL, native share files-only + download + copy caption; tombol Share tersedia untuk semua agent saat USD tersedia
 - **Birthday workflow** — dashboard `BirthdayWidget`, grouped `BirthdayListSheet`, `BirthdayDetailSheet`, 2 template kartu 1080×1080, WA message generator, JPEG export via `@zumer/snapdom`, dan Telegram birthday digest opt-in jam 07:00 WIB
-- **Brosur Jadwal** — AI Tools page untuk export brosur paket umroh bulanan 1080×1920 PNG dari `umroh_schedules`; helper pure di `lib/brochure-schedule.js` dan test coverage di `tests/brochure-schedule.test.js`
+- **Brosur Jadwal** — AI Tools page untuk export brosur paket umroh bulanan 1080×1620 (2:3) PNG dari `umroh_schedules`; helper pure di `lib/brochure-schedule.js` dan test coverage di `tests/brochure-schedule.test.js`
 - **CAPI circuit breaker** — pause per-agent setelah 10 kegagalan CAPI beruntun selama 30 menit, agar sync/public events tidak terus menembak token Meta yang error
 - **Portal Jamaah** (`/:slug/jamaah`) — companion app jamaah-facing dengan magic-link auth (no password). 7-route state machine (beranda, perjalanan, pembayaran, dokumen, perlengkapan, manasik, faq), self-service entry via kode booking + WA, atau distribusi link dari agent (`MagicLinkButton` + `MagicLinkModal`). Glassmorphism PortalTopBar, HeroCountdown departure timer, SmartAlertsStrip tone-aware, TaskListWidget urgent kategori, PortalMenuGrid 3-col, RosterItem dengan gender ring + payment overlay, StickyWhatsAppCta pill footer, ThemeToggle independent. 3 tabel baru: `jamaah_portal_tokens`, `jamaah_portal_sessions`, `booking_persiapan` (RLS-protected). 9 endpoint `/api/portal/jamaah/*`. Komponen di `src/components/portal-jamaah/` (17 components + 11 pages + 4 hooks + 7 lib helpers).
 - **Haji AWAPI enrichment** — `jamaah_haji` mendapat 13 kolom baru (nomor_porsi, nomor_spph, no_paspor, paspor_expired, paket_harga, diskon_marketing, diskon_kantor, bayar, sisa, tgl_lahir, tgl_daftar, tgl_berangkat, dokumen JSONB) + composite indexes. Memungkinkan Statistik Haji menampilkan data finansial dan timing lebih granular.
@@ -1313,6 +1352,11 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - **Journey order inference** — `lib/journey-order.js` mendeteksi urutan itinerary (Madinah-first vs Umroh-first) dari pattern text per hari, untuk context Tanya AI dan UI portal.
 - **Sync fix**: extract `id_jadwal` dari legacy umrah-detail scrape untuk linkage yang konsisten antara `jamaah` dan `umroh_schedules`.
 - **CustomDomainPage/CustomDomainTrigger** — komponen feature-gated untuk custom domain agent (DNS status, verification, embed tutorial). Status: scaffold, belum aktif untuk semua agent.
+- **Brosur Musim Dingin (winter theme)** (2026-05) — filter "Umroh Musim Dingin" (berangkat Des–Jan) di Brosur Jadwal + prop `variant='winter'` pada `BrochureScheduleTemplate` (palet biru es ter-tokenize, snowflakes, snow drift). Kanvas brosur diubah dari 1080×1920 ke **1080×1620 (2:3)**.
+- **AWAPI sync Fix A** (2026-05-31) — `lib/awapi-sync-outcome.js` (`classifyAwapiSyncOutcome`): hasil sync dipetakan ke full/partial/hardfail; partial fetch tidak lagi fallback ke legacy dan label "last sync" tetap di-bump (`last_jamaah_sync_at`). Plus payment provenance guard (`jamaah-payment-provenance.js`), phase-1 enrichment preservation (`jamaah-phase1-enrichment.js`), dan surat-pernyataan cache (`jamaah-document-cache.js` + tabel `jamaah_document_cache`). Diterapkan ke umroh & haji.
+- **Background jobs gating** — `lib/background-jobs.js` (`shouldRunBackgroundJobs`) gate cron kurs & Telegram notifier by `NODE_ENV` (override `ENABLE_BACKGROUND_JOBS`).
+- **Jamaah/Haji filter & UI** (2026-05) — filter lanjutan beranimasi (bayar/keberangkatan/dokumen/perlengkapan/catatan), persentase pembayaran ter-clamp 0–100, viewer Surat Pernyataan (`UmrohPernyataanViewer` + proxy `/api/laporan/jamaah/doc-proxy`), dan format USD di Haji.
+- **Passport reminder timing** (2026-05-26) — reminder paspor jam 09:30 WIB, anti-duplikat `paspor_{slug}_{today}`, paspor dianggap collected jika `dokumen.paspor` true ATAU `no_paspor` terisi.
 
 ### Rencana / Backlog
 - [TODO] Perluas test suite ke route/API integration dan komponen React utama
