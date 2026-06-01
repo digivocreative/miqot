@@ -34,7 +34,7 @@ const PACKAGES = [
 const DP_USD = 4500;
 const PELUNASAN_BULAN = 6;
 const OFFER_CARD_WIDTH = 400;
-const OFFER_CARD_HEIGHT = 600;
+const OFFER_CARD_HEIGHT = 646;
 const ISLAMIC_PATTERN_BACKGROUND = `url("data:image/svg+xml,${encodeURIComponent(`
 <svg width="56" height="56" viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg">
   <g fill="none" stroke="white" stroke-width="0.75" stroke-linecap="round" stroke-linejoin="round" opacity="0.5">
@@ -595,7 +595,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
               lineHeight: 1.18,
               overflow: 'hidden',
               display: 'grid',
-              gridTemplateRows: '56px 60px 96px 206px 104px 78px',
+              gridTemplateRows: '56px 60px 96px 206px 150px 78px',
             }}
           >
             {/* Header */}
@@ -665,8 +665,9 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
                 </div>
                 <div style={{ textAlign: 'right' as const, flexShrink: 0 }}>
                   <div style={{ display: 'inline-block', fontSize: 8.5, fontWeight: 700, color: '#ffffff', padding: '3px 7px', borderRadius: 999, background: 'rgba(255,255,255,0.18)', marginBottom: 6 }}>Tipe kamar {selectedRoom.label}</div>
-                  <div style={{ fontSize: 8.5, color: 'rgba(255,255,255,0.76)', marginBottom: 2 }}>Harga per jamaah</div>
-                  <div style={{ fontSize: 24, fontWeight: 750, color: '#ffffff', lineHeight: '1' }}>{fmtUSD(selectedPriceUSD)}</div>
+                  <div style={{ fontSize: 8.5, color: 'rgba(255,255,255,0.76)', marginBottom: 2 }}>Estimasi harga {tahunBerangkat} / jamaah</div>
+                  <div style={{ fontSize: 24, fontWeight: 750, color: '#ffffff', lineHeight: '1' }}>{fmtUSD(calc.escalatedPriceUSD)}</div>
+                  <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>harga dasar {calc.currentYear}: {fmtUSD(calc.basePriceUSD)}</div>
                 </div>
               </div>
             </div>
@@ -690,7 +691,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1f2937' }}>{fmtUSD(calc.dpUSD)}</div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 2 }}>
-                  <div style={{ fontSize: 9.5, color: '#64748b' }}>Dibayar saat pendaftaran</div>
+                  <div style={{ fontSize: 9.5, color: '#64748b' }}>Dibayar sekarang (harga hari ini)</div>
                   <div style={{ fontSize: 9.5, color: '#64748b', fontWeight: 600 }}>≈ {fmtRp(calc.dpIDR)}</div>
                 </div>
               </div>
@@ -700,41 +701,42 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#1f2937' }}>Sisa Pelunasan</div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1f2937' }}>{fmtUSD(calc.sisaUSD)}</div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 2 }}>
-                  <div style={{ fontSize: 9, color: '#d97706' }}>Maks. {calc.deadlineLabel}</div>
-                  <div style={{ fontSize: 9.5, color: '#64748b', fontWeight: 600 }}>≈ {fmtRp(calc.sisaIDR)}</div>
-                </div>
+                <div style={{ fontSize: 9, color: '#d97706', marginTop: 2 }}>Maks. {calc.deadlineLabel} · harga {tahunBerangkat}</div>
               </div>
 
               <div style={{ padding: '0 16px', background: isRahmah ? '#ecfdf5' : '#eff6ff', display: 'flex', flexDirection: 'column' as const, justifyContent: 'center' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', columnGap: 12, alignItems: 'baseline' }}>
-                  <div style={{ fontSize: 12.8, fontWeight: 750, color: isRahmah ? '#064e3b' : '#1e3a5f', lineHeight: 1.05, whiteSpace: 'nowrap' as const }}>Total Biaya</div>
-                  <div style={{ fontSize: 18, fontWeight: 750, color: isRahmah ? '#064e3b' : '#1e3a5f', lineHeight: 1 }}>{fmtUSD(calc.totalUSD)}</div>
+                  <div style={{ fontSize: 12.8, fontWeight: 750, color: isRahmah ? '#064e3b' : '#1e3a5f', lineHeight: 1.05, whiteSpace: 'nowrap' as const }}>Total Estimasi {tahunBerangkat}</div>
+                  <div style={{ fontSize: 18, fontWeight: 750, color: isRahmah ? '#064e3b' : '#1e3a5f', lineHeight: 1 }}>{fmtUSD(calc.escalatedTotalUSD)}</div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', columnGap: 12, alignItems: 'baseline', marginTop: 5 }}>
-                  <div style={{ fontSize: 9.4, color: '#475569', whiteSpace: 'nowrap' as const }}>{jumlahJamaah > 1 ? `${fmtUSD(selectedPriceUSD)} × ${jumlahJamaah} jamaah` : `1 jamaah · ${selectedRoom.label}`}</div>
-                  <div style={{ fontSize: 10.8, fontWeight: 750, color: '#334155', whiteSpace: 'nowrap' as const }}>≈ {fmtRp(calc.totalIDR)}</div>
+                  <div style={{ fontSize: 9.4, color: '#475569', whiteSpace: 'nowrap' as const }}>{jumlahJamaah > 1 ? `${fmtUSD(calc.escalatedPriceUSD)} × ${jumlahJamaah} jamaah` : `1 jamaah · ${selectedRoom.label}`}</div>
+                  <div style={{ fontSize: 10.8, fontWeight: 750, color: '#334155', whiteSpace: 'nowrap' as const }}>≈ {fmtRp(calc.estTotalIDR)}</div>
                 </div>
               </div>
             </div>
 
-            {/* Ringkasan Jadwal & Estimasi */}
+            {/* Proyeksi Harga Paket */}
             <div style={{ margin: '0 24px 10px', padding: '8px 14px', borderRadius: 11, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-              <div style={{ fontSize: 9, fontWeight: 750, color: '#64748b', marginBottom: 6 }}>Ringkasan Jadwal & Estimasi</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <div style={{ fontSize: 8.8, color: '#64748b', fontWeight: 700 }}>Berangkat</div>
-                  <div style={{ fontSize: 14, fontWeight: 750, color: isRahmah ? '#064e3b' : '#1e3a5f', marginTop: 2 }}>Tahun {tahunBerangkat}</div>
-                  <div style={{ fontSize: 8.5, color: '#64748b', marginTop: 4 }}>Pelunasan maks. {calc.deadlineLabel}</div>
-                </div>
-                <div style={{ textAlign: 'right' as const }}>
-                  <div style={{ fontSize: 8.8, color: '#64748b', fontWeight: 700 }}>Est. IDR</div>
-                  <div style={{ fontSize: 13, fontWeight: 750, color: '#334155', marginTop: 2 }}>≈ {fmtRp(calc.estTotalIDR)}</div>
-                  <div style={{ fontSize: 8.5, color: '#64748b', marginTop: 4 }}>{fmtRp(calc.inflatedKurs)}/USD</div>
-                </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                <div style={{ fontSize: 9, fontWeight: 750, color: '#64748b' }}>Proyeksi Harga Paket / jamaah</div>
+                <div style={{ fontSize: 8.5, fontWeight: 700, color: '#059669' }}>naik ~2.5%/th</div>
               </div>
-              <div style={{ fontSize: 8.1, color: '#64748b', marginTop: 5, whiteSpace: 'nowrap' as const }}>
-                Simulasi kurs 1.5%/tahun. Kurs saat ini {fmtRp(kursUSD)}/USD.
+              {exportLadder.map((e, i) => {
+                const width = 45 + (exportLadder.length > 1 ? (i / (exportLadder.length - 1)) * 55 : 55);
+                const accent = isRahmah ? '#064e3b' : '#1e3a5f';
+                return (
+                  <div key={e.year} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                    <span style={{ fontSize: 9.5, width: 26, color: e.isDeparture ? accent : '#64748b', fontWeight: e.isDeparture ? 800 : 400 }}>{e.year}</span>
+                    <div style={{ flex: 1, height: 8, borderRadius: 4, background: '#e5e7eb', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${width}%`, borderRadius: 4, background: e.isDeparture ? (isRahmah ? '#059669' : '#2563eb') : '#cbd5e1' }} />
+                    </div>
+                    <span style={{ fontSize: 9.5, fontWeight: e.isDeparture ? 850 : 600, color: e.isDeparture ? accent : '#334155', minWidth: 52, textAlign: 'right' as const }}>{fmtUSD(e.priceUSD)}</span>
+                  </div>
+                );
+              })}
+              <div style={{ fontSize: 8.1, color: '#64748b', marginTop: 6, borderTop: '1px dashed #cbd5e1', paddingTop: 5, whiteSpace: 'nowrap' as const }}>
+                Estimasi total {tahunBerangkat} ≈ {fmtRp(calc.estTotalIDR)} · kurs +1.5%/th (kini {fmtRp(kursUSD)}/USD).
               </div>
             </div>
 

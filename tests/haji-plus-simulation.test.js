@@ -111,7 +111,7 @@ test('SimulasiHajiPlus export uses stronger consultation copy and safer projecti
   assert.match(source, /Konsultan Haji Plus/);
   assert.match(source, /Amankan Porsi Haji Plus Sekarang/);
   assert.doesNotMatch(source, /Konsultasi & Booking Seat/);
-  assert.match(source, /Simulasi kurs 1\.5%\/tahun/);
+  assert.match(source, /kurs \+1\.5%\/th/);
   assert.doesNotMatch(source, /inflasi ~1\.5%\/thn/);
   assert.doesNotMatch(source, /±\{calc\.diffMonths\} bulan dari sekarang/);
 });
@@ -120,21 +120,20 @@ test('SimulasiHajiPlus exports the offer card at a fixed 4:6 ratio', () => {
   const source = read('src/components/SimulasiHajiPlus.tsx');
 
   assert.match(source, /const\s+OFFER_CARD_WIDTH\s*=\s*400/);
-  assert.match(source, /const\s+OFFER_CARD_HEIGHT\s*=\s*600/);
+  assert.match(source, /const\s+OFFER_CARD_HEIGHT\s*=\s*646/);
   assert.match(source, /width:\s*OFFER_CARD_WIDTH/);
   assert.match(source, /height:\s*OFFER_CARD_HEIGHT/);
-  assert.match(source, /gridTemplateRows:\s*'56px 60px 96px 206px 104px 78px'/);
+  assert.match(source, /gridTemplateRows:\s*'56px 60px 96px 206px 150px 78px'/);
   assert.match(source, /lineHeight:\s*1\.18/);
 });
 
-test('SimulasiHajiPlus condenses export schedule and projection into one compact panel', () => {
+test('SimulasiHajiPlus export shows the price-projection ladder panel', () => {
   const source = read('src/components/SimulasiHajiPlus.tsx');
-
-  assert.match(source, /Ringkasan Jadwal & Estimasi/);
-  assert.match(source, /Berangkat[\s\S]*Tahun \{tahunBerangkat\}/);
-  assert.match(source, /Est\. IDR[\s\S]*\{fmtRp\(calc\.estTotalIDR\)\}/);
-  assert.doesNotMatch(source, /\/\*\s*Jadwal Keberangkatan\s*\*\//);
-  assert.doesNotMatch(source, /\/\*\s*Proyeksi Inflasi\s*\*\//);
+  assert.match(source, /Proyeksi Harga Paket/);
+  assert.match(source, /exportLadder\.map/);
+  assert.match(source, /Estimasi total \{tahunBerangkat\}/);
+  assert.match(source, /fmtRp\(calc\.estTotalIDR\)/);
+  assert.doesNotMatch(source, /Ringkasan Jadwal & Estimasi/);
 });
 
 test('SimulasiHajiPlus export uses compact copy that does not force package text wrapping', () => {
@@ -147,8 +146,8 @@ test('SimulasiHajiPlus export uses compact copy that does not force package text
 test('SimulasiHajiPlus export keeps compact text readable and prevents total-row overlap', () => {
   const source = read('src/components/SimulasiHajiPlus.tsx');
 
-  assert.match(source, /gridTemplateColumns:\s*'1fr auto'[\s\S]*Total Biaya/);
-  assert.match(source, /Total Biaya[\s\S]*whiteSpace:\s*'nowrap'/);
+  assert.match(source, /gridTemplateColumns:\s*'1fr auto'[\s\S]*Total Estimasi/);
+  assert.match(source, /Total Estimasi[\s\S]*whiteSpace:\s*'nowrap'/);
   assert.doesNotMatch(source, /fontSize:\s*7\.5/);
   assert.doesNotMatch(source, /#94a3b8/);
 });
@@ -201,4 +200,14 @@ test('PriceLadder renders ladder rows with normalized bars and departure emphasi
   assert.match(source, /45\s*\+/);          // bar-width floor
   assert.match(source, /\*\s*55/);          // bar-width span
   assert.match(source, /fmtUSD\(e\.priceUSD\)/);
+});
+
+test('SimulasiHajiPlus export invoice uses the departure-year price', () => {
+  const source = read('src/components/SimulasiHajiPlus.tsx');
+  assert.match(source, /Estimasi harga \{tahunBerangkat\}/);          // paket card label
+  assert.match(source, /fmtUSD\(calc\.escalatedPriceUSD\)/);          // paket card price
+  assert.match(source, /fmtUSD\(calc\.escalatedTotalUSD\)/);          // invoice total
+  assert.match(source, /harga dasar/);                                // base reference
+  assert.doesNotMatch(source, /fmtUSD\(calc\.totalUSD\)/);            // old field gone
+  assert.doesNotMatch(source, /fmtRp\(calc\.totalIDR\)/);
 });
