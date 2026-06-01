@@ -1,12 +1,11 @@
-import { HelpCircle, CreditCard, FileText, Plane, BedDouble } from 'lucide-react';
 import type { AgentFaqEntry, CategoryMeta, FaqCategory } from './types';
 
 export const FAQ_CATEGORIES: CategoryMeta<FaqCategory>[] = [
-  { value: 'umum', label: 'Umum', icon: HelpCircle, iconName: 'HelpCircle', order: 1, tip: 'Pertanyaan dasar calon jamaah.' },
-  { value: 'pembayaran', label: 'Pembayaran', icon: CreditCard, iconName: 'CreditCard', order: 2, tip: 'Cara bayar, DP, dan pelunasan.' },
-  { value: 'dokumen', label: 'Dokumen', icon: FileText, iconName: 'FileText', order: 3, tip: 'Paspor dan berkas wajib.' },
-  { value: 'keberangkatan', label: 'Keberangkatan', icon: Plane, iconName: 'Plane', order: 4, tip: 'Manasik, bagasi, dan titik kumpul.' },
-  { value: 'fasilitas', label: 'Fasilitas', icon: BedDouble, iconName: 'BedDouble', order: 5, tip: 'Hotel, makan, dan yang termasuk paket.' },
+  { value: 'umum', label: 'Umum', iconName: 'HelpCircle', order: 1, tip: 'Pertanyaan dasar calon jamaah.' },
+  { value: 'pembayaran', label: 'Pembayaran', iconName: 'CreditCard', order: 2, tip: 'Cara bayar, DP, dan pelunasan.' },
+  { value: 'dokumen', label: 'Dokumen', iconName: 'FileText', order: 3, tip: 'Paspor dan berkas wajib.' },
+  { value: 'keberangkatan', label: 'Keberangkatan', iconName: 'Plane', order: 4, tip: 'Manasik, bagasi, dan titik kumpul.' },
+  { value: 'fasilitas', label: 'Fasilitas', iconName: 'BedDouble', order: 5, tip: 'Hotel, makan, dan yang termasuk paket.' },
 ];
 
 export const WA_COPY_FAQ_SEED: AgentFaqEntry[] = [

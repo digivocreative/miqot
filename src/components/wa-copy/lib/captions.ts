@@ -1,13 +1,12 @@
-import { Heart, Hourglass, Wallet, Quote, ShieldCheck, Lightbulb } from 'lucide-react';
 import type { CaptionCategory, CaptionEntry, CategoryMeta } from './types';
 
 export const CAPTION_CATEGORIES: CategoryMeta<CaptionCategory>[] = [
-  { value: 'sentuhan_hati', label: 'Sentuhan Hati', icon: Heart, iconName: 'Heart', order: 1, tip: 'Sentuh emosi & kerinduan ke Baitullah. Cocok untuk audiens yang sudah lama berniat.' },
-  { value: 'mumpung_sempat', label: 'Mumpung Sempat', icon: Hourglass, iconName: 'Hourglass', order: 2, tip: 'Dorong urgensi tanpa menekan — selagi sehat, sempat, dan ada rezeki.' },
-  { value: 'ringan_kantong', label: 'Ringan di Kantong', icon: Wallet, iconName: 'Wallet', order: 3, tip: 'Angkat sisi keterjangkauan & kemudahan cicilan. Pakai token {harga} agar akurat.' },
-  { value: 'kata_jamaah', label: 'Kata Jamaah', icon: Quote, iconName: 'Quote', order: 4, tip: 'Bangun kepercayaan lewat kesan jamaah. Hindari klaim angka yang berlebihan.' },
-  { value: 'aman_tepercaya', label: 'Aman & Tepercaya', icon: ShieldCheck, iconName: 'ShieldCheck', order: 5, tip: 'Tekankan legalitas, transparansi, dan pendampingan. Tutup dengan ajakan bertanya.' },
-  { value: 'tips_info', label: 'Tips & Info', icon: Lightbulb, iconName: 'Lightbulb', order: 6, tip: 'Beri nilai dulu (tips/checklist), baru ajak konsultasi. Ringan dibagikan ulang.' },
+  { value: 'sentuhan_hati', label: 'Sentuhan Hati', iconName: 'Heart', order: 1, tip: 'Sentuh emosi & kerinduan ke Baitullah. Cocok untuk audiens yang sudah lama berniat.' },
+  { value: 'mumpung_sempat', label: 'Mumpung Sempat', iconName: 'Hourglass', order: 2, tip: 'Dorong urgensi tanpa menekan — selagi sehat, sempat, dan ada rezeki.' },
+  { value: 'ringan_kantong', label: 'Ringan di Kantong', iconName: 'Wallet', order: 3, tip: 'Angkat sisi keterjangkauan & kemudahan cicilan. Pakai token {harga} agar akurat.' },
+  { value: 'kata_jamaah', label: 'Kata Jamaah', iconName: 'Quote', order: 4, tip: 'Bangun kepercayaan lewat kesan jamaah. Hindari klaim angka yang berlebihan.' },
+  { value: 'aman_tepercaya', label: 'Aman & Tepercaya', iconName: 'ShieldCheck', order: 5, tip: 'Tekankan legalitas, transparansi, dan pendampingan. Tutup dengan ajakan bertanya.' },
+  { value: 'tips_info', label: 'Tips & Info', iconName: 'Lightbulb', order: 6, tip: 'Beri nilai dulu (tips/checklist), baru ajak konsultasi. Ringan dibagikan ulang.' },
 ];
 
 export const CAPTION_SEED: CaptionEntry[] = [

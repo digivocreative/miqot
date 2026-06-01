@@ -1,4 +1,3 @@
-import type { ElementType } from 'react';
 import type { FaqEntry } from '../../portal-jamaah/lib/faq';
 
 // Re-export so WA Copy consumers can import the shared FAQ shape from one place.
@@ -82,8 +81,6 @@ export interface CategoryMeta<T extends string = string> {
   value: T;
   label: string;
   iconName: string;
-  /** @deprecated transitional — removed in the icon-migration cleanup task. */
-  icon?: ElementType;
   tip: string;
   order: number;
 }
