@@ -218,11 +218,11 @@ test('SimulasiHajiPlus export invoice uses the departure-year price', () => {
 
 test('SimulasiHajiPlus lets the agent choose price and kurs escalation rates', () => {
   const source = read('src/components/SimulasiHajiPlus.tsx');
-  // option lists + dynamic-rate state defaulting to the constants
+  // option lists + both rates defaulting to 1.5%
   assert.match(source, /const PRICE_RATE_OPTIONS = \[0\.01, 0\.015, 0\.02, 0\.025, 0\.03\]/);
   assert.match(source, /const KURS_RATE_OPTIONS = \[0\.005, 0\.01, 0\.015, 0\.02, 0\.025\]/);
-  assert.match(source, /useState\(PRICE_ESCALATION_RATE\)/);
-  assert.match(source, /useState\(KURS_INFLATION_RATE\)/);
+  assert.match(source, /const \[priceRate, setPriceRate\] = useState\(0\.015\)/);
+  assert.match(source, /const \[kursRate, setKursRate\] = useState\(0\.015\)/);
   assert.match(source, /setPriceRate\(Number\(e\.target\.value\)\)/);
   assert.match(source, /setKursRate\(Number\(e\.target\.value\)\)/);
   // threaded into the calc

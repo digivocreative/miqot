@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import logoWhite from '@/logo-alhijaz-white.png';
 import PriceLadder from './PriceLadder';
-import { computeHajiPlusEscalation, condenseLadder, PRICE_ESCALATION_RATE, KURS_INFLATION_RATE } from '@/lib/hajiPlusPricing';
+import { computeHajiPlusEscalation, condenseLadder } from '@/lib/hajiPlusPricing';
 
 // ── Constants ──
 type RoomTypeId = 'double' | 'triple' | 'quad';
@@ -151,8 +151,8 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
   const [selectedRoomType, setSelectedRoomType] = useState<RoomTypeId>('quad');
   const [tahunBerangkat, setTahunBerangkat] = useState(2036);
   const [jumlahJamaah, setJumlahJamaah] = useState(1);
-  const [priceRate, setPriceRate] = useState(PRICE_ESCALATION_RATE);
-  const [kursRate, setKursRate] = useState(KURS_INFLATION_RATE);
+  const [priceRate, setPriceRate] = useState(0.015); // default 1.5%/tahun
+  const [kursRate, setKursRate] = useState(0.015);   // default 1.5%/tahun
   const [namaJamaah, setNamaJamaah] = useState('');
   const [kursUSD, setKursUSD] = useState<number | null>(null);
   const [kursDate, setKursDate] = useState('');
@@ -472,7 +472,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
             className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-colors appearance-none"
           >
             {PRICE_RATE_OPTIONS.map(r => (
-              <option key={r} value={r}>{pctLabel(r)} / th</option>
+              <option key={r} value={r}>{pctLabel(r)} / tahun</option>
             ))}
           </select>
         </div>
@@ -486,7 +486,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
             className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-colors appearance-none"
           >
             {KURS_RATE_OPTIONS.map(r => (
-              <option key={r} value={r}>{pctLabel(r)} / th</option>
+              <option key={r} value={r}>{pctLabel(r)} / tahun</option>
             ))}
           </select>
         </div>
