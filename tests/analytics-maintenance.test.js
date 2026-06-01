@@ -10,6 +10,7 @@ import {
   countMatches,
   tallyBy,
 } from '../lib/analytics-maintenance.js';
+import * as maintenance from '../lib/analytics-maintenance.js';
 
 test('buildCountMap: groups by (agent_id|event_type|event_name) and coalesces null agent_id to sentinel', () => {
   const rows = [
@@ -192,4 +193,107 @@ test('computeDailyReadPlan: keeps partial boundary days in raw ranges', () => {
     { startISO: '2026-05-01T06:00:00.000Z', endISO: '2026-05-01T23:59:59.999Z' },
     { startISO: '2026-05-14T00:00:00.000Z', endISO: '2026-05-14T04:00:00.000Z' },
   ]);
+});
+
+// ── Retention: CAPI event logs pruned more aggressively than analytics ──
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+test('retention constants: CAPI logs = 5 days, analytics raw stays 14 days (decoupled)', () => {
+  assert.equal(maintenance.CAPI_RETENTION_DAYS, 5);
+  assert.equal(maintenance.RAW_RETENTION_DAYS, 14);
+});
+
+test('retentionCutoffISO: returns UTC-midnight N days before now', () => {
+  assert.equal(typeof maintenance.retentionCutoffISO, 'function');
+  const now = new Date('2026-06-01T10:30:00.000Z').getTime();
+  assert.equal(maintenance.retentionCutoffISO(now, 5), '2026-05-27T00:00:00.000Z');
+  assert.equal(maintenance.retentionCutoffISO(now, 14), '2026-05-18T00:00:00.000Z');
+});
+
+test('retentionCutoffISO: cutoff is invariant to the hour-of-day of now', () => {
+  assert.equal(typeof maintenance.retentionCutoffISO, 'function');
+  for (const hms of ['T00:15:00Z', 'T12:00:00Z', 'T23:45:00Z']) {
+    const now = new Date(`2026-06-01${hms}`).getTime();
+    assert.equal(maintenance.retentionCutoffISO(now, 5), '2026-05-27T00:00:00.000Z');
+  }
+});
+
+// Minimal Supabase test double: by default skips aggregation (latest aggregate =
+// yesterday) and records the `created_at` cutoff each table's DELETE was issued
+// with. With { failAggregate: true } the aggregate-date lookup errors, which makes
+// the aggregation step throw — exercising the "aggregation failed" branch.
+function makeMockSupabase(yesterdayKey, opts = {}) {
+  const deletedCutoffs = {};
+  function builder(table) {
+    let op = 'select';
+    const chain = {
+      select() { op = 'select'; return chain; },
+      delete() { op = 'delete'; return chain; },
+      upsert() { return Promise.resolve({ error: null }); },
+      lte() { return chain; },
+      gte() { return chain; },
+      order() { return chain; },
+      limit() { return chain; },
+      range() { return Promise.resolve({ data: [], error: null }); },
+      lt(col, val) {
+        if (op === 'delete') {
+          if (col === 'created_at') deletedCutoffs[table] = val;
+          return Promise.resolve({ error: null, count: 0 });
+        }
+        return chain;
+      },
+      maybeSingle() {
+        if (table === 'analytics_events_daily') {
+          if (opts.failAggregate) {
+            return Promise.resolve({ data: null, error: { message: 'simulated aggregate lookup failure' } });
+          }
+          return Promise.resolve({ data: { date: yesterdayKey }, error: null });
+        }
+        return Promise.resolve({ data: null, error: null });
+      },
+    };
+    return chain;
+  }
+  return { from: builder, deletedCutoffs };
+}
+
+test('runAnalyticsMaintenance: prunes capi_event_logs at 5d and analytics_events at 14d', async () => {
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setUTCHours(0, 0, 0, 0);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const yesterdayKey = yesterday.toISOString().slice(0, 10);
+
+  const supabase = makeMockSupabase(yesterdayKey);
+  await maintenance.runAnalyticsMaintenance(supabase);
+
+  const capiCutoff = supabase.deletedCutoffs['capi_event_logs'];
+  const analyticsCutoff = supabase.deletedCutoffs['analytics_events'];
+  assert.ok(capiCutoff, 'capi_event_logs DELETE cutoff was captured');
+  assert.ok(analyticsCutoff, 'analytics_events DELETE cutoff was captured');
+
+  // Both aligned to UTC midnight
+  assert.match(capiCutoff, /T00:00:00\.000Z$/);
+  assert.match(analyticsCutoff, /T00:00:00\.000Z$/);
+
+  // CAPI cutoff sits ~5 days back (midnight alignment puts age in [5d, 6d))
+  const capiAge = now.getTime() - Date.parse(capiCutoff);
+  assert.ok(capiAge >= 5 * DAY_MS && capiAge < 6 * DAY_MS, `capi cutoff ~5d back, got ${(capiAge / DAY_MS).toFixed(2)}d`);
+
+  // Decoupled: CAPI keeps 9 fewer days than analytics (5 vs 14), so its cutoff
+  // sits exactly 9 days more recent than the analytics cutoff.
+  assert.equal(Date.parse(capiCutoff) - Date.parse(analyticsCutoff), 9 * DAY_MS);
+});
+
+test('runAnalyticsMaintenance: prunes capi_event_logs even when analytics aggregation fails', async () => {
+  // CAPI logs are never aggregated, so their cleanup must not be blocked by an
+  // analytics aggregation failure (the bug that let CAPI logs pile up in prod).
+  const supabase = makeMockSupabase('2026-05-31', { failAggregate: true });
+  await maintenance.runAnalyticsMaintenance(supabase);
+
+  assert.ok(supabase.deletedCutoffs['capi_event_logs'], 'capi_event_logs still pruned despite aggregation failure');
+  // analytics_events raw must NOT be deleted when aggregation failed — those rows
+  // haven't been rolled up yet, so deleting them would lose data.
+  assert.equal(supabase.deletedCutoffs['analytics_events'], undefined, 'analytics_events raw kept when aggregation fails');
 });
