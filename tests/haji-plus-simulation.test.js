@@ -182,3 +182,12 @@ test('server serves agent photos through a same-origin self-hosted route', () =>
   assert.match(source, /detectImageContentType\(photoBuffer/);
   assert.match(source, /Cache-Control':\s*'public, max-age=3600/);
 });
+
+test('PriceLadder renders ladder rows with normalized bars and departure emphasis', () => {
+  const source = read('src/components/PriceLadder.tsx');
+  assert.match(source, /ladder\.map/);
+  assert.match(source, /isDeparture/);
+  assert.match(source, /45\s*\+/);          // bar-width floor
+  assert.match(source, /\*\s*55/);          // bar-width span
+  assert.match(source, /fmtUSD\(e\.priceUSD\)/);
+});
