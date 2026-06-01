@@ -168,7 +168,6 @@ export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: Wa
   return (
     <div className="px-4 pt-4 pb-8 space-y-4" style={{ paddingBottom: '2rem' }}>
       <SegmentedControl options={TYPE_OPTIONS} value={type} onChange={setType} accent="emerald" />
-      <p className="text-xs text-gray-500 dark:text-slate-400 -mt-1">Kelola konten yang dilihat semua agent.</p>
 
       <button
         onClick={() => setEditing({ id: null })}

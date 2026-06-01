@@ -38,7 +38,7 @@ export default function FaqAccordionItem({ entry, open, onToggle, showToast }: F
         className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
         aria-expanded={open}
       >
-        <span className="min-w-0 flex-1 block text-sm font-bold leading-5 text-gray-900 dark:text-white">{entry.question}</span>
+        <span className="min-w-0 flex-1 block text-[13px] font-semibold leading-snug text-gray-900 dark:text-white">{entry.question}</span>
         <ChevronDown
           className={`h-5 w-5 flex-none text-gray-400 transition-transform dark:text-slate-500 ${open ? 'rotate-180' : ''}`}
           strokeWidth={2}
@@ -55,7 +55,9 @@ export default function FaqAccordionItem({ entry, open, onToggle, showToast }: F
             className="overflow-hidden"
           >
             <div className="border-t border-gray-100 px-4 pb-3 pt-3 dark:border-slate-700/50">
-              <p className="text-sm leading-6 text-gray-700 dark:text-slate-300 whitespace-pre-wrap">{entry.answer}</p>
+              <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/40">
+                <p className="text-[13px] leading-relaxed text-gray-600 dark:text-slate-300 whitespace-pre-wrap">{entry.answer}</p>
+              </div>
               <div className="mt-3 flex gap-2">
                 <button
                   type="button"

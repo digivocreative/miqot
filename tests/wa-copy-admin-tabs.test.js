@@ -21,3 +21,7 @@ test('WA Copy admin content tabs put FAQ first and open on FAQ', () => {
   assert.ok(captionIndex < tourLeaderIndex, 'Caption tab should stay left of Tour Leader');
   assert.match(source, /useState<WaTab>\('faq'\)/);
 });
+
+test('WA Copy admin content list does not render the helper copy under the tabs', () => {
+  assert.doesNotMatch(source, /Kelola konten yang dilihat semua agent\./);
+});
