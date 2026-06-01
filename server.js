@@ -20,7 +20,7 @@ import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive,
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
 import { buildBerangkatMendatang } from './lib/laporan-stats.js';
-import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate } from './telegram-notifier.js';
+import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate, sendOpsAlert } from './telegram-notifier.js';
 import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCacheableHtmlDocument, JAMAAH_DOCUMENT_TYPES } from './lib/jamaah-document-cache.js';
 import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
@@ -73,6 +73,7 @@ import {
 } from './lib/kurs-mandiri.js';
 import { shouldRunBackgroundJobs } from './lib/background-jobs.js';
 import { parseSyncCooldownMs, computeFirstCycleDelayMs } from './lib/sync-schedule.js';
+import { evaluateDbProbe, freshDbHealthState, DEFAULT_DB_HEALTH_CONFIG } from './lib/db-health.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
 import cron from 'node-cron';
@@ -14681,6 +14682,52 @@ async function pingSupabase() {
 // Ping once on startup (after 30s delay), then every 3 days
 setTimeout(pingSupabase, 30 * 1000);
 setInterval(pingSupabase, KEEP_ALIVE_INTERVAL);
+
+// ── DB-health canary: early warning for Disk IO throttling ──
+// A healthy probe is ~200-300ms; sustained >3s latency (or failures/timeouts) means
+// the Supabase Disk IO budget is draining — alert via Telegram BEFORE it 522s
+// (incident 2026-06-01). Gated to background-jobs envs; ~5min cadence, debounced,
+// re-alert throttled. Pure decision logic + tests in lib/db-health.js.
+let dbHealthState = freshDbHealthState();
+const DB_HEALTH_PROBE_INTERVAL = Number(process.env.DB_HEALTH_PROBE_MS) || 5 * 60 * 1000;
+const DB_HEALTH_PROBE_TIMEOUT_MS = 8000;
+const DB_HEALTH_CONFIG = {
+  ...DEFAULT_DB_HEALTH_CONFIG,
+  latencyThresholdMs: Number(process.env.DB_HEALTH_LATENCY_MS) || DEFAULT_DB_HEALTH_CONFIG.latencyThresholdMs,
+};
+async function probeDbHealth() {
+  try {
+    const startedAt = Date.now();
+    let ok = false;
+    try {
+      // Lightweight liveness/latency probe — a single indexed row, no count scan.
+      const probe = supabase.from('agents').select('id').limit(1);
+      const { error } = await Promise.race([
+        probe,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('probe timeout')), DB_HEALTH_PROBE_TIMEOUT_MS)),
+      ]);
+      ok = !error;
+    } catch {
+      ok = false; // query error or timeout → degraded
+    }
+    const latencyMs = Date.now() - startedAt;
+    const { state, action, reason } = evaluateDbProbe(dbHealthState, { ok, latencyMs, nowMs: Date.now() }, DB_HEALTH_CONFIG);
+    dbHealthState = state;
+    if (action === 'alert') {
+      console.warn(`[DB-Health] ⚠️ ${reason} (latency=${latencyMs}ms, ok=${ok})`);
+      await sendOpsAlert(`⚠️ <b>DB melambat</b>\n${reason}\nLatency probe: ${latencyMs}ms\nKemungkinan Disk IO budget Supabase menipis — cek dashboard Supabase.`);
+    } else if (action === 'recover') {
+      console.log(`[DB-Health] ✅ recovered (latency=${latencyMs}ms)`);
+      await sendOpsAlert(`✅ <b>DB pulih</b>\nLatency probe normal lagi: ${latencyMs}ms`);
+    }
+  } catch (err) {
+    console.warn('[DB-Health] probe error:', err.message);
+  }
+}
+if (shouldRunBackgroundJobs()) {
+  setTimeout(probeDbHealth, 60 * 1000);
+  setInterval(probeDbHealth, DB_HEALTH_PROBE_INTERVAL);
+}
 
 // ── Background Sync Job: sync all agents every 1 hour ──
 // Uses the same monthly-chunk strategy as manual sync to avoid timeouts

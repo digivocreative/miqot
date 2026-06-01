@@ -339,6 +339,16 @@ async function sendLongMessage(text) {
   if (chunk) await sendTelegramMessage(chunk);
 }
 
+// Ops/infra alert to the main channel (no marketing footer). Used by the DB-health
+// canary in server.js to flag Disk IO / latency degradation early. Best-effort.
+export async function sendOpsAlert(text) {
+  try {
+    await sendTelegramMessage(text);
+  } catch (err) {
+    warn('sendOpsAlert failed:', err.message);
+  }
+}
+
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
