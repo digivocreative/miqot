@@ -70,3 +70,15 @@ test('MediaView renders image vs file and an optional download link', () => {
   assert.match(src, /formatBytes\(media\.size\)/);
   assert.match(src, /download\s*=\s*true/);
 });
+
+test('MediaUploadField validates, uploads with auth headers, and reports back', () => {
+  const src = read('src/components/wa-copy/admin/MediaUploadField.tsx');
+  assert.match(src, /from '\.\.\/\.\.\/LoginPage'/);
+  assert.match(src, /validateMediaFile\(/);
+  assert.match(src, /fileToBase64\(/);
+  assert.match(src, /fetch\(MEDIA_UPLOAD_URL/);
+  assert.match(src, /getAuthHeaders\(\)/);
+  assert.match(src, /onChange\(\{/);
+  assert.match(src, /accept=\{ACCEPT_ATTR\}/);
+  assert.match(src, /import MediaView from '\.\/MediaView'/);
+});
