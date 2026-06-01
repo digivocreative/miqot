@@ -720,7 +720,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
             <div style={{ margin: '0 24px 10px', padding: '8px 14px', borderRadius: 11, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
                 <div style={{ fontSize: 9, fontWeight: 750, color: '#64748b' }}>Proyeksi Harga Paket / jamaah</div>
-                <div style={{ fontSize: 8.5, fontWeight: 700, color: '#059669' }}>naik ~2.5%/th</div>
+                <div style={{ fontSize: 8.5, fontWeight: 700, color: isRahmah ? '#059669' : '#2563eb' }}>naik ~2.5%/th</div>
               </div>
               {exportLadder.map((e, i) => {
                 const width = 45 + (exportLadder.length > 1 ? (i / (exportLadder.length - 1)) * 55 : 55);
