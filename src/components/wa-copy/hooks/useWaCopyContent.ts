@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { CAPTION_SEED } from '../lib/captions';
-import { WA_COPY_FAQ_SEED } from '../lib/faq';
-import { TOUR_SEED } from '../lib/tourleader';
-import type { AgentFaqEntry, CaptionEntry, TourStep } from '../lib/types';
+import { CAPTION_SEED, CAPTION_CATEGORIES } from '../lib/captions';
+import { WA_COPY_FAQ_SEED, FAQ_CATEGORIES } from '../lib/faq';
+import { TOUR_SEED, TOUR_PHASES } from '../lib/tourleader';
+import type { AgentFaqEntry, CaptionEntry, CategoryMeta, TourStep } from '../lib/types';
 
 const WA_COPY_LATENCY_MS = 350;
 
@@ -16,6 +16,9 @@ const store = {
   captions: CAPTION_SEED.map(c => ({ ...c })) as CaptionEntry[],
   faqs: WA_COPY_FAQ_SEED.map(f => ({ ...f })) as AgentFaqEntry[],
   tourSteps: TOUR_SEED.map(t => ({ ...t })) as TourStep[],
+  captionCategories: CAPTION_CATEGORIES.map(c => ({ ...c })).sort((a, b) => a.order - b.order) as CategoryMeta[],
+  faqCategories: FAQ_CATEGORIES.map(c => ({ ...c })).sort((a, b) => a.order - b.order) as CategoryMeta[],
+  tourPhases: TOUR_PHASES.map(c => ({ ...c })).sort((a, b) => a.order - b.order) as CategoryMeta[],
 };
 
 let loadedOnce = false;
@@ -118,6 +121,9 @@ export interface UseWaCopyContent {
   captions: CaptionEntry[];
   faqs: AgentFaqEntry[];
   tourSteps: TourStep[];
+  captionCategories: CategoryMeta[];
+  faqCategories: CategoryMeta[];
+  tourPhases: CategoryMeta[];
   loading: boolean;
   createCaption: typeof createCaption;
   updateCaption: typeof updateCaption;
@@ -170,6 +176,9 @@ export function useWaCopyContent(): UseWaCopyContent {
     captions: store.captions,
     faqs: store.faqs,
     tourSteps: store.tourSteps,
+    captionCategories: store.captionCategories,
+    faqCategories: store.faqCategories,
+    tourPhases: store.tourPhases,
     loading,
     createCaption,
     updateCaption,
