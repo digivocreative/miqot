@@ -533,7 +533,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4">
             <div className="flex items-center justify-between mb-3">
               <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide">Proyeksi Harga Paket / jamaah</p>
-              <span className={`text-[10px] font-bold ${isRahmah ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}`}>naik ~2.5%/th</span>
+              <span className={`text-[10px] font-bold ${isRahmah ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}`}>estimasi ~2.5%/th</span>
             </div>
             <PriceLadder ladder={calc.ladder} accent={isRahmah ? 'emerald' : 'blue'} />
             <p className="text-[10px] text-gray-500 dark:text-slate-400 mt-3">
@@ -720,7 +720,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
             <div style={{ margin: '0 24px 10px', padding: '8px 14px', borderRadius: 11, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
                 <div style={{ fontSize: 9, fontWeight: 750, color: '#64748b' }}>Proyeksi Harga Paket / jamaah</div>
-                <div style={{ fontSize: 8.5, fontWeight: 700, color: isRahmah ? '#059669' : '#2563eb' }}>naik ~2.5%/th</div>
+                <div style={{ fontSize: 8.5, fontWeight: 700, color: isRahmah ? '#059669' : '#2563eb' }}>estimasi ~2.5%/th</div>
               </div>
               {exportLadder.map((e, i) => {
                 const width = 45 + (exportLadder.length > 1 ? (i / (exportLadder.length - 1)) * 55 : 55);
