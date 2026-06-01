@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { copyToClipboard } from '../../utils/waLink';
 import type { TourStep } from '../../lib/types';
+import MediaView from '../../admin/MediaView';
 
 interface TourStepCardProps {
   entry: TourStep;
@@ -40,6 +41,11 @@ export default function TourStepCard({ entry, index, showToast }: TourStepCardPr
             {copied ? <Check size={12} strokeWidth={2.5} /> : <Copy size={12} strokeWidth={2.5} />}
             {copied ? 'Tersalin' : 'Salin Langkah'}
           </button>
+          {entry.media?.[0] && (
+            <div className="mt-3">
+              <MediaView media={entry.media[0]} />
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -97,3 +97,17 @@ test('all three editors render MediaUploadField and include media in the draft',
     assert.match(src, /media: media \? \[media\] : \[\]/, `${f} missing media in draft`);
   }
 });
+
+test('all three consumer cards render MediaView from entry.media', () => {
+  const files = [
+    'src/components/wa-copy/tabs/faq/FaqAccordionItem.tsx',
+    'src/components/wa-copy/tabs/caption/CaptionCard.tsx',
+    'src/components/wa-copy/tabs/tourleader/TourStepCard.tsx',
+  ];
+  for (const f of files) {
+    const src = read(f);
+    assert.match(src, /import MediaView from '\.\.\/\.\.\/admin\/MediaView'/, `${f} missing import`);
+    assert.match(src, /entry\.media\?\.\[0\]/, `${f} missing media guard`);
+    assert.match(src, /<MediaView media=\{entry\.media\[0\]\} \/>/, `${f} missing MediaView`);
+  }
+});
