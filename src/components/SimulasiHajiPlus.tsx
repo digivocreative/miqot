@@ -206,7 +206,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
     deadlineDate.setMonth(deadlineDate.getMonth() - PELUNASAN_BULAN);
     const deadlineLabel = deadlineDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
     const diffMonths = Math.max(0, Math.round((new Date(tahunBerangkat, 0, 1).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30)));
-    return { ...esc, deadlineLabel, diffMonths };
+    return { ...esc, deadlineLabel, diffMonths, currentYear };
   }, [pkg, selectedPriceUSD, tahunBerangkat, jumlahJamaah, kursUSD]);
 
   const exportLadder = useMemo(() => (calc ? condenseLadder(calc.ladder, 5) : []), [calc]);
@@ -468,7 +468,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
               <p className="text-3xl font-bold text-white mt-1">{fmtUSD(calc.escalatedTotalUSD)}</p>
               <p className="text-[12px] text-white/70 mt-0.5">≈ {fmtRp(calc.estTotalIDR)}</p>
               <p className="text-[10px] text-white/50 mt-0.5">
-                {fmtUSD(calc.escalatedPriceUSD)} × {jumlahJamaah} jamaah · harga dasar {new Date().getFullYear()}: {fmtUSD(calc.baseTotalUSD)}
+                {fmtUSD(calc.escalatedPriceUSD)} × {jumlahJamaah} jamaah · harga dasar {calc.currentYear}: {fmtUSD(calc.baseTotalUSD)}
               </p>
             </div>
             <div className="px-4 py-3 bg-black/10">
