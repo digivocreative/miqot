@@ -151,6 +151,10 @@ async function mergeExistingUmrohPhase1Enrichment(agentId, rows) {
   return safeRows.map(row => preserveUmrohPhase1Enrichment(row, existingLookup.get(umrohPhase1EnrichmentKey(row))));
 }
 
+// WA Copy admin media uploads carry base64-encoded documents up to ~14MB.
+// Parse this one path at 16mb BEFORE the global 10mb json limit below, so large
+// documents aren't rejected with 413. The global parser skips already-parsed bodies.
+app.use('/api/admin/wa-copy/media', express.json({ limit: '16mb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // ──────────────────────────────────────────────
@@ -13596,7 +13600,7 @@ async function downloadFile(url) {
 }
 
 // ── WA Copy: admin media upload → Bunny CDN ─────────────────────────
-app.post('/api/admin/wa-copy/media', authMiddleware, adminOnly, express.json({ limit: '16mb' }), async (req, res) => {
+app.post('/api/admin/wa-copy/media', authMiddleware, adminOnly, async (req, res) => {
   // 16mb body limit: a 10MB doc inflates to ~13.7MB once base64-encoded.
   try {
     if (!getBunnyEnabled()) {
