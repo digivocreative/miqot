@@ -26,6 +26,11 @@ const DATA_DIR = path.join(__dirname, 'data');
 // Lazy-loaded after dotenv.config() runs
 let YEAR_CODES, BASE_URL, BOT_TOKEN, CHAT_ID, CHAT_ID_DEV, TELEGRAM_API, OPENAI_KEY, IS_PROD, supabaseAdmin;
 let isCheckRunning = false;
+// Ops/infra alert recipient (DB-health canary) — a SINGLE agent DM, NOT the group.
+let OPS_ALERT_CHAT_ID = '';
+let OPS_ALERT_AGENT_SLUG = 'nikita';
+let opsAlertChatId = '';        // resolved + cached target chat id
+let opsAlertResolveTried = false;
 
 function loadConfig() {
   YEAR_CODES = (process.env.NOTIFIER_YEAR_CODES || '1448').split(',').map(s => s.trim());
@@ -39,6 +44,10 @@ function loadConfig() {
   if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
   }
+  OPS_ALERT_CHAT_ID = process.env.OPS_ALERT_CHAT_ID || '';
+  OPS_ALERT_AGENT_SLUG = process.env.OPS_ALERT_AGENT_SLUG || 'nikita';
+  opsAlertChatId = OPS_ALERT_CHAT_ID; // env wins; empty → resolved from agent slug at init
+  opsAlertResolveTried = false;
 }
 
 const SEAT_CRITICAL_ABS = 10;
@@ -339,14 +348,36 @@ async function sendLongMessage(text) {
   if (chunk) await sendTelegramMessage(chunk);
 }
 
-// Ops/infra alert to the main channel (no marketing footer). Used by the DB-health
-// canary in server.js to flag Disk IO / latency degradation early. Best-effort.
-export async function sendOpsAlert(text) {
+// Resolve the single ops/infra alert recipient (default: agent 'nikita') and cache
+// it. Prefers OPS_ALERT_CHAT_ID; otherwise looks up the agent by slug. Resolved at
+// startup so a DB-health alert never needs a DB query at send time — the alert
+// fires precisely when the DB may be degraded. Best-effort.
+async function resolveOpsAlertChatId() {
+  if (opsAlertChatId) return opsAlertChatId;
+  if (opsAlertResolveTried || !supabaseAdmin) return opsAlertChatId;
+  opsAlertResolveTried = true;
   try {
-    await sendTelegramMessage(text);
+    const { data } = await supabaseAdmin
+      .from('agents')
+      .select('telegram_chat_id')
+      .eq('slug', OPS_ALERT_AGENT_SLUG)
+      .maybeSingle();
+    if (data?.telegram_chat_id) opsAlertChatId = String(data.telegram_chat_id);
   } catch (err) {
-    warn('sendOpsAlert failed:', err.message);
+    warn('resolveOpsAlertChatId failed:', err.message);
   }
+  return opsAlertChatId;
+}
+
+// Ops/infra alert routed to a SINGLE recipient — the ops agent (default 'nikita'),
+// NOT the broadcast group. Used by the DB-health canary in server.js. Best-effort.
+export async function sendOpsAlert(text) {
+  const chatId = opsAlertChatId || await resolveOpsAlertChatId();
+  if (!chatId) {
+    warn('sendOpsAlert: no ops recipient (set OPS_ALERT_CHAT_ID or agent slug) — dropping alert');
+    return;
+  }
+  await sendTelegramToAgent(chatId, text);
 }
 
 function sleep(ms) {
@@ -2934,6 +2965,9 @@ export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders
 
 export function initNotifier() {
   loadConfig();
+  resolveOpsAlertChatId()
+    .then(id => log(`Ops/DB alerts → agent '${OPS_ALERT_AGENT_SLUG}' (${id ? 'resolved' : 'UNRESOLVED'})`))
+    .catch(() => {});
 
   if (!BOT_TOKEN) {
     warn('TELEGRAM_BOT_TOKEN not set — notifier disabled');
