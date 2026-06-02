@@ -74,9 +74,20 @@ import {
 import { shouldRunBackgroundJobs } from './lib/background-jobs.js';
 import { parseSyncCooldownMs, computeFirstCycleDelayMs } from './lib/sync-schedule.js';
 import { evaluateDbProbe, freshDbHealthState, DEFAULT_DB_HEALTH_CONFIG } from './lib/db-health.js';
+import { resolveJamaahUpsertBatch, jamaahUpsertKey, partitionChangedJamaahRows } from './lib/jamaah-upsert.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
 import cron from 'node-cron';
+import util from 'node:util';
+
+// ── Log hygiene (incident 2026-06-01) ──
+// When Supabase is unreachable, failed calls surface errors whose body is the full
+// Cloudflare "522 Connection timed out" HTML page. `console.error('label', errObj)`
+// then renders ~100 journald lines PER failure — during the outage the dashboard's
+// every-few-seconds poll endpoints ([telegram-status], [Flights], …) wrote ~1.1M
+// lines this way. Cap how long any single string is rendered inside an inspected
+// object/error so one upstream HTML body can never flood the journal again.
+util.inspect.defaultOptions.maxStringLength = 500;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -87,6 +98,12 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+// Jamaah upsert batch — kept small so a single upsert statement always fits in
+// work_mem (~3.4 MB here) and never spills to temp disk. 50-row batches spilled
+// ~1.25 MB/call and drained the Supabase Disk IO budget → 522 (incident 2026-06-02).
+// Tune via JAMAAH_UPSERT_BATCH. See lib/jamaah-upsert.js.
+const JAMAAH_UPSERT_BATCH = resolveJamaahUpsertBatch(process.env);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
 const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f']);
@@ -5385,6 +5402,25 @@ function filterSafeJamaahRows(rows, context) {
   return safe;
 }
 
+// Fetch an agent's current jamaah rows (for the given hijriah years) keyed by the
+// upsert conflict key, so the sync can skip re-writing unchanged rows (incident
+// 2026-06-02 Disk IO). Returns null on any error → caller upserts everything (safe
+// fallback). A cheap, cache-friendly read on the agent_id index; trades one small
+// SELECT for skipping a cycle's worth of redundant temp-spilling writes.
+async function fetchExistingJamaahByKey(agentId, years) {
+  try {
+    let q = supabase.from('jamaah').select('*').eq('agent_id', agentId);
+    if (Array.isArray(years) && years.length > 0) q = q.in('hijriah_year', years);
+    const { data, error } = await q;
+    if (error || !Array.isArray(data)) return null;
+    const map = new Map();
+    for (const row of data) map.set(jamaahUpsertKey(row), row);
+    return map;
+  } catch {
+    return null;
+  }
+}
+
 function plainObjectOrEmpty(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
@@ -5969,15 +6005,25 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
     await detectUmrohJamaahSyncEvents(agentId, rowsForUpsert, { allowNewJamaah: allowNewJamaahNotify })
   );
 
-  // Upsert in batches with the same conflict target as legacy.
-  const BATCH = 50;
+  // Upsert only NEW/CHANGED rows, in small work_mem-safe batches. Re-upserting the
+  // whole fleet every cycle in 50-row batches spilled ~1.25 MB/batch to temp disk
+  // and drained the Supabase Disk IO budget → 522 / "DB melambat" (incident
+  // 2026-06-02). filterSafe upfront, then skip rows byte-identical to the DB.
+  // See lib/jamaah-upsert.js.
+  const safeRows = filterSafeJamaahRows(rowsForUpsert, `api-${context}`);
+  const existingByKey = await fetchExistingJamaahByKey(agentId, yearsToSync);
+  const { changed: rowsToWrite, skippedCount } = partitionChangedJamaahRows(safeRows, existingByKey);
+  if (skippedCount > 0) {
+    console.log(`[Sync/api/${context}] ${slug}: skipped ${skippedCount}/${safeRows.length} unchanged jamaah rows`);
+  }
+  const BATCH = JAMAAH_UPSERT_BATCH;
   let upserted = 0;
-  for (let i = 0; i < rowsForUpsert.length; i += BATCH) {
-    const batch = filterSafeJamaahRows(rowsForUpsert.slice(i, i + BATCH), `api-${context}`);
+  for (let i = 0; i < rowsToWrite.length; i += BATCH) {
+    const batch = rowsToWrite.slice(i, i + BATCH);
     if (batch.length === 0) continue;
     const { error } = await supabase
       .from('jamaah')
-      .upsert(batch, { onConflict: 'agent_id,id_umroh,jm_id' });
+      .upsert(batch, { onConflict: 'agent_id,id_umroh,jm_id', defaultToNull: false });
     if (error) {
       upsertErrors++;
       if (!firstUpsertError) firstUpsertError = error.message;
@@ -6153,7 +6199,7 @@ async function syncHajiViaApiCore(agentId, slug, agent, {
   const allRows = Array.from(rowsByKey.values());
   console.log(`[haji-api/${context}] ${slug}: ${allRows.length} unique haji rows from ${normalizedDepartureYears.length} departure years + ${normalizedRegistrationYears.length} registration years (${fetchErrors} fetch errors)`);
 
-  const BATCH = 50;
+  const BATCH = JAMAAH_UPSERT_BATCH;
   let upserted = 0;
   for (let i = 0; i < allRows.length; i += BATCH) {
     const batch = allRows.slice(i, i + BATCH);
@@ -6494,7 +6540,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           const enrichedRows = await mergeExistingUmrohPhase1Enrichment(agentId, Array.from(deduped.values()));
           const dedupedRows = await prepareLegacyPaymentRowsForUpsert(agentId, enrichedRows, now);
 
-          const BATCH = 50;
+          const BATCH = JAMAAH_UPSERT_BATCH;
           for (const rowGroup of splitLegacyRowsByPaymentPayload(dedupedRows)) {
             for (let b = 0; b < rowGroup.length; b += BATCH) {
               const upsertBatch = filterSafeJamaahRows(rowGroup.slice(b, b + BATCH), 'P1-manual');
@@ -6779,7 +6825,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
           return true;
         });
         const guardedRows = await prepareLegacyPaymentRowsForUpsert(agentId, safeRows, now);
-        const BATCH = 50;
+        const BATCH = JAMAAH_UPSERT_BATCH;
         for (const rowGroup of splitLegacyRowsByPaymentPayload(guardedRows)) {
           for (let b = 0; b < rowGroup.length; b += BATCH) {
             const upsertBatch = filterSafeJamaahRows(rowGroup.slice(b, b + BATCH), 'P2-manual');
@@ -14883,7 +14929,7 @@ async function syncOneAgent(agent) {
             }
             const dedupedRows = await mergeExistingUmrohPhase1Enrichment(agentId, Array.from(deduped.values()));
             const guardedRows = await prepareLegacyPaymentRowsForUpsert(agentId, dedupedRows, syncTime);
-            const BATCH = 50;
+            const BATCH = JAMAAH_UPSERT_BATCH;
             for (const rowGroup of splitLegacyRowsByPaymentPayload(guardedRows)) {
               for (let b = 0; b < rowGroup.length; b += BATCH) {
                 const upsertBatch = filterSafeJamaahRows(rowGroup.slice(b, b + BATCH), 'P1-bg');
@@ -15056,7 +15102,7 @@ async function syncOneAgent(agent) {
         });
 
         const allNewRows = [];
-        const BATCH = 50;
+        const BATCH = JAMAAH_UPSERT_BATCH;
         for (let b = 0; b < items.length; b += BATCH) {
           const batchItems = items.slice(b, b + BATCH);
           const rows = buildRows(batchItems, agentId, syncTime);
