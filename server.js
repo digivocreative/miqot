@@ -74,6 +74,7 @@ import {
 import { shouldRunBackgroundJobs } from './lib/background-jobs.js';
 import { parseSyncCooldownMs, computeFirstCycleDelayMs } from './lib/sync-schedule.js';
 import { evaluateDbProbe, freshDbHealthState, DEFAULT_DB_HEALTH_CONFIG } from './lib/db-health.js';
+import { freshCircuitState, recordDbOutcome, isCircuitOpen, nextBackoffMs, isDbConnectivityError, DEFAULT_CIRCUIT_CONFIG } from './lib/db-circuit.js';
 import { resolveJamaahUpsertBatch, jamaahUpsertKey, partitionChangedJamaahRows } from './lib/jamaah-upsert.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
@@ -105,8 +106,75 @@ const supabase = createClient(
 // Tune via JAMAAH_UPSERT_BATCH. See lib/jamaah-upsert.js.
 const JAMAAH_UPSERT_BATCH = resolveJamaahUpsertBatch(process.env);
 
+// Columns read for the per-cycle skip-unchanged diff (fetchExistingJamaahByKey →
+// partitionChangedJamaahRows): every jamaah column EXCEPT raw_data. raw_data is the
+// largest column (the full AWAPI snapshot jsonb) and is a VOLATILE key the diff
+// already ignores (lib/jamaah-upsert.js VOLATILE_JAMAAH_KEYS), so dropping it from
+// this all-rows, all-years, per-agent read (×PARALLEL each cycle) removes the single
+// heaviest transfer/deserialize cost with ZERO change to skip behavior: jamaahRowUnchanged
+// compares only payload keys — all business columns, which remain below. A column
+// accidentally omitted here can only ever cause a redundant write, never stale data
+// (the module's safe bias). MUST list every jamaah column except raw_data; the
+// tests/jamaah-upsert.test.js "raw_data-strip is skip-neutral" case guards the property.
+// (incident 2026-06-02 read-load reduction)
+const JAMAAH_DIFF_COLUMNS = 'id, id_umroh, nama, jk, wa, tgl_lahir, paket, bayar, sisa, tgl_berangkat, tgl_daftar, hijriah_year, synced_at, perlengkapan, dokumen, no_paspor, paspor_expired, capi_last_bayar, notes, notes_updated_at, agent_id, capi_purchase_status, jm_id, diskon_kantor, diskon_marketing';
+
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
 const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f']);
+
+// ── DB circuit breaker (incident 2026-06-02) ──
+// Sheds background + heavy-read load when Supabase is unreachable / restarting, so an
+// ~8-min platform restart stays an ~8-min blip instead of a cascading outage. Fed by
+// the DB-health probe, the background sync loops, and the heaviest read endpoints
+// (via dbLoadShedGuard); read by those same loops, the custom-domain cron, and the
+// guard. Pure decision logic + tests in lib/db-circuit.js. Tunables via env.
+let dbCircuitState = freshCircuitState();
+const DB_CIRCUIT_CONFIG = {
+  failureThreshold: Number(process.env.DB_CIRCUIT_FAILS) || DEFAULT_CIRCUIT_CONFIG.failureThreshold,
+  openCooldownMs: Number(process.env.DB_CIRCUIT_COOLDOWN_MS) || DEFAULT_CIRCUIT_CONFIG.openCooldownMs,
+};
+const DB_DEGRADED_RECHECK_MS = Number(process.env.DB_DEGRADED_RECHECK_MS) || 30 * 1000;
+let dbCircuitOpenLogged = false;
+
+function recordDbResult(ok) {
+  const wasOpen = isCircuitOpen(dbCircuitState, Date.now(), DB_CIRCUIT_CONFIG);
+  dbCircuitState = recordDbOutcome(dbCircuitState, { ok: ok === true, nowMs: Date.now() }, DB_CIRCUIT_CONFIG);
+  const nowOpen = isCircuitOpen(dbCircuitState, Date.now(), DB_CIRCUIT_CONFIG);
+  if (nowOpen && !dbCircuitOpenLogged) {
+    console.warn('[DB-Circuit] 🔴 OPEN — DB unreachable; shedding background + heavy-read load');
+    dbCircuitOpenLogged = true;
+  } else if (wasOpen && !nowOpen) {
+    console.log('[DB-Circuit] 🟢 CLOSED — DB reachable again; resuming normal load');
+    dbCircuitOpenLogged = false;
+  }
+}
+
+function isDbDegraded() {
+  return isCircuitOpen(dbCircuitState, Date.now(), DB_CIRCUIT_CONFIG);
+}
+
+// Route guard for the heaviest read endpoints: fast-fail with 503 while the breaker
+// is OPEN (so dashboard polls stop hanging-to-timeout and piling queries onto a
+// recovering DB), and feed each let-through request's outcome back into the breaker
+// — a 5xx on these DB-heavy routes trips it within failureThreshold polls (seconds),
+// a 2xx closes it immediately. Runs before authMiddleware: shedding needs no auth.
+function dbLoadShedGuard(req, res, next) {
+  if (isDbDegraded()) {
+    res.set('Retry-After', '15');
+    return res.status(503).json({
+      error: 'db_degraded',
+      message: 'Database sedang pulih sebentar (maintenance singkat). Coba lagi beberapa saat.',
+    });
+  }
+  let recorded = false;
+  res.on('finish', () => {
+    if (recorded) return;
+    recorded = true;
+    if (res.statusCode >= 500) recordDbResult(false);
+    else if (res.statusCode < 400) recordDbResult(true);
+  });
+  next();
+}
 
 function withTimeout(promise, ms, message) {
   let timer;
@@ -3395,6 +3463,7 @@ let customDomainCronRunning = false;
 if (shouldRunBackgroundJobs()) cron.schedule('* * * * *', async () => {
   if (customDomainCronRunning) return;
   if (!process.env.VPS_PUBLIC_IP) return;
+  if (isDbDegraded()) return; // shed: don't poll agents while the DB is restarting
   customDomainCronRunning = true;
   try {
     const { data: pendingAgents, error } = await supabase
@@ -5409,7 +5478,8 @@ function filterSafeJamaahRows(rows, context) {
 // SELECT for skipping a cycle's worth of redundant temp-spilling writes.
 async function fetchExistingJamaahByKey(agentId, years) {
   try {
-    let q = supabase.from('jamaah').select('*').eq('agent_id', agentId);
+    // raw_data excluded (heavy jsonb, ignored by the diff) — see JAMAAH_DIFF_COLUMNS.
+    let q = supabase.from('jamaah').select(JAMAAH_DIFF_COLUMNS).eq('agent_id', agentId);
     if (Array.isArray(years) && years.length > 0) q = q.in('hijriah_year', years);
     const { data, error } = await q;
     if (error || !Array.isArray(data)) return null;
@@ -7047,7 +7117,7 @@ app.get('/api/laporan/sync-status', authMiddleware, async (req, res) => {
 // ──────────────────────────────────────────────
 // API: Calendar Events
 // ──────────────────────────────────────────────
-app.get('/api/calendar/events', authMiddleware, async (req, res) => {
+app.get('/api/calendar/events', dbLoadShedGuard, authMiddleware, async (req, res) => {
   const { month, year } = req.query;
   if (!month || !year) {
     return res.status(400).json({ error: 'month dan year wajib diisi' });
@@ -7981,7 +8051,7 @@ function setCachedFlight(flightId, data) {
 }
 
 // GET /api/flights/status — all flights within H-1 to H+1 window
-app.get('/api/flights/status', authMiddleware, async (req, res) => {
+app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res) => {
   try {
     maybeResetQuotaCounter();
 
@@ -8855,7 +8925,7 @@ async function getCachedUmrohPernyataanJmIds(agentId, rows) {
 }
 
 // Jamaah list: read from Supabase with filters, search, pagination, sorting
-app.get('/api/laporan/jamaah', authMiddleware, async (req, res) => {
+app.get('/api/laporan/jamaah', dbLoadShedGuard, authMiddleware, async (req, res) => {
   const {
     hijriahYear,
     status,   // 'belum' | 'berangkat'
@@ -9919,11 +9989,23 @@ app.get('/api/laporan/tren-daftar/haji-ranking', authMiddleware, adminOnly, asyn
 // ──────────────────────────────────────────────
 // API: Stats — aggregated jamaah statistics
 // ──────────────────────────────────────────────
-app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
+app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) => {
   const agentId = req.user.id;
 
   try {
-    // ── availableYears ──
+    // ── Cache check FIRST ──
+    // The key depends only on agentId + the raw requested year, and the cached payload
+    // already carries availableYears — so a hit is served without touching the jamaah
+    // table at all. Previously the availableYears scan below ran BEFORE this check, so
+    // every dashboard poll (even a cache hit) scanned the agent's whole jamaah set.
+    const requestedYear = req.query.year || '';
+    const cacheKey = `umroh:${agentId}:${requestedYear}`;
+    const cached = statsCacheGet(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    // ── availableYears (only needed on a cache miss) ──
     const ayData = await fetchAllRows(
       supabase.from('jamaah').select('hijriah_year').eq('agent_id', agentId).not('hijriah_year', 'is', null)
     );
@@ -9935,14 +10017,6 @@ app.get('/api/laporan/stats', authMiddleware, async (req, res) => {
     let year = req.query.year || null;
     if (!year) {
       year = availableYears.includes('1448') ? '1448' : (availableYears[0] || null);
-    }
-
-    // Cache check (key includes resolved year so different years are separate)
-    const requestedYear = req.query.year || '';
-    const cacheKey = `umroh:${agentId}:${requestedYear}`;
-    const cached = statsCacheGet(cacheKey);
-    if (cached) {
-      return res.json(cached);
     }
 
     // Base filter
@@ -14757,6 +14831,10 @@ async function probeDbHealth() {
       ok = false; // query error or timeout → degraded
     }
     const latencyMs = Date.now() - startedAt;
+    // Feed the breaker: a failed/timed-out probe contributes to opening it, and the
+    // first good probe after an outage closes it (immediate recovery) even with no
+    // user traffic. (A merely-slow-but-OK probe still counts as reachable.)
+    recordDbResult(ok);
     const { state, action, reason } = evaluateDbProbe(dbHealthState, { ok, latencyMs, nowMs: Date.now() }, DB_HEALTH_CONFIG);
     dbHealthState = state;
     if (action === 'alert') {
@@ -14771,8 +14849,14 @@ async function probeDbHealth() {
   }
 }
 if (shouldRunBackgroundJobs()) {
-  setTimeout(probeDbHealth, 60 * 1000);
-  setInterval(probeDbHealth, DB_HEALTH_PROBE_INTERVAL);
+  // Self-rescheduling instead of a fixed setInterval so the cadence can tighten while
+  // the breaker is OPEN (DB_DEGRADED_RECHECK_MS) — detecting recovery in ~30s instead
+  // of waiting out the full 5-min interval — then relax back to DB_HEALTH_PROBE_INTERVAL.
+  const scheduleNextProbe = () => {
+    const delay = isDbDegraded() ? DB_DEGRADED_RECHECK_MS : DB_HEALTH_PROBE_INTERVAL;
+    setTimeout(async () => { await probeDbHealth(); scheduleNextProbe(); }, delay);
+  };
+  setTimeout(async () => { await probeDbHealth(); scheduleNextProbe(); }, 60 * 1000);
 }
 
 // ── Background Sync Job: sync all agents every 1 hour ──
@@ -15560,9 +15644,15 @@ async function syncAllAgents() {
     .not('jamaah_username', 'is', null)
     .not('jamaah_password', 'is', null);
 
-  if (error || !agents?.length) {
+  if (error) {
+    recordDbResult(false); // canary: agents fetch failing ≈ DB unreachable
+    console.warn('[SYNC] agents fetch failed (DB unreachable?):', error.message);
+    return { dbError: true };
+  }
+  recordDbResult(true);
+  if (!agents?.length) {
     console.log(`[SYNC] No agents with credentials found`);
-    return;
+    return { dbError: false };
   }
 
   // When the official API path is enabled, agents can be processed in
@@ -15613,6 +15703,7 @@ async function syncAllAgents() {
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`[SYNC] Cycle complete: ${ok} OK, ${loginFail} login failed, ${fail} error, ${skipped} skipped in ${elapsed}s (parallel=${PARALLEL})`);
+  return { dbError: false };
 }
 
 // Clean up old 1446 H data (one-time, 15s after startup). Gated so local dev
@@ -15676,12 +15767,34 @@ async function runSyncCycleLoop() {
       await new Promise(r => setTimeout(r, delay));
     }
   }
+  let dbBackoffMs = 0;
   while (true) {
+    // Breaker already OPEN (e.g. tripped by the health probe or a read endpoint):
+    // defer cheaply instead of launching a full heavy sync into a restarting DB.
+    if (isDbDegraded()) {
+      console.warn(`[SYNC] DB degraded — deferring cycle ${Math.round(DB_DEGRADED_RECHECK_MS / 1000)}s`);
+      await new Promise(r => setTimeout(r, DB_DEGRADED_RECHECK_MS));
+      continue;
+    }
     try {
-      await syncAllAgents();
+      const res = await syncAllAgents();
+      if (res?.dbError) {
+        dbBackoffMs = nextBackoffMs(dbBackoffMs);
+        console.warn(`[SYNC] DB-connectivity failure — backing off ${Math.round(dbBackoffMs / 1000)}s`);
+        await new Promise(r => setTimeout(r, dbBackoffMs));
+        continue;
+      }
       writeLastSyncCycleAt(Date.now());
+      dbBackoffMs = 0; // healthy cycle → reset backoff
     } catch (err) {
       console.error('[SYNC] Cycle error:', err.message);
+      if (isDbConnectivityError(err)) {
+        recordDbResult(false);
+        dbBackoffMs = nextBackoffMs(dbBackoffMs);
+        console.warn(`[SYNC] DB-connectivity failure — backing off ${Math.round(dbBackoffMs / 1000)}s`);
+        await new Promise(r => setTimeout(r, dbBackoffMs));
+        continue;
+      }
     }
     await new Promise(r => setTimeout(r, SYNC_COOLDOWN_MS));
   }
@@ -15925,13 +16038,20 @@ async function syncAllAgentsHaji() {
     .from('agents')
     .select('*');
 
+  if (error) {
+    recordDbResult(false); // canary: agents fetch failing ≈ DB unreachable
+    console.warn('[HAJI-API] agents fetch failed (DB unreachable?):', error.message);
+    return { dbError: true };
+  }
+  recordDbResult(true);
+
   const eligibleAgents = (agents || []).filter(agent =>
     agent.awapi_key || (agent.jamaah_username && agent.jamaah_password)
   );
 
-  if (error || !eligibleAgents.length) {
+  if (!eligibleAgents.length) {
     console.log('[HAJI-API] No agents with AWAPI key or legacy credentials found');
-    return;
+    return { dbError: false };
   }
 
   // Sequential with 5s gap to avoid Apache rate-limiting on rapid logins
@@ -15964,6 +16084,7 @@ async function syncAllAgentsHaji() {
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`[HAJI-API] Cycle complete: ${ok} OK, ${loginFail} login failed, ${fail} error, ${skipped} skipped in ${elapsed}s`);
+  return { dbError: false };
 }
 
 async function runScheduledHajiLegacyEnrichment() {
@@ -16032,11 +16153,31 @@ function scheduleHajiLegacyEnrichment() {
 
 const HAJI_AWAPI_SYNC_COOLDOWN_MS = 30 * 60 * 1000;
 async function runHajiSyncCycleLoop() {
+  let dbBackoffMs = 0;
   while (true) {
+    if (isDbDegraded()) {
+      console.warn(`[HAJI-API] DB degraded — deferring cycle ${Math.round(DB_DEGRADED_RECHECK_MS / 1000)}s`);
+      await new Promise(r => setTimeout(r, DB_DEGRADED_RECHECK_MS));
+      continue;
+    }
     try {
-      await syncAllAgentsHaji();
+      const res = await syncAllAgentsHaji();
+      if (res?.dbError) {
+        dbBackoffMs = nextBackoffMs(dbBackoffMs);
+        console.warn(`[HAJI-API] DB-connectivity failure — backing off ${Math.round(dbBackoffMs / 1000)}s`);
+        await new Promise(r => setTimeout(r, dbBackoffMs));
+        continue;
+      }
+      dbBackoffMs = 0; // healthy cycle → reset backoff
     } catch (err) {
       console.error('[HAJI-API] Cycle error:', err.message);
+      if (isDbConnectivityError(err)) {
+        recordDbResult(false);
+        dbBackoffMs = nextBackoffMs(dbBackoffMs);
+        console.warn(`[HAJI-API] DB-connectivity failure — backing off ${Math.round(dbBackoffMs / 1000)}s`);
+        await new Promise(r => setTimeout(r, dbBackoffMs));
+        continue;
+      }
     }
     await new Promise(r => setTimeout(r, HAJI_AWAPI_SYNC_COOLDOWN_MS));
   }
@@ -16049,6 +16190,10 @@ if (shouldRunBackgroundJobs()) setTimeout(() => {
 
 // ── Umroh schedules sync: 45s after startup, then every 30 minutes ──
 async function runScheduleSync() {
+  if (isDbDegraded()) {
+    console.warn('[ScheduleSync] DB degraded — skipping cycle');
+    return;
+  }
   await syncUmrohSchedules();
 }
 if (shouldRunBackgroundJobs()) {

@@ -120,3 +120,38 @@ test('partition: empty/invalid rows tolerated', () => {
   assert.deepEqual(partitionChangedJamaahRows([], new Map()), { changed: [], skippedCount: 0 });
   assert.deepEqual(partitionChangedJamaahRows(undefined, new Map()), { changed: [], skippedCount: 0 });
 });
+
+// ── raw_data-strip is skip-neutral (guards JAMAAH_DIFF_COLUMNS in server.js) ──────
+// server.js reads existing rows for the diff WITHOUT raw_data (the heavy jsonb) to cut
+// read load. This is only safe if the skip decision is identical with vs. without
+// raw_data (and other non-payload columns) present on the existing row. These cases
+// pin that property so a future change can't silently make the narrowed read unsafe.
+test('partition: stripping raw_data from existing rows does not change skip decision', () => {
+  const payload = [
+    { agent_id: 1, id_umroh: 'A', jm_id: 'JM1', nama: 'Budi', bayar: 100, sisa: 0, synced_at: 'NEW' },
+  ];
+  const withRaw = new Map([[jamaahUpsertKey(payload[0]), {
+    agent_id: 1, id_umroh: 'A', jm_id: 'JM1', nama: 'Budi', bayar: 100, sisa: 0,
+    synced_at: 'OLD', raw_data: { token: 'abc', payment_synced_at: 'OLD' },
+  }]]);
+  const withoutRaw = new Map([[jamaahUpsertKey(payload[0]), {
+    agent_id: 1, id_umroh: 'A', jm_id: 'JM1', nama: 'Budi', bayar: 100, sisa: 0, synced_at: 'OLD',
+  }]]);
+  const a = partitionChangedJamaahRows(payload, withRaw);
+  const b = partitionChangedJamaahRows(payload, withoutRaw);
+  // Unchanged business fields → skipped in BOTH cases (synced_at + raw_data ignored).
+  assert.equal(a.skippedCount, 1);
+  assert.deepEqual(a, b);
+});
+
+test('partition: real business change still written whether or not existing has raw_data', () => {
+  const payload = [
+    { agent_id: 1, id_umroh: 'A', jm_id: 'JM1', nama: 'Budi', bayar: 250, sisa: 0, synced_at: 'NEW' },
+  ];
+  const withoutRaw = new Map([[jamaahUpsertKey(payload[0]), {
+    agent_id: 1, id_umroh: 'A', jm_id: 'JM1', nama: 'Budi', bayar: 100, sisa: 0, synced_at: 'OLD',
+  }]]);
+  const { changed, skippedCount } = partitionChangedJamaahRows(payload, withoutRaw);
+  assert.equal(skippedCount, 0); // bayar 100→250 is a real change → written
+  assert.equal(changed.length, 1);
+});
