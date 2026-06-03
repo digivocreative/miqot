@@ -110,7 +110,7 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   const phone = agentOverride?.phone || agent?.phone || DEFAULT_PHONE;
   const agentName = agentOverride?.name || agent?.name || slug.charAt(0).toUpperCase() + slug.slice(1);
   const agentPhoto = agentOverride?.photo
-    || 'https://xicthdsuvmwwuvwvvbqa.supabase.co/storage/v1/object/public/agent-photos/' + slug + '.jpg';
+    || 'https://sb.alhijaz.co/storage/v1/object/public/agent-photos/' + slug + '.jpg';
   const waGeneral = 'https://api.whatsapp.com/send?phone=' + phone + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Paket%20Haji%20Khusus%20di%20Alhijaz';
   const waPembiayaan = 'https://api.whatsapp.com/send?phone=' + phone + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Program%20Pembiayaan%20Haji%20Plus%20di%20Alhijaz';
 

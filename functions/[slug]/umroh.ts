@@ -110,7 +110,7 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   const phone = agentOverride?.phone || agent?.phone || DEFAULT_PHONE;
   const agentName = agentOverride?.name || agent?.name || slug.charAt(0).toUpperCase() + slug.slice(1);
   const agentPhoto = agentOverride?.photo
-    || 'https://xicthdsuvmwwuvwvvbqa.supabase.co/storage/v1/object/public/agent-photos/' + slug + '.jpg';
+    || 'https://sb.alhijaz.co/storage/v1/object/public/agent-photos/' + slug + '.jpg';
   const waBase = 'https://api.whatsapp.com/send?phone=' + phone;
 
   // Read the original HTML template

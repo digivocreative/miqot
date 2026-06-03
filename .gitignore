@@ -8,3 +8,6 @@ data/*.json
 data/kurs-share-cache/
 exports/
 .superpowers/
+
+# pre-cutover env backup (old secrets) — keep local, never commit
+.env.cutover-bak
