@@ -627,25 +627,16 @@ cron.schedule('30 3 * * *', () => {
 }, { timezone: 'Asia/Jakarta' });
 
 function scheduleAnalyticsMaintenanceCron() {
-  const now = new Date();
-  // 02:00 WIB = 19:00 UTC previous day
-  const next = new Date(now);
-  next.setUTCHours(19, 0, 0, 0);
-  if (next <= now) {
-    next.setUTCDate(next.getUTCDate() + 1);
-  }
-  const msUntil = next - now;
-  const wibHour = (next.getUTCHours() + 7) % 24;
-  const wibMin = String(next.getUTCMinutes()).padStart(2, '0');
-  console.log(`[Analytics] Next maintenance run in ${Math.round(msUntil / 60000)} minutes (${wibHour}:${wibMin} WIB)`);
-  setTimeout(async () => {
+  // 02:00 WIB daily via persistent cron — a per-boot setTimeout could be perpetually
+  // deferred by frequent restarts, leaving the analytics_events_daily rollup stale.
+  cron.schedule('0 2 * * *', async () => {
     try {
       await runAnalyticsMaintenance(supabase);
     } catch (err) {
       console.error('[Analytics] Maintenance run threw:', err.message);
     }
-    scheduleAnalyticsMaintenanceCron();
-  }, msUntil);
+  }, { timezone: 'Asia/Jakarta' });
+  console.log('[Analytics] Maintenance cron scheduled (02:00 WIB daily)');
 }
 
 if (shouldRunBackgroundJobs()) scheduleAnalyticsMaintenanceCron();
@@ -12112,7 +12103,7 @@ app.post('/api/flight-share', authMiddleware, async (req, res) => {
 
     if (error) throw error;
 
-    console.log(`[FlightShare] Created: ${code} for ${agentSlug} — ${flight_number} ${flight_date}`);
+    console.log(`[FlightShare] Created: ${code} for ${agentId} — ${flight_number} ${flight_date}`);
 
     res.json({
       success: true,
