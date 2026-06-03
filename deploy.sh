@@ -32,6 +32,9 @@ echo "==> Installing dependencies..."
 npm install --production=false
 
 echo "==> Building application..."
+# Re-export VITE_* from the CURRENT .env so Vite bakes the right values, overriding
+# any stale VITE_* inherited from the long-running webhook listener's environment.
+while IFS= read -r kv; do export "$kv"; done < <(grep -E '^VITE_[A-Za-z0-9_]+=' .env || true)
 npm run build
 
 echo "==> Restarting miqot service..."
