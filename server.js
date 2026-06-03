@@ -876,21 +876,43 @@ let agentCacheById = null;
 let agentCacheBySlug = null;
 let agentCacheTime = 0;
 const AGENT_CACHE_TTL = 5 * 60 * 1000; // 5 min
+// When a refresh FAILS (DB unreachable / 522), keep serving the stale cache and
+// back off for this long before retrying. Without it, agentCacheTime only advances
+// on success — so during a DB blip the cache stays "expired" and EVERY public
+// request re-fires `agents?select=*` against the sick DB. On the small instance
+// that stampede depletes the Disk-IO burst and turns a few-second blip into a
+// prolonged 522 outage (incident 2026-06-03). See [[db-io-throttling-incident]].
+const AGENT_CACHE_FAIL_TTL = 15 * 1000; // 15s backoff after a failed refresh
+let agentCacheFailUntil = 0;
+let agentRefreshInFlight = null; // single-flight: collapse concurrent refreshes onto one query
 
 async function getAgents() {
-  if (agentCacheById && Date.now() - agentCacheTime < AGENT_CACHE_TTL) return agentCacheById;
-  const { data, error } = await supabase.from('agents').select('*');
-  if (error) { console.error('[Supabase] agents fetch error:', error.message); return agentCacheById || {}; }
-  const idMap = {};
-  const slugMap = {};
-  for (const a of data) {
-    idMap[a.id] = a;
-    slugMap[a.slug] = a;
-  }
-  agentCacheById = idMap;
-  agentCacheBySlug = slugMap;
-  agentCacheTime = Date.now();
-  return idMap;
+  const now = Date.now();
+  if (agentCacheById && now - agentCacheTime < AGENT_CACHE_TTL) return agentCacheById;
+  // A recent refresh failed — serve stale cache instead of stampeding a sick DB.
+  if (agentCacheById && now < agentCacheFailUntil) return agentCacheById;
+  // Single-flight: if a refresh is already running, await it rather than firing another.
+  if (agentRefreshInFlight) return agentRefreshInFlight;
+  agentRefreshInFlight = (async () => {
+    const { data, error } = await supabase.from('agents').select('*');
+    if (error) {
+      console.error('[Supabase] agents fetch error:', error.message);
+      agentCacheFailUntil = Date.now() + AGENT_CACHE_FAIL_TTL;
+      return agentCacheById || {};
+    }
+    const idMap = {};
+    const slugMap = {};
+    for (const a of data) {
+      idMap[a.id] = a;
+      slugMap[a.slug] = a;
+    }
+    agentCacheById = idMap;
+    agentCacheBySlug = slugMap;
+    agentCacheTime = Date.now();
+    agentCacheFailUntil = 0;
+    return idMap;
+  })().finally(() => { agentRefreshInFlight = null; });
+  return agentRefreshInFlight;
 }
 
 async function getAgentsBySlug() {
@@ -912,6 +934,7 @@ function invalidateAgentCache() {
   agentCacheById = null;
   agentCacheBySlug = null;
   agentCacheTime = 0;
+  agentCacheFailUntil = 0;
 }
 
 // ── umroh_schedules in-memory cache ──
