@@ -1,6 +1,6 @@
 # Alhijaz Indowisata — Project Summary
 
-Terakhir diperbarui: 2026-06-01
+Terakhir diperbarui: 2026-06-03
 
 ## 1. Identitas & Tujuan Project
 
@@ -260,7 +260,7 @@ alhijaz/
 ├── lib/                    # Shared server-side pure/business logic
 │   ├── analytics-maintenance.js # Daily analytics aggregation + raw/CAPI log retention cleanup
 │   ├── awapi-sync-outcome.js # `classifyAwapiSyncOutcome` — pure decision helper untuk tail sync umroh AWAPI (full/partial/hardfail → shouldBump/shouldNotify/shouldCleanup)
-│   ├── background-jobs.js    # `shouldRunBackgroundJobs` + `parseEnvBoolean` — gate cron/notifier by NODE_ENV (override `ENABLE_BACKGROUND_JOBS`)
+│   ├── background-jobs.js    # `shouldRunBackgroundJobs`, `shouldRunJamaahBackgroundSync`, `shouldRunLegacyBackgroundSync` + `parseEnvBoolean` — gate cron/notifier and jamaah sync loops by env flags
 │   ├── birthdays.js          # Birthday lookup/date helpers
 │   ├── brochure-schedule.js  # Harga/hotel cleanup, sold-out parsing, grouping package by month for Brosur Jadwal
 │   ├── cdn-file-sync.js      # CDN file sync decisions (skip/upload/verify) by comparing SHA256 fingerprints
@@ -438,7 +438,7 @@ alhijaz/
     - File upload: file_ktp preview + preview modal sebelum submit
     - `POST /api/umrah/register` → submit ke legacy system dengan multipart form
   - **Magic Link generator** (per jamaah, agent-only): tombol di `JamaahPage`/`HajiPage` membuka `MagicLinkModal` (272 lines) → endpoint `POST /api/portal/jamaah/:slug/magic-link/generate` return URL + expires_at + anggota_count → distribusi WhatsApp/SMS/copy. Token disimpan di `jamaah_portal_tokens`, reuse jika masih valid
-  - Tab Haji (`HajiPage.tsx`): sync AWAPI-first (`AWAPI_SYNC_ENABLED`), list jamaah haji; scraper legacy turun jadi scheduled enrichment (bukan loop utama 30 menit)
+  - Tab Haji (`HajiPage.tsx`): sync AWAPI-first (`AWAPI_SYNC_ENABLED`), list jamaah haji; scraper legacy turun jadi scheduled enrichment terpisah dan bisa dimatikan via `DISABLE_LEGACY_BACKGROUND_SYNC`
     - Card collapsed: avatar (gender ring, lunas checkmark), nama, `{id_haji} • {paket}`, tahun masehi keberangkatan (orange bold)
     - Card expanded: detail grid (Thn Hijriyah, Jenis, Perwakilan, Marketing, Staff, Status Bayar), telp, alamat
     - **Filter lanjutan** (panel beranimasi sama seperti Umroh): tahun pendaftaran (`daftar_year`, dari range `tgl_daftar`), status bayar, dan filter teks paket
@@ -535,7 +535,7 @@ alhijaz/
   - Concurrency protection: `isCheckRunning` flag prevents overlapping `checkAndNotify` cycles
 - AWAPI official sync path: jika `AWAPI_SYNC_ENABLED=true` dan agent punya `awapi_key`, sync umroh & haji memakai Alhijaz Official API (`awapi-client.js`).
   - **Trigger**: (a) **manual** — `POST /api/laporan/sync` (umroh, → `syncUmrahViaApiCore`) & `POST /api/haji/sync` (haji, → `syncHajiViaApiCore`), keduanya `authMiddleware`; (b) **background** terjadwal (lihat "Background sync jamaah" di bawah). Mutex `syncingAgents` cegah sync ganda untuk agent yang sama.
-  - **Asimetri fallback**: umroh — bila AWAPI throw (`hardfail`), otomatis **fallback ke legacy scrape** (retry penuh). Haji — **tidak ada fallback**: error cukup di-log, siklus berikutnya coba lagi; pengayaan field legacy haji jalan terpisah sebagai scheduled enrichment.
+  - **Asimetri fallback**: umroh manual — bila AWAPI throw (`hardfail`), otomatis **fallback ke legacy scrape** (retry penuh). Umroh background hanya fallback bila `DISABLE_LEGACY_BACKGROUND_SYNC` tidak aktif; production default 2026-06-03 menonaktifkan fallback legacy background. Haji — **tidak ada fallback**: error cukup di-log, siklus berikutnya coba lagi; pengayaan field legacy haji hanya jalan jika legacy background scheduler aktif.
   - **Outcome classifier** (`lib/awapi-sync-outcome.js` → `classifyAwapiSyncOutcome`): hasil sync dipetakan ke `full` / `partial` / `hardfail`. Hanya `hardfail` (upsert gagal, atau fetch gagal & tidak ada row sama sekali) yang throw → trigger fallback legacy scrape. **Fix A (2026-05-31)**: `partial` (sebagian endpoint gagal tapi ada row) TIDAK fallback ke legacy lagi — supaya label "last sync" tetap di-bump (`last_jamaah_sync_at`) dan tidak ada flap notif. Notifikasi + CAPI + cleanup hanya jalan saat `full`. Manual sync response & background log kini menyertakan flag `partial`/`status`. Diterapkan ke umroh (`syncUmrahViaApiCore`) dan haji (`syncHajiViaApiCore`).
   - **Payment provenance guard** (`lib/jamaah-payment-provenance.js`): setelah sync AWAPI pertama, kolom legacy (`bayar`/`sisa`/`diskon_kantor`/`diskon_marketing`) tidak boleh menimpa data AWAPI. Setiap row di-stamp `payment_source` (`awapi`|`legacy`) + `payment_synced_at` di `raw_data`; Phase 2 enrichment legacy jadi payment-free.
   - **Phase 1 enrichment preservation** (`lib/jamaah-phase1-enrichment.js`): data input user (`wa`, `tgl_lahir`, `no_paspor`, `paspor_expired`, `perlengkapan`, `dokumen`) di-preserve lintas sync agar tidak hilang saat row API menimpa. Guard tambahan: kalau parse `tgl_berangkat` baru gagal (`null`), pertahankan tanggal + `hijriah_year` lama (jangan timpa dengan nilai salah).
@@ -545,8 +545,8 @@ alhijaz/
   - **Jalur legacy scrape (fallback umroh, 2 fase)**: Fase 1 `fetchUmrahBookings` (`laporan-api.js`) — scan cepat daftar booking (id_umroh, tgl_daftar, tgl_berangkat, paket, bayar); Fase 2 `fetchUmrahDetail` — detail per jamaah (jm_id, nama, jk, bayar, sisa, diskon, tgl_berangkat). Keduanya parse tanggal via `parseLegacyDmyDate` (lihat fix bulan Indonesia). Sebelum upsert, `mergeExistingUmrohPhase1Enrichment` menjaga data input user, lalu `prepareLegacyPaymentRowsForUpsert` melucuti kolom payment bila row eksisting bersumber AWAPI.
   - **raw_data = sumber kebenaran**: untuk row AWAPI, `raw_data` menyimpan payload mentah + provenance dan **tak pernah ditimpa** oleh jalur legacy → bisa dipakai merekonstruksi kolom turunan (mis. perbaikan `tgl_berangkat`). Conflict target upsert: umroh `agent_id,id_umroh,jm_id`; haji `agent_id,id_haji,id_jamaah`.
   - **Cleanup guard** (`lib/sync-cleanup.js` → `computeSafeDeletions`): penghapusan row jamaah yang hilang dari sumber hanya dijalankan saat sync `full` (bukan `partial`), dan hanya bila daftar terbukti lengkap — cegah jamaah terhapus karena fetch sebagian. CAPI Purchase juga hanya di-fire saat `full`.
-- **Background jobs gating** (`lib/background-jobs.js`): cron kurs & init Telegram notifier hanya jalan kalau `shouldRunBackgroundJobs()` true — default production, atau dev/test yang set `ENABLE_BACKGROUND_JOBS=true`.
-- Background sync jamaah (semua agent, chain-scheduled — siklus berikutnya mulai setelah yang sebelumnya selesai): umroh AWAPI **default tiap 30 menit** (`SYNC_COOLDOWN_MS` via `parseSyncCooldownMs`, override env `SYNC_COOLDOWN_MINUTES`; mulai 30 dtk setelah boot via `runSyncCycleLoop`, dengan guard anti restart-storm yang menunda siklus pertama bila baru saja sync — state di `data/sync-state.json`), umroh legacy **tiap 30 menit** bila AWAPI nonaktif, haji AWAPI **tiap 30 menit** (`runHajiSyncCycleLoop`, mulai 90 dtk setelah boot), plus enrichment legacy haji terjadwal terpisah (~30 menit) untuk mengisi field yang sengaja dikosongkan API. Cooldown AWAPI dulu hardcoded 10 mnt; dinaikkan jadi 30 mnt (env-driven) karena re-upsert seluruh jamaah tiap 10 mnt menguras Disk IO budget Supabase (insiden 2026-06-01)
+- **Background jobs gating** (`lib/background-jobs.js`): cron kurs & init Telegram notifier hanya jalan kalau `shouldRunBackgroundJobs()` true — default production, atau dev/test yang set `ENABLE_BACKGROUND_JOBS=true`. Jamaah sync punya kill switch terpisah: `DISABLE_JAMAAH_BACKGROUND_SYNC=true` mematikan semua loop jamaah otomatis (AWAPI + legacy) tanpa mematikan notifier/cron lain; `DISABLE_LEGACY_BACKGROUND_SYNC=true` mematikan fallback/enrichment legacy otomatis.
+- Background sync jamaah (semua agent AWAPI-enabled, chain-scheduled — siklus berikutnya mulai setelah yang sebelumnya selesai): umroh AWAPI **default production 60 menit** (`SYNC_COOLDOWN_MS` via `parseSyncCooldownMs`, override env `SYNC_COOLDOWN_MINUTES`; mulai 30 dtk setelah boot via `runSyncCycleLoop`, dengan guard anti restart-storm yang menunda siklus pertama bila baru saja sync — state di `data/sync-state.json`), haji AWAPI **default production 60 menit** (`HAJI_AWAPI_SYNC_COOLDOWN_MINUTES`; first cycle juga ditunda sesuai cooldown, bukan 90 dtk setelah boot), legacy background/fallback/enrichment otomatis bisa dimatikan via `DISABLE_LEGACY_BACKGROUND_SYNC=true`. Cooldown AWAPI dulu hardcoded 10 mnt lalu 30 mnt; dinaikkan ke 60 mnt karena full-fleet jamaah sync bisa menguras/menekan Disk IO budget Supabase (insiden 2026-06-01/2026-06-03).
 - Calendar sync (scrape FullCalendar dari internal system, setiap 12 jam via `setInterval`)
   - Login ke internal system → fetch halaman Beranda → parse FullCalendar events JSON
   - Fetch detail popup via `_jmodal.php` per event → parse HTML table (group, pesawat, jam, paket, PAX, staff, TL)
@@ -1270,7 +1270,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Telegram notification preferences (15 visible toggles, per-agent toggle, JSONB in agents table)
 - Pembayaran masuk detection (sync-time comparison, split cicilan vs pelunasan, auto-notify agent via Telegram DM)
 - Settings page: iOS segmented control tab bar (Lucide icons), Telegram brand badge with animations, skeleton loading, disconnect confirmation dialog
-- Background sync jamaah (chain-scheduled: umroh AWAPI default ~30 min via `SYNC_COOLDOWN_MINUTES`, haji AWAPI ~30 min; all agents, single kantor per agent, 6-month widened fetch range)
+- Background sync jamaah (chain-scheduled: umroh AWAPI default 60 min via `SYNC_COOLDOWN_MINUTES`, haji AWAPI default 60 min via `HAJI_AWAPI_SYNC_COOLDOWN_MINUTES`; legacy background/fallback/enrichment bisa dimatikan via `DISABLE_LEGACY_BACKGROUND_SYNC`)
 - Single package view (deep link ke 1 paket)
 - Quotation PDF dengan logo bank (BCA, BSI, Mandiri)
 - Calendar scraping & display (internal system → Supabase → dashboard mini calendar + bottom sheet)

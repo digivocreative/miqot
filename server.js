@@ -71,8 +71,8 @@ import {
   parseMandiriKursHtml,
   shouldReplaceKursCache,
 } from './lib/kurs-mandiri.js';
-import { shouldRunBackgroundJobs } from './lib/background-jobs.js';
-import { parseSyncCooldownMs, computeFirstCycleDelayMs } from './lib/sync-schedule.js';
+import { shouldRunBackgroundJobs, shouldRunJamaahBackgroundSync, shouldRunLegacyBackgroundSync } from './lib/background-jobs.js';
+import { parseSyncCooldownMinutes, parseSyncCooldownMs, computeFirstCycleDelayMs } from './lib/sync-schedule.js';
 import { evaluateDbProbe, freshDbHealthState, DEFAULT_DB_HEALTH_CONFIG } from './lib/db-health.js';
 import { freshCircuitState, recordDbOutcome, isCircuitOpen, nextBackoffMs, isDbConnectivityError, DEFAULT_CIRCUIT_CONFIG } from './lib/db-circuit.js';
 import { resolveJamaahUpsertBatch, jamaahUpsertKey, partitionChangedJamaahRows } from './lib/jamaah-upsert.js';
@@ -121,6 +121,8 @@ const JAMAAH_DIFF_COLUMNS = 'id, id_umroh, nama, jk, wa, tgl_lahir, paket, bayar
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
 const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f']);
+const JAMAAH_BACKGROUND_SYNC_ENABLED = shouldRunJamaahBackgroundSync();
+const LEGACY_BACKGROUND_SYNC_ENABLED = shouldRunLegacyBackgroundSync();
 
 // ── DB circuit breaker (incident 2026-06-02) ──
 // Sheds background + heavy-read load when Supabase is unreachable / restarting, so an
@@ -14880,14 +14882,17 @@ async function syncOneAgent(agent) {
   // Lazy-discover key for agents who logged in before Phase 1 — silent best-
   // effort, falls through to legacy if it can't get a key.
   let awapiFallbackUsed = false;
-  if (process.env.AWAPI_SYNC_ENABLED === 'true') {
+  const awapiEnabled = process.env.AWAPI_SYNC_ENABLED === 'true';
+  if (awapiEnabled && !agent.awapi_key && LEGACY_BACKGROUND_SYNC_ENABLED) {
     agent = await ensureAwapiCredentials(agent);
+  }
+  if (awapiEnabled) {
     if (!agent?.jamaah_username || !agent?.jamaah_password) {
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null, loginFailed: true, invalidCredentials: true });
       return;
     }
   }
-  if (process.env.AWAPI_SYNC_ENABLED === 'true' && agent.awapi_key) {
+  if (awapiEnabled && agent.awapi_key) {
     try {
       const result = await syncUmrahViaApiCore(agentId, slug, agent, { context: 'bg' });
       syncingAgents.set(agentId, {
@@ -14899,11 +14904,21 @@ async function syncOneAgent(agent) {
       console.log(`[SYNC/api/bg] ${slug}: ${result.partial ? 'partial' : 'complete'} — ${result.count} rows in ${result.yearsCompleted}/${result.yearsAttempted} years`);
       return;
     } catch (err) {
+      if (!LEGACY_BACKGROUND_SYNC_ENABLED) {
+        console.warn(`[SYNC/api/bg] ${slug} aborted; legacy background fallback disabled — skipping:`, err.message);
+        syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null, legacySkipped: true });
+        return { skipped: true, reason: 'legacy_background_disabled' };
+      }
       console.error(`[SYNC/api/bg] ${slug} aborted, falling back to legacy:`, err.message);
       awapiFallbackUsed = true;
       syncingAgents.set(agentId, { isSyncing: true, background: true, scope: 'umroh-bg', totalSynced: 0, lastSync: null, startedAt: Date.now(), username: agent.jamaah_username });
       // fall through to legacy
     }
+  }
+  if (!LEGACY_BACKGROUND_SYNC_ENABLED) {
+    console.log(`[SYNC] ${slug}: legacy background disabled — skipping`);
+    syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null, legacySkipped: true });
+    return { skipped: true, reason: 'legacy_background_disabled' };
   }
 
   try {
@@ -15557,6 +15572,10 @@ async function runScheduledUmrohPhase2ForAgent(agent) {
 }
 
 async function runScheduledUmrohPhase2Enrichment() {
+  if (!LEGACY_BACKGROUND_SYNC_ENABLED) {
+    console.log('[SYNC/P2] Scheduled enrichment skipped — legacy background sync is disabled');
+    return;
+  }
   if (process.env.AWAPI_SYNC_ENABLED !== 'true') {
     console.log('[SYNC/P2] Scheduled enrichment skipped — AWAPI sync is disabled');
     return;
@@ -15601,6 +15620,10 @@ async function runScheduledUmrohPhase2Enrichment() {
 }
 
 function scheduleUmrohPhase2Enrichment() {
+  if (!LEGACY_BACKGROUND_SYNC_ENABLED) {
+    console.log('[SYNC/P2] Scheduled enrichment disabled because legacy background sync is disabled');
+    return;
+  }
   if (process.env.AWAPI_SYNC_ENABLED !== 'true') {
     console.log('[SYNC/P2] Scheduled enrichment disabled because AWAPI_SYNC_ENABLED is not true');
     return;
@@ -15661,6 +15684,14 @@ async function syncAllAgents() {
   const apiEnabled = process.env.AWAPI_SYNC_ENABLED === 'true';
   const PARALLEL = apiEnabled ? 3 : 1;
   const INTER_AGENT_GAP_MS = apiEnabled ? 0 : 5000;
+  const syncAgents = apiEnabled && !LEGACY_BACKGROUND_SYNC_ENABLED
+    ? agents.filter(agent => agent.awapi_key)
+    : agents;
+
+  if (!syncAgents.length) {
+    console.log('[SYNC] No AWAPI-enabled agents found for background sync');
+    return { dbError: false };
+  }
 
   let ok = 0, fail = 0, skipped = 0, loginFail = 0;
   let abort = false;
@@ -15670,7 +15701,8 @@ async function syncAllAgents() {
     try {
       const prevState = syncingAgents.get(agent.id);
       if (prevState?.isSyncing) { skipped++; return; }
-      await syncOneAgent(agent);
+      const result = await syncOneAgent(agent);
+      if (result?.skipped) { skipped++; return; }
       const afterState = syncingAgents.get(agent.id);
       if (afterState?.loginFailed) {
         loginFail++;
@@ -15689,14 +15721,14 @@ async function syncAllAgents() {
     }
   };
 
-  for (let i = 0; i < agents.length; i += PARALLEL) {
+  for (let i = 0; i < syncAgents.length; i += PARALLEL) {
     if (abort) {
-      skipped += agents.length - i;
+      skipped += syncAgents.length - i;
       break;
     }
-    const batch = agents.slice(i, i + PARALLEL);
+    const batch = syncAgents.slice(i, i + PARALLEL);
     await Promise.all(batch.map(processOne));
-    if (INTER_AGENT_GAP_MS > 0 && i + PARALLEL < agents.length) {
+    if (INTER_AGENT_GAP_MS > 0 && i + PARALLEL < syncAgents.length) {
       await new Promise((r) => setTimeout(r, INTER_AGENT_GAP_MS));
     }
   }
@@ -15725,7 +15757,7 @@ if (shouldRunBackgroundJobs()) setTimeout(async () => {
 
 // Chain-scheduled sync: next cycle starts a fixed cooldown AFTER the previous
 // finishes. Prevents cycle-overlap regardless of how long a single cycle takes.
-// Cooldown is env-overridable via SYNC_COOLDOWN_MINUTES (default 30m). It used to
+// Cooldown is env-overridable via SYNC_COOLDOWN_MINUTES (default 60m). It used to
 // be a hardcoded 10m on the API path, but re-upserting every agent's jamaah every
 // 10m generated sustained write IO that drained the Supabase Disk IO budget
 // (incident 2026-06-01). See lib/sync-schedule.js.
@@ -15800,12 +15832,20 @@ async function runSyncCycleLoop() {
   }
 }
 if (shouldRunBackgroundJobs()) {
-  setTimeout(() => {
-    console.log(`[SYNC] Cooldown ${Math.round(SYNC_COOLDOWN_MS / 60000)}m (SYNC_COOLDOWN_MINUTES)`);
-    runSyncCycleLoop().catch(err => console.error('[SYNC] Loop crashed:', err.message));
-  }, 30 * 1000);
-  scheduleUmrohPhase2Enrichment();
-  scheduleHajiLegacyEnrichment();
+  if (JAMAAH_BACKGROUND_SYNC_ENABLED) {
+    setTimeout(() => {
+      console.log(`[SYNC] Cooldown ${Math.round(SYNC_COOLDOWN_MS / 60000)}m (SYNC_COOLDOWN_MINUTES)`);
+      runSyncCycleLoop().catch(err => console.error('[SYNC] Loop crashed:', err.message));
+    }, 30 * 1000);
+    if (LEGACY_BACKGROUND_SYNC_ENABLED) {
+      scheduleUmrohPhase2Enrichment();
+      scheduleHajiLegacyEnrichment();
+    } else {
+      console.log('[SYNC] Legacy background sync disabled — skipping umroh Phase 2 and haji legacy schedulers');
+    }
+  } else {
+    console.log('[SYNC] Jamaah background sync disabled — skipping umroh and haji jamaah schedulers');
+  }
 }
 
 // ── Haji sync: AWAPI owns the frequent sync; legacy scraper enriches sparse fields on schedule. ──
@@ -15996,7 +16036,9 @@ async function syncHajiOneAgent(agent) {
   });
 
   try {
-    const awapiAgent = await ensureAwapiCredentials(agent);
+    const awapiAgent = agent.awapi_key || LEGACY_BACKGROUND_SYNC_ENABLED
+      ? await ensureAwapiCredentials(agent)
+      : agent;
     if (!awapiAgent?.awapi_key) {
       console.warn(`[HAJI-API] ${slug}: no AWAPI key available`);
       return { skipped: true, reason: 'missing_awapi_key' };
@@ -16046,7 +16088,7 @@ async function syncAllAgentsHaji() {
   recordDbResult(true);
 
   const eligibleAgents = (agents || []).filter(agent =>
-    agent.awapi_key || (agent.jamaah_username && agent.jamaah_password)
+    agent.awapi_key || (LEGACY_BACKGROUND_SYNC_ENABLED && agent.jamaah_username && agent.jamaah_password)
   );
 
   if (!eligibleAgents.length) {
@@ -16088,6 +16130,10 @@ async function syncAllAgentsHaji() {
 }
 
 async function runScheduledHajiLegacyEnrichment() {
+  if (!LEGACY_BACKGROUND_SYNC_ENABLED) {
+    console.log('[HAJI-LEGACY] Scheduled enrichment skipped — legacy background sync is disabled');
+    return;
+  }
   console.log('[HAJI-LEGACY] Starting scheduled haji legacy enrichment cycle...');
   const startTime = Date.now();
 
@@ -16133,6 +16179,10 @@ async function runScheduledHajiLegacyEnrichment() {
 }
 
 function scheduleHajiLegacyEnrichment() {
+  if (!LEGACY_BACKGROUND_SYNC_ENABLED) {
+    console.log('[HAJI-LEGACY] Scheduled enrichment disabled because legacy background sync is disabled');
+    return;
+  }
   const scheduleNext = () => {
     const nextRun = nextJakartaScheduleDate(new Date(), DEFAULT_UMROH_PHASE2_TIMES_WIB);
     const delayMs = Math.max(0, nextRun.getTime() - Date.now());
@@ -16151,7 +16201,10 @@ function scheduleHajiLegacyEnrichment() {
   scheduleNext();
 }
 
-const HAJI_AWAPI_SYNC_COOLDOWN_MS = 30 * 60 * 1000;
+const HAJI_AWAPI_SYNC_COOLDOWN_MS = parseSyncCooldownMinutes(
+  process.env.HAJI_AWAPI_SYNC_COOLDOWN_MINUTES,
+  60,
+) * 60 * 1000;
 async function runHajiSyncCycleLoop() {
   let dbBackoffMs = 0;
   while (true) {
@@ -16182,11 +16235,16 @@ async function runHajiSyncCycleLoop() {
     await new Promise(r => setTimeout(r, HAJI_AWAPI_SYNC_COOLDOWN_MS));
   }
 }
-// Start 90s after boot — well after the umroh API loop (30s) so the very
-// first haji cycle doesn't compete for boot resources.
-if (shouldRunBackgroundJobs()) setTimeout(() => {
-  runHajiSyncCycleLoop().catch(err => console.error('[HAJI-API] Loop crashed:', err.message));
-}, 90 * 1000);
+// Start after the configured cooldown, not immediately after boot. Haji AWAPI
+// scans many years per agent, so a restart should not launch a second fleet-wide
+// jamaah workload right after the umroh AWAPI loop has been scheduled.
+if (shouldRunBackgroundJobs() && JAMAAH_BACKGROUND_SYNC_ENABLED) {
+  console.log(`[HAJI-API] First cycle scheduled in ${Math.round(HAJI_AWAPI_SYNC_COOLDOWN_MS / 60000)}m (HAJI_AWAPI_SYNC_COOLDOWN_MINUTES)`);
+  setTimeout(() => {
+    console.log(`[HAJI-API] Cooldown ${Math.round(HAJI_AWAPI_SYNC_COOLDOWN_MS / 60000)}m (HAJI_AWAPI_SYNC_COOLDOWN_MINUTES)`);
+    runHajiSyncCycleLoop().catch(err => console.error('[HAJI-API] Loop crashed:', err.message));
+  }, HAJI_AWAPI_SYNC_COOLDOWN_MS);
+}
 
 // ── Umroh schedules sync: 45s after startup, then every 30 minutes ──
 async function runScheduleSync() {

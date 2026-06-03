@@ -2880,6 +2880,18 @@ Modal full-screen yang panggil `POST /api/portal/jamaah/:slug/magic-link/generat
 
 ---
 
+## Operational Controls
+
+Kontrol ini tidak mengubah token visual, tapi mempengaruhi freshness data yang terlihat di dashboard dan Portal Jamaah:
+
+- `DISABLE_JAMAAH_BACKGROUND_SYNC=true`: mematikan semua loop jamaah otomatis (AWAPI + legacy) tanpa mematikan notifier, cron kurs, dan public APIs.
+- `DISABLE_LEGACY_BACKGROUND_SYNC=true`: mematikan fallback/enrichment legacy otomatis; jalur sync manual tetap tersedia untuk recovery tertarget.
+- `SYNC_COOLDOWN_MINUTES=60`: cadence full-fleet AWAPI umroh background dalam menit. Ini berlaku per siklus semua agent AWAPI-enabled, bukan 60 menit per agent.
+- `HAJI_AWAPI_SYNC_COOLDOWN_MINUTES=60`: cadence full-fleet AWAPI haji background dalam menit. First cycle haji juga ditunda sesuai cooldown agar restart tidak langsung menumpuk workload jamaah.
+- Umroh tetap punya guard anti restart-storm via `data/sync-state.json`; jika siklus terakhir masih baru, first cycle ditunda sampai cooldown terpenuhi.
+
+---
+
 ## Conventions
 
 - **Framework**: TailwindCSS utility-first, no component library

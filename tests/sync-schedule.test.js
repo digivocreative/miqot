@@ -32,7 +32,7 @@ test('parseSyncCooldownMinutes: honors a custom fallback', () => {
   assert.equal(parseSyncCooldownMinutes('oops', 15), 15);
 });
 
-test('parseSyncCooldownMs: defaults to 30 minutes when env is empty', () => {
+test('parseSyncCooldownMs: defaults to 60 minutes when env is empty', () => {
   assert.equal(parseSyncCooldownMs({}), DEFAULT_SYNC_COOLDOWN_MINUTES * MIN);
   assert.equal(parseSyncCooldownMs(), DEFAULT_SYNC_COOLDOWN_MINUTES * MIN);
 });
