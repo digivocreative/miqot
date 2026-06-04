@@ -242,7 +242,7 @@ export async function login(username, password, kantor = '2') {
         if (!cookieString) {
           lastError = {
             success: false,
-            error: 'Login sistem internal tidak mengembalikan sesi. Credential tidak dihapus otomatis.',
+            error: 'Login sistem internal ditolak (tidak ada sesi) — kemungkinan besar username/password berubah. Silakan login ulang sistem internal dari dashboard. Credential tersimpan tidak dihapus otomatis.',
             reason: 'login_no_session',
           };
           break;
@@ -252,7 +252,7 @@ export async function login(username, password, kantor = '2') {
         if (!phpSessionValue || phpSessionValue.toLowerCase() === 'deleted') {
           lastError = {
             success: false,
-            error: 'Login sistem internal menghapus sesi. Periksa INTERNAL_API_BASE di server.',
+            error: 'Login sistem internal ditolak — kemungkinan besar username/password berubah. Silakan login ulang sistem internal dari dashboard.',
             reason: 'login_deleted_session',
           };
           console.warn(`[Login] ${username}: ${loginBase} returned deleted PHPSESSID`);
@@ -275,7 +275,7 @@ export async function login(username, password, kantor = '2') {
         if (isSessionExpiredHtml(validateHtml)) {
           lastError = {
             success: false,
-            error: 'Login sistem internal menghapus sesi. Periksa INTERNAL_API_BASE di server.',
+            error: 'Login sistem internal ditolak — kemungkinan besar username/password berubah. Silakan login ulang sistem internal dari dashboard.',
             reason: 'login_deleted_session',
           };
           console.warn(`[Login] ${username}: ${loginBase} returned PHPSESSID but protected page rejected it`);

@@ -5953,9 +5953,20 @@ function queueJamaahSyncNotifications(agentId, events, label) {
 //
 // Failures are non-blocking — they just leave awapi_key empty so the caller
 // can decide to fall back (e.g. legacy scrape path).
+// Throttle discovery attempts per agent: with keyless agents now retried every
+// background cycle, dead credentials would otherwise hammer the upstream internal
+// system with failed logins (~96/day/agent from one IP — rate-limit risk for the
+// healthy agents too). Dashboard re-login still discovers the key instantly via
+// the login route, so a 6h retry here only affects the background safety net.
+const awapiDiscoveryAttempts = new Map(); // agentId -> last attempt (ms)
+const AWAPI_DISCOVERY_RETRY_MS = 6 * 60 * 60 * 1000;
+
 async function ensureAwapiCredentials(agent) {
   if (agent?.awapi_key) return agent;
   if (!agent?.jamaah_username || !agent?.jamaah_password) return agent;
+  const lastAttempt = awapiDiscoveryAttempts.get(agent.id);
+  if (lastAttempt && Date.now() - lastAttempt < AWAPI_DISCOVERY_RETRY_MS) return agent;
+  awapiDiscoveryAttempts.set(agent.id, Date.now());
 
   try {
     if (!isSessionActive(agent.jamaah_username)) {
@@ -6485,9 +6496,16 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   const decrypted = capiDecrypt(agent.jamaah_password);
   const loginResult = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
   if (!loginResult.success) {
-    syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null });
+    // Upstream never returns 401 for a wrong password — it bounces with an
+    // anonymous/deleted session (verified empirically: a known-good account with a
+    // deliberately wrong password produces login_no_session). Flag these as a
+    // credential problem so the dashboard can prompt an internal re-login instead
+    // of surfacing a misleading server-config error.
+    const credentialProblem = ['login_no_session', 'login_deleted_session', 'invalid_credentials'].includes(loginResult.reason);
+    syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null, loginFailed: true, invalidCredentials: credentialProblem });
     return res.status(401).json({
       error: loginResult.error || 'Gagal login ulang ke sistem internal. Credential tidak dihapus otomatis.',
+      invalidCredentials: credentialProblem,
     });
   }
 
@@ -14909,7 +14927,11 @@ async function syncOneAgent(agent) {
   // effort, falls through to legacy if it can't get a key.
   let awapiFallbackUsed = false;
   const awapiEnabled = process.env.AWAPI_SYNC_ENABLED === 'true';
-  if (awapiEnabled && !agent.awapi_key && LEGACY_BACKGROUND_SYNC_ENABLED) {
+  // Discovery only needs a legacy LOGIN (cheap, reuses active session) — not the
+  // legacy scrape sync — so it must NOT be gated on LEGACY_BACKGROUND_SYNC_ENABLED.
+  // With the gate, legacy-credential-only agents never obtained an AWAPI key and
+  // were silently skipped every background cycle once legacy sync was disabled.
+  if (awapiEnabled && !agent.awapi_key) {
     agent = await ensureAwapiCredentials(agent);
   }
   if (awapiEnabled) {
@@ -14930,6 +14952,25 @@ async function syncOneAgent(agent) {
       console.log(`[SYNC/api/bg] ${slug}: ${result.partial ? 'partial' : 'complete'} — ${result.count} rows in ${result.yearsCompleted}/${result.yearsAttempted} years`);
       return;
     } catch (err) {
+      // A saved-but-broken AWAPI key (e.g. upstream 403 on every endpoint) is never
+      // refreshed by lazy discovery, which early-returns when a key exists. When the
+      // whole fetch phase failed and legacy credentials are available, force one
+      // re-discovery via legacy login and retry once, so rotated/revoked keys
+      // self-heal without manual intervention.
+      if (/API fetch failed/.test(String(err.message)) && agent?.jamaah_username && agent?.jamaah_password) {
+        const refreshed = await ensureAwapiCredentials({ ...agent, awapi_key: null });
+        if (refreshed?.awapi_key && refreshed.awapi_key !== agent.awapi_key) {
+          console.warn(`[SYNC/api/bg] ${slug}: AWAPI key was stale — rediscovered, retrying once`);
+          try {
+            const result = await syncUmrahViaApiCore(agentId, slug, refreshed, { context: 'bg' });
+            syncingAgents.set(agentId, { isSyncing: false, totalSynced: result.count, lastSync: result.syncedAt, completedYears: [] });
+            console.log(`[SYNC/api/bg] ${slug}: ${result.partial ? 'partial' : 'complete'} — ${result.count} rows in ${result.yearsCompleted}/${result.yearsAttempted} years (after key rediscovery)`);
+            return;
+          } catch (retryErr) {
+            err = retryErr;
+          }
+        }
+      }
       if (!LEGACY_BACKGROUND_SYNC_ENABLED) {
         console.warn(`[SYNC/api/bg] ${slug} aborted; legacy background fallback disabled — skipping:`, err.message);
         syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null, legacySkipped: true });
@@ -15710,9 +15751,12 @@ async function syncAllAgents() {
   const apiEnabled = process.env.AWAPI_SYNC_ENABLED === 'true';
   const PARALLEL = apiEnabled ? 3 : 1;
   const INTER_AGENT_GAP_MS = apiEnabled ? 0 : 5000;
-  const syncAgents = apiEnabled && !LEGACY_BACKGROUND_SYNC_ENABLED
-    ? agents.filter(agent => agent.awapi_key)
-    : agents;
+  // Keep keyless agents in the cycle: per-agent lazy discovery (legacy login →
+  // scrape ?route=api) can obtain their AWAPI key on the spot, after which they
+  // sync via AWAPI like everyone else; if discovery fails they are skipped safely
+  // downstream. Previously they were filtered out here whenever legacy background
+  // sync was disabled, so they never obtained a key and never synced.
+  const syncAgents = agents;
 
   if (!syncAgents.length) {
     console.log('[SYNC] No AWAPI-enabled agents found for background sync');
@@ -16062,9 +16106,10 @@ async function syncHajiOneAgent(agent) {
   });
 
   try {
-    const awapiAgent = agent.awapi_key || LEGACY_BACKGROUND_SYNC_ENABLED
-      ? await ensureAwapiCredentials(agent)
-      : agent;
+    // ensureAwapiCredentials early-returns when a key already exists or legacy
+    // credentials are missing, so call it unconditionally — discovery must not be
+    // gated on LEGACY_BACKGROUND_SYNC_ENABLED (it only needs a legacy login).
+    const awapiAgent = await ensureAwapiCredentials(agent);
     if (!awapiAgent?.awapi_key) {
       console.warn(`[HAJI-API] ${slug}: no AWAPI key available`);
       return { skipped: true, reason: 'missing_awapi_key' };
@@ -16114,7 +16159,10 @@ async function syncAllAgentsHaji() {
   recordDbResult(true);
 
   const eligibleAgents = (agents || []).filter(agent =>
-    agent.awapi_key || (LEGACY_BACKGROUND_SYNC_ENABLED && agent.jamaah_username && agent.jamaah_password)
+    // Keyless agents with legacy credentials stay eligible so ensureAwapiCredentials
+    // can lazily discover their key (discovery only needs a legacy LOGIN, so it must
+    // not be gated on LEGACY_BACKGROUND_SYNC_ENABLED).
+    agent.awapi_key || (agent.jamaah_username && agent.jamaah_password)
   );
 
   if (!eligibleAgents.length) {
