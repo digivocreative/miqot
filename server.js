@@ -73,6 +73,7 @@ import {
 } from './lib/kurs-mandiri.js';
 import { shouldRunBackgroundJobs, shouldRunJamaahBackgroundSync, shouldRunLegacyBackgroundSync } from './lib/background-jobs.js';
 import { parseSyncCooldownMinutes, parseSyncCooldownMs, computeFirstCycleDelayMs } from './lib/sync-schedule.js';
+import { isWeatherRefreshDue, mergeWeatherResults } from './lib/weather-cache.js';
 import { evaluateDbProbe, freshDbHealthState, DEFAULT_DB_HEALTH_CONFIG } from './lib/db-health.js';
 import { freshCircuitState, recordDbOutcome, isCircuitOpen, nextBackoffMs, isDbConnectivityError, DEFAULT_CIRCUIT_CONFIG } from './lib/db-circuit.js';
 import { resolveJamaahUpsertBatch, jamaahUpsertKey, partitionChangedJamaahRows } from './lib/jamaah-upsert.js';
@@ -12303,11 +12304,14 @@ const WEATHER_CITIES = [
   { key: 'hainan',     name: 'Hainan',     country: 'China',      flag: '🇨🇳', lat: 18.2528, lon: 109.5120, tz: 'Asia/Shanghai' },
 ];
 
-let weatherCache = null;
-let weatherCacheTime = 0;
-let weatherCacheTTL = 60 * 60 * 1000;
-const WEATHER_CACHE_TTL_FULL = 60 * 60 * 1000;     // 1 jam untuk data lengkap
-const WEATHER_CACHE_TTL_PARTIAL = 10 * 60 * 1000;   // 10 menit untuk data tidak lengkap
+// DB-backed cache (pola kurs): server production fetch tiap 3 jam via cron →
+// tabel weather_cache; endpoint murni baca. Local (ENABLE_BACKGROUND_JOBS=false)
+// tidak pernah memanggil Open-Meteo otomatis.
+const WEATHER_REFRESH_INTERVAL_MS = 3 * 60 * 60 * 1000; // 3 jam
+const WEATHER_DB_READ_TTL_MS = 10 * 60 * 1000; // re-read DB max tiap 10 menit
+let weatherMemory = null; // { cities: [...], syncedAt: string }
+let weatherDbReadAt = 0;
+let weatherFetchInFlight = null;
 
 const wmoMap = (code) => {
   if (code === 0)              return { label: 'Cerah',            icon: '☀️' };
@@ -12370,73 +12374,141 @@ async function fetchCityWeather(city) {
   };
 }
 
+async function loadWeatherFromSupabase() {
+  try {
+    const { data, error } = await supabase
+      .from('weather_cache')
+      .select('data, synced_at')
+      .eq('id', 'cities')
+      .single();
+    if (error || !data) return false;
+    weatherMemory = { cities: data.data, syncedAt: data.synced_at };
+    return true;
+  } catch (err) {
+    console.error('[Weather] Supabase load error:', err.message);
+    return false;
+  }
+}
+
+// Fetch semua kota sequential (delay 300ms anti rate-limit, 1 pass retry),
+// merge kota gagal dengan data sebelumnya, persist ke DB + memory.
+// Semua kota gagal → DB & memory tidak disentuh (coba lagi di cron berikutnya).
+async function fetchAllCitiesWeatherOnce() {
+  const results = [];
+  let failed = [];
+  for (const city of WEATHER_CITIES) {
+    try {
+      results.push(await fetchCityWeather(city));
+    } catch {
+      failed.push(city);
+    }
+    if (city !== WEATHER_CITIES[WEATHER_CITIES.length - 1]) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+
+  if (failed.length > 0 && failed.length < WEATHER_CITIES.length) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const stillFailed = [];
+    for (const city of failed) {
+      try {
+        results.push(await fetchCityWeather(city));
+      } catch {
+        stillFailed.push(city);
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    failed = stillFailed;
+  }
+
+  if (results.length === 0) {
+    console.warn('[Weather] Semua kota gagal di-fetch (Open-Meteo down?) — DB & memory tidak diubah, retry di cron berikutnya');
+    return false;
+  }
+  if (failed.length > 0) {
+    console.warn(`[Weather] ${failed.length} kota gagal, pakai data lama: ${failed.map((c) => c.key).join(', ')}`);
+  }
+
+  const cities = mergeWeatherResults(results, weatherMemory?.cities, WEATHER_CITIES.map((c) => c.key));
+  const syncedAt = new Date().toISOString();
+  weatherMemory = { cities, syncedAt };
+
+  try {
+    const { error } = await supabase.from('weather_cache').upsert(
+      { id: 'cities', data: cities, synced_at: syncedAt },
+      { onConflict: 'id' }
+    );
+    if (error) throw new Error(error.message);
+    console.log(`[Weather] ${cities.length} kota dipersist ke Supabase (${failed.length} dari cache lama)`);
+  } catch (err) {
+    console.error('[Weather] Supabase persist error:', err.message);
+  }
+  return true;
+}
+
+// Single-flight (pola kursRefreshInFlight): trigger dev + cron yang overlap
+// tidak boleh balapan menulis weatherMemory/DB — run yang sedang jalan dipakai ulang.
+function fetchAllCitiesWeather() {
+  if (!weatherFetchInFlight) {
+    weatherFetchInFlight = fetchAllCitiesWeatherOnce().finally(() => {
+      weatherFetchInFlight = null;
+    });
+  }
+  return weatherFetchInFlight;
+}
+
+if (shouldRunBackgroundJobs()) {
+  (async () => {
+    try {
+      await loadWeatherFromSupabase();
+      if (isWeatherRefreshDue(weatherMemory?.syncedAt, Date.now(), WEATHER_REFRESH_INTERVAL_MS)) {
+        console.log('[Weather] Cache kosong/basi saat startup, fetch sekali...');
+        await fetchAllCitiesWeather();
+      } else {
+        console.log(`[Weather] Cache masih segar (synced ${weatherMemory.syncedAt}), skip fetch startup`);
+      }
+    } catch (err) {
+      console.error('[Weather] Startup init error:', err.message);
+    }
+  })();
+  cron.schedule('0 */3 * * *', async () => {
+    try {
+      await fetchAllCitiesWeather();
+    } catch (err) {
+      console.error('[Weather] Cron fetch error:', err.message);
+    }
+  }, { timezone: 'Asia/Jakarta' });
+}
+
+// Dev-only: trigger weather refresh manually (skipped in production).
+// Dipakai untuk verifikasi pipeline fetch→persist & seeding DB dari local.
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/api/dev/trigger-weather-refresh', authMiddleware, async (req, res) => {
+    try {
+      const ok = await fetchAllCitiesWeather();
+      res.json({ success: ok, syncedAt: weatherMemory?.syncedAt ?? null, cities: weatherMemory?.cities?.length ?? 0 });
+    } catch (err) {
+      console.error('[Weather/dev-trigger] error:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+}
+
 app.get('/api/weather/cities', authMiddleware, async (req, res) => {
   try {
     const now = Date.now();
-    if (weatherCache && (now - weatherCacheTime) < weatherCacheTTL) {
-      return res.json({ success: true, data: weatherCache, cached: true });
+    if (!weatherMemory || now - weatherDbReadAt >= WEATHER_DB_READ_TTL_MS) {
+      await loadWeatherFromSupabase();
+      weatherDbReadAt = now;
     }
-
-    // Fetch cities sequentially with small delay to avoid Open-Meteo rate limit (429)
-    const results = [];
-    const failed = [];
-    for (const city of WEATHER_CITIES) {
-      try {
-        const data = await fetchCityWeather(city);
-        results.push(data);
-      } catch (err) {
-        console.warn(`[Weather] ${city.key} failed: ${err.message}`);
-        failed.push(city);
-      }
-      // Small delay between requests to stay under rate limit
-      if (city !== WEATHER_CITIES[WEATHER_CITIES.length - 1]) {
-        await new Promise(r => setTimeout(r, 300));
-      }
+    if (!weatherMemory) {
+      return res.status(503).json({ error: 'Data cuaca belum tersedia' });
     }
-
-    // Retry failed cities once (after a longer pause)
-    if (failed.length > 0 && failed.length < WEATHER_CITIES.length) {
-      console.warn(`[Weather] Retrying ${failed.length} failed cities...`);
-      await new Promise(r => setTimeout(r, 2000));
-      for (const city of failed) {
-        try {
-          const data = await fetchCityWeather(city);
-          results.push(data);
-          console.log(`[Weather] Retry recovered: ${city.key}`);
-        } catch (err) {
-          console.warn(`[Weather] Retry still failed: ${city.key} — ${err.message}`);
-        }
-        await new Promise(r => setTimeout(r, 300));
-      }
-    }
-
-    // Merge with existing cache: keep stale data for cities still missing
-    if (weatherCache && results.length < WEATHER_CITIES.length) {
-      const resultKeys = new Set(results.map(r => r.key));
-      for (const cached of weatherCache) {
-        if (!resultKeys.has(cached.key)) {
-          results.push(cached);
-        }
-      }
-    }
-
-    if (results.length === 0) {
-      if (weatherCache) {
-        return res.json({ success: true, data: weatherCache, cached: true, stale: true });
-      }
-      return res.status(502).json({ error: 'Gagal mengambil data cuaca dari semua kota' });
-    }
-
-    // Use shorter TTL when results are incomplete
-    const isComplete = results.length === WEATHER_CITIES.length;
-    weatherCache = results;
-    weatherCacheTime = now;
-    weatherCacheTTL = isComplete ? WEATHER_CACHE_TTL_FULL : WEATHER_CACHE_TTL_PARTIAL;
-    res.json({ success: true, data: results, cached: false });
+    res.json({ success: true, data: weatherMemory.cities, cached: true, syncedAt: weatherMemory.syncedAt });
   } catch (err) {
-    console.error('[Weather] fetch error:', err.message);
-    if (weatherCache) {
-      return res.json({ success: true, data: weatherCache, cached: true, stale: true });
+    console.error('[Weather] read error:', err.message);
+    if (weatherMemory) {
+      return res.json({ success: true, data: weatherMemory.cities, cached: true, stale: true, syncedAt: weatherMemory.syncedAt });
     }
     res.status(500).json({ error: 'Gagal mengambil data cuaca' });
   }
