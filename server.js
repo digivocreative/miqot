@@ -6075,16 +6075,28 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
   console.log(`[Sync/api/${context}] ${slug}: ${allRows.length} unique rows from ${keberangkatanYearsCompleted}/${yearsToSync.length} keberangkatan years + pendaftaran backfill (${fetchErrors} fetch errors)`);
   const guardedAwapiRows = await preserveSuspiciousAwapiPayments(agentId, allRows);
   if (guardedAwapiRows.unresolved.length > 0) {
+    // Anomalous payment rows (negative sisa, no valid existing payment to preserve):
+    // skip ONLY these rows — we never write bogus payment data — and keep syncing
+    // the rest of the agent. (Previously this threw and aborted the whole agent;
+    // with the legacy fallback disabled that froze last_jamaah_sync_at forever.)
+    // Deletion stays safe: fetchedBookingIds / successfulJamaahPerBooking are built
+    // from the raw fetch (pre-guard), so the skipped rows' existing DB versions are
+    // never treated as stale by computeSafeDeletions.
     const sample = guardedAwapiRows.unresolved
       .slice(0, 3)
       .map((row) => `${row.id_umroh}/${row.jm_id}:${row.bayar}/${row.sisa}`)
       .join(', ');
-    throw new Error(`AWAPI payment anomaly: ${guardedAwapiRows.unresolved.length} row(s) have negative sisa without valid existing payment; falling back to legacy sync (${sample})`);
+    console.warn(`[Sync/api/${context}] ${slug}: skipping ${guardedAwapiRows.unresolved.length} anomalous AWAPI row(s) — negative sisa without valid existing payment; syncing the rest (${sample})`);
   }
   if (guardedAwapiRows.guardedCount > 0) {
     console.warn(`[Sync/api/${context}] ${slug}: preserved existing payment for ${guardedAwapiRows.guardedCount} suspicious AWAPI row(s)`);
   }
-  const rowsForUpsert = guardedAwapiRows.rows;
+  // Exclude unresolved anomalous rows by object identity (preserveSuspiciousAwapiPayments
+  // returns the same row references it collects in `unresolved`).
+  const unresolvedRowSet = new Set(guardedAwapiRows.unresolved);
+  const rowsForUpsert = unresolvedRowSet.size > 0
+    ? guardedAwapiRows.rows.filter((row) => !unresolvedRowSet.has(row))
+    : guardedAwapiRows.rows;
 
   mergeJamaahSyncEvents(
     syncEvents,
