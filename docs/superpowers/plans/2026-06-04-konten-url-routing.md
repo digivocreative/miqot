@@ -496,6 +496,8 @@ export default function CategoryManager({ route, navigate, navigateUp }: Categor
 }
 ```
 
+> **As-landed deviation (8bb513c):** the `leavingRef` reset effect shown above is keyed on a primitive `const routeKey = kontenPath(route)` instead of `[route]` — the route object's identity changes on every parent render, which would have reset the delete-confirm guard mid-flow. Follow the committed code, not the literal block above.
+
 - [ ] **Step 2.4: Rewrite `WaCopyAdminPage.tsx`**
 
 Replace the entire file `src/components/wa-copy/admin/WaCopyAdminPage.tsx` with:
