@@ -1,21 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { ChevronDown, ChevronLeft, ChevronUp, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useWaCopyContent } from '../hooks/useWaCopyContent';
 import { useToast, ToastPill } from '../hooks/useToast';
 import { resolveCategoryIcon } from '../lib/categoryIcons';
-import type { CategoryDraft, CategoryMeta, WaTab } from '../lib/types';
+import { kontenPath } from '../lib/kontenRoutes';
+import type { KontenRoute } from '../lib/kontenRoutes';
+import type { CategoryDraft, CategoryMeta } from '../lib/types';
 import CategoryEditor from './CategoryEditor';
 import DeleteCategoryPanel from './DeleteCategoryPanel';
 
+export type KontenCatRoute = Extract<KontenRoute, { kind: 'cat-list' | 'cat-new' | 'cat-edit' | 'cat-delete' }>;
+
 interface CategoryManagerProps {
-  kind: WaTab;
-  backRequest: number;
-  onExit: () => void;
+  route: KontenCatRoute;
+  navigate: (path: string, opts?: { replace?: boolean }) => void;
+  navigateUp: () => void;
 }
 
-type SubView = { mode: 'list' } | { mode: 'edit'; value: string | null } | { mode: 'delete'; value: string };
-
-export default function CategoryManager({ kind, backRequest, onExit }: CategoryManagerProps) {
+/** Category CRUD for one content type. The sub-view (list/create/edit/delete) is
+ *  derived entirely from the route — reload restores it (see lib/kontenRoutes). */
+export default function CategoryManager({ route, navigate, navigateUp }: CategoryManagerProps) {
   const content = useWaCopyContent();
   const { toast, showToast } = useToast();
 
@@ -50,52 +54,43 @@ export default function CategoryManager({ kind, backRequest, onExit }: CategoryM
       reorder: content.reorderTourCategory,
       remove: content.deleteTourCategory,
     },
-  }[kind];
+  }[route.tab];
 
   const categories: CategoryMeta[] = [...cfg.categories].sort((a, b) => a.order - b.order);
 
-  const [sub, setSub] = useState<SubView>({ mode: 'list' });
-  const subRef = useRef(sub);
-  subRef.current = sub;
-  const onExitRef = useRef(onExit);
-  onExitRef.current = onExit;
-  // backRequest is a never-reset counter, so only increments seen AFTER mount are
-  // presses — reacting to the mount-time value would replay a stale press and
-  // onExit() the manager the moment it remounts (the "blink" on re-open).
-  const seenBackRequest = useRef(backRequest);
-
-  // Parent back button: step out of a sub-view, or leave the manager from the list.
-  // onExit is read via a ref so the parent's inline-arrow identity (it re-renders on
-  // every store mutation) can't re-fire this effect with an unchanged backRequest.
+  // Set while delete-confirm is navigating up itself, so the vanished-category
+  // effect below doesn't fire a second (replace) navigation for the same removal.
+  const leavingRef = useRef(false);
   useEffect(() => {
-    if (backRequest === seenBackRequest.current) return;
-    seenBackRequest.current = backRequest;
-    if (subRef.current.mode === 'list') onExitRef.current();
-    else setSub({ mode: 'list' });
-  }, [backRequest]);
+    leavingRef.current = false;
+  }, [route]);
 
-  // If the targeted category vanished (e.g. deleted elsewhere), snap back to the
-  // list — done in an effect rather than via setState during render.
+  // Route targets a category that's gone (deep link after reload, deleted elsewhere)
+  // → snap back to the category list.
+  const targetMissing =
+    (route.kind === 'cat-edit' || route.kind === 'cat-delete') &&
+    !categories.some(c => c.value === route.value);
   useEffect(() => {
-    if (sub.mode !== 'list' && sub.value != null && !categories.some(c => c.value === sub.value)) {
-      setSub({ mode: 'list' });
+    if (targetMissing && !leavingRef.current) {
+      navigate(kontenPath({ kind: 'cat-list', tab: route.tab }), { replace: true });
     }
-  }, [sub, categories]);
+  }, [targetMissing, navigate, route.tab]);
 
   // ── Edit / create sub-view ────────────────────────────────────────
-  if (sub.mode === 'edit') {
-    const initial = sub.value ? categories.find(c => c.value === sub.value) : undefined;
+  if (route.kind === 'cat-new' || route.kind === 'cat-edit') {
+    if (targetMissing) return null; // redirect effect above runs next frame
+    const initial = route.kind === 'cat-edit' ? categories.find(c => c.value === route.value) : undefined;
     return (
       <div style={{ paddingBottom: '2rem' }}>
         <CategoryEditor
           unitLabel={cfg.unit}
           initial={initial}
-          onCancel={() => setSub({ mode: 'list' })}
+          onCancel={navigateUp}
           onSave={(draft: CategoryDraft) => {
-            if (sub.value) cfg.update(sub.value, draft);
+            if (route.kind === 'cat-edit') cfg.update(route.value, draft);
             else cfg.create(draft);
             showToast(`${cfg.unit} tersimpan`);
-            setSub({ mode: 'list' });
+            navigateUp();
           }}
         />
         <ToastPill toast={toast} />
@@ -104,9 +99,9 @@ export default function CategoryManager({ kind, backRequest, onExit }: CategoryM
   }
 
   // ── Delete + reassign sub-view ────────────────────────────────────
-  if (sub.mode === 'delete') {
-    const category = categories.find(c => c.value === sub.value);
-    if (!category) return null; // the reset effect above will snap back to the list
+  if (route.kind === 'cat-delete') {
+    const category = categories.find(c => c.value === route.value);
+    if (!category) return null; // redirect effect above runs next frame
     return (
       <div style={{ paddingBottom: '2rem' }}>
         <DeleteCategoryPanel
@@ -114,11 +109,12 @@ export default function CategoryManager({ kind, backRequest, onExit }: CategoryM
           category={category}
           others={categories.filter(c => c.value !== category.value)}
           count={cfg.countOf(category.value)}
-          onCancel={() => setSub({ mode: 'list' })}
+          onCancel={navigateUp}
           onConfirm={reassignTo => {
+            leavingRef.current = true;
             cfg.remove(category.value, reassignTo);
             showToast(`${cfg.unit} dihapus`);
-            setSub({ mode: 'list' });
+            navigateUp();
           }}
         />
         <ToastPill toast={toast} />
@@ -133,7 +129,7 @@ export default function CategoryManager({ kind, backRequest, onExit }: CategoryM
     <div className="px-4 pt-4 space-y-4" style={{ paddingBottom: '2rem' }}>
       <div className="flex items-center gap-2">
         <button
-          onClick={onExit}
+          onClick={navigateUp}
           className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
           aria-label="Kembali"
         >
@@ -143,7 +139,7 @@ export default function CategoryManager({ kind, backRequest, onExit }: CategoryM
       </div>
 
       <button
-        onClick={() => setSub({ mode: 'edit', value: null })}
+        onClick={() => navigate(kontenPath({ kind: 'cat-new', tab: route.tab }))}
         className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 active:scale-95 transition-all"
       >
         <Plus size={16} />
@@ -189,14 +185,14 @@ export default function CategoryManager({ kind, backRequest, onExit }: CategoryM
 
               <div className="flex items-center gap-1.5">
                 <button
-                  onClick={() => setSub({ mode: 'edit', value: cat.value })}
+                  onClick={() => navigate(kontenPath({ kind: 'cat-edit', tab: route.tab, value: cat.value }))}
                   className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 dark:text-slate-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
                   aria-label="Edit"
                 >
                   <Pencil size={14} />
                 </button>
                 <button
-                  onClick={() => setSub({ mode: 'delete', value: cat.value })}
+                  onClick={() => navigate(kontenPath({ kind: 'cat-delete', tab: route.tab, value: cat.value }))}
                   disabled={!canDelete}
                   title={canDelete ? undefined : `Tidak bisa menghapus ${cfg.unit.toLowerCase()} terakhir`}
                   className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 dark:text-slate-500 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400"

@@ -44,20 +44,30 @@ test('CategoryManager wires the store, icons, counts, reorder, and reassign-dele
   assert.match(mgr, /konten/);                 // per-category count label
   assert.match(mgr, /DeleteCategoryPanel/);    // delete delegates to reassign panel
   assert.match(mgr, /CategoryEditor/);         // create/edit delegates to the form
-  assert.match(mgr, /onExit/);                 // returns to the content list
-  assert.match(mgr, /backRequest/);            // handles parent back requests
+  assert.match(mgr, /navigateUp/);             // up-navigation instead of onExit
+  assert.match(mgr, /kontenPath\(/);           // no hand-concatenated paths
 });
 
-test('CategoryManager ignores stale backRequest on mount (re-open blink regression)', () => {
+test('konten views derive from the URL — no internal view state, no backRequest', () => {
   const mgr = read('src/components/wa-copy/admin/CategoryManager.tsx');
-  // backRequest is a never-reset counter in DashboardLayout; the manager must record
-  // the mount-time value and only treat LATER increments as back-presses. The old
-  // `if (!backRequest) return;` guard replayed any stale truthy value on remount,
-  // calling onExit() in the mount frame — the "Kelola Kategori" re-open blink.
-  assert.match(mgr, /const seenBackRequest = useRef\(backRequest\);/);
-  assert.match(mgr, /if \(backRequest === seenBackRequest\.current\) return;/);
-  assert.match(mgr, /seenBackRequest\.current = backRequest;/);
-  assert.doesNotMatch(mgr, /if \(!backRequest\) return;/);
+  const page = read('src/components/wa-copy/admin/WaCopyAdminPage.tsx');
+  const layout = read('src/components/DashboardLayout.tsx');
+  // The event-counter back mechanism is gone everywhere. It caused the 2026-06-04
+  // "Kelola Kategori blink" (stale never-reset counter replayed by a mount effect);
+  // with URL-derived views the whole bug class is structurally impossible.
+  for (const [name, src] of [['CategoryManager', mgr], ['WaCopyAdminPage', page], ['DashboardLayout', layout]]) {
+    assert.doesNotMatch(src, /backRequest/i, `${name} still references backRequest`);
+  }
+  assert.doesNotMatch(layout, /kontenEditorOpen/);
+  // Views are pure functions of the parsed route.
+  assert.match(page, /parsed\.canonical/);
+  assert.match(page, /route\.kind === 'entry-edit'/);
+  assert.doesNotMatch(page, /useState/, 'WaCopyAdminPage must not keep view state');
+  assert.doesNotMatch(mgr, /useState<SubView>/);
+  assert.match(layout, /parseKontenPath/);
+  assert.match(layout, /kontenPushDepth/);
+  // Sibling tab switches replace, not push.
+  assert.match(page, /\{ replace: true \}/);
 });
 
 test('DeleteCategoryPanel reassigns to another category and blocks when none remain', () => {

@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Plus, Settings2 } from 'lucide-react';
 import SegmentedControl from '../../common/SegmentedControl';
 import { useWaCopyContent } from '../hooks/useWaCopyContent';
 import { useToast, ToastPill } from '../hooks/useToast';
 import type { WaTab } from '../lib/types';
+import { kontenPath } from '../lib/kontenRoutes';
+import type { ParsedKontenPath } from '../lib/kontenRoutes';
 import ContentList, { type ContentRow } from './ContentList';
 import CaptionEditor from './CaptionEditor';
 import FaqEditor from './FaqEditor';
@@ -25,8 +27,9 @@ interface Group<T extends { id: string; order: number }> {
 }
 
 interface WaCopyAdminPageProps {
-  backRequest?: number;
-  onEditingChange?: (editing: boolean) => void;
+  parsed: ParsedKontenPath;
+  navigate: (path: string, opts?: { replace?: boolean }) => void;
+  navigateUp: () => void;
 }
 
 function buildRows<T extends { id: string; order: number; active: boolean }>(
@@ -44,8 +47,12 @@ function buildRows<T extends { id: string; order: number; active: boolean }>(
   });
 }
 
-/** Internal admin editor for global WA Copy content (gated by admin role in DashboardLayout). */
-export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: WaCopyAdminPageProps) {
+/** Internal admin editor for global WA Copy content (gated by admin role in
+ *  DashboardLayout). The view is derived entirely from the URL — reload restores
+ *  it (see lib/kontenRoutes). */
+export default function WaCopyAdminPage({ parsed, navigate, navigateUp }: WaCopyAdminPageProps) {
+  const { route } = parsed;
+  const type: WaTab = route.tab;
   const content = useWaCopyContent();
   const sortByOrder = (a: { order: number }, b: { order: number }) => a.order - b.order;
   const captionCats = [...content.captionCategories].sort(sortByOrder);
@@ -58,48 +65,47 @@ export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: Wa
   const FAQ_ORDER = faqCats.map(c => c.value);
   const PHASE_ORDER = phaseCats.map(c => c.value);
   const { toast, showToast } = useToast();
-  const [type, setType] = useState<WaTab>('faq');
-  // null = list view; { id: null } = create new; { id } = edit existing.
-  const [editing, setEditing] = useState<{ id: string | null } | null>(null);
-  const [managing, setManaging] = useState(false);
 
+  // Canonicalize legacy/malformed paths (e.g. /dashboard/konten → /dashboard/konten/faq).
   useEffect(() => {
-    onEditingChange?.(editing !== null || managing);
-  }, [editing, managing, onEditingChange]);
+    if (!parsed.canonical) navigate(kontenPath(parsed.route), { replace: true });
+  }, [parsed, navigate]);
 
+  // entry-edit whose id is gone (runtime items don't survive reload on the mock
+  // store; item deleted elsewhere) → snap back to the tab list.
+  const editId = route.kind === 'entry-edit' ? route.id : null;
+  const editExists =
+    editId === null ? true
+    : type === 'caption' ? content.captions.some(c => c.id === editId)
+    : type === 'faq' ? content.faqs.some(f => f.id === editId)
+    : content.tourSteps.some(t => t.id === editId);
   useEffect(() => {
-    return () => onEditingChange?.(false);
-  }, [onEditingChange]);
+    if (!editExists) navigate(kontenPath({ kind: 'list', tab: type }), { replace: true });
+  }, [editExists, navigate, type]);
 
-  useEffect(() => {
-    if (!backRequest) return;
-    if (managing) return;
-    setEditing(current => (current ? null : current));
-  }, [backRequest, managing]);
-
-  const closeEditor = () => setEditing(null);
   const afterSave = () => {
     showToast('Konten tersimpan');
-    setEditing(null);
+    navigateUp();
   };
 
-  // ── Category manager view ─────────────────────────────────────────
-  if (managing) {
-    return <CategoryManager kind={type} backRequest={backRequest} onExit={() => setManaging(false)} />;
+  // ── Category manager subtree ──────────────────────────────────────
+  if (route.kind === 'cat-list' || route.kind === 'cat-new' || route.kind === 'cat-edit' || route.kind === 'cat-delete') {
+    return <CategoryManager route={route} navigate={navigate} navigateUp={navigateUp} />;
   }
 
   // ── Editor view ───────────────────────────────────────────────────
-  if (editing) {
+  if (route.kind === 'entry-new' || route.kind === 'entry-edit') {
+    if (!editExists) return null; // redirect effect above runs next frame
     if (type === 'caption') {
-      const initial = editing.id ? content.captions.find(c => c.id === editing.id) : undefined;
+      const initial = editId ? content.captions.find(c => c.id === editId) : undefined;
       return (
         <div style={{ paddingBottom: '2rem' }}>
           <CaptionEditor
             categories={captionCats}
             initial={initial}
-            onCancel={closeEditor}
+            onCancel={navigateUp}
             onSave={draft => {
-              if (editing.id) content.updateCaption(editing.id, draft);
+              if (editId) content.updateCaption(editId, draft);
               else content.createCaption(draft);
               afterSave();
             }}
@@ -109,15 +115,15 @@ export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: Wa
       );
     }
     if (type === 'faq') {
-      const initial = editing.id ? content.faqs.find(f => f.id === editing.id) : undefined;
+      const initial = editId ? content.faqs.find(f => f.id === editId) : undefined;
       return (
         <div style={{ paddingBottom: '2rem' }}>
           <FaqEditor
             categories={faqCats}
             initial={initial}
-            onCancel={closeEditor}
+            onCancel={navigateUp}
             onSave={draft => {
-              if (editing.id) content.updateFaq(editing.id, draft);
+              if (editId) content.updateFaq(editId, draft);
               else content.createFaq(draft);
               afterSave();
             }}
@@ -126,15 +132,15 @@ export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: Wa
         </div>
       );
     }
-    const initial = editing.id ? content.tourSteps.find(t => t.id === editing.id) : undefined;
+    const initial = editId ? content.tourSteps.find(t => t.id === editId) : undefined;
     return (
       <div style={{ paddingBottom: '2rem' }}>
         <TourLeaderEditor
           categories={phaseCats}
           initial={initial}
-          onCancel={closeEditor}
+          onCancel={navigateUp}
           onSave={draft => {
-            if (editing.id) content.updateTour(editing.id, draft);
+            if (editId) content.updateTour(editId, draft);
             else content.createTour(draft);
             afterSave();
           }}
@@ -178,18 +184,23 @@ export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: Wa
 
   return (
     <div className="px-4 pt-4 pb-8 space-y-4" style={{ paddingBottom: '2rem' }}>
-      <SegmentedControl options={TYPE_OPTIONS} value={type} onChange={setType} accent="emerald" />
+      <SegmentedControl
+        options={TYPE_OPTIONS}
+        value={type}
+        onChange={tab => navigate(kontenPath({ kind: 'list', tab }), { replace: true })}
+        accent="emerald"
+      />
 
       <div className="flex gap-2">
         <button
-          onClick={() => setEditing({ id: null })}
+          onClick={() => navigate(kontenPath({ kind: 'entry-new', tab: type }))}
           className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 active:scale-95 transition-all"
         >
           <Plus size={16} />
           Tambah
         </button>
         <button
-          onClick={() => setManaging(true)}
+          onClick={() => navigate(kontenPath({ kind: 'cat-list', tab: type }))}
           className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-gray-600 dark:text-slate-300 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 active:scale-95 transition-all"
         >
           <Settings2 size={16} />
@@ -197,7 +208,7 @@ export default function WaCopyAdminPage({ backRequest = 0, onEditingChange }: Wa
         </button>
       </div>
 
-      <ContentList rows={rows} onToggle={onToggle} onReorder={onReorder} onEdit={id => setEditing({ id })} />
+      <ContentList rows={rows} onToggle={onToggle} onReorder={onReorder} onEdit={id => navigate(kontenPath({ kind: 'entry-edit', tab: type, id }))} />
 
       <ToastPill toast={toast} />
     </div>

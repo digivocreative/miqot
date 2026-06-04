@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import {
   Calculator, ArrowLeftRight, Settings,
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
@@ -30,6 +30,7 @@ import KursPage from './KursPage';
 import BrochureSchedulePage from './BrochureSchedulePage';
 import WaCopyPage from './wa-copy/WaCopyPage';
 import WaCopyAdminPage from './wa-copy/admin/WaCopyAdminPage';
+import { parseKontenPath, kontenParentPath } from './wa-copy/lib/kontenRoutes';
 import WhatsAppIcon from './common/WhatsAppIcon';
 import UmrahRegisterPage from './UmrahRegisterPage';
 import CuacaWidget from './CuacaWidget';
@@ -297,8 +298,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [showComingSoon, setShowComingSoon] = useState(false);
   // Analytics header slot for month dropdown
   const [analyticsHeaderRight, setAnalyticsHeaderRight] = useState<React.ReactNode>(null);
-  const [kontenEditorOpen, setKontenEditorOpen] = useState(false);
-  const [kontenBackRequest, setKontenBackRequest] = useState(0);
+  // History entries behind the current one that are internal konten pushes — lets
+  // konten "up" use real history.back() without ever backing out of the app.
+  const kontenPushDepth = useRef(0);
   // Flight status position
   const [flightCount, setFlightCount] = useState(-1); // -1 = not loaded yet
 
@@ -365,6 +367,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
   // Navigate tab + update URL
   const navigateTab = useCallback((tab: TabId, replace = false) => {
+    kontenPushDepth.current = 0;
     setActiveTab(tab);
     document.title = TAB_TITLES[tab] || 'Dashboard';
     const slug = TAB_TO_SLUG[tab];
@@ -379,18 +382,42 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // Navigate to an arbitrary in-app path without a full page reload.
   // Used for sub-routes like /dashboard/jamaah/daftar where the SW would
   // otherwise serve a stale index.html on reload.
-  const navigatePath = useCallback((path: string) => {
-    window.history.pushState({}, '', path);
+  const navigatePath = useCallback((path: string, opts?: { replace?: boolean }) => {
+    if (opts?.replace) {
+      window.history.replaceState({}, '', path);
+    } else {
+      // Internal konten→konten pushes are the entries konten "up" may back() over.
+      const wasKonten = window.location.pathname.startsWith('/dashboard/konten');
+      window.history.pushState({}, '', path);
+      kontenPushDepth.current =
+        wasKonten && path.startsWith('/dashboard/konten') ? kontenPushDepth.current + 1 : 0;
+    }
     const tab = getTabFromPath();
     setActiveTab(tab);
     document.title = TAB_TITLES[tab] || 'Dashboard';
     setPathTick(t => t + 1);
   }, []);
 
+  // Konten "up": real back when the previous entry is our own push, else replace
+  // to the parent route (deep link / fresh tab) — never exits the app.
+  const kontenUp = useCallback(() => {
+    const { route } = parseKontenPath(window.location.pathname);
+    const parent = kontenParentPath(route);
+    if (!parent) {
+      navigateTab('home');
+      return;
+    }
+    if (kontenPushDepth.current > 0) window.history.back();
+    else navigatePath(parent, { replace: true });
+  }, [navigatePath, navigateTab]);
+
   // Listen for browser back/forward
   useEffect(() => {
     const onPopState = () => {
       const tab = getTabFromPath();
+      // Any history move within konten consumes one tracked push (forward moves
+      // undercount, which only downgrades konten "up" to a replace — never wrong UX).
+      kontenPushDepth.current = tab === 'konten' ? Math.max(0, kontenPushDepth.current - 1) : 0;
       setActiveTab(tab);
       document.title = TAB_TITLES[tab] || 'Dashboard';
       setPathTick(t => t + 1);
@@ -482,9 +509,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   setJamaahRefreshKey(k => k + 1);
                   return;
                 }
-                // Konten editor → back to the previous internal Konten list view
-                if (activeTab === 'konten' && kontenEditorOpen) {
-                  setKontenBackRequest(n => n + 1);
+                // Konten sub-view → step up to the parent konten view
+                if (activeTab === 'konten' && parseKontenPath(window.location.pathname).route.kind !== 'list') {
+                  kontenUp();
                   return;
                 }
                 // If on AI Tools sub-page, go back appropriately
@@ -666,8 +693,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           )}
           {activeTab === 'konten' && isAdmin && (
             <WaCopyAdminPage
-              backRequest={kontenBackRequest}
-              onEditingChange={setKontenEditorOpen}
+              parsed={parseKontenPath(window.location.pathname)}
+              navigate={navigatePath}
+              navigateUp={kontenUp}
             />
           )}
 
