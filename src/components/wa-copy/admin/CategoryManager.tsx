@@ -61,9 +61,10 @@ export default function CategoryManager({ route, navigate, navigateUp }: Categor
   // Set while delete-confirm is navigating up itself, so the vanished-category
   // effect below doesn't fire a second (replace) navigation for the same removal.
   const leavingRef = useRef(false);
+  const routeKey = kontenPath(route);
   useEffect(() => {
     leavingRef.current = false;
-  }, [route]);
+  }, [routeKey]);
 
   // Route targets a category that's gone (deep link after reload, deleted elsewhere)
   // → snap back to the category list.
