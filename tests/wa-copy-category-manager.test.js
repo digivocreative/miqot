@@ -48,6 +48,18 @@ test('CategoryManager wires the store, icons, counts, reorder, and reassign-dele
   assert.match(mgr, /backRequest/);            // handles parent back requests
 });
 
+test('CategoryManager ignores stale backRequest on mount (re-open blink regression)', () => {
+  const mgr = read('src/components/wa-copy/admin/CategoryManager.tsx');
+  // backRequest is a never-reset counter in DashboardLayout; the manager must record
+  // the mount-time value and only treat LATER increments as back-presses. The old
+  // `if (!backRequest) return;` guard replayed any stale truthy value on remount,
+  // calling onExit() in the mount frame — the "Kelola Kategori" re-open blink.
+  assert.match(mgr, /const seenBackRequest = useRef\(backRequest\);/);
+  assert.match(mgr, /if \(backRequest === seenBackRequest\.current\) return;/);
+  assert.match(mgr, /seenBackRequest\.current = backRequest;/);
+  assert.doesNotMatch(mgr, /if \(!backRequest\) return;/);
+});
+
 test('DeleteCategoryPanel reassigns to another category and blocks when none remain', () => {
   const panel = read('src/components/wa-copy/admin/DeleteCategoryPanel.tsx');
   assert.match(panel, /Pindahkan/);

@@ -59,12 +59,17 @@ export default function CategoryManager({ kind, backRequest, onExit }: CategoryM
   subRef.current = sub;
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
+  // backRequest is a never-reset counter, so only increments seen AFTER mount are
+  // presses — reacting to the mount-time value would replay a stale press and
+  // onExit() the manager the moment it remounts (the "blink" on re-open).
+  const seenBackRequest = useRef(backRequest);
 
   // Parent back button: step out of a sub-view, or leave the manager from the list.
   // onExit is read via a ref so the parent's inline-arrow identity (it re-renders on
   // every store mutation) can't re-fire this effect with an unchanged backRequest.
   useEffect(() => {
-    if (!backRequest) return;
+    if (backRequest === seenBackRequest.current) return;
+    seenBackRequest.current = backRequest;
     if (subRef.current.mode === 'list') onExitRef.current();
     else setSub({ mode: 'list' });
   }, [backRequest]);
