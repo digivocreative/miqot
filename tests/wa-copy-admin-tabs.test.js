@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseKontenPath } from '../src/components/wa-copy/lib/kontenRoutes.js';
 
 const rootPath = new URL('..', import.meta.url).pathname;
 const source = readFileSync(
@@ -19,7 +20,8 @@ test('WA Copy admin content tabs put FAQ first and open on FAQ', () => {
   assert.ok(tourLeaderIndex >= 0, 'Tour Leader tab option is missing');
   assert.ok(faqIndex < captionIndex, 'FAQ tab should be left of Caption');
   assert.ok(captionIndex < tourLeaderIndex, 'Caption tab should stay left of Tour Leader');
-  assert.match(source, /useState<WaTab>\('faq'\)/);
+  // The default tab is now URL-derived: the bare konten path opens the FAQ list.
+  assert.deepEqual(parseKontenPath('/dashboard/konten').route, { kind: 'list', tab: 'faq' });
 });
 
 test('WA Copy admin content list does not render the helper copy under the tabs', () => {
