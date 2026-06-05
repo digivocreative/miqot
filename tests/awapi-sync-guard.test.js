@@ -26,3 +26,27 @@ test('single jamaah refresh preserves existing payment when AWAPI payment is sus
   assert.match(server, /awapi-payment-preserved/);
   assert.doesNotMatch(server, /if \(hasSuspiciousAwapiPayment\(norm\)\) {\s*return res\.status\(409\)/);
 });
+
+test('aggregate-booking lunas rows are normalized BEFORE the suspicious-payment guard runs', () => {
+  const server = read('server.js');
+
+  // resolveAggregateBookingLunasRow must run inside preserveSuspiciousAwapiPayments,
+  // before the rows are filtered by hasSuspiciousAwapiPayment — otherwise the guard
+  // freezes stale pre-lunas DP values again (false pelunasan-reminder bug 2026-06-05).
+  assert.match(
+    server,
+    /async function preserveSuspiciousAwapiPayments[\s\S]{0,1200}resolveAggregateBookingLunasRow\(row\)[\s\S]{0,600}\.filter\(hasSuspiciousAwapiPayment\)/
+  );
+  assert.match(server, /normalizedLunasCount/);
+});
+
+test('pelunasanReminder filters out rows that are already lunas upstream', () => {
+  const notifier = read('telegram-notifier.js');
+
+  // The query must surface the live AWAPI payment fields...
+  assert.match(notifier, /awapi_bayar_status:raw_data->>bayar_status/);
+  assert.match(notifier, /awapi_bayar_sisa:raw_data->>bayar_sisa/);
+  // ...and the reminder must be built from the filtered set, not the raw query.
+  assert.match(notifier, /filter\(\(j\) => !isUpstreamLunas\(j\)\)/);
+  assert.match(notifier, /collapsePelunasanBookings\(outstanding\)/);
+});

@@ -1236,6 +1236,17 @@ function daysUntilDate(dateStr, todayStr) {
   return Math.ceil((target - today) / (1000 * 60 * 60 * 24));
 }
 
+// Mitigasi guard-bug (2026-06-05): kolom `sisa` bisa stuck >0 padahal payload AWAPI
+// terakhir sudah melaporkan lunas — bayar agregat level-booking membuat bayar_sisa
+// negatif + bayar_status "LEBIH BAYAR", dan guard sync mempertahankan nilai DP lama.
+// Jangan pernah menagih jamaah yang upstream-nya sudah lapor lunas.
+function isUpstreamLunas(row) {
+  const status = String(row?.awapi_bayar_status || '').replace(/\s+/g, ' ').trim().toUpperCase();
+  if (status === 'LUNAS' || status === 'LEBIH BAYAR') return true;
+  const rawSisa = Number(row?.awapi_bayar_sisa);
+  return Number.isFinite(rawSisa) && rawSisa < 0;
+}
+
 function collapsePelunasanBookings(rows) {
   const byBooking = new Map();
 
@@ -1336,14 +1347,18 @@ async function pelunasanReminder() {
 
     const { data: jamaahData, error: jError } = await supabaseAdmin
       .from('jamaah')
-      .select('agent_id, id_umroh, nama, paket, bayar, sisa, tgl_berangkat')
+      .select('agent_id, id_umroh, nama, paket, bayar, sisa, tgl_berangkat, awapi_bayar_status:raw_data->>bayar_status, awapi_bayar_sisa:raw_data->>bayar_sisa')
       .gte('tgl_berangkat', today)
       .lte('tgl_berangkat', maxDate)
       .gt('sisa', 0)
       .gt('bayar', 0);
 
     if (jError) throw jError;
-    if (!jamaahData || jamaahData.length === 0) { log('[pelunasan] No outstanding payments near H-30 deadline'); return; }
+
+    const outstanding = (jamaahData || []).filter((j) => !isUpstreamLunas(j));
+    const skippedLunas = (jamaahData?.length || 0) - outstanding.length;
+    if (skippedLunas > 0) log(`[pelunasan] Skipped ${skippedLunas} row(s) already lunas upstream (stale sisa)`);
+    if (outstanding.length === 0) { log('[pelunasan] No outstanding payments near H-30 deadline'); return; }
 
     const { data: agents, error: aError } = await supabaseAdmin
       .from('agents')
@@ -1356,7 +1371,7 @@ async function pelunasanReminder() {
     const agentMap = {};
     agents.forEach(a => { agentMap[a.id] = a; });
 
-    const bookings = collapsePelunasanBookings(jamaahData);
+    const bookings = collapsePelunasanBookings(outstanding);
     const perAgent = {};
     bookings.forEach(booking => {
       if (!agentMap[booking.agent_id]) return;
@@ -2961,7 +2976,7 @@ async function runBirthdayDigest() {
 
 // ─── Init ────────────────────────────────────────────
 
-export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, pelunasanReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyJamaahSyncEvents, notifyPembayaranMasuk, runBirthdayDigest };
+export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, pelunasanReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyJamaahSyncEvents, notifyPembayaranMasuk, runBirthdayDigest, isUpstreamLunas };
 
 export function initNotifier() {
   loadConfig();

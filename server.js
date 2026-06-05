@@ -51,6 +51,7 @@ import {
   hasSuspiciousAwapiPayment,
   preserveExistingPaymentForSuspiciousAwapiRow,
   preserveLegacyUmrohRawData,
+  resolveAggregateBookingLunasRow,
   AwapiError,
 } from './awapi-client.js';
 import {
@@ -5702,15 +5703,29 @@ function shouldKeepExistingBayar(existing, nextBayar) {
 
 async function preserveSuspiciousAwapiPayments(agentId, rows) {
   const incomingRows = Array.isArray(rows) ? rows : [];
-  const suspiciousRows = incomingRows.filter(hasSuspiciousAwapiPayment);
+
+  // AWAPI reports booking-level aggregate `bayar` on fully-paid multi-pax bookings
+  // (per-pax paket_harga → negative bayar_sisa + "LEBIH BAYAR"). That is a lunas
+  // signal, not an anomaly — normalize those rows to per-pax lunas BEFORE the
+  // suspicious-payment guard, so the guard can no longer freeze stale pre-lunas DP
+  // values forever (false pelunasan-reminder bug, 2026-06-05).
+  let normalizedLunasCount = 0;
+  const preparedRows = incomingRows.map((row) => {
+    const resolved = resolveAggregateBookingLunasRow(row);
+    if (!resolved) return row;
+    normalizedLunasCount++;
+    return resolved;
+  });
+
+  const suspiciousRows = preparedRows.filter(hasSuspiciousAwapiPayment);
   if (suspiciousRows.length === 0) {
-    return { rows: incomingRows, guardedCount: 0, unresolved: [] };
+    return { rows: preparedRows, guardedCount: 0, normalizedLunasCount, unresolved: [] };
   }
 
   const bookingIds = [...new Set(suspiciousRows.map(r => r.id_umroh).filter(Boolean))];
   const jmIds = [...new Set(suspiciousRows.map(r => r.jm_id).filter(Boolean))];
   if (bookingIds.length === 0 || jmIds.length === 0) {
-    return { rows: incomingRows, guardedCount: 0, unresolved: suspiciousRows };
+    return { rows: preparedRows, guardedCount: 0, normalizedLunasCount, unresolved: suspiciousRows };
   }
 
   const { data: existingRows, error } = await supabase
@@ -5729,7 +5744,7 @@ async function preserveSuspiciousAwapiPayments(agentId, rows) {
 
   let guardedCount = 0;
   const unresolved = [];
-  const guardedRows = incomingRows.map((row) => {
+  const guardedRows = preparedRows.map((row) => {
     if (!hasSuspiciousAwapiPayment(row)) return row;
     const guarded = preserveExistingPaymentForSuspiciousAwapiRow(row, existingByKey.get(jamaahRowKey(row)));
     if (!guarded) {
@@ -5740,7 +5755,7 @@ async function preserveSuspiciousAwapiPayments(agentId, rows) {
     return guarded;
   });
 
-  return { rows: guardedRows, guardedCount, unresolved };
+  return { rows: guardedRows, guardedCount, normalizedLunasCount, unresolved };
 }
 
 function datePlusDaysKey(date, days) {
@@ -6099,6 +6114,9 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
       .map((row) => `${row.id_umroh}/${row.jm_id}:${row.bayar}/${row.sisa}`)
       .join(', ');
     console.warn(`[Sync/api/${context}] ${slug}: skipping ${guardedAwapiRows.unresolved.length} anomalous AWAPI row(s) — negative sisa without valid existing payment; syncing the rest (${sample})`);
+  }
+  if (guardedAwapiRows.normalizedLunasCount > 0) {
+    console.log(`[Sync/api/${context}] ${slug}: normalized ${guardedAwapiRows.normalizedLunasCount} aggregate-booking lunas AWAPI row(s) to per-pax lunas`);
   }
   if (guardedAwapiRows.guardedCount > 0) {
     console.warn(`[Sync/api/${context}] ${slug}: preserved existing payment for ${guardedAwapiRows.guardedCount} suspicious AWAPI row(s)`);

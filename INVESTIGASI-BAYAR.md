@@ -332,3 +332,21 @@ Risiko tersisa: jika salah satu writer membuat `sisa <= 0` secara keliru, CAPI b
 ## Checkpoint
 
 Fase 1 selesai. Stop di sini sesuai instruksi. Fase 2 belum dikerjakan dan belum ada kode sync yang diubah.
+
+---
+
+## Update 2026-06-05 — Guard `sisa < 0` salah klasifikasi booking multi-pax LUNAS (bug reminder pelunasan palsu)
+
+Catatan di atas ("Guard hanya menangani kasus `bayar > 0 && sisa < 0`") kini perlu dikoreksi: kondisi itu **bukan selalu anomali**. Investigasi 2026-06-05 (laporan agent yenita, jamaah AHMAD SULAIMI `AIW0028647` lunas 2 Juni tapi tetap ditagih reminder pelunasan tiap hari) menemukan:
+
+1. **Pola normal AWAPI untuk booking multi-pax lunas**: endpoint list (`dh`/`bh`) melaporkan `bayar` di level BOOKING (agregat seluruh pax, mis. 104,7jt = 3 × 34,9jt) sementara `paket_harga`/`bayar_sisa` per-pax → `bayar_sisa` negatif + `bayar_status="LEBIH BAYAR"`. Itu **sinyal lunas**, bukan payload korup.
+2. Guard `preserveExistingPaymentForSuspiciousAwapiRow` membekukan `bayar`/`sisa` lama selamanya untuk row seperti ini (AWAPI selamanya kirim sisa negatif → guard re-trigger tiap sync). Blast radius saat investigasi: 1.766 row / 722 booking / 25 agent ber-`payment_guard`; 24 row stuck `sisa > 0`; 4 row aktif memicu reminder palsu (yenita `AIW0028647`, nikita `AIW0028945`).
+3. **Bug sekunder**: guard meng-embed seluruh `raw_data` lama ke `awapi_refresh_snapshot` tiap kali jalan → nesting rekursif (max 255 level); 1.766 row guarded memegang 9,6MB dari 11MB total `raw_data` jamaah.
+
+### Fix yang di-deploy (A+B+E)
+
+- **A (mitigasi)** — `telegram-notifier.js` `pelunasanReminder`: select alias `raw_data->>bayar_status` / `raw_data->>bayar_sisa`, skip row yang upstream-nya lapor LUNAS/LEBIH BAYAR atau `bayar_sisa < 0` (`isUpstreamLunas`).
+- **B (root fix)** — `awapi-client.js` `resolveAggregateBookingLunasRow`, dipanggil di `preserveSuspiciousAwapiPayments` SEBELUM guard: jika row suspicious DAN status LUNAS/LEBIH BAYAR DAN `paket_harga > 0` DAN `bayar % paket_harga === 0` → normalisasi `bayar = paket_harga` (GROSS — AWAPI tidak pernah mengurangkan diskon dari `bayar`; terverifikasi 251/251 row LUNAS ber-diskon punya `bayar == paket_harga`), `sisa = 0`, tag `raw_data.payment_normalized`. Payload genuinely-invalid (`paket_harga <= 0`, rasio non-integer) tetap di-guard.
+- **E (anti-bloat)** — `stripPaymentGuardBookkeeping`: keys bookkeeping guard tidak pernah ikut di-embed ke snapshot baru → nesting berhenti di 1 level. Catatan: bloat historis pada row yang business-state-nya tidak berubah TIDAK menyusut otomatis (`raw_data` masuk `VOLATILE_JAMAAH_KEYS`, row di-skip partition) — sisanya ~2,4MB, perlu backfill terpisah jika mau direklamasi.
+
+Keputusan canonical-source di rekomendasi Fase 1 di atas tetap relevan untuk kelas flapping legacy-vs-AWAPI; resolver ini hanya menangani sub-kelas agregat-booking-lunas yang sebelumnya salah dianggap anomali.

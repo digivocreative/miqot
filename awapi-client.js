@@ -434,6 +434,75 @@ export function hasSuspiciousAwapiPayment(row) {
   return (bayar || 0) > 0 && (sisa || 0) < 0;
 }
 
+// Guard bookkeeping keys we stamp into raw_data below. They must NEVER be copied
+// into a new awapi_refresh_snapshot: the incoming row's raw_data is merged with the
+// existing DB raw_data (preserveLegacyUmrohRawData) before the guard runs, so the
+// old snapshot would otherwise be re-embedded inside the new one on every sync —
+// snapshot-in-snapshot recursion that grew raw_data unboundedly (observed up to 255
+// levels / 14.7 KB per row, 83% of all jamaah raw_data bytes, 2026-06-05).
+const PAYMENT_GUARD_BOOKKEEPING_KEYS = [
+  'awapi_refresh_snapshot',
+  'payment_guard',
+  'payment_normalized',
+  'suspicious_awapi_payment_snapshot',
+  'preserved_payment_snapshot',
+];
+
+function stripPaymentGuardBookkeeping(rawData) {
+  const raw = { ...safeRawObject(rawData) };
+  for (const key of PAYMENT_GUARD_BOOKKEEPING_KEYS) delete raw[key];
+  return raw;
+}
+
+const AWAPI_LUNAS_STATUSES = new Set(['LUNAS', 'LEBIH BAYAR']);
+
+/**
+ * AWAPI list rows for a fully-paid multi-pax booking report `bayar` at the
+ * BOOKING level (total across all pax) while `paket_harga`/`bayar_sisa` stay
+ * per-pax — so bayar_sisa goes negative and bayar_status reads "LEBIH BAYAR".
+ * That is a normal LUNAS signal, not corruption. The suspicious-payment guard
+ * used to misread it as an anomaly and freeze the stale pre-lunas DP values
+ * forever, so pelunasanReminder kept paging agents about jamaah who had already
+ * paid off (false-reminder bug, 2026-06-05).
+ *
+ * Detect that exact shape — upstream says LUNAS/LEBIH BAYAR and paket_harga is
+ * a positive clean divisor of the aggregate bayar — and normalize to the
+ * per-pax truth: bayar = paket_harga, sisa = 0. AWAPI records bayar GROSS for
+ * lunas rows — diskon is informational and never deducted from bayar (verified
+ * in production 2026-06-05: 251/251 single-pax LUNAS rows with diskon > 0 have
+ * bayar == paket_harga, none have paket_harga - diskon), so the normalized row
+ * matches what AWAPI itself reports once it switches to per-pax lunas values.
+ * Anything else (paket_harga missing/<= 0, non-integer ratio — i.e. genuinely
+ * corrupt or ambiguous payloads) returns null and stays with the preserve guard.
+ */
+export function resolveAggregateBookingLunasRow(row) {
+  if (!hasSuspiciousAwapiPayment(row)) return null;
+
+  const raw = safeRawObject(row?.raw_data);
+  if (!AWAPI_LUNAS_STATUSES.has(normalizeStatusBayar(raw))) return null;
+
+  const hargaPaket = safeBigint(raw.paket_harga) || 0;
+  const aggregateBayar = safeBigint(row.bayar) || 0;
+  if (hargaPaket <= 0 || aggregateBayar < hargaPaket) return null;
+  if (aggregateBayar % hargaPaket !== 0) return null;
+
+  return {
+    ...row,
+    bayar: hargaPaket,
+    sisa: 0,
+    raw_data: {
+      ...stripPaymentGuardBookkeeping(raw),
+      payment_normalized: {
+        reason: 'aggregate_booking_lunas',
+        awapi_bayar: aggregateBayar,
+        awapi_sisa: safeBigint(row.sisa ?? raw.bayar_sisa) || 0,
+        paket_harga: hargaPaket,
+        implied_pax: aggregateBayar / hargaPaket,
+      },
+    },
+  };
+}
+
 export function preserveExistingPaymentForSuspiciousAwapiRow(row, existing) {
   if (!hasSuspiciousAwapiPayment(row)) return row;
   if (!existing || hasSuspiciousAwapiPayment(existing)) return null;
@@ -455,7 +524,7 @@ export function preserveExistingPaymentForSuspiciousAwapiRow(row, existing) {
     ...preservedPayment,
     raw_data: {
       ...preservedRaw,
-      awapi_refresh_snapshot: rowRaw,
+      awapi_refresh_snapshot: stripPaymentGuardBookkeeping(rowRaw),
       payment_guard: 'preserved_existing_after_awapi_anomaly',
       suspicious_awapi_payment_snapshot: {
         bayar: safeBigint(row?.bayar) || 0,

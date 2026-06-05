@@ -7,6 +7,7 @@ import {
   parseAwapiResponseText,
   preserveExistingPaymentForSuspiciousAwapiRow,
   preserveLegacyUmrohRawData,
+  resolveAggregateBookingLunasRow,
 } from '../awapi-client.js';
 
 function jakartaYear() {
@@ -306,4 +307,155 @@ test('preserveExistingPaymentForSuspiciousAwapiRow keeps verified DB payment dur
   });
   assert.equal(guarded.raw_data.suspicious_awapi_payment_snapshot.bayar, 101700000);
   assert.equal(guarded.raw_data.suspicious_awapi_payment_snapshot.sisa, -64300000);
+});
+
+test('preserveExistingPaymentForSuspiciousAwapiRow never nests guard bookkeeping into the refresh snapshot', () => {
+  // Incoming raw_data is merged with the existing DB raw_data before the guard
+  // runs, so it can already carry a previous guard's snapshot. Re-embedding it
+  // grew raw_data one level per sync (observed up to 255 levels in production).
+  const norm = normalizeAwapiRow(rawRow({
+    bayar: '101700000',
+    bayar_sisa: -64300000,
+  }), { agentId: 'agent-id' });
+  norm.raw_data = {
+    ...norm.raw_data,
+    payment_guard: 'preserved_existing_after_awapi_anomaly',
+    awapi_refresh_snapshot: { bayar: '67800000', awapi_refresh_snapshot: { bayar: '33900000' } },
+    suspicious_awapi_payment_snapshot: { bayar: 67800000, sisa: -33900000 },
+    preserved_payment_snapshot: { bayar: 5000000, sisa: 28900000 },
+  };
+
+  const guarded = preserveExistingPaymentForSuspiciousAwapiRow(norm, {
+    bayar: 5000000,
+    sisa: 28900000,
+    raw_data: { payment_source: 'legacy_detail' },
+  });
+
+  const snapshot = guarded.raw_data.awapi_refresh_snapshot;
+  assert.equal(snapshot.bayar, '101700000');
+  assert.equal('awapi_refresh_snapshot' in snapshot, false);
+  assert.equal('payment_guard' in snapshot, false);
+  assert.equal('suspicious_awapi_payment_snapshot' in snapshot, false);
+  assert.equal('preserved_payment_snapshot' in snapshot, false);
+});
+
+test('resolveAggregateBookingLunasRow normalizes booking-level aggregate bayar to per-pax lunas', () => {
+  // Production shape (AHMAD SULAIMI, AIW0028647): booking of 3 pax paid off,
+  // AWAPI reports the booking total in each pax row → sisa negatif + LEBIH BAYAR.
+  const norm = normalizeAwapiRow(rawRow({
+    bayar: '104700000',
+    bayar_sisa: -69800000,
+    bayar_status: 'LEBIH BAYAR',
+    paket_harga: '34900000',
+    diskon_kantor: '0',
+    diskon_marketing: '0',
+  }), { agentId: 'agent-id' });
+
+  const resolved = resolveAggregateBookingLunasRow(norm);
+
+  assert.ok(resolved);
+  assert.equal(resolved.bayar, 34900000);
+  assert.equal(resolved.sisa, 0);
+  assert.equal(resolved.raw_data.payment_normalized.reason, 'aggregate_booking_lunas');
+  assert.equal(resolved.raw_data.payment_normalized.awapi_bayar, 104700000);
+  assert.equal(resolved.raw_data.payment_normalized.implied_pax, 3);
+  assert.equal(hasSuspiciousAwapiPayment(resolved), false);
+});
+
+test('resolveAggregateBookingLunasRow records gross paket_harga as bayar — AWAPI never deducts diskon', () => {
+  // Production invariant (verified 2026-06-05): every per-pax LUNAS row AWAPI
+  // emits has bayar == paket_harga GROSS, even when diskon > 0. Subtracting
+  // diskon here would understate bayar for every discounted booking.
+  const norm = normalizeAwapiRow(rawRow({
+    bayar: '69800000',
+    bayar_sisa: -34900000,
+    bayar_status: 'LEBIH BAYAR',
+    paket_harga: '34900000',
+    diskon_kantor: '500000',
+    diskon_marketing: '250000',
+  }), { agentId: 'agent-id' });
+
+  const resolved = resolveAggregateBookingLunasRow(norm);
+
+  assert.ok(resolved);
+  assert.equal(resolved.bayar, 34900000);
+  assert.equal(resolved.sisa, 0);
+
+  // diskon >= paket_harga exists in production (e.g. paket 14.4jt, diskon
+  // 14.5jt) — bayar must still be the gross paket_harga, never clamped to 0.
+  const bigDiskon = normalizeAwapiRow(rawRow({
+    bayar: '28800000',
+    bayar_sisa: -14400000,
+    bayar_status: 'LEBIH BAYAR',
+    paket_harga: '14400000',
+    diskon_kantor: '14500000',
+    diskon_marketing: '0',
+  }), { agentId: 'agent-id' });
+
+  const resolvedBig = resolveAggregateBookingLunasRow(bigDiskon);
+
+  assert.ok(resolvedBig);
+  assert.equal(resolvedBig.bayar, 14400000);
+  assert.equal(resolvedBig.sisa, 0);
+});
+
+test('resolveAggregateBookingLunasRow strips inherited guard bookkeeping from raw_data', () => {
+  const norm = normalizeAwapiRow(rawRow({
+    bayar: '104700000',
+    bayar_sisa: -69800000,
+    bayar_status: 'LEBIH BAYAR',
+    paket_harga: '34900000',
+  }), { agentId: 'agent-id' });
+  norm.raw_data = {
+    ...norm.raw_data,
+    payment_guard: 'preserved_existing_after_awapi_anomaly',
+    awapi_refresh_snapshot: { bayar: '69800000' },
+    suspicious_awapi_payment_snapshot: { bayar: 69800000, sisa: -34900000 },
+    preserved_payment_snapshot: { bayar: 10000000, sisa: 24900000 },
+  };
+
+  const resolved = resolveAggregateBookingLunasRow(norm);
+
+  assert.ok(resolved);
+  assert.equal('payment_guard' in resolved.raw_data, false);
+  assert.equal('awapi_refresh_snapshot' in resolved.raw_data, false);
+  assert.equal('suspicious_awapi_payment_snapshot' in resolved.raw_data, false);
+  assert.equal('preserved_payment_snapshot' in resolved.raw_data, false);
+});
+
+test('resolveAggregateBookingLunasRow leaves corrupt and ambiguous payloads to the guard', () => {
+  // paket_harga <= 0 → genuinely corrupt payload, keep guarding.
+  const corrupt = normalizeAwapiRow(rawRow({
+    bayar: '104700000',
+    bayar_sisa: -69800000,
+    bayar_status: 'LEBIH BAYAR',
+    paket_harga: '-1000000',
+  }), { agentId: 'agent-id' });
+  assert.equal(resolveAggregateBookingLunasRow(corrupt), null);
+
+  // Missing paket_harga → cannot prove the aggregate shape, keep guarding.
+  const missing = normalizeAwapiRow(rawRow({
+    bayar: '101700000',
+    bayar_sisa: -64300000,
+    bayar_status: 'LEBIH BAYAR',
+  }), { agentId: 'agent-id' });
+  assert.equal(resolveAggregateBookingLunasRow(missing), null);
+
+  // Non-integer bayar/paket_harga ratio → ambiguous (partial payment / mixed
+  // prices / missing pax), keep guarding.
+  const nonInteger = normalizeAwapiRow(rawRow({
+    bayar: '47800000',
+    bayar_sisa: -13900000,
+    bayar_status: 'LEBIH BAYAR',
+    paket_harga: '33900000',
+  }), { agentId: 'agent-id' });
+  assert.equal(resolveAggregateBookingLunasRow(nonInteger), null);
+
+  // Not suspicious at all (normal cicilan) → resolver does not touch it.
+  const cicilan = normalizeAwapiRow(rawRow({
+    bayar: '4000000',
+    bayar_sisa: 29300000,
+    paket_harga: '33900000',
+  }), { agentId: 'agent-id' });
+  assert.equal(resolveAggregateBookingLunasRow(cicilan), null);
 });
