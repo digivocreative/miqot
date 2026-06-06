@@ -2,7 +2,7 @@
 
 Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 
-Terakhir diperbarui: 2026-06-01
+Terakhir diperbarui: 2026-06-06
 
 ---
 
@@ -880,7 +880,7 @@ flex flex-col
 
 ### AI Tools Hub (`AIToolsPage.tsx`)
 
-Hub page for AI tools & utilities — vertical stack of tool cards. Card urutan: **Brosur Jadwal**, **Bandingkan Paket**, **Kurs Hari Ini**, **Simulasi Haji Plus**, **Landing Page**, **Voice Over**, **Kartu Nama**.
+Hub page for AI tools & utilities — vertical stack of tool cards. Card urutan: **Brosur Jadwal**, **Kalkulasi**, **Bandingkan Paket**, **Kurs Hari Ini**, **Simulasi Haji Plus**, **Landing Page**, **Voice Over**, **AI Assistant (MCP)**, **Kartu Nama**.
 
 ```
 relative w-full text-left bg-white dark:bg-slate-800 rounded-2xl
@@ -899,11 +899,13 @@ hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] transition-all cursor
 | Tool | Icon | Color accent |
 |------|------|--------------|
 | Brosur Jadwal | `FileImage` | rose |
+| Kalkulasi | `Calculator` | blue |
 | Landing Page | `Globe` | purple |
 | Bandingkan Paket (Compare) | `ArrowLeftRight` | violet |
 | Kurs Hari Ini | `Banknote` | amber |
 | Simulasi Haji Plus | `BarChart3` | emerald |
 | Voice Over Generator | `Mic` | purple |
+| AI Assistant (MCP) | `Bot` | teal |
 | Kartu Nama Digital *(hub disabled)* | `CreditCard` | teal |
 
 #### "Segera Hadir" Badge
@@ -924,6 +926,7 @@ Ketika navigasi ke AI Tools sub-page, header icon + label di-override sesuai sub
 - `haji-plus` / `haji-plus/export` / `haji-plus/simulasi`: BarChart3, emerald
 - `kurs`: TrendingUp, emerald
 - `compare`: ArrowLeftRight, violet
+- `mcp`: Bot, teal — label "AI Assistant (MCP)"
 
 ### Brosur Jadwal (`BrochureSchedulePage.tsx`)
 
@@ -1172,6 +1175,58 @@ Share: result.toBlob({ type: 'png' }) → File → navigator.share({ files: [fil
 ```
 
 Keep share payload file-only. Do not add title/text/url.
+
+### AI Assistant MCP (`McpIntegrationPage.tsx`)
+
+Self-service integrasi MCP di `/dashboard/ai-tools/mcp` — agent mengelola API key untuk menghubungkan asisten AI pribadinya (hermes/OpenClaw/Claude) ke data jamaah (read-only). Accent color: **teal**.
+
+#### Page Shell
+
+```
+Root: px-4 pt-4 pb-8 space-y-4
+Cards: bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4
+Section label: text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-2 px-1
+Skeleton (loading): h-3/h-4 bg-gray-200 dark:bg-slate-700 rounded-md animate-pulse (2 placeholder cards)
+```
+
+#### Intro Card
+
+Icon box `w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-900/20` + `Bot` 20 teal, judul `text-sm font-bold`, deskripsi `text-xs text-gray-400 leading-relaxed` dengan penegasan read-only di-bold.
+
+#### API Key Card — 3 State
+
+1. **Belum ada key** → CTA standar dengan accent teal:
+   ```
+   w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold
+   bg-teal-500 hover:bg-teal-600 text-white shadow-md shadow-teal-500/20
+   transition-all duration-200 active:scale-95 disabled:opacity-50
+   ```
+   Icon: `KeyRound` 16.
+2. **Key aktif** → status row (`ShieldCheck` 16 emerald + "aktif sejak {tanggal}") + pasangan tombol:
+   - **Rotate Key**: mini-CTA teal (`py-2.5 text-xs font-bold bg-teal-500 hover:bg-teal-600 shadow-md shadow-teal-500/20`, icon `RefreshCw` 14)
+   - **Cabut Key**: danger outline merah (`bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800/40 hover:bg-red-100`, icon `Trash2` 14)
+   - Kedua aksi memunculkan **inline confirm amber** (bukan dialog): `bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 rounded-xl p-3`, icon `TriangleAlert` 14 amber-500, teks `text-xs text-amber-600 dark:text-amber-400`, tombol "Ya, lanjutkan" `bg-amber-500 hover:bg-amber-600 text-white font-bold shadow-md shadow-amber-500/20` + "Batal" netral.
+3. **Key baru dibuat (show-once)** → success box emerald (`bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40 rounded-xl p-3`) berisi key `text-[10px] font-mono break-all` dalam kotak putih + tombol copy `w-9 h-9 rounded-lg bg-emerald-600` (icon `Copy`→`Check` saat tersalin), diikuti **config snippet** `<pre>` gelap (`bg-gray-900 dark:bg-slate-950 text-emerald-300 rounded-xl p-3 text-[10px] font-mono`) dengan link "Salin config" `text-[10px] font-semibold text-teal-600`. Key TIDAK pernah bisa dilihat lagi setelah state ini ditutup (GET hanya kembalikan status).
+
+#### Tool Docs Card
+
+Card `divide-y divide-gray-50 dark:divide-slate-700/60`; tiap row `p-3.5`: nama tool `text-[11px] font-mono font-semibold text-teal-600 dark:text-teal-400` + deskripsi `text-xs text-gray-400`.
+
+#### Notes Card
+
+`bg-gray-50 dark:bg-slate-800/60 rounded-2xl border p-4`, isi `text-[11px] text-gray-400 leading-relaxed` — read-only, scope data sendiri, rate limit 30 req/menit, data snapshot (`synced_at`), larangan share key.
+
+#### Toast & Analytics
+
+Toast mengikuti pola ShareKurs: `fixed bottom-28 left-1/2 -translate-x-1/2 z-[10000] bg-gray-900 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-xl`, auto-dismiss 2500ms.
+
+```ts
+trackEvent('feature', 'open_mcp_integration'); // page open
+trackEvent('action', 'mcp_generate_key');
+trackEvent('action', 'mcp_revoke_key');
+```
+
+API: `GET/POST/DELETE /api/mcp-key` (lihat docs/project-summary.md §7 — MCP Endpoint).
 
 ### Landing Page Config (`LandingPagePage.tsx`)
 

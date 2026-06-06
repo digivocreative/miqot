@@ -80,7 +80,7 @@ export default function McpIntegrationPage() {
       if (!d.success || !d.key) throw new Error(d.error || 'Gagal membuat key');
       setFreshKey(d.key);
       setStatus({ hasKey: true, createdAt: new Date().toISOString() });
-      trackEvent('feature', 'mcp_key_generated');
+      trackEvent('action', 'mcp_generate_key');
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Gagal membuat key');
     } finally {
@@ -98,7 +98,7 @@ export default function McpIntegrationPage() {
       setFreshKey(null);
       setStatus({ hasKey: false, createdAt: null });
       showToast('API key dicabut — akses asisten AI dimatikan');
-      trackEvent('feature', 'mcp_key_revoked');
+      trackEvent('action', 'mcp_revoke_key');
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Gagal mencabut key');
     } finally {
@@ -111,8 +111,8 @@ export default function McpIntegrationPage() {
       <div className="px-4 pt-4 pb-8 space-y-4">
         {[1, 2].map(i => (
           <div key={i} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4 animate-pulse">
-            <div className="h-4 bg-gray-100 dark:bg-slate-700 rounded w-1/2 mb-3" />
-            <div className="h-3 bg-gray-100 dark:bg-slate-700 rounded w-3/4" />
+            <div className="h-4 bg-gray-200 dark:bg-slate-700 rounded-md w-1/2 mb-3" />
+            <div className="h-3 bg-gray-200 dark:bg-slate-700 rounded-md w-3/4" />
           </div>
         ))}
       </div>
@@ -150,7 +150,7 @@ export default function McpIntegrationPage() {
               <button
                 onClick={generateKey}
                 disabled={busy}
-                className="w-full flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl px-4 py-2.5 transition-all active:scale-[0.98]"
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-teal-500 hover:bg-teal-600 text-white shadow-md shadow-teal-500/20 transition-all duration-200 active:scale-95 disabled:opacity-50"
               >
                 <KeyRound size={16} />
                 {busy ? 'Membuat…' : 'Buat API Key'}
@@ -168,10 +168,10 @@ export default function McpIntegrationPage() {
                 </p>
               </div>
               {confirmAction ? (
-                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-xl p-3 space-y-2">
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 rounded-xl p-3 space-y-2">
                   <div className="flex items-start gap-2">
                     <TriangleAlert size={14} className="text-amber-500 mt-0.5 shrink-0" />
-                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
                       {confirmAction === 'rotate'
                         ? 'Key lama langsung mati — asisten yang masih memakai key lama harus diupdate. Lanjutkan?'
                         : 'Akses semua asisten AI ke datamu akan dimatikan. Lanjutkan?'}
@@ -181,14 +181,14 @@ export default function McpIntegrationPage() {
                     <button
                       onClick={confirmAction === 'rotate' ? generateKey : revokeKey}
                       disabled={busy}
-                      className="flex-1 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white text-xs font-semibold rounded-lg px-3 py-2 transition-all active:scale-[0.98]"
+                      className="flex-1 py-2 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/20 transition-all duration-200 active:scale-95 disabled:opacity-50"
                     >
                       {busy ? 'Memproses…' : 'Ya, lanjutkan'}
                     </button>
                     <button
                       onClick={() => setConfirmAction(null)}
                       disabled={busy}
-                      className="flex-1 bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 text-xs font-semibold rounded-lg px-3 py-2 transition-all active:scale-[0.98]"
+                      className="flex-1 py-2 rounded-lg text-xs font-semibold bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-all duration-200 active:scale-95 disabled:opacity-50"
                     >
                       Batal
                     </button>
@@ -198,13 +198,13 @@ export default function McpIntegrationPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setConfirmAction('rotate')}
-                    className="flex-1 flex items-center justify-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-xl px-3 py-2.5 transition-all active:scale-[0.98]"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold bg-teal-500 hover:bg-teal-600 text-white shadow-md shadow-teal-500/20 transition-all duration-200 active:scale-95"
                   >
                     <RefreshCw size={14} /> Rotate Key
                   </button>
                   <button
                     onClick={() => setConfirmAction('revoke')}
-                    className="flex-1 flex items-center justify-center gap-1.5 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-800/40 text-xs font-semibold rounded-xl px-3 py-2.5 transition-all active:scale-[0.98]"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800/40 hover:bg-red-100 dark:hover:bg-red-900/30 transition-all duration-200 active:scale-95"
                   >
                     <Trash2 size={14} /> Cabut Key
                   </button>
@@ -279,7 +279,7 @@ export default function McpIntegrationPage() {
       </div>
 
       {toast && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-gray-900 dark:bg-slate-700 text-white text-xs font-medium px-4 py-2.5 rounded-xl shadow-lg z-50">
+        <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[10000] bg-gray-900 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-xl">
           {toast}
         </div>
       )}

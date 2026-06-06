@@ -64,6 +64,8 @@ Client (Browser)
               ├── /api/analytics/*   ← Event tracking & analytics
               ├── /api/haji-plus/*   ← Haji Plus statistics
               ├── /api/bio/:slug/*   ← Link Bio config, SEO image, photo upload, featured package preview
+              ├── /api/mcp-key       ← MCP API key self-service (status/generate/revoke)
+              ├── /mcp               ← MCP endpoint (Streamable HTTP) — AI assistant per-agent, read-only
               ├── /api/api-get/*     ← Proxy to jadwal.alhijaz.co (package data)
               ├── /itinerary/*       ← Proxy PDF/images from jadwal.alhijaz.co
               ├── /brosur/*          ← Proxy brochure images
@@ -87,6 +89,7 @@ alhijaz/
 ├── jamaah-api.js           # Legacy: Playwright-based jamaah scraping (deprecated, replaced by laporan-api.js)
 ├── awapi-client.js         # Alhijaz Official API client (post-2026-04-26 umroh sync via official API instead of legacy scrape)
 ├── telegram-notifier.js    # Telegram alerts (~3041 lines) — seat, price, weekly, AI insights, per-agent departure reminders, cicilan/pelunasan masuk, birthday digest, kurs update
+├── mcp-server.js           # MCP server read-only (POST /mcp, Streamable HTTP stateless) — 4 tools data jamaah untuk AI assistant per-agent, auth bearer agents.mcp_api_key, rate limit 30 req/menit
 ├── deploy-webhook.js       # GitHub webhook listener (port 9000) → auto deploy
 ├── deploy.sh               # Deploy script: pull, install, build, restart systemd
 ├── Dockerfile              # Docker multi-stage build
@@ -149,7 +152,8 @@ alhijaz/
 │   │   ├── CapiEventLog.tsx       # CAPI event log viewer — pagination, filtering, auto-refresh 30s (~222 lines)
 │   │   ├── CompactCard.tsx        # Compact card variant (~131 lines)
 │   │   ├── PhotoCropModal.tsx     # Reusable photo crop modal (react-easy-crop) (~181 lines)
-│   │   ├── AIToolsPage.tsx        # AI Tools hub page (tool cards grid — Brosur Jadwal, Compare, Kurs, Simulasi Haji Plus, Landing Page, Voice Over, Kartu Nama) (~152 lines)
+│   │   ├── AIToolsPage.tsx        # AI Tools hub page (tool cards grid — Brosur Jadwal, Kalkulasi, Compare, Kurs, Simulasi Haji Plus, Landing Page, Voice Over, AI Assistant MCP, Kartu Nama) (~161 lines)
+│   │   ├── McpIntegrationPage.tsx # AI Assistant (MCP) self-service — generate/rotate/revoke API key, config snippet show-once, dok tools (~280 lines)
 │   │   ├── SettingsPage.tsx       # Unified settings: iOS segmented control (3 tabs: Profil, Telegram, CAPI) (~257 lines)
 │   │   ├── FloatingAgentBar.tsx   # Floating WhatsApp CTA bar (~107 lines)
 │   │   ├── AgentProfile.tsx       # Agent info card on package page (~85 lines)
@@ -326,6 +330,7 @@ alhijaz/
 - `migrations/20260520000000_haji_awapi_columns.sql` — 13 kolom baru di `jamaah_haji` (porsi, spph, paspor, finansial, tanggal, dokumen JSONB) + composite indexes
 - `migrations/20260522000000_umroh_schedule_cdn_fingerprints.sql` — 8 kolom CDN sync (sha256/bytes/content-type/synced_at) untuk brosur & itinerary di `umroh_schedules`
 - `migrations/20260523000000_jamaah_document_cache.sql` — tabel `jamaah_document_cache` (`agent_id` UUID FK CASCADE, `jm_id`, `document_type`, `content_html`, `html_sha256`, `source_url`, `content_type`, `fetched_at`/`updated_at`; UNIQUE `(agent_id, jm_id, document_type)`, RLS-protected) untuk cache surat pernyataan AWAPI
+- `migrations/20260606020000_agents_mcp_api_key.sql` — kolom `mcp_api_key` + `mcp_api_key_created_at` di `agents` (partial unique index) untuk auth MCP endpoint; self-host perlu `NOTIFY pgrst, 'reload schema'` setelah ALTER
 
 ## 4. Konvensi & Aturan
 
@@ -509,6 +514,12 @@ alhijaz/
   - **Kurs Hari Ini** (`/dashboard/ai-tools/kurs`): Cek & hitung kurs valas USD/SAR
   - **Simulasi Haji Plus** (`/dashboard/ai-tools/haji-plus`): Buat penawaran untuk calon jamaah haji; default tab menampilkan kalkulator harga Haji Plus dengan export PNG dan share native.
   - **Simulasi Haji Plus** (`/dashboard/ai-tools/haji-plus/simulasi`): Kalkulator harga Haji Plus — pilih paket RAHMAH/UHUD, pilih tipe kamar Double/Triple/Quad (default Quad), DP $4,500/orang, pilih tahun keberangkatan **2036–2041** (default 2036), pelunasan 6 bulan sebelum berangkat, proyeksi inflasi 1.5%/tahun (harga dasar aktual Mei 2026), export PNG + share via native share.
+  - **AI Assistant (MCP)** (`/dashboard/ai-tools/mcp`): self-service untuk menghubungkan asisten AI pribadi agent (hermes/OpenClaw/Claude — client apa pun yang mendukung MCP) ke data jamaah miliknya, **read-only**:
+    - Generate / rotate / revoke API key sendiri (`GET/POST/DELETE /api/mcp-key`); key + config snippet JSON (URL `/mcp` + bearer) ditampilkan **sekali** setelah generate, dengan tombol copy — GET hanya mengembalikan status `hasKey`/`createdAt`.
+    - Rotate/revoke pakai inline confirm amber; key lama mati seketika (cache bearer di-invalidate).
+    - Dokumentasi 4 tools di halaman: `list_jamaah`, `get_jamaah`, `jamaah_birthdays`, `payment_summary`.
+    - Catatan keamanan di halaman: hanya baca data milik sendiri, rate limit 30 req/menit, data snapshot sync (`synced_at`).
+    - Detail endpoint & arsitektur: lihat §7 — MCP Endpoint; styling: DESIGN-SYSTEM.md → "AI Assistant MCP".
   - **Kartu Nama Digital** (`/dashboard/ai-tools/business-card`): generator sudah tersedia di route langsung, tetapi kartu hub masih `Segera Hadir`/disabled. Mendukung 5 desain, format landscape/portrait, QR code ke link agent, export PNG resolusi tinggi via `@zumer/snapdom`, dan native share file-only.
 
 ### Fitur Infrastruktur
@@ -587,6 +598,8 @@ pin_hash          TEXT                -- bcrypt-hashed 6-digit PIN (optional, un
 card_variant      TEXT DEFAULT 'default' -- PackageCard layout: default/split/spotlight/ticket/tiled/magazine
 awapi_code        TEXT                -- kode Alhijaz Official API per agent
 awapi_key         TEXT                -- x-api-key untuk AWAPI (server-only)
+mcp_api_key       TEXT                -- bearer key MCP endpoint (miqot_mcp_<48 hex>; partial unique index; self-service via /api/mcp-key)
+mcp_api_key_created_at TIMESTAMPTZ    -- kapan key MCP dibuat/dirotate
 last_jamaah_sync_at TIMESTAMPTZ       -- sync umroh terakhir
 last_jamaah_haji_sync_at TIMESTAMPTZ  -- sync haji terakhir
 landing_config    JSONB DEFAULT '{}'  -- Per-agent landing page customization: { umroh: {title, description, og_image_url}, haji: {...} }
@@ -1384,6 +1397,7 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - **Background jobs gating** — `lib/background-jobs.js` (`shouldRunBackgroundJobs`) gate cron kurs & Telegram notifier by `NODE_ENV` (override `ENABLE_BACKGROUND_JOBS`).
 - **Jamaah/Haji filter & UI** (2026-05) — filter lanjutan beranimasi (bayar/keberangkatan/dokumen/perlengkapan/catatan), persentase pembayaran ter-clamp 0–100, viewer Surat Pernyataan (`UmrohPernyataanViewer` + proxy `/api/laporan/jamaah/doc-proxy`), dan format USD di Haji.
 - **Passport reminder timing** (2026-05-26) — reminder paspor jam 09:30 WIB, anti-duplikat `paspor_{slug}_{today}`, paspor dianggap collected jika `dokumen.paspor` true ATAU `no_paspor` terisi.
+- **MCP server + UI self-service** (2026-06-06) — `POST /mcp` (Streamable HTTP stateless via `@modelcontextprotocol/sdk` v1, module `mcp-server.js`): AI assistant per-agent (hermes/OpenClaw/Claude) membaca data jamaah miliknya sendiri, read-only by design (di-enforce source-grep test). 4 tools: `list_jamaah`/`get_jamaah`/`jamaah_birthdays`/`payment_summary`. Auth bearer `agents.mcp_api_key` (kredensial terpisah dari JWT), rate limit 30 req/menit, response menyertakan `synced_at`. Key management: admin (`/api/admin/agents/:slug/mcp-key`) + self-service per agent (`/api/mcp-key` + UI `/dashboard/ai-tools/mcp`, key show-once + config snippet). Detail: §7 MCP Endpoint, DESIGN-SYSTEM.md "AI Assistant MCP".
 
 ### Rencana / Backlog
 - [TODO] Perluas test suite ke route/API integration dan komponen React utama
