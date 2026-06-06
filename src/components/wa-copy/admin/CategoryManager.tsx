@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ChevronDown, ChevronLeft, ChevronUp, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useWaCopyContent } from '../hooks/useWaCopyContent';
 import { useToast, ToastPill } from '../hooks/useToast';
 import { resolveCategoryIcon } from '../lib/categoryIcons';
@@ -25,7 +25,6 @@ export default function CategoryManager({ route, navigate, navigateUp }: Categor
 
   const cfg = {
     caption: {
-      title: 'Kategori Caption',
       unit: 'Kategori',
       categories: content.captionCategories,
       countOf: (value: string) => content.captions.filter(c => c.category === value).length,
@@ -35,7 +34,6 @@ export default function CategoryManager({ route, navigate, navigateUp }: Categor
       remove: content.deleteCaptionCategory,
     },
     faq: {
-      title: 'Kategori FAQ',
       unit: 'Kategori',
       categories: content.faqCategories,
       countOf: (value: string) => content.faqs.filter(f => f.category === value).length,
@@ -45,7 +43,6 @@ export default function CategoryManager({ route, navigate, navigateUp }: Categor
       remove: content.deleteFaqCategory,
     },
     tourleader: {
-      title: 'Fase Tour Leader',
       unit: 'Fase',
       categories: content.tourPhases,
       countOf: (value: string) => content.tourSteps.filter(t => t.phase === value).length,
@@ -126,19 +123,10 @@ export default function CategoryManager({ route, navigate, navigateUp }: Categor
   // ── List view ─────────────────────────────────────────────────────
   const canDelete = categories.length > 1;
 
+  // No local back/title header here — the sticky dashboard header already shows
+  // a contextual title (kontenTitle) and its back button steps up via kontenUp.
   return (
     <div className="px-4 pt-4 space-y-4" style={{ paddingBottom: '2rem' }}>
-      <div className="flex items-center gap-2">
-        <button
-          onClick={navigateUp}
-          className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
-          aria-label="Kembali"
-        >
-          <ChevronLeft size={18} />
-        </button>
-        <h2 className="text-sm font-bold text-gray-800 dark:text-white">{cfg.title}</h2>
-      </div>
-
       <button
         onClick={() => navigate(kontenPath({ kind: 'cat-new', tab: route.tab }))}
         className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 active:scale-95 transition-all"

@@ -17,3 +17,4 @@ export interface ParsedKontenPath {
 export function parseKontenPath(pathname: string): ParsedKontenPath;
 export function kontenPath(route: KontenRoute): string;
 export function kontenParentPath(route: KontenRoute): string | null;
+export function kontenTitle(route: KontenRoute): string | null;

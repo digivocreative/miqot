@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKontenPath, kontenPath, kontenParentPath } from '../src/components/wa-copy/lib/kontenRoutes.js';
+import { parseKontenPath, kontenPath, kontenParentPath, kontenTitle } from '../src/components/wa-copy/lib/kontenRoutes.js';
 
 const ROUTES = [
   { route: { kind: 'list', tab: 'faq' }, path: '/dashboard/konten/faq' },
@@ -60,6 +60,24 @@ test('non-canonical and malformed paths fall back safely', () => {
     { route: { kind: 'list', tab: 'faq' }, canonical: false });
   // malformed percent-encoding must not throw
   assert.equal(parseKontenPath('/dashboard/konten/faq/edit/%E0%A4%A').canonical, false);
+});
+
+test('kontenTitle gives sub-views a contextual header title, list keeps the default', () => {
+  // null → DashboardLayout keeps the "Konten" tab label
+  assert.equal(kontenTitle({ kind: 'list', tab: 'faq' }), null);
+  assert.equal(kontenTitle({ kind: 'list', tab: 'tourleader' }), null);
+  // entry editors name the content type
+  assert.equal(kontenTitle({ kind: 'entry-new', tab: 'caption' }), 'Tambah Caption');
+  assert.equal(kontenTitle({ kind: 'entry-edit', tab: 'faq', id: 'x' }), 'Edit FAQ');
+  assert.equal(kontenTitle({ kind: 'entry-new', tab: 'tourleader' }), 'Tambah Tour Leader');
+  // category manager mirrors the old in-content titles
+  assert.equal(kontenTitle({ kind: 'cat-list', tab: 'caption' }), 'Kategori Caption');
+  assert.equal(kontenTitle({ kind: 'cat-list', tab: 'faq' }), 'Kategori FAQ');
+  assert.equal(kontenTitle({ kind: 'cat-list', tab: 'tourleader' }), 'Fase Tour Leader');
+  // tourleader categories are "Fase", the rest "Kategori"
+  assert.equal(kontenTitle({ kind: 'cat-new', tab: 'faq' }), 'Tambah Kategori');
+  assert.equal(kontenTitle({ kind: 'cat-edit', tab: 'caption', value: 'v' }), 'Edit Kategori');
+  assert.equal(kontenTitle({ kind: 'cat-delete', tab: 'tourleader', value: 'v' }), 'Hapus Fase');
 });
 
 test('kontenParentPath walks editor→list, kategori-sub→kategori, kategori→list, list→null', () => {

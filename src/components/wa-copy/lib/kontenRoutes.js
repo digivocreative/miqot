@@ -47,6 +47,24 @@ export function parseKontenPath(pathname) {
   return { route, canonical: kontenPath(route) === pathname };
 }
 
+const TAB_LABELS = { faq: 'FAQ', caption: 'Caption', tourleader: 'Tour Leader' };
+
+// Contextual sticky-header title for a konten sub-view — same pattern as the
+// AI Tools AI_SUB_STYLES override in DashboardLayout. null = keep the default
+// "Konten" tab title (and means sub-views never render their own back button).
+export function kontenTitle(route) {
+  const unit = route.tab === 'tourleader' ? 'Fase' : 'Kategori';
+  switch (route.kind) {
+    case 'entry-new': return `Tambah ${TAB_LABELS[route.tab]}`;
+    case 'entry-edit': return `Edit ${TAB_LABELS[route.tab]}`;
+    case 'cat-list': return route.tab === 'tourleader' ? 'Fase Tour Leader' : `Kategori ${TAB_LABELS[route.tab]}`;
+    case 'cat-new': return `Tambah ${unit}`;
+    case 'cat-edit': return `Edit ${unit}`;
+    case 'cat-delete': return `Hapus ${unit}`;
+    default: return null; // 'list' — header shows the tab default
+  }
+}
+
 export function kontenParentPath(route) {
   switch (route.kind) {
     case 'entry-new':

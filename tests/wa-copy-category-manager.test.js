@@ -46,6 +46,10 @@ test('CategoryManager wires the store, icons, counts, reorder, and reassign-dele
   assert.match(mgr, /CategoryEditor/);         // create/edit delegates to the form
   assert.match(mgr, /navigateUp/);             // up-navigation instead of onExit
   assert.match(mgr, /kontenPath\(/);           // no hand-concatenated paths
+  // No local back button/title — the sticky dashboard header owns back +
+  // contextual title (kontenTitle); a second chevron here was the double-nav bug.
+  assert.doesNotMatch(mgr, /ChevronLeft/);
+  assert.doesNotMatch(mgr, /aria-label="Kembali"/);
 });
 
 test('konten views derive from the URL — no internal view state, no backRequest', () => {

@@ -30,7 +30,7 @@ import KursPage from './KursPage';
 import BrochureSchedulePage from './BrochureSchedulePage';
 import WaCopyPage from './wa-copy/WaCopyPage';
 import WaCopyAdminPage from './wa-copy/admin/WaCopyAdminPage';
-import { parseKontenPath, kontenParentPath } from './wa-copy/lib/kontenRoutes';
+import { parseKontenPath, kontenParentPath, kontenTitle } from './wa-copy/lib/kontenRoutes';
 import WhatsAppIcon from './common/WhatsAppIcon';
 import UmrahRegisterPage from './UmrahRegisterPage';
 import CuacaWidget from './CuacaWidget';
@@ -573,6 +573,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     </>
                   );
                 }
+                // Konten sub-views get a contextual title ("Kategori Caption",
+                // "Tambah Kategori", …) — re-evaluates via pathTick on navigation.
+                const kontenSub = activeTab === 'konten'
+                  ? kontenTitle(parseKontenPath(window.location.pathname).route)
+                  : null;
                 return (
                   <>
                     {activeCard && (
@@ -580,7 +585,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                         <activeCard.icon size={16} className={activeCard.color} />
                       </div>
                     )}
-                    <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">{activeCard?.label}</h1>
+                    <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">{kontenSub ?? activeCard?.label}</h1>
                   </>
                 );
               })()}
