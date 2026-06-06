@@ -34,7 +34,7 @@ interface WaCopyAdminPageProps {
 
 function buildRows<T extends { id: string; order: number; active: boolean }>(
   { items, groupOrder, groupOf }: Group<T>,
-  toRow: (x: T) => { badge: string; title: string; subtitle: string },
+  toRow: (x: T) => { badge: string; title: string; subtitle: string; searchText: string },
 ): ContentRow[] {
   const sorted = [...items].sort(
     (a, b) => groupOrder.indexOf(groupOf(a)) - groupOrder.indexOf(groupOf(b)) || a.order - b.order,
@@ -42,8 +42,8 @@ function buildRows<T extends { id: string; order: number; active: boolean }>(
   return sorted.map(item => {
     const groupItems = sorted.filter(x => groupOf(x) === groupOf(item));
     const idx = groupItems.findIndex(x => x.id === item.id);
-    const { badge, title, subtitle } = toRow(item);
-    return { id: item.id, badge, title, subtitle, active: item.active, canUp: idx > 0, canDown: idx < groupItems.length - 1 };
+    const { badge, title, subtitle, searchText } = toRow(item);
+    return { id: item.id, badge, title, subtitle, searchText, active: item.active, canUp: idx > 0, canDown: idx < groupItems.length - 1 };
   });
 }
 
@@ -162,6 +162,7 @@ export default function WaCopyAdminPage({ parsed, navigate, navigateUp }: WaCopy
         badge: CAPTION_LABEL[c.category],
         title: firstLine(c.template),
         subtitle: c.packageAware ? 'Pakai Paket' : '',
+        searchText: c.template,
       }),
     );
     onToggle = content.toggleCaption;
@@ -169,14 +170,14 @@ export default function WaCopyAdminPage({ parsed, navigate, navigateUp }: WaCopy
   } else if (type === 'faq') {
     rows = buildRows(
       { items: content.faqs, groupOrder: FAQ_ORDER, groupOf: f => f.category },
-      f => ({ badge: FAQ_LABEL[f.category], title: f.question, subtitle: '' }),
+      f => ({ badge: FAQ_LABEL[f.category], title: f.question, subtitle: '', searchText: `${f.question}\n${f.answer}` }),
     );
     onToggle = content.toggleFaq;
     onReorder = content.reorderFaq;
   } else {
     rows = buildRows(
       { items: content.tourSteps, groupOrder: PHASE_ORDER, groupOf: t => t.phase },
-      t => ({ badge: PHASE_LABEL[t.phase], title: t.title, subtitle: '' }),
+      t => ({ badge: PHASE_LABEL[t.phase], title: t.title, subtitle: '', searchText: `${t.title}\n${t.body}` }),
     );
     onToggle = content.toggleTour;
     onReorder = content.reorderTour;
@@ -208,7 +209,8 @@ export default function WaCopyAdminPage({ parsed, navigate, navigateUp }: WaCopy
         </button>
       </div>
 
-      <ContentList rows={rows} onToggle={onToggle} onReorder={onReorder} onEdit={id => navigate(kontenPath({ kind: 'entry-edit', tab: type, id }))} />
+      {/* key={type}: remount per tab so the search query resets when switching */}
+      <ContentList key={type} rows={rows} onToggle={onToggle} onReorder={onReorder} onEdit={id => navigate(kontenPath({ kind: 'entry-edit', tab: type, id }))} />
 
       <ToastPill toast={toast} />
     </div>

@@ -1,4 +1,5 @@
-import { ChevronDown, ChevronUp, Pencil } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, ChevronUp, Pencil, Search, SearchX } from 'lucide-react';
 import Toggle from './Toggle';
 
 export interface ContentRow {
@@ -6,6 +7,8 @@ export interface ContentRow {
   badge: string;
   title: string;
   subtitle: string;
+  /** Full text behind the (truncated) title — what search matches against. */
+  searchText: string;
   active: boolean;
   canUp: boolean;
   canDown: boolean;
@@ -24,11 +27,22 @@ interface ContentGroup {
 }
 
 export default function ContentList({ rows, onToggle, onReorder, onEdit }: ContentListProps) {
+  // Search lives here (not in WaCopyAdminPage, which stays view-state-free).
+  // The parent keys this component by tab, so the query resets on tab switch.
+  const [query, setQuery] = useState('');
+
   if (rows.length === 0) {
     return <p className="text-center text-xs text-gray-400 dark:text-slate-500 py-10">Belum ada konten.</p>;
   }
 
-  const groups = rows.reduce<ContentGroup[]>((acc, row) => {
+  const q = query.trim().toLowerCase();
+  // Reordering swaps with list neighbors that may be filtered out — disable while searching.
+  const filtering = q.length > 0;
+  const visible = filtering
+    ? rows.filter(r => `${r.badge}\n${r.title}\n${r.subtitle}\n${r.searchText}`.toLowerCase().includes(q))
+    : rows;
+
+  const groups = visible.reduce<ContentGroup[]>((acc, row) => {
     const current = acc[acc.length - 1];
     if (current?.badge === row.badge) {
       current.rows.push(row);
@@ -40,6 +54,25 @@ export default function ContentList({ rows, onToggle, onReorder, onEdit }: Conte
 
   return (
     <div className="space-y-4">
+      <div className="relative bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500" />
+        <input
+          type="text"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Cari konten…"
+          className="h-10 w-full bg-transparent pl-9 pr-3 text-sm outline-none text-gray-800 dark:text-white placeholder:text-gray-400"
+        />
+      </div>
+
+      {visible.length === 0 && (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 dark:border-slate-700 bg-white/70 dark:bg-slate-800/60 py-12 px-6 text-center">
+          <SearchX size={28} className="text-gray-400 dark:text-slate-500 opacity-40" />
+          <p className="mt-3 text-sm font-bold text-gray-700 dark:text-slate-200">Tidak ada hasil</p>
+          <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">Coba kata kunci lain.</p>
+        </div>
+      )}
+
       {groups.map(group => (
         <section key={group.badge} className="space-y-2">
           <h2 className="px-1 text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">
@@ -53,7 +86,7 @@ export default function ContentList({ rows, onToggle, onReorder, onEdit }: Conte
               <div className="flex flex-col gap-0.5">
                 <button
                   onClick={() => onReorder(row.id, 'up')}
-                  disabled={!row.canUp}
+                  disabled={!row.canUp || filtering}
                   className="w-6 h-6 flex items-center justify-center rounded-md text-gray-300 dark:text-slate-600 hover:bg-gray-100 hover:text-gray-500 dark:hover:bg-slate-700 dark:hover:text-slate-400 disabled:opacity-20 transition-colors"
                   aria-label="Naik"
                 >
@@ -61,7 +94,7 @@ export default function ContentList({ rows, onToggle, onReorder, onEdit }: Conte
                 </button>
                 <button
                   onClick={() => onReorder(row.id, 'down')}
-                  disabled={!row.canDown}
+                  disabled={!row.canDown || filtering}
                   className="w-6 h-6 flex items-center justify-center rounded-md text-gray-300 dark:text-slate-600 hover:bg-gray-100 hover:text-gray-500 dark:hover:bg-slate-700 dark:hover:text-slate-400 disabled:opacity-20 transition-colors"
                   aria-label="Turun"
                 >
