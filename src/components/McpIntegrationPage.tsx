@@ -153,7 +153,7 @@ export default function McpIntegrationPage() {
           <div>
             <h3 className="text-sm font-bold text-gray-800 dark:text-white">Asisten AI Pribadi</h3>
             <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
-              Sambungkan asisten AI-mu ke data jamaah & paket.
+              Sambungkan asisten AI pribadimu.
             </p>
           </div>
         </div>
