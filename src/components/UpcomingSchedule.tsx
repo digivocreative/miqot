@@ -193,7 +193,8 @@ export default function UpcomingSchedule() {
     const result: Record<TabKey, EventDetail[]> = { keberangkatan: [], kepulangan: [], manasik: [] };
     for (const ev of monthEvents) {
       if (ev.date === dateStr && result[ev.type as TabKey]) {
-        const valid = ev.details.filter(d => d.group_number && d.group_number !== '-' && d.pax > 0);
+        // pax > 0 saja — group_number bisa kosong dari sumber legacy padahal kloternya asli
+        const valid = ev.details.filter(d => d.pax > 0);
         result[ev.type as TabKey].push(...valid);
       }
     }
