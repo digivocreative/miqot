@@ -45,7 +45,7 @@ function waktuRelatif(iso: string): string {
 
 function buildConfigSnippet(key: string): string {
   return JSON.stringify({
-    miqot: {
+    alhijaz: {
       url: `${window.location.origin}/mcp`,
       headers: { Authorization: `Bearer ${key}` },
     },

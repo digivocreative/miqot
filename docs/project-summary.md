@@ -599,7 +599,7 @@ pin_hash          TEXT                -- bcrypt-hashed 6-digit PIN (optional, un
 card_variant      TEXT DEFAULT 'default' -- PackageCard layout: default/split/spotlight/ticket/tiled/magazine
 awapi_code        TEXT                -- kode Alhijaz Official API per agent
 awapi_key         TEXT                -- x-api-key untuk AWAPI (server-only)
-mcp_api_key       TEXT                -- bearer key MCP endpoint (miqot_mcp_<48 hex>; partial unique index; self-service via /api/mcp-key)
+mcp_api_key       TEXT                -- bearer key MCP endpoint (alhijaz_mcp_<48 hex>; legacy miqot_mcp_ masih diterima; partial unique index; self-service via /api/mcp-key)
 mcp_api_key_created_at TIMESTAMPTZ    -- kapan key MCP dibuat/dirotate
 mcp_key_last_used_at TIMESTAMPTZ      -- kapan terakhir key dipakai asisten (stamp throttled 10 menit; di-reset null saat generate/rotate/revoke) — UI "Tersambung" vs "belum tersambung"
 last_jamaah_sync_at TIMESTAMPTZ       -- sync umroh terakhir
@@ -1221,7 +1221,7 @@ Sumber kebenaran paket tetap external API `https://jadwal.alhijaz.co/jadwal/api-
 
 `POST /mcp` — Model Context Protocol, Streamable HTTP **stateless** (module `mcp-server.js`, SDK `@modelcontextprotocol/sdk` v1). Dipakai AI assistant milik masing-masing agent (berjalan di mesin agent sendiri) untuk membaca data jamaah-nya — **read-only by design** (di-enforce test source-grep `tests/mcp-server.test.js`).
 
-- **Auth**: `Authorization: Bearer miqot_mcp_<48 hex>` — kolom `agents.mcp_api_key` (BUKAN JWT; kredensial terpisah, bisa di-revoke tanpa ganggu login web). Semua tool hard-scoped `agent_id` agent pemilik key.
+- **Auth**: `Authorization: Bearer alhijaz_mcp_<48 hex>` — kolom `agents.mcp_api_key` (BUKAN JWT; kredensial terpisah, bisa di-revoke tanpa ganggu login web). Semua tool hard-scoped `agent_id` agent pemilik key. **Terminologi user-facing selalu "alhijaz", jangan "miqot"** (keputusan 2026-06-06); prefix legacy `miqot_mcp_` tetap diterima agar key yang terlanjur terpasang tidak putus.
 - **Key management (admin only)**: `POST /api/admin/agents/:slug/mcp-key` (generate/rotate — key dikembalikan sekali di response) · `DELETE /api/admin/agents/:slug/mcp-key` (revoke, langsung efektif).
 - **Key self-service (per agent)**: `GET /api/mcp-key` (status: hasKey + createdAt + lastUsedAt — key TIDAK pernah dikembalikan via GET) · `POST /api/mcp-key` (generate/rotate key sendiri) · `DELETE /api/mcp-key` (revoke sendiri). UI: **`/dashboard/ai-tools/mcp`** (`src/components/McpIntegrationPage.tsx`) — generate/rotate/revoke + config snippet show-once + contoh pertanyaan. Status kartu jujur via `mcp_key_last_used_at` (stamp throttled 10 menit via hook `onAuthenticated` → `stampMcpKeyUsage` di server.js; mcp-server.js tetap read-only): "Tersambung + terakhir aktif X lalu" hanya bila key pernah dipakai, selain itu "Kunci aktif — asisten belum tersambung".
 - **Rate limit**: 30 request/menit per key (sliding window, in-memory). Pagination cap 50.
@@ -1229,9 +1229,9 @@ Sumber kebenaran paket tetap external API `https://jadwal.alhijaz.co/jadwal/api-
 - **Config client (contoh)**:
 ```json
 {
-  "miqot": {
+  "alhijaz": {
     "url": "https://alhijaz.co/mcp",
-    "headers": { "Authorization": "Bearer miqot_mcp_xxx" }
+    "headers": { "Authorization": "Bearer alhijaz_mcp_xxx" }
   }
 }
 ```

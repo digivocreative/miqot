@@ -5,8 +5,11 @@
 // - Streamable HTTP transport in STATELESS mode (new server+transport per
 //   request, sessionIdGenerator: undefined) mounted at POST /mcp on the main
 //   Express app — no extra port/service, survives miqot.service restarts.
-// - Auth: `Authorization: Bearer miqot_mcp_<48 hex>` — per-agent key stored in
+// - Auth: `Authorization: Bearer alhijaz_mcp_<48 hex>` — per-agent key stored in
 //   agents.mcp_api_key (generated/revoked by admin endpoints in server.js).
+//   Terminologi user-facing selalu "alhijaz", JANGAN "miqot" (keputusan user
+//   2026-06-06); prefix lama `miqot_mcp_` masih diterima demi key yang
+//   terlanjur terpasang di asisten agent.
 //   Every tool is hard-scoped to the authenticated agent's agent_id, the same
 //   isolation contract as the REST API.
 // - READ-ONLY by design: this module must never call .insert/.update/.delete/
@@ -24,7 +27,7 @@ import {
   countBrochureTripDays,
 } from './lib/brochure-schedule.js';
 
-const KEY_PREFIX = 'miqot_mcp_';
+const KEY_PREFIX = 'alhijaz_mcp_';
 const KEY_HEX_LEN = 48; // 24 random bytes
 const RATE_LIMIT_PER_MINUTE = 30;
 const KEY_CACHE_TTL_MS = 60_000;
@@ -36,7 +39,9 @@ export function generateMcpApiKey() {
 
 export function parseMcpBearer(header) {
   if (typeof header !== 'string') return null;
-  const m = header.match(/^Bearer\s+(miqot_mcp_[a-f0-9]{48})\s*$/i);
+  // `miqot_mcp_` = prefix legacy (pra-rename 2026-06-06), tetap diterima agar
+  // key yang sudah terpasang di asisten agent tidak putus.
+  const m = header.match(/^Bearer\s+((?:alhijaz|miqot)_mcp_[a-f0-9]{48})\s*$/i);
   return m ? m[1].toLowerCase() : null;
 }
 
@@ -294,7 +299,7 @@ function toolError(message) {
 }
 
 function buildAgentMcpServer({ agent, supabase, log }) {
-  const server = new McpServer({ name: 'miqot-jamaah', version: '1.0.0' });
+  const server = new McpServer({ name: 'alhijaz', version: '1.0.0' });
 
   const register = (name, config, handler) => {
     server.registerTool(name, config, async (args = {}) => {
@@ -620,7 +625,7 @@ export function initMcpServer(app, { supabase, log = console.log, onAuthenticate
 
   app.post('/mcp', async (req, res) => {
     const token = parseMcpBearer(req.headers.authorization);
-    if (!token) return jsonRpcError(res, 401, -32001, 'Unauthorized: kirim header Authorization: Bearer miqot_mcp_...');
+    if (!token) return jsonRpcError(res, 401, -32001, 'Unauthorized: kirim header Authorization: Bearer alhijaz_mcp_...');
     if (!rateLimiter(token)) return jsonRpcError(res, 429, -32002, `Rate limit: max ${RATE_LIMIT_PER_MINUTE} request/menit per key`);
 
     let agent;

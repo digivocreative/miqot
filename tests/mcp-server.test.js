@@ -23,12 +23,19 @@ function read(path) {
 
 // ── key format & bearer parsing ──────────────────────────────────────────────
 
-test('generateMcpApiKey produces parseable miqot_mcp_ keys', () => {
+test('generateMcpApiKey produces parseable alhijaz_mcp_ keys', () => {
   const key = generateMcpApiKey();
-  assert.match(key, /^miqot_mcp_[a-f0-9]{48}$/);
+  // Terminologi user-facing selalu "alhijaz", bukan "miqot" (2026-06-06).
+  assert.match(key, /^alhijaz_mcp_[a-f0-9]{48}$/);
   assert.equal(parseMcpBearer(`Bearer ${key}`), key);
   // Two keys must never collide trivially.
   assert.notEqual(generateMcpApiKey(), generateMcpApiKey());
+});
+
+test('parseMcpBearer still accepts legacy miqot_mcp_ keys already installed', () => {
+  // Key lama yang terlanjur dipasang di asisten agent tidak boleh putus.
+  const legacy = `miqot_mcp_${'a'.repeat(48)}`;
+  assert.equal(parseMcpBearer(`Bearer ${legacy}`), legacy);
 });
 
 test('parseMcpBearer rejects everything that is not a well-formed key', () => {
@@ -38,12 +45,14 @@ test('parseMcpBearer rejects everything that is not a well-formed key', () => {
   assert.equal(parseMcpBearer('Bearer some-jwt-token'), null);
   // JWT must NOT work on the MCP endpoint — it is a separate credential.
   assert.equal(parseMcpBearer('Bearer eyJhbGciOiJIUzI1NiJ9.x.y'), null);
-  assert.equal(parseMcpBearer('Bearer miqot_mcp_tooshort'), null);
-  assert.equal(parseMcpBearer(`miqot_mcp_${'a'.repeat(48)}`), null); // missing Bearer
+  assert.equal(parseMcpBearer('Bearer alhijaz_mcp_tooshort'), null);
+  assert.equal(parseMcpBearer(`alhijaz_mcp_${'a'.repeat(48)}`), null); // missing Bearer
+  // Prefix selain alhijaz/miqot ditolak.
+  assert.equal(parseMcpBearer(`Bearer umroh_mcp_${'a'.repeat(48)}`), null);
   // Case noise is normalized, value returned lowercase.
   assert.equal(
-    parseMcpBearer(`bearer MIQOT_MCP_${'A'.repeat(48)}`),
-    `miqot_mcp_${'a'.repeat(48)}`,
+    parseMcpBearer(`bearer ALHIJAZ_MCP_${'A'.repeat(48)}`),
+    `alhijaz_mcp_${'a'.repeat(48)}`,
   );
 });
 
