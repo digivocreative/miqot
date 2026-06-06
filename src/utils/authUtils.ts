@@ -12,18 +12,30 @@ interface StoredSession {
   };
 }
 
+function getStoredSession(): StoredSession | null {
+  const raw = localStorage.getItem('auth_session') || sessionStorage.getItem('auth_session');
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as StoredSession;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Check if there is a stored auth session with a token.
  * Does NOT check expiry — agents should never be auto-logged out.
  */
 export function isSessionValid(): boolean {
-  const raw = localStorage.getItem('auth_session') || sessionStorage.getItem('auth_session');
-  if (!raw) return false;
+  return !!getStoredSession()?.token;
+}
 
-  try {
-    const session: StoredSession = JSON.parse(raw);
-    return !!session?.token;
-  } catch {
-    return false;
-  }
+/**
+ * Authorization header from the stored session (empty object when logged out).
+ * For public-page components that hit auth-gated endpoints without importing LoginPage.
+ */
+export function getSessionAuthHeaders(): Record<string, string> {
+  const token = getStoredSession()?.token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }

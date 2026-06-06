@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Download, Loader2, ZoomIn, ZoomOut } from 'lucide-react';
+import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 
@@ -15,13 +15,15 @@ interface BrochureModalProps {
   onClose: () => void;
   imageUrl: string;
   title: string;
+  /** When provided, shows a "Caption" button in the footer (agent-only tool). */
+  onCaption?: () => void;
 }
 
 // ============================================
 // Component
 // ============================================
 
-export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModalProps) {
+export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption }: BrochureModalProps) {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [scale, setScale] = useState(1);
@@ -233,12 +235,28 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
 
           {/* ─── FIXED FOOTER ─── */}
           {displayUrl && (
-            <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-3">
+              {onCaption && (
+                <button
+                  onClick={onCaption}
+                  className="
+                    flex-1 flex items-center justify-center gap-2 py-3.5 px-4
+                    rounded-xl font-bold
+                    border-2 border-indigo-500 dark:border-indigo-400
+                    text-indigo-600 dark:text-indigo-300
+                    hover:bg-indigo-50 dark:hover:bg-indigo-900/30
+                    transition-all duration-200 active:scale-[0.98]
+                  "
+                >
+                  <Sparkles size={20} />
+                  <span>Caption</span>
+                </button>
+              )}
               <button
                 onClick={handleShareBrosur}
                 disabled={isSharing}
                 className="
-                  w-full flex items-center justify-center gap-2 py-3.5 px-4
+                  flex-1 flex items-center justify-center gap-2 py-3.5 px-4
                   rounded-xl font-bold text-white
                   bg-emerald-600 hover:bg-emerald-700
                   shadow-lg shadow-emerald-500/20
@@ -253,12 +271,12 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title }: BrochureModa
                 ) : useShareLabel ? (
                   <>
                     <Share2 size={20} />
-                    <span>Bagikan Brosur</span>
+                    <span>{onCaption ? 'Bagikan' : 'Bagikan Brosur'}</span>
                   </>
                 ) : (
                   <>
                     <Download size={20} />
-                    <span>Download Brosur</span>
+                    <span>{onCaption ? 'Download' : 'Download Brosur'}</span>
                   </>
                 )}
               </button>

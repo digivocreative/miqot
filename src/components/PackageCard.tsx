@@ -20,6 +20,9 @@ import { getTemperature } from '@/data/temperatureData';
 import { sendCapiEvent } from '@/lib/capi';
 import { trackEvent, trackPublicEvent } from '@/utils/analytics';
 import { getLandingCityName, getPackageJourneySteps } from '@/utils/journey';
+import { isSessionValid, getSessionAuthHeaders } from '@/utils/authUtils';
+import { shareCaption } from './wa-copy/utils/waLink';
+import WhatsAppIcon from './common/WhatsAppIcon';
 
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
@@ -232,7 +235,7 @@ export function PackageCard({
       const res = await fetch('/api/ai-copy', {
         method: 'POST',
         signal: controller.signal,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getSessionAuthHeaders() },
         body: JSON.stringify({
           packageData: {
             nama: pkg.nama,
@@ -2332,6 +2335,10 @@ _________________________
           onClose={() => setIsBrochureOpen(false)}
           imageUrl={pkg.brosurUrl}
           title={pkg.nama}
+          onCaption={isSessionValid() ? () => {
+            setIsBrochureOpen(false);
+            setIsAiCopyOpen(true);
+          } : undefined}
         />
       )}
 
@@ -2399,7 +2406,7 @@ _________________________
                 <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-slate-700">
                   <div className="flex items-center gap-2">
                     <Sparkles size={18} className="text-indigo-500" />
-                    <h2 className="text-base font-bold text-gray-900 dark:text-white">AI Copywriting Generator</h2>
+                    <h2 className="text-base font-bold text-gray-900 dark:text-white">Caption AI</h2>
                   </div>
                   <button
                     onClick={() => setIsAiCopyOpen(false)}
@@ -2427,6 +2434,29 @@ _________________________
                         className="text-sm text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
                       >
                         Coba lagi
+                      </button>
+                    </div>
+                  ) : !aiCopyText ? (
+                    /* Idle state — generate is manual so opening the modal doesn't burn the rate limit */
+                    <div className="flex flex-col items-center justify-center py-10 gap-4 text-center">
+                      <div className="w-14 h-14 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center">
+                        <Sparkles size={26} className="text-indigo-500" />
+                      </div>
+                      <p className="text-sm text-gray-600 dark:text-slate-300 max-w-[260px]">
+                        Buat caption promosi WhatsApp untuk <span className="font-semibold">{pkg.nama}</span> — siap dipakai di status atau broadcast.
+                      </p>
+                      <button
+                        onClick={generateAiCopy}
+                        className="
+                          flex items-center justify-center gap-2 py-3 px-6
+                          rounded-xl font-bold text-white
+                          bg-indigo-600 hover:bg-indigo-700
+                          shadow-lg shadow-indigo-500/20
+                          transition-all duration-200 active:scale-[0.98]
+                        "
+                      >
+                        <Sparkles size={18} />
+                        <span>Buat Caption</span>
                       </button>
                     </div>
                   ) : (
@@ -2457,61 +2487,78 @@ _________________________
                   )}
                 </div>
 
-                {/* Footer */}
-                <div className="px-5 py-4 border-t border-gray-200 dark:border-slate-700 flex gap-3">
-                  {/* Buat Ulang Button */}
-                  <button
-                    onClick={generateAiCopy}
-                    disabled={aiLoading}
-                    className={`
-                      flex-1 flex items-center justify-center gap-2 py-3.5 px-4
-                      rounded-xl font-bold
-                      border-2 border-emerald-600 dark:border-emerald-400
-                      text-emerald-700 dark:text-emerald-300
-                      hover:bg-emerald-50 dark:hover:bg-emerald-900/30
-                      transition-all duration-200 active:scale-[0.98]
-                      ${aiLoading ? 'opacity-50 cursor-not-allowed' : ''}
-                    `}
-                  >
-                    <RefreshCw size={20} />
-                    <span>Refresh</span>
-                  </button>
+                {/* Footer — hidden in idle state (no caption yet) */}
+                {(aiCopyText || aiLoading) && (
+                  <div className="px-5 py-4 border-t border-gray-200 dark:border-slate-700 flex gap-3">
+                    {/* Buat Ulang Button (icon-only) */}
+                    <button
+                      onClick={generateAiCopy}
+                      disabled={aiLoading}
+                      aria-label="Buat ulang caption"
+                      className={`
+                        flex items-center justify-center py-3.5 px-4
+                        rounded-xl font-bold
+                        border-2 border-indigo-500 dark:border-indigo-400
+                        text-indigo-600 dark:text-indigo-300
+                        hover:bg-indigo-50 dark:hover:bg-indigo-900/30
+                        transition-all duration-200 active:scale-[0.98]
+                        ${aiLoading ? 'opacity-50 cursor-not-allowed' : ''}
+                      `}
+                    >
+                      <RefreshCw size={20} className={aiLoading ? 'animate-spin' : ''} />
+                    </button>
 
-                  {/* Salin Teks Button */}
-                  <button
-                    disabled={aiLoading || !aiCopyText}
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(aiCopyText);
-                      } catch {
-                        const ta = document.createElement('textarea');
-                        ta.value = aiCopyText;
-                        document.body.appendChild(ta);
-                        ta.select();
-                        document.execCommand('copy');
-                        document.body.removeChild(ta);
-                      }
-                      setAiCopied(true);
-                      setTimeout(() => setAiCopied(false), 2000);
-                    }}
-                    className={`
-                      flex-1 flex items-center justify-center gap-2 py-3.5 px-4
-                      rounded-xl font-bold text-white
-                      transition-all duration-200 active:scale-[0.98]
-                      ${aiLoading || !aiCopyText ? 'opacity-50 cursor-not-allowed' : ''}
-                      ${aiCopied
-                        ? 'bg-emerald-500 shadow-lg shadow-emerald-500/30'
-                        : 'bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20'
-                      }
-                    `}
-                  >
-                    {aiCopied ? (
-                      <><ClipboardCheck size={20} /><span>Copied!</span></>
-                    ) : (
-                      <><Copy size={20} /><span>Copy</span></>
-                    )}
-                  </button>
-                </div>
+                    {/* Salin Teks Button */}
+                    <button
+                      disabled={aiLoading || !aiCopyText}
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(aiCopyText);
+                        } catch {
+                          const ta = document.createElement('textarea');
+                          ta.value = aiCopyText;
+                          document.body.appendChild(ta);
+                          ta.select();
+                          document.execCommand('copy');
+                          document.body.removeChild(ta);
+                        }
+                        setAiCopied(true);
+                        setTimeout(() => setAiCopied(false), 2000);
+                      }}
+                      className={`
+                        flex-1 flex items-center justify-center gap-2 py-3.5 px-4
+                        rounded-xl font-bold
+                        bg-gray-100 text-gray-700 hover:bg-gray-200
+                        dark:bg-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-700
+                        transition-all duration-200 active:scale-[0.98]
+                        ${aiLoading || !aiCopyText ? 'opacity-50 cursor-not-allowed' : ''}
+                      `}
+                    >
+                      {aiCopied ? (
+                        <><ClipboardCheck size={20} className="text-emerald-500" /><span>Tersalin</span></>
+                      ) : (
+                        <><Copy size={20} /><span>Salin</span></>
+                      )}
+                    </button>
+
+                    {/* Kirim WA Button */}
+                    <button
+                      disabled={aiLoading || !aiCopyText}
+                      onClick={() => shareCaption(aiCopyText)}
+                      className={`
+                        flex-1 flex items-center justify-center gap-2 py-3.5 px-4
+                        rounded-xl font-bold text-white
+                        bg-emerald-600 hover:bg-emerald-700
+                        shadow-lg shadow-emerald-500/20
+                        transition-all duration-200 active:scale-[0.98]
+                        ${aiLoading || !aiCopyText ? 'opacity-50 cursor-not-allowed' : ''}
+                      `}
+                    >
+                      <WhatsAppIcon size={20} />
+                      <span>Kirim WA</span>
+                    </button>
+                  </div>
+                )}
               </motion.div>
             </motion.div>
           )}

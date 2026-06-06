@@ -1045,7 +1045,7 @@ const syncingAgents = new Map(); // agentId → { isSyncing, totalSynced, lastSy
 // ──────────────────────────────────────────────
 // API: AI Copywriting (OpenAI proxy)
 // ──────────────────────────────────────────────
-app.post('/api/ai-copy', async (req, res) => {
+app.post('/api/ai-copy', authMiddleware, async (req, res) => {
   const OPENAI_KEY = process.env.OPENAI_API_KEY;
   if (!OPENAI_KEY) {
     return res.status(500).json({ error: 'OPENAI_API_KEY not configured in .env' });
@@ -1071,6 +1071,7 @@ app.post('/api/ai-copy', async (req, res) => {
 
     const systemPrompt = `Kamu adalah copywriter untuk travel umroh Alhijaz Indowisata.
 Tugas kamu menulis caption promosi WhatsApp yang santai, hangat, dan persuasif tapi tetap islami.
+Struktur caption: hook pembuka yang menarik perhatian → info inti paket (tanggal, maskapai, hotel, harga) → sentuhan urgensi sisa seat → ajakan menghubungi agent.
 Gunakan emoji secukupnya. Gunakan format WhatsApp (*bold*, _italic_) secukupnya.
 Tulis dengan gaya ngobrol ke teman — friendly, tidak kaku, tidak terlalu formal.
 Caption harus ringkas dan to the point, mudah dibaca di layar HP (maks 500 karakter).
