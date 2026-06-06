@@ -81,6 +81,19 @@ function cacheKey(year: number, month: number) {
   return `${year}-${month}`;
 }
 
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+// Nama paket manasik dari sistem legacy menempelkan tanggal berangkat grup
+// sebagai prefix "DD/MM/YYYYNAMA PAKET" — pisahkan untuk tampilan.
+function parsePaket(paket: string | null): { name: string; departure: string | null } {
+  if (!paket) return { name: '-', departure: null };
+  const m = paket.match(/^(\d{2})\/(\d{2})\/(\d{4})\s*(.+)$/);
+  if (!m) return { name: paket, departure: null };
+  const monthIdx = parseInt(m[2], 10) - 1;
+  if (monthIdx < 0 || monthIdx > 11) return { name: paket, departure: null };
+  return { name: m[4].trim(), departure: `${parseInt(m[1], 10)} ${SHORT_MONTHS[monthIdx]}` };
+}
+
 
 export default function UpcomingSchedule() {
   const now = useMemo(() => new Date(), []);
@@ -381,7 +394,9 @@ export default function UpcomingSchedule() {
               ) : (
                 <>
                   <div className="flex-1 overflow-y-auto">
-                    {activeDetails.map((detail, i) => (
+                    {activeDetails.map((detail, i) => {
+                      const paket = parsePaket(detail.paket);
+                      return (
                       <div
                         key={i}
                         className={`px-4 py-3 flex gap-3 items-start hover:bg-gray-50 dark:hover:bg-slate-700/40 transition-colors ${
@@ -405,7 +420,7 @@ export default function UpcomingSchedule() {
                           </div>
                           {/* Paket */}
                           <p className="text-[10px] text-gray-600 dark:text-slate-300 mt-1 leading-relaxed">
-                            {detail.paket || '-'}
+                            {paket.name}
                           </p>
                           {/* Jam kumpul + titik kumpul + takeoff (1 baris merged) */}
                           {activeTab === 'keberangkatan' && detail.jam ? (
@@ -427,9 +442,17 @@ export default function UpcomingSchedule() {
                               <span className="font-semibold text-gray-700 dark:text-slate-200">{detail.jam}</span>
                             </div>
                           ) : (
-                            <div className="flex items-center gap-1 text-[11px] text-gray-500 dark:text-slate-400 mt-1.5">
+                            <div className="flex items-center gap-1 flex-wrap text-[11px] text-gray-500 dark:text-slate-400 mt-1.5">
                               <Clock size={10} className={`${tabConfig.iconColor} shrink-0`} />
                               <span>{detail.jam || '-'}</span>
+                              {paket.departure && (
+                                <>
+                                  <span className="text-gray-300 dark:text-slate-600 mx-0.5">·</span>
+                                  <Plane size={10} className={`${tabConfig.iconColor} shrink-0`} />
+                                  <span>Berangkat</span>
+                                  <span className="font-semibold text-gray-700 dark:text-slate-200">{paket.departure}</span>
+                                </>
+                              )}
                             </div>
                           )}
                           {/* Tour Leader */}
@@ -447,7 +470,8 @@ export default function UpcomingSchedule() {
                           <div className="text-[8px] font-bold text-gray-500 dark:text-slate-400 uppercase mt-0.5">PAX</div>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* Footer Summary */}
