@@ -203,15 +203,15 @@ export async function syncCalendar(supabase) {
     return { success: true, count: 0 };
   }
 
-  // Filter to relevant range: 1 month back + 3 months ahead
+  // Filter to relevant range: 1 month back, tanpa batas atas — sumber hanya
+  // preload set terbatas (~120 event); cap +3 bulan dulu membuat bulan
+  // Oktober+ tampak kosong di dashboard padahal sumbernya ada.
   const now = new Date();
   const rangeStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const rangeEnd = new Date(now.getFullYear(), now.getMonth() + 4, 0);
   const rangeStartStr = rangeStart.toISOString().split('T')[0];
-  const rangeEndStr = rangeEnd.toISOString().split('T')[0];
 
-  const filtered = calendarEvents.filter(ev => ev.date >= rangeStartStr && ev.date <= rangeEndStr);
-  console.log(`[Calendar] ${filtered.length} events in range (${rangeStartStr} → ${rangeEndStr})`);
+  const filtered = calendarEvents.filter(ev => ev.date >= rangeStartStr);
+  console.log(`[Calendar] ${filtered.length} events in range (${rangeStartStr} →)`);
 
   // Fetch details for each event
   const allRows = [];
@@ -267,8 +267,7 @@ export async function syncCalendar(supabase) {
     const { data: existingRows, error: fetchErr } = await supabase
       .from('calendar_events')
       .select('id')
-      .gte('event_date', rangeStartStr)
-      .lte('event_date', rangeEndStr);
+      .gte('event_date', rangeStartStr);
 
     if (!fetchErr && existingRows) {
       const staleIds = existingRows
