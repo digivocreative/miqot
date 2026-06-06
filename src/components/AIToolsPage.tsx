@@ -85,7 +85,7 @@ const TOOLS: Tool[] = [
   {
     id: 'mcp',
     name: 'AI Assistant (MCP)',
-    desc: 'Hubungkan asisten AI pribadimu ke data jamaah — read-only',
+    desc: 'Sambungkan asisten AI pribadimu ke data jamaah & paket',
     icon: Bot,
     color: 'teal',
     route: 'mcp',

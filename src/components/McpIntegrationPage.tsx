@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Check, Copy, KeyRound, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
+import { Bot, Check, Copy, Eye, KeyRound, Lock, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 
@@ -8,15 +8,15 @@ interface KeyStatus {
   createdAt: string | null;
 }
 
-const TOOL_DOCS: { name: string; desc: string }[] = [
-  { name: 'list_jamaah', desc: 'Daftar jamaah — filter status bayar, window keberangkatan, atau cari nama/booking/WA' },
-  { name: 'get_jamaah', desc: 'Detail satu jamaah + anggota lain dalam booking yang sama' },
-  { name: 'jamaah_birthdays', desc: 'Jamaah yang berulang tahun 7–90 hari ke depan' },
-  { name: 'payment_summary', desc: 'Ringkasan pembayaran: total outstanding & breakdown per bulan keberangkatan' },
-  { name: 'list_jadwal_paket', desc: 'Jadwal paket umroh: tanggal, durasi, maskapai, sisa seat, harga mulai, manasik' },
-  { name: 'get_jadwal_paket', desc: 'Detail paket: harga per tier & kamar, hotel, penerbangan, link brosur & itinerary' },
-  { name: 'kalkulasi_harga', desc: 'Hitung total harga paket (kamar, anak tanpa kasur, infant, diskon) — sama dengan tool Kalkulasi' },
-  { name: 'calendar_events', desc: 'Kalender manasik / keberangkatan / kepulangan per grup — termasuk Tour Leader & titik kumpul' },
+// Untuk pengguna non-teknis: contoh pertanyaan jauh lebih mudah dipahami
+// daripada daftar nama tool. 8 tool MCP terdokumentasi di project-summary §7.
+const EXAMPLE_QUESTIONS: { emoji: string; text: string }[] = [
+  { emoji: '💰', text: 'Siapa jamaah saya yang belum lunas?' },
+  { emoji: '📅', text: 'Paket bulan Juli yang masih ada seat apa saja?' },
+  { emoji: '🧮', text: 'Hitung harga 2 dewasa + 1 anak paket RAHMAH' },
+  { emoji: '🖼️', text: 'Minta brosur & itinerary paketnya' },
+  { emoji: '🧕', text: 'Siapa Tour Leader keberangkatan grup 171?' },
+  { emoji: '🎂', text: 'Siapa jamaah yang ulang tahun minggu ini?' },
 ];
 
 function formatTanggal(iso: string | null): string {
@@ -45,6 +45,7 @@ export default function McpIntegrationPage() {
   const [freshKey, setFreshKey] = useState<string | null>(null);
   const [copied, setCopied] = useState<'key' | 'config' | null>(null);
   const [confirmAction, setConfirmAction] = useState<'rotate' | 'revoke' | null>(null);
+  const [showConfig, setShowConfig] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const tracked = useRef(false);
 
@@ -81,12 +82,13 @@ export default function McpIntegrationPage() {
     try {
       const r = await fetch('/api/mcp-key', { method: 'POST', headers: getAuthHeaders() });
       const d = await r.json();
-      if (!d.success || !d.key) throw new Error(d.error || 'Gagal membuat key');
+      if (!d.success || !d.key) throw new Error(d.error || 'Gagal membuat kunci');
       setFreshKey(d.key);
+      setShowConfig(false);
       setStatus({ hasKey: true, createdAt: new Date().toISOString() });
       trackEvent('action', 'mcp_generate_key');
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Gagal membuat key');
+      showToast(e instanceof Error ? e.message : 'Gagal membuat kunci');
     } finally {
       setBusy(false);
     }
@@ -98,13 +100,13 @@ export default function McpIntegrationPage() {
     try {
       const r = await fetch('/api/mcp-key', { method: 'DELETE', headers: getAuthHeaders() });
       const d = await r.json();
-      if (!d.success) throw new Error(d.error || 'Gagal mencabut key');
+      if (!d.success) throw new Error(d.error || 'Gagal memutuskan');
       setFreshKey(null);
       setStatus({ hasKey: false, createdAt: null });
-      showToast('API key dicabut — akses asisten AI dimatikan');
+      showToast('Sambungan diputus');
       trackEvent('action', 'mcp_revoke_key');
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Gagal mencabut key');
+      showToast(e instanceof Error ? e.message : 'Gagal memutuskan');
     } finally {
       setBusy(false);
     }
@@ -125,51 +127,60 @@ export default function McpIntegrationPage() {
 
   return (
     <div className="px-4 pt-4 pb-8 space-y-4">
-      {/* Intro */}
+      {/* Intro — singkat + 3 chip jaminan */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4">
-        <div className="flex items-start gap-3">
+        <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-900/20 flex items-center justify-center shrink-0">
             <Bot size={20} className="text-teal-600 dark:text-teal-400" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-gray-800 dark:text-white">Hubungkan Asisten AI Pribadimu</h3>
-            <p className="text-xs text-gray-400 dark:text-slate-500 mt-1 leading-relaxed">
-              Punya asisten AI sendiri (hermes, OpenClaw, Claude, atau agent lain yang mendukung MCP)?
-              Hubungkan ke data jamaahmu — asisten bisa mengecek status pembayaran, jadwal keberangkatan,
-              sampai ulang tahun jamaah. <span className="font-semibold text-gray-500 dark:text-slate-400">Hanya baca data milikmu sendiri, tidak bisa mengubah apa pun.</span>
+            <h3 className="text-sm font-bold text-gray-800 dark:text-white">Asisten AI Pribadi</h3>
+            <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
+              Sambungkan asisten AI-mu ke data jamaah & paket.
             </p>
           </div>
         </div>
+        <div className="flex flex-wrap gap-1.5 mt-3">
+          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+            <ShieldCheck size={11} /> Hanya membaca
+          </span>
+          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+            <Lock size={11} /> Hanya data milikmu
+          </span>
+          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+            <Trash2 size={11} /> Bisa diputus kapan saja
+          </span>
+        </div>
       </div>
 
-      {/* Key management */}
+      {/* Kunci akses */}
       <div>
-        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-2 px-1">API Key</div>
+        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-2 px-1">Kunci Akses</div>
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4 space-y-3">
           {!status?.hasKey && !freshKey && (
             <>
-              <p className="text-xs text-gray-500 dark:text-slate-400">
-                Belum ada API key. Buat key untuk mulai menghubungkan asisten AI-mu.
-              </p>
+              <p className="text-xs text-gray-500 dark:text-slate-400">Belum tersambung.</p>
               <button
                 onClick={generateKey}
                 disabled={busy}
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-teal-500 hover:bg-teal-600 text-white shadow-md shadow-teal-500/20 transition-all duration-200 active:scale-95 disabled:opacity-50"
               >
                 <KeyRound size={16} />
-                {busy ? 'Membuat…' : 'Buat API Key'}
+                {busy ? 'Membuat…' : 'Buat Kunci Akses'}
               </button>
             </>
           )}
 
           {status?.hasKey && !freshKey && (
             <>
-              <div className="flex items-center gap-2">
-                <ShieldCheck size={16} className="text-emerald-500 shrink-0" />
-                <p className="text-xs text-gray-600 dark:text-slate-300">
-                  Key aktif{status.createdAt ? ` sejak ${formatTanggal(status.createdAt)}` : ''}.
-                  Key hanya ditampilkan sekali saat dibuat — kalau hilang, buat ulang (rotate).
-                </p>
+              <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-xl p-3 flex items-center gap-2.5">
+                <ShieldCheck size={18} className="text-emerald-500 shrink-0" />
+                <div>
+                  <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Tersambung</p>
+                  {status.createdAt && (
+                    <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80">sejak {formatTanggal(status.createdAt)}</p>
+                  )}
+                </div>
               </div>
               {confirmAction ? (
                 <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 rounded-xl p-3 space-y-2">
@@ -177,8 +188,8 @@ export default function McpIntegrationPage() {
                     <TriangleAlert size={14} className="text-amber-500 mt-0.5 shrink-0" />
                     <p className="text-xs text-amber-600 dark:text-amber-400">
                       {confirmAction === 'rotate'
-                        ? 'Key lama langsung mati — asisten yang masih memakai key lama harus diupdate. Lanjutkan?'
-                        : 'Akses semua asisten AI ke datamu akan dimatikan. Lanjutkan?'}
+                        ? 'Kunci lama langsung tidak berlaku. Lanjut?'
+                        : 'Asisten AI tidak bisa lagi membaca datamu. Lanjut?'}
                     </p>
                   </div>
                   <div className="flex gap-2">
@@ -187,7 +198,7 @@ export default function McpIntegrationPage() {
                       disabled={busy}
                       className="flex-1 py-2 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/20 transition-all duration-200 active:scale-95 disabled:opacity-50"
                     >
-                      {busy ? 'Memproses…' : 'Ya, lanjutkan'}
+                      {busy ? 'Memproses…' : 'Ya, lanjut'}
                     </button>
                     <button
                       onClick={() => setConfirmAction(null)}
@@ -202,15 +213,15 @@ export default function McpIntegrationPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setConfirmAction('rotate')}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold bg-teal-500 hover:bg-teal-600 text-white shadow-md shadow-teal-500/20 transition-all duration-200 active:scale-95"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-bold bg-teal-500 hover:bg-teal-600 text-white shadow-md shadow-teal-500/20 transition-all duration-200 active:scale-95"
                   >
-                    <RefreshCw size={14} /> Rotate Key
+                    <RefreshCw size={14} /> Buat Kunci Baru
                   </button>
                   <button
                     onClick={() => setConfirmAction('revoke')}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800/40 hover:bg-red-100 dark:hover:bg-red-900/30 transition-all duration-200 active:scale-95"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-bold bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800/40 hover:bg-red-100 dark:hover:bg-red-900/30 transition-all duration-200 active:scale-95"
                   >
-                    <Trash2 size={14} /> Cabut Key
+                    <Trash2 size={14} /> Putuskan
                   </button>
                 </div>
               )}
@@ -219,67 +230,78 @@ export default function McpIntegrationPage() {
 
           {freshKey && (
             <>
-              <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl p-3">
-                <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 mb-1">
-                  ✅ Key berhasil dibuat — salin SEKARANG, tidak akan ditampilkan lagi.
-                </p>
-                <div className="flex items-center gap-2 mt-2">
-                  <code className="flex-1 text-[10px] font-mono bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800/40 rounded-lg px-2 py-2 break-all text-gray-700 dark:text-slate-300">
-                    {freshKey}
-                  </code>
-                  <button
-                    onClick={() => copyText(freshKey, 'key')}
-                    className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-all active:scale-95"
-                    aria-label="Salin key"
-                  >
-                    {copied === 'key' ? <Check size={16} /> : <Copy size={16} />}
-                  </button>
-                </div>
+              {/* Langkah 1 — salin pengaturan (CTA utama) */}
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-teal-500 text-white text-xs font-bold flex items-center justify-center shrink-0">1</span>
+                <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">Salin pengaturan ini</p>
+              </div>
+              <button
+                onClick={() => copyText(buildConfigSnippet(freshKey), 'config')}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-teal-500 hover:bg-teal-600 text-white shadow-md shadow-teal-500/20 transition-all duration-200 active:scale-95"
+              >
+                {copied === 'config' ? <Check size={16} /> : <Copy size={16} />}
+                {copied === 'config' ? 'Tersalin ✓' : 'Salin Pengaturan'}
+              </button>
+
+              {/* Langkah 2 — tempel di asisten */}
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-teal-500 text-white text-xs font-bold flex items-center justify-center shrink-0">2</span>
+                <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">Tempel di aplikasi asisten AI-mu. Selesai!</p>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500">Config untuk asisten AI-mu</span>
-                  <button
-                    onClick={() => copyText(buildConfigSnippet(freshKey), 'config')}
-                    className="flex items-center gap-1 text-[10px] font-semibold text-teal-600 dark:text-teal-400"
-                  >
-                    {copied === 'config' ? <Check size={12} /> : <Copy size={12} />}
-                    {copied === 'config' ? 'Tersalin' : 'Salin config'}
-                  </button>
-                </div>
-                <pre className="text-[10px] font-mono bg-gray-900 dark:bg-slate-950 text-emerald-300 rounded-xl p-3 overflow-x-auto leading-relaxed">
-                  {buildConfigSnippet(freshKey)}
-                </pre>
-                <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1.5">
-                  Tempel ke konfigurasi MCP server di asisten AI-mu (hermes/OpenClaw: file config MCP; Claude Desktop: <code>claude_desktop_config.json</code>).
-                </p>
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 rounded-xl px-3 py-2 flex items-center gap-2">
+                <TriangleAlert size={13} className="text-amber-500 shrink-0" />
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">Hanya muncul sekali — salin sekarang.</p>
               </div>
+
+              {/* Detail teknis — disembunyikan biar tidak menakutkan */}
+              <button
+                onClick={() => setShowConfig(v => !v)}
+                className="flex items-center gap-1 text-[10px] font-semibold text-gray-400 dark:text-slate-500"
+              >
+                <Eye size={11} /> {showConfig ? 'Sembunyikan detail' : 'Lihat detail'}
+              </button>
+              {showConfig && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-[10px] font-mono bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg px-2 py-2 break-all text-gray-700 dark:text-slate-300">
+                      {freshKey}
+                    </code>
+                    <button
+                      onClick={() => copyText(freshKey, 'key')}
+                      className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-all active:scale-95"
+                      aria-label="Salin kunci saja"
+                    >
+                      {copied === 'key' ? <Check size={15} /> : <Copy size={15} />}
+                    </button>
+                  </div>
+                  <pre className="text-[10px] font-mono bg-gray-900 dark:bg-slate-950 text-emerald-300 rounded-xl p-3 overflow-x-auto leading-relaxed">
+                    {buildConfigSnippet(freshKey)}
+                  </pre>
+                </div>
+              )}
             </>
           )}
         </div>
       </div>
 
-      {/* Tool docs */}
+      {/* Contoh pertanyaan — pengganti daftar tool teknis */}
       <div>
-        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-2 px-1">Yang Bisa Diakses Asisten</div>
+        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-2 px-1">Contoh yang Bisa Ditanyakan</div>
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm divide-y divide-gray-50 dark:divide-slate-700/60">
-          {TOOL_DOCS.map(tool => (
-            <div key={tool.name} className="p-3.5">
-              <code className="text-[11px] font-mono font-semibold text-teal-600 dark:text-teal-400">{tool.name}</code>
-              <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">{tool.desc}</p>
+          {EXAMPLE_QUESTIONS.map(q => (
+            <div key={q.text} className="px-4 py-3 flex items-center gap-3">
+              <span className="text-base shrink-0">{q.emoji}</span>
+              <p className="text-xs text-gray-600 dark:text-slate-300">“{q.text}”</p>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Notes */}
-      <div className="bg-gray-50 dark:bg-slate-800/60 rounded-2xl border border-gray-100 dark:border-slate-700 p-4">
-        <p className="text-[11px] text-gray-400 dark:text-slate-500 leading-relaxed">
-          🔒 Asisten hanya bisa <span className="font-semibold">membaca</span> data jamaah milikmu sendiri — tidak bisa mengubah, dan tidak bisa melihat data agent lain.
-          Batas 30 request/menit. Data adalah snapshot hasil sync (bukan real-time) — selalu cek <code>synced_at</code>.
-          Jangan bagikan API key ke siapa pun; key = akses penuh baca data jamaahmu.
-        </p>
+      {/* Catatan — 1 baris saja */}
+      <div className="bg-gray-50 dark:bg-slate-800/60 rounded-2xl border border-gray-100 dark:border-slate-700 px-4 py-3 flex items-center gap-2.5">
+        <Lock size={14} className="text-gray-400 dark:text-slate-500 shrink-0" />
+        <p className="text-[11px] text-gray-400 dark:text-slate-500">Jangan bagikan kunci ke siapa pun.</p>
       </div>
 
       {toast && (

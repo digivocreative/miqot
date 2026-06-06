@@ -1178,7 +1178,9 @@ Keep share payload file-only. Do not add title/text/url.
 
 ### AI Assistant MCP (`McpIntegrationPage.tsx`)
 
-Self-service integrasi MCP di `/dashboard/ai-tools/mcp` — agent mengelola API key untuk menghubungkan asisten AI pribadinya (hermes/OpenClaw/Claude) ke data jamaah (read-only). Accent color: **teal**.
+Self-service integrasi MCP di `/dashboard/ai-tools/mcp` — agent mengelola kunci akses untuk menghubungkan asisten AI pribadinya (hermes/OpenClaw/Claude) ke data jamaah & paket (read-only). Accent color: **teal**.
+
+**Prinsip UX (2026-06-06): target pengguna non-teknis 40-an** — minim kalimat, langkah bernomor, label bahasa sehari-hari ("Kunci Akses" bukan "API key", "Buat Kunci Baru" bukan "Rotate", "Putuskan" bukan "Revoke"), detail teknis (raw key + JSON config) disembunyikan di balik toggle "Lihat detail", dan daftar tool teknis diganti **contoh pertanyaan**.
 
 #### Page Shell
 
@@ -1191,30 +1193,36 @@ Skeleton (loading): h-3/h-4 bg-gray-200 dark:bg-slate-700 rounded-md animate-pul
 
 #### Intro Card
 
-Icon box `w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-900/20` + `Bot` 20 teal, judul `text-sm font-bold`, deskripsi `text-xs text-gray-400 leading-relaxed` dengan penegasan read-only di-bold.
+Icon box `w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-900/20` + `Bot` 20 teal, judul "Asisten AI Pribadi" `text-sm font-bold`, deskripsi 1 kalimat `text-xs text-gray-400`. Di bawahnya 3 **chip jaminan** (pill emerald):
 
-#### API Key Card — 3 State
+```
+inline-flex items-center gap-1 px-2 py-1 rounded-full
+bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40
+text-[10px] font-semibold text-emerald-700 dark:text-emerald-300
+```
 
-1. **Belum ada key** → CTA standar dengan accent teal:
-   ```
-   w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold
-   bg-teal-500 hover:bg-teal-600 text-white shadow-md shadow-teal-500/20
-   transition-all duration-200 active:scale-95 disabled:opacity-50
-   ```
-   Icon: `KeyRound` 16.
-2. **Key aktif** → status row (`ShieldCheck` 16 emerald + "aktif sejak {tanggal}") + pasangan tombol:
-   - **Rotate Key**: mini-CTA teal (`py-2.5 text-xs font-bold bg-teal-500 hover:bg-teal-600 shadow-md shadow-teal-500/20`, icon `RefreshCw` 14)
-   - **Cabut Key**: danger outline merah (`bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800/40 hover:bg-red-100`, icon `Trash2` 14)
-   - Kedua aksi memunculkan **inline confirm amber** (bukan dialog): `bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 rounded-xl p-3`, icon `TriangleAlert` 14 amber-500, teks `text-xs text-amber-600 dark:text-amber-400`, tombol "Ya, lanjutkan" `bg-amber-500 hover:bg-amber-600 text-white font-bold shadow-md shadow-amber-500/20` + "Batal" netral.
-3. **Key baru dibuat (show-once)** → success box emerald (`bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40 rounded-xl p-3`) berisi key `text-[10px] font-mono break-all` dalam kotak putih + tombol copy `w-9 h-9 rounded-lg bg-emerald-600` (icon `Copy`→`Check` saat tersalin), diikuti **config snippet** `<pre>` gelap (`bg-gray-900 dark:bg-slate-950 text-emerald-300 rounded-xl p-3 text-[10px] font-mono`) dengan link "Salin config" `text-[10px] font-semibold text-teal-600`. Key TIDAK pernah bisa dilihat lagi setelah state ini ditutup (GET hanya kembalikan status).
+Isi: `ShieldCheck` "Hanya membaca" · `Lock` "Hanya data milikmu" · `Trash2` "Bisa diputus kapan saja".
 
-#### Tool Docs Card
+#### Kartu Kunci Akses — 3 State
 
-Card `divide-y divide-gray-50 dark:divide-slate-700/60`; tiap row `p-3.5`: nama tool `text-[11px] font-mono font-semibold text-teal-600 dark:text-teal-400` + deskripsi `text-xs text-gray-400`.
+1. **Belum tersambung** → 1 baris "Belum tersambung." + CTA teal standar (`py-3 text-sm font-bold bg-teal-500 hover:bg-teal-600 shadow-md shadow-teal-500/20 active:scale-95 disabled:opacity-50`, icon `KeyRound` 16) label "Buat Kunci Akses".
+2. **Tersambung** → status box emerald (pola Status Bar): `bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 rounded-xl p-3` + `ShieldCheck` 18, judul "Tersambung" `text-xs font-bold emerald-700` + sub "sejak {tanggal}" `text-[10px]`. Pasangan tombol `py-3 text-xs font-bold`:
+   - **Buat Kunci Baru**: mini-CTA teal (icon `RefreshCw` 14)
+   - **Putuskan**: danger merah (`bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100`, icon `Trash2` 14)
+   - Kedua aksi memunculkan **inline confirm amber** 1 kalimat (`TriangleAlert` 14, teks `text-xs amber-600/400`, tombol "Ya, lanjut" `bg-amber-500 hover:bg-amber-600 font-bold shadow-md shadow-amber-500/20` + "Batal" netral).
+3. **Kunci baru (show-once)** → alur 2 langkah bernomor (badge `w-6 h-6 rounded-full bg-teal-500 text-white text-xs font-bold`):
+   - **1. Salin pengaturan ini** → CTA utama full-width "Salin Pengaturan" (`Copy`→`Check` + label "Tersalin ✓").
+   - **2. Tempel di aplikasi asisten AI-mu. Selesai!**
+   - Warning amber 1 baris: "Hanya muncul sekali — salin sekarang."
+   - **"Lihat detail"** toggle (`Eye` 11, `text-[10px] text-gray-400`) menampilkan raw key `font-mono` + copy icon-button netral, dan `<pre>` config gelap (`bg-gray-900 dark:bg-slate-950 text-emerald-300 rounded-xl p-3 text-[10px] font-mono`). Key TIDAK pernah bisa dilihat lagi setelah state ini ditutup (GET hanya kembalikan status).
+
+#### Contoh Pertanyaan Card (pengganti daftar tool)
+
+Card `divide-y divide-gray-50 dark:divide-slate-700/60`; tiap row `px-4 py-3 flex items-center gap-3`: emoji `text-base` + pertanyaan dalam tanda kutip `text-xs text-gray-600 dark:text-slate-300`. 6 contoh: belum lunas 💰, paket+seat 📅, kalkulasi 🧮, brosur/itinerary 🖼️, Tour Leader 🧕, ulang tahun 🎂.
 
 #### Notes Card
 
-`bg-gray-50 dark:bg-slate-800/60 rounded-2xl border p-4`, isi `text-[11px] text-gray-400 leading-relaxed` — read-only, scope data sendiri, rate limit 30 req/menit, data snapshot (`synced_at`), larangan share key.
+1 baris saja: `bg-gray-50 dark:bg-slate-800/60 rounded-2xl border px-4 py-3 flex items-center gap-2.5` + `Lock` 14 — "Jangan bagikan kunci ke siapa pun."
 
 #### Toast & Analytics
 
