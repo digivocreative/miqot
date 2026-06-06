@@ -1211,10 +1211,10 @@ Isi: `ShieldCheck` "Hanya membaca" · `Lock` "Hanya data milikmu" · `Trash2` "B
    - **Putuskan**: danger merah (`bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100`, icon `Trash2` 14)
    - Kedua aksi memunculkan **inline confirm amber** 1 kalimat (`TriangleAlert` 14, teks `text-xs amber-600/400`, tombol "Ya, lanjut" `bg-amber-500 hover:bg-amber-600 font-bold shadow-md shadow-amber-500/20` + "Batal" netral).
 3. **Kunci baru (show-once)** → alur 2 langkah bernomor (badge `w-6 h-6 rounded-full bg-teal-500 text-white text-xs font-bold`):
-   - **1. Salin pengaturan ini** → CTA utama full-width "Salin Pengaturan" (`Copy`→`Check` + label "Tersalin ✓").
+   - **1. Salin pengaturan ini** → CTA utama full-width "Salin Pengaturan" (`Copy`→`Check` + label "Tersalin ✓"). Klik tombol ini juga MEMUNCULKAN box umpan balik **"Isi yang tersalin"** (emerald box berisi `<pre>` config gelap `bg-gray-900 dark:bg-slate-950 text-emerald-300 rounded-lg p-2.5 text-[10px] font-mono`) — pengguna melihat persis apa yang masuk clipboard.
    - **2. Tempel di aplikasi asisten AI-mu. Selesai!**
    - Warning amber 1 baris: "Hanya muncul sekali — salin sekarang."
-   - **"Lihat detail"** toggle (`Eye` 11, `text-[10px] text-gray-400`) menampilkan raw key `font-mono` + copy icon-button netral, dan `<pre>` config gelap (`bg-gray-900 dark:bg-slate-950 text-emerald-300 rounded-xl p-3 text-[10px] font-mono`). Key TIDAK pernah bisa dilihat lagi setelah state ini ditutup (GET hanya kembalikan status).
+   - **Rincian card** (selalu tampil, gaya struk): `border rounded-xl divide-y`, 2 row `px-3 py-2.5` — label `text-[10px] font-semibold text-gray-400` ("Alamat server" / "Kunci akses") + nilai `text-[11px] font-mono` (URL truncate; key break-all) + copy icon-button netral `w-8 h-8` per row. Key TIDAK pernah bisa dilihat lagi setelah state ini ditutup (GET hanya kembalikan status).
 
 #### Contoh Pertanyaan Card (pengganti daftar tool)
 

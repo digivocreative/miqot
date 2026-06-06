@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Check, Copy, Eye, KeyRound, Lock, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
+import { Bot, Check, Copy, KeyRound, Lock, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 
@@ -43,9 +43,11 @@ export default function McpIntegrationPage() {
   const [busy, setBusy] = useState(false);
   // Key hanya tersedia sekali — dari response generate/rotate, tidak pernah dari GET.
   const [freshKey, setFreshKey] = useState<string | null>(null);
-  const [copied, setCopied] = useState<'key' | 'config' | null>(null);
+  const [copied, setCopied] = useState<'key' | 'url' | 'config' | null>(null);
   const [confirmAction, setConfirmAction] = useState<'rotate' | 'revoke' | null>(null);
-  const [showConfig, setShowConfig] = useState(false);
+  // Isi lengkap (JSON) muncul otomatis SETELAH "Salin Pengaturan" diklik —
+  // umpan balik "ini yang barusan tersalin".
+  const [showCopiedContent, setShowCopiedContent] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const tracked = useRef(false);
 
@@ -66,7 +68,7 @@ export default function McpIntegrationPage() {
     setTimeout(() => setToast(null), 2500);
   };
 
-  const copyText = async (text: string, which: 'key' | 'config') => {
+  const copyText = async (text: string, which: 'key' | 'url' | 'config') => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(which);
@@ -84,7 +86,7 @@ export default function McpIntegrationPage() {
       const d = await r.json();
       if (!d.success || !d.key) throw new Error(d.error || 'Gagal membuat kunci');
       setFreshKey(d.key);
-      setShowConfig(false);
+      setShowCopiedContent(false);
       setStatus({ hasKey: true, createdAt: new Date().toISOString() });
       trackEvent('action', 'mcp_generate_key');
     } catch (e) {
@@ -236,12 +238,24 @@ export default function McpIntegrationPage() {
                 <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">Salin pengaturan ini</p>
               </div>
               <button
-                onClick={() => copyText(buildConfigSnippet(freshKey), 'config')}
+                onClick={() => { copyText(buildConfigSnippet(freshKey), 'config'); setShowCopiedContent(true); }}
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-teal-500 hover:bg-teal-600 text-white shadow-md shadow-teal-500/20 transition-all duration-200 active:scale-95"
               >
                 {copied === 'config' ? <Check size={16} /> : <Copy size={16} />}
                 {copied === 'config' ? 'Tersalin ✓' : 'Salin Pengaturan'}
               </button>
+
+              {/* Umpan balik: isi yang barusan tersalin */}
+              {showCopiedContent && (
+                <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-xl p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 mb-1.5 flex items-center gap-1">
+                    <Check size={11} /> Isi yang tersalin
+                  </p>
+                  <pre className="text-[10px] font-mono bg-gray-900 dark:bg-slate-950 text-emerald-300 rounded-lg p-2.5 overflow-x-auto leading-relaxed">
+                    {buildConfigSnippet(freshKey)}
+                  </pre>
+                </div>
+              )}
 
               {/* Langkah 2 — tempel di asisten */}
               <div className="flex items-center gap-2">
@@ -254,32 +268,35 @@ export default function McpIntegrationPage() {
                 <p className="text-[11px] text-amber-600 dark:text-amber-400">Hanya muncul sekali — salin sekarang.</p>
               </div>
 
-              {/* Detail teknis — disembunyikan biar tidak menakutkan */}
-              <button
-                onClick={() => setShowConfig(v => !v)}
-                className="flex items-center gap-1 text-[10px] font-semibold text-gray-400 dark:text-slate-500"
-              >
-                <Eye size={11} /> {showConfig ? 'Sembunyikan detail' : 'Lihat detail'}
-              </button>
-              {showConfig && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 text-[10px] font-mono bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg px-2 py-2 break-all text-gray-700 dark:text-slate-300">
-                      {freshKey}
-                    </code>
-                    <button
-                      onClick={() => copyText(freshKey, 'key')}
-                      className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-all active:scale-95"
-                      aria-label="Salin kunci saja"
-                    >
-                      {copied === 'key' ? <Check size={15} /> : <Copy size={15} />}
-                    </button>
+              {/* Rincian — selalu tampil, bisa disalin per bagian */}
+              <div className="border border-gray-100 dark:border-slate-700 rounded-xl divide-y divide-gray-50 dark:divide-slate-700/60">
+                <div className="px-3 py-2.5 flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">Alamat server</p>
+                    <p className="text-[11px] font-mono text-gray-700 dark:text-slate-300 truncate">{`${window.location.origin}/mcp`}</p>
                   </div>
-                  <pre className="text-[10px] font-mono bg-gray-900 dark:bg-slate-950 text-emerald-300 rounded-xl p-3 overflow-x-auto leading-relaxed">
-                    {buildConfigSnippet(freshKey)}
-                  </pre>
+                  <button
+                    onClick={() => copyText(`${window.location.origin}/mcp`, 'url')}
+                    className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-all active:scale-95"
+                    aria-label="Salin alamat server"
+                  >
+                    {copied === 'url' ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
                 </div>
-              )}
+                <div className="px-3 py-2.5 flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">Kunci akses</p>
+                    <p className="text-[11px] font-mono text-gray-700 dark:text-slate-300 break-all">{freshKey}</p>
+                  </div>
+                  <button
+                    onClick={() => copyText(freshKey, 'key')}
+                    className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-all active:scale-95"
+                    aria-label="Salin kunci akses"
+                  >
+                    {copied === 'key' ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
+                </div>
+              </div>
             </>
           )}
         </div>
