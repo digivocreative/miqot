@@ -122,7 +122,9 @@ function detectEventType(title) {
 
 // ── Fetch event detail popup ──
 // URL pattern: pages/_jmodal.php?.m={aid}&.g={apalah}
-// Returns HTML table with columns: GROUP, PESAWAT, JAM, PAKET, PAX, STAFF, TL
+// Returns HTML table — layout kolom BERBEDA per tipe event:
+//   keberangkatan/kepulangan: GROUP | PESAWAT | JAM | PAKET | PAX | STAFF | TL | MUTAWIF
+//   manasik:                  GROUP | PESAWAT | JAM | PAKET | PAX | TL | MUTAWIF (tanpa STAFF)
 async function fetchEventDetail(cookie, event) {
   if (!event.aid) return [];
 
@@ -151,10 +153,17 @@ async function fetchEventDetail(cookie, event) {
 }
 
 // ── Parse event detail HTML table ──
-// Columns: GROUP | PESAWAT | JAM | PAKET | PAX | STAFF | TL
+// Posisi kolom STAFF/TL berbeda per tipe event (manasik tanpa kolom STAFF),
+// jadi petakan berdasarkan teks header <th>, bukan index tetap.
 function parseEventDetailHTML(html) {
   const $ = cheerio.load(html);
   const rows = [];
+
+  const headers = $('table th').map((_, th) => $(th).text().trim().toUpperCase()).get();
+  // Fallback ke layout lama (staff=5, tl=6) hanya bila header tidak terbaca sama sekali;
+  // header ada tapi tanpa STAFF (manasik) berarti memang tidak ada kolom staff.
+  const staffIdx = headers.length ? headers.indexOf('STAFF') : 5;
+  const tlIdx = headers.length ? headers.indexOf('TL') : 6;
 
   $('table tr').each((i, el) => {
     if ($(el).find('th').length > 0) return; // skip header
@@ -168,8 +177,8 @@ function parseEventDetailHTML(html) {
       jam: cols[2] || null,
       paket: cols[3] || null,
       pax: parseInt(cols[4]) || 0,
-      staff: cols[5] || '-',
-      tour_leader: cols[6] || '-',
+      staff: (staffIdx >= 0 ? cols[staffIdx] : null) || '-',
+      tour_leader: (tlIdx >= 0 ? cols[tlIdx] : null) || '-',
     });
   });
 
