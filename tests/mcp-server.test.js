@@ -445,11 +445,15 @@ test('jamaah_birthdays reports the true pre-cap total and a truncation flag', ()
 test('payment_summary supports per-date breakdown and notifier outstanding semantics', () => {
   const src = read('mcp-server.js');
   assert.match(src, /z\.enum\(\['month', 'date'\]\)/);
-  // Deteksi shape aggregate butuh raw bayar_sisa — sub-field saja, bukan
+  // Deteksi shape aggregate + price-proof butuh sub-field raw saja, bukan
   // seluruh raw_data (JSONB besar, DB sensitif IO).
-  assert.match(src, /awapi_bayar_sisa:raw_data->bayar_sisa/);
+  assert.match(src, /awapi_bayar_sisa:raw_data->>bayar_sisa/);
+  assert.match(src, /awapi_paket_harga:raw_data->>paket_harga/);
   assert.doesNotMatch(src, /select\('[^']*raw_data[,)' ]/, 'never select the whole raw_data JSONB');
-  assert.match(src, /rowHasAggregateBayarShape/);
+  // Fold booking dipakai dari lib bersama (juga dipakai stats dashboard), dan
+  // query-nya ber-order deterministik agar atribusi tanggal stabil.
+  assert.match(src, /collapseBookingOutstanding/);
+  assert.match(src, /gte\('tgl_berangkat', today\)\s*\n\s*\.order\('tgl_berangkat'/);
 });
 
 test('auth and rate-limit rejections are logged for diagnosability (no raw token)', () => {

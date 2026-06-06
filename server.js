@@ -20,6 +20,7 @@ import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive,
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
 import { buildBerangkatMendatang } from './lib/laporan-stats.js';
+import { collapseBookingOutstanding } from './lib/booking-outstanding.js';
 import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate, sendOpsAlert } from './telegram-notifier.js';
 import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCacheableHtmlDocument, JAMAAH_DOCUMENT_TYPES } from './lib/jamaah-document-cache.js';
@@ -10193,9 +10194,10 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
     const lunasQ = supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).or('sisa.eq.0,sisa.is.null');
     const belumLunasQ = supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).gt('sisa', 0).gt('bayar', 0);
 
-    // Need id_umroh to dedupe — sisa is booking-level (same value across each
-    // family member row), so summing per-row inflates by booking size.
-    let outQ = supabase.from('jamaah').select('id_umroh, sisa').eq('agent_id', agentId).gt('sisa', 0).gt('bayar', 0);
+    // id_umroh + sub-field raw (bukan seluruh JSONB) untuk fold shape-aware
+    // di collapseBookingOutstanding: per-pax dijumlah; shape aggregate (raw
+    // bayar_sisa<0) pakai price-proof Σ paket_harga − aggregate, fallback max.
+    let outQ = supabase.from('jamaah').select('id_umroh, bayar, sisa, awapi_bayar_sisa:raw_data->>bayar_sisa, awapi_paket_harga:raw_data->>paket_harga, awapi_bayar:raw_data->>bayar').eq('agent_id', agentId).gt('sisa', 0).gt('bayar', 0);
     if (year) outQ = outQ.eq('hijriah_year', year);
 
     let bebQ = supabase.from('jamaah')
@@ -10214,7 +10216,7 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
     let trendQ = supabase.from('jamaah').select('tgl_daftar, bayar, sisa').eq('agent_id', agentId).gte('tgl_daftar', tmStr).order('tgl_daftar', { ascending: true });
     if (year) trendQ = trendQ.eq('hijriah_year', year);
 
-    let olQ = supabase.from('jamaah').select('id_umroh, nama, paket, jk, sisa, tgl_berangkat, wa').eq('agent_id', agentId).gt('sisa', 0).gt('bayar', 0).order('sisa', { ascending: false }).order('tgl_berangkat', { ascending: true });
+    let olQ = supabase.from('jamaah').select('id_umroh, nama, paket, jk, bayar, sisa, tgl_berangkat, wa, awapi_bayar_sisa:raw_data->>bayar_sisa, awapi_paket_harga:raw_data->>paket_harga, awapi_bayar:raw_data->>bayar').eq('agent_id', agentId).gt('sisa', 0).gt('bayar', 0).order('sisa', { ascending: false }).order('tgl_berangkat', { ascending: true });
     if (year) olQ = olQ.eq('hijriah_year', year);
 
     let komisiQ = supabase.from('jamaah').select('paket, sisa, tgl_berangkat, diskon_marketing').eq('agent_id', agentId);
@@ -10255,13 +10257,13 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
     const jamaahBaru = jbRes.count;
     const prevTotal = prevTotalRes.count;
     const prevJamaahBaru = prevJbRes.count;
-    // Dedupe by id_umroh — sisa is booking-level, not per-jamaah.
-    const seenOutBookings = new Set();
-    const totalOutstanding = (outData || []).reduce((s, r) => {
-      if (!r.id_umroh || seenOutBookings.has(r.id_umroh)) return s;
-      seenOutBookings.add(r.id_umroh);
-      return s + (r.sisa || 0);
-    }, 0);
+    // Fold shape-aware per booking (lib/booking-outstanding.js, semantik
+    // notifier pasca-insiden bc126d4): shape per-pax dijumlah lintas anggota,
+    // shape aggregate dihitung sekali. Dedupe buta per id_umroh yang lama
+    // (pra-insiden) meng-UNDER-report booking per-pax hampir 2x karena hanya
+    // mengambil satu row arbitrer.
+    const totalOutstanding = collapseBookingOutstanding(outData)
+      .reduce((s, b) => s + b.outstanding, 0);
     const lastSync = syncResult.data?.last_jamaah_sync_at || null;
 
     // Berangkat Mendatang is an operational upcoming list, so it must cross
@@ -10290,29 +10292,31 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
       .map(([bulan, count]) => ({ bulan, count }))
       .sort((a, b) => a.bulan.localeCompare(b.bulan));
 
-    // Dedupe by id_umroh — show one row per booking (first encountered wins;
-    // olQ is sorted by sisa DESC then tgl_berangkat ASC). The displayed sisa
-    // is the booking-level outstanding, not per-jamaah.
-    const seenOlBookings = new Set();
-    const outstandingList = (olRows || []).reduce((acc, r) => {
-      if (!r.id_umroh || seenOlBookings.has(r.id_umroh)) return acc;
-      seenOlBookings.add(r.id_umroh);
-      let hari_lagi = null;
-      if (r.tgl_berangkat) {
-        const dep = new Date(r.tgl_berangkat);
-        hari_lagi = Math.ceil((dep.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
-      }
-      acc.push({
-        nama: r.nama,
-        paket: r.paket,
-        jk: r.jk,
-        sisa: r.sisa,
-        tgl_berangkat: r.tgl_berangkat,
-        hari_lagi,
-        wa: r.wa,
-      });
-      return acc;
-    }, []);
+    // Satu entri per booking via fold shape-aware; nama yang tampil = row
+    // bersisa terbesar booking itu (olQ sorted sisa DESC → firstRow), sisa
+    // yang tampil = outstanding booking sebenarnya (per-pax dijumlah, shape
+    // aggregate sekali) — dedupe lama menampilkan sisa satu row arbitrer.
+    // Re-sort setelah fold karena total booking bisa menyalip sisa row tunggal.
+    const outstandingList = collapseBookingOutstanding(olRows)
+      .map(({ outstanding, memberCount, firstRow: r }) => {
+        let hari_lagi = null;
+        if (r.tgl_berangkat) {
+          const dep = new Date(r.tgl_berangkat);
+          hari_lagi = Math.ceil((dep.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
+        }
+        return {
+          nama: r.nama,
+          paket: r.paket,
+          jk: r.jk,
+          sisa: outstanding,
+          pax: memberCount,
+          tgl_berangkat: r.tgl_berangkat,
+          hari_lagi,
+          wa: r.wa,
+        };
+      })
+      .sort((a, b) => (b.sisa - a.sisa)
+        || String(a.tgl_berangkat || '').localeCompare(String(b.tgl_berangkat || '')));
 
     // ── komisi ──
     const KOMISI_HEMAT = 1300000;

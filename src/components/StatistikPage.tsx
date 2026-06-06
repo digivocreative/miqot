@@ -30,7 +30,8 @@ interface OutstandingItem {
   nama: string;
   paket: string | null;
   jk: string | null;
-  sisa: number;
+  sisa: number;       // total outstanding BOOKING (Σ anggota belum lunas), bukan per-orang
+  pax?: number;       // jumlah anggota belum lunas dalam booking
   tgl_berangkat: string | null;
   hari_lagi: number | null;
   wa: string | null;
@@ -262,8 +263,14 @@ function OutstandingRow({ item }: { item: OutstandingItem }) {
   const isFemale = item.jk === 'P';
   const daysLabel = fmtHariLagi(item.hari_lagi);
   const waNumber = normalizeWaNumber(item.wa);
+  // sisa = total booking; untuk rombongan sebut jumlah pax di pesan supaya
+  // angka yang disebut ke satu nama tidak terkesan tagihan pribadi.
+  const isGroup = (item.pax ?? 1) > 1;
+  const waText = isGroup
+    ? `Assalamualaikum ${item.nama}, ini reminder untuk pelunasan umroh rombongan Anda (${item.pax} pax) ya. Terima kasih.`
+    : `Assalamualaikum ${item.nama}, ini reminder untuk pelunasan umroh ya. Terima kasih.`;
   const waUrl = waNumber
-    ? `https://wa.me/${waNumber}?text=${encodeURIComponent(`Assalamualaikum ${item.nama}, ini reminder untuk pelunasan umroh ya. Terima kasih.`)}`
+    ? `https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`
     : null;
   return (
     <div className="px-4 py-3 flex items-center gap-3">
@@ -272,8 +279,11 @@ function OutstandingRow({ item }: { item: OutstandingItem }) {
                  : 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 ring-2 ring-blue-300'
       }`}>{initials}</div>
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-bold text-gray-800 dark:text-white truncate">{item.nama}</p>
-        <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{item.paket || '-'} · ✈ {daysLabel}</p>
+        <p className="text-xs font-bold text-gray-800 dark:text-white truncate">
+          {item.nama}
+          {isGroup && <span className="ml-1 font-semibold text-gray-400 dark:text-slate-500">+{(item.pax as number) - 1}</span>}
+        </p>
+        <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{item.paket || '-'}{isGroup ? ` · ${item.pax} pax` : ''} · ✈ {daysLabel}</p>
       </div>
       <span className="text-xs font-bold text-amber-600 dark:text-amber-400 shrink-0">{fmtRpShort(item.sisa)}</span>
       {waUrl && (
@@ -1029,7 +1039,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         <div className="px-4 py-3 border-b border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Jamaah Belum Lunas</p>
-            <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">{data.outstandingList.length} jamaah belum lunas</p>
+            <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">{data.outstandingList.length} booking belum lunas</p>
           </div>
           <span className="text-xs font-bold text-amber-600 dark:text-amber-400">{fmtRpShort(data.totalOutstanding)}</span>
         </div>
@@ -1043,7 +1053,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
             {data.outstandingList.length > 3 && (
               <button onClick={() => setShowOutstandingModal(true)}
                 className="w-full py-2.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20 transition-colors border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-center gap-1">
-                Lihat semua {data.outstandingList.length} jamaah <ChevronDown size={12} />
+                Lihat semua {data.outstandingList.length} booking <ChevronDown size={12} />
               </button>
             )}
           </>
@@ -1094,7 +1104,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
       </StatListModal>
 
       <StatListModal isOpen={showOutstandingModal} onClose={() => setShowOutstandingModal(false)}
-        title="Jamaah Belum Lunas" subtitle={`${data.outstandingList.length} jamaah · ${fmtRpShort(data.totalOutstanding)}`}>
+        title="Jamaah Belum Lunas" subtitle={`${data.outstandingList.length} booking · ${fmtRpShort(data.totalOutstanding)}`}>
         <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
           {data.outstandingList.map((item, i) => <OutstandingRow key={i} item={item} />)}
         </div>

@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { serializeScheduleRows, hasValidPricing } from './lib/umroh-schedules.js';
+import { collapseBookingOutstanding } from './lib/booking-outstanding.js';
 import {
   pickBrochurePackageDetails,
   extractDurationFromName,
@@ -82,15 +83,6 @@ export function classifyPaymentStatus(row) {
   return 'lunas';
 }
 
-// Negative raw bayar_sisa = AWAPI aggregate-booking shape: `bayar` adalah
-// total booking yang direplikasi di tiap row pax, dan `sisa` di DB adalah
-// nilai DP-era yang dipertahankan guard — sama dengan hasAggregateBayarShape
-// di telegram-notifier.js (insiden reminder palsu, 2026-06-06).
-function rowHasAggregateBayarShape(row) {
-  const rawSisa = Number(row?.awapi_bayar_sisa);
-  return Number.isFinite(rawSisa) && rawSisa < 0;
-}
-
 // groupBy 'month' (default) atau 'date' — 'date' menjawab pertanyaan
 // per-tanggal keberangkatan ("berapa jamaah berangkat 13 Juni?").
 export function summarizePayments(rows, { groupBy = 'month' } = {}) {
@@ -115,44 +107,21 @@ export function summarizePayments(rows, { groupBy = 'month' } = {}) {
     return m;
   };
 
-  // Outstanding mengikuti semantik booking telegram-notifier
-  // collapsePelunasanBookings (commit bc126d4, insiden 2026-06-06) — sumber
-  // kebenaran pasca-insiden untuk arti `sisa`:
-  //   - Shape per-pax (raw bayar_sisa >= 0/absen): tiap row membawa sisa pax
-  //     itu sendiri → outstanding booking = Σ sisa (AIW0029174: 3 pax owing
-  //     84,7jt, BUKAN 28,3jt).
-  //   - Shape aggregate (raw bayar_sisa < 0): sisa DB stale → fallback
-  //     konservatif max(sisa), persis fallback notifier tanpa price-proof.
-  // Hanya booking yang sudah mulai bayar (bayar>0) — belum_dp dihitung sebagai
-  // pax count, bukan piutang. JANGAN dedupe buta per id_umroh ala stats
-  // dashboard (komentar Apr 2026, pra-insiden): itu under-report per-pax.
-  const bookings = new Map();
-  for (const [i, row] of (rows || []).entries()) {
+  for (const row of rows || []) {
     const bucket = classifyPaymentStatus(row);
     summary.total_pax += 1;
     summary[bucket] += 1;
     const m = ensureBucket(bucketKeyOf(row));
     m.pax += 1;
     m[bucket] += 1;
-
-    const sisa = Number(row?.sisa || 0);
-    const bayar = Number(row?.bayar || 0);
-    if (!(sisa > 0 && bayar > 0)) continue;
-    const key = row?.id_umroh || `row:${i}`;
-    let b = bookings.get(key);
-    if (!b) {
-      b = { sumSisa: 0, maxSisa: 0, aggregateShape: false, bucketKey: bucketKeyOf(row) };
-      bookings.set(key, b);
-    }
-    b.sumSisa += sisa;
-    b.maxSisa = Math.max(b.maxSisa, sisa);
-    if (rowHasAggregateBayarShape(row)) b.aggregateShape = true;
   }
 
-  for (const b of bookings.values()) {
-    const outstanding = b.aggregateShape ? b.maxSisa : b.sumSisa;
-    summary.total_outstanding += outstanding;
-    ensureBucket(b.bucketKey).outstanding += outstanding;
+  // Outstanding via fold shape-aware bersama (lib/booking-outstanding.js —
+  // dipakai juga stats dashboard): per-pax Σ sisa, aggregate-shape max sisa,
+  // hanya booking yang sudah mulai bayar.
+  for (const b of collapseBookingOutstanding(rows)) {
+    summary.total_outstanding += b.outstanding;
+    ensureBucket(bucketKeyOf(b.firstRow)).outstanding += b.outstanding;
   }
   return summary;
 }
@@ -585,11 +554,15 @@ function buildAgentMcpServer({ agent, supabase, log }) {
     const today = jakartaToday();
     let q = supabase
       .from('jamaah')
-      // raw_data->bayar_sisa (sub-field saja, bukan seluruh JSONB) dibutuhkan
-      // untuk deteksi shape aggregate-booking di summarizePayments.
-      .select('id_umroh, bayar, sisa, tgl_berangkat, awapi_bayar_sisa:raw_data->bayar_sisa')
+      // Sub-field raw saja (bukan seluruh JSONB) untuk fold shape-aware +
+      // price-proof di summarizePayments. Order deterministik: booking yang
+      // anggotanya beda tgl_berangkat selalu teratribusi ke tanggal TERAWAL
+      // pada group_by=date (firstRow stabil antar-request).
+      .select('id_umroh, bayar, sisa, tgl_berangkat, awapi_bayar_sisa:raw_data->>bayar_sisa, awapi_paket_harga:raw_data->>paket_harga, awapi_bayar:raw_data->>bayar')
       .eq('agent_id', agent.id)
-      .gte('tgl_berangkat', today);
+      .gte('tgl_berangkat', today)
+      .order('tgl_berangkat', { ascending: true })
+      .order('jm_id', { ascending: true });
     if (horizon_days) q = q.lte('tgl_berangkat', addDaysISO(today, Number(horizon_days)));
     const { data, error } = await q;
     if (error) throw new Error(error.message);
