@@ -134,3 +134,38 @@ test('server.js wires the MCP endpoint with admin-only key management', () => {
   const invalidations = server.match(/mcpRuntime\.invalidateKeyCache\(\)/g) || [];
   assert.ok(invalidations.length >= 2);
 });
+
+test('self-service MCP key endpoints are scoped to the logged-in agent only', () => {
+  const server = read('server.js');
+
+  // GET/POST/DELETE /api/mcp-key — plain authMiddleware (every agent manages
+  // their OWN key), never adminOnly, and every query keys on req.user.id.
+  for (const method of ['get', 'post', 'delete']) {
+    assert.match(server, new RegExp(`app\\.${method}\\('\\/api\\/mcp-key',\\s*authMiddleware,`));
+  }
+  assert.doesNotMatch(server, /app\.(get|post|delete)\('\/api\/mcp-key',\s*authMiddleware,\s*adminOnly/);
+
+  const selfServiceBlock = server.slice(server.indexOf("app.get('/api/mcp-key'"), server.indexOf("// ──────────────────────────────────────────────\n// CAPI"));
+  const scoped = selfServiceBlock.match(/\.eq\('id', req\.user\.id\)/g) || [];
+  assert.equal(scoped.length, 3, 'each of the 3 self-service handlers must scope to req.user.id');
+  // The key itself must never leave via GET — only the generate response.
+  assert.doesNotMatch(selfServiceBlock, /hasKey[\s\S]{0,200}key:\s*data/);
+});
+
+test('MCP UI is wired into the ai-tools tab', () => {
+  const layout = read('src/components/DashboardLayout.tsx');
+  assert.match(layout, /import McpIntegrationPage from '\.\/McpIntegrationPage'/);
+  assert.match(layout, /if \(sub === 'mcp'\) return <McpIntegrationPage \/>;/);
+  assert.match(layout, /'mcp': \{ icon: Bot/);
+
+  const tools = read('src/components/AIToolsPage.tsx');
+  assert.match(tools, /id: 'mcp'/);
+  assert.match(tools, /route: 'mcp'/);
+
+  const page = read('src/components/McpIntegrationPage.tsx');
+  // Key handling contract: fetched key state only ever comes from the
+  // generate/rotate response, shown once.
+  assert.match(page, /fetch\('\/api\/mcp-key', \{ method: 'POST'/);
+  assert.match(page, /fetch\('\/api\/mcp-key', \{ method: 'DELETE'/);
+  assert.match(page, /getAuthHeaders\(\)/);
+});

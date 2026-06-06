@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Mic, CreditCard, BarChart3, Banknote, ArrowLeftRight, Globe, FileImage, Calculator } from 'lucide-react';
+import { Mic, CreditCard, BarChart3, Banknote, ArrowLeftRight, Globe, FileImage, Calculator, Bot } from 'lucide-react';
 import { trackEvent } from '../utils/analytics';
 
 interface AIToolsPageProps {
@@ -80,6 +80,15 @@ const TOOLS: Tool[] = [
     icon: Mic,
     color: 'purple',
     route: 'voice-over',
+    active: true,
+  },
+  {
+    id: 'mcp',
+    name: 'AI Assistant (MCP)',
+    desc: 'Hubungkan asisten AI pribadimu ke data jamaah — read-only',
+    icon: Bot,
+    color: 'teal',
+    route: 'mcp',
     active: true,
   },
   {

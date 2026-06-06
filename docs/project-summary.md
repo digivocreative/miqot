@@ -1208,6 +1208,7 @@ Sumber kebenaran paket tetap external API `https://jadwal.alhijaz.co/jadwal/api-
 
 - **Auth**: `Authorization: Bearer miqot_mcp_<48 hex>` — kolom `agents.mcp_api_key` (BUKAN JWT; kredensial terpisah, bisa di-revoke tanpa ganggu login web). Semua tool hard-scoped `agent_id` agent pemilik key.
 - **Key management (admin only)**: `POST /api/admin/agents/:slug/mcp-key` (generate/rotate — key dikembalikan sekali di response) · `DELETE /api/admin/agents/:slug/mcp-key` (revoke, langsung efektif).
+- **Key self-service (per agent)**: `GET /api/mcp-key` (status: hasKey + createdAt — key TIDAK pernah dikembalikan via GET) · `POST /api/mcp-key` (generate/rotate key sendiri) · `DELETE /api/mcp-key` (revoke sendiri). UI: **`/dashboard/ai-tools/mcp`** (`src/components/McpIntegrationPage.tsx`) — generate/rotate/revoke + config snippet show-once + dokumentasi tools.
 - **Rate limit**: 30 request/menit per key (sliding window, in-memory). Pagination cap 50.
 - **Tools**: `list_jamaah` (filter payment_status/departure/search, paginated) · `get_jamaah` (detail per jm_id + anggota booking) · `jamaah_birthdays` (7/30/60/90 hari) · `payment_summary` (agregat bucket + per bulan keberangkatan). Setiap response menyertakan `synced_at` + disclaimer snapshot (data sync, bukan real-time; bayar/sisa booking yang sudah berangkat tidak andal).
 - **Config client (contoh)**:

@@ -4,7 +4,7 @@ import {
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
   BarChart3, Loader2, Sparkles,
   CalendarRange, ExternalLink, TrendingUp, Mic, CreditCard,
-  DollarSign, ChevronRight, Globe, Share2, FileImage, FileText,
+  DollarSign, ChevronRight, Globe, Share2, FileImage, FileText, Bot,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
@@ -28,6 +28,7 @@ import HajiPlusPage from './HajiPlusPage';
 import HajiPlusExportPage from './HajiPlusExportPage';
 import KursPage from './KursPage';
 import BrochureSchedulePage from './BrochureSchedulePage';
+import McpIntegrationPage from './McpIntegrationPage';
 import WaCopyPage from './wa-copy/WaCopyPage';
 import WaCopyAdminPage from './wa-copy/admin/WaCopyAdminPage';
 import { parseKontenPath, kontenParentPath, kontenTitle } from './wa-copy/lib/kontenRoutes';
@@ -560,6 +561,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   'compare': { icon: ArrowLeftRight, bg: 'bg-violet-50', bgDark: 'dark:bg-violet-900/20', border: 'border-violet-100', borderDark: 'dark:border-violet-800/40', color: 'text-violet-600 dark:text-violet-400', label: 'Compare' },
                   'brosur-jadwal': { icon: FileImage, bg: 'bg-rose-50', bgDark: 'dark:bg-rose-900/20', border: 'border-rose-100', borderDark: 'dark:border-rose-800/40', color: 'text-rose-600 dark:text-rose-400', label: 'Brosur Jadwal' },
                   'kalkulasi': { icon: Calculator, bg: 'bg-blue-50', bgDark: 'dark:bg-blue-900/20', border: 'border-blue-100', borderDark: 'dark:border-blue-800/40', color: 'text-blue-600 dark:text-blue-400', label: 'Kalkulasi' },
+                  'mcp': { icon: Bot, bg: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20', border: 'border-teal-100', borderDark: 'dark:border-teal-800/40', color: 'text-teal-600 dark:text-teal-400', label: 'AI Assistant (MCP)' },
                 };
                 const sub = aiSub && AI_SUB_STYLES[aiSub] ? AI_SUB_STYLES[aiSub] : null;
                 if (sub) {
@@ -722,6 +724,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               phone: agentData.phone, photo: agentData.photo,
             }} hideHeader />;
             if (sub === 'kurs') return <KursPage />;
+            if (sub === 'mcp') return <McpIntegrationPage />;
             if (sub === 'voice-over') return <VoiceOverPage />;
             if (sub === 'business-card') return <BusinessCardPage agent={agentData} />;
             if (sub === 'landing-page/custom-domain') return <CustomDomainPage agent={{ slug: agentData.slug, name: agentData.name }} />;
@@ -744,7 +747,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 agentSlug={agentData.slug}
                 onNavigate={(toolId) => {
                   window.history.pushState({}, '', `/dashboard/ai-tools/${toolId}`);
-                  document.title = toolId === 'voice-over' ? 'Voice Over' : toolId === 'business-card' ? 'Kartu Nama' : toolId === 'landing-page' ? 'Landing Page' : toolId === 'haji-plus' ? 'Haji Plus' : toolId === 'kurs' ? 'Kurs Hari Ini' : toolId === 'compare' ? 'Compare' : toolId === 'brosur-jadwal' ? 'Brosur Jadwal' : toolId === 'kalkulasi' ? 'Kalkulasi' : 'Tools';
+                  document.title = toolId === 'voice-over' ? 'Voice Over' : toolId === 'business-card' ? 'Kartu Nama' : toolId === 'landing-page' ? 'Landing Page' : toolId === 'haji-plus' ? 'Haji Plus' : toolId === 'kurs' ? 'Kurs Hari Ini' : toolId === 'compare' ? 'Compare' : toolId === 'brosur-jadwal' ? 'Brosur Jadwal' : toolId === 'kalkulasi' ? 'Kalkulasi' : toolId === 'mcp' ? 'AI Assistant (MCP)' : 'Tools';
                   // Force re-render by toggling tab
                   setActiveTab('home');
                   setTimeout(() => setActiveTab('ai-tools'), 0);

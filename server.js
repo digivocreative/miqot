@@ -4308,6 +4308,48 @@ app.delete('/api/admin/agents/:slug/mcp-key', authMiddleware, adminOnly, async (
   res.json({ success: true });
 });
 
+// ── MCP key self-service (UI /dashboard/ai-tools/mcp) — agent kelola key-nya
+// sendiri. Key TIDAK PERNAH dikembalikan oleh GET; hanya sekali di response
+// generate/rotate. ──
+
+// Status key milik agent yang login.
+app.get('/api/mcp-key', authMiddleware, async (req, res) => {
+  const { data, error } = await supabase
+    .from('agents')
+    .select('mcp_api_key, mcp_api_key_created_at')
+    .eq('id', req.user.id)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({
+    success: true,
+    hasKey: !!data?.mcp_api_key,
+    createdAt: data?.mcp_api_key_created_at || null,
+  });
+});
+
+// Generate / rotate key sendiri (rotate mematikan key lama seketika).
+app.post('/api/mcp-key', authMiddleware, async (req, res) => {
+  const key = generateMcpApiKey();
+  const { error } = await supabase
+    .from('agents')
+    .update({ mcp_api_key: key, mcp_api_key_created_at: new Date().toISOString() })
+    .eq('id', req.user.id);
+  if (error) return res.status(500).json({ error: error.message });
+  mcpRuntime.invalidateKeyCache();
+  res.json({ success: true, key, endpoint: '/mcp' });
+});
+
+// Revoke key sendiri.
+app.delete('/api/mcp-key', authMiddleware, async (req, res) => {
+  const { error } = await supabase
+    .from('agents')
+    .update({ mcp_api_key: null, mcp_api_key_created_at: null })
+    .eq('id', req.user.id);
+  if (error) return res.status(500).json({ error: error.message });
+  mcpRuntime.invalidateKeyCache();
+  res.json({ success: true });
+});
+
 // ──────────────────────────────────────────────
 // CAPI: Meta Conversion API routes (Supabase-backed)
 // ──────────────────────────────────────────────
