@@ -247,6 +247,9 @@ async function mergeExistingUmrohPhase1Enrichment(agentId, rows) {
 // Parse this one path at 16mb BEFORE the global 10mb json limit below, so large
 // documents aren't rejected with 413. The global parser skips already-parsed bodies.
 app.use('/api/admin/wa-copy/media', express.json({ limit: '16mb' }));
+// MCP JSON-RPC requests are tiny — cap /mcp tight so the global 10mb parser
+// can't be used to push oversized bodies at the public MCP endpoint.
+app.use('/mcp', express.json({ limit: '128kb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // ──────────────────────────────────────────────
@@ -4276,7 +4279,7 @@ app.put('/api/admin/agents/:slug/reject', authMiddleware, adminOnly, async (req,
 // per-agent (hermes). Auth bearer per-agent via agents.mcp_api_key; semua tool
 // ter-scope agent_id. Lihat mcp-server.js.
 // ──────────────────────────────────────────────
-import { initMcpServer, generateMcpApiKey } from './mcp-server.js';
+import { initMcpServer, generateMcpApiKey, hashMcpApiKey } from './mcp-server.js';
 
 // Stamp pemakaian MCP key (UI "Tersambung" vs "belum tersambung") — throttled
 // 10 menit per agent supaya request asisten yang cerewet tidak jadi write storm.
@@ -4292,7 +4295,10 @@ function stampMcpKeyUsage(agent) {
     .eq('id', agent.id)
     .then(({ error }) => {
       if (error) console.warn(`[MCP] last-used stamp failed for ${agent.slug}:`, error.message);
-    });
+    })
+    // Fire-and-forget: a rejected update (network blip) must not become an
+    // unhandled rejection.
+    .catch((err) => console.warn(`[MCP] last-used stamp rejected for ${agent.slug}:`, err?.message || err));
 }
 
 const mcpRuntime = initMcpServer(app, { supabase, onAuthenticated: stampMcpKeyUsage });
@@ -4312,9 +4318,9 @@ app.post('/api/admin/agents/:slug/mcp-key', authMiddleware, adminOnly, async (re
   const key = generateMcpApiKey();
   const { error } = await supabase
     .from('agents')
-    .update({ mcp_api_key: key, mcp_api_key_created_at: new Date().toISOString(), mcp_key_last_used_at: null })
+    .update({ mcp_api_key: hashMcpApiKey(key), mcp_api_key_created_at: new Date().toISOString(), mcp_key_last_used_at: null })
     .eq('id', targetAgent.id);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) { console.warn('[MCP] admin generate key failed:', error.message); return res.status(500).json({ error: 'Gagal membuat kunci' }); }
   resetMcpKeyState(targetAgent.id);
   res.json({ success: true, key, endpoint: '/mcp' });
 });
@@ -4327,7 +4333,7 @@ app.delete('/api/admin/agents/:slug/mcp-key', authMiddleware, adminOnly, async (
     .from('agents')
     .update({ mcp_api_key: null, mcp_api_key_created_at: null, mcp_key_last_used_at: null })
     .eq('id', targetAgent.id);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) { console.warn('[MCP] admin revoke key failed:', error.message); return res.status(500).json({ error: 'Gagal mencabut kunci' }); }
   resetMcpKeyState(targetAgent.id);
   res.json({ success: true });
 });
@@ -4343,7 +4349,7 @@ app.get('/api/mcp-key', authMiddleware, async (req, res) => {
     .select('mcp_api_key, mcp_api_key_created_at, mcp_key_last_used_at')
     .eq('id', req.user.id)
     .maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) { console.warn('[MCP] key status lookup failed:', error.message); return res.status(500).json({ error: 'Gagal memuat status kunci' }); }
   res.json({
     success: true,
     hasKey: !!data?.mcp_api_key,
@@ -4358,9 +4364,9 @@ app.post('/api/mcp-key', authMiddleware, async (req, res) => {
   const key = generateMcpApiKey();
   const { error } = await supabase
     .from('agents')
-    .update({ mcp_api_key: key, mcp_api_key_created_at: new Date().toISOString(), mcp_key_last_used_at: null })
+    .update({ mcp_api_key: hashMcpApiKey(key), mcp_api_key_created_at: new Date().toISOString(), mcp_key_last_used_at: null })
     .eq('id', req.user.id);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) { console.warn('[MCP] self generate key failed:', error.message); return res.status(500).json({ error: 'Gagal membuat kunci' }); }
   resetMcpKeyState(req.user.id);
   res.json({ success: true, key, endpoint: '/mcp' });
 });
@@ -4371,7 +4377,7 @@ app.delete('/api/mcp-key', authMiddleware, async (req, res) => {
     .from('agents')
     .update({ mcp_api_key: null, mcp_api_key_created_at: null, mcp_key_last_used_at: null })
     .eq('id', req.user.id);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) { console.warn('[MCP] self revoke key failed:', error.message); return res.status(500).json({ error: 'Gagal mencabut kunci' }); }
   resetMcpKeyState(req.user.id);
   res.json({ success: true });
 });

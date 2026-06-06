@@ -30,11 +30,21 @@ import {
 const KEY_PREFIX = 'alhijaz_mcp_';
 const KEY_HEX_LEN = 48; // 24 random bytes
 const RATE_LIMIT_PER_MINUTE = 30;
+const IP_RATE_LIMIT_PER_MINUTE = 100; // per-source-IP ceiling (above per-key)
 const KEY_CACHE_TTL_MS = 60_000;
 const MAX_LIMIT = 50;
 
 export function generateMcpApiKey() {
   return KEY_PREFIX + crypto.randomBytes(KEY_HEX_LEN / 2).toString('hex');
+}
+
+// Keys are stored HASHED at rest (sha256 hex of the lowercased bearer token):
+// a DB/backup leak then exposes only hashes, not usable bearer tokens. The
+// plaintext key is shown to the agent exactly once at generate time. Lookup
+// hashes the incoming token and matches the stored hash. Legacy plaintext keys
+// are migrated in place by scripts/backfill-mcp-key-hash.mjs (same function).
+export function hashMcpApiKey(token) {
+  return crypto.createHash('sha256').update(String(token).toLowerCase()).digest('hex');
 }
 
 export function parseMcpBearer(header) {
@@ -287,6 +297,34 @@ function nextMonthISO(month) {
   return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
 }
 
+// zod's regex guards shape only ('2026-13-45' passes) — validate the actual
+// calendar value so an impossible date can't reach Postgres and bounce back a
+// raw error. Returns true only for a real Y-M-D.
+export function isRealISODate(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s));
+  if (!m) return false;
+  const [, y, mo, d] = m;
+  const dt = new Date(Date.UTC(+y, +mo - 1, +d));
+  return dt.getUTCFullYear() === +y && dt.getUTCMonth() === +mo - 1 && dt.getUTCDate() === +d;
+}
+
+export function isRealMonth(s) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(s));
+  if (!m) return false;
+  const mo = +m[2];
+  return mo >= 1 && mo <= 12;
+}
+
+// Passport number is high-sensitivity PII; the full value rarely helps an AI
+// assistant (paspor_expired covers validity). Expose only the last 4 digits so
+// the agent can still identify a document without handing the whole number to a
+// third-party LLM.
+export function maskPassport(value) {
+  const s = String(value || '').trim();
+  if (!s) return '';
+  return s.length <= 4 ? '••••' : `••••${s.slice(-4)}`;
+}
+
 const LIST_FIELDS = 'id_umroh, jm_id, nama, jk, wa, paket, bayar, sisa, tgl_berangkat, tgl_daftar, notes, synced_at';
 const DETAIL_FIELDS = `${LIST_FIELDS}, tgl_lahir, no_paspor, paspor_expired, perlengkapan, dokumen, diskon_kantor, diskon_marketing, hijriah_year`;
 
@@ -303,12 +341,16 @@ function buildAgentMcpServer({ agent, supabase, log }) {
 
   const register = (name, config, handler) => {
     server.registerTool(name, config, async (args = {}) => {
-      log(`[MCP] ${agent.slug}: ${name} ${JSON.stringify(args)}`);
+      // Log only WHICH params were used, never their values — search/jm_id can
+      // carry jamaah names/phones (PII) into journald.
+      log(`[MCP] ${agent.slug}: ${name} (${Object.keys(args || {}).join(',') || 'no args'})`);
       try {
         return await handler(args);
       } catch (err) {
+        // Real DB/internal error stays in the server log; the client gets a
+        // generic message so Postgres internals never leak downstream.
         log(`[MCP] ${agent.slug}: ${name} ERROR ${err.message}`);
-        return toolError(err.message);
+        return toolError('Terjadi kesalahan internal saat memproses permintaan. Coba lagi.');
       }
     });
   };
@@ -392,7 +434,7 @@ function buildAgentMcpServer({ agent, supabase, log }) {
     }
 
     return toolResult({
-      jamaah: { ...row, payment_status: classifyPaymentStatus(row) },
+      jamaah: { ...row, no_paspor: maskPassport(row.no_paspor), payment_status: classifyPaymentStatus(row) },
       booking_members: bookingMembers,
       note: DATA_NOTE,
     });
@@ -459,12 +501,14 @@ function buildAgentMcpServer({ agent, supabase, log }) {
       limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
     },
   }, async ({ month, search, promo_only, available_only, include_departed, page = 1, limit = 20 }) => {
+    if (month && !isRealMonth(month)) return toolError('Bulan tidak valid — pakai format YYYY-MM dengan bulan 01-12');
     const today = jakartaToday();
+    const FETCH_CAP = 500;
     let q = supabase
       .from('umroh_schedules')
       .select('jadwal_id, jadwal_nama, promo, seat_total, seat_sisa, maskapai, berangkat_tgl, berangkat_jam, pulang_tgl, manasik_tgl, manasik_jam, paket_harga, synced_at')
       .order('berangkat_tgl', { ascending: true })
-      .limit(500);
+      .limit(FETCH_CAP);
 
     if (month) {
       q = q.gte('berangkat_tgl', `${month}-01`).lt('berangkat_tgl', nextMonthISO(month));
@@ -483,11 +527,13 @@ function buildAgentMcpServer({ agent, supabase, log }) {
 
     const cappedLimit = Math.min(Number(limit) || 20, MAX_LIMIT);
     const offset = (Math.max(1, Number(page) || 1) - 1) * cappedLimit;
+    const truncated = (data?.length || 0) >= FETCH_CAP;
     return toolResult({
       total: rows.length,
       page: Math.max(1, Number(page) || 1),
       limit: cappedLimit,
       rows: rows.slice(offset, offset + cappedLimit),
+      ...(truncated ? { truncated: true, truncated_note: `Hasil dibatasi ${FETCH_CAP} jadwal teratas — persempit dengan filter month/search.` } : {}),
       note: GLOBAL_NOTE,
     });
   });
@@ -560,21 +606,24 @@ function buildAgentMcpServer({ agent, supabase, log }) {
       search: z.string().max(80).optional().describe('Cari di nama paket / nama Tour Leader / nomor grup'),
     },
   }, async ({ type, from, days = 30, search }) => {
+    if (from && !isRealISODate(from)) return toolError('Tanggal "from" tidak valid — pakai format YYYY-MM-DD yang benar');
     const start = from || jakartaToday();
     const end = addDaysISO(start, Math.min(Number(days) || 30, 120));
+    const FETCH_CAP = 150;
     let q = supabase
       .from('calendar_events')
       .select('event_date, event_type, group_number, paket, pesawat, jam, pax, tour_leader, staff, jam_kumpul, titik_kumpul')
       .gte('event_date', start)
       .lte('event_date', end)
       .order('event_date', { ascending: true })
-      .limit(150);
+      .limit(FETCH_CAP);
     if (type) q = q.eq('event_type', type);
     const term = sanitizeSearchTerm(search);
     if (term) q = q.or(`paket.ilike.*${term}*,tour_leader.ilike.*${term}*,group_number.ilike.*${term}*`);
 
     const { data, error } = await q;
     if (error) throw new Error(error.message);
+    const truncated = (data?.length || 0) >= FETCH_CAP;
 
     const rows = (data || []).map((row) => ({
       tanggal: row.event_date,
@@ -590,7 +639,11 @@ function buildAgentMcpServer({ agent, supabase, log }) {
       titik_kumpul: row.titik_kumpul || null,
     }));
 
-    return toolResult({ from: start, to: end, total: rows.length, rows, note: GLOBAL_NOTE });
+    return toolResult({
+      from: start, to: end, total: rows.length, rows,
+      ...(truncated ? { truncated: true, truncated_note: `Hasil dibatasi ${FETCH_CAP} event teratas — persempit rentang (days) atau pakai filter type/search.` } : {}),
+      note: GLOBAL_NOTE,
+    });
   });
 
   return server;
@@ -604,26 +657,41 @@ export function initMcpServer(app, { supabase, log = console.log, onAuthenticate
   if (!supabase) throw new Error('initMcpServer: supabase client is required');
 
   const rateLimiter = createRateLimiter();
-  // token -> { agent|null, expiresAt }; negative entries stop bad keys from
-  // hammering the DB between rate-limit windows.
+  // Per-IP ceiling, applied BEFORE token parsing/lookup. The per-token limiter
+  // alone is trivially bypassed by spraying distinct tokens (each gets its own
+  // bucket), turning unauthenticated requests into uncapped agents-table
+  // lookups against an IO-sensitive Postgres. This caps total /mcp traffic per
+  // source IP regardless of token. Higher than per-key so a few real agents
+  // behind one NAT still fit.
+  const ipLimiter = createRateLimiter({ limit: IP_RATE_LIMIT_PER_MINUTE });
+  // token-hash -> { agent|null, expiresAt }; negative entries stop bad keys
+  // from hammering the DB between rate-limit windows.
   const keyCache = new Map();
 
   const resolveAgent = async (token) => {
-    const cached = keyCache.get(token);
+    // Keys are stored hashed; never query by the raw bearer token.
+    const keyHash = hashMcpApiKey(token);
+    const cached = keyCache.get(keyHash);
     if (cached && cached.expiresAt > Date.now()) return cached.agent;
     const { data, error } = await supabase
       .from('agents')
       .select('id, slug, name, status')
-      .eq('mcp_api_key', token)
+      .eq('mcp_api_key', keyHash)
       .maybeSingle();
     if (error) throw new Error(error.message);
     const agent = data && data.status === 'active' ? data : null;
-    keyCache.set(token, { agent, expiresAt: Date.now() + KEY_CACHE_TTL_MS });
+    keyCache.set(keyHash, { agent, expiresAt: Date.now() + KEY_CACHE_TTL_MS });
     if (keyCache.size > 1000) keyCache.clear();
     return agent;
   };
 
   app.post('/mcp', async (req, res) => {
+    // Caddy sets X-Real-IP to the true client; fall back to XFF/socket.
+    const clientIp = req.headers['x-real-ip']
+      || (typeof req.headers['x-forwarded-for'] === 'string' ? req.headers['x-forwarded-for'].split(',')[0].trim() : '')
+      || req.ip || 'unknown';
+    if (!ipLimiter(clientIp)) return jsonRpcError(res, 429, -32002, `Rate limit: terlalu banyak request dari IP ini (max ${IP_RATE_LIMIT_PER_MINUTE}/menit)`);
+
     const token = parseMcpBearer(req.headers.authorization);
     if (!token) return jsonRpcError(res, 401, -32001, 'Unauthorized: kirim header Authorization: Bearer alhijaz_mcp_...');
     if (!rateLimiter(token)) return jsonRpcError(res, 429, -32002, `Rate limit: max ${RATE_LIMIT_PER_MINUTE} request/menit per key`);

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   generateMcpApiKey,
+  hashMcpApiKey,
   parseMcpBearer,
   createRateLimiter,
   classifyPaymentStatus,
@@ -12,6 +13,9 @@ import {
   computeKalkulasi,
   summarizeJadwalRow,
   cleanCalendarPerson,
+  isRealISODate,
+  isRealMonth,
+  maskPassport,
 } from '../mcp-server.js';
 
 const root = new URL('..', import.meta.url);
@@ -54,6 +58,54 @@ test('parseMcpBearer rejects everything that is not a well-formed key', () => {
     parseMcpBearer(`bearer ALHIJAZ_MCP_${'A'.repeat(48)}`),
     `alhijaz_mcp_${'a'.repeat(48)}`,
   );
+});
+
+// ── key hashing at rest ─────────────────────────────────────────────────────
+
+test('hashMcpApiKey is a stable, case-insensitive sha256 hex of the token', () => {
+  const key = generateMcpApiKey();
+  const h = hashMcpApiKey(key);
+  assert.match(h, /^[0-9a-f]{64}$/);
+  // Deterministic + case-insensitive (parseMcpBearer lowercases bearer tokens).
+  assert.equal(hashMcpApiKey(key), h);
+  assert.equal(hashMcpApiKey(key.toUpperCase()), h);
+  // Different keys → different hashes; the hash is not the key.
+  assert.notEqual(hashMcpApiKey(generateMcpApiKey()), h);
+  assert.notEqual(h, key);
+});
+
+test('legacy miqot_ key hashes the same whether parsed or raw — installed keys survive', () => {
+  const legacy = `miqot_mcp_${'a'.repeat(48)}`;
+  assert.equal(hashMcpApiKey(parseMcpBearer(`Bearer ${legacy}`)), hashMcpApiKey(legacy));
+});
+
+// ── date validation (zod regex guards shape only) ───────────────────────────
+
+test('isRealISODate rejects impossible dates that pass the YYYY-MM-DD regex', () => {
+  assert.equal(isRealISODate('2026-06-06'), true);
+  assert.equal(isRealISODate('2026-02-29'), false); // not a leap year
+  assert.equal(isRealISODate('2024-02-29'), true);  // leap year
+  assert.equal(isRealISODate('2026-13-45'), false);
+  assert.equal(isRealISODate('2026-00-10'), false);
+  assert.equal(isRealISODate('2026-6-6'), false);   // wrong shape
+  assert.equal(isRealISODate(''), false);
+});
+
+test('isRealMonth rejects out-of-range months that pass the YYYY-MM regex', () => {
+  assert.equal(isRealMonth('2026-07'), true);
+  assert.equal(isRealMonth('2026-12'), true);
+  assert.equal(isRealMonth('2026-00'), false);
+  assert.equal(isRealMonth('2026-13'), false);
+  assert.equal(isRealMonth('2026-99'), false);
+});
+
+// ── passport masking ────────────────────────────────────────────────────────
+
+test('maskPassport exposes only the last 4 chars', () => {
+  assert.equal(maskPassport('X9417633'), '••••7633');
+  assert.equal(maskPassport('AB12'), '••••');
+  assert.equal(maskPassport(''), '');
+  assert.equal(maskPassport(null), '');
 });
 
 // ── rate limiter ──────────────────────────────────────────────────────────────
@@ -205,12 +257,68 @@ test('cleanCalendarPerson strips the bullet prefix and empty markers', () => {
 test('mcp-server.js is strictly read-only against the database', () => {
   const src = read('mcp-server.js');
   assert.doesNotMatch(src, /\.insert\(/);
-  assert.doesNotMatch(src, /\.update\(/);
+  // Supabase writes are `.update({...})` — crypto's `hash.update(str)` (key
+  // hashing) takes a string and must not trip this.
+  assert.doesNotMatch(src, /\.update\(\{/);
   assert.doesNotMatch(src, /\.upsert\(/);
   // Supabase delete is argless `.delete()` — `app.delete('/mcp', ...)` (the 405
   // route) is fine and must not trip this.
   assert.doesNotMatch(src, /\.delete\(\)/);
   assert.doesNotMatch(src, /\.rpc\(/);
+});
+
+test('keys are stored hashed, looked up hashed, and never persisted raw', () => {
+  const server = read('server.js');
+  const mcp = read('mcp-server.js');
+  // All four key-storage sites store the HASH, never the raw key.
+  assert.match(server, /mcp_api_key: hashMcpApiKey\(key\)/);
+  assert.doesNotMatch(server, /mcp_api_key: key\b/);
+  // Lookup is by hash of the incoming token.
+  assert.match(mcp, /const keyHash = hashMcpApiKey\(token\)/);
+  assert.match(mcp, /\.eq\('mcp_api_key', keyHash\)/);
+});
+
+test('/mcp has a per-IP rate limit applied before token resolution', () => {
+  const mcp = read('mcp-server.js');
+  assert.match(mcp, /IP_RATE_LIMIT_PER_MINUTE/);
+  // ipLimiter check must precede parseMcpBearer in the handler.
+  assert.match(mcp, /ipLimiter\(clientIp\)[\s\S]{0,400}parseMcpBearer\(req\.headers\.authorization\)/);
+  assert.match(mcp, /x-real-ip/);
+});
+
+test('client-facing errors are generic; raw DB messages are not forwarded', () => {
+  const mcp = read('mcp-server.js');
+  // Tool catch returns a generic message, not err.message.
+  assert.match(mcp, /catch \(err\)[\s\S]{0,400}toolError\('Terjadi kesalahan internal/);
+  assert.doesNotMatch(mcp, /return toolError\(err\.message\)/);
+  // REST mcp-key endpoints (scoped slice) return a generic error, not error.message.
+  const server = read('server.js');
+  const mcpBlock = server.slice(server.indexOf("app.post('/api/admin/agents/:slug/mcp-key'"), server.indexOf('// CAPI: Meta Conversion API routes'));
+  assert.ok(mcpBlock.length > 0, 'mcp-key block located');
+  assert.doesNotMatch(mcpBlock, /json\(\{ error: error\.message \}\)/);
+  assert.match(mcpBlock, /Gagal membuat kunci/);
+});
+
+test('/mcp body is capped tight, separate from the global 10mb parser', () => {
+  const server = read('server.js');
+  assert.match(server, /app\.use\('\/mcp', express\.json\(\{ limit: '128kb' \}\)\)/);
+});
+
+test('impossible dates are rejected before hitting Postgres', () => {
+  const mcp = read('mcp-server.js');
+  assert.match(mcp, /if \(from && !isRealISODate\(from\)\) return toolError/);
+  assert.match(mcp, /if \(month && !isRealMonth\(month\)\) return toolError/);
+});
+
+test('passport number is masked in get_jamaah output', () => {
+  const mcp = read('mcp-server.js');
+  assert.match(mcp, /no_paspor: maskPassport\(row\.no_paspor\)/);
+});
+
+test('tool-call logging records param keys only, never values (no PII in logs)', () => {
+  const mcp = read('mcp-server.js');
+  assert.match(mcp, /Object\.keys\(args \|\| \{\}\)\.join/);
+  assert.doesNotMatch(mcp, /\$\{name\} \$\{JSON\.stringify\(args\)\}/);
 });
 
 test('jadwal/kalkulasi/calendar tools are registered against the cache tables', () => {
