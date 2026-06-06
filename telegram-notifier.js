@@ -1255,28 +1255,55 @@ function hasAggregateBayarShape(row) {
   return Number.isFinite(rawSisa) && rawSisa < 0;
 }
 
+// Booking-level outstanding for aggregate-shape rows: the aggregate shape
+// duplicates ONE booking-level `bayar` across every pax row, so the balance
+// is Σ paket_harga − that aggregate. Production also has pair/sub-group
+// aggregates (e.g. AIW0026122: bayar 69/67.2/67.2jt on a fully-paid booking)
+// where no single row carries the booking total — Σ harga − max(bayar) would
+// fabricate an outstanding there, so any non-uniform (or missing) `bayar`
+// makes the booking unprovable. Returns null when the proof is incomputable
+// (no pax rows, missing/garbage price, non-uniform bayar) — callers must stay
+// conservative with unprovable bookings.
+function bookingAggregateOutstanding(bookingRows) {
+  if (!Array.isArray(bookingRows) || bookingRows.length === 0) return null;
+  let priceTotal = 0;
+  let aggregate = null;
+  for (const row of bookingRows) {
+    const price = Number(row?.awapi_paket_harga);
+    if (!Number.isFinite(price) || price <= 0) return null;
+    priceTotal += price;
+    const paid = Number(row?.awapi_bayar);
+    if (!Number.isFinite(paid)) return null;
+    if (aggregate === null) aggregate = paid;
+    else if (paid !== aggregate) return null;
+  }
+  return priceTotal - aggregate;
+}
+
 // Booking-aware confirmation for aggregate-shape rows: AWAPI reports
 // "LEBIH BAYAR" the moment the booking aggregate exceeds ONE pax's price, so a
 // 2-pax booking with only the DPs paid claims lunas while a real balance is
 // outstanding (AIW0027949, 2026-06-06). Only trust the claim when the
 // aggregate covers Σ paket_harga of every pax. Returns true when the booking
-// is PROVABLY outstanding — unprovable bookings (missing prices, no pax rows)
-// stay suppressed, because false reminders are the original incident.
+// is PROVABLY outstanding — unprovable bookings (missing prices, no pax rows,
+// non-uniform bayar) stay suppressed, because false reminders are the
+// original incident.
 function bookingProvenOutstanding(bookingRows) {
-  if (!Array.isArray(bookingRows) || bookingRows.length === 0) return false;
-  let priceTotal = 0;
-  let aggregate = 0;
-  for (const row of bookingRows) {
-    const price = Number(row?.awapi_paket_harga);
-    if (!Number.isFinite(price) || price <= 0) return false;
-    priceTotal += price;
-    const paid = Number(row?.awapi_bayar);
-    if (Number.isFinite(paid) && paid > aggregate) aggregate = paid;
-  }
-  return aggregate < priceTotal;
+  const outstanding = bookingAggregateOutstanding(bookingRows);
+  return outstanding !== null && outstanding > 0;
 }
 
-function collapsePelunasanBookings(rows) {
+// Collapse the per-pax outstanding rows into one entry per booking. The `sisa`
+// a booking shows depends on the AWAPI payment shape of its rows:
+//   - Per-pax shape (raw bayar_sisa >= 0): each row carries that pax's own
+//     balance, so the booking total is Σ sisa. The old Math.max here showed a
+//     3-pax booking owing 84.7jt as "sisa 28.3jt" (AIW0029174, 2026-06-06).
+//   - Aggregate shape (raw bayar_sisa < 0, kept via bookingProvenOutstanding):
+//     the DB `sisa` is the stale DP-era value the preserve guard kept, so both
+//     sum and max are wrong — use the proven Σ paket_harga − aggregate from
+//     `aggregateOutstanding` (keyed `${agent_id}:${id_umroh}`), falling back
+//     to max (the old conservative behavior) when no proof is available.
+function collapsePelunasanBookings(rows, aggregateOutstanding = new Map()) {
   const byBooking = new Map();
 
   for (const row of rows) {
@@ -1285,32 +1312,49 @@ function collapsePelunasanBookings(rows) {
     const sisa = Number(row.sisa || 0);
     const bayar = Number(row.bayar || 0);
 
-    if (!byBooking.has(key)) {
-      byBooking.set(key, {
+    let entry = byBooking.get(key);
+    if (!entry) {
+      entry = {
         agent_id: row.agent_id,
         id_umroh: row.id_umroh || null,
-        paket: row.paket || '',
-        tgl_berangkat: row.tgl_berangkat,
-        sisa,
-        bayar,
-        names: row.nama ? [row.nama] : [],
-        memberCount: 1,
-      });
-      continue;
+        paket: '',
+        tgl_berangkat: null,
+        names: [],
+        memberCount: 0,
+        key,
+        sumSisa: 0,
+        maxSisa: 0,
+        sumBayar: 0,
+        maxBayar: 0,
+        aggregateShape: false,
+      };
+      byBooking.set(key, entry);
     }
 
-    const existing = byBooking.get(key);
-    existing.sisa = Math.max(Number(existing.sisa || 0), sisa);
-    existing.bayar = Math.max(Number(existing.bayar || 0), bayar);
-    if (!existing.paket && row.paket) existing.paket = row.paket;
-    if (!existing.tgl_berangkat && row.tgl_berangkat) existing.tgl_berangkat = row.tgl_berangkat;
-    if (row.nama && !existing.names.some(n => n.toLowerCase() === row.nama.toLowerCase())) {
-      existing.names.push(row.nama);
+    entry.sumSisa += sisa;
+    entry.maxSisa = Math.max(entry.maxSisa, sisa);
+    entry.sumBayar += bayar;
+    entry.maxBayar = Math.max(entry.maxBayar, bayar);
+    if (hasAggregateBayarShape(row)) entry.aggregateShape = true;
+    if (!entry.paket && row.paket) entry.paket = row.paket;
+    if (!entry.tgl_berangkat && row.tgl_berangkat) entry.tgl_berangkat = row.tgl_berangkat;
+    if (row.nama && !entry.names.some(n => n.toLowerCase() === row.nama.toLowerCase())) {
+      entry.names.push(row.nama);
     }
-    existing.memberCount += 1;
+    entry.memberCount += 1;
   }
 
-  return Array.from(byBooking.values());
+  return Array.from(byBooking.values()).map((entry) => {
+    const { key, sumSisa, maxSisa, sumBayar, maxBayar, aggregateShape, ...booking } = entry;
+    let sisa = sumSisa;
+    let bayar = sumBayar;
+    if (aggregateShape) {
+      const proven = aggregateOutstanding.get(key);
+      sisa = Number.isFinite(proven) && proven > 0 ? proven : maxSisa;
+      bayar = maxBayar;
+    }
+    return { ...booking, sisa, bayar };
+  });
 }
 
 function buildPelunasanMessage(agentName, bookings, today) {
@@ -1380,7 +1424,11 @@ async function pelunasanReminder() {
       .gte('tgl_berangkat', today)
       .lte('tgl_berangkat', maxDate)
       .gt('sisa', 0)
-      .gt('bayar', 0);
+      .gt('bayar', 0)
+      // Deterministic order: jm_id ascending = registration order, so the
+      // collapsed booking's primary name is the first-registered pax instead
+      // of whatever physical row order PostgREST happens to return.
+      .order('jm_id', { ascending: true });
 
     if (jError) throw jError;
 
@@ -1430,7 +1478,16 @@ async function pelunasanReminder() {
     const agentMap = {};
     agents.forEach(a => { agentMap[a.id] = a; });
 
-    const bookings = collapsePelunasanBookings(outstanding);
+    // Proven booking-level outstanding for kept aggregate-shape bookings —
+    // their DB `sisa` is the stale preserved DP value, so the collapse must
+    // price them from Σ paket_harga − aggregate instead.
+    const aggregateOutstandingByKey = new Map();
+    for (const [key, paxRows] of bookingPaxRows) {
+      const proven = bookingAggregateOutstanding(paxRows);
+      if (proven !== null && proven > 0) aggregateOutstandingByKey.set(key, proven);
+    }
+
+    const bookings = collapsePelunasanBookings(outstanding, aggregateOutstandingByKey);
     const perAgent = {};
     bookings.forEach(booking => {
       if (!agentMap[booking.agent_id]) return;
@@ -3035,7 +3092,7 @@ async function runBirthdayDigest() {
 
 // ─── Init ────────────────────────────────────────────
 
-export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, pelunasanReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyJamaahSyncEvents, notifyPembayaranMasuk, runBirthdayDigest, isUpstreamLunas, hasAggregateBayarShape, bookingProvenOutstanding };
+export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, pelunasanReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyJamaahSyncEvents, notifyPembayaranMasuk, runBirthdayDigest, isUpstreamLunas, hasAggregateBayarShape, bookingProvenOutstanding, bookingAggregateOutstanding, collapsePelunasanBookings, buildPelunasanMessage };
 
 export function initNotifier() {
   loadConfig();

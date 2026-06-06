@@ -60,11 +60,17 @@ test('pelunasanReminder filters out rows that are already lunas upstream', () =>
   // The query must surface the live AWAPI payment fields...
   assert.match(notifier, /awapi_bayar_status:raw_data->>bayar_status/);
   assert.match(notifier, /awapi_bayar_sisa:raw_data->>bayar_sisa/);
-  // ...the reminder must be built from the filtered set, not the raw query...
-  assert.match(notifier, /collapsePelunasanBookings\(outstanding\)/);
+  // ...the reminder must be built from the filtered set, not the raw query,
+  // and must carry the proven booking-level outstanding for aggregate-shape
+  // bookings whose DB `sisa` is the stale preserved DP value...
+  assert.match(notifier, /collapsePelunasanBookings\(outstanding,\s*aggregateOutstandingByKey\)/);
+  assert.match(notifier, /bookingAggregateOutstanding\(paxRows\)/);
   // ...and aggregate-shape lunas claims must pass booking-level proof before
   // being suppressed — partially-paid multi-pax bookings claim LEBIH BAYAR too,
   // and their legitimate reminders must keep firing (A2, 2026-06-06).
   assert.match(notifier, /bookingProvenOutstanding\(bookingPaxRows\.get\(/);
   assert.match(notifier, /awapi_paket_harga:raw_data->>paket_harga/);
+  // The query must order by jm_id so the collapsed booking's primary name is
+  // deterministically the first-registered pax, not physical row order.
+  assert.match(notifier, /\.order\('jm_id'/);
 });
