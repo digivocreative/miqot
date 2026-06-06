@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sparkles, Copy, ClipboardCheck, RefreshCw } from 'lucide-react';
+import { X, Sparkles, Copy, ClipboardCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getSessionAuthHeaders } from '@/utils/authUtils';
 import { shareCaption } from './wa-copy/utils/waLink';
@@ -352,25 +352,6 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
             {/* Footer — hidden in idle state (no caption yet) */}
             {(versions.length > 0 || loading) && (
               <div className="px-4 py-3 border-t border-gray-200 dark:border-slate-700 flex gap-2">
-                {/* Buat Ulang Button (icon-only) */}
-                <button
-                  onClick={generate}
-                  disabled={loading}
-                  aria-label="Buat ulang caption"
-                  className={`
-                    flex items-center justify-center px-3.5
-                    rounded-xl
-                    border border-indigo-200 dark:border-indigo-700/70
-                    text-indigo-600 dark:text-indigo-300
-                    bg-indigo-50 dark:bg-slate-800
-                    hover:bg-indigo-100 dark:hover:bg-indigo-900/30
-                    transition-all duration-200 active:scale-95
-                    ${loading ? 'opacity-50 cursor-not-allowed' : ''}
-                  `}
-                >
-                  <RefreshCw size={17} className={loading ? 'animate-spin' : ''} />
-                </button>
-
                 {/* Salin Teks Button */}
                 <button
                   disabled={loading || !text}
