@@ -331,6 +331,7 @@ alhijaz/
 - `migrations/20260522000000_umroh_schedule_cdn_fingerprints.sql` — 8 kolom CDN sync (sha256/bytes/content-type/synced_at) untuk brosur & itinerary di `umroh_schedules`
 - `migrations/20260523000000_jamaah_document_cache.sql` — tabel `jamaah_document_cache` (`agent_id` UUID FK CASCADE, `jm_id`, `document_type`, `content_html`, `html_sha256`, `source_url`, `content_type`, `fetched_at`/`updated_at`; UNIQUE `(agent_id, jm_id, document_type)`, RLS-protected) untuk cache surat pernyataan AWAPI
 - `migrations/20260606020000_agents_mcp_api_key.sql` — kolom `mcp_api_key` + `mcp_api_key_created_at` di `agents` (partial unique index) untuk auth MCP endpoint; self-host perlu `NOTIFY pgrst, 'reload schema'` setelah ALTER
+- `migrations/20260606040000_agents_mcp_key_last_used.sql` — kolom `mcp_key_last_used_at` di `agents` (stamp pemakaian MCP key utk status "Tersambung" yang jujur di UI)
 
 ## 4. Konvensi & Aturan
 
@@ -600,6 +601,7 @@ awapi_code        TEXT                -- kode Alhijaz Official API per agent
 awapi_key         TEXT                -- x-api-key untuk AWAPI (server-only)
 mcp_api_key       TEXT                -- bearer key MCP endpoint (miqot_mcp_<48 hex>; partial unique index; self-service via /api/mcp-key)
 mcp_api_key_created_at TIMESTAMPTZ    -- kapan key MCP dibuat/dirotate
+mcp_key_last_used_at TIMESTAMPTZ      -- kapan terakhir key dipakai asisten (stamp throttled 10 menit; di-reset null saat generate/rotate/revoke) — UI "Tersambung" vs "belum tersambung"
 last_jamaah_sync_at TIMESTAMPTZ       -- sync umroh terakhir
 last_jamaah_haji_sync_at TIMESTAMPTZ  -- sync haji terakhir
 landing_config    JSONB DEFAULT '{}'  -- Per-agent landing page customization: { umroh: {title, description, og_image_url}, haji: {...} }
@@ -1221,7 +1223,7 @@ Sumber kebenaran paket tetap external API `https://jadwal.alhijaz.co/jadwal/api-
 
 - **Auth**: `Authorization: Bearer miqot_mcp_<48 hex>` — kolom `agents.mcp_api_key` (BUKAN JWT; kredensial terpisah, bisa di-revoke tanpa ganggu login web). Semua tool hard-scoped `agent_id` agent pemilik key.
 - **Key management (admin only)**: `POST /api/admin/agents/:slug/mcp-key` (generate/rotate — key dikembalikan sekali di response) · `DELETE /api/admin/agents/:slug/mcp-key` (revoke, langsung efektif).
-- **Key self-service (per agent)**: `GET /api/mcp-key` (status: hasKey + createdAt — key TIDAK pernah dikembalikan via GET) · `POST /api/mcp-key` (generate/rotate key sendiri) · `DELETE /api/mcp-key` (revoke sendiri). UI: **`/dashboard/ai-tools/mcp`** (`src/components/McpIntegrationPage.tsx`) — generate/rotate/revoke + config snippet show-once + dokumentasi tools.
+- **Key self-service (per agent)**: `GET /api/mcp-key` (status: hasKey + createdAt + lastUsedAt — key TIDAK pernah dikembalikan via GET) · `POST /api/mcp-key` (generate/rotate key sendiri) · `DELETE /api/mcp-key` (revoke sendiri). UI: **`/dashboard/ai-tools/mcp`** (`src/components/McpIntegrationPage.tsx`) — generate/rotate/revoke + config snippet show-once + contoh pertanyaan. Status kartu jujur via `mcp_key_last_used_at` (stamp throttled 10 menit via hook `onAuthenticated` → `stampMcpKeyUsage` di server.js; mcp-server.js tetap read-only): "Tersambung + terakhir aktif X lalu" hanya bila key pernah dipakai, selain itu "Kunci aktif — asisten belum tersambung".
 - **Rate limit**: 30 request/menit per key (sliding window, in-memory). Pagination cap 50.
 - **Tools (8)** — per-agent (scoped `agent_id`): `list_jamaah` (filter payment_status/departure/search, paginated) · `get_jamaah` (detail per jm_id + anggota booking) · `jamaah_birthdays` (7/30/60/90 hari) · `payment_summary` (agregat bucket + per bulan keberangkatan). Global (data operasional Alhijaz dari cache lokal, BUKAN upstream): `list_jadwal_paket` (dari `umroh_schedules` — tanggal/durasi/maskapai/seat/harga mulai/manasik; dedupe by jadwal_id, filter `hasValidPricing`) · `get_jadwal_paket` (harga per tier+kamar, hotel per tier, rute penerbangan, link publik brosur+itinerary CDN via `serializeScheduleRows`) · `kalkulasi_harga` (`computeKalkulasi` — replikasi persis formula KalkulasiPage: kamar per-pax, anak tanpa kasur = quad − diskon RAHMAH 5,5jt/PROMO 3jt/normal 3,5jt, infant fallback 8,5jt, diskon per-pax exclude infant) · `calendar_events` (manasik/keberangkatan/kepulangan dari `calendar_events` — grup, paket, pesawat, pax, **Tour Leader**, staff, jam/titik kumpul). Setiap response menyertakan `synced_at`/disclaimer snapshot (data sync, bukan real-time; bayar/sisa booking yang sudah berangkat tidak andal).
 - **Config client (contoh)**:

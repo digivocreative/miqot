@@ -1206,7 +1206,10 @@ Isi: `ShieldCheck` "Hanya membaca" · `Lock` "Hanya data milikmu" · `Trash2` "B
 #### Kartu Kunci Akses — 3 State
 
 1. **Belum tersambung** → 1 baris "Belum tersambung." + CTA teal standar (`py-3 text-sm font-bold bg-teal-500 hover:bg-teal-600 shadow-md shadow-teal-500/20 active:scale-95 disabled:opacity-50`, icon `KeyRound` 16) label "Buat Kunci Akses".
-2. **Tersambung** → status box emerald (pola Status Bar): `bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 rounded-xl p-3` + `ShieldCheck` 18, judul "Tersambung" `text-xs font-bold emerald-700` + sub "sejak {tanggal}" `text-[10px]`. Pasangan tombol `py-3 text-xs font-bold`:
+2. **Kunci aktif** → status box JUJUR berdasarkan `lastUsedAt` (stamp pemakaian dari server, kolom `agents.mcp_key_last_used_at`, di-update throttled 10 menit saat auth `/mcp` sukses):
+   - `lastUsedAt` terisi → **"Tersambung"** emerald (pola Status Bar): `bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 rounded-xl p-3` + `ShieldCheck` 18, sub "asisten terakhir aktif {waktu relatif}" (`waktuRelatif`: baru saja / X menit/jam/hari lalu).
+   - `lastUsedAt` null → **"Kunci aktif — asisten belum tersambung"** biru (pola Info Badge): `bg-blue-50 dark:bg-blue-900/15 border-blue-100 dark:border-blue-800/30` + `Clock` 18, sub "dibuat {tanggal} · kalau kunci hilang, buat kunci baru". JANGAN klaim "Tersambung" hanya karena kunci ada.
+   Pasangan tombol `py-3 text-xs font-bold`:
    - **Buat Kunci Baru**: mini-CTA teal (icon `RefreshCw` 14)
    - **Putuskan**: danger merah (`bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100`, icon `Trash2` 14)
    - Kedua aksi memunculkan **inline confirm amber** 1 kalimat (`TriangleAlert` 14, teks `text-xs amber-600/400`, tombol "Ya, lanjut" `bg-amber-500 hover:bg-amber-600 font-bold shadow-md shadow-amber-500/20` + "Batal" netral).

@@ -4278,7 +4278,31 @@ app.put('/api/admin/agents/:slug/reject', authMiddleware, adminOnly, async (req,
 // ──────────────────────────────────────────────
 import { initMcpServer, generateMcpApiKey } from './mcp-server.js';
 
-const mcpRuntime = initMcpServer(app, { supabase });
+// Stamp pemakaian MCP key (UI "Tersambung" vs "belum tersambung") — throttled
+// 10 menit per agent supaya request asisten yang cerewet tidak jadi write storm.
+const mcpUsageStampAt = new Map();
+const MCP_USAGE_STAMP_INTERVAL_MS = 10 * 60 * 1000;
+function stampMcpKeyUsage(agent) {
+  const now = Date.now();
+  if ((mcpUsageStampAt.get(agent.id) || 0) > now - MCP_USAGE_STAMP_INTERVAL_MS) return;
+  mcpUsageStampAt.set(agent.id, now);
+  supabase
+    .from('agents')
+    .update({ mcp_key_last_used_at: new Date(now).toISOString() })
+    .eq('id', agent.id)
+    .then(({ error }) => {
+      if (error) console.warn(`[MCP] last-used stamp failed for ${agent.slug}:`, error.message);
+    });
+}
+
+const mcpRuntime = initMcpServer(app, { supabase, onAuthenticated: stampMcpKeyUsage });
+
+// Dipanggil setiap generate/rotate/revoke: kunci berubah → bearer cache dan
+// throttle stamp harus mulai dari nol.
+function resetMcpKeyState(agentId) {
+  mcpUsageStampAt.delete(agentId);
+  mcpRuntime.invalidateKeyCache();
+}
 
 // Generate / rotate MCP API key milik satu agent. Key dikembalikan SEKALI di
 // response ini — kirim ke agent untuk dipasang di config hermes-nya.
@@ -4288,10 +4312,10 @@ app.post('/api/admin/agents/:slug/mcp-key', authMiddleware, adminOnly, async (re
   const key = generateMcpApiKey();
   const { error } = await supabase
     .from('agents')
-    .update({ mcp_api_key: key, mcp_api_key_created_at: new Date().toISOString() })
+    .update({ mcp_api_key: key, mcp_api_key_created_at: new Date().toISOString(), mcp_key_last_used_at: null })
     .eq('id', targetAgent.id);
   if (error) return res.status(500).json({ error: error.message });
-  mcpRuntime.invalidateKeyCache();
+  resetMcpKeyState(targetAgent.id);
   res.json({ success: true, key, endpoint: '/mcp' });
 });
 
@@ -4301,10 +4325,10 @@ app.delete('/api/admin/agents/:slug/mcp-key', authMiddleware, adminOnly, async (
   if (!targetAgent) return res.status(404).json({ error: 'Agent not found' });
   const { error } = await supabase
     .from('agents')
-    .update({ mcp_api_key: null, mcp_api_key_created_at: null })
+    .update({ mcp_api_key: null, mcp_api_key_created_at: null, mcp_key_last_used_at: null })
     .eq('id', targetAgent.id);
   if (error) return res.status(500).json({ error: error.message });
-  mcpRuntime.invalidateKeyCache();
+  resetMcpKeyState(targetAgent.id);
   res.json({ success: true });
 });
 
@@ -4316,7 +4340,7 @@ app.delete('/api/admin/agents/:slug/mcp-key', authMiddleware, adminOnly, async (
 app.get('/api/mcp-key', authMiddleware, async (req, res) => {
   const { data, error } = await supabase
     .from('agents')
-    .select('mcp_api_key, mcp_api_key_created_at')
+    .select('mcp_api_key, mcp_api_key_created_at, mcp_key_last_used_at')
     .eq('id', req.user.id)
     .maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
@@ -4324,6 +4348,8 @@ app.get('/api/mcp-key', authMiddleware, async (req, res) => {
     success: true,
     hasKey: !!data?.mcp_api_key,
     createdAt: data?.mcp_api_key_created_at || null,
+    // null = kunci ada tapi belum pernah dipakai asisten → UI jangan klaim "Tersambung"
+    lastUsedAt: data?.mcp_api_key ? (data?.mcp_key_last_used_at || null) : null,
   });
 });
 
@@ -4332,10 +4358,10 @@ app.post('/api/mcp-key', authMiddleware, async (req, res) => {
   const key = generateMcpApiKey();
   const { error } = await supabase
     .from('agents')
-    .update({ mcp_api_key: key, mcp_api_key_created_at: new Date().toISOString() })
+    .update({ mcp_api_key: key, mcp_api_key_created_at: new Date().toISOString(), mcp_key_last_used_at: null })
     .eq('id', req.user.id);
   if (error) return res.status(500).json({ error: error.message });
-  mcpRuntime.invalidateKeyCache();
+  resetMcpKeyState(req.user.id);
   res.json({ success: true, key, endpoint: '/mcp' });
 });
 
@@ -4343,10 +4369,10 @@ app.post('/api/mcp-key', authMiddleware, async (req, res) => {
 app.delete('/api/mcp-key', authMiddleware, async (req, res) => {
   const { error } = await supabase
     .from('agents')
-    .update({ mcp_api_key: null, mcp_api_key_created_at: null })
+    .update({ mcp_api_key: null, mcp_api_key_created_at: null, mcp_key_last_used_at: null })
     .eq('id', req.user.id);
   if (error) return res.status(500).json({ error: error.message });
-  mcpRuntime.invalidateKeyCache();
+  resetMcpKeyState(req.user.id);
   res.json({ success: true });
 });
 

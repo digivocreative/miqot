@@ -595,7 +595,7 @@ function jsonRpcError(res, status, code, message) {
   res.status(status).json({ jsonrpc: '2.0', error: { code, message }, id: null });
 }
 
-export function initMcpServer(app, { supabase, log = console.log } = {}) {
+export function initMcpServer(app, { supabase, log = console.log, onAuthenticated } = {}) {
   if (!supabase) throw new Error('initMcpServer: supabase client is required');
 
   const rateLimiter = createRateLimiter();
@@ -631,6 +631,10 @@ export function initMcpServer(app, { supabase, log = console.log } = {}) {
       return jsonRpcError(res, 503, -32003, 'Auth lookup failed, coba lagi');
     }
     if (!agent) return jsonRpcError(res, 401, -32001, 'Unauthorized: API key tidak dikenal atau agent non-aktif');
+
+    // Usage telemetry (last-used stamp) is owned by the caller — this module
+    // stays strictly read-only against the database.
+    try { onAuthenticated?.(agent); } catch { /* never block the request */ }
 
     try {
       const server = buildAgentMcpServer({ agent, supabase, log });

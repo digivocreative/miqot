@@ -233,12 +233,30 @@ test('every MCP jamaah query is scoped to the authenticated agent', () => {
 
 test('server.js wires the MCP endpoint with admin-only key management', () => {
   const server = read('server.js');
-  assert.match(server, /initMcpServer\(app,\s*\{\s*supabase\s*\}\)/);
+  assert.match(server, /initMcpServer\(app,\s*\{\s*supabase,\s*onAuthenticated:\s*stampMcpKeyUsage\s*\}\)/);
   assert.match(server, /app\.post\('\/api\/admin\/agents\/:slug\/mcp-key',\s*authMiddleware,\s*adminOnly/);
   assert.match(server, /app\.delete\('\/api\/admin\/agents\/:slug\/mcp-key',\s*authMiddleware,\s*adminOnly/);
-  // Rotation/revocation must invalidate the bearer cache immediately.
-  const invalidations = server.match(/mcpRuntime\.invalidateKeyCache\(\)/g) || [];
-  assert.ok(invalidations.length >= 2);
+  // Every generate/rotate/revoke must reset bearer cache + usage stamp.
+  const resets = server.match(/resetMcpKeyState\(/g) || [];
+  assert.ok(resets.length >= 5, 'helper definition + 4 endpoint call sites');
+  assert.match(server, /function resetMcpKeyState[\s\S]{0,200}mcpRuntime\.invalidateKeyCache\(\)/);
+});
+
+test('MCP usage stamp is throttled, never returned as the key, and resets with the key', () => {
+  const server = read('server.js');
+  // Throttle guard so chatty assistants do not become a write storm.
+  assert.match(server, /MCP_USAGE_STAMP_INTERVAL_MS = 10 \* 60 \* 1000/);
+  assert.match(server, /mcp_key_last_used_at: new Date\(now\)\.toISOString\(\)/);
+  // GET surfaces lastUsedAt so the UI can distinguish "kunci aktif" from
+  // "benar-benar tersambung" — but only when a key exists.
+  assert.match(server, /lastUsedAt: data\?\.mcp_api_key \? \(data\?\.mcp_key_last_used_at \|\| null\) : null/);
+  // New/removed keys must never inherit the old stamp.
+  const stampResets = server.match(/mcp_key_last_used_at: null/g) || [];
+  assert.equal(stampResets.length, 4, 'all four key-management endpoints reset the stamp');
+
+  // mcp-server.js stays read-only: telemetry goes through the injected hook.
+  const mcp = read('mcp-server.js');
+  assert.match(mcp, /onAuthenticated\?\.\(agent\)/);
 });
 
 test('self-service MCP key endpoints are scoped to the logged-in agent only', () => {

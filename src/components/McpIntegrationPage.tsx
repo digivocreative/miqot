@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Check, Copy, KeyRound, Lock, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
+import { Bot, Check, Clock, Copy, KeyRound, Lock, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 
 interface KeyStatus {
   hasKey: boolean;
   createdAt: string | null;
+  // null = kunci ada tapi asisten belum pernah memakainya — jangan klaim "Tersambung"
+  lastUsedAt: string | null;
 }
 
 // Untuk pengguna non-teknis: contoh pertanyaan jauh lebih mudah dipahami
@@ -26,6 +28,19 @@ function formatTanggal(iso: string | null): string {
   } catch {
     return iso.slice(0, 10);
   }
+}
+
+function waktuRelatif(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return formatTanggal(iso);
+  const menit = Math.floor(ms / 60000);
+  if (menit < 2) return 'baru saja';
+  if (menit < 60) return `${menit} menit lalu`;
+  const jam = Math.floor(menit / 60);
+  if (jam < 24) return `${jam} jam lalu`;
+  const hari = Math.floor(jam / 24);
+  if (hari < 30) return `${hari} hari lalu`;
+  return formatTanggal(iso);
 }
 
 function buildConfigSnippet(key: string): string {
@@ -58,7 +73,7 @@ export default function McpIntegrationPage() {
   useEffect(() => {
     fetch('/api/mcp-key', { headers: getAuthHeaders() })
       .then(r => r.json())
-      .then(d => { if (d.success) setStatus({ hasKey: d.hasKey, createdAt: d.createdAt }); })
+      .then(d => { if (d.success) setStatus({ hasKey: d.hasKey, createdAt: d.createdAt, lastUsedAt: d.lastUsedAt ?? null }); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -87,7 +102,7 @@ export default function McpIntegrationPage() {
       if (!d.success || !d.key) throw new Error(d.error || 'Gagal membuat kunci');
       setFreshKey(d.key);
       setShowCopiedContent(false);
-      setStatus({ hasKey: true, createdAt: new Date().toISOString() });
+      setStatus({ hasKey: true, createdAt: new Date().toISOString(), lastUsedAt: null });
       trackEvent('action', 'mcp_generate_key');
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Gagal membuat kunci');
@@ -104,7 +119,7 @@ export default function McpIntegrationPage() {
       const d = await r.json();
       if (!d.success) throw new Error(d.error || 'Gagal memutuskan');
       setFreshKey(null);
-      setStatus({ hasKey: false, createdAt: null });
+      setStatus({ hasKey: false, createdAt: null, lastUsedAt: null });
       showToast('Sambungan diputus');
       trackEvent('action', 'mcp_revoke_key');
     } catch (e) {
@@ -175,15 +190,27 @@ export default function McpIntegrationPage() {
 
           {status?.hasKey && !freshKey && (
             <>
-              <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-xl p-3 flex items-center gap-2.5">
-                <ShieldCheck size={18} className="text-emerald-500 shrink-0" />
-                <div>
-                  <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Tersambung</p>
-                  {status.createdAt && (
-                    <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80">sejak {formatTanggal(status.createdAt)}</p>
-                  )}
+              {status.lastUsedAt ? (
+                // Asisten benar-benar pernah memakai kunci → boleh klaim tersambung
+                <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 rounded-xl p-3 flex items-center gap-2.5">
+                  <ShieldCheck size={18} className="text-emerald-500 shrink-0" />
+                  <div>
+                    <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Tersambung</p>
+                    <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80">asisten terakhir aktif {waktuRelatif(status.lastUsedAt)}</p>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                // Kunci ada, tapi belum ada asisten yang memakainya
+                <div className="bg-blue-50 dark:bg-blue-900/15 border border-blue-100 dark:border-blue-800/30 rounded-xl p-3 flex items-center gap-2.5">
+                  <Clock size={18} className="text-blue-500 shrink-0" />
+                  <div>
+                    <p className="text-xs font-bold text-blue-700 dark:text-blue-300">Kunci aktif — asisten belum tersambung</p>
+                    <p className="text-[10px] text-blue-600/80 dark:text-blue-400/80">
+                      dibuat {formatTanggal(status.createdAt)} · kalau kunci hilang, buat kunci baru
+                    </p>
+                  </div>
+                </div>
+              )}
               {confirmAction ? (
                 <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 rounded-xl p-3 space-y-2">
                   <div className="flex items-start gap-2">
