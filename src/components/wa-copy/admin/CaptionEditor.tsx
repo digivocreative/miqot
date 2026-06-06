@@ -5,6 +5,7 @@ import type { CaptionCategory, CaptionEntry, CategoryMeta, MediaAttachment } fro
 import PreviewText from '../tabs/caption/PreviewText';
 import Toggle from './Toggle';
 import MediaUploadField from './MediaUploadField';
+import FormatToolbar from './FormatToolbar';
 
 export interface CaptionDraft {
   category: CaptionCategory;
@@ -105,7 +106,10 @@ export default function CaptionEditor({ categories, initial, onSave, onCancel }:
       </div>
 
       <div>
-        <label className={LABEL_CLASS}>Template</label>
+        <div className="flex items-end justify-between gap-2 mb-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">Template</label>
+          <FormatToolbar textareaRef={textareaRef} value={template} onChange={setTemplate} />
+        </div>
         <textarea
           ref={textareaRef}
           value={template}

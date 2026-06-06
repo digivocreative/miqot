@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { copyToClipboard } from '../../utils/waLink';
 import type { TourStep } from '../../lib/types';
+import WaMarkupText from '../../WaMarkupText';
 import MediaView from '../../admin/MediaView';
 
 interface TourStepCardProps {
@@ -38,7 +39,7 @@ export default function TourStepCard({ entry, index, showToast }: TourStepCardPr
               <MediaView media={entry.media[0]} />
             </div>
           )}
-          <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-slate-300 whitespace-pre-wrap">{entry.body}</p>
+          <WaMarkupText text={entry.body} className="mt-3 text-sm leading-6 text-gray-600 dark:text-slate-300" />
           <button
             onClick={handleCopy}
             className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:hover:bg-emerald-900/30"

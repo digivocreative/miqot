@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { CategoryMeta, TourPhase, TourStep, MediaAttachment } from '../lib/types';
+import WaMarkupText from '../WaMarkupText';
 import Toggle from './Toggle';
 import MediaUploadField from './MediaUploadField';
+import FormatToolbar from './FormatToolbar';
 
 export interface TourDraft {
   phase: TourPhase;
@@ -23,6 +25,7 @@ const INPUT_CLASS =
 const LABEL_CLASS = 'block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300 mb-1.5';
 
 export default function TourLeaderEditor({ categories, initial, onSave, onCancel }: TourLeaderEditorProps) {
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [phase, setPhase] = useState<TourPhase>(initial?.phase ?? categories[0]?.value ?? '');
   const [title, setTitle] = useState(initial?.title ?? '');
   const [body, setBody] = useState(initial?.body ?? '');
@@ -60,14 +63,29 @@ export default function TourLeaderEditor({ categories, initial, onSave, onCancel
       </div>
 
       <div>
-        <label className={LABEL_CLASS}>Narasi</label>
+        <div className="flex items-end justify-between gap-2 mb-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">Narasi</label>
+          <FormatToolbar textareaRef={bodyRef} value={body} onChange={setBody} />
+        </div>
         <textarea
+          ref={bodyRef}
           value={body}
           onChange={e => setBody(e.target.value)}
           rows={6}
           placeholder="Tulis panduan dalam bentuk paragraf naratif…"
           className={`${INPUT_CLASS} resize-y leading-6`}
         />
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Pratinjau</label>
+        <div className="px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700">
+          {body.trim() ? (
+            <WaMarkupText text={body} className="text-sm leading-6 text-gray-700 dark:text-slate-300" />
+          ) : (
+            <p className="text-xs text-gray-400 dark:text-slate-500">Pratinjau muncul di sini.</p>
+          )}
+        </div>
       </div>
 
       <div>

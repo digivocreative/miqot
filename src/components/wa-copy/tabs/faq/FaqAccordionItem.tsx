@@ -4,6 +4,7 @@ import { Check, ChevronDown, Copy } from 'lucide-react';
 import { copyToClipboard, shareCaption } from '../../utils/waLink';
 import WhatsAppIcon from '../../../common/WhatsAppIcon';
 import type { AgentFaqEntry } from '../../lib/types';
+import WaMarkupText from '../../WaMarkupText';
 import MediaView from '../../admin/MediaView';
 
 interface FaqAccordionItemProps {
@@ -62,7 +63,7 @@ export default function FaqAccordionItem({ entry, open, onToggle, showToast }: F
                 </div>
               )}
               <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/40">
-                <p className="text-[13px] leading-relaxed text-gray-600 dark:text-slate-300 whitespace-pre-wrap">{entry.answer}</p>
+                <WaMarkupText text={entry.answer} className="text-[13px] leading-relaxed text-gray-600 dark:text-slate-300" />
               </div>
               <div className="mt-3 flex gap-2">
                 <button

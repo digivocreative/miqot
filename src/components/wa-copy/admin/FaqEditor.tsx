@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { AgentFaqEntry, CategoryMeta, FaqCategory, MediaAttachment } from '../lib/types';
+import WaMarkupText from '../WaMarkupText';
 import Toggle from './Toggle';
 import MediaUploadField from './MediaUploadField';
+import FormatToolbar from './FormatToolbar';
 
 export interface FaqDraft {
   category: FaqCategory;
@@ -23,6 +25,7 @@ const INPUT_CLASS =
 const LABEL_CLASS = 'block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300 mb-1.5';
 
 export default function FaqEditor({ categories, initial, onSave, onCancel }: FaqEditorProps) {
+  const answerRef = useRef<HTMLTextAreaElement>(null);
   const [category, setCategory] = useState<FaqCategory>(initial?.category ?? categories[0]?.value ?? '');
   const [question, setQuestion] = useState(initial?.question ?? '');
   const [answer, setAnswer] = useState(initial?.answer ?? '');
@@ -60,14 +63,29 @@ export default function FaqEditor({ categories, initial, onSave, onCancel }: Faq
       </div>
 
       <div>
-        <label className={LABEL_CLASS}>Jawaban</label>
+        <div className="flex items-end justify-between gap-2 mb-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">Jawaban</label>
+          <FormatToolbar textareaRef={answerRef} value={answer} onChange={setAnswer} />
+        </div>
         <textarea
+          ref={answerRef}
           value={answer}
           onChange={e => setAnswer(e.target.value)}
           rows={6}
           placeholder="Tulis jawaban yang jelas dan ramah…"
           className={`${INPUT_CLASS} resize-y leading-6`}
         />
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Pratinjau</label>
+        <div className="px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700">
+          {answer.trim() ? (
+            <WaMarkupText text={answer} className="text-sm leading-6 text-gray-700 dark:text-slate-300" />
+          ) : (
+            <p className="text-xs text-gray-400 dark:text-slate-500">Pratinjau muncul di sini.</p>
+          )}
+        </div>
       </div>
 
       <div>
