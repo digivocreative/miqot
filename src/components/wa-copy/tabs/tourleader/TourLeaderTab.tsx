@@ -15,6 +15,7 @@ export default function TourLeaderTab({ showToast }: TourLeaderTabProps) {
   const { tourSteps, tourPhases } = useWaCopyContent();
   const [activePhase, setActivePhase] = useState<TourPhase>('');
   const [query, setQuery] = useState('');
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const phases = [...tourPhases].sort((a, b) => a.order - b.order);
   const resolvedPhase = phases.some(p => p.value === activePhase) ? activePhase : (phases[0]?.value ?? '');
@@ -61,9 +62,16 @@ export default function TourLeaderTab({ showToast }: TourLeaderTabProps) {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {visible.map((entry, i) => (
-            <TourStepCard key={entry.id} entry={entry} index={i + 1} showToast={showToast} />
+            <TourStepCard
+              key={entry.id}
+              entry={entry}
+              index={i + 1}
+              open={openId === entry.id}
+              onToggle={() => setOpenId(openId === entry.id ? null : entry.id)}
+              showToast={showToast}
+            />
           ))}
         </div>
       )}

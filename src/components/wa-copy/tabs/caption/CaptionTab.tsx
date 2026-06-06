@@ -22,6 +22,7 @@ export default function CaptionTab({ showToast }: CaptionTabProps) {
   const [activeCategory, setActiveCategory] = useState<CaptionCategory>('');
   const [query, setQuery] = useState('');
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const categories = [...captionCategories].sort((a, b) => a.order - b.order);
   const resolvedCategory = categories.some(c => c.value === activeCategory)
@@ -106,7 +107,7 @@ export default function CaptionTab({ showToast }: CaptionTabProps) {
           )}
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {visible.map(entry => (
             <CaptionCard
               key={entry.id}
@@ -114,6 +115,8 @@ export default function CaptionTab({ showToast }: CaptionTabProps) {
               categoryLabel={labelOf(entry.category)}
               agentCtx={agentCtx}
               pkgCtx={pkg.selectedCtx}
+              open={openId === entry.id}
+              onToggle={() => setOpenId(openId === entry.id ? null : entry.id)}
               showToast={showToast}
             />
           ))}
