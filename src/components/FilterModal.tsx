@@ -134,7 +134,7 @@ export function FilterModal({
 
           {/* Sheet Content */}
           <motion.div 
-            className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-[61] shadow-2xl flex flex-col max-h-[90vh]"
+            className="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-800 rounded-t-2xl z-[61] shadow-2xl flex flex-col max-h-[90vh]"
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
@@ -151,13 +151,13 @@ export function FilterModal({
             {/* Header Fixed */}
             <div className="p-5 pb-2 shrink-0">
                {/* Drag Handle (Mobile UX) */}
-               <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-4" />
+               <div className="w-12 h-1.5 bg-gray-200 dark:bg-slate-600 rounded-full mx-auto mb-4" />
 
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-bold text-gray-900">Filter Cepat</h3>
-                <button 
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Filter Cepat</h3>
+                <button
                   onClick={onClose}
-                  className="p-2 bg-gray-100 rounded-full text-gray-500 hover:bg-gray-200 transition-colors"
+                  className="p-2 bg-gray-100 dark:bg-slate-700 rounded-full text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
                 >
                   <X size={20} />
                 </button>
@@ -169,7 +169,7 @@ export function FilterModal({
 
               {/* Section 1: Departure Time */}
               <div>
-                <h4 className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wider">Waktu Keberangkatan</h4>
+                <h4 className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-3 uppercase tracking-wider">Waktu Keberangkatan</h4>
                 <div className="grid grid-cols-2 gap-2">
                   {TIME_RANGES.map((range) => {
                     const isActive = departureRanges.includes(range.value);
@@ -179,9 +179,9 @@ export function FilterModal({
                         onClick={() => toggleRange(range.value, departureRanges, onDepartureRangeChange)}
                         className={`
                           px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors text-center
-                          ${isActive 
-                            ? 'bg-emerald-100 border-emerald-500 text-emerald-700' 
-                            : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                          ${isActive
+                            ? 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-500 text-emerald-700 dark:text-emerald-300'
+                            : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:border-gray-300 dark:hover:border-slate-500'
                           }
                         `}
                       >
@@ -194,7 +194,7 @@ export function FilterModal({
 
               {/* Section 3: Return Time */}
               <div>
-                <h4 className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wider">Waktu Kepulangan</h4>
+                <h4 className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-3 uppercase tracking-wider">Waktu Kepulangan</h4>
                 <div className="grid grid-cols-2 gap-2">
                   {TIME_RANGES.map((range) => {
                     const isActive = returnRanges.includes(range.value);
@@ -204,9 +204,9 @@ export function FilterModal({
                         onClick={() => toggleRange(range.value, returnRanges, onReturnRangeChange)}
                         className={`
                           px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors text-center
-                          ${isActive 
-                            ? 'bg-emerald-100 border-emerald-500 text-emerald-700' 
-                            : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                          ${isActive
+                            ? 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-500 text-emerald-700 dark:text-emerald-300'
+                            : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:border-gray-300 dark:hover:border-slate-500'
                           }
                         `}
                       >
@@ -220,11 +220,11 @@ export function FilterModal({
             </div>
 
             {/* Footer Actions */}
-            <div className="p-5 border-t border-gray-100 mt-auto bg-white pb-8">
+            <div className="p-5 border-t border-gray-100 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800 pb-8">
               <div className="flex gap-3">
                 <button
                   onClick={onClose}
-                  className="flex-1 py-3 text-sm font-bold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200"
+                  className="flex-1 py-3 text-sm font-bold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200 dark:shadow-emerald-900/30"
                 >
                   Terapkan Filter
                 </button>
@@ -235,7 +235,7 @@ export function FilterModal({
                       onDepartureRangeChange([]);
                       onReturnRangeChange([]);
                     }}
-                    className="px-4 py-3 text-sm font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors"
+                    className="px-4 py-3 text-sm font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-xl transition-colors"
                   >
                     Reset
                   </button>
