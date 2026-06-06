@@ -71,17 +71,31 @@ export function createRateLimiter({ limit = RATE_LIMIT_PER_MINUTE, windowMs = 60
   };
 }
 
-// Same buckets as the dashboard filters (belum_dp/belum_lunas/lunas/lebih_bayar).
+// Same buckets as the dashboard filters (server.js payment_status switch,
+// ~9138-9151): sisa drives the bucket — sisa null/0 = lunas TERLEPAS dari
+// bayar; bayar hanya membelah sisa>0 menjadi belum_dp vs belum_lunas.
 export function classifyPaymentStatus(row) {
   const bayar = Number(row?.bayar || 0);
   const sisa = Number(row?.sisa ?? 0);
-  if (!(bayar > 0)) return 'belum_dp';
-  if (sisa > 0) return 'belum_lunas';
   if (sisa < 0) return 'lebih_bayar';
+  if (sisa > 0) return bayar > 0 ? 'belum_lunas' : 'belum_dp';
   return 'lunas';
 }
 
-export function summarizePayments(rows) {
+// Negative raw bayar_sisa = AWAPI aggregate-booking shape: `bayar` adalah
+// total booking yang direplikasi di tiap row pax, dan `sisa` di DB adalah
+// nilai DP-era yang dipertahankan guard — sama dengan hasAggregateBayarShape
+// di telegram-notifier.js (insiden reminder palsu, 2026-06-06).
+function rowHasAggregateBayarShape(row) {
+  const rawSisa = Number(row?.awapi_bayar_sisa);
+  return Number.isFinite(rawSisa) && rawSisa < 0;
+}
+
+// groupBy 'month' (default) atau 'date' — 'date' menjawab pertanyaan
+// per-tanggal keberangkatan ("berapa jamaah berangkat 13 Juni?").
+export function summarizePayments(rows, { groupBy = 'month' } = {}) {
+  const byDate = groupBy === 'date';
+  const breakdownKey = byDate ? 'by_departure_date' : 'by_departure_month';
   const summary = {
     total_pax: 0,
     belum_dp: 0,
@@ -89,24 +103,56 @@ export function summarizePayments(rows) {
     lunas: 0,
     lebih_bayar: 0,
     total_outstanding: 0,
-    by_departure_month: {},
+    [breakdownKey]: {},
   };
-  for (const row of rows || []) {
+  const bucketKeyOf = (row) => String(row?.tgl_berangkat || '').slice(0, byDate ? 10 : 7) || 'unknown';
+  const ensureBucket = (key) => {
+    let m = summary[breakdownKey][key];
+    if (!m) {
+      m = { pax: 0, belum_dp: 0, belum_lunas: 0, lunas: 0, lebih_bayar: 0, outstanding: 0 };
+      summary[breakdownKey][key] = m;
+    }
+    return m;
+  };
+
+  // Outstanding mengikuti semantik booking telegram-notifier
+  // collapsePelunasanBookings (commit bc126d4, insiden 2026-06-06) — sumber
+  // kebenaran pasca-insiden untuk arti `sisa`:
+  //   - Shape per-pax (raw bayar_sisa >= 0/absen): tiap row membawa sisa pax
+  //     itu sendiri → outstanding booking = Σ sisa (AIW0029174: 3 pax owing
+  //     84,7jt, BUKAN 28,3jt).
+  //   - Shape aggregate (raw bayar_sisa < 0): sisa DB stale → fallback
+  //     konservatif max(sisa), persis fallback notifier tanpa price-proof.
+  // Hanya booking yang sudah mulai bayar (bayar>0) — belum_dp dihitung sebagai
+  // pax count, bukan piutang. JANGAN dedupe buta per id_umroh ala stats
+  // dashboard (komentar Apr 2026, pra-insiden): itu under-report per-pax.
+  const bookings = new Map();
+  for (const [i, row] of (rows || []).entries()) {
     const bucket = classifyPaymentStatus(row);
     summary.total_pax += 1;
     summary[bucket] += 1;
-    const sisa = Number(row?.sisa || 0);
-    if (sisa > 0) summary.total_outstanding += sisa;
-
-    const month = String(row?.tgl_berangkat || '').slice(0, 7) || 'unknown';
-    let m = summary.by_departure_month[month];
-    if (!m) {
-      m = { pax: 0, belum_dp: 0, belum_lunas: 0, lunas: 0, lebih_bayar: 0, outstanding: 0 };
-      summary.by_departure_month[month] = m;
-    }
+    const m = ensureBucket(bucketKeyOf(row));
     m.pax += 1;
     m[bucket] += 1;
-    if (sisa > 0) m.outstanding += sisa;
+
+    const sisa = Number(row?.sisa || 0);
+    const bayar = Number(row?.bayar || 0);
+    if (!(sisa > 0 && bayar > 0)) continue;
+    const key = row?.id_umroh || `row:${i}`;
+    let b = bookings.get(key);
+    if (!b) {
+      b = { sumSisa: 0, maxSisa: 0, aggregateShape: false, bucketKey: bucketKeyOf(row) };
+      bookings.set(key, b);
+    }
+    b.sumSisa += sisa;
+    b.maxSisa = Math.max(b.maxSisa, sisa);
+    if (rowHasAggregateBayarShape(row)) b.aggregateShape = true;
+  }
+
+  for (const b of bookings.values()) {
+    const outstanding = b.aggregateShape ? b.maxSisa : b.sumSisa;
+    summary.total_outstanding += outstanding;
+    ensureBucket(b.bucketKey).outstanding += outstanding;
   }
   return summary;
 }
@@ -247,6 +293,26 @@ export function cleanCalendarPerson(value) {
   return cleaned && cleaned !== '-' ? cleaned : null;
 }
 
+// Nama paket manasik legacy menempelkan tanggal berangkat grup sebagai prefix
+// "DD/MM/YYYYNAMA PAKET" — pisahkan persis seperti parsePaket di dashboard
+// (src/components/UpcomingSchedule.tsx) supaya asisten AI melihat nama paket
+// yang sama dengan yang tampil di kalender dashboard. Pembersihan tetap di
+// layer presentasi (data tersimpan apa adanya — keputusan 2026-06).
+export function cleanCalendarPaket(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return { paket: null, grup_berangkat_tgl: null };
+  const m = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})\s*(.+)$/);
+  if (!m || Number(m[2]) < 1 || Number(m[2]) > 12) return { paket: raw, grup_berangkat_tgl: null };
+  return { paket: m[4].trim(), grup_berangkat_tgl: `${m[3]}-${m[2]}-${m[1]}` };
+}
+
+// Asisten AI (terutama model kecil) sering mengirim 30 (number) untuk enum
+// string '30', atau '2' (string) untuk page numerik — koersi dulu sebelum
+// validasi supaya panggilan tidak terbuang sia-sia karena -32602. JSON schema
+// yang diiklankan ke klien tetap tipe aslinya.
+const zDayEnum = (values) => z.preprocess((v) => (v == null ? v : String(v)), z.enum(values));
+const zInt = (schema) => z.preprocess((v) => (v == null || v === '' ? undefined : Number(v)), schema);
+
 // Newest sync wins when the same jadwal_id exists under several year codes.
 function dedupeJadwalRows(rows) {
   const byId = new Map();
@@ -358,38 +424,59 @@ function buildAgentMcpServer({ agent, supabase, log }) {
   register('list_jamaah', {
     title: 'Daftar jamaah',
     description: 'Daftar jamaah umroh milik agent ini (paginated, max 50/baris per halaman). '
-      + 'Filter: status pembayaran, window keberangkatan, atau cari nama/ID booking/nomor WA. '
+      + 'Filter: status pembayaran, window keberangkatan (departure), TANGGAL/rentang keberangkatan eksak '
+      + '(departure_from/departure_to — pakai ini untuk pertanyaan seperti "siapa/berapa yang berangkat 13 Juni"), '
+      + 'atau cari nama/ID booking/nomor WA. Search tanpa departure mencakup SEMUA jamaah termasuk yang sudah berangkat. '
       + DATA_NOTE,
     inputSchema: {
       search: z.string().max(80).optional().describe('Cari di nama, id_umroh, atau nomor WA'),
       payment_status: z.enum(['belum_dp', 'belum_lunas', 'lunas', 'lebih_bayar']).optional(),
-      departure: z.enum(['30', '60', '90', 'all_upcoming', 'departed', 'all']).optional()
-        .describe('Window keberangkatan dalam hari ke depan; default all_upcoming'),
-      page: z.number().int().min(1).optional(),
-      limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
+      departure: zDayEnum(['30', '60', '90', 'all_upcoming', 'departed', 'all']).optional()
+        .describe('Window keberangkatan dalam hari ke depan; default all_upcoming (atau all saat search diisi). Untuk tanggal spesifik pakai departure_from/departure_to.'),
+      departure_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+        .describe('Keberangkatan mulai tanggal ini (YYYY-MM-DD, inklusif). Untuk SATU tanggal eksak, isi sama dengan departure_to.'),
+      departure_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+        .describe('Keberangkatan sampai tanggal ini (YYYY-MM-DD, inklusif)'),
+      page: zInt(z.number().int().min(1)).optional(),
+      limit: zInt(z.number().int().min(1).max(MAX_LIMIT)).optional(),
     },
-  }, async ({ search, payment_status, departure = 'all_upcoming', page = 1, limit = 20 }) => {
+  }, async ({ search, payment_status, departure, departure_from, departure_to, page = 1, limit = 20 }) => {
+    if (departure_from && !isRealISODate(departure_from)) return toolError('departure_from tidak valid — pakai format YYYY-MM-DD yang benar');
+    if (departure_to && !isRealISODate(departure_to)) return toolError('departure_to tidak valid — pakai format YYYY-MM-DD yang benar');
     const today = jakartaToday();
+    const term = sanitizeSearchTerm(search);
+    // Search tanpa window eksplisit harus mencakup SEMUA jamaah: nama yang
+    // dicari bisa saja sudah berangkat — default all_upcoming membuat lookup
+    // nama mengembalikan 0 yang menyesatkan ("jamaah X tidak ada" padahal ada).
+    const effectiveDeparture = departure || (term ? 'all' : 'all_upcoming');
     let q = supabase
       .from('jamaah')
       .select(LIST_FIELDS, { count: 'exact' })
       .eq('agent_id', agent.id);
 
-    if (departure === 'departed') q = q.lt('tgl_berangkat', today);
-    else if (departure === 'all_upcoming') q = q.gte('tgl_berangkat', today);
-    else if (departure !== 'all') q = q.gte('tgl_berangkat', today).lte('tgl_berangkat', addDaysISO(today, Number(departure)));
+    const explicitRange = Boolean(departure_from || departure_to);
+    if (explicitRange) {
+      // Rentang tanggal eksplisit menang atas window departure.
+      if (departure_from) q = q.gte('tgl_berangkat', departure_from);
+      if (departure_to) q = q.lte('tgl_berangkat', departure_to);
+    } else if (effectiveDeparture === 'departed') q = q.lt('tgl_berangkat', today);
+    else if (effectiveDeparture === 'all_upcoming') q = q.gte('tgl_berangkat', today);
+    else if (effectiveDeparture !== 'all') q = q.gte('tgl_berangkat', today).lte('tgl_berangkat', addDaysISO(today, Number(effectiveDeparture)));
 
     if (payment_status === 'belum_dp') q = q.lte('bayar', 0);
     else if (payment_status === 'belum_lunas') q = q.gt('bayar', 0).gt('sisa', 0);
     else if (payment_status === 'lunas') q = q.gt('bayar', 0).eq('sisa', 0);
     else if (payment_status === 'lebih_bayar') q = q.lt('sisa', 0);
 
-    const term = sanitizeSearchTerm(search);
     if (term) q = q.or(`nama.ilike.*${term}*,id_umroh.ilike.*${term}*,wa.ilike.*${term}*`);
 
     const cappedLimit = Math.min(Number(limit) || 20, MAX_LIMIT);
     const offset = (Math.max(1, Number(page) || 1) - 1) * cappedLimit;
-    q = q.order('tgl_berangkat', { ascending: departure !== 'departed', nullsFirst: false })
+    // jm_id sebagai tiebreaker: banyak row berbagi tgl_berangkat yang sama,
+    // tanpa secondary sort urutan dalam grup tidak stabil antar-request dan
+    // paginasi bisa duplikat/skip baris di batas halaman.
+    q = q.order('tgl_berangkat', { ascending: explicitRange || effectiveDeparture !== 'departed', nullsFirst: false })
+      .order('jm_id', { ascending: true })
       .range(offset, offset + cappedLimit - 1);
 
     const { data, error, count } = await q;
@@ -398,6 +485,9 @@ function buildAgentMcpServer({ agent, supabase, log }) {
       total: count ?? data?.length ?? 0,
       page: Math.max(1, Number(page) || 1),
       limit: cappedLimit,
+      applied_filter: explicitRange
+        ? { departure_from: departure_from || null, departure_to: departure_to || null }
+        : { departure: effectiveDeparture },
       rows: (data || []).map((row) => ({ ...row, payment_status: classifyPaymentStatus(row) })),
       note: DATA_NOTE,
     });
@@ -444,7 +534,7 @@ function buildAgentMcpServer({ agent, supabase, log }) {
     title: 'Ulang tahun jamaah',
     description: 'Jamaah yang berulang tahun dalam N hari ke depan — berguna untuk ucapan/follow-up.',
     inputSchema: {
-      within_days: z.enum(['7', '30', '60', '90']).optional().describe('Default 30'),
+      within_days: zDayEnum(['7', '30', '60', '90']).optional().describe('Default 30'),
     },
   }, async ({ within_days = '30' }) => {
     const today = jakartaToday();
@@ -456,30 +546,59 @@ function buildAgentMcpServer({ agent, supabase, log }) {
     if (error) throw new Error(error.message);
 
     const horizon = Number(within_days);
-    const upcoming = (data || [])
+    const matched = (data || [])
       .map((row) => ({ ...row, days_until_birthday: daysUntilNextBirthday(row.tgl_lahir, today) }))
       .filter((row) => row.days_until_birthday !== null && row.days_until_birthday <= horizon)
-      .sort((a, b) => a.days_until_birthday - b.days_until_birthday)
-      .slice(0, MAX_LIMIT);
+      .sort((a, b) => a.days_until_birthday - b.days_until_birthday);
+    // total = jumlah SEBELUM cap — dulu total dihitung setelah slice sehingga
+    // >50 ultah dalam window terpotong diam-diam dan asisten mengira daftarnya
+    // lengkap (nikita within_30 = 77, hanya 50 terkirim tanpa sinyal apapun).
+    const rows = matched.slice(0, MAX_LIMIT);
 
-    return toolResult({ today, within_days: horizon, total: upcoming.length, rows: upcoming });
+    return toolResult({
+      today,
+      within_days: horizon,
+      total: matched.length,
+      returned: rows.length,
+      rows,
+      ...(matched.length > rows.length
+        ? { truncated: true, truncated_note: `Hanya ${rows.length} ulang tahun terdekat yang ditampilkan dari ${matched.length} dalam window — persempit within_days untuk sisanya.` }
+        : {}),
+    });
   });
 
   register('payment_summary', {
     title: 'Ringkasan pembayaran',
     description: 'Agregat status pembayaran jamaah dengan keberangkatan mendatang: jumlah pax per '
       + 'bucket (belum_dp/belum_lunas/lunas/lebih_bayar), total outstanding, breakdown per bulan keberangkatan. '
+      + 'Pakai group_by="date" untuk breakdown per TANGGAL keberangkatan (menjawab "berapa jamaah berangkat 13 Juni?"); '
+      + 'horizon_days membatasi ke N hari ke depan. Outstanding = piutang booking yang sudah mulai bayar '
+      + '(belum_dp tidak dihitung sebagai piutang). '
       + DATA_NOTE,
-    inputSchema: {},
-  }, async () => {
+    inputSchema: {
+      group_by: z.preprocess((v) => (v == null ? v : String(v)), z.enum(['month', 'date'])).optional()
+        .describe('Granularitas breakdown keberangkatan: month (default) atau date (per-tanggal)'),
+      horizon_days: zInt(z.number().int().min(1).max(366)).optional()
+        .describe('Batasi ke keberangkatan N hari ke depan, mis. 90 untuk fokus tagihan dekat keberangkatan'),
+    },
+  }, async ({ group_by = 'month', horizon_days }) => {
     const today = jakartaToday();
-    const { data, error } = await supabase
+    let q = supabase
       .from('jamaah')
-      .select('bayar, sisa, tgl_berangkat')
+      // raw_data->bayar_sisa (sub-field saja, bukan seluruh JSONB) dibutuhkan
+      // untuk deteksi shape aggregate-booking di summarizePayments.
+      .select('id_umroh, bayar, sisa, tgl_berangkat, awapi_bayar_sisa:raw_data->bayar_sisa')
       .eq('agent_id', agent.id)
       .gte('tgl_berangkat', today);
+    if (horizon_days) q = q.lte('tgl_berangkat', addDaysISO(today, Number(horizon_days)));
+    const { data, error } = await q;
     if (error) throw new Error(error.message);
-    return toolResult({ as_of: today, ...summarizePayments(data || []), note: DATA_NOTE });
+    return toolResult({
+      as_of: today,
+      ...(horizon_days ? { horizon_days: Number(horizon_days) } : {}),
+      ...summarizePayments(data || [], { groupBy: group_by }),
+      note: DATA_NOTE,
+    });
   });
 
   // ── Data operasional Alhijaz (global — sama untuk semua agent, seperti yang
@@ -497,8 +616,8 @@ function buildAgentMcpServer({ agent, supabase, log }) {
       promo_only: z.boolean().optional(),
       available_only: z.boolean().optional().describe('Hanya paket yang masih ada seat'),
       include_departed: z.boolean().optional().describe('Sertakan keberangkatan yang sudah lewat (default tidak)'),
-      page: z.number().int().min(1).optional(),
-      limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
+      page: zInt(z.number().int().min(1)).optional(),
+      limit: zInt(z.number().int().min(1).max(MAX_LIMIT)).optional(),
     },
   }, async ({ month, search, promo_only, available_only, include_departed, page = 1, limit = 20 }) => {
     if (month && !isRealMonth(month)) return toolError('Bulan tidak valid — pakai format YYYY-MM dengan bulan 01-12');
@@ -507,7 +626,10 @@ function buildAgentMcpServer({ agent, supabase, log }) {
     let q = supabase
       .from('umroh_schedules')
       .select('jadwal_id, jadwal_nama, promo, seat_total, seat_sisa, maskapai, berangkat_tgl, berangkat_jam, pulang_tgl, manasik_tgl, manasik_jam, paket_harga, synced_at')
+      // jadwal_id sebagai tiebreaker — urutan jadwal se-tanggal stabil
+      // antar-request sehingga batas halaman tidak menggeser baris.
       .order('berangkat_tgl', { ascending: true })
+      .order('jadwal_id', { ascending: true })
       .limit(FETCH_CAP);
 
     if (month) {
@@ -598,11 +720,13 @@ function buildAgentMcpServer({ agent, supabase, log }) {
     title: 'Kalender manasik / keberangkatan / kepulangan',
     description: 'Agenda Alhijaz dari kalender internal: manasik, keberangkatan, dan kepulangan per grup — '
       + 'termasuk paket, pesawat, jam, jumlah pax, Tour Leader (TL), staff, dan jam/titik kumpul bila ada. '
-      + 'Untuk tahu siapa TL sebuah keberangkatan, cari event keberangkatan grup tersebut. ' + GLOBAL_NOTE,
+      + 'Untuk tahu siapa TL sebuah keberangkatan, cari event keberangkatan grup tersebut. '
+      + 'PENTING: pax di sini adalah total SELURUH grup operasional (semua agent, global) — BUKAN jumlah jamaah '
+      + 'milik agent ini; untuk itu pakai list_jamaah dengan departure_from/departure_to. ' + GLOBAL_NOTE,
     inputSchema: {
       type: z.enum(['manasik', 'keberangkatan', 'kepulangan']).optional().describe('Default semua tipe'),
       from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('Tanggal mulai, default hari ini'),
-      days: z.number().int().min(1).max(120).optional().describe('Rentang hari ke depan, default 30'),
+      days: zInt(z.number().int().min(1).max(120)).optional().describe('Rentang hari ke depan (batas akhir inklusif), default 30'),
       search: z.string().max(80).optional().describe('Cari di nama paket / nama Tour Leader / nomor grup'),
     },
   }, async ({ type, from, days = 30, search }) => {
@@ -629,7 +753,9 @@ function buildAgentMcpServer({ agent, supabase, log }) {
       tanggal: row.event_date,
       tipe: row.event_type,
       grup: row.group_number || null,
-      paket: row.paket || null,
+      // Event manasik menyimpan paket sebagai "DD/MM/YYYYNAMA" (tanggal
+      // berangkat grup menempel) — pisahkan seperti kalender dashboard.
+      ...cleanCalendarPaket(row.paket),
       pesawat: row.pesawat || null,
       jam: row.jam || null,
       pax: row.pax ?? null,
@@ -690,11 +816,24 @@ export function initMcpServer(app, { supabase, log = console.log, onAuthenticate
     const clientIp = req.headers['x-real-ip']
       || (typeof req.headers['x-forwarded-for'] === 'string' ? req.headers['x-forwarded-for'].split(',')[0].trim() : '')
       || req.ip || 'unknown';
-    if (!ipLimiter(clientIp)) return jsonRpcError(res, 429, -32002, `Rate limit: terlalu banyak request dari IP ini (max ${IP_RATE_LIMIT_PER_MINUTE}/menit)`);
+    if (!ipLimiter(clientIp)) {
+      log(`[MCP] reject 429 per-IP ${clientIp}`);
+      return jsonRpcError(res, 429, -32002, `Rate limit: terlalu banyak request dari IP ini (max ${IP_RATE_LIMIT_PER_MINUTE}/menit)`);
+    }
 
+    // Log setiap penolakan auth/rate-limit (tanpa token mentah — hanya 8 hex
+    // awal hash sebagai korelasi): laporan "asisten AI tidak dapat data" tak
+    // bisa didiagnosis kalau jalur 401/429 diam total di journald.
     const token = parseMcpBearer(req.headers.authorization);
-    if (!token) return jsonRpcError(res, 401, -32001, 'Unauthorized: kirim header Authorization: Bearer alhijaz_mcp_...');
-    if (!rateLimiter(token)) return jsonRpcError(res, 429, -32002, `Rate limit: max ${RATE_LIMIT_PER_MINUTE} request/menit per key`);
+    const keyTag = token ? `key#${hashMcpApiKey(token).slice(0, 8)}` : 'no-token';
+    if (!token) {
+      log(`[MCP] reject 401 missing/malformed bearer ip=${clientIp}`);
+      return jsonRpcError(res, 401, -32001, 'Unauthorized: kirim header Authorization: Bearer alhijaz_mcp_...');
+    }
+    if (!rateLimiter(token)) {
+      log(`[MCP] reject 429 per-key ${keyTag} ip=${clientIp}`);
+      return jsonRpcError(res, 429, -32002, `Rate limit: max ${RATE_LIMIT_PER_MINUTE} request/menit per key`);
+    }
 
     let agent;
     try {
@@ -703,7 +842,10 @@ export function initMcpServer(app, { supabase, log = console.log, onAuthenticate
       log(`[MCP] auth lookup error: ${err.message}`);
       return jsonRpcError(res, 503, -32003, 'Auth lookup failed, coba lagi');
     }
-    if (!agent) return jsonRpcError(res, 401, -32001, 'Unauthorized: API key tidak dikenal atau agent non-aktif');
+    if (!agent) {
+      log(`[MCP] reject 401 unknown/inactive ${keyTag} ip=${clientIp}`);
+      return jsonRpcError(res, 401, -32001, 'Unauthorized: API key tidak dikenal atau agent non-aktif');
+    }
 
     // Usage telemetry (last-used stamp) is owned by the caller — this module
     // stays strictly read-only against the database.

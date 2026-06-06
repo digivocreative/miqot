@@ -13,6 +13,7 @@ import {
   computeKalkulasi,
   summarizeJadwalRow,
   cleanCalendarPerson,
+  cleanCalendarPaket,
   isRealISODate,
   isRealMonth,
   maskPassport,
@@ -128,28 +129,83 @@ test('createRateLimiter enforces a sliding window per key', () => {
 
 test('classifyPaymentStatus mirrors the dashboard buckets', () => {
   assert.equal(classifyPaymentStatus({ bayar: 0, sisa: 33900000 }), 'belum_dp');
-  assert.equal(classifyPaymentStatus({ bayar: null, sisa: 0 }), 'belum_dp');
   assert.equal(classifyPaymentStatus({ bayar: 5000000, sisa: 28900000 }), 'belum_lunas');
   assert.equal(classifyPaymentStatus({ bayar: 33900000, sisa: 0 }), 'lunas');
   assert.equal(classifyPaymentStatus({ bayar: 47800000, sisa: -13900000 }), 'lebih_bayar');
+  // Dashboard semantics (server.js payment_status switch): sisa menentukan
+  // bucket TERLEPAS dari bayar — sisa null/0 = lunas, sisa<0 = lebih_bayar.
+  assert.equal(classifyPaymentStatus({ bayar: 0, sisa: 0 }), 'lunas');
+  assert.equal(classifyPaymentStatus({ bayar: null, sisa: null }), 'lunas');
+  assert.equal(classifyPaymentStatus({ bayar: 0, sisa: -100 }), 'lebih_bayar');
 });
 
 test('summarizePayments aggregates buckets and departure months', () => {
   const summary = summarizePayments([
-    { bayar: 0, sisa: 0, tgl_berangkat: '2026-07-04' },
-    { bayar: 5000000, sisa: 28900000, tgl_berangkat: '2026-07-04' },
-    { bayar: 34900000, sisa: 0, tgl_berangkat: '2026-07-18' },
-    { bayar: 36400000, sisa: 10500000, tgl_berangkat: '2026-09-19' },
-    { bayar: 36400000, sisa: 10500000, tgl_berangkat: '2026-09-19' },
+    { id_umroh: 'AIW1', bayar: 0, sisa: 5000000, tgl_berangkat: '2026-07-04' },
+    { id_umroh: 'AIW2', bayar: 5000000, sisa: 28900000, tgl_berangkat: '2026-07-04' },
+    { id_umroh: 'AIW3', bayar: 34900000, sisa: 0, tgl_berangkat: '2026-07-18' },
+    { id_umroh: 'AIW4', bayar: 36400000, sisa: 10500000, tgl_berangkat: '2026-09-19' },
+    { id_umroh: 'AIW5', bayar: 36400000, sisa: 10500000, tgl_berangkat: '2026-09-19' },
   ]);
 
   assert.equal(summary.total_pax, 5);
   assert.equal(summary.belum_dp, 1);
   assert.equal(summary.belum_lunas, 3);
   assert.equal(summary.lunas, 1);
+  // Outstanding ikut aturan dashboard: hanya booking dengan bayar>0 (belum_dp
+  // AIW1 tidak dihitung), masing-masing booking sekali.
   assert.equal(summary.total_outstanding, 28900000 + 10500000 * 2);
   assert.equal(summary.by_departure_month['2026-07'].pax, 3);
   assert.equal(summary.by_departure_month['2026-09'].outstanding, 21000000);
+});
+
+test('summarizePayments sums per-pax sisa per booking (notifier semantics, AIW0029174)', () => {
+  // Shape per-pax (raw bayar_sisa >= 0/absen): tiap row membawa sisa pax itu
+  // sendiri — outstanding booking = Σ sisa, BUKAN dedupe per id_umroh ala
+  // stats dashboard pra-insiden (yang menampilkan booking 3 pax owing 84,7jt
+  // sebagai 28,3jt — lihat collapsePelunasanBookings di telegram-notifier.js).
+  const summary = summarizePayments([
+    { id_umroh: 'AIW0029174', bayar: 16600000, sisa: 28300000, tgl_berangkat: '2026-07-11' },
+    { id_umroh: 'AIW0029174', bayar: 16800000, sisa: 28100000, tgl_berangkat: '2026-07-11' },
+    { id_umroh: 'AIW0029174', bayar: 16600000, sisa: 28300000, tgl_berangkat: '2026-07-11' },
+    { id_umroh: 'AIW0029001', bayar: 5000000, sisa: 7000000, tgl_berangkat: '2026-07-11' },
+  ]);
+  assert.equal(summary.total_pax, 4);
+  assert.equal(summary.belum_lunas, 4);
+  assert.equal(summary.total_outstanding, 28300000 + 28100000 + 28300000 + 7000000);
+  assert.equal(summary.by_departure_month['2026-07'].outstanding, summary.total_outstanding);
+});
+
+test('summarizePayments falls back to max sisa for aggregate-shape bookings', () => {
+  // Shape aggregate (raw bayar_sisa < 0): `bayar` adalah total booking yang
+  // direplikasi per row dan sisa DB stale — Σ sisa akan menggandakan; pakai
+  // max(sisa) persis fallback konservatif notifier.
+  const summary = summarizePayments([
+    { id_umroh: 'AIW0027949', bayar: 72800000, sisa: 21000000, awapi_bayar_sisa: -39000000, tgl_berangkat: '2026-09-19' },
+    { id_umroh: 'AIW0027949', bayar: 72800000, sisa: 21000000, awapi_bayar_sisa: -39000000, tgl_berangkat: '2026-09-19' },
+  ]);
+  assert.equal(summary.total_outstanding, 21000000); // bukan 42jt
+  assert.equal(summary.by_departure_month['2026-09'].outstanding, 21000000);
+});
+
+test('summarizePayments excludes belum_dp rows from outstanding (pax count only)', () => {
+  const summary = summarizePayments([
+    { id_umroh: 'A', bayar: 0, sisa: 35000000, tgl_berangkat: '2026-08-01' },
+    { id_umroh: 'B', bayar: 5000000, sisa: 1000000, tgl_berangkat: '2026-08-01' },
+  ]);
+  assert.equal(summary.belum_dp, 1);
+  assert.equal(summary.total_outstanding, 1000000);
+});
+
+test('summarizePayments groupBy date keys the breakdown per departure date', () => {
+  const summary = summarizePayments([
+    { id_umroh: 'A', bayar: 1, sisa: 0, tgl_berangkat: '2026-06-13' },
+    { id_umroh: 'B', bayar: 1, sisa: 0, tgl_berangkat: '2026-06-13' },
+    { id_umroh: 'C', bayar: 0, sisa: 100, tgl_berangkat: '2026-06-20' },
+  ], { groupBy: 'date' });
+  assert.equal(summary.by_departure_date['2026-06-13'].pax, 2);
+  assert.equal(summary.by_departure_date['2026-06-20'].belum_dp, 1);
+  assert.equal(summary.by_departure_month, undefined);
 });
 
 // ── birthdays ─────────────────────────────────────────────────────────────────
@@ -252,6 +308,27 @@ test('cleanCalendarPerson strips the bullet prefix and empty markers', () => {
   assert.equal(cleanCalendarPerson(null), null);
 });
 
+test('cleanCalendarPaket splits the legacy manasik date prefix like the dashboard', () => {
+  // Mirror parsePaket di src/components/UpcomingSchedule.tsx — nama paket yang
+  // dilihat asisten AI harus sama dengan yang tampil di kalender dashboard.
+  assert.deepEqual(
+    cleanCalendarPaket('20/06/2026PROMO PLUS DUBAI + TAIF 11HR'),
+    { paket: 'PROMO PLUS DUBAI + TAIF 11HR', grup_berangkat_tgl: '2026-06-20' },
+  );
+  // Tanpa prefix (keberangkatan/kepulangan) lewat apa adanya.
+  assert.deepEqual(
+    cleanCalendarPaket('REGULER MIX PAKET RAHMAH & UHUD 9HR'),
+    { paket: 'REGULER MIX PAKET RAHMAH & UHUD 9HR', grup_berangkat_tgl: null },
+  );
+  // Bulan mustahil → jangan dikira prefix tanggal.
+  assert.deepEqual(
+    cleanCalendarPaket('20/13/2026PAKET ANEH'),
+    { paket: '20/13/2026PAKET ANEH', grup_berangkat_tgl: null },
+  );
+  assert.deepEqual(cleanCalendarPaket(null), { paket: null, grup_berangkat_tgl: null });
+  assert.deepEqual(cleanCalendarPaket(''), { paket: null, grup_berangkat_tgl: null });
+});
+
 // ── source contracts ──────────────────────────────────────────────────────────
 
 test('mcp-server.js is strictly read-only against the database', () => {
@@ -282,7 +359,7 @@ test('/mcp has a per-IP rate limit applied before token resolution', () => {
   const mcp = read('mcp-server.js');
   assert.match(mcp, /IP_RATE_LIMIT_PER_MINUTE/);
   // ipLimiter check must precede parseMcpBearer in the handler.
-  assert.match(mcp, /ipLimiter\(clientIp\)[\s\S]{0,400}parseMcpBearer\(req\.headers\.authorization\)/);
+  assert.match(mcp, /ipLimiter\(clientIp\)[\s\S]{0,800}parseMcpBearer\(req\.headers\.authorization\)/);
   assert.match(mcp, /x-real-ip/);
 });
 
@@ -333,6 +410,57 @@ test('jadwal/kalkulasi/calendar tools are registered against the cache tables', 
   // Detail rows must pass through serializeScheduleRows so CDN bookkeeping
   // fields are stripped and brosur/itinerary URLs are version-stamped.
   assert.match(src, /serializeScheduleRows\(\[row\]\)/);
+});
+
+test('list_jamaah exposes exact departure-date filtering (akar kasus "OpenClaw bilang 0")', () => {
+  const src = read('mcp-server.js');
+  // departure_from/departure_to harus terdaftar di inputSchema dan tervalidasi
+  // sebagai tanggal kalender nyata sebelum menyentuh Postgres.
+  assert.match(src, /departure_from: z\.string\(\)\.regex/);
+  assert.match(src, /departure_to: z\.string\(\)\.regex/);
+  assert.match(src, /if \(departure_from && !isRealISODate\(departure_from\)\) return toolError/);
+  assert.match(src, /if \(departure_to && !isRealISODate\(departure_to\)\) return toolError/);
+  // Search tanpa departure eksplisit mencakup SEMUA jamaah (bukan upcoming
+  // saja) — lookup nama jamaah yang sudah berangkat tidak boleh "0" menyesatkan.
+  assert.match(src, /departure \|\| \(term \? 'all' : 'all_upcoming'\)/);
+});
+
+test('paginated jamaah/jadwal queries have a deterministic tiebreaker order', () => {
+  const src = read('mcp-server.js');
+  // Banyak baris berbagi tanggal yang sama — tanpa secondary sort, paginasi
+  // bisa duplikat/skip baris pada batas halaman antar-request.
+  assert.match(src, /\.order\('tgl_berangkat'[\s\S]{0,120}\.order\('jm_id'/);
+  assert.match(src, /\.order\('berangkat_tgl'[\s\S]{0,160}\.order\('jadwal_id'/);
+});
+
+test('jamaah_birthdays reports the true pre-cap total and a truncation flag', () => {
+  const src = read('mcp-server.js');
+  // total dihitung SEBELUM slice(0, MAX_LIMIT); >50 match harus bersinyal
+  // truncated, bukan terpotong diam-diam.
+  assert.match(src, /total: matched\.length/);
+  assert.match(src, /matched\.slice\(0, MAX_LIMIT\)/);
+  assert.match(src, /matched\.length > rows\.length[\s\S]{0,120}truncated: true/);
+});
+
+test('payment_summary supports per-date breakdown and notifier outstanding semantics', () => {
+  const src = read('mcp-server.js');
+  assert.match(src, /z\.enum\(\['month', 'date'\]\)/);
+  // Deteksi shape aggregate butuh raw bayar_sisa — sub-field saja, bukan
+  // seluruh raw_data (JSONB besar, DB sensitif IO).
+  assert.match(src, /awapi_bayar_sisa:raw_data->bayar_sisa/);
+  assert.doesNotMatch(src, /select\('[^']*raw_data[,)' ]/, 'never select the whole raw_data JSONB');
+  assert.match(src, /rowHasAggregateBayarShape/);
+});
+
+test('auth and rate-limit rejections are logged for diagnosability (no raw token)', () => {
+  const src = read('mcp-server.js');
+  assert.match(src, /reject 429 per-IP/);
+  assert.match(src, /reject 401 missing\/malformed bearer/);
+  assert.match(src, /reject 429 per-key/);
+  assert.match(src, /reject 401 unknown\/inactive/);
+  // Korelasi pakai potongan hash, token mentah tidak pernah masuk log.
+  assert.match(src, /hashMcpApiKey\(token\)\.slice\(0, 8\)/);
+  assert.doesNotMatch(src, /log\(`?\[MCP\][^`]*\$\{token\}/);
 });
 
 test('every MCP jamaah query is scoped to the authenticated agent', () => {
