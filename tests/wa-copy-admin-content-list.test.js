@@ -10,7 +10,8 @@ const source = readFileSync(
 );
 
 test('Konten list groups rows by category instead of repeating category badges inside every card', () => {
-  assert.match(source, /const groups = rows\.reduce<ContentGroup\[\]>/);
+  // `visible` = rows after the search filter (see wa-copy-admin-search.test.js)
+  assert.match(source, /const groups = visible\.reduce<ContentGroup\[\]>/);
   assert.match(source, /\{group\.badge\}/);
   assert.match(source, /group\.rows\.map\(row =>/);
   assert.doesNotMatch(source, /text-\[9px\][\s\S]*\{row\.badge\}/);

@@ -11,7 +11,7 @@ const source = readFileSync(
 
 test('WA Copy FAQ item uses a compact operational card layout', () => {
   assert.match(source, /rounded-2xl border border-gray-100 bg-white shadow-sm/);
-  assert.match(source, /text-sm font-bold leading-5/);
+  assert.match(source, /text-\[13px\] font-semibold leading-snug/);
   assert.doesNotMatch(source, /shadow-\[0_1px_2px_rgba/);
 });
 
@@ -22,7 +22,7 @@ test('WA Copy FAQ item does not render a category badge inside the accordion car
 });
 
 test('WA Copy FAQ answer and actions are visually tighter', () => {
-  assert.match(source, /text-sm leading-6/);
+  assert.match(source, /text-\[13px\] leading-relaxed/);
   assert.match(source, /h-10[\s\S]*\{copied \? 'Tersalin' : 'Salin'\}/);
   assert.doesNotMatch(source, /py-2\.5 rounded-xl/);
 });
