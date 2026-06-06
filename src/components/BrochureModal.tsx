@@ -235,20 +235,20 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption }: B
 
           {/* ─── FIXED FOOTER ─── */}
           {displayUrl && (
-            <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-3">
+            <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2">
               {onCaption && (
                 <button
                   onClick={onCaption}
                   className="
-                    flex-1 flex items-center justify-center gap-2 py-3.5 px-4
-                    rounded-xl font-bold
-                    border-2 border-indigo-500 dark:border-indigo-400
-                    text-indigo-600 dark:text-indigo-300
-                    hover:bg-indigo-50 dark:hover:bg-indigo-900/30
-                    transition-all duration-200 active:scale-[0.98]
+                    flex-1 flex items-center justify-center gap-1.5 py-3
+                    rounded-xl text-sm font-bold
+                    text-indigo-700 dark:text-indigo-400
+                    bg-indigo-50 dark:bg-slate-800
+                    border border-indigo-200 dark:border-indigo-700/70
+                    transition-all duration-200 active:scale-95
                   "
                 >
-                  <Sparkles size={20} />
+                  <Sparkles size={17} />
                   <span>Caption</span>
                 </button>
               )}
@@ -256,26 +256,26 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption }: B
                 onClick={handleShareBrosur}
                 disabled={isSharing}
                 className="
-                  flex-1 flex items-center justify-center gap-2 py-3.5 px-4
-                  rounded-xl font-bold text-white
-                  bg-emerald-600 hover:bg-emerald-700
-                  shadow-lg shadow-emerald-500/20
-                  transition-all duration-200 active:scale-[0.98] disabled:opacity-70
+                  flex-1 flex items-center justify-center gap-1.5 py-3
+                  rounded-xl text-sm font-bold text-white
+                  bg-emerald-500 hover:bg-emerald-600
+                  shadow-md shadow-emerald-500/20
+                  transition-all duration-200 active:scale-95 disabled:opacity-70
                 "
               >
                 {isSharing ? (
                   <>
-                    <Loader2 size={20} className="animate-spin" />
+                    <Loader2 size={17} className="animate-spin" />
                     <span>Memproses...</span>
                   </>
                 ) : useShareLabel ? (
                   <>
-                    <Share2 size={20} />
+                    <Share2 size={17} />
                     <span>{onCaption ? 'Bagikan' : 'Bagikan Brosur'}</span>
                   </>
                 ) : (
                   <>
-                    <Download size={20} />
+                    <Download size={17} />
                     <span>{onCaption ? 'Download' : 'Download Brosur'}</span>
                   </>
                 )}

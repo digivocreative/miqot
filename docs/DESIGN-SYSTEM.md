@@ -836,6 +836,37 @@ Same base as Calendar Detail bottom sheet, plus:
 - Content: `text-[12px] leading-relaxed` with `**bold**` parsed to `<strong>`
 - No refresh button (cron-only generation)
 
+### Caption AI Modal (`CaptionAIModal.tsx`)
+
+Centered dialog (bukan bottom sheet) untuk generate caption WA via `/api/ai-copy`. Dipakai PackageCard (per paket, via footer BrochureModal) dan BrochureSchedulePage (per filter brosur). Aksen fitur: **indigo**.
+
+```
+Container: relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden
+Backdrop: absolute inset-0 bg-black/50 backdrop-blur-sm
+Animation: Framer Motion scale 0.9→1 spring (damping 25, stiffness 300)
+Header: px-4 py-3 border-b — Sparkles 16 indigo-500 + title text-sm font-bold + close w-8 h-8 rounded-lg
+Body: flex-1 overflow-y-auto px-4 py-4
+  - Idle: circle w-12 h-12 bg-indigo-100 (Sparkles 22) + text-sm + CTA indigo (py-3 px-6 rounded-xl text-sm font-bold bg-indigo-600 shadow-md shadow-indigo-500/20 active:scale-95)
+  - Result: box bg-gray-50 dark:bg-slate-900/60 border rounded-xl p-4 text-sm whitespace-pre-line
+Footer (hidden saat idle): px-4 py-3 border-t flex gap-2
+  - Regenerate (icon-only): px-3.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600 (RefreshCw 17, animate-spin saat loading)
+  - Salin: flex-1 py-3 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 (Copy/ClipboardCheck 17)
+  - Kirim WA: flex-1 Primary CTA emerald (WhatsAppIcon 17) → shareCaption() dari wa-copy/utils/waLink
+```
+
+Perilaku: generate manual (idle state, hemat rate limit 15x/2jam per device — key localStorage `ai_copy_timestamps`); caption reset saat `subject` berubah atau payload berubah saat reopen (snapshot JSON); fallback template lokal berlabel jelas saat API gagal.
+
+### Caption Button (entry points)
+
+Secondary button aksen indigo, geometry mengikuti sibling-nya:
+
+```
+BrochureModal footer:  flex-1 py-3 rounded-xl text-sm font-bold text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-slate-800 border border-indigo-200 dark:border-indigo-700/70 (Sparkles 17)
+BrochureSchedulePage:  py-2.5 rounded-lg text-sm font-bold — sama persis dengan sibling Share/Download, varian indigo (Sparkles 17)
+```
+
+Visibilitas: di halaman publik (`/{slug}`) tombol hanya dirender saat `isSessionValid()` (tool agent, bukan untuk jamaah); di dashboard selalu tampil.
+
 ### Calendar Widget (`UpcomingSchedule.tsx`)
 
 Mini calendar grid on Dashboard home:

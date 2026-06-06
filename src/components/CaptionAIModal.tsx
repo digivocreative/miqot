@@ -141,21 +141,21 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-slate-700">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700">
               <div className="flex items-center gap-2">
-                <Sparkles size={18} className="text-indigo-500" />
-                <h2 className="text-base font-bold text-gray-900 dark:text-white">Caption AI</h2>
+                <Sparkles size={16} className="text-indigo-500" />
+                <h2 className="text-sm font-bold text-gray-900 dark:text-white">Caption AI</h2>
               </div>
               <button
                 onClick={onClose}
-                className="p-1.5 bg-gray-100 dark:bg-slate-700 rounded-full text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto px-5 py-4">
+            <div className="flex-1 overflow-y-auto px-4 py-4">
               {loading ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-3">
                   <Loader2 size={32} className="text-indigo-500 animate-spin" />
@@ -177,8 +177,8 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
               ) : !text ? (
                 /* Idle state — generate is manual so opening the modal doesn't burn the rate limit */
                 <div className="flex flex-col items-center justify-center py-10 gap-4 text-center">
-                  <div className="w-14 h-14 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center">
-                    <Sparkles size={26} className="text-indigo-500" />
+                  <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center">
+                    <Sparkles size={22} className="text-indigo-500" />
                   </div>
                   <p className="text-sm text-gray-600 dark:text-slate-300 max-w-[260px]">
                     Buat caption promosi WhatsApp untuk <span className="font-semibold">{subject}</span> — siap dipakai di status atau broadcast.
@@ -187,13 +187,13 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
                     onClick={generate}
                     className="
                       flex items-center justify-center gap-2 py-3 px-6
-                      rounded-xl font-bold text-white
+                      rounded-xl text-sm font-bold text-white
                       bg-indigo-600 hover:bg-indigo-700
-                      shadow-lg shadow-indigo-500/20
-                      transition-all duration-200 active:scale-[0.98]
+                      shadow-md shadow-indigo-500/20
+                      transition-all duration-200 active:scale-95
                     "
                   >
-                    <Sparkles size={18} />
+                    <Sparkles size={16} />
                     <span>Buat Caption</span>
                   </button>
                 </div>
@@ -227,23 +227,24 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
 
             {/* Footer — hidden in idle state (no caption yet) */}
             {(text || loading) && (
-              <div className="px-5 py-4 border-t border-gray-200 dark:border-slate-700 flex gap-3">
+              <div className="px-4 py-3 border-t border-gray-200 dark:border-slate-700 flex gap-2">
                 {/* Buat Ulang Button (icon-only) */}
                 <button
                   onClick={generate}
                   disabled={loading}
                   aria-label="Buat ulang caption"
                   className={`
-                    flex items-center justify-center py-3.5 px-4
-                    rounded-xl font-bold
-                    border-2 border-indigo-500 dark:border-indigo-400
+                    flex items-center justify-center px-3.5
+                    rounded-xl
+                    border border-indigo-200 dark:border-indigo-700/70
                     text-indigo-600 dark:text-indigo-300
-                    hover:bg-indigo-50 dark:hover:bg-indigo-900/30
-                    transition-all duration-200 active:scale-[0.98]
+                    bg-indigo-50 dark:bg-slate-800
+                    hover:bg-indigo-100 dark:hover:bg-indigo-900/30
+                    transition-all duration-200 active:scale-95
                     ${loading ? 'opacity-50 cursor-not-allowed' : ''}
                   `}
                 >
-                  <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+                  <RefreshCw size={17} className={loading ? 'animate-spin' : ''} />
                 </button>
 
                 {/* Salin Teks Button */}
@@ -264,18 +265,18 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
                     setTimeout(() => setCopied(false), 2000);
                   }}
                   className={`
-                    flex-1 flex items-center justify-center gap-2 py-3.5 px-4
-                    rounded-xl font-bold
+                    flex-1 flex items-center justify-center gap-1.5 py-3
+                    rounded-xl text-sm font-bold
                     bg-gray-100 text-gray-700 hover:bg-gray-200
                     dark:bg-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-700
-                    transition-all duration-200 active:scale-[0.98]
+                    transition-all duration-200 active:scale-95
                     ${loading || !text ? 'opacity-50 cursor-not-allowed' : ''}
                   `}
                 >
                   {copied ? (
-                    <><ClipboardCheck size={20} className="text-emerald-500" /><span>Tersalin</span></>
+                    <><ClipboardCheck size={17} className="text-emerald-500" /><span>Tersalin</span></>
                   ) : (
-                    <><Copy size={20} /><span>Salin</span></>
+                    <><Copy size={17} /><span>Salin</span></>
                   )}
                 </button>
 
@@ -284,15 +285,15 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
                   disabled={loading || !text}
                   onClick={() => shareCaption(text)}
                   className={`
-                    flex-1 flex items-center justify-center gap-2 py-3.5 px-4
-                    rounded-xl font-bold text-white
-                    bg-emerald-600 hover:bg-emerald-700
-                    shadow-lg shadow-emerald-500/20
-                    transition-all duration-200 active:scale-[0.98]
+                    flex-1 flex items-center justify-center gap-1.5 py-3
+                    rounded-xl text-sm font-bold text-white
+                    bg-emerald-500 hover:bg-emerald-600
+                    shadow-md shadow-emerald-500/20
+                    transition-all duration-200 active:scale-95
                     ${loading || !text ? 'opacity-50 cursor-not-allowed' : ''}
                   `}
                 >
-                  <WhatsAppIcon size={20} />
+                  <WhatsAppIcon size={17} />
                   <span>Kirim WA</span>
                 </button>
               </div>
