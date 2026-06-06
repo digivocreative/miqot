@@ -894,7 +894,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           <div style={{ order: 1 }} className="empty:hidden">
             <BirthdayWidget onSelectJamaah={setSelectedBirthday} />
           </div>
-          <div style={{ order: 3 }}>
+          <div style={{ order: 2 }}>
             <UpcomingSchedule />
           </div>
           <div style={{ order: 4 }}>
@@ -903,7 +903,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
           {/* ── Kurs Hari Ini Widget ── */}
           {kursData && (
-            <div style={{ order: 2 }} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
+            <div style={{ order: 3 }} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
               {/* Header */}
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
