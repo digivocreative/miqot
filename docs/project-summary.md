@@ -1202,6 +1202,25 @@ Sumber kebenaran paket tetap external API `https://jadwal.alhijaz.co/jadwal/api-
 { "error": "Pesan error" }
 ```
 
+### MCP Endpoint (AI assistant per-agent — hermes/openclaw)
+
+`POST /mcp` — Model Context Protocol, Streamable HTTP **stateless** (module `mcp-server.js`, SDK `@modelcontextprotocol/sdk` v1). Dipakai AI assistant milik masing-masing agent (berjalan di mesin agent sendiri) untuk membaca data jamaah-nya — **read-only by design** (di-enforce test source-grep `tests/mcp-server.test.js`).
+
+- **Auth**: `Authorization: Bearer miqot_mcp_<48 hex>` — kolom `agents.mcp_api_key` (BUKAN JWT; kredensial terpisah, bisa di-revoke tanpa ganggu login web). Semua tool hard-scoped `agent_id` agent pemilik key.
+- **Key management (admin only)**: `POST /api/admin/agents/:slug/mcp-key` (generate/rotate — key dikembalikan sekali di response) · `DELETE /api/admin/agents/:slug/mcp-key` (revoke, langsung efektif).
+- **Rate limit**: 30 request/menit per key (sliding window, in-memory). Pagination cap 50.
+- **Tools**: `list_jamaah` (filter payment_status/departure/search, paginated) · `get_jamaah` (detail per jm_id + anggota booking) · `jamaah_birthdays` (7/30/60/90 hari) · `payment_summary` (agregat bucket + per bulan keberangkatan). Setiap response menyertakan `synced_at` + disclaimer snapshot (data sync, bukan real-time; bayar/sisa booking yang sudah berangkat tidak andal).
+- **Config client (contoh)**:
+```json
+{
+  "miqot": {
+    "url": "https://alhijaz.co/mcp",
+    "headers": { "Authorization": "Bearer miqot_mcp_xxx" }
+  }
+}
+```
+- Migration: `migrations/20260606020000_agents_mcp_api_key.sql`. Catatan self-host: setelah ALTER TABLE, jalankan `NOTIFY pgrst, 'reload schema';` agar PostgREST melihat kolom baru.
+
 ## 8. Environment & Konfigurasi
 
 ### Setup Lokal

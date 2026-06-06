@@ -4272,6 +4272,43 @@ app.put('/api/admin/agents/:slug/reject', authMiddleware, adminOnly, async (req,
 });
 
 // ──────────────────────────────────────────────
+// MCP: read-only Model Context Protocol endpoint (POST /mcp) untuk AI assistant
+// per-agent (hermes). Auth bearer per-agent via agents.mcp_api_key; semua tool
+// ter-scope agent_id. Lihat mcp-server.js.
+// ──────────────────────────────────────────────
+import { initMcpServer, generateMcpApiKey } from './mcp-server.js';
+
+const mcpRuntime = initMcpServer(app, { supabase });
+
+// Generate / rotate MCP API key milik satu agent. Key dikembalikan SEKALI di
+// response ini — kirim ke agent untuk dipasang di config hermes-nya.
+app.post('/api/admin/agents/:slug/mcp-key', authMiddleware, adminOnly, async (req, res) => {
+  const targetAgent = await getAgentBySlug(req.params.slug.toLowerCase());
+  if (!targetAgent) return res.status(404).json({ error: 'Agent not found' });
+  const key = generateMcpApiKey();
+  const { error } = await supabase
+    .from('agents')
+    .update({ mcp_api_key: key, mcp_api_key_created_at: new Date().toISOString() })
+    .eq('id', targetAgent.id);
+  if (error) return res.status(500).json({ error: error.message });
+  mcpRuntime.invalidateKeyCache();
+  res.json({ success: true, key, endpoint: '/mcp' });
+});
+
+// Revoke MCP API key (akses hermes agent tsb langsung mati).
+app.delete('/api/admin/agents/:slug/mcp-key', authMiddleware, adminOnly, async (req, res) => {
+  const targetAgent = await getAgentBySlug(req.params.slug.toLowerCase());
+  if (!targetAgent) return res.status(404).json({ error: 'Agent not found' });
+  const { error } = await supabase
+    .from('agents')
+    .update({ mcp_api_key: null, mcp_api_key_created_at: null })
+    .eq('id', targetAgent.id);
+  if (error) return res.status(500).json({ error: error.message });
+  mcpRuntime.invalidateKeyCache();
+  res.json({ success: true });
+});
+
+// ──────────────────────────────────────────────
 // CAPI: Meta Conversion API routes (Supabase-backed)
 // ──────────────────────────────────────────────
 import crypto from 'crypto';
