@@ -2,7 +2,7 @@
 
 import { Fragment, useState, useRef, useEffect, useMemo, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
-import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, ClipboardCheck, Copy, RefreshCw, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check, Route, ChevronRight } from 'lucide-react';
+import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check, Route, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UmrohPackage, RoomPricing, HotelInfo } from '@/types';
 import { BrochureModal } from './BrochureModal';
@@ -20,9 +20,8 @@ import { getTemperature } from '@/data/temperatureData';
 import { sendCapiEvent } from '@/lib/capi';
 import { trackEvent, trackPublicEvent } from '@/utils/analytics';
 import { getLandingCityName, getPackageJourneySteps } from '@/utils/journey';
-import { isSessionValid, getSessionAuthHeaders } from '@/utils/authUtils';
-import { shareCaption } from './wa-copy/utils/waLink';
-import WhatsAppIcon from './common/WhatsAppIcon';
+import { isSessionValid } from '@/utils/authUtils';
+import { CaptionAIModal } from './CaptionAIModal';
 
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
@@ -141,10 +140,6 @@ export function PackageCard({
   const [selectedGradient, setSelectedGradient] = useState(0);
   const gradientRef = useRef(0);
   const [isAiCopyOpen, setIsAiCopyOpen] = useState(false);
-  const [aiCopied, setAiCopied] = useState(false);
-  const [aiCopyText, setAiCopyText] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
   const [askAIOpen, setAskAIOpen] = useState(false);
   const [brosurError, setBrosurError] = useState(false);
   const [isLinkCopying, setIsLinkCopying] = useState(false);
@@ -172,120 +167,6 @@ export function PackageCard({
     return Object.entries(AGENTS_DATA).find(([, v]) => v === currentAgent)?.[0] || '';
   }, [currentAgent]);
   const fireViewContent = () => { if (agentSlug) sendCapiEvent(agentSlug, 'viewContent'); };
-
-  // AI Copywriting generator with rate limiting (15 per 2 hours per device)
-  const AI_RATE_KEY = 'ai_copy_timestamps';
-  const AI_RATE_LIMIT = 15;
-  const AI_RATE_WINDOW = 2 * 60 * 60 * 1000; // 2 hours in ms
-
-  const generateAiCopy = async () => {
-    // Rate limiting check (skip on localhost)
-    const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    const now = Date.now();
-    let timestamps: number[] = [];
-    try {
-      timestamps = JSON.parse(localStorage.getItem(AI_RATE_KEY) || '[]');
-    } catch { timestamps = []; }
-
-    // Keep only timestamps within the 2-hour window
-    timestamps = timestamps.filter((t) => now - t < AI_RATE_WINDOW);
-
-    if (!isLocal && timestamps.length >= AI_RATE_LIMIT) {
-      const oldestInWindow = Math.min(...timestamps);
-      const resetTime = new Date(oldestInWindow + AI_RATE_WINDOW);
-      const minutesLeft = Math.ceil((resetTime.getTime() - now) / 60000);
-      setAiError(`Limit generate copywriting telah tercapai. Coba lagi dalam ${minutesLeft} menit.`);
-      return;
-    }
-
-    setAiLoading(true);
-    setAiError(null);
-
-    // Local fallback template generator (uses cheapestTier for consistent data)
-    const generateFallbackText = () => {
-      const hotelData = pkg.hotel?.[cheapestTier] as any;
-      const tierPricing = pkg.harga?.[cheapestTier] as any;
-      const depDate = new Date(pkg.keberangkatan?.tgl).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-
-      const prices: string[] = [];
-      if (tierPricing?.Quard) prices.push(`Quad: Rp ${Number(tierPricing.Quard).toLocaleString('id-ID')}`);
-      if (tierPricing?.Triple) prices.push(`Triple: Rp ${Number(tierPricing.Triple).toLocaleString('id-ID')}`);
-      if (tierPricing?.Double) prices.push(`Double: Rp ${Number(tierPricing.Double).toLocaleString('id-ID')}`);
-
-      let text = `Assalamu'alaikum 🙏\n\nTelah dibuka pendaftaran *${pkg.nama}* bersama Alhijaz Indowisata.\n\n🗓 Berangkat: ${depDate}\n✈️ Maskapai: ${pkg.maskapai || '-'}`;
-      if (hotelData?.mekkah_hotel) text += `\n🏨 Hotel Mekkah: ${hotelData.mekkah_hotel}`;
-      if (hotelData?.madinah_hotel) text += `\n🏨 Hotel Madinah: ${hotelData.madinah_hotel}`;
-      if (prices.length > 0) text += `\n💰 Harga: ${prices.join(' | ')}`;
-      text += `\n\n*Sisa ${pkg.seatSisa} seat dari ${pkg.seatTotal}!* Segera amankan kursi Anda.`;
-      if (currentAgent?.name) text += `\n\nInfo & pendaftaran:\n${currentAgent.name}`;
-      if (currentAgent?.website) text += ` - ${currentAgent.website}`;
-      text += `\n\nSemoga Allah memudahkan langkah kita menuju Baitullah. Aamiin 🤲`;
-      return text;
-    };
-
-    try {
-      // Use cheapestTier for consistent hotel/pricing data
-      const hotelData = pkg.hotel?.[cheapestTier] as any;
-      const tierPricing = pkg.harga?.[cheapestTier] as any;
-
-      // Add timeout to prevent hanging fetch
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-      const res = await fetch('/api/ai-copy', {
-        method: 'POST',
-        signal: controller.signal,
-        headers: { 'Content-Type': 'application/json', ...getSessionAuthHeaders() },
-        body: JSON.stringify({
-          packageData: {
-            nama: pkg.nama,
-            maskapai: pkg.maskapai,
-            keberangkatan: {
-              tgl: pkg.keberangkatan?.tgl,
-              kodePenerbangan: pkg.keberangkatan?.kodePenerbangan,
-              rute: pkg.keberangkatan?.rute,
-            },
-            kepulangan: { tgl: pkg.kepulangan?.tgl },
-            seatSisa: pkg.seatSisa,
-            seatTotal: pkg.seatTotal,
-            hotel: {
-              mekkah_hotel: hotelData?.mekkah_hotel,
-              mekkah_bintang: hotelData?.mekkah_bintang,
-              madinah_hotel: hotelData?.madinah_hotel,
-              madinah_bintang: hotelData?.madinah_bintang,
-            },
-            harga: tierPricing ? {
-              Quard: tierPricing.Quard,
-              Triple: tierPricing.Triple,
-              Double: tierPricing.Double,
-            } : null,
-          },
-          agentName: currentAgent?.name || '',
-          agentWebsite: currentAgent?.website || '',
-        }),
-      });
-      clearTimeout(timeoutId);
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.details || errData.error || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      setAiCopyText(data.text || 'Gagal generate teks.');
-
-      // Record successful generation only
-      timestamps.push(now);
-      localStorage.setItem(AI_RATE_KEY, JSON.stringify(timestamps));
-    } catch (err: any) {
-      console.error('AI Copy error:', err);
-      const isTimeout = err.name === 'AbortError';
-      // Show error + provide fallback text (clearly labeled) — don't count toward rate limit
-      setAiError(isTimeout ? 'Koneksi timeout. Silakan coba lagi.' : 'Gagal generate dari AI. Silakan coba lagi atau gunakan template di bawah.');
-      setAiCopyText(generateFallbackText());
-    } finally {
-      setAiLoading(false);
-    }
-  };
 
   // Calculate availability percentage
   const availabilityPercentage = Math.round((pkg.seatSisa / pkg.seatTotal) * 100);
@@ -340,6 +221,62 @@ export function PackageCard({
   // Use the pricing and hotel info from the cheapest tier
   const pricing = pkg.harga[cheapestTier] as RoomPricing;
   const hotelInfo = pkg.hotel[cheapestTier];
+
+  // ── Caption AI (modal logic lives in CaptionAIModal) ──
+  // Both builders use cheapestTier for consistent hotel/pricing data
+  const buildAiCopyPayload = () => {
+    const hotelData = pkg.hotel?.[cheapestTier] as any;
+    const tierPricing = pkg.harga?.[cheapestTier] as any;
+    return {
+      packageData: {
+        nama: pkg.nama,
+        maskapai: pkg.maskapai,
+        keberangkatan: {
+          tgl: pkg.keberangkatan?.tgl,
+          kodePenerbangan: pkg.keberangkatan?.kodePenerbangan,
+          rute: pkg.keberangkatan?.rute,
+        },
+        kepulangan: { tgl: pkg.kepulangan?.tgl },
+        seatSisa: pkg.seatSisa,
+        seatTotal: pkg.seatTotal,
+        hotel: {
+          mekkah_hotel: hotelData?.mekkah_hotel,
+          mekkah_bintang: hotelData?.mekkah_bintang,
+          madinah_hotel: hotelData?.madinah_hotel,
+          madinah_bintang: hotelData?.madinah_bintang,
+        },
+        harga: tierPricing ? {
+          Quard: tierPricing.Quard,
+          Triple: tierPricing.Triple,
+          Double: tierPricing.Double,
+        } : null,
+      },
+      agentName: currentAgent?.name || '',
+      agentWebsite: currentAgent?.website || '',
+    };
+  };
+
+  // Local fallback template when the API call fails
+  const buildAiCopyFallback = () => {
+    const hotelData = pkg.hotel?.[cheapestTier] as any;
+    const tierPricing = pkg.harga?.[cheapestTier] as any;
+    const depDate = new Date(pkg.keberangkatan?.tgl).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    const prices: string[] = [];
+    if (tierPricing?.Quard) prices.push(`Quad: Rp ${Number(tierPricing.Quard).toLocaleString('id-ID')}`);
+    if (tierPricing?.Triple) prices.push(`Triple: Rp ${Number(tierPricing.Triple).toLocaleString('id-ID')}`);
+    if (tierPricing?.Double) prices.push(`Double: Rp ${Number(tierPricing.Double).toLocaleString('id-ID')}`);
+
+    let text = `Assalamu'alaikum 🙏\n\nTelah dibuka pendaftaran *${pkg.nama}* bersama Alhijaz Indowisata.\n\n🗓 Berangkat: ${depDate}\n✈️ Maskapai: ${pkg.maskapai || '-'}`;
+    if (hotelData?.mekkah_hotel) text += `\n🏨 Hotel Mekkah: ${hotelData.mekkah_hotel}`;
+    if (hotelData?.madinah_hotel) text += `\n🏨 Hotel Madinah: ${hotelData.madinah_hotel}`;
+    if (prices.length > 0) text += `\n💰 Harga: ${prices.join(' | ')}`;
+    text += `\n\n*Sisa ${pkg.seatSisa} seat dari ${pkg.seatTotal}!* Segera amankan kursi Anda.`;
+    if (currentAgent?.name) text += `\n\nInfo & pendaftaran:\n${currentAgent.name}`;
+    if (currentAgent?.website) text += ` - ${currentAgent.website}`;
+    text += `\n\nSemoga Allah memudahkan langkah kita menuju Baitullah. Aamiin 🤲`;
+    return text;
+  };
 
   /**
    * Extract extra hotels (Turkey, Cairo, etc.)
@@ -2377,194 +2314,14 @@ _________________________
       )}
 
 
-      {/* AI Copywriting Modal */}
-      {createPortal(
-        <AnimatePresence>
-          {isAiCopyOpen && (
-            <motion.div
-              className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              {/* Backdrop */}
-              <div
-                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-                onClick={() => setIsAiCopyOpen(false)}
-              />
-
-              {/* Modal Content */}
-              <motion.div
-                className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden"
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
-                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              >
-                {/* Header */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-slate-700">
-                  <div className="flex items-center gap-2">
-                    <Sparkles size={18} className="text-indigo-500" />
-                    <h2 className="text-base font-bold text-gray-900 dark:text-white">Caption AI</h2>
-                  </div>
-                  <button
-                    onClick={() => setIsAiCopyOpen(false)}
-                    className="p-1.5 bg-gray-100 dark:bg-slate-700 rounded-full text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-
-                {/* Body */}
-                <div className="flex-1 overflow-y-auto px-5 py-4">
-                  {aiLoading ? (
-                    <div className="flex flex-col items-center justify-center py-12 gap-3">
-                      <Loader2 size={32} className="text-indigo-500 animate-spin" />
-                      <p className="text-sm text-gray-500 dark:text-slate-400 font-medium">Sedang menulis copywriting...</p>
-                    </div>
-                  ) : aiError && !aiCopyText ? (
-                    <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
-                      <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
-                        <X size={24} className="text-red-500" />
-                      </div>
-                      <p className="text-sm text-red-600 dark:text-red-400 font-medium">{aiError}</p>
-                      <button
-                        onClick={generateAiCopy}
-                        className="text-sm text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
-                      >
-                        Coba lagi
-                      </button>
-                    </div>
-                  ) : !aiCopyText ? (
-                    /* Idle state — generate is manual so opening the modal doesn't burn the rate limit */
-                    <div className="flex flex-col items-center justify-center py-10 gap-4 text-center">
-                      <div className="w-14 h-14 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center">
-                        <Sparkles size={26} className="text-indigo-500" />
-                      </div>
-                      <p className="text-sm text-gray-600 dark:text-slate-300 max-w-[260px]">
-                        Buat caption promosi WhatsApp untuk <span className="font-semibold">{pkg.nama}</span> — siap dipakai di status atau broadcast.
-                      </p>
-                      <button
-                        onClick={generateAiCopy}
-                        className="
-                          flex items-center justify-center gap-2 py-3 px-6
-                          rounded-xl font-bold text-white
-                          bg-indigo-600 hover:bg-indigo-700
-                          shadow-lg shadow-indigo-500/20
-                          transition-all duration-200 active:scale-[0.98]
-                        "
-                      >
-                        <Sparkles size={18} />
-                        <span>Buat Caption</span>
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      {/* Error banner with fallback text shown below */}
-                      {aiError && (
-                        <div className="mb-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl flex items-start gap-2">
-                          <span className="text-amber-500 mt-0.5 flex-shrink-0">⚠️</span>
-                          <div className="flex-1">
-                            <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">{aiError}</p>
-                            <button
-                              onClick={generateAiCopy}
-                              disabled={aiLoading}
-                              className="mt-1 text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
-                            >
-                              🔄 Coba Lagi dengan AI
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {aiError && (
-                        <p className="text-[11px] text-gray-400 dark:text-slate-500 mb-2 italic">* Teks di bawah adalah template, bukan hasil AI</p>
-                      )}
-                      <div className="bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-700 rounded-xl p-4 text-sm text-gray-700 dark:text-slate-200 leading-relaxed whitespace-pre-line">
-                        {aiCopyText}
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Footer — hidden in idle state (no caption yet) */}
-                {(aiCopyText || aiLoading) && (
-                  <div className="px-5 py-4 border-t border-gray-200 dark:border-slate-700 flex gap-3">
-                    {/* Buat Ulang Button (icon-only) */}
-                    <button
-                      onClick={generateAiCopy}
-                      disabled={aiLoading}
-                      aria-label="Buat ulang caption"
-                      className={`
-                        flex items-center justify-center py-3.5 px-4
-                        rounded-xl font-bold
-                        border-2 border-indigo-500 dark:border-indigo-400
-                        text-indigo-600 dark:text-indigo-300
-                        hover:bg-indigo-50 dark:hover:bg-indigo-900/30
-                        transition-all duration-200 active:scale-[0.98]
-                        ${aiLoading ? 'opacity-50 cursor-not-allowed' : ''}
-                      `}
-                    >
-                      <RefreshCw size={20} className={aiLoading ? 'animate-spin' : ''} />
-                    </button>
-
-                    {/* Salin Teks Button */}
-                    <button
-                      disabled={aiLoading || !aiCopyText}
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(aiCopyText);
-                        } catch {
-                          const ta = document.createElement('textarea');
-                          ta.value = aiCopyText;
-                          document.body.appendChild(ta);
-                          ta.select();
-                          document.execCommand('copy');
-                          document.body.removeChild(ta);
-                        }
-                        setAiCopied(true);
-                        setTimeout(() => setAiCopied(false), 2000);
-                      }}
-                      className={`
-                        flex-1 flex items-center justify-center gap-2 py-3.5 px-4
-                        rounded-xl font-bold
-                        bg-gray-100 text-gray-700 hover:bg-gray-200
-                        dark:bg-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-700
-                        transition-all duration-200 active:scale-[0.98]
-                        ${aiLoading || !aiCopyText ? 'opacity-50 cursor-not-allowed' : ''}
-                      `}
-                    >
-                      {aiCopied ? (
-                        <><ClipboardCheck size={20} className="text-emerald-500" /><span>Tersalin</span></>
-                      ) : (
-                        <><Copy size={20} /><span>Salin</span></>
-                      )}
-                    </button>
-
-                    {/* Kirim WA Button */}
-                    <button
-                      disabled={aiLoading || !aiCopyText}
-                      onClick={() => shareCaption(aiCopyText)}
-                      className={`
-                        flex-1 flex items-center justify-center gap-2 py-3.5 px-4
-                        rounded-xl font-bold text-white
-                        bg-emerald-600 hover:bg-emerald-700
-                        shadow-lg shadow-emerald-500/20
-                        transition-all duration-200 active:scale-[0.98]
-                        ${aiLoading || !aiCopyText ? 'opacity-50 cursor-not-allowed' : ''}
-                      `}
-                    >
-                      <WhatsAppIcon size={20} />
-                      <span>Kirim WA</span>
-                    </button>
-                  </div>
-                )}
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>,
-        document.body
-      )}
+      {/* Caption AI Modal */}
+      <CaptionAIModal
+        isOpen={isAiCopyOpen}
+        onClose={() => setIsAiCopyOpen(false)}
+        subject={pkg.nama}
+        buildPayload={buildAiCopyPayload}
+        buildFallbackText={buildAiCopyFallback}
+      />
 
       {/* Full Screen Screenshot Preview Overlay */}
       {createPortal(

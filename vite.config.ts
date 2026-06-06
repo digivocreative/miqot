@@ -5,6 +5,8 @@ import { fileURLToPath } from 'url'
 import { execSync } from 'child_process'
 import { VitePWA } from 'vite-plugin-pwa'
 import dotenv from 'dotenv'
+// @ts-expect-error — shared JS module (no types); same prompts as server.js
+import { buildAiCopyPrompts } from './lib/ai-copy-prompt.js'
 
 dotenv.config()
 
@@ -122,50 +124,13 @@ function aiCopyDevPlugin() {
         let body = '';
         for await (const chunk of req) body += chunk;
         const parsed = JSON.parse(body);
-        const pkg = parsed.packageData;
-        const agentName = parsed.agentName || '';
-        const agentWebsite = parsed.agentWebsite || '';
 
-        if (!pkg || !pkg.nama) {
+        const prompts = buildAiCopyPrompts(parsed);
+        if (!prompts) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: 'Missing packageData' }));
+          return res.end(JSON.stringify({ error: 'Missing packageData or monthData' }));
         }
-
-        const hotelData = pkg.hotel || {};
-        const pricing = pkg.harga;
-        let pricingInfo = '';
-        if (pricing) {
-          const prices = [];
-          if (pricing.Quard) prices.push(`Quad: Rp ${Number(pricing.Quard).toLocaleString('id-ID')}`);
-          if (pricing.Triple) prices.push(`Triple: Rp ${Number(pricing.Triple).toLocaleString('id-ID')}`);
-          if (pricing.Double) prices.push(`Double: Rp ${Number(pricing.Double).toLocaleString('id-ID')}`);
-          pricingInfo = prices.join(', ');
-        }
-
-        const systemPrompt = `Kamu adalah copywriter untuk travel umroh Alhijaz Indowisata.
-Tugas kamu menulis caption promosi WhatsApp yang santai, hangat, dan persuasif tapi tetap islami.
-Struktur caption: hook pembuka yang menarik perhatian → info inti paket (tanggal, maskapai, hotel, harga) → sentuhan urgensi sisa seat → ajakan menghubungi agent.
-Gunakan emoji secukupnya. Gunakan format WhatsApp (*bold*, _italic_) secukupnya.
-Tulis dengan gaya ngobrol ke teman — friendly, tidak kaku, tidak terlalu formal.
-Caption harus ringkas dan to the point, mudah dibaca di layar HP (maks 500 karakter).
-Jangan gunakan hashtag. Jangan gunakan markdown selain format WhatsApp.
-Jangan terlalu banyak baris kosong.`;
-
-        const userPrompt = `Buatkan caption promosi WhatsApp untuk paket umroh ini:
-
-Nama Paket: ${pkg.nama}
-Maskapai: ${pkg.maskapai || '-'} (${pkg.keberangkatan?.kodePenerbangan || '-'})
-Rute: ${pkg.keberangkatan?.rute || '-'}
-Tanggal Berangkat: ${pkg.keberangkatan?.tgl || '-'}
-Tanggal Pulang: ${pkg.kepulangan?.tgl || '-'}
-Hotel Mekkah: ${hotelData?.mekkah_hotel || '-'} (${hotelData?.mekkah_bintang || '-'} bintang)
-Hotel Madinah: ${hotelData?.madinah_hotel || '-'} (${hotelData?.madinah_bintang || '-'} bintang)
-Sisa Seat: ${pkg.seatSisa ?? '-'} dari ${pkg.seatTotal ?? '-'}
-Harga: ${pricingInfo || 'Hubungi kami'}
-${agentName ? `\nAgent: ${agentName}` : ''}
-${agentWebsite ? `Website: ${agentWebsite}` : ''}
-
-Buat caption yang membuat orang tertarik untuk segera mendaftar.`;
+        const { systemPrompt, userPrompt } = prompts;
 
         try {
           const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
