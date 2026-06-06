@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Inbox, LayoutGrid, Search } from 'lucide-react';
+import { Inbox, LayoutGrid } from 'lucide-react';
 import { useWaCopyContent } from '../../hooks/useWaCopyContent';
 import { resolveCategoryIcon } from '../../lib/categoryIcons';
 import type { FaqCategory } from '../../lib/types';
 import CategoryChips from '../caption/CategoryChips';
 import FaqAccordionItem from './FaqAccordionItem';
+import SearchBox from './SearchBox';
 
 type FaqFilter = FaqCategory | 'all';
 
@@ -37,16 +38,7 @@ export default function FaqTab({ showToast }: FaqTabProps) {
 
   return (
     <div className="px-4 pt-4 pb-8 space-y-4">
-      <div className="relative bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500" />
-        <input
-          type="text"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder="Cari pertanyaan…"
-          className="h-10 w-full bg-transparent pl-9 pr-3 text-sm outline-none text-gray-800 dark:text-white placeholder:text-gray-400"
-        />
-      </div>
+      <SearchBox value={query} onChange={setQuery} placeholder="Cari pertanyaan…" />
 
       <CategoryChips options={chipOptions} value={resolved} onChange={setActiveCategory} />
 

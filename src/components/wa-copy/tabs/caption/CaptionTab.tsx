@@ -9,6 +9,7 @@ import type { CaptionCategory } from '../../lib/types';
 import CategoryChips from './CategoryChips';
 import CaptionCard from './CaptionCard';
 import PackageSheet from './PackageSheet';
+import SearchBox from '../faq/SearchBox';
 
 interface CaptionTabProps {
   showToast: (msg: string) => void;
@@ -19,6 +20,7 @@ export default function CaptionTab({ showToast }: CaptionTabProps) {
   const agentCtx = useAgentContext();
   const pkg = useSelectedPackage();
   const [activeCategory, setActiveCategory] = useState<CaptionCategory>('');
+  const [query, setQuery] = useState('');
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const categories = [...captionCategories].sort((a, b) => a.order - b.order);
@@ -28,9 +30,18 @@ export default function CaptionTab({ showToast }: CaptionTabProps) {
 
   const activeMeta = categories.find(c => c.value === resolvedCategory) ?? categories[0];
   const labelOf = (value: string) => categories.find(c => c.value === value)?.label ?? value;
-  const visible = captions
-    .filter(c => c.active && c.category === resolvedCategory)
-    .sort((a, b) => a.order - b.order);
+  const catIndex = (value: string) => categories.findIndex(c => c.value === value);
+
+  // Saat mencari, lintasi semua kategori (tidak ada chip "Semua" di tab ini).
+  const q = query.trim().toLowerCase();
+  const visible = q
+    ? captions
+        .filter(c => c.active)
+        .filter(c => c.template.toLowerCase().includes(q) || labelOf(c.category).toLowerCase().includes(q))
+        .sort((a, b) => catIndex(a.category) - catIndex(b.category) || a.order - b.order)
+    : captions
+        .filter(c => c.active && c.category === resolvedCategory)
+        .sort((a, b) => a.order - b.order);
 
   const firstNonEmpty = categories.find(c =>
     captions.some(cap => cap.active && cap.category === c.value),
@@ -59,25 +70,33 @@ export default function CaptionTab({ showToast }: CaptionTabProps) {
         <ChevronDown size={18} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
       </button>
 
-      {/* Category chips + micro-tip */}
-      <CategoryChips
-        options={categories.map(c => ({ value: c.value, label: c.label, icon: resolveCategoryIcon(c.iconName) }))}
-        value={resolvedCategory}
-        onChange={setActiveCategory}
-      />
-      <p className="rounded-xl border border-blue-100 dark:border-blue-800/30 bg-blue-50/70 dark:bg-blue-900/15 p-3 text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-        {activeMeta?.tip}
-      </p>
+      <SearchBox value={query} onChange={setQuery} placeholder="Cari caption…" />
+
+      {/* Category chips + micro-tip (disembunyikan saat mencari — hasil lintas kategori) */}
+      {!q && (
+        <>
+          <CategoryChips
+            options={categories.map(c => ({ value: c.value, label: c.label, icon: resolveCategoryIcon(c.iconName) }))}
+            value={resolvedCategory}
+            onChange={setActiveCategory}
+          />
+          <p className="rounded-xl border border-blue-100 dark:border-blue-800/30 bg-blue-50/70 dark:bg-blue-900/15 p-3 text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+            {activeMeta?.tip}
+          </p>
+        </>
+      )}
 
       {/* List / empty */}
       {visible.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 dark:border-slate-700 bg-white/70 dark:bg-slate-800/60 py-12 px-6 text-center">
           <Inbox size={28} className="text-gray-400 dark:text-slate-500 opacity-40" />
-          <p className="mt-3 text-sm font-bold text-gray-700 dark:text-slate-200">Belum ada caption</p>
-          <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
-            Kategori ini belum punya caption aktif.
+          <p className="mt-3 text-sm font-bold text-gray-700 dark:text-slate-200">
+            {q ? 'Tidak ada caption yang cocok' : 'Belum ada caption'}
           </p>
-          {firstNonEmpty && firstNonEmpty.value !== resolvedCategory && (
+          <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
+            {q ? 'Coba kata kunci lain.' : 'Kategori ini belum punya caption aktif.'}
+          </p>
+          {!q && firstNonEmpty && firstNonEmpty.value !== resolvedCategory && (
             <button
               onClick={() => setActiveCategory(firstNonEmpty.value)}
               className="mt-4 px-4 py-2 rounded-xl bg-emerald-500 text-white text-xs font-bold active:scale-95 transition"
