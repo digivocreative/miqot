@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sparkles, Loader2, Copy, ClipboardCheck, RefreshCw } from 'lucide-react';
+import { X, Sparkles, Copy, ClipboardCheck, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getSessionAuthHeaders } from '@/utils/authUtils';
 import { shareCaption } from './wa-copy/utils/waLink';
@@ -12,6 +12,21 @@ import WhatsAppIcon from './common/WhatsAppIcon';
 const AI_RATE_KEY = 'ai_copy_timestamps';
 const AI_RATE_LIMIT = 15;
 const AI_RATE_WINDOW = 2 * 60 * 60 * 1000; // 2 hours in ms
+
+// Loading status — bergeser tiap 2 detik dan berhenti di pesan terakhir
+const LOADING_STEPS = [
+  'Membaca isi brosur…',
+  'Menyusun 3 gaya caption…',
+  'Memoles kata-kata…',
+];
+
+// Skeleton "caption sedang ditulis" — lebar baris meniru paragraf caption WA
+const SKELETON_WIDTHS = ['w-3/4', 'w-full', 'w-5/6', 'w-2/3', 'w-11/12', 'w-1/2'];
+
+interface CaptionVersion {
+  label: string;
+  text: string;
+}
 
 interface CaptionAIModalProps {
   isOpen: boolean;
@@ -25,21 +40,28 @@ interface CaptionAIModalProps {
 }
 
 /**
- * Caption AI modal — generates a WhatsApp promo caption via /api/ai-copy.
+ * Caption AI modal — generates WhatsApp promo captions via /api/ai-copy.
+ * One generate returns 3 styled versions (Singkat / Storytelling / Promosi)
+ * shown as tabs so the agent can pick the copywriting they prefer.
  * Generate is manual (idle state) so opening the modal doesn't burn the rate limit.
  * Used by PackageCard (per-package) and BrochureSchedulePage (per-month brochure).
  */
 export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFallbackText }: CaptionAIModalProps) {
-  const [text, setText] = useState('');
+  const [versions, setVersions] = useState<CaptionVersion[]>([]);
+  const [activeIdx, setActiveIdx] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  // Payload snapshot behind the current caption — to detect stale data on reopen
+  // Payload snapshot behind the current captions — to detect stale data on reopen
   const lastPayloadRef = useRef<string | null>(null);
 
-  // Subject changed (e.g. brochure filter switched) → stale caption, back to idle
+  const text = versions[activeIdx]?.text ?? '';
+
+  // Subject changed (e.g. brochure filter switched) → stale captions, back to idle
   useEffect(() => {
-    setText('');
+    setVersions([]);
+    setActiveIdx(0);
     setError(null);
     lastPayloadRef.current = null;
   }, [subject]);
@@ -47,14 +69,25 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
   // Reopened after the underlying data changed (e.g. background package refresh
   // updated seats/prices while the label stayed the same) → stale, back to idle
   useEffect(() => {
-    if (!isOpen || !text || !lastPayloadRef.current) return;
+    if (!isOpen || versions.length === 0 || !lastPayloadRef.current) return;
     if (JSON.stringify(buildPayload()) !== lastPayloadRef.current) {
-      setText('');
+      setVersions([]);
+      setActiveIdx(0);
       setError(null);
       lastPayloadRef.current = null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  // Cycle loading status messages while generating, clamped at the last step
+  useEffect(() => {
+    if (!loading) return;
+    setLoadingStep(0);
+    const id = setInterval(() => {
+      setLoadingStep((s) => Math.min(s + 1, LOADING_STEPS.length - 1));
+    }, 2000);
+    return () => clearInterval(id);
+  }, [loading]);
 
   const generate = async () => {
     // Rate limiting check (skip on localhost)
@@ -78,14 +111,15 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
 
     setLoading(true);
     setError(null);
+    setCopied(false);
 
     try {
       const payloadJson = JSON.stringify(buildPayload());
       lastPayloadRef.current = payloadJson;
 
-      // Add timeout to prevent hanging fetch
+      // Add timeout to prevent hanging fetch (3 versions take a bit longer than 1)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
 
       const res = await fetch('/api/ai-copy', {
         method: 'POST',
@@ -100,7 +134,19 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
         throw new Error(errData.details || errData.error || `HTTP ${res.status}`);
       }
       const data = await res.json();
-      setText(data.text || 'Gagal generate teks.');
+      const fresh: CaptionVersion[] = (Array.isArray(data.versions) ? data.versions : [])
+        .filter((v: any) => v && typeof v.text === 'string' && v.text.trim())
+        .map((v: any, i: number) => ({
+          label: typeof v.label === 'string' && v.label.trim() ? v.label : `Versi ${i + 1}`,
+          text: v.text,
+        }));
+      // Backward compat: server lama membalas single-text
+      if (fresh.length === 0 && typeof data.text === 'string' && data.text.trim()) {
+        fresh.push({ label: 'Caption', text: data.text });
+      }
+      if (fresh.length === 0) throw new Error('Empty response');
+      setVersions(fresh);
+      setActiveIdx(0);
 
       // Record successful generation only
       timestamps.push(now);
@@ -110,7 +156,10 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
       const isTimeout = err.name === 'AbortError';
       // Show error + provide fallback text (clearly labeled) — don't count toward rate limit
       setError(isTimeout ? 'Koneksi timeout. Silakan coba lagi.' : 'Gagal generate dari AI. Silakan coba lagi atau gunakan template di bawah.');
-      if (buildFallbackText) setText(buildFallbackText());
+      if (buildFallbackText) {
+        setVersions([{ label: 'Template', text: buildFallbackText() }]);
+        setActiveIdx(0);
+      }
     } finally {
       setLoading(false);
     }
@@ -157,11 +206,56 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-4 py-4">
               {loading ? (
-                <div className="flex flex-col items-center justify-center py-12 gap-3">
-                  <Loader2 size={32} className="text-indigo-500 animate-spin" />
-                  <p className="text-sm text-gray-500 dark:text-slate-400 font-medium">Sedang menulis caption...</p>
+                /* Loading state — sparkle orb + cycling status + shimmering skeleton caption */
+                <div className="flex flex-col items-center justify-center py-4 gap-4">
+                  <div className="relative w-16 h-16">
+                    {/* Pulsing gradient halo */}
+                    <motion.div
+                      className="absolute inset-0 rounded-full bg-gradient-to-tr from-indigo-400 via-purple-400 to-fuchsia-400"
+                      animate={{ scale: [1, 1.3, 1], opacity: [0.25, 0.5, 0.25] }}
+                      transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+                    />
+                    <div className="absolute inset-2 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
+                      <motion.div
+                        animate={{ rotate: [0, 14, -14, 0], scale: [1, 1.12, 1] }}
+                        transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                      >
+                        <Sparkles size={26} className="text-indigo-500" />
+                      </motion.div>
+                    </div>
+                  </div>
+
+                  {/* Cycling status message */}
+                  <AnimatePresence mode="wait">
+                    <motion.p
+                      key={loadingStep}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -5 }}
+                      transition={{ duration: 0.25 }}
+                      className="text-sm text-gray-500 dark:text-slate-400 font-medium"
+                    >
+                      {LOADING_STEPS[loadingStep]}
+                    </motion.p>
+                  </AnimatePresence>
+
+                  {/* Skeleton caption with shimmer sweep */}
+                  <div className="relative w-full overflow-hidden bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-700 rounded-xl p-4">
+                    <div className="space-y-2.5">
+                      {SKELETON_WIDTHS.map((w) => (
+                        <div key={w} className={`h-2.5 rounded-full bg-gray-200/90 dark:bg-slate-700/70 ${w}`} />
+                      ))}
+                    </div>
+                    <motion.div
+                      className="absolute inset-0 pointer-events-none"
+                      animate={{ x: ['-100%', '100%'] }}
+                      transition={{ duration: 1.4, repeat: Infinity, ease: 'linear' }}
+                    >
+                      <div className="h-full w-1/2 bg-gradient-to-r from-transparent via-white/70 dark:via-slate-300/10 to-transparent" />
+                    </motion.div>
+                  </div>
                 </div>
-              ) : error && !text ? (
+              ) : error && versions.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
                   <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
                     <X size={24} className="text-red-500" />
@@ -174,14 +268,14 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
                     Coba lagi
                   </button>
                 </div>
-              ) : !text ? (
+              ) : versions.length === 0 ? (
                 /* Idle state — generate is manual so opening the modal doesn't burn the rate limit */
                 <div className="flex flex-col items-center justify-center py-10 gap-4 text-center">
                   <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center">
                     <Sparkles size={22} className="text-indigo-500" />
                   </div>
-                  <p className="text-sm text-gray-600 dark:text-slate-300 max-w-[260px]">
-                    Buat caption promosi WhatsApp untuk <span className="font-semibold">{subject}</span> — siap dipakai di status atau broadcast.
+                  <p className="text-sm text-gray-600 dark:text-slate-300 max-w-[280px]">
+                    Buat caption promosi WhatsApp untuk <span className="font-semibold">{subject}</span> — AI menyiapkan 3 gaya caption, tinggal pilih yang paling pas.
                   </p>
                   <button
                     onClick={generate}
@@ -218,15 +312,45 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
                   {error && (
                     <p className="text-[11px] text-gray-400 dark:text-slate-500 mb-2 italic">* Teks di bawah adalah template, bukan hasil AI</p>
                   )}
-                  <div className="bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-700 rounded-xl p-4 text-sm text-gray-700 dark:text-slate-200 leading-relaxed whitespace-pre-line">
-                    {text}
-                  </div>
+
+                  {/* Version tabs — segmented control, only when there's a choice */}
+                  {versions.length > 1 && (
+                    <div className="mb-3 bg-gray-100 dark:bg-slate-900/60 rounded-xl p-1 flex gap-1">
+                      {versions.map((v, i) => (
+                        <button
+                          key={`${v.label}-${i}`}
+                          onClick={() => { setActiveIdx(i); setCopied(false); }}
+                          className={`
+                            flex-1 py-2 px-1 rounded-lg text-[11px] transition-all duration-200
+                            ${i === activeIdx
+                              ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 font-semibold shadow-sm'
+                              : 'text-gray-400 dark:text-slate-500 font-medium active:opacity-70'}
+                          `}
+                        >
+                          {v.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.div
+                      key={activeIdx}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.15 }}
+                      className="bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-700 rounded-xl p-4 text-sm text-gray-700 dark:text-slate-200 leading-relaxed whitespace-pre-line"
+                    >
+                      {text}
+                    </motion.div>
+                  </AnimatePresence>
                 </>
               )}
             </div>
 
             {/* Footer — hidden in idle state (no caption yet) */}
-            {(text || loading) && (
+            {(versions.length > 0 || loading) && (
               <div className="px-4 py-3 border-t border-gray-200 dark:border-slate-700 flex gap-2">
                 {/* Buat Ulang Button (icon-only) */}
                 <button

@@ -74,7 +74,7 @@ import {
   shouldReplaceKursCache,
 } from './lib/kurs-mandiri.js';
 import { shouldRunBackgroundJobs, shouldRunJamaahBackgroundSync, shouldRunLegacyBackgroundSync } from './lib/background-jobs.js';
-import { buildAiCopyPrompts } from './lib/ai-copy-prompt.js';
+import { buildAiCopyPrompts, buildAiCopyChatBody, parseAiCopyVersions } from './lib/ai-copy-prompt.js';
 import { parseSyncCooldownMinutes, parseSyncCooldownMs, computeFirstCycleDelayMs } from './lib/sync-schedule.js';
 import { isWeatherRefreshDue, mergeWeatherResults } from './lib/weather-cache.js';
 import { evaluateDbProbe, freshDbHealthState, DEFAULT_DB_HEALTH_CONFIG } from './lib/db-health.js';
@@ -1057,23 +1057,13 @@ app.post('/api/ai-copy', authMiddleware, async (req, res) => {
     if (!prompts) {
       return res.status(400).json({ error: 'Missing packageData or monthData' });
     }
-    const { systemPrompt, userPrompt } = prompts;
-
     const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${OPENAI_KEY}`,
       },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.85,
-        max_tokens: 380,
-      }),
+      body: JSON.stringify(buildAiCopyChatBody(prompts)),
     });
 
     if (!openaiRes.ok) {
@@ -1083,8 +1073,12 @@ app.post('/api/ai-copy', authMiddleware, async (req, res) => {
     }
 
     const result = await openaiRes.json();
-    const generatedText = result.choices?.[0]?.message?.content || '';
-    res.json({ text: generatedText });
+    const versions = parseAiCopyVersions(result.choices?.[0]?.message?.content || '');
+    if (versions.length === 0) {
+      return res.status(502).json({ error: 'OpenAI API error', details: 'Empty or malformed completion' });
+    }
+    // `text` dipertahankan untuk bundle frontend lama yang masih membaca single-text
+    res.json({ versions, text: versions[0].text });
 
   } catch (error) {
     console.error('AI Copy error:', error);

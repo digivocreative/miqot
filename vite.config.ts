@@ -6,7 +6,7 @@ import { execSync } from 'child_process'
 import { VitePWA } from 'vite-plugin-pwa'
 import dotenv from 'dotenv'
 // @ts-expect-error — shared JS module (no types); same prompts as server.js
-import { buildAiCopyPrompts } from './lib/ai-copy-prompt.js'
+import { buildAiCopyPrompts, buildAiCopyChatBody, parseAiCopyVersions } from './lib/ai-copy-prompt.js'
 
 dotenv.config()
 
@@ -130,8 +130,6 @@ function aiCopyDevPlugin() {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({ error: 'Missing packageData or monthData' }));
         }
-        const { systemPrompt, userPrompt } = prompts;
-
         try {
           const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -139,15 +137,7 @@ function aiCopyDevPlugin() {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${OPENAI_KEY}`,
             },
-            body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt },
-              ],
-              temperature: 0.85,
-              max_tokens: 380,
-            }),
+            body: JSON.stringify(buildAiCopyChatBody(prompts)),
           });
 
           if (!openaiRes.ok) {
@@ -158,9 +148,13 @@ function aiCopyDevPlugin() {
           }
 
           const result = await openaiRes.json();
-          const generatedText = result.choices?.[0]?.message?.content || '';
+          const versions = parseAiCopyVersions(result.choices?.[0]?.message?.content || '');
+          if (versions.length === 0) {
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: 'OpenAI API error', details: 'Empty or malformed completion' }));
+          }
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          res.end(JSON.stringify({ text: generatedText }));
+          res.end(JSON.stringify({ versions, text: versions[0].text }));
         } catch (err: any) {
           console.error('AI Copy dev error:', err);
           res.writeHead(500, { 'Content-Type': 'application/json' });
