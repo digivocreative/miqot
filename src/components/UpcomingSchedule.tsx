@@ -91,7 +91,7 @@ function parsePaket(paket: string | null): { name: string; departure: string | n
   if (!m) return { name: paket, departure: null };
   const monthIdx = parseInt(m[2], 10) - 1;
   if (monthIdx < 0 || monthIdx > 11) return { name: paket, departure: null };
-  return { name: m[4].trim(), departure: `${parseInt(m[1], 10)} ${SHORT_MONTHS[monthIdx]}` };
+  return { name: m[4].trim(), departure: `${parseInt(m[1], 10)} ${SHORT_MONTHS[monthIdx]} ${m[3]}` };
 }
 
 
@@ -396,6 +396,8 @@ export default function UpcomingSchedule() {
                   <div className="flex-1 overflow-y-auto">
                     {activeDetails.map((detail, i) => {
                       const paket = parsePaket(detail.paket);
+                      // Data legacy memprefiks nama tour leader dengan "•  " — buang
+                      const tourLeader = (detail.tour_leader || '').replace(/^[•\s]+/, '').trim();
                       return (
                       <div
                         key={i}
@@ -456,10 +458,10 @@ export default function UpcomingSchedule() {
                             </div>
                           )}
                           {/* Tour Leader */}
-                          {detail.tour_leader && detail.tour_leader !== '-' && (
-                            <div className="flex items-center gap-1 text-[10px] text-gray-400 dark:text-slate-500 mt-1">
+                          {tourLeader && tourLeader !== '-' && (
+                            <div className="flex items-center gap-1 text-[10px] text-gray-600 dark:text-slate-300 mt-1">
                               <User size={10} className="shrink-0" />
-                              <span>{detail.tour_leader}</span>
+                              <span>{tourLeader}</span>
                             </div>
                           )}
                         </div>
