@@ -465,17 +465,26 @@ const AWAPI_LUNAS_STATUSES = new Set(['LUNAS', 'LEBIH BAYAR']);
  * forever, so pelunasanReminder kept paging agents about jamaah who had already
  * paid off (false-reminder bug, 2026-06-05).
  *
- * Detect that exact shape — upstream says LUNAS/LEBIH BAYAR and paket_harga is
- * a positive clean divisor of the aggregate bayar — and normalize to the
- * per-pax truth: bayar = paket_harga, sisa = 0. AWAPI records bayar GROSS for
- * lunas rows — diskon is informational and never deducted from bayar (verified
- * in production 2026-06-05: 251/251 single-pax LUNAS rows with diskon > 0 have
- * bayar == paket_harga, none have paket_harga - diskon), so the normalized row
- * matches what AWAPI itself reports once it switches to per-pax lunas values.
- * Anything else (paket_harga missing/<= 0, non-integer ratio — i.e. genuinely
- * corrupt or ambiguous payloads) returns null and stays with the preserve guard.
+ * IMPORTANT (A2/B2 refinement, 2026-06-06): "LEBIH BAYAR" + negative bayar_sisa
+ * is NOT proof of lunas — the same shape appears on PARTIALLY paid multi-pax
+ * bookings the moment the aggregate exceeds one pax's price (AIW0027949: 2 pax,
+ * 72.8jt of 93.8jt paid, AWAPI still says LEBIH BAYAR). The earlier
+ * "aggregate % paket_harga === 0" test had the same hole (k of n pax paying
+ * full hits an exact multiple) and false-negatived mixed-price lunas bookings.
+ * The only sound proof is booking-level: aggregate bayar >= Σ paket_harga over
+ * EVERY pax in the booking — callers must pass that via `booking`
+ * ({ priceTotal, paxCount, priceKnown }, see buildBookingPriceIndex).
+ *
+ * On proof, normalize to the per-pax truth: bayar = paket_harga, sisa = 0.
+ * AWAPI records bayar GROSS for lunas rows — diskon is informational and never
+ * deducted from bayar (verified in production 2026-06-05: 251/251 single-pax
+ * LUNAS rows with diskon > 0 have bayar == paket_harga, none have
+ * paket_harga - diskon), so the normalized row matches what AWAPI itself
+ * reports once it switches to per-pax lunas values. Anything unprovable
+ * (paket_harga missing/<= 0, incomplete price universe, aggregate below the
+ * booking total) returns null and stays with the preserve guard.
  */
-export function resolveAggregateBookingLunasRow(row) {
+export function resolveAggregateBookingLunasRow(row, booking = null) {
   if (!hasSuspiciousAwapiPayment(row)) return null;
 
   const raw = safeRawObject(row?.raw_data);
@@ -484,7 +493,10 @@ export function resolveAggregateBookingLunasRow(row) {
   const hargaPaket = safeBigint(raw.paket_harga) || 0;
   const aggregateBayar = safeBigint(row.bayar) || 0;
   if (hargaPaket <= 0 || aggregateBayar < hargaPaket) return null;
-  if (aggregateBayar % hargaPaket !== 0) return null;
+
+  const bookingPriceTotal = safeBigint(booking?.priceTotal) || 0;
+  if (!booking?.priceKnown || bookingPriceTotal <= 0) return null;
+  if (aggregateBayar < bookingPriceTotal) return null;
 
   return {
     ...row,
@@ -497,10 +509,72 @@ export function resolveAggregateBookingLunasRow(row) {
         awapi_bayar: aggregateBayar,
         awapi_sisa: safeBigint(row.sisa ?? raw.bayar_sisa) || 0,
         paket_harga: hargaPaket,
-        implied_pax: aggregateBayar / hargaPaket,
+        booking_price_total: bookingPriceTotal,
+        booking_pax: booking?.paxCount ?? null,
       },
     },
   };
+}
+
+/**
+ * Build the per-booking price universe resolveAggregateBookingLunasRow needs:
+ * Map<id_umroh, { priceTotal, paxCount, priceKnown }>.
+ *
+ * The pax universe is the union of the sync payload rows and the agent's
+ * existing DB rows for the booking, keyed by jm_id (fallback nama) — single
+ * jamaah refresh payloads carry only one row of a multi-pax booking, and
+ * payload rows cover pax the DB blocked as ghosts. Per-pax price comes from
+ * the row's raw paket_harga (payload preferred, DB fallback); any pax without
+ * a resolvable price marks the booking priceKnown=false so the resolver
+ * leaves it to the guard instead of normalizing on an undercounted total.
+ */
+export function buildBookingPriceIndex(payloadRows, existingRows = []) {
+  const bookings = new Map();
+
+  const paxKey = (row) => {
+    const jmId = String(row?.jm_id || '').trim().toLowerCase();
+    if (jmId) return `jm:${jmId}`;
+    const nama = String(row?.nama || '').trim().toLowerCase();
+    return nama ? `nm:${nama}` : null;
+  };
+
+  const addRow = (row) => {
+    const idUmroh = String(row?.id_umroh || '').trim();
+    if (!idUmroh) return;
+    const key = paxKey(row);
+    if (!key) return;
+
+    let entry = bookings.get(idUmroh);
+    if (!entry) {
+      entry = { prices: new Map() };
+      bookings.set(idUmroh, entry);
+    }
+
+    const raw = safeRawObject(row?.raw_data);
+    const price = safeBigint(raw.paket_harga) || 0;
+    const known = price > 0;
+    const current = entry.prices.get(key);
+    // First resolvable price wins; payload rows are added before DB rows, so a
+    // fresh payload price beats the DB fallback, while a DB price still fills
+    // pax whose payload row (or absence) left the price unknown.
+    if (current && (current.known || !known)) return;
+    entry.prices.set(key, { price, known });
+  };
+
+  for (const row of Array.isArray(payloadRows) ? payloadRows : []) addRow(row);
+  for (const row of Array.isArray(existingRows) ? existingRows : []) addRow(row);
+
+  const index = new Map();
+  for (const [idUmroh, entry] of bookings) {
+    let priceTotal = 0;
+    let priceKnown = true;
+    for (const { price, known } of entry.prices.values()) {
+      if (!known) priceKnown = false;
+      priceTotal += price;
+    }
+    index.set(idUmroh, { priceTotal, paxCount: entry.prices.size, priceKnown });
+  }
+  return index;
 }
 
 export function preserveExistingPaymentForSuspiciousAwapiRow(row, existing) {

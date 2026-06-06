@@ -52,6 +52,7 @@ import {
   preserveExistingPaymentForSuspiciousAwapiRow,
   preserveLegacyUmrohRawData,
   resolveAggregateBookingLunasRow,
+  buildBookingPriceIndex,
   AwapiError,
 } from './awapi-client.js';
 import {
@@ -5704,14 +5705,39 @@ function shouldKeepExistingBayar(existing, nextBayar) {
 async function preserveSuspiciousAwapiPayments(agentId, rows) {
   const incomingRows = Array.isArray(rows) ? rows : [];
 
+  const suspiciousIncoming = incomingRows.filter(hasSuspiciousAwapiPayment);
+  if (suspiciousIncoming.length === 0) {
+    return { rows: incomingRows, guardedCount: 0, normalizedLunasCount: 0, unresolved: [] };
+  }
+
+  // Fetch EVERY existing pax of the suspicious bookings (not just the suspicious
+  // jm_ids): the booking-aware lunas proof below needs the full pax universe with
+  // per-pax prices, and single-jamaah refresh payloads carry only one row of a
+  // multi-pax booking.
+  const bookingIds = [...new Set(suspiciousIncoming.map(r => r.id_umroh).filter(Boolean))];
+  let existingRows = [];
+  if (bookingIds.length > 0) {
+    const { data, error } = await supabase
+      .from('jamaah')
+      .select('id_umroh, jm_id, nama, bayar, sisa, diskon_kantor, diskon_marketing, raw_data')
+      .eq('agent_id', agentId)
+      .in('id_umroh', bookingIds);
+    if (error) throw error;
+    existingRows = data || [];
+  }
+
   // AWAPI reports booking-level aggregate `bayar` on fully-paid multi-pax bookings
   // (per-pax paket_harga → negative bayar_sisa + "LEBIH BAYAR"). That is a lunas
   // signal, not an anomaly — normalize those rows to per-pax lunas BEFORE the
   // suspicious-payment guard, so the guard can no longer freeze stale pre-lunas DP
-  // values forever (false pelunasan-reminder bug, 2026-06-05).
+  // values forever (false pelunasan-reminder bug, 2026-06-05). Lunas is only
+  // proven booking-wide — aggregate bayar must cover Σ paket_harga of every pax
+  // (A2/B2, 2026-06-06): partially-paid multi-pax bookings produce the same
+  // LEBIH BAYAR shape and must stay with the guard, not get written as lunas.
+  const bookingIndex = buildBookingPriceIndex(incomingRows, existingRows);
   let normalizedLunasCount = 0;
   const preparedRows = incomingRows.map((row) => {
-    const resolved = resolveAggregateBookingLunasRow(row);
+    const resolved = resolveAggregateBookingLunasRow(row, bookingIndex.get(String(row?.id_umroh || '').trim()));
     if (!resolved) return row;
     normalizedLunasCount++;
     return resolved;
@@ -5721,20 +5747,6 @@ async function preserveSuspiciousAwapiPayments(agentId, rows) {
   if (suspiciousRows.length === 0) {
     return { rows: preparedRows, guardedCount: 0, normalizedLunasCount, unresolved: [] };
   }
-
-  const bookingIds = [...new Set(suspiciousRows.map(r => r.id_umroh).filter(Boolean))];
-  const jmIds = [...new Set(suspiciousRows.map(r => r.jm_id).filter(Boolean))];
-  if (bookingIds.length === 0 || jmIds.length === 0) {
-    return { rows: preparedRows, guardedCount: 0, normalizedLunasCount, unresolved: suspiciousRows };
-  }
-
-  const { data: existingRows, error } = await supabase
-    .from('jamaah')
-    .select('id_umroh, jm_id, bayar, sisa, diskon_kantor, diskon_marketing, raw_data')
-    .eq('agent_id', agentId)
-    .in('id_umroh', bookingIds)
-    .in('jm_id', jmIds);
-  if (error) throw error;
 
   const existingByKey = new Map();
   for (const existing of existingRows || []) {

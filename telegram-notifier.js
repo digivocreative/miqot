@@ -1247,6 +1247,35 @@ function isUpstreamLunas(row) {
   return Number.isFinite(rawSisa) && rawSisa < 0;
 }
 
+// Negative raw bayar_sisa = the AWAPI aggregate-booking shape: `bayar` is the
+// booking total while paket_harga/bayar_sisa stay per-pax. In that shape the
+// LUNAS/LEBIH BAYAR claim is unreliable (A2, 2026-06-06).
+function hasAggregateBayarShape(row) {
+  const rawSisa = Number(row?.awapi_bayar_sisa);
+  return Number.isFinite(rawSisa) && rawSisa < 0;
+}
+
+// Booking-aware confirmation for aggregate-shape rows: AWAPI reports
+// "LEBIH BAYAR" the moment the booking aggregate exceeds ONE pax's price, so a
+// 2-pax booking with only the DPs paid claims lunas while a real balance is
+// outstanding (AIW0027949, 2026-06-06). Only trust the claim when the
+// aggregate covers Σ paket_harga of every pax. Returns true when the booking
+// is PROVABLY outstanding — unprovable bookings (missing prices, no pax rows)
+// stay suppressed, because false reminders are the original incident.
+function bookingProvenOutstanding(bookingRows) {
+  if (!Array.isArray(bookingRows) || bookingRows.length === 0) return false;
+  let priceTotal = 0;
+  let aggregate = 0;
+  for (const row of bookingRows) {
+    const price = Number(row?.awapi_paket_harga);
+    if (!Number.isFinite(price) || price <= 0) return false;
+    priceTotal += price;
+    const paid = Number(row?.awapi_bayar);
+    if (Number.isFinite(paid) && paid > aggregate) aggregate = paid;
+  }
+  return aggregate < priceTotal;
+}
+
 function collapsePelunasanBookings(rows) {
   const byBooking = new Map();
 
@@ -1355,9 +1384,39 @@ async function pelunasanReminder() {
 
     if (jError) throw jError;
 
-    const outstanding = (jamaahData || []).filter((j) => !isUpstreamLunas(j));
+    // Aggregate-shape lunas claims need booking-level confirmation against the
+    // full pax universe (every row of the booking, not just the window/sisa>0
+    // subset) — fetch prices + aggregate bayar per booking (A2, 2026-06-06).
+    const aggregateClaimIds = [...new Set((jamaahData || [])
+      .filter((j) => isUpstreamLunas(j) && hasAggregateBayarShape(j) && j.id_umroh)
+      .map((j) => j.id_umroh))];
+    const bookingPaxRows = new Map();
+    if (aggregateClaimIds.length > 0) {
+      const { data: paxRows, error: pError } = await supabaseAdmin
+        .from('jamaah')
+        .select('agent_id, id_umroh, awapi_paket_harga:raw_data->>paket_harga, awapi_bayar:raw_data->>bayar')
+        .in('id_umroh', aggregateClaimIds);
+      if (pError) throw pError;
+      for (const pax of paxRows || []) {
+        const key = `${pax.agent_id}:${pax.id_umroh}`;
+        if (!bookingPaxRows.has(key)) bookingPaxRows.set(key, []);
+        bookingPaxRows.get(key).push(pax);
+      }
+    }
+
+    let keptAggregateClaims = 0;
+    const outstanding = (jamaahData || []).filter((j) => {
+      if (!isUpstreamLunas(j)) return true;
+      if (hasAggregateBayarShape(j) && j.id_umroh
+          && bookingProvenOutstanding(bookingPaxRows.get(`${j.agent_id}:${j.id_umroh}`))) {
+        keptAggregateClaims++;
+        return true;
+      }
+      return false;
+    });
     const skippedLunas = (jamaahData?.length || 0) - outstanding.length;
     if (skippedLunas > 0) log(`[pelunasan] Skipped ${skippedLunas} row(s) already lunas upstream (stale sisa)`);
+    if (keptAggregateClaims > 0) log(`[pelunasan] Kept ${keptAggregateClaims} row(s) whose lunas claim failed booking-level proof (aggregate < Σ paket_harga)`);
     if (outstanding.length === 0) { log('[pelunasan] No outstanding payments near H-30 deadline'); return; }
 
     const { data: agents, error: aError } = await supabaseAdmin
@@ -2976,7 +3035,7 @@ async function runBirthdayDigest() {
 
 // ─── Init ────────────────────────────────────────────
 
-export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, pelunasanReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyJamaahSyncEvents, notifyPembayaranMasuk, runBirthdayDigest, isUpstreamLunas };
+export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, pelunasanReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyJamaahSyncEvents, notifyPembayaranMasuk, runBirthdayDigest, isUpstreamLunas, hasAggregateBayarShape, bookingProvenOutstanding };
 
 export function initNotifier() {
   loadConfig();

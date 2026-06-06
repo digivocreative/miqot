@@ -350,3 +350,30 @@ Catatan di atas ("Guard hanya menangani kasus `bayar > 0 && sisa < 0`") kini per
 - **E (anti-bloat)** — `stripPaymentGuardBookkeeping`: keys bookkeeping guard tidak pernah ikut di-embed ke snapshot baru → nesting berhenti di 1 level. Catatan: bloat historis pada row yang business-state-nya tidak berubah TIDAK menyusut otomatis (`raw_data` masuk `VOLATILE_JAMAAH_KEYS`, row di-skip partition) — sisanya ~2,4MB, perlu backfill terpisah jika mau direklamasi.
 
 Keputusan canonical-source di rekomendasi Fase 1 di atas tetap relevan untuk kelas flapping legacy-vs-AWAPI; resolver ini hanya menangani sub-kelas agregat-booking-lunas yang sebelumnya salah dianggap anomali.
+
+---
+
+## Update 2026-06-06 — Refinement A2+B2: bukti lunas harus booking-aware (Σ paket_harga), remediasi D selesai
+
+Verifikasi upstream 5 row NONINT ambigu (endpoint `umrah/{ID}` per booking) membongkar kelemahan fix A+B:
+
+1. **"LEBIH BAYAR" + `bayar_sisa` negatif BUKAN bukti lunas.** Bentuk yang sama muncul pada booking multi-pax yang BARU DIBAYAR SEBAGIAN begitu agregat melewati harga satu pax. Kasus produksi `AIW0027949` (widi): 2 pax × 46,9jt = 93,8jt, baru dibayar 72,8jt (2 × DP 36,4jt) → AWAPI lapor `LEBIH BAYAR` padahal kurang 21jt. Fix A lama akan menahan reminder yang sah.
+2. **Uji `bayar % paket_harga === 0` punya lubang yang sama**: k dari n pax bayar penuh = kelipatan eksak → fix B lama menormalisasi booking yang masih punya tunggakan jadi lunas (audit pasca-deploy: 102 booking ternormalisasi dengan agregat < Σ harga — semuanya keberangkatan LAMPAU, kemungkinan pembatalan sebagian pax; nol dampak reminder/CAPI). Sebaliknya uji modulo juga false-negative untuk booking lunas harga-campuran (kamar double vs quad).
+3. Kasus `AIW0029071` (TEJO SUWARNO, nikita): terverifikasi 1 pax di upstream, bayar 47,8jt ≥ paket 33,9jt → genuinely lunas (lebih bayar). Resolver lama menolak (rasio non-integer); resolver baru menormalisasi.
+
+### Bukti lunas yang benar
+
+`aggregate bayar ≥ Σ paket_harga seluruh pax booking`. Implementasi:
+
+- **B2** — `resolveAggregateBookingLunasRow(row, booking)` kini WAJIB menerima `{ priceTotal, paxCount, priceKnown }` dari `buildBookingPriceIndex(payloadRows, existingRows)`: pax universe = union payload sync + seluruh row DB booking tsb (payload refresh single-jamaah hanya bawa 1 row; row ghost hanya ada di payload). Harga per-pax dari `raw_data.paket_harga` (payload menang atas DB); ada pax tanpa harga → `priceKnown=false` → tetap di-guard. Uji modulo dihapus; `payment_normalized` kini merekam `booking_price_total` + `booking_pax` (bukan `implied_pax`).
+- **A2** — `pelunasanReminder`: klaim lunas berbentuk agregat (`bayar_sisa` raw negatif, `hasAggregateBayarShape`) harus lolos konfirmasi booking-level `bookingProvenOutstanding` (query kedua: seluruh pax booking ybs). Booking yang TERBUKTI outstanding (agregat < Σ harga) tetap dapat reminder; yang tak bisa dibuktikan (harga hilang) tetap di-suppress — false reminder adalah insiden awalnya. Klaim LUNAS per-pax bersih (raw sisa ≥ 0) tetap dipercaya tanpa hitung.
+
+### Remediasi D (selesai 2026-06-06)
+
+Backfill flatten `awapi_refresh_snapshot` nested (max 255 level → 1) via SQL langsung (`jsonb_set` + `- ARRAY[bookkeeping keys]`) pada 1.045 row: `raw_data` korban 5,66MB → 1,1MB. Backup pra-backfill: `data/backups/raw-data-snapshot-bloat-pre-backfill-20260606.tsv.gz`. Trigger `skip_noop_update_jamaah` hanya meng-ignore `synced_at`, jadi update `raw_data`-only tidak di-skip.
+
+### Status residual
+
+- 102 booking lampau ternormalisasi sisa=0 dengan agregat < Σ harga: dibiarkan (sudah berangkat; state pra-normalisasi juga salah karena freeze). Jangan dipakai sebagai data pembayaran andal.
+- `AIW0029071` (TEJO) menormalisasi otomatis pada sync berikutnya dengan B2; `AIW0027949` (widi) tetap guarded dengan sisa per-pax yang ternyata akurat, reminder-nya akan jalan saat masuk window H-35 (~15 Agu 2026).
+- `AIW0025363` (ferra-haji) berangkat Sep 2025 — historis, tidak disentuh.

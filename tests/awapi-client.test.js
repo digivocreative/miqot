@@ -8,6 +8,7 @@ import {
   preserveExistingPaymentForSuspiciousAwapiRow,
   preserveLegacyUmrohRawData,
   resolveAggregateBookingLunasRow,
+  buildBookingPriceIndex,
 } from '../awapi-client.js';
 
 function jakartaYear() {
@@ -351,15 +352,91 @@ test('resolveAggregateBookingLunasRow normalizes booking-level aggregate bayar t
     diskon_marketing: '0',
   }), { agentId: 'agent-id' });
 
-  const resolved = resolveAggregateBookingLunasRow(norm);
+  const resolved = resolveAggregateBookingLunasRow(norm, { priceTotal: 104700000, paxCount: 3, priceKnown: true });
 
   assert.ok(resolved);
   assert.equal(resolved.bayar, 34900000);
   assert.equal(resolved.sisa, 0);
   assert.equal(resolved.raw_data.payment_normalized.reason, 'aggregate_booking_lunas');
   assert.equal(resolved.raw_data.payment_normalized.awapi_bayar, 104700000);
-  assert.equal(resolved.raw_data.payment_normalized.implied_pax, 3);
+  assert.equal(resolved.raw_data.payment_normalized.booking_price_total, 104700000);
+  assert.equal(resolved.raw_data.payment_normalized.booking_pax, 3);
   assert.equal(hasSuspiciousAwapiPayment(resolved), false);
+});
+
+test('resolveAggregateBookingLunasRow normalizes mixed-price lunas bookings the divisor test missed', () => {
+  // 2 pax at different room rates (34.9jt + 36.9jt = 71.8jt), fully paid. The
+  // old "aggregate % paket_harga === 0" test false-negatived this booking;
+  // the Σ paket_harga proof accepts it.
+  const norm = normalizeAwapiRow(rawRow({
+    bayar: '71800000',
+    bayar_sisa: -36900000,
+    bayar_status: 'LEBIH BAYAR',
+    paket_harga: '34900000',
+  }), { agentId: 'agent-id' });
+
+  const resolved = resolveAggregateBookingLunasRow(norm, { priceTotal: 71800000, paxCount: 2, priceKnown: true });
+
+  assert.ok(resolved);
+  assert.equal(resolved.bayar, 34900000);
+  assert.equal(resolved.sisa, 0);
+});
+
+test('resolveAggregateBookingLunasRow normalizes a genuinely overpaid single-pax booking', () => {
+  // Production case AIW0029071 (TEJO SUWARNO, verified upstream 2026-06-06):
+  // 1 pax, paket 33.9jt, paid 47.8jt → LEBIH BAYAR is real, booking is lunas.
+  // The old divisor test left this row frozen on stale DP values forever.
+  const norm = normalizeAwapiRow(rawRow({
+    bayar: '47800000',
+    bayar_sisa: -13900000,
+    bayar_status: 'LEBIH BAYAR',
+    paket_harga: '33900000',
+  }), { agentId: 'agent-id' });
+
+  const resolved = resolveAggregateBookingLunasRow(norm, { priceTotal: 33900000, paxCount: 1, priceKnown: true });
+
+  assert.ok(resolved);
+  assert.equal(resolved.bayar, 33900000);
+  assert.equal(resolved.sisa, 0);
+});
+
+test('resolveAggregateBookingLunasRow refuses partially-paid bookings even on exact multiples', () => {
+  // The closed hole (2026-06-06): 3-pax booking where 2 pax paid full —
+  // aggregate 2×54.5jt is an exact multiple of paket_harga, but the booking
+  // still owes one pax. Normalizing would erase the third pax's reminder.
+  const norm = normalizeAwapiRow(rawRow({
+    bayar: '109000000',
+    bayar_sisa: -54500000,
+    bayar_status: 'LEBIH BAYAR',
+    paket_harga: '54500000',
+  }), { agentId: 'agent-id' });
+
+  assert.equal(resolveAggregateBookingLunasRow(norm, { priceTotal: 163500000, paxCount: 3, priceKnown: true }), null);
+
+  // Production case AIW0027949 (widi, verified upstream 2026-06-06): 2 pax,
+  // 72.8jt of 93.8jt paid — AWAPI claims LEBIH BAYAR, booking is NOT lunas.
+  const widi = normalizeAwapiRow(rawRow({
+    bayar: '72800000',
+    bayar_sisa: -25900000,
+    bayar_status: 'LEBIH BAYAR',
+    paket_harga: '46900000',
+  }), { agentId: 'agent-id' });
+
+  assert.equal(resolveAggregateBookingLunasRow(widi, { priceTotal: 93800000, paxCount: 2, priceKnown: true }), null);
+});
+
+test('resolveAggregateBookingLunasRow requires a complete booking price universe', () => {
+  const norm = normalizeAwapiRow(rawRow({
+    bayar: '104700000',
+    bayar_sisa: -69800000,
+    bayar_status: 'LEBIH BAYAR',
+    paket_harga: '34900000',
+  }), { agentId: 'agent-id' });
+
+  // No booking info at all (caller could not build the index) → stay guarded.
+  assert.equal(resolveAggregateBookingLunasRow(norm), null);
+  // A pax with an unresolvable price → the Σ is an undercount, do not trust it.
+  assert.equal(resolveAggregateBookingLunasRow(norm, { priceTotal: 69800000, paxCount: 3, priceKnown: false }), null);
 });
 
 test('resolveAggregateBookingLunasRow records gross paket_harga as bayar — AWAPI never deducts diskon', () => {
@@ -375,7 +452,7 @@ test('resolveAggregateBookingLunasRow records gross paket_harga as bayar — AWA
     diskon_marketing: '250000',
   }), { agentId: 'agent-id' });
 
-  const resolved = resolveAggregateBookingLunasRow(norm);
+  const resolved = resolveAggregateBookingLunasRow(norm, { priceTotal: 69800000, paxCount: 2, priceKnown: true });
 
   assert.ok(resolved);
   assert.equal(resolved.bayar, 34900000);
@@ -392,7 +469,7 @@ test('resolveAggregateBookingLunasRow records gross paket_harga as bayar — AWA
     diskon_marketing: '0',
   }), { agentId: 'agent-id' });
 
-  const resolvedBig = resolveAggregateBookingLunasRow(bigDiskon);
+  const resolvedBig = resolveAggregateBookingLunasRow(bigDiskon, { priceTotal: 28800000, paxCount: 2, priceKnown: true });
 
   assert.ok(resolvedBig);
   assert.equal(resolvedBig.bayar, 14400000);
@@ -414,7 +491,7 @@ test('resolveAggregateBookingLunasRow strips inherited guard bookkeeping from ra
     preserved_payment_snapshot: { bayar: 10000000, sisa: 24900000 },
   };
 
-  const resolved = resolveAggregateBookingLunasRow(norm);
+  const resolved = resolveAggregateBookingLunasRow(norm, { priceTotal: 104700000, paxCount: 3, priceKnown: true });
 
   assert.ok(resolved);
   assert.equal('payment_guard' in resolved.raw_data, false);
@@ -424,6 +501,8 @@ test('resolveAggregateBookingLunasRow strips inherited guard bookkeeping from ra
 });
 
 test('resolveAggregateBookingLunasRow leaves corrupt and ambiguous payloads to the guard', () => {
+  const booking = { priceTotal: 104700000, paxCount: 3, priceKnown: true };
+
   // paket_harga <= 0 → genuinely corrupt payload, keep guarding.
   const corrupt = normalizeAwapiRow(rawRow({
     bayar: '104700000',
@@ -431,7 +510,7 @@ test('resolveAggregateBookingLunasRow leaves corrupt and ambiguous payloads to t
     bayar_status: 'LEBIH BAYAR',
     paket_harga: '-1000000',
   }), { agentId: 'agent-id' });
-  assert.equal(resolveAggregateBookingLunasRow(corrupt), null);
+  assert.equal(resolveAggregateBookingLunasRow(corrupt, booking), null);
 
   // Missing paket_harga → cannot prove the aggregate shape, keep guarding.
   const missing = normalizeAwapiRow(rawRow({
@@ -439,17 +518,7 @@ test('resolveAggregateBookingLunasRow leaves corrupt and ambiguous payloads to t
     bayar_sisa: -64300000,
     bayar_status: 'LEBIH BAYAR',
   }), { agentId: 'agent-id' });
-  assert.equal(resolveAggregateBookingLunasRow(missing), null);
-
-  // Non-integer bayar/paket_harga ratio → ambiguous (partial payment / mixed
-  // prices / missing pax), keep guarding.
-  const nonInteger = normalizeAwapiRow(rawRow({
-    bayar: '47800000',
-    bayar_sisa: -13900000,
-    bayar_status: 'LEBIH BAYAR',
-    paket_harga: '33900000',
-  }), { agentId: 'agent-id' });
-  assert.equal(resolveAggregateBookingLunasRow(nonInteger), null);
+  assert.equal(resolveAggregateBookingLunasRow(missing, booking), null);
 
   // Not suspicious at all (normal cicilan) → resolver does not touch it.
   const cicilan = normalizeAwapiRow(rawRow({
@@ -457,5 +526,45 @@ test('resolveAggregateBookingLunasRow leaves corrupt and ambiguous payloads to t
     bayar_sisa: 29300000,
     paket_harga: '33900000',
   }), { agentId: 'agent-id' });
-  assert.equal(resolveAggregateBookingLunasRow(cicilan), null);
+  assert.equal(resolveAggregateBookingLunasRow(cicilan, { priceTotal: 33900000, paxCount: 1, priceKnown: true }), null);
+});
+
+test('buildBookingPriceIndex unions payload and DB pax with payload prices winning', () => {
+  const payload = [
+    { id_umroh: 'AIW1', jm_id: 'JM1', raw_data: { paket_harga: '34900000' } },
+    { id_umroh: 'AIW1', jm_id: 'JM2', raw_data: {} }, // price missing in payload
+    { id_umroh: 'AIW2', jm_id: 'JM9', raw_data: { paket_harga: '46900000' } },
+  ];
+  const existing = [
+    // Same pax as payload JM1, stale DB price — payload must win.
+    { id_umroh: 'AIW1', jm_id: 'JM1', raw_data: { paket_harga: '30000000' } },
+    // Fills the payload row whose price was missing.
+    { id_umroh: 'AIW1', jm_id: 'JM2', raw_data: { paket_harga: '36900000' } },
+    // Pax only known to the DB (single-jamaah refresh payload).
+    { id_umroh: 'AIW1', jm_id: 'JM3', raw_data: { paket_harga: '34900000' } },
+  ];
+
+  const index = buildBookingPriceIndex(payload, existing);
+
+  assert.deepEqual(index.get('AIW1'), { priceTotal: 106700000, paxCount: 3, priceKnown: true });
+  assert.deepEqual(index.get('AIW2'), { priceTotal: 46900000, paxCount: 1, priceKnown: true });
+});
+
+test('buildBookingPriceIndex marks bookings with unresolvable pax prices as not priceKnown', () => {
+  const payload = [
+    { id_umroh: 'AIW1', jm_id: 'JM1', raw_data: { paket_harga: '34900000' } },
+    { id_umroh: 'AIW1', jm_id: 'JM2', raw_data: {} },
+  ];
+
+  const index = buildBookingPriceIndex(payload, []);
+
+  assert.equal(index.get('AIW1').priceKnown, false);
+  assert.equal(index.get('AIW1').paxCount, 2);
+
+  // Pax without jm_id falls back to nama so ghost rows still count.
+  const ghost = buildBookingPriceIndex([
+    { id_umroh: 'AIW3', jm_id: '', nama: 'FULAN', raw_data: { paket_harga: '34900000' } },
+    { id_umroh: 'AIW3', jm_id: 'JM5', raw_data: { paket_harga: '34900000' } },
+  ], []);
+  assert.deepEqual(ghost.get('AIW3'), { priceTotal: 69800000, paxCount: 2, priceKnown: true });
 });

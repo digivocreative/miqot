@@ -6,6 +6,7 @@ dist
 functions/umroh-landing.mjs
 data/*.json
 data/kurs-share-cache/
+data/backups/
 exports/
 .superpowers/
 
