@@ -13,6 +13,10 @@ const TOOL_DOCS: { name: string; desc: string }[] = [
   { name: 'get_jamaah', desc: 'Detail satu jamaah + anggota lain dalam booking yang sama' },
   { name: 'jamaah_birthdays', desc: 'Jamaah yang berulang tahun 7–90 hari ke depan' },
   { name: 'payment_summary', desc: 'Ringkasan pembayaran: total outstanding & breakdown per bulan keberangkatan' },
+  { name: 'list_jadwal_paket', desc: 'Jadwal paket umroh: tanggal, durasi, maskapai, sisa seat, harga mulai, manasik' },
+  { name: 'get_jadwal_paket', desc: 'Detail paket: harga per tier & kamar, hotel, penerbangan, link brosur & itinerary' },
+  { name: 'kalkulasi_harga', desc: 'Hitung total harga paket (kamar, anak tanpa kasur, infant, diskon) — sama dengan tool Kalkulasi' },
+  { name: 'calendar_events', desc: 'Kalender manasik / keberangkatan / kepulangan per grup — termasuk Tour Leader & titik kumpul' },
 ];
 
 function formatTanggal(iso: string | null): string {

@@ -9,6 +9,9 @@ import {
   classifyPaymentStatus,
   summarizePayments,
   daysUntilNextBirthday,
+  computeKalkulasi,
+  summarizeJadwalRow,
+  cleanCalendarPerson,
 } from '../mcp-server.js';
 
 const root = new URL('..', import.meta.url);
@@ -99,6 +102,95 @@ test('daysUntilNextBirthday handles wrap-around and bad input', () => {
   assert.equal(daysUntilNextBirthday('not-a-date', '2026-06-06'), null);
 });
 
+// ── kalkulasi harga (must mirror src/components/KalkulasiPage.tsx summary) ───
+
+const PAKET_UHUD_RAHMAH = {
+  jadwal_id: 'JBU1484',
+  jadwal_nama: 'REGULER MIX PAKET RAHMAH & UHUD 9HR (KERETA CEPAT)',
+  promo: '0',
+  paket_harga: {
+    UHUD: { Quard: '33900000', Triple: '35900000', Double: '38900000', Single: '0', Infant: '9000000' },
+    RAHMAH: { Quard: '46900000', Triple: '48900000', Double: '51900000', Single: '0', Infant: '' },
+  },
+};
+
+test('computeKalkulasi prices rooms per pax and applies per-pax discount excluding infant', () => {
+  const r = computeKalkulasi(PAKET_UHUD_RAHMAH, {
+    tier: 'UHUD',
+    kamar_quad: 2,
+    kamar_triple: 1,
+    infant: 1,
+    diskon_per_pax: 500000,
+  });
+
+  assert.equal(r.tier_dipakai, 'UHUD');
+  assert.equal(r.subtotal, 2 * 33900000 + 35900000 + 9000000);
+  // 3 pax (rooms) — infant excluded from the per-pax discount
+  assert.equal(r.diskon, 3 * 500000);
+  assert.equal(r.grand_total, r.subtotal - r.diskon);
+  assert.equal(r.total_pax, 4);
+});
+
+test('computeKalkulasi anak-tanpa-kasur discount follows tier/package type', () => {
+  // RAHMAH tier → 5.5jt off the quad price
+  const rahmah = computeKalkulasi(PAKET_UHUD_RAHMAH, { tier: 'rahmah', kamar_quad: 2, anak_tanpa_kasur: 1 });
+  assert.equal(rahmah.tier_dipakai, 'RAHMAH'); // case-insensitive tier match
+  const rahmahAnak = rahmah.items.find((i) => i.label === 'Anak (tanpa Kasur)');
+  assert.equal(rahmahAnak.harga_satuan, 46900000 - 5500000);
+
+  // PROMO package (promo flag) → 3jt
+  const promo = computeKalkulasi({ ...PAKET_UHUD_RAHMAH, promo: '1' }, { tier: 'UHUD', kamar_quad: 1, anak_tanpa_kasur: 1 });
+  assert.equal(promo.items.find((i) => i.label === 'Anak (tanpa Kasur)').harga_satuan, 33900000 - 3000000);
+
+  // Plain package → 3.5jt
+  const normal = computeKalkulasi(PAKET_UHUD_RAHMAH, { tier: 'UHUD', kamar_quad: 1, anak_tanpa_kasur: 1 });
+  assert.equal(normal.items.find((i) => i.label === 'Anak (tanpa Kasur)').harga_satuan, 33900000 - 3500000);
+});
+
+test('computeKalkulasi falls back to 8.5jt infant price and clamps grand total at 0', () => {
+  // RAHMAH tier has empty Infant price → fallback 8.5jt
+  const r = computeKalkulasi(PAKET_UHUD_RAHMAH, { tier: 'RAHMAH', infant: 1 });
+  assert.equal(r.items[0].harga_satuan, 8500000);
+
+  const clamped = computeKalkulasi(PAKET_UHUD_RAHMAH, { tier: 'UHUD', kamar_quad: 1, diskon_flat: 999999999 });
+  assert.equal(clamped.grand_total, 0);
+});
+
+test('computeKalkulasi rejects empty selections and rooms the package does not sell', () => {
+  // Single price is 0 → a single-room request produces no items
+  assert.ok(computeKalkulasi(PAKET_UHUD_RAHMAH, { tier: 'UHUD', kamar_single: 2 }).error);
+  assert.ok(computeKalkulasi(PAKET_UHUD_RAHMAH, {}).error);
+  assert.ok(computeKalkulasi({ jadwal_nama: 'X', paket_harga: null }, { kamar_quad: 1 }).error);
+});
+
+// ── jadwal & calendar helpers ─────────────────────────────────────────────────
+
+test('summarizeJadwalRow derives duration, sold-out flag, and cheapest tier', () => {
+  const row = summarizeJadwalRow({
+    jadwal_id: 'JBU1484',
+    jadwal_nama: 'PLUS TURKEY 15HR (KERETA CEPAT)',
+    promo: '1',
+    seat_total: '45',
+    seat_sisa: '0',
+    berangkat_tgl: '2026-07-18',
+    pulang_tgl: '2026-07-26', // date math says 9 — the 15HR in the name must win
+    paket_harga: PAKET_UHUD_RAHMAH.paket_harga,
+  });
+
+  assert.equal(row.durasi_hari, 15);
+  assert.equal(row.sold_out, true);
+  assert.equal(row.promo, true);
+  assert.equal(row.harga_mulai, 33900000);
+  assert.equal(row.tier_termurah, 'UHUD');
+});
+
+test('cleanCalendarPerson strips the bullet prefix and empty markers', () => {
+  assert.equal(cleanCalendarPerson('•  YULITA ACHMAD RAMLI ARIEF'), 'YULITA ACHMAD RAMLI ARIEF');
+  assert.equal(cleanCalendarPerson('-'), null);
+  assert.equal(cleanCalendarPerson(''), null);
+  assert.equal(cleanCalendarPerson(null), null);
+});
+
 // ── source contracts ──────────────────────────────────────────────────────────
 
 test('mcp-server.js is strictly read-only against the database', () => {
@@ -110,6 +202,20 @@ test('mcp-server.js is strictly read-only against the database', () => {
   // route) is fine and must not trip this.
   assert.doesNotMatch(src, /\.delete\(\)/);
   assert.doesNotMatch(src, /\.rpc\(/);
+});
+
+test('jadwal/kalkulasi/calendar tools are registered against the cache tables', () => {
+  const src = read('mcp-server.js');
+  for (const tool of ['list_jadwal_paket', 'get_jadwal_paket', 'kalkulasi_harga', 'calendar_events']) {
+    assert.match(src, new RegExp(`register\\('${tool}'`), `${tool} must be registered`);
+  }
+  // Read from the local cache tables, never the upstream Alhijaz API.
+  assert.match(src, /\.from\('umroh_schedules'\)/);
+  assert.match(src, /\.from\('calendar_events'\)/);
+  assert.doesNotMatch(src, /awapiFetch/);
+  // Detail rows must pass through serializeScheduleRows so CDN bookkeeping
+  // fields are stripped and brosur/itinerary URLs are version-stamped.
+  assert.match(src, /serializeScheduleRows\(\[row\]\)/);
 });
 
 test('every MCP jamaah query is scoped to the authenticated agent', () => {

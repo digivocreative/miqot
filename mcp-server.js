@@ -17,6 +17,12 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { serializeScheduleRows, hasValidPricing } from './lib/umroh-schedules.js';
+import {
+  pickBrochurePackageDetails,
+  extractDurationFromName,
+  countBrochureTripDays,
+} from './lib/brochure-schedule.js';
 
 const KEY_PREFIX = 'miqot_mcp_';
 const KEY_HEX_LEN = 48; // 24 random bytes
@@ -96,6 +102,149 @@ function sanitizeSearchTerm(value) {
   return String(value || '').replace(/[,()%\\]/g, ' ').trim().slice(0, 80);
 }
 
+// ── Kalkulasi harga paket — replicates the KalkulasiPage summary formula
+// (src/components/KalkulasiPage.tsx ~922-966) so the MCP answer matches what
+// the agent sees on the dashboard. Room counts are PAX counts per room type
+// (each pax pays that room type's per-person rate).
+const KALKULASI_INFANT_FALLBACK = 8_500_000;
+const ANAK_TANPA_KASUR_DISC_NORMAL = 3_500_000;
+const ANAK_TANPA_KASUR_DISC_PROMO = 3_000_000;
+const ANAK_TANPA_KASUR_DISC_RAHMAH = 5_500_000;
+
+const toCount = (v) => {
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : 0;
+};
+
+export function computeKalkulasi(paket, input = {}) {
+  const paketHarga = paket?.paket_harga && typeof paket.paket_harga === 'object' ? paket.paket_harga : {};
+  const tierKeys = Object.keys(paketHarga);
+  if (tierKeys.length === 0) return { error: 'Paket tidak punya data harga' };
+
+  // Case-insensitive tier match; default to the first tier like the dashboard.
+  const requested = String(input.tier || '').trim().toUpperCase();
+  const tierKey = tierKeys.find((k) => k.toUpperCase() === requested) || tierKeys[0];
+  const tier = paketHarga[tierKey] || {};
+
+  const prices = {
+    quad: parseInt(tier.Quard || '0', 10) || 0,
+    triple: parseInt(tier.Triple || '0', 10) || 0,
+    double: parseInt(tier.Double || '0', 10) || 0,
+    single: parseInt(tier.Single || '0', 10) || 0,
+    infant: parseInt(tier.Infant || '0', 10) || KALKULASI_INFANT_FALLBACK,
+  };
+
+  const rooms = {
+    quad: toCount(input.kamar_quad),
+    triple: toCount(input.kamar_triple),
+    double: toCount(input.kamar_double),
+    single: toCount(input.kamar_single),
+  };
+  const anakTanpaKasur = toCount(input.anak_tanpa_kasur);
+  const infant = toCount(input.infant);
+
+  const items = [];
+  const pushRoom = (label, qty, unitPrice) => {
+    if (qty > 0 && unitPrice > 0) items.push({ label, qty, harga_satuan: unitPrice, total: qty * unitPrice });
+  };
+  pushRoom('Dewasa Quad Room', rooms.quad, prices.quad);
+  pushRoom('Dewasa Triple Room', rooms.triple, prices.triple);
+  pushRoom('Dewasa Double Room', rooms.double, prices.double);
+  pushRoom('Dewasa Single Room', rooms.single, prices.single);
+
+  if (anakTanpaKasur > 0 && prices.quad > 0) {
+    const pkgName = String(paket?.jadwal_nama || '').toUpperCase();
+    const activeTier = tierKey.toUpperCase();
+    const isRahmah = activeTier.includes('RAHMAH') || (!activeTier && pkgName.includes('RAHMAH'));
+    const isPromo = String(paket?.promo || '') === '1' || pkgName.includes('PROMO');
+    const disc = isRahmah
+      ? ANAK_TANPA_KASUR_DISC_RAHMAH
+      : isPromo
+        ? ANAK_TANPA_KASUR_DISC_PROMO
+        : ANAK_TANPA_KASUR_DISC_NORMAL;
+    const anakPrice = Math.max(0, prices.quad - disc);
+    items.push({
+      label: 'Anak (tanpa Kasur)',
+      qty: anakTanpaKasur,
+      harga_satuan: anakPrice,
+      total: anakTanpaKasur * anakPrice,
+      catatan: `harga quad ${prices.quad.toLocaleString('id-ID')} - diskon anak ${disc.toLocaleString('id-ID')}`,
+    });
+  }
+  if (infant > 0) {
+    items.push({ label: 'Infant (0-23 bln)', qty: infant, harga_satuan: prices.infant, total: infant * prices.infant });
+  }
+
+  if (items.length === 0) {
+    return { error: 'Tidak ada item — isi minimal satu jumlah kamar/anak/infant (atau tipe kamar tsb tidak tersedia di paket ini)' };
+  }
+
+  const subtotal = items.reduce((sum, i) => sum + i.total, 0);
+  // Per-pax discount counts room pax + anak tanpa kasur; infant excluded —
+  // same as the dashboard (totalJamaah = dewasa + balitaKasur + balitaTanpaKasur).
+  const totalPaxDiskon = rooms.quad + rooms.triple + rooms.double + rooms.single + anakTanpaKasur;
+  const diskonPerPax = Math.max(0, Number(input.diskon_per_pax) || 0);
+  const diskonFlat = Math.max(0, Number(input.diskon_flat) || 0);
+  const diskon = diskonPerPax * totalPaxDiskon + diskonFlat;
+  const grandTotal = Math.max(0, subtotal - diskon);
+
+  return {
+    paket: paket?.jadwal_nama || null,
+    jadwal_id: paket?.jadwal_id || null,
+    tier_dipakai: tierKey,
+    tier_tersedia: tierKeys,
+    items,
+    subtotal,
+    diskon,
+    grand_total: grandTotal,
+    total_pax: totalPaxDiskon + infant,
+  };
+}
+
+// Compact list row for jadwal tools — full pricing/hotel/URLs live in
+// get_jadwal_paket to keep list responses small.
+export function summarizeJadwalRow(row) {
+  const seatSisa = Number.parseInt(row?.seat_sisa, 10);
+  const cheapest = pickBrochurePackageDetails(row?.paket_harga, null);
+  return {
+    jadwal_id: row?.jadwal_id,
+    nama: row?.jadwal_nama,
+    promo: String(row?.promo || '') === '1',
+    berangkat_tgl: row?.berangkat_tgl,
+    berangkat_jam: row?.berangkat_jam || null,
+    pulang_tgl: row?.pulang_tgl,
+    durasi_hari: extractDurationFromName(row?.jadwal_nama)
+      ?? countBrochureTripDays(row?.berangkat_tgl, row?.pulang_tgl),
+    maskapai: row?.maskapai || null,
+    seat_total: Number.parseInt(row?.seat_total, 10) || null,
+    seat_sisa: Number.isFinite(seatSisa) ? seatSisa : null,
+    sold_out: Number.isFinite(seatSisa) && seatSisa <= 0,
+    harga_mulai: cheapest?.harga ?? null,
+    tier_termurah: cheapest?.tier ?? null,
+    manasik_tgl: row?.manasik_tgl || null,
+    manasik_jam: row?.manasik_jam || null,
+  };
+}
+
+// calendar_events stores people as "•  NAMA" and empty values as "-".
+export function cleanCalendarPerson(value) {
+  const cleaned = String(value || '').replace(/^[•\s]+/, '').trim();
+  return cleaned && cleaned !== '-' ? cleaned : null;
+}
+
+// Newest sync wins when the same jadwal_id exists under several year codes.
+function dedupeJadwalRows(rows) {
+  const byId = new Map();
+  for (const row of rows || []) {
+    if (!row?.jadwal_id) continue;
+    const current = byId.get(row.jadwal_id);
+    if (!current || String(row.synced_at || '') > String(current.synced_at || '')) {
+      byId.set(row.jadwal_id, row);
+    }
+  }
+  return [...byId.values()];
+}
+
 function jakartaToday() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
 }
@@ -124,6 +273,14 @@ export function daysUntilNextBirthday(tglLahir, todayStr) {
 
 const DATA_NOTE = 'Data adalah snapshot hasil sync dari sistem Alhijaz (lihat synced_at per baris), bukan real-time. '
   + 'Field bayar/sisa untuk booking yang SUDAH BERANGKAT bisa tidak akurat (data historis upstream) — jangan dipakai untuk tagihan.';
+
+const GLOBAL_NOTE = 'Data operasional global Alhijaz (sama untuk semua agent), snapshot hasil sync berkala — bukan real-time.';
+
+// 'YYYY-MM' → ISO date of the first day of the FOLLOWING month (exclusive upper bound).
+function nextMonthISO(month) {
+  const [y, m] = String(month).split('-').map(Number);
+  return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+}
 
 const LIST_FIELDS = 'id_umroh, jm_id, nama, jk, wa, paket, bayar, sisa, tgl_berangkat, tgl_daftar, notes, synced_at';
 const DETAIL_FIELDS = `${LIST_FIELDS}, tgl_lahir, no_paspor, paspor_expired, perlengkapan, dokumen, diskon_kantor, diskon_marketing, hijriah_year`;
@@ -276,6 +433,159 @@ function buildAgentMcpServer({ agent, supabase, log }) {
       .gte('tgl_berangkat', today);
     if (error) throw new Error(error.message);
     return toolResult({ as_of: today, ...summarizePayments(data || []), note: DATA_NOTE });
+  });
+
+  // ── Data operasional Alhijaz (global — sama untuk semua agent, seperti yang
+  // tampil di dashboard & landing page publik) ──
+
+  register('list_jadwal_paket', {
+    title: 'Jadwal paket umroh',
+    description: 'Daftar jadwal paket umroh Alhijaz (data global, bukan per-agent): tanggal berangkat/pulang, '
+      + 'durasi, maskapai, sisa seat / sold out, harga mulai (tier termurah), jadwal manasik. '
+      + 'Gunakan get_jadwal_paket untuk harga lengkap per tipe kamar, hotel, link brosur & itinerary. '
+      + GLOBAL_NOTE,
+    inputSchema: {
+      month: z.string().regex(/^\d{4}-\d{2}$/).optional().describe('Filter bulan keberangkatan, format YYYY-MM'),
+      search: z.string().max(80).optional().describe('Cari di nama paket, mis. "TURKEY" atau "PROMO"'),
+      promo_only: z.boolean().optional(),
+      available_only: z.boolean().optional().describe('Hanya paket yang masih ada seat'),
+      include_departed: z.boolean().optional().describe('Sertakan keberangkatan yang sudah lewat (default tidak)'),
+      page: z.number().int().min(1).optional(),
+      limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
+    },
+  }, async ({ month, search, promo_only, available_only, include_departed, page = 1, limit = 20 }) => {
+    const today = jakartaToday();
+    let q = supabase
+      .from('umroh_schedules')
+      .select('jadwal_id, jadwal_nama, promo, seat_total, seat_sisa, maskapai, berangkat_tgl, berangkat_jam, pulang_tgl, manasik_tgl, manasik_jam, paket_harga, synced_at')
+      .order('berangkat_tgl', { ascending: true })
+      .limit(500);
+
+    if (month) {
+      q = q.gte('berangkat_tgl', `${month}-01`).lt('berangkat_tgl', nextMonthISO(month));
+    } else if (!include_departed) {
+      q = q.gte('berangkat_tgl', today);
+    }
+    const term = sanitizeSearchTerm(search);
+    if (term) q = q.ilike('jadwal_nama', `*${term}*`);
+    if (promo_only) q = q.eq('promo', '1');
+
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+
+    let rows = dedupeJadwalRows(data).filter((row) => hasValidPricing(row.paket_harga)).map(summarizeJadwalRow);
+    if (available_only) rows = rows.filter((row) => !row.sold_out);
+
+    const cappedLimit = Math.min(Number(limit) || 20, MAX_LIMIT);
+    const offset = (Math.max(1, Number(page) || 1) - 1) * cappedLimit;
+    return toolResult({
+      total: rows.length,
+      page: Math.max(1, Number(page) || 1),
+      limit: cappedLimit,
+      rows: rows.slice(offset, offset + cappedLimit),
+      note: GLOBAL_NOTE,
+    });
+  });
+
+  register('get_jadwal_paket', {
+    title: 'Detail paket umroh',
+    description: 'Detail lengkap satu paket by jadwal_id: harga per tier & tipe kamar (paket_harga), hotel Mekkah/Madinah '
+      + 'per tier (paket_hotel), rute & jam penerbangan berangkat/pulang, manasik, sisa seat, '
+      + 'plus link publik brosur (gambar) dan itinerary (PDF) yang bisa dibuka langsung. ' + GLOBAL_NOTE,
+    inputSchema: {
+      jadwal_id: z.string().min(2).max(30).describe('ID jadwal dari list_jadwal_paket, mis. JBU1484'),
+    },
+  }, async ({ jadwal_id }) => {
+    const { data, error } = await supabase
+      .from('umroh_schedules')
+      .select('*')
+      .eq('jadwal_id', String(jadwal_id).trim().toUpperCase());
+    if (error) throw new Error(error.message);
+    const row = dedupeJadwalRows(data)[0];
+    if (!row) return toolError(`Paket dengan jadwal_id ${jadwal_id} tidak ditemukan`);
+
+    const [serialized] = serializeScheduleRows([row]);
+    return toolResult({
+      paket: { ...serialized, ...summarizeJadwalRow(row) },
+      note: `Link brosur/itinerary publik — bisa langsung dibuka/dibagikan. ${GLOBAL_NOTE}`,
+    });
+  });
+
+  register('kalkulasi_harga', {
+    title: 'Kalkulasi harga paket',
+    description: 'Hitung total harga satu paket persis seperti tool Kalkulasi di dashboard. '
+      + 'Jumlah kamar = jumlah ORANG per tipe kamar (harga per orang). Anak tanpa kasur dihitung dari harga quad '
+      + 'dikurangi diskon anak (RAHMAH 5,5jt / PROMO 3jt / lainnya 3,5jt); infant pakai harga Infant paket (fallback 8,5jt). '
+      + 'Diskon per-pax tidak menghitung infant.',
+    inputSchema: {
+      jadwal_id: z.string().min(2).max(30),
+      tier: z.string().max(30).optional().describe('Tier harga, mis. UHUD / RAHMAH — default tier pertama paket'),
+      kamar_quad: z.number().int().min(0).max(200).optional().describe('Jumlah orang di kamar quad'),
+      kamar_triple: z.number().int().min(0).max(200).optional(),
+      kamar_double: z.number().int().min(0).max(200).optional(),
+      kamar_single: z.number().int().min(0).max(200).optional(),
+      anak_tanpa_kasur: z.number().int().min(0).max(50).optional(),
+      infant: z.number().int().min(0).max(50).optional(),
+      diskon_per_pax: z.number().min(0).optional().describe('Diskon Rupiah per jamaah (infant tidak dihitung)'),
+      diskon_flat: z.number().min(0).optional().describe('Diskon Rupiah total'),
+    },
+  }, async (args) => {
+    const { data, error } = await supabase
+      .from('umroh_schedules')
+      .select('jadwal_id, jadwal_nama, promo, paket_harga, synced_at')
+      .eq('jadwal_id', String(args.jadwal_id).trim().toUpperCase());
+    if (error) throw new Error(error.message);
+    const row = dedupeJadwalRows(data)[0];
+    if (!row) return toolError(`Paket dengan jadwal_id ${args.jadwal_id} tidak ditemukan`);
+
+    const result = computeKalkulasi(row, args);
+    if (result.error) return toolError(result.error);
+    return toolResult(result);
+  });
+
+  register('calendar_events', {
+    title: 'Kalender manasik / keberangkatan / kepulangan',
+    description: 'Agenda Alhijaz dari kalender internal: manasik, keberangkatan, dan kepulangan per grup — '
+      + 'termasuk paket, pesawat, jam, jumlah pax, Tour Leader (TL), staff, dan jam/titik kumpul bila ada. '
+      + 'Untuk tahu siapa TL sebuah keberangkatan, cari event keberangkatan grup tersebut. ' + GLOBAL_NOTE,
+    inputSchema: {
+      type: z.enum(['manasik', 'keberangkatan', 'kepulangan']).optional().describe('Default semua tipe'),
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('Tanggal mulai, default hari ini'),
+      days: z.number().int().min(1).max(120).optional().describe('Rentang hari ke depan, default 30'),
+      search: z.string().max(80).optional().describe('Cari di nama paket / nama Tour Leader / nomor grup'),
+    },
+  }, async ({ type, from, days = 30, search }) => {
+    const start = from || jakartaToday();
+    const end = addDaysISO(start, Math.min(Number(days) || 30, 120));
+    let q = supabase
+      .from('calendar_events')
+      .select('event_date, event_type, group_number, paket, pesawat, jam, pax, tour_leader, staff, jam_kumpul, titik_kumpul')
+      .gte('event_date', start)
+      .lte('event_date', end)
+      .order('event_date', { ascending: true })
+      .limit(150);
+    if (type) q = q.eq('event_type', type);
+    const term = sanitizeSearchTerm(search);
+    if (term) q = q.or(`paket.ilike.*${term}*,tour_leader.ilike.*${term}*,group_number.ilike.*${term}*`);
+
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+
+    const rows = (data || []).map((row) => ({
+      tanggal: row.event_date,
+      tipe: row.event_type,
+      grup: row.group_number || null,
+      paket: row.paket || null,
+      pesawat: row.pesawat || null,
+      jam: row.jam || null,
+      pax: row.pax ?? null,
+      tour_leader: cleanCalendarPerson(row.tour_leader),
+      staff: cleanCalendarPerson(row.staff),
+      jam_kumpul: row.jam_kumpul || null,
+      titik_kumpul: row.titik_kumpul || null,
+    }));
+
+    return toolResult({ from: start, to: end, total: rows.length, rows, note: GLOBAL_NOTE });
   });
 
   return server;
