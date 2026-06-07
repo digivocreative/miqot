@@ -3,7 +3,7 @@ import {
   Calculator, ArrowLeftRight, Settings,
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
   BarChart3, Loader2, Sparkles,
-  CalendarRange, ExternalLink, TrendingUp, Mic, CreditCard,
+  CalendarRange, TrendingUp, Mic, CreditCard,
   DollarSign, ChevronRight, Globe, Share2, FileImage, FileText, Bot,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
@@ -773,7 +773,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           }
           if (card.openExternal) {
             trackEvent('feature', 'open_jadwal');
-            window.open(`/${agentData.slug}`, '_blank');
+            window.location.href = `/${agentData.slug}`;
             return;
           }
           if (card.id === 'statistik') {
@@ -806,9 +806,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       >
         <div className={`pointer-events-none absolute -top-6 -right-6 w-20 h-20 rounded-full ${card.iconBg} opacity-20 blur-2xl group-hover:opacity-30 transition-opacity`} />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/40 via-transparent to-transparent dark:from-white/5" />
-        {card.openExternal && (
-          <ExternalLink size={10} className="absolute top-2 right-2 text-gray-400 dark:text-slate-500" />
-        )}
         <div className="relative flex flex-col items-center text-center">
           <div className={`w-11 h-11 rounded-xl ${card.iconBg} ${card.iconShadow} flex items-center justify-center mb-2 ring-1 ring-white/40 dark:ring-white/10 group-hover:scale-110 group-hover:rotate-3 transition-transform duration-200`}>
             {card.id === 'statistik' && checkingStatistik

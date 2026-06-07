@@ -454,7 +454,7 @@ body {
 					<div class="elementor-background-overlay"></div>
 								<div class="elementor-element elementor-element-110e3a59 gambar-paket elementor-widget elementor-widget-image" data-id="110e3a59" data-element_type="widget" data-widget_type="image.default">
 				<div class="elementor-widget-container">
-															<img decoding="async" width="354" height="472" src="/wp-content/uploads/2026/03/umroh-promo-hemat.avif?v=30jt" class="attachment-full size-full wp-image-2629" alt="" />															</div>
+															<img decoding="async" width="354" height="472" src="https://alhijaz.b-cdn.net/landing/umroh-promo-milad.avif" class="attachment-full size-full wp-image-2699" alt="" />															</div>
 				</div>
 				<section class="elementor-section elementor-inner-section elementor-element elementor-element-5ec97f27 elementor-section-boxed elementor-section-height-default elementor-section-height-default" data-id="5ec97f27" data-element_type="section" data-settings="{&quot;background_background&quot;:&quot;classic&quot;}">
 							<div class="elementor-background-overlay"></div>
@@ -467,7 +467,7 @@ body {
 				</div>
 				<div class="elementor-element elementor-element-5c7adc48 elementor-widget elementor-widget-heading" data-id="5c7adc48" data-element_type="widget" data-widget_type="heading.default">
 				<div class="elementor-widget-container">
-			<h3 class="elementor-heading-title elementor-size-default">Juni - Desember 2026</h3>		</div>
+			<h3 class="elementor-heading-title elementor-size-default">25 Oktober 2026</h3>		</div>
 				</div>
 				<div class="elementor-element elementor-element-281b0df7 elementor-widget elementor-widget-heading" data-id="281b0df7" data-element_type="widget" data-widget_type="heading.default">
 				<div class="elementor-widget-container">
@@ -480,7 +480,7 @@ body {
 				<div class="elementor-element elementor-element-48c8d05e elementor-align-justify wa_cta_link elementor-widget elementor-widget-button" data-id="48c8d05e" data-element_type="widget" data-widget_type="button.default">
 				<div class="elementor-widget-container">
 					<div class="elementor-button-wrapper">
-			<a class="elementor-button elementor-button-link elementor-size-sm" href="https://wa.alhijazindonesia.com/?message=Assalamualaikum,%20Saya%20mau%20tanya%20Paket%20Promo%20Umroh%20Hemat%2030%20Juta-an" target="_blank">
+			<a class="elementor-button elementor-button-link elementor-size-sm" href="https://wa.alhijazindonesia.com/?message=Assalamualaikum,%20Saya%20mau%20tanya%20Paket%20Umroh%20Promo%20Milad%20Alhijaz%2030%20Juta-an" target="_blank">
 						<span class="elementor-button-content-wrapper">
 						<span class="elementor-button-icon elementor-align-icon-right">
 				<i aria-hidden="true" class="fab fa-whatsapp"></i>			</span>
@@ -508,7 +508,7 @@ body {
 			<div class="elementor-widget-wrap elementor-element-populated">
 								<div class="elementor-element elementor-element-2186f90f elementor-widget elementor-widget-heading" data-id="2186f90f" data-element_type="widget" data-widget_type="heading.default">
 				<div class="elementor-widget-container">
-			<p class="elementor-heading-title elementor-size-default">9  Hari</p>		</div>
+			<p class="elementor-heading-title elementor-size-default">10 Hari</p>		</div>
 				</div>
 					</div>
 		</div>
@@ -556,7 +556,7 @@ body {
 			<div class="elementor-widget-wrap elementor-element-populated">
 								<div class="elementor-element elementor-element-32ac0b01 elementor-widget elementor-widget-heading" data-id="32ac0b01" data-element_type="widget" data-widget_type="heading.default">
 				<div class="elementor-widget-container">
-			<p class="elementor-heading-title elementor-size-default">Hotel ⭐️⭐️⭐️</p>		</div>
+			<p class="elementor-heading-title elementor-size-default">Hotel ⭐️⭐️⭐️⭐️</p>		</div>
 				</div>
 					</div>
 		</div>
@@ -564,7 +564,7 @@ body {
 		</section>
 				<div class="elementor-element elementor-element-2a7a47cc elementor-widget elementor-widget-heading" data-id="2a7a47cc" data-element_type="widget" data-widget_type="heading.default">
 				<div class="elementor-widget-container">
-			<p class="elementor-heading-title elementor-size-default">Mekkah: Saja Makkah / Setaraf</p>		</div>
+			<p class="elementor-heading-title elementor-size-default">Mekkah: Grand Al Massa / Setaraf</p>		</div>
 				</div>
 				<section class="elementor-section elementor-inner-section elementor-element elementor-element-2f23969 elementor-section-boxed elementor-section-height-default elementor-section-height-default" data-id="2f23969" data-element_type="section">
 						<div class="elementor-container elementor-column-gap-default">
@@ -1945,21 +1945,37 @@ body {
 </style>
 
 <script type="text/javascript">
-var $jQuerySelf = jQuery.noConflict();
-
+/* Vanilla JS: script inline ini berjalan SEBELUM jquery.min.js dimuat di akhir body,
+   jadi tidak boleh bergantung pada jQuery (dulu: ReferenceError → tombol tak pernah muncul). */
 function ShowMoreLessFeatured(elem){
-	var $this = $jQuerySelf(elem);
-	
-	$jQuerySelf('#frameshowmorefeatured').find('.elementor-top-column').addClass('expanded');
-	$this.hide();
+	var frame = document.getElementById('frameshowmorefeatured');
+	if (frame) {
+		var cols = frame.querySelectorAll('.elementor-top-column');
+		for (var i = 0; i < cols.length; i++) cols[i].classList.add('expanded');
+	}
+	elem.style.display = 'none';
 }
-$jQuerySelf(document).ready(function(){
-$jQuerySelf('#frameshowmorefeatured').find('.elementor-top-column').attr('style', '--calc-height:' + ($jQuerySelf('#frameshowmorefeatured').find('.elementor-top-column').prop('scrollHeight') + 20) + 'px');
-	
-	var $buttonshowlessfeatured = '<button onclick="ShowMoreLessFeatured(this)" class="show-more-or-less-featured elementor-animation-bob" type="button"><span>Lihat Semua Keunggulan</span> <i class="fas fa-angle-down"></i></button>';
-	$jQuerySelf('#frameshowmorefeatured').append($buttonshowlessfeatured);
-
-});
+(function(){
+	function initShowMoreFeatured(){
+		var frame = document.getElementById('frameshowmorefeatured');
+		if (!frame) return;
+		var cols = frame.querySelectorAll('.elementor-top-column');
+		for (var i = 0; i < cols.length; i++) {
+			cols[i].style.setProperty('--calc-height', (cols[i].scrollHeight + 20) + 'px');
+		}
+		var btn = document.createElement('button');
+		btn.type = 'button';
+		btn.className = 'show-more-or-less-featured elementor-animation-bob';
+		btn.setAttribute('onclick', 'ShowMoreLessFeatured(this)');
+		btn.innerHTML = '<span>Lihat Semua Keunggulan</span> <i class="fas fa-angle-down"></i>';
+		frame.appendChild(btn);
+	}
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', initShowMoreFeatured);
+	} else {
+		initShowMoreFeatured();
+	}
+})();
 </script>		</div>
 				</div>
 					</div>
@@ -2113,7 +2129,7 @@ $jQuerySelf('#frameshowmorefeatured').find('.elementor-top-column').attr('style'
 		</div>
 							</div>
 		</section>
-				<section class="elementor-section elementor-top-section elementor-element elementor-element-84c8c4e elementor-section-boxed elementor-section-height-default elementor-section-height-default" data-id="84c8c4e" data-element_type="section">
+				<section class="elementor-section elementor-top-section elementor-element elementor-element-84c8c4e elementor-section-full_width elementor-section-height-default elementor-section-height-default" data-id="84c8c4e" data-element_type="section">
 						<div class="elementor-container elementor-column-gap-default">
 					<div class="elementor-column elementor-col-100 elementor-top-column elementor-element elementor-element-f20753f" data-id="f20753f" data-element_type="column">
 			<div class="elementor-widget-wrap elementor-element-populated">
@@ -2121,14 +2137,26 @@ $jQuerySelf('#frameshowmorefeatured').find('.elementor-top-column').attr('style'
 				<div class="elementor-widget-container">
 			<h3 class="elementor-heading-title elementor-size-default">Perlengkapan Umroh</h3>		</div>
 				</div>
-				<div class="elementor-element elementor-element-889f2b9 elementor-widget elementor-widget-image" data-id="889f2b9" data-element_type="widget" data-widget_type="image.default">
-				<div class="elementor-widget-container">
-															<img loading="lazy" decoding="async" width="800" height="368" src="/wp-content/uploads/2025/02/Perlengkapanwanita.webp" class="attachment-full size-full wp-image-1756" alt="" />															</div>
-				</div>
-				<div class="elementor-element elementor-element-bf5665f elementor-widget elementor-widget-image" data-id="bf5665f" data-element_type="widget" data-widget_type="image.default">
-				<div class="elementor-widget-container">
-															<img loading="lazy" decoding="async" width="800" height="368" src="/wp-content/uploads/2025/02/Perlengkapanlaki.webp" class="attachment-full size-full wp-image-1757" alt="" />															</div>
-				</div>
+				<section class="elementor-section elementor-inner-section elementor-element elementor-element-f566b72 elementor-section-boxed elementor-section-height-default elementor-section-height-default" data-id="f566b72" data-element_type="section">
+					<div class="elementor-container elementor-column-gap-default">
+						<div class="elementor-column elementor-col-50 elementor-inner-column elementor-element elementor-element-30247ed" data-id="30247ed" data-element_type="column">
+							<div class="elementor-widget-wrap elementor-element-populated">
+								<div class="elementor-element elementor-element-3581eaa elementor-widget elementor-widget-image" data-id="3581eaa" data-element_type="widget" data-widget_type="image.default">
+									<div class="elementor-widget-container">
+										<img loading="lazy" decoding="async" width="875" height="1241" src="https://alhijaz.b-cdn.net/landing/perlengkapan-umroh-2026-page-0006.avif" class="attachment-full size-full wp-image-2662" alt="" />	</div>
+								</div>
+							</div>
+						</div>
+						<div class="elementor-column elementor-col-50 elementor-inner-column elementor-element elementor-element-ee85155" data-id="ee85155" data-element_type="column">
+							<div class="elementor-widget-wrap elementor-element-populated">
+								<div class="elementor-element elementor-element-db76033 elementor-widget elementor-widget-image" data-id="db76033" data-element_type="widget" data-widget_type="image.default">
+									<div class="elementor-widget-container">
+										<img loading="lazy" decoding="async" width="875" height="1241" src="https://alhijaz.b-cdn.net/landing/perlengkapan-umroh-2026-page-0007.avif" class="attachment-full size-full wp-image-2663" alt="" />	</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</section>
 					</div>
 		</div>
 							</div>
@@ -2408,7 +2436,7 @@ var elementorFrontendConfig = {"environmentMode":{"edit":false,"wpPreview":false
 //# sourceURL=elementor-frontend-js-before
 /* ]]> */
 </script>
-<script type="text/javascript" src="/wp-content/plugins/elementor/assets/js/frontend.min.js?ver=3.17.2" id="elementor-frontend-js"></script>
+<script type="text/javascript" src="/wp-content/plugins/elementor/assets/js/frontend.min.js?ver=3.17.2-avif" id="elementor-frontend-js"></script>
 <script type="text/javascript" src="/wp-content/plugins/elementor-pro/assets/js/elements-handlers.min.js?ver=3.2.0" id="pro-elements-handlers-js"></script>
 <script type="text/javascript" src="/wp-content/themes/landingpress-wp/assets/js/script.min.js?ver=3.4.2" id="landingpress-js"></script>
 <!-- Facebook Pixel Code -->
