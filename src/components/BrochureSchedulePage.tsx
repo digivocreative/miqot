@@ -307,13 +307,16 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
 
   // Available right-side options per filter dimension. Only includes values
   // that actually have at least one matching package, so users can't pick a
-  // dead end. When "Tersedia saja" is active, options are also based only on
-  // non-sold-out packages. Order: months ascending, types in PACKAGE_TYPES
-  // priority, airlines priority then alphabetical.
+  // dead end. Months whose packages are ALL sold out are always hidden —
+  // nothing left to sell there (sold-out rows still render as social proof
+  // inside months that have availability). When "Tersedia saja" is active,
+  // tipe/maskapai options are also based only on non-sold-out packages.
+  // Order: months ascending, types in PACKAGE_TYPES priority, airlines
+  // priority then alphabetical.
   const availableValues = useMemo<Array<{ value: string; label: string }>>(() => {
     if (filterDim === 'bulan') {
       return months
-        .filter(m => !availableOnly || m.packages.some(p => !p.soldOut))
+        .filter(m => m.packages.some(p => !p.soldOut))
         .map(m => ({ value: m.key, label: m.label }));
     }
     if (filterDim === 'tipe') {
@@ -335,7 +338,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       return [...set].sort(compareAirlineOptions).map(m => ({ value: m, label: m }));
     }
     return [];
-  }, [filterDim, months, optionPackages, availableOnly, musimDinginWindow]);
+  }, [filterDim, months, optionPackages, musimDinginWindow]);
 
   // Whenever the dimension changes (or the available values list refreshes),
   // make sure the selected value is still valid; otherwise pick the first.
@@ -380,11 +383,13 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         if (!alive) return;
         setMonths(json.months || []);
         setAgent(mergeAgentProfile(agentProp, json.agent));
-        // Default selection: first (= nearest upcoming) month with packages.
-        // The auto-select effect will pick this up once availableValues is computed.
+        // Default selection: first (= nearest upcoming) month that still has
+        // available (non-sold-out) packages — fully sold-out months are hidden
+        // from the dropdown. The auto-select effect normalizes if needed.
         if (json.months?.length) {
           setFilterDim('bulan');
-          setFilterValue(json.months[0].key);
+          const firstAvailable = json.months.find(m => m.packages.some(p => !p.soldOut));
+          setFilterValue((firstAvailable ?? json.months[0]).key);
         }
       } catch (e: any) {
         if (!alive) return;
