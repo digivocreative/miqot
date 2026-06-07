@@ -4,6 +4,7 @@ dist
 .dev.vars
 .env
 functions/umroh-landing.mjs
+functions/haji-landing.mjs
 data/*.json
 data/kurs-share-cache/
 data/backups/
