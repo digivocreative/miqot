@@ -838,7 +838,7 @@ Same base as Calendar Detail bottom sheet, plus:
 
 ### Caption AI Modal (`CaptionAIModal.tsx`)
 
-Centered dialog (bukan bottom sheet) untuk generate caption WA via `/api/ai-copy`. Dipakai PackageCard (per paket, via footer BrochureModal) dan BrochureSchedulePage (per filter brosur). Aksen fitur: **indigo**.
+Centered dialog (bukan bottom sheet) untuk generate caption WA via `/api/ai-copy`. Entry point satu-satunya: PackageCard di halaman publik (per paket, via footer BrochureModal). Aksen fitur: **indigo**. (Endpoint juga punya mode `monthData` untuk caption multi-paket — dorman, tanpa UI, keputusan produk Jun 2026: Caption tidak dimunculkan di Brosur Jadwal.)
 
 ```
 Container: relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden
@@ -856,16 +856,15 @@ Footer (hidden saat idle): px-4 py-3 border-t flex gap-2
 
 Perilaku: generate manual (idle state, hemat rate limit 15x/2jam per device — key localStorage `ai_copy_timestamps`); caption reset saat `subject` berubah atau payload berubah saat reopen (snapshot JSON); fallback template lokal berlabel jelas saat API gagal.
 
-### Caption Button (entry points)
+### Caption Button (entry point)
 
 Secondary button aksen indigo, geometry mengikuti sibling-nya:
 
 ```
 BrochureModal footer:  flex-1 py-3 rounded-xl text-sm font-bold text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-slate-800 border border-indigo-200 dark:border-indigo-700/70 (Sparkles 17)
-BrochureSchedulePage:  py-2.5 rounded-lg text-sm font-bold — sama persis dengan sibling Share/Download, varian indigo (Sparkles 17)
 ```
 
-Visibilitas: di halaman publik (`/{slug}`) tombol hanya dirender saat `isSessionValid()` (tool agent, bukan untuk jamaah); di dashboard selalu tampil.
+Visibilitas: hanya dirender saat `isSessionValid()` (tool agent, bukan untuk jamaah yang membuka halaman publik `/{slug}`).
 
 ### Calendar Widget (`UpcomingSchedule.tsx`)
 

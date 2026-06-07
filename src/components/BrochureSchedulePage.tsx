@@ -1,7 +1,7 @@
 // src/components/BrochureSchedulePage.tsx
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Options as ModernScreenshotOptions } from 'modern-screenshot';
-import { Download, Share2, Loader2, ChevronDown, CircleCheck, Sparkles } from 'lucide-react';
+import { Download, Share2, Loader2, ChevronDown, CircleCheck } from 'lucide-react';
 import {
   BrochureScheduleTemplate,
   BROCHURE_W,
@@ -20,7 +20,6 @@ import {
 } from './BrochureScheduleTemplate';
 import { getAuthHeaders } from './LoginPage';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
-import { CaptionAIModal } from './CaptionAIModal';
 
 const EXPORT_MIME = 'image/jpeg';
 const EXPORT_EXT = 'jpg';
@@ -267,7 +266,6 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   const [previewScale, setPreviewScale] = useState(0);
   const exportPageRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [busy, setBusy] = useState<null | { kind: 'share' | 'download'; pageIndex: number }>(null);
-  const [captionOpen, setCaptionOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Export blobs are intentionally kept outside React state. They can be large,
@@ -462,50 +460,6 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     return `${base}${pageCount > 1 ? `-gambar-${pageIndex}` : ''}.${ext}`;
   };
   const exportLabel = availableOnly && filterLabel ? `${filterLabel} tersedia` : filterLabel;
-
-  // ── Caption AI ──
-  // One caption covers the whole active filter (all pages share it: the agent
-  // sends every brochure image with a single caption text).
-  const buildCaptionPayload = () => ({
-    monthData: {
-      label: exportLabel || 'Jadwal Umroh',
-      packages: filteredPackages.map(p => ({
-        nama: p.nama,
-        maskapai: p.maskapai,
-        berangkat_tgl: p.berangkat_tgl,
-        hari: p.hari,
-        harga: p.harga,
-        soldOut: !!p.soldOut,
-        isPromo: !!p.isPromo,
-      })),
-    },
-    agentName: agent?.name || '',
-    agentWebsite: agent?.website || '',
-  });
-
-  // Local fallback template when the API call fails
-  const buildCaptionFallback = () => {
-    // String-split (not new Date) — keeps the calendar day timezone-agnostic,
-    // matching formatTanggalPendek in lib/ai-copy-prompt.js
-    const BULAN_PENDEK = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-    const fmt = (iso: string) => {
-      const [, m, d] = String(iso).split('-').map(Number);
-      return m && d && BULAN_PENDEK[m - 1] ? `${d} ${BULAN_PENDEK[m - 1]}` : String(iso);
-    };
-    const rows = filteredPackages
-      .filter(p => !p.soldOut)
-      .slice(0, 6)
-      .map(p => `🗓 ${fmt(p.berangkat_tgl)} — *${p.nama}*${p.harga ? ` — mulai Rp ${Number(p.harga).toLocaleString('id-ID')}` : ''}`);
-    const extra = filteredPackages.filter(p => !p.soldOut).length - rows.length;
-
-    let text = `Assalamu'alaikum 🙏\n\nJadwal Umroh *${exportLabel || 'Alhijaz Indowisata'}* bersama Alhijaz Indowisata:\n\n${rows.join('\n')}`;
-    if (extra > 0) text += `\n...dan ${extra} paket lainnya (lengkap di brosur)`;
-    text += `\n\nSeat terbatas, segera amankan kursi Anda!`;
-    if (agent?.name) text += `\n\nInfo & pendaftaran:\n${agent.name}`;
-    if (agent?.website) text += ` - ${agent.website}`;
-    text += `\n\nSemoga Allah memudahkan langkah kita menuju Baitullah. Aamiin 🤲`;
-    return text;
-  };
 
   function showToast(message: string) {
     setToast(message);
@@ -959,7 +913,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
                       background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
                     }}
                   >
-                    <div className={`grid ${showShareButton ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
+                    <div className={`grid ${showShareButton ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
                       {showShareButton && (
                         <button
                           onClick={() => handleShare(index)}
@@ -977,14 +931,6 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
                       >
                         {downloadBusy ? <Loader2 size={17} className="animate-spin" /> : <Download size={17} />}
                         <span>Download</span>
-                      </button>
-                      <button
-                        onClick={() => setCaptionOpen(true)}
-                        disabled={busy !== null}
-                        className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-slate-800 border border-indigo-200 dark:border-indigo-700/70 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
-                      >
-                        <Sparkles size={17} />
-                        <span>Caption</span>
                       </button>
                     </div>
                   </div>
@@ -1005,16 +951,6 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
           {toast}
         </div>
       )}
-
-      {/* Caption AI Modal — subject keyed to the active filter so a filter
-          switch resets the stale caption back to the idle state */}
-      <CaptionAIModal
-        isOpen={captionOpen}
-        onClose={() => setCaptionOpen(false)}
-        subject={`Jadwal ${exportLabel || 'Umroh'}`}
-        buildPayload={buildCaptionPayload}
-        buildFallbackText={buildCaptionFallback}
-      />
 
       {/* Off-screen full-size export node. Keep it rendered, not transparent, so export matches preview. */}
       <div
