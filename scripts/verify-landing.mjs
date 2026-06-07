@@ -33,7 +33,8 @@ for (const p of PAGES) {
   check(p.name, '0 alhijazindonesia.com', !/alhijazindonesia\.com/.test(html));
   check(p.name, '0 cdnjs.cloudflare.com', !/cdnjs\.cloudflare\.com/.test(html));
   check(p.name, '0 fonts.googleapis/gstatic', !/fonts\.(googleapis|gstatic)\.com/.test(html));
-  check(p.name, '0 lottie', !/lottie/i.test(html));
+  // Widget div lottie inert sengaja dibiarkan (nesting); yang dilarang: script lottie & URL lottie absolut
+  check(p.name, '0 script/URL lottie', !/<script[^>]*lottie/i.test(html) && !/https?:[^"' ]*lottie/i.test(html));
   const nonDeferred = (html.match(/<script [^>]*src="\/(wp-content|wp-includes)[^>]*>/g) || [])
     .filter((t) => !/\bdefer\b/.test(t));
   check(p.name, 'semua script first-party defer', nonDeferred.length === 0, nonDeferred[0]);

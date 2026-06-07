@@ -4,6 +4,7 @@
  * Reads the original HTML from /public/umroh.html and replaces
  * WhatsApp links with agent-specific links, injects sticky agent bar.
  */
+import { replaceFaIcons, rewriteAssetsToCdn, LANDING_FONT_CSS, SVG_FA_CSS, FONT_PRELOAD_HTML } from './fa-icons';
 
 export const AGENTS: Record<string, { name: string; phone: string; website: string; photo: string }> = {
   'bagas':       { name: 'Bagas Pramudita',     phone: '6287878573311', website: 'alhijaz.co',                  photo: '/agents/bagas.jpg' },
@@ -139,10 +140,11 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   }
 
   // 1. Replace WhatsApp links (generic regex approach)
+  //    Template standalone memakai wa.me/<DEFAULT_PHONE>?text=... — rewrite ke nomor agent.
   //    With message param: preserve the original message text
-  html = html.replace(/https:\/\/wa\.alhijazindonesia\.com\/\?message=([^"]*)/g, waBase + '&text=$1');
-  //    Bare link (no message param): add default umroh text
-  html = html.replace(/https:\/\/wa\.alhijazindonesia\.com(?=["'])/g, waBase + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Paket%20Umroh%20di%20Alhijaz');
+  html = html.replace(/https:\/\/wa\.me\/\d+\?text=([^"]*)/g, waBase + '&text=$1');
+  //    Bare link (no text param): add default umroh text
+  html = html.replace(/https:\/\/wa\.me\/\d+(?=["'])/g, waBase + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Paket%20Umroh%20di%20Alhijaz');
 
   // 2. Update <title>, og:title, meta description, and og:image using landing config (or defaults)
   const customTitle = agentOverride?.landing?.title;
@@ -191,19 +193,19 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   // Elementor Icons (eicons) — not used on this page, no eicon- classes found
   html = html.replace(/<link[^>]*elementor-icons-css[^>]*\/>/g, '');
 
-  // Google Fonts: replace bloated multi-family request with only Montserrat + Inter (the only ones actually used)
+  // Google Fonts: hapus link multi-family bawaan WP — font kini self-host (lihat fa-icons.ts)
   html = html.replace(/<link[^>]*google-fonts-1-css[^>]*\/>/g, '');
-  // We inject optimized Google Fonts below
-  //    Inject single FA 5.15.4 all.min.css from cdnjs before </head>
+  // Hapus juga preconnect Google Fonts bawaan template (tidak relevan lagi)
+  html = html.replace(/<link rel="preconnect" href="https:\/\/fonts\.gstatic\.com\/?"[^>]*>/g, '');
+  //    Inject font self-host + preload LCP sebelum </head> (ikon: inline SVG, tanpa CSS eksternal)
   html = html.replace(
     '</head>',
-    // Optimized Google Fonts: only Montserrat + Inter, only weights actually used
-    '<link rel="preconnect" href="https://fonts.googleapis.com">'
-    + '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-    + '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@500;600;700;800&display=swap" rel="stylesheet">'
-    // Font Awesome from CDN (CORS-friendly)
-    + '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n'
+    FONT_PRELOAD_HTML
+    // Hero background = kandidat LCP; CSS bg baru ke-discover setelah parse CSS → preload.
+    + '<link rel="preload" href="/wp-content/uploads/2024/09/pt-alhijaz-indowisata.webp" as="image" fetchpriority="high">'
     + '<st' + 'yle>'
+    + LANDING_FONT_CSS
+    + SVG_FA_CSS
     // ── Uniform all WA/CTA buttons (all screens) ──
     + '.elementor-1291 .elementor-button{background-color:#28B83C!important;border-color:#149626!important;color:#fff!important;border-radius:50px!important;border-style:solid!important;border-width:3px!important;font-family:"Inter",sans-serif!important;font-weight:600!important;transition:background-color .2s,transform .2s!important}'
     + '.elementor-1291 .elementor-button:hover,.elementor-1291 .elementor-button:focus{background-color:#1DA855!important;transform:translateY(-1px)!important}'
@@ -311,7 +313,11 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   // 8. PERFORMANCE OPTIMIZATIONS
   // ═══════════════════════════════════════════════════
 
-  // jQuery: keep from alhijazindonesia.com (Elementor JS tightly coupled to this version)
+  // Ganti semua <i class="fa..."> dengan inline SVG (lepas dependensi icon-font/cdnjs)
+  html = replaceFaIcons(html);
+
+  // Gambar promo (LCP sekunder, above-fold) jangan kena blanket lazy di bawah
+  html = html.replace(/(<img(?![^>]*loading=)[^>]*umroh-promo-milad[^>]*?)(\/?>)/, '$1 loading="eager" fetchpriority="high" $2');
 
   // Add lazy loading to all images that don't already have it
   html = html.replace(/(<img(?![^>]*loading=)[^>]*)(\/?>)/g, '$1 loading="lazy" $2');
@@ -343,6 +349,11 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
     /<body /,
     '<body style="padding-bottom:76px" '
   );
+
+  // ═══════════════════════════════════════════════════
+  // 8b. BUNNY CDN REWRITE (env-gated; tanpa env tetap self-hosted/relatif)
+  // ═══════════════════════════════════════════════════
+  html = rewriteAssetsToCdn(html);
 
   // ═══════════════════════════════════════════════════
   // 9. MINIFY OUTPUT
