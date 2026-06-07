@@ -5,6 +5,7 @@ import { Agent, setGlobalDispatcher } from 'undici';
 setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
 
 import express from 'express';
+import compression from 'compression';
 import * as Sentry from '@sentry/node';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'fs';
 import { resolve, dirname } from 'path';
@@ -244,6 +245,16 @@ async function mergeExistingUmrohPhase1Enrichment(agentId, rows) {
 
   return safeRows.map(row => preserveUmrohPhase1Enrichment(row, existingLookup.get(umrohPhase1EnrichmentKey(row))));
 }
+
+// Kompresi origin (gzip/br via negotiation) — penting untuk agent ber-custom-domain
+// yang TIDAK lewat proxy Cloudflare: tanpa ini HTML landing ~370KB terkirim mentah.
+app.use(compression({
+  filter: (req, res) => {
+    const ct = String(res.getHeader('Content-Type') || '');
+    if (ct.includes('text/event-stream')) return false; // jangan buffer SSE
+    return compression.filter(req, res);
+  },
+}));
 
 // WA Copy admin media uploads carry base64-encoded documents up to ~14MB.
 // Parse this one path at 16mb BEFORE the global 10mb json limit below, so large
@@ -14773,8 +14784,10 @@ app.get('/agents/:file', async (req, res, next) => {
     return next();
   }
 });
-app.use(express.static(distPath, { index: false }));
-app.use(express.static(publicPath, { index: false }));
+// maxAge+immutable: kebijakan cache milik origin sendiri — tidak bergantung header
+// injeksi Cloudflare (custom domain tidak melewatinya). Asset ber-?ver= aman immutable.
+app.use(express.static(distPath, { index: false, maxAge: '30d', immutable: true }));
+app.use(express.static(publicPath, { index: false, maxAge: '30d', immutable: true }));
 
 // Airline code → name mapping untuk OG meta
 const AIRLINE_NAMES_SERVER = {
