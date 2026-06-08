@@ -124,6 +124,99 @@ test('firstRow = row pertama booking dalam urutan input (utk nama tampilan)', ()
   assert.equal(bookings[0].firstRow.nama, 'TERBESAR');
 });
 
+// ── netting kredit lebih-bayar antar-pax (booking-level) ─────────────────────
+
+test('netting: lebih-bayar 1 pax menutup sisa per-pax saudaranya (AIW0028524)', () => {
+  // 8 pax RAHMAH. ADI lebih bayar (raw bayar 100jt utk paket 51jt, sisa DB sudah
+  // 0); 7 pax lain cicilan sisa total 16jt. Kredit 49jt > 16jt → booking lunas.
+  const rows = [
+    ...Array.from({ length: 6 }, (_, k) => ({
+      id_umroh: 'AIW0028524', nama: `PAX${k}`, bayar: 42000000, sisa: 2500000,
+      awapi_bayar_sisa: '2500000', awapi_paket_harga: '44500000', awapi_bayar: '42000000',
+    })),
+    { id_umroh: 'AIW0028524', nama: 'NIA', bayar: 50000000, sisa: 1000000,
+      awapi_bayar_sisa: '1000000', awapi_paket_harga: '51000000', awapi_bayar: '50000000' },
+    { id_umroh: 'AIW0028524', nama: 'ADI', bayar: 50000000, sisa: 0,
+      awapi_bayar_sisa: '-49000000', awapi_paket_harga: '51000000', awapi_bayar: '100000000' },
+  ];
+  const bookings = collapseBookingOutstanding(rows);
+  // Σ harga 369jt, money = (50+42*6) + 100 = 402jt → ter-net penuh → di-drop.
+  assert.equal(bookings.length, 0);
+});
+
+test('netting: lebih-bayar parsial — kredit tunggal kurang menutup → sisa berkurang (AIW0027485)', () => {
+  // DEANDRA cicilan 0,9jt; ZURAIDA+DONAL keduanya raw bayar 76jt (replikasi sub-
+  // grup, settled sisa 0). money = 38 + 76 = 114jt vs harga 116,7jt → 2,7jt.
+  const rows = [
+    { id_umroh: 'AIW0027485', nama: 'DEANDRA', bayar: 38000000, sisa: 900000,
+      awapi_bayar_sisa: '900000', awapi_paket_harga: '38900000', awapi_bayar: '38000000' },
+    { id_umroh: 'AIW0027485', nama: 'ZURAIDA', bayar: 37400000, sisa: 0,
+      awapi_bayar_sisa: '-37100000', awapi_paket_harga: '38900000', awapi_bayar: '76000000' },
+    { id_umroh: 'AIW0027485', nama: 'DONAL', bayar: 37400000, sisa: 0,
+      awapi_bayar_sisa: '-37100000', awapi_paket_harga: '38900000', awapi_bayar: '76000000' },
+  ];
+  const [b] = collapseBookingOutstanding(rows);
+  assert.equal(b.outstanding, 2700000);
+  assert.equal(b.memberCount, 1); // hanya DEANDRA yang owing
+  assert.equal(b.firstRow.nama, 'DEANDRA');
+});
+
+test('netting TIDAK fire: dua nilai aggregate berbeda = ambigu → konservatif (AIW0025606)', () => {
+  // THORIQ cicilan 11,1jt. Saudara lebih-bayar dgn raw bayar BERBEDA (58jt & 53jt)
+  // → sub-grup ambigu, size!=1 → netting null → tetap Σ sisa owing = 11,1jt.
+  const rows = [
+    { id_umroh: 'AIW0025606', nama: 'THORIQ', bayar: 15400000, sisa: 11100000,
+      awapi_bayar_sisa: '11100000', awapi_paket_harga: '26500000', awapi_bayar: '15400000' },
+    { id_umroh: 'AIW0025606', nama: 'NINDIA', bayar: 29000000, sisa: 0,
+      awapi_bayar_sisa: '0', awapi_paket_harga: '29000000', awapi_bayar: '29000000' },
+    { id_umroh: 'AIW0025606', nama: 'ARIEF', bayar: 29000000, sisa: 0,
+      awapi_bayar_sisa: '-29000000', awapi_paket_harga: '29000000', awapi_bayar: '58000000' },
+    { id_umroh: 'AIW0025606', nama: 'HASNA', bayar: 26500000, sisa: 0,
+      awapi_bayar_sisa: '-26500000', awapi_paket_harga: '26500000', awapi_bayar: '53000000' },
+  ];
+  const [b] = collapseBookingOutstanding(rows);
+  assert.equal(b.outstanding, 11100000);
+});
+
+test('netting TIDAK fire tanpa universe harga lengkap → Σ sisa owing (konservatif)', () => {
+  // Satu saudara lebih-bayar TAPI satu pax tak punya paket_harga → universe tak
+  // lengkap → null → tetap sisa owing.
+  const rows = [
+    { id_umroh: 'Z', nama: 'OWE', bayar: 10000000, sisa: 5000000,
+      awapi_bayar_sisa: '5000000', awapi_paket_harga: '15000000', awapi_bayar: '10000000' },
+    { id_umroh: 'Z', nama: 'OVER', bayar: 20000000, sisa: 0,
+      awapi_bayar_sisa: '-5000000', awapi_paket_harga: null, awapi_bayar: '20000000' },
+  ];
+  const [b] = collapseBookingOutstanding(rows);
+  assert.equal(b.outstanding, 5000000);
+});
+
+test('netting: belum-DP saudara tidak ikut di-cover oleh kredit lebih bayar', () => {
+  // OWE cicilan 5jt; OVER lebih bayar (raw 30jt utk paket 20jt, kredit 10jt);
+  // BELUMDP bayar 0. money = 5jt(OWE bayar? tidak — pakai raw bayar OWE) ... uji
+  // bahwa belum-DP (bayar=0) dilewati: priceTotal = 20(OWE)+20(OVER)=40,
+  // money = 10(OWE raw) + 30(OVER) = 40 → net 0; belum-DP tidak menambah harga.
+  const rows = [
+    { id_umroh: 'Q', nama: 'OWE', bayar: 10000000, sisa: 10000000,
+      awapi_bayar_sisa: '10000000', awapi_paket_harga: '20000000', awapi_bayar: '10000000' },
+    { id_umroh: 'Q', nama: 'OVER', bayar: 20000000, sisa: 0,
+      awapi_bayar_sisa: '-10000000', awapi_paket_harga: '20000000', awapi_bayar: '30000000' },
+    { id_umroh: 'Q', nama: 'BELUMDP', bayar: 0, sisa: 20000000,
+      awapi_bayar_sisa: '20000000', awapi_paket_harga: '20000000', awapi_bayar: '0' },
+  ];
+  const bookings = collapseBookingOutstanding(rows);
+  assert.equal(bookings.length, 0); // OWE ter-cover, belum-DP bukan piutang
+});
+
+test('netting backward-compat: owing-only input (pemanggil lama) tak berubah', () => {
+  // Tanpa saudara lebih-bayar di input → aggBayar size 0 → netting no-op.
+  const [b] = collapseBookingOutstanding([
+    { id_umroh: 'P', bayar: 10000000, sisa: 5000000,
+      awapi_bayar_sisa: '5000000', awapi_paket_harga: '15000000', awapi_bayar: '10000000' },
+  ]);
+  assert.equal(b.outstanding, 5000000);
+});
+
 // ── source contracts: stats dashboard memakai fold ini ───────────────────────
 
 test('stats dashboard memakai collapseBookingOutstanding, bukan dedupe buta', () => {
@@ -132,13 +225,15 @@ test('stats dashboard memakai collapseBookingOutstanding, bukan dedupe buta', ()
   // Pola dedupe buta lama harus hilang.
   assert.doesNotMatch(server, /seenOutBookings/);
   assert.doesNotMatch(server, /seenOlBookings/);
-  // totalOutstanding & outstandingList sama-sama lewat fold shape-aware.
-  const folds = server.match(/collapseBookingOutstanding\(/g) || [];
-  assert.ok(folds.length >= 2, 'totalOutstanding + outstandingList');
-  // Kedua query membawa sub-field raw shape + price-proof (bukan raw_data utuh).
+  // totalOutstanding & outstandingList berbagi SATU fold (tidak drift): satu
+  // universe pax penuh → satu collapseBookingOutstanding → dipakai keduanya.
+  assert.match(server, /const collapsedOutstanding = collapseBookingOutstanding\(/);
+  assert.match(server, /collapsedOutstanding\.reduce\(/);   // totalOutstanding
+  assert.match(server, /const outstandingList = collapsedOutstanding\b/); // list
+  // Query outstanding membawa sub-field raw shape + price-proof (bukan raw_data
+  // utuh) untuk fold shape-aware + netting kredit lebih-bayar.
   for (const field of ['awapi_bayar_sisa:raw_data->>bayar_sisa', 'awapi_paket_harga:raw_data->>paket_harga', 'awapi_bayar:raw_data->>bayar']) {
-    const hits = server.split(field).length - 1;
-    assert.ok(hits >= 2, `outQ + olQ select ${field}`);
+    assert.ok(server.includes(field), `olQ select ${field}`);
   }
 });
 

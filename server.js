@@ -10209,12 +10209,6 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
     const lunasQ = supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).or('sisa.lte.0,sisa.is.null');
     const belumLunasQ = supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).gt('sisa', 0).gt('bayar', 0);
 
-    // id_umroh + sub-field raw (bukan seluruh JSONB) untuk fold shape-aware
-    // di collapseBookingOutstanding: per-pax dijumlah; shape aggregate (raw
-    // bayar_sisa<0) pakai price-proof Σ paket_harga − aggregate, fallback max.
-    let outQ = supabase.from('jamaah').select('id_umroh, bayar, sisa, awapi_bayar_sisa:raw_data->>bayar_sisa, awapi_paket_harga:raw_data->>paket_harga, awapi_bayar:raw_data->>bayar').eq('agent_id', agentId).gt('sisa', 0).gt('bayar', 0);
-    if (year) outQ = outQ.eq('hijriah_year', year);
-
     let bebQ = supabase.from('jamaah')
       .select('nama, paket, jk, tgl_berangkat, sisa, bayar, wa')
       .eq('agent_id', agentId)
@@ -10231,7 +10225,12 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
     let trendQ = supabase.from('jamaah').select('tgl_daftar, bayar, sisa').eq('agent_id', agentId).gte('tgl_daftar', tmStr).order('tgl_daftar', { ascending: true });
     if (year) trendQ = trendQ.eq('hijriah_year', year);
 
-    let olQ = supabase.from('jamaah').select('id_umroh, nama, paket, jk, bayar, sisa, tgl_berangkat, wa, awapi_bayar_sisa:raw_data->>bayar_sisa, awapi_paket_harga:raw_data->>paket_harga, awapi_bayar:raw_data->>bayar').eq('agent_id', agentId).gt('sisa', 0).gt('bayar', 0).order('sisa', { ascending: false }).order('tgl_berangkat', { ascending: true });
+    // Outstanding universe: SELURUH pax (tanpa filter sisa) — collapseBooking-
+    // Outstanding butuh saudara lebih-bayar (sisa<=0, kredit hanya di raw
+    // bayar_sisa) untuk netting antar-pax, plus pax lunas/belum-DP untuk
+    // membuktikan Σ paket_harga booking. Sorted sisa DESC → firstRow = pax
+    // bersisa terbesar (nama tampil). Satu fetch dipakai utk total + list.
+    let olQ = supabase.from('jamaah').select('id_umroh, nama, paket, jk, bayar, sisa, tgl_berangkat, wa, awapi_bayar_sisa:raw_data->>bayar_sisa, awapi_paket_harga:raw_data->>paket_harga, awapi_bayar:raw_data->>bayar').eq('agent_id', agentId).order('sisa', { ascending: false }).order('tgl_berangkat', { ascending: true });
     if (year) olQ = olQ.eq('hijriah_year', year);
 
     let komisiQ = supabase.from('jamaah').select('paket, sisa, tgl_berangkat, diskon_marketing').eq('agent_id', agentId);
@@ -10242,7 +10241,6 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
       totalRes,
       lunasRes,
       belumLunasRes,
-      outData,
       bebRows,
       jbRes,
       prevTotalRes,
@@ -10255,7 +10253,6 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
       totalQ,
       lunasQ,
       belumLunasQ,
-      fetchAllRows(outQ),
       fetchAllRows(excludeBelumDP(bebQ)),
       excludeBelumDP(jbQ),
       prevTotalQ,
@@ -10274,11 +10271,12 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
     const prevJamaahBaru = prevJbRes.count;
     // Fold shape-aware per booking (lib/booking-outstanding.js, semantik
     // notifier pasca-insiden bc126d4): shape per-pax dijumlah lintas anggota,
-    // shape aggregate dihitung sekali. Dedupe buta per id_umroh yang lama
-    // (pra-insiden) meng-UNDER-report booking per-pax hampir 2x karena hanya
-    // mengambil satu row arbitrer.
-    const totalOutstanding = collapseBookingOutstanding(outData)
-      .reduce((s, b) => s + b.outstanding, 0);
+    // shape aggregate dihitung sekali, plus netting kredit lebih-bayar antar-pax
+    // (kasus AIW0028524: lebih bayar 1 pax menutup sisa saudaranya). SATU fold
+    // dipakai untuk total + list supaya tidak pernah drift. Dedupe buta per
+    // id_umroh yang lama meng-UNDER-report booking per-pax hampir 2x.
+    const collapsedOutstanding = collapseBookingOutstanding(olRows);
+    const totalOutstanding = collapsedOutstanding.reduce((s, b) => s + b.outstanding, 0);
     const lastSync = syncResult.data?.last_jamaah_sync_at || null;
 
     // Berangkat Mendatang is an operational upcoming list, so it must cross
@@ -10307,12 +10305,12 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
       .map(([bulan, count]) => ({ bulan, count }))
       .sort((a, b) => a.bulan.localeCompare(b.bulan));
 
-    // Satu entri per booking via fold shape-aware; nama yang tampil = row
-    // bersisa terbesar booking itu (olQ sorted sisa DESC → firstRow), sisa
-    // yang tampil = outstanding booking sebenarnya (per-pax dijumlah, shape
-    // aggregate sekali) — dedupe lama menampilkan sisa satu row arbitrer.
+    // Satu entri per booking dari fold yang sama (collapsedOutstanding); nama
+    // yang tampil = row bersisa terbesar booking itu (olQ sorted sisa DESC →
+    // firstRow), sisa yang tampil = outstanding booking sebenarnya (per-pax
+    // dijumlah, shape aggregate sekali, kredit lebih-bayar ter-net).
     // Re-sort setelah fold karena total booking bisa menyalip sisa row tunggal.
-    const outstandingList = collapseBookingOutstanding(olRows)
+    const outstandingList = collapsedOutstanding
       .map(({ outstanding, memberCount, firstRow: r }) => {
         let hari_lagi = null;
         if (r.tgl_berangkat) {
