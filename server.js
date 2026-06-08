@@ -9966,13 +9966,13 @@ app.get('/api/laporan/tren-daftar', authMiddleware, adminOnly, async (req, res) 
     const leadDays = withDates.map(j => (new Date(j.tgl_berangkat) - new Date(j.tgl_daftar)) / 86400000).filter(d => d > 0);
     const leadTimeAvg = leadDays.length > 0 ? Math.round((leadDays.reduce((s, d) => s + d, 0) / leadDays.length / 30) * 10) / 10 : 0;
 
-    const lunasCount = cur.filter(j => j.sisa === 0 || j.sisa === null).length;
+    const lunasCount = cur.filter(j => j.sisa == null || j.sisa <= 0).length;
     const conversionRate = totalDaftar > 0 ? Math.round((lunasCount / totalDaftar) * 100) : 0;
 
     // Conversion context: only count jamaah who already departed
     const today = new Date().toISOString().split('T')[0];
     const sudahBerangkat = cur.filter(j => j.tgl_berangkat && j.tgl_berangkat <= today).length;
-    const lunasSudahBerangkat = cur.filter(j => (j.sisa === 0 || j.sisa === null) && j.tgl_berangkat && j.tgl_berangkat <= today).length;
+    const lunasSudahBerangkat = cur.filter(j => (j.sisa == null || j.sisa <= 0) && j.tgl_berangkat && j.tgl_berangkat <= today).length;
     const conversionRateBerangkat = sudahBerangkat > 0 ? Math.round((lunasSudahBerangkat / sudahBerangkat) * 100) : 0;
 
     const paketMapRaw = {};
@@ -10202,7 +10202,11 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
 
     // Build query builders (don't await yet)
     const totalQ = excludeBelumDP(supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch));
-    const lunasQ = supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).or('sisa.eq.0,sisa.is.null');
+    // Lunas (Statistik biner: tak ada kategori "lebih bayar" terpisah seperti
+    // di filter Jamaah) → sisa<=0 (incl. lebih bayar / sisa<0) ATAU null.
+    // `sisa.eq.0` lama menjatuhkan jamaah lebih-bayar ke luar lunas DAN belum
+    // lunas, jadi Lunas + Belum Lunas < Total dan lunasPercent meleset.
+    const lunasQ = supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).or('sisa.lte.0,sisa.is.null');
     const belumLunasQ = supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).gt('sisa', 0).gt('bayar', 0);
 
     // id_umroh + sub-field raw (bukan seluruh JSONB) untuk fold shape-aware

@@ -42,3 +42,22 @@ test('buildBerangkatMendatang includes the nearest upcoming month across Hijriah
     ['Jamaah 13 Juni', 'Jamaah 18 Juni'],
   );
 });
+
+test('buildBerangkatMendatang marks lunas for sisa <= 0 (incl. lebih bayar) and null', () => {
+  const rows = [
+    { nama: 'Lunas Pas', tgl_berangkat: '2026-06-10', sisa: 0 },
+    { nama: 'Lebih Bayar', tgl_berangkat: '2026-06-11', sisa: -110700000 },
+    { nama: 'Sisa Null', tgl_berangkat: '2026-06-12', sisa: null },
+    { nama: 'Belum Lunas', tgl_berangkat: '2026-06-13', sisa: 1000000 },
+  ];
+
+  const result = buildBerangkatMendatang(rows, '2026-06-01');
+  const lunasByNama = Object.fromEntries(
+    result.berangkatBulanIni.map(item => [item.nama, item.lunas]),
+  );
+
+  assert.equal(lunasByNama['Lunas Pas'], true);
+  assert.equal(lunasByNama['Lebih Bayar'], true);   // sisa<0 = overpaid → lunas
+  assert.equal(lunasByNama['Sisa Null'], true);     // null = lunas (konvensi sistem)
+  assert.equal(lunasByNama['Belum Lunas'], false);
+});
