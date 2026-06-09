@@ -285,8 +285,20 @@ export async function getPackages(
         };
       }
 
-      // Stale cache — return it but caller should revalidate
-      console.log(`[data-service] ⏳ Cache STALE (${Math.round(cached.age / 60000)}min old)`);
+      // Stale cache (age >= TTL): revalidate against the API BEFORE returning, so
+      // every caller — not just App.tsx — gets the current price. An agent quoting a
+      // customer from the standalone /:agent/kalkulasi route (which never mounts App
+      // and so never triggers a refresh) must see the latest figure, not a stale
+      // localStorage snapshot. fetchFromApi rewrites the shared cache on success, so
+      // subsequent loads are fresh too. Fall back to the stale snapshot only when the
+      // network fetch fails (stale-while-error) so the page never breaks offline.
+      console.log(`[data-service] ⏳ Cache STALE (${Math.round(cached.age / 60000)}min old) — revalidating`);
+      const revalidated = await fetchFromApi(yearCode, timeout, fetchOptions, silent);
+      if (revalidated.success) {
+        return revalidated;
+      }
+
+      console.warn('[data-service] Revalidation failed — serving stale cache as fallback');
       return {
         success: true,
         packages,

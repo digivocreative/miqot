@@ -48,14 +48,25 @@ interface ApiResponse {
     jadwal_nama: string;
     maskapai: string;
     berangkat_tgl: string;
-    paket_harga: Record<string, string>;
+    paket_harga: Record<string, Record<string, string>>;
   }>;
 }
 
-function formatPrice(harga: Record<string, string>): string {
-  const prices = Object.values(harga).map(Number).filter(n => n > 0);
-  if (prices.length === 0) return '';
-  const min = Math.min(...prices);
+// paket_harga is NESTED per tier: { "<TIER>": { Quard, Triple, Double, Single, Infant } }.
+// "mulai" = cheapest ADULT room (Quard/Triple/Double) across all tiers — mirrors
+// getMinimumPrice in src/services/data-service.ts. Single and Infant are excluded so
+// we never advertise a misleadingly low infant fare. (The previous version typed this
+// flat and ran Number() over the per-tier objects → NaN → price was always dropped.)
+function formatPrice(harga: Record<string, Record<string, string>>): string {
+  let min: number | null = null;
+  for (const tier of Object.values(harga || {})) {
+    if (!tier || typeof tier !== 'object') continue;
+    for (const room of [tier.Quard, tier.Triple, tier.Double]) {
+      const n = Number(room);
+      if (Number.isFinite(n) && n > 0 && (min === null || n < min)) min = n;
+    }
+  }
+  if (min === null) return '';
   const jt = (min / 1_000_000).toFixed(1).replace('.0', '');
   return `Rp ${jt} Jt`;
 }

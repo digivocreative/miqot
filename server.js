@@ -13764,7 +13764,12 @@ app.get('/api/portal/jamaah/sessions', authMiddleware, async (req, res) => {
 // ──────────────────────────────────────────────
 // Umroh Schedules: Sync from external API → Supabase
 // ──────────────────────────────────────────────
-const SCHEDULE_YEAR_CODES = ['1447', '1448', '1449'];
+// Active hijri years to sync. 1447 was dropped on 2026-06-09: it is a past year that
+// the upstream API no longer serves (returns 522/empty), so its rows could never be
+// refreshed — they lingered with frozen prices. Years removed from this list are reaped
+// by the post-loop orphan cleanup in syncUmrohSchedules(). Keep in sync with the
+// dashboard year selector (src/App.tsx availableYears).
+const SCHEDULE_YEAR_CODES = ['1448', '1449'];
 
 async function syncUmrohSchedules() {
   console.log('[ScheduleSync] Starting...');
@@ -13872,6 +13877,38 @@ async function syncUmrohSchedules() {
     } catch (err) {
       console.error(`[ScheduleSync] Year ${year} failed:`, err.message);
     }
+  }
+
+  // Reap rows for decommissioned year_codes (years no longer in SCHEDULE_YEAR_CODES).
+  // This runs OUTSIDE the per-year loop and is independent of any fetch succeeding, so a
+  // year that drops off the upstream API (e.g. a past hijri year now returning 522/empty)
+  // still gets purged instead of lingering forever with frozen prices. The per-year
+  // cleanup inside the loop only runs on a successful upsert and so could never reap a
+  // year whose fetch failed — that gap is exactly how the stale 1447 rows survived.
+  try {
+    const activeList = `(${SCHEDULE_YEAR_CODES.join(',')})`;
+    const { data: orphanRows } = await supabase
+      .from('umroh_schedules')
+      .select('jadwal_id, year_code, brosur_cdn, itinerary_cdn')
+      .not('year_code', 'in', activeList);
+    if (orphanRows?.length) {
+      if (getBunnyEnabled()) {
+        for (const stale of orphanRows) {
+          try {
+            if (stale.brosur_cdn) await bunnyDelete(stale.brosur_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, ''));
+            if (stale.itinerary_cdn) await bunnyDelete(stale.itinerary_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, ''));
+          } catch (e) { console.error(`[ScheduleSync] Bunny cleanup orphan ${stale.jadwal_id}: ${e.message}`); }
+        }
+      }
+      const { error: orphanDelErr, count: orphanCount } = await supabase
+        .from('umroh_schedules')
+        .delete({ count: 'exact' })
+        .not('year_code', 'in', activeList);
+      if (orphanDelErr) console.error('[ScheduleSync] Orphan-year cleanup error:', orphanDelErr.message);
+      else if (orphanCount > 0) console.log(`[ScheduleSync] Reaped ${orphanCount} rows for decommissioned year_codes (not in ${activeList})`);
+    }
+  } catch (e) {
+    console.error('[ScheduleSync] Orphan-year cleanup failed:', e.message);
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -14152,6 +14189,13 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
 
   if (!/^\d{4}$/.test(yearCode)) {
     return res.status(400).json({ status: 'error', error: 'Invalid year code' });
+  }
+
+  // Defense in depth: only serve active hijri years. Decommissioned years (e.g. a past
+  // 1447) may still have orphan rows in flight before the sync reaper removes them; never
+  // hand their frozen prices to a caller. The dashboard only ever requests active years.
+  if (!SCHEDULE_YEAR_CODES.includes(yearCode)) {
+    return res.status(404).json({ status: 'error', error: 'Year not active' });
   }
 
   let cachedRows = [];
