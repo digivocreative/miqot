@@ -14,6 +14,7 @@
 
 import * as cheerio from 'cheerio';
 import { PDFParse } from 'pdf-parse';
+import { matchEventToSchedule, findSiblingKeberangkatan, tokenizeName, overlapScore } from './lib/calendar-jadwal-match.js';
 
 const BASE = (process.env.INTERNAL_API_BASE || 'http://115.124.86.220') + '/aiw/staff';
 // Dedicated calendar credential — terpisah dari agent agar tidak bentrok session
@@ -319,12 +320,101 @@ export async function syncCalendar(supabase) {
     console.log('[Calendar] Sync complete: no rows generated');
   }
 
+  // Isi pax jamaah jaringan untuk baris yang baru di-sync
+  try {
+    await enrichCalendarPaxJamaah(supabase);
+  } catch (err) {
+    console.error('[PaxJamaah] Enrichment failed:', err.message);
+  }
+
   // Fire-and-forget: enrich keberangkatan events with kumpul info from PDFs
   enrichKeberangkatanWithKumpul(supabase).catch(err => {
     console.error('[KumpulParser] Enrichment failed:', err.message);
   });
 
   return { success: true, count: allRows.length };
+}
+
+// ── Enrich calendar events with pax jamaah jaringan ──
+// pax legacy = kuota grup nasional (== seat_total), bukan jumlah jamaah.
+// Petakan tiap baris kalender → jadwal umroh_schedules, lalu isi pax_jamaah
+// dari agregat tabel jamaah (view jamaah_network_pax). Baris tak ter-map
+// dibiarkan NULL — frontend fallback ke pax legacy. Dipanggil setelah
+// syncCalendar dan tiap jam dari server.js agar mengikuti sync jamaah.
+export async function enrichCalendarPaxJamaah(supabase) {
+  const now = new Date();
+  const rangeStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const rangeStartStr = rangeStart.toISOString().split('T')[0];
+
+  const [evRes, schedRes, paxRes] = await Promise.all([
+    supabase
+      .from('calendar_events')
+      .select('id, event_date, event_type, group_number, paket, pax, jadwal_id, pax_jamaah')
+      .gte('event_date', rangeStartStr),
+    supabase
+      .from('umroh_schedules')
+      .select('jadwal_id, jadwal_nama, berangkat_tgl, pulang_tgl, manasik_tgl, seat_total')
+      .order('jadwal_id'),
+    supabase.from('jamaah_network_pax').select('jadwal_id, pax'),
+  ]);
+
+  const firstError = evRes.error || schedRes.error || paxRes.error;
+  if (firstError) {
+    console.error('[PaxJamaah] Query error:', firstError.message);
+    return { success: false, error: firstError.message };
+  }
+
+  const events = evRes.data || [];
+  const schedules = schedRes.data || [];
+  const networkPax = new Map((paxRes.data || []).map(r => [r.jadwal_id, r.pax]));
+
+  // Pass 1: match via tanggal + nama. Sticky: jadwal yang sudah berangkat
+  // dihapus dari umroh_schedules oleh schedule sync (mengikuti API), jadi
+  // mapping lama JANGAN diturunkan ke null hanya karena tidak bisa di-derive
+  // ulang — kepulangan kloter yang sedang di tanah suci tetap butuh mappingnya.
+  const resolved = new Map(); // event id → jadwal_id | null
+  for (const ev of events) {
+    const fresh = matchEventToSchedule(ev, schedules)?.jadwal_id || null;
+    resolved.set(ev.id, fresh || ev.jadwal_id || null);
+  }
+
+  // Pass 2: kepulangan/manasik yang gagal match tanggal (mis. pulang_tgl API
+  // ≠ tanggal pulang riil paket plus-negara) — warisi dari keberangkatan se-kloter
+  const mappedKeberangkatan = events
+    .filter(e => e.event_type === 'keberangkatan' && resolved.get(e.id))
+    .map(e => ({ ...e, jadwal_id: resolved.get(e.id) }));
+  for (const ev of events) {
+    if (ev.event_type === 'keberangkatan' || resolved.get(ev.id)) continue;
+    const sibling = findSiblingKeberangkatan(ev, mappedKeberangkatan);
+    if (sibling) resolved.set(ev.id, sibling.jadwal_id);
+  }
+
+  let matched = 0;
+  let unmatched = 0;
+  let updated = 0;
+
+  for (const ev of events) {
+    const jadwalId = resolved.get(ev.id);
+    // Ter-map tapi belum ada jamaah di jaringan = 0 (bukan NULL) — itu fakta.
+    const paxJamaah = jadwalId ? (networkPax.get(jadwalId) ?? 0) : null;
+    if (jadwalId) matched++; else unmatched++;
+
+    // Skip-unchanged agar tidak membebani Disk-IO DB
+    if (ev.jadwal_id === jadwalId && ev.pax_jamaah === paxJamaah) continue;
+
+    const { error } = await supabase
+      .from('calendar_events')
+      .update({ jadwal_id: jadwalId, pax_jamaah: paxJamaah })
+      .eq('id', ev.id);
+    if (error) {
+      console.error(`[PaxJamaah] Update error ${ev.id}:`, error.message);
+    } else {
+      updated++;
+    }
+  }
+
+  console.log(`[PaxJamaah] Enrichment: ${matched} matched, ${unmatched} unmatched, ${updated} rows updated`);
+  return { success: true, matched, unmatched, updated };
 }
 
 // ── Extract jam kumpul & titik kumpul from itinerary PDF ──
@@ -476,16 +566,12 @@ export async function enrichKeberangkatanWithKumpul(supabase) {
       continue;
     }
 
-    // Tokenize calendar paket name into keywords (3+ chars)
-    const calWords = (event.paket || '').toUpperCase().replace(/[^A-Z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3);
-
     // Find best match by keyword overlap
+    const calWords = tokenizeName(event.paket);
     let matchedPkg = null;
     let bestScore = 0;
     for (const pkg of dateCandidates) {
-      const apiWords = (pkg.jadwal_nama || '').toUpperCase().replace(/[^A-Z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3);
-      const overlap = calWords.filter(w => apiWords.includes(w)).length;
-      const score = calWords.length > 0 ? overlap / calWords.length : 0;
+      const score = overlapScore(calWords, pkg.jadwal_nama);
       if (score > bestScore) {
         bestScore = score;
         matchedPkg = pkg;

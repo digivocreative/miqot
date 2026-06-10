@@ -9,10 +9,18 @@ interface EventDetail {
   jam: string | null;
   paket: string | null;
   pax: number;
+  pax_jamaah: number | null;
   staff: string | null;
   tour_leader: string | null;
   jam_kumpul: string | null;
   titik_kumpul: string | null;
+}
+
+// pax legacy = kuota grup nasional, bukan jumlah jamaah. Tampilkan jumlah
+// jamaah jaringan (pax_jamaah) bila baris ter-map ke jadwal; fallback ke
+// kuota legacy bila tidak (mis. WAITINGLIST tanpa jadwal padanan).
+function displayPax(d: EventDetail): number {
+  return d.pax_jamaah ?? d.pax ?? 0;
 }
 
 interface CalendarEvent {
@@ -236,7 +244,7 @@ export default function UpcomingSchedule() {
 
   const tabConfig = TAB_CONFIG[activeTab];
   const activeDetails = selectedEventsByType[activeTab] || [];
-  const totalPax = activeDetails.reduce((s, d) => s + (d.pax || 0), 0);
+  const totalPax = activeDetails.reduce((s, d) => s + displayPax(d), 0);
 
   return (
     <>
@@ -469,7 +477,7 @@ export default function UpcomingSchedule() {
 
                         {/* Right — PAX */}
                         <div className="flex-shrink-0 text-right pt-0.5">
-                          <div className="text-lg font-extrabold text-gray-800 dark:text-white leading-none">{detail.pax || 0}</div>
+                          <div className="text-lg font-extrabold text-gray-800 dark:text-white leading-none">{displayPax(detail)}</div>
                           <div className="text-[8px] font-bold text-gray-500 dark:text-slate-400 uppercase mt-0.5">PAX</div>
                         </div>
                       </div>

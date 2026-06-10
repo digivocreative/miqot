@@ -26,7 +26,7 @@ import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate
 import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCacheableHtmlDocument, JAMAAH_DOCUMENT_TYPES } from './lib/jamaah-document-cache.js';
 import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
-import { syncCalendar, enrichKeberangkatanWithKumpul } from './calendar-api.js';
+import { syncCalendar, enrichKeberangkatanWithKumpul, enrichCalendarPaxJamaah } from './calendar-api.js';
 import { regenerateOgForAgent, generatePortalJamaahOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
@@ -7327,6 +7327,7 @@ app.get('/api/calendar/events', dbLoadShedGuard, authMiddleware, async (req, res
         jam: ev.jam,
         paket: ev.paket,
         pax: ev.pax,
+        pax_jamaah: ev.pax_jamaah ?? null,
         staff: ev.staff,
         tour_leader: ev.tour_leader,
         jam_kumpul: ev.jam_kumpul || null,
@@ -7412,7 +7413,7 @@ async function generateCalendarInsight() {
   try {
     const [weekResult, monthResult] = await Promise.all([
       supabase.from('calendar_events').select('*').gte('event_date', todayStr).lte('event_date', nextWeekStr).order('event_date'),
-      supabase.from('calendar_events').select('event_date, event_type, pax, paket, group_number').gte('event_date', monthStart).lt('event_date', monthEnd).eq('event_type', 'keberangkatan'),
+      supabase.from('calendar_events').select('event_date, event_type, pax, pax_jamaah, paket, group_number').gte('event_date', monthStart).lt('event_date', monthEnd).eq('event_type', 'keberangkatan'),
     ]);
     weekEvents = weekResult.data || [];
     monthEvents = monthResult.data || [];
@@ -7455,7 +7456,8 @@ async function generateCalendarInsight() {
     if (!weekSummary[key]) weekSummary[key] = { date: ev.event_date, type: ev.event_type, groups: [], totalPax: 0 };
     weekSummary[key].groups.push({
       group: ev.group_number,
-      pax: ev.pax || 0,
+      // Jamaah jaringan bila ter-map; fallback kuota legacy (konsisten dgn kalender)
+      pax: ev.pax_jamaah ?? ev.pax ?? 0,
       paket: ev.paket,
       tour_leader: ev.tour_leader || null,
       jam_kumpul: ev.jam_kumpul || null,
@@ -7463,7 +7465,7 @@ async function generateCalendarInsight() {
       pesawat: ev.pesawat || null,
       jam: ev.jam || null,
     });
-    weekSummary[key].totalPax += ev.pax || 0;
+    weekSummary[key].totalPax += ev.pax_jamaah ?? ev.pax ?? 0;
   }
 
   // Separate today's events from future events explicitly
@@ -7511,7 +7513,7 @@ async function generateCalendarInsight() {
   }
 
   // Month summary
-  const monthTotalPax = monthEvents.reduce((s, e) => s + (e.pax || 0), 0);
+  const monthTotalPax = monthEvents.reduce((s, e) => s + (e.pax_jamaah ?? e.pax ?? 0), 0);
   const monthDates = [...new Set(monthEvents.map(e => e.event_date))];
   const paketCount = {};
   for (const e of monthEvents) {
@@ -8087,7 +8089,7 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent) {
     arr_gate: apiData.arr_gate || null,
     arr_scheduled: apiData.arr_time || apiData.arr_time_utc || null,
     arr_estimated: apiData.arr_estimated || apiData.arr_estimated_utc || null,
-    pax: calendarEvent.pax || 0,
+    pax: calendarEvent.pax_jamaah ?? calendarEvent.pax ?? 0,
     tour_leader: calendarEvent.tour_leader || '',
     lat: apiData.lat || null,
     lng: apiData.lng || null,
@@ -8348,7 +8350,7 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
           ...flightBase,
           id: entryId,
           group: event.group_number || '',
-          pax: event.pax || 0,
+          pax: event.pax_jamaah ?? event.pax ?? 0,
           tourLeader: event.tour_leader || '',
           jamaah: jamaahByDate.get(
             event.event_type === 'keberangkatan'
@@ -8477,7 +8479,7 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
           arrTerminal: null, arrGate: null,
           arrScheduled: arrLocal,
           arrEstimated: arrLocal,
-          pax: event.pax || 0,
+          pax: event.pax_jamaah ?? event.pax ?? 0,
           tourLeader: event.tour_leader || '',
           jamaah: jamaahByDate.get(
             event.event_type === 'keberangkatan'
@@ -8813,7 +8815,7 @@ function buildFlightNotifMessage(flight, calendarEvent, change) {
   const flightLabel = `${flight.airline_name || ''} ${flight.flight_iata || ''}`.trim();
   const route = `${flight.dep_iata || '?'} → ${flight.arr_iata || '?'}`;
   const groupLabel = calendarEvent.group_number ? `Grup ${calendarEvent.group_number}` : '';
-  const paxLine = `Jamaah: <b>${calendarEvent.pax || '?'} orang</b>`;
+  const paxLine = `Jamaah: <b>${(calendarEvent.pax_jamaah ?? calendarEvent.pax) || '?'} orang</b>`;
   const tlLine = calendarEvent.tour_leader ? `\nTL: ${calendarEvent.tour_leader}` : '';
   const header = `<b>${flightLabel}</b>\n${route}${groupLabel ? ` • ${groupLabel}` : ''}\n─────────────────\n`;
 
@@ -16624,6 +16626,14 @@ async function runCalendarSync() {
 if (shouldRunBackgroundJobs()) {
   setTimeout(runCalendarSync, 60 * 1000);
   setInterval(runCalendarSync, 12 * 60 * 60 * 1000);
+
+  // Pax jamaah jaringan ikut berubah tiap sync jamaah — refresh per jam
+  // tanpa menunggu siklus sync kalender 12 jam (skip-unchanged di dalamnya).
+  setInterval(() => {
+    enrichCalendarPaxJamaah(supabase).catch(err => {
+      console.error('[PaxJamaah] Refresh error:', err.message);
+    });
+  }, 60 * 60 * 1000);
 }
 
 // ── Itinerary background sync: 2 min after startup, then every 12 hours ──

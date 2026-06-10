@@ -1555,7 +1555,9 @@ function buildManasikMessage(events, manasikDate) {
     const parts = [];
     if (e.group_number) parts.push(`Group ${escHtml(e.group_number)}`);
     if (e.paket) parts.push(escHtml(e.paket));
-    if (e.pax) parts.push(`${e.pax} jamaah`);
+    // Jamaah jaringan bila ter-map; fallback kuota legacy (konsisten dgn dashboard)
+    const paxCount = e.pax_jamaah ?? e.pax;
+    if (paxCount) parts.push(`${paxCount} jamaah`);
     if (e.jam) parts.push(`jam ${escHtml(e.jam)}`);
     return `→ ${parts.join(' • ') || 'Jadwal manasik'}`;
   });
