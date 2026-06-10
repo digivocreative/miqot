@@ -11,7 +11,7 @@ import {
   type MonthGroup,
 } from '@/utils';
 import logoAlhijaz from '@/logo-alhijaz.webp';
-import { Sun, Moon, Search, X, SlidersHorizontal, LayoutList, LogIn, LayoutDashboard } from 'lucide-react';
+import { Sun, Moon, Search, X, SlidersHorizontal, LayoutList, LogIn, Home } from 'lucide-react';
 import { AGENTS_DATA } from '@/data/agents';
 
 // ============================================
@@ -223,7 +223,7 @@ export function FilterHeader({
                aria-label={loggedIn ? 'Dashboard' : 'Masuk'}
                title={loggedIn ? 'Dashboard' : 'Masuk'}
              >
-               {loggedIn ? <LayoutDashboard size={16} /> : <LogIn size={16} />}
+               {loggedIn ? <Home size={16} /> : <LogIn size={16} />}
              </button>
 
            </div>
