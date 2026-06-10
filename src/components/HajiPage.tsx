@@ -174,6 +174,7 @@ function DocViewerPopup({ url, title, onClose }: { url: string; title: string; o
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [docLoading, setDocLoading] = useState(true);
   const [docError, setDocError] = useState('');
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -257,6 +258,7 @@ function DocViewerPopup({ url, title, onClose }: { url: string; title: string; o
           <button
             onClick={async () => {
               if (navigator.share) {
+                setSharing(true);
                 try {
                   const res = await fetch(blobUrl);
                   const blob = await res.blob();
@@ -264,15 +266,20 @@ function DocViewerPopup({ url, title, onClose }: { url: string; title: string; o
                   await navigator.share({ title, files: [file] });
                 } catch (err: any) {
                   if (err?.name !== 'AbortError') window.open(blobUrl, '_blank');
+                } finally {
+                  setSharing(false);
                 }
               } else {
                 window.open(blobUrl, '_blank');
               }
             }}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98]"
+            disabled={sharing}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98] disabled:opacity-50"
           >
-            <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx={18} cy={5} r={3}/><circle cx={6} cy={12} r={3}/><circle cx={18} cy={19} r={3}/><line x1={8.59} y1={13.51} x2={15.42} y2={17.49}/><line x1={15.41} y1={6.51} x2={8.59} y2={10.49}/></svg>
-            Bagikan Dokumen
+            {sharing
+              ? <Loader2 size={20} className="animate-spin" />
+              : <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx={18} cy={5} r={3}/><circle cx={6} cy={12} r={3}/><circle cx={18} cy={19} r={3}/><line x1={8.59} y1={13.51} x2={15.42} y2={17.49}/><line x1={15.41} y1={6.51} x2={8.59} y2={10.49}/></svg>}
+            {sharing ? 'Membagikan...' : 'Bagikan Dokumen'}
           </button>
         </div>
       )}

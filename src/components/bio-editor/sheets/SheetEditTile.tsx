@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Trash2, AlertTriangle, Save } from 'lucide-react';
+import { Trash2, AlertTriangle, Save, Loader2 } from 'lucide-react';
 import SheetBase from './SheetBase';
 import type { BioAgentPublic, BioTile, FeaturedPaketPreview } from '../../bio/types';
 import { getAuthHeaders } from '../../LoginPage';
@@ -21,6 +21,17 @@ interface Props {
 export default function SheetEditTile(props: Props) {
   const { open, onClose, tile, agent, onUpdateConfig, onDelete, onSave, waLinkPreview } = props;
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onSave();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (!tile) {
     return <SheetBase open={open} onClose={onClose} title="Edit Bagian"><div /></SheetBase>;
@@ -50,10 +61,11 @@ export default function SheetEditTile(props: Props) {
   const saveButton = (
     <button
       type="button"
-      onClick={() => { void onSave(); }}
-      className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+      onClick={() => { void handleSave(); }}
+      disabled={saving}
+      className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
     >
-      <Save size={15} strokeWidth={2.4} /> Simpan
+      {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} strokeWidth={2.4} />} {saving ? 'Menyimpan…' : 'Simpan'}
     </button>
   );
 

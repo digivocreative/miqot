@@ -1283,6 +1283,7 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
   const [disableOTP, setDisableOTP] = useState('');
   const [disableError, setDisableError] = useState('');
   const [disableLoading, setDisableLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
   const [otpCooldown, setOtpCooldown] = useState(0);
   const [otpTelegramName, setOtpTelegramName] = useState('');
 
@@ -2130,14 +2131,23 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
                       error={!!disableError}
                     />
                     {disableError && <p className="text-xs text-red-500 dark:text-red-400 mt-2">{disableError}</p>}
+                    <button
+                      type="button"
+                      disabled
+                      className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all mt-4 ${disableLoading ? 'bg-red-500 text-white' : 'bg-red-200 dark:bg-red-900/30 text-red-300 dark:text-red-500/50'}`}
+                    >
+                      {disableLoading ? <><Loader2 size={14} className="animate-spin" /> Memverifikasi...</> : 'Nonaktifkan PIN'}
+                    </button>
                     <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-3">
                       {otpCooldown > 0 ? (
                         <>Kirim ulang ({otpCooldown}s)</>
                       ) : (
                         <>Belum dapat kode?{' '}
                           <button
+                            type="button"
                             onClick={async () => {
                               setDisableError('');
+                              setResendLoading(true);
                               try {
                                 const res = await fetch('/api/auth/pin-reset-request', {
                                   method: 'POST',
@@ -2148,12 +2158,20 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
                                   const interval = setInterval(() => {
                                     setOtpCooldown(prev => { if (prev <= 1) { clearInterval(interval); return 0; } return prev - 1; });
                                   }, 1000);
+                                } else {
+                                  const data = await res.json().catch(() => ({}));
+                                  setDisableError(data.error || 'Gagal mengirim kode');
                                 }
-                              } catch { /* silent */ }
+                              } catch {
+                                setDisableError('Gagal mengirim kode');
+                              } finally {
+                                setResendLoading(false);
+                              }
                             }}
-                            className="text-emerald-600 dark:text-emerald-400 underline underline-offset-2"
+                            disabled={resendLoading || disableLoading}
+                            className="text-emerald-600 dark:text-emerald-400 underline underline-offset-2 disabled:opacity-50"
                           >
-                            Kirim ulang
+                            {resendLoading ? <><Loader2 size={12} className="animate-spin inline" /> Mengirim...</> : 'Kirim ulang'}
                           </button>
                         </>
                       )}

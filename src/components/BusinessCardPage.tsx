@@ -418,7 +418,7 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
   const [selectedDesign, setSelectedDesign] = useState<DesignId>('d1');
   const [format, setFormat] = useState<CardFormat>('landscape');
   const hasTrackedGenerate = useRef(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [exporting, setExporting] = useState<'download' | 'share' | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState('');
   const currentDesign = DESIGNS.find(d => d.id === selectedDesign)!;
 
@@ -456,20 +456,20 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
   const cardSize = CARD_SIZE[format];
 
   const handleDownload = async () => {
-    if (!cardExportRef.current || isExporting) return;
-    setIsExporting(true);
+    if (!cardExportRef.current || exporting) return;
+    setExporting('download');
     try {
       const { snapdom } = await import('@zumer/snapdom');
       const result = await snapdom(cardExportRef.current, { scale: 2 });
       await result.download({ type: 'png', filename: `kartu-nama-${agent.slug || 'agent'}-${format}` });
       trackEvent('action', 'download_business_card', { theme: currentDesign.name });
     } catch (e) { console.error('Export gagal:', e); }
-    finally { setIsExporting(false); }
+    finally { setExporting(null); }
   };
 
   const handleShare = async () => {
-    if (!cardExportRef.current || isExporting) return;
-    setIsExporting(true);
+    if (!cardExportRef.current || exporting) return;
+    setExporting('share');
     try {
       const { snapdom } = await import('@zumer/snapdom');
       const result = await snapdom(cardExportRef.current, { scale: 2 });
@@ -477,7 +477,7 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
       const file = new File([blob], `kartu-nama-${agent.slug || 'agent'}.png`, { type: 'image/png' });
       if (navigator.share) await navigator.share({ files: [file] });
     } catch (e: any) { if (e?.name !== 'AbortError') console.error('Share gagal:', e); }
-    finally { setIsExporting(false); }
+    finally { setExporting(null); }
   };
 
   const thumbW = format === 'landscape' ? 88 : 54;
@@ -549,14 +549,14 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
           <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Download</span>
         </div>
         <div className="p-4 space-y-2">
-          <button onClick={handleDownload} disabled={isExporting}
+          <button onClick={handleDownload} disabled={!!exporting}
             className="w-full py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50">
-            {isExporting ? <><Loader2 size={16} className="animate-spin" /> Exporting...</> : <><Download size={16} /> Download PNG</>}
+            {exporting === 'download' ? <><Loader2 size={16} className="animate-spin" /> Exporting...</> : <><Download size={16} /> Download PNG</>}
           </button>
           {'share' in navigator && (
-            <button onClick={handleShare} disabled={isExporting}
+            <button onClick={handleShare} disabled={!!exporting}
               className="w-full py-3 rounded-xl text-sm font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50">
-              <Share2 size={16} /> Bagikan
+              {exporting === 'share' ? <><Loader2 size={16} className="animate-spin" /> Menyiapkan...</> : <><Share2 size={16} /> Bagikan</>}
             </button>
           )}
           <p className="text-[9px] text-gray-400 dark:text-slate-500 text-center mt-1">Format PNG · Resolusi tinggi · Siap print & share</p>

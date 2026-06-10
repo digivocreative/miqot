@@ -33,6 +33,7 @@ export default function SheetSeo({ open, onClose, agent, config, onUpdate, onSav
   const seo = config.seo || { title: null, description: null, og_image_url: null };
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cropDataUrl, setCropDataUrl] = useState<string | null>(null);
 
@@ -95,14 +96,24 @@ export default function SheetSeo({ open, onClose, agent, config, onUpdate, onSav
   const effectiveTitle = titleVal.trim() || TITLE_PLACEHOLDER;
   const effectiveDesc = descVal.trim() || DESC_PLACEHOLDER;
 
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onSave();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const footer = (
     <button
       type="button"
-      onClick={() => { void onSave(); }}
-      disabled={uploading}
+      onClick={() => { void handleSave(); }}
+      disabled={uploading || saving}
       className="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
     >
-      <Save size={15} strokeWidth={2.4} /> Simpan
+      {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} strokeWidth={2.4} />} {saving ? 'Menyimpan…' : 'Simpan'}
     </button>
   );
 

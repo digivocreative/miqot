@@ -31,9 +31,9 @@ export default function CustomDomainPage({ agent }: Props) {
     body = (
       <FormState
         onCancel={() => setShowForm(false)}
-        onSubmitted={() => {
+        onSubmitted={async () => {
+          await refetch();
           setShowForm(false);
-          refetch();
         }}
       />
     );
@@ -279,7 +279,7 @@ function isAllowedCustomDomainName(domain: string) {
   return false;
 }
 
-function FormState({ onCancel, onSubmitted }: { onCancel: () => void; onSubmitted: () => void }) {
+function FormState({ onCancel, onSubmitted }: { onCancel: () => void; onSubmitted: () => Promise<void> | void }) {
   const [value, setValue] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -305,6 +305,9 @@ function FormState({ onCancel, onSubmitted }: { onCancel: () => void; onSubmitte
   }, [value]);
 
   const handleSubmit = async () => {
+    // Guard re-entry: the submit button is disabled while submitting, but the
+    // input's Enter key calls handleSubmit directly and would double-POST.
+    if (submitting) return;
     setTouched(true);
     if (localError || !value.trim()) {
       // Validation failed — blur to surface the red state to the user.
@@ -324,7 +327,7 @@ function FormState({ onCancel, onSubmitted }: { onCancel: () => void; onSubmitte
         setServerError(json?.error || 'Gagal menyimpan domain');
         return;
       }
-      onSubmitted();
+      await onSubmitted();
     } catch (err: any) {
       setServerError(err?.message || 'Gagal menyimpan domain');
     } finally {

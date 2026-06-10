@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Check, Clock, Copy, KeyRound, Lock, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
+import { Bot, Check, Clock, Copy, KeyRound, Loader2, Lock, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 
@@ -95,7 +95,6 @@ export default function McpIntegrationPage() {
 
   const generateKey = async () => {
     setBusy(true);
-    setConfirmAction(null);
     try {
       const r = await fetch('/api/mcp-key', { method: 'POST', headers: getAuthHeaders() });
       const d = await r.json();
@@ -108,12 +107,14 @@ export default function McpIntegrationPage() {
       showToast(e instanceof Error ? e.message : 'Gagal membuat kunci');
     } finally {
       setBusy(false);
+      // Baru tutup panel konfirmasi SETELAH fetch selesai — kalau direset di awal,
+      // panel unmount dan feedback "Memproses…" tidak pernah terlihat.
+      setConfirmAction(null);
     }
   };
 
   const revokeKey = async () => {
     setBusy(true);
-    setConfirmAction(null);
     try {
       const r = await fetch('/api/mcp-key', { method: 'DELETE', headers: getAuthHeaders() });
       const d = await r.json();
@@ -126,6 +127,7 @@ export default function McpIntegrationPage() {
       showToast(e instanceof Error ? e.message : 'Gagal memutuskan');
     } finally {
       setBusy(false);
+      setConfirmAction(null);
     }
   };
 
@@ -182,7 +184,7 @@ export default function McpIntegrationPage() {
                 disabled={busy}
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-teal-500 hover:bg-teal-600 text-white shadow-md shadow-teal-500/20 transition-all duration-200 active:scale-95 disabled:opacity-50"
               >
-                <KeyRound size={16} />
+                {busy ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />}
                 {busy ? 'Membuat…' : 'Buat Kunci Akses'}
               </button>
             </>
@@ -225,9 +227,9 @@ export default function McpIntegrationPage() {
                     <button
                       onClick={confirmAction === 'rotate' ? generateKey : revokeKey}
                       disabled={busy}
-                      className="flex-1 py-2 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/20 transition-all duration-200 active:scale-95 disabled:opacity-50"
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/20 transition-all duration-200 active:scale-95 disabled:opacity-50"
                     >
-                      {busy ? 'Memproses…' : 'Ya, lanjut'}
+                      {busy ? <><Loader2 size={14} className="animate-spin" /> Memproses…</> : 'Ya, lanjut'}
                     </button>
                     <button
                       onClick={() => setConfirmAction(null)}
@@ -242,13 +244,15 @@ export default function McpIntegrationPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setConfirmAction('rotate')}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-bold bg-teal-500 hover:bg-teal-600 text-white shadow-md shadow-teal-500/20 transition-all duration-200 active:scale-95"
+                    disabled={busy}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-bold bg-teal-500 hover:bg-teal-600 text-white shadow-md shadow-teal-500/20 transition-all duration-200 active:scale-95 disabled:opacity-50"
                   >
-                    <RefreshCw size={14} /> Buat Kunci Baru
+                    <RefreshCw size={14} className={busy ? 'animate-spin' : ''} /> Buat Kunci Baru
                   </button>
                   <button
                     onClick={() => setConfirmAction('revoke')}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-bold bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800/40 hover:bg-red-100 dark:hover:bg-red-900/30 transition-all duration-200 active:scale-95"
+                    disabled={busy}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-bold bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800/40 hover:bg-red-100 dark:hover:bg-red-900/30 transition-all duration-200 active:scale-95 disabled:opacity-50"
                   >
                     <Trash2 size={14} /> Putuskan
                   </button>

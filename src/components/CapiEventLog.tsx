@@ -204,14 +204,14 @@ export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
               <div className="flex gap-1">
                 <button
                   onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page <= 1}
+                  disabled={page <= 1 || loading}
                   className="w-8 h-8 flex items-center justify-center rounded-xl text-xs font-bold border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 disabled:opacity-25 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors bg-white dark:bg-slate-800"
                 >
                   <ChevronLeft size={14} />
                 </button>
                 <button
                   onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                  disabled={page >= totalPages}
+                  disabled={page >= totalPages || loading}
                   className="w-8 h-8 flex items-center justify-center rounded-xl text-xs font-bold border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 disabled:opacity-25 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors bg-white dark:bg-slate-800"
                 >
                   <ChevronRight size={14} />

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap, Calendar, Radio, Share2, Check, Lock } from 'lucide-react';
+import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap, Calendar, Radio, Share2, Check, Lock, Loader2 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber } from '../utils/phone';
@@ -249,10 +249,11 @@ function groupFlights(flights: FlightData[]): FlightData[][] {
 
 // ── Expanded detail panel for a single kloter ──
 
-function KloterDetail({ flight, shareUrl, shareCopied, onShare, hasInternalAuth, onAuthRequired }: {
+function KloterDetail({ flight, shareUrl, shareCopied, shareFailed, onShare, hasInternalAuth, onAuthRequired }: {
   flight: FlightData;
   shareUrl: string | null;
   shareCopied: boolean;
+  shareFailed: boolean;
   onShare: () => void;
   hasInternalAuth: boolean;
   onAuthRequired: () => void;
@@ -451,7 +452,8 @@ function KloterDetail({ flight, shareUrl, shareCopied, onShare, hasInternalAuth,
       {/* Share button — prominent, at bottom of detail */}
       <button
         onClick={hasInternalAuth ? onShare : onAuthRequired}
-        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-[0.97] ${
+        disabled={hasInternalAuth && !shareUrl && !shareCopied && !shareFailed}
+        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-[0.97] disabled:opacity-50 ${
           shareCopied
             ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40'
             : 'bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-200 dark:hover:border-emerald-800/40'
@@ -459,10 +461,10 @@ function KloterDetail({ flight, shareUrl, shareCopied, onShare, hasInternalAuth,
       >
         {shareCopied ? (
           <><Check size={13} strokeWidth={2.5} />Berhasil copy link!</>
-        ) : shareUrl ? (
+        ) : shareUrl || shareFailed || !hasInternalAuth ? (
           <><Share2 size={13} strokeWidth={2} />Share ke Jamaah</>
         ) : (
-          <><Share2 size={13} strokeWidth={2} />Share ke Jamaah</>
+          <><Loader2 size={13} strokeWidth={2} className="animate-spin" />Menyiapkan link...</>
         )}
       </button>
 
@@ -527,9 +529,13 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
       if (data.success) {
         shareCache.current[flightKey] = data.data.url;
         setShareReady(prev => ({ ...prev, [flightKey]: true }));
+      } else {
+        // Gagal generate — tandai failed agar tombol tidak terkunci spinner selamanya
+        setShareReady(prev => ({ ...prev, [flightKey]: false }));
       }
     } catch (err) {
       console.error('[FlightShare] Pre-generate error:', err);
+      setShareReady(prev => ({ ...prev, [flightKey]: false }));
     }
   }, []);
 
@@ -951,7 +957,19 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                           flight={first}
                           shareUrl={shareCache.current[flightKey] || null}
                           shareCopied={copiedFlight === flightKey}
-                          onShare={() => handleShareCopy(first)}
+                          shareFailed={shareReady[flightKey] === false}
+                          onShare={async () => {
+                            if (!shareCache.current[flightKey]) {
+                              // Pre-generate gagal sebelumnya — retry (spinner tampil & tombol disabled selama proses)
+                              setShareReady(prev => {
+                                const next = { ...prev };
+                                delete next[flightKey];
+                                return next;
+                              });
+                              await preGenerateShare(first, group);
+                            }
+                            handleShareCopy(first);
+                          }}
                           hasInternalAuth={hasInternalAuth}
                           onAuthRequired={() => setShowAuthAlert(true)}
                         />

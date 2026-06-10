@@ -37,6 +37,7 @@ export default function SheetHero({ open, onClose, slug, config, onUpdate, onSav
   const [customMode, setCustomMode] = useState(false);
   const [customText, setCustomText] = useState('');
   const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [genCount, setGenCount] = useState(0);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -144,13 +145,24 @@ export default function SheetHero({ open, onClose, slug, config, onUpdate, onSav
     }
   };
 
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onSave();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const footer = (
     <button
       type="button"
-      onClick={() => { void onSave(); }}
-      className="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+      onClick={() => { void handleSave(); }}
+      disabled={saving}
+      className="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
     >
-      <Save size={15} strokeWidth={2.4} /> Simpan
+      {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} strokeWidth={2.4} />} {saving ? 'Menyimpan…' : 'Simpan'}
     </button>
   );
 

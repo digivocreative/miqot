@@ -164,6 +164,7 @@ export default function LandingPagePage({ agent }: Props) {
 
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState<LandingType | null>(null);
+  const [resetting, setResetting] = useState<LandingType | null>(null);
   const [cropTarget, setCropTarget] = useState<{ type: LandingType; dataUrl: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -319,6 +320,7 @@ export default function LandingPagePage({ agent }: Props) {
     if (!draft) return;
     const confirmed = window.confirm('Reset semua field di kartu ini ke default?');
     if (!confirmed) return;
+    setResetting(type);
     try {
       const wasCustomOg = !!draft[type].og_image_url;
       const putRes = await fetch('/api/landing-config', {
@@ -340,6 +342,8 @@ export default function LandingPagePage({ agent }: Props) {
       showToast('Kembali ke default', 'success');
     } catch (err: any) {
       showToast(err.message || 'Reset gagal', 'error');
+    } finally {
+      setResetting(curr => (curr === type ? null : curr));
     }
   };
 
@@ -419,6 +423,7 @@ export default function LandingPagePage({ agent }: Props) {
             defaults={defaults.umroh}
             currentDescription={currentMeta.umroh.currentDescription}
             uploading={uploading === 'umroh'}
+            resetting={resetting === 'umroh'}
             onChangeTitle={(v) => updateField('umroh', 'title', v)}
             onChangeDesc={(v) => updateField('umroh', 'description', v)}
             onUploadOg={(file) => handleOgFilePick('umroh', file)}
@@ -444,6 +449,7 @@ export default function LandingPagePage({ agent }: Props) {
             defaults={defaults.haji}
             currentDescription={currentMeta.haji.currentDescription}
             uploading={uploading === 'haji'}
+            resetting={resetting === 'haji'}
             onChangeTitle={(v) => updateField('haji', 'title', v)}
             onChangeDesc={(v) => updateField('haji', 'description', v)}
             onUploadOg={(file) => handleOgFilePick('haji', file)}
@@ -726,6 +732,7 @@ interface CardProps {
   defaults: Defaults;
   currentDescription: string;
   uploading: boolean;
+  resetting: boolean;
   onChangeTitle: (v: string) => void;
   onChangeDesc: (v: string) => void;
   onUploadOg: (file: File) => void;
@@ -755,7 +762,7 @@ const ACCENTS: Record<'emerald' | 'amber', {
 
 function LandingCard({
   type, accent,
-  draft, loaded, defaults, currentDescription, uploading,
+  draft, loaded, defaults, currentDescription, uploading, resetting,
   onChangeTitle, onChangeDesc, onUploadOg, onResetOg, onResetAll,
   agentPhoto, agentName, agentSlug,
 }: CardProps) {
@@ -940,9 +947,17 @@ function LandingCard({
           <div className="flex justify-end mt-3">
             <button
               onClick={onResetAll}
-              className="text-[11px] font-medium text-gray-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+              disabled={resetting || uploading}
+              className="text-[11px] font-medium text-gray-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors disabled:opacity-50 flex items-center gap-1"
             >
-              Reset semua ke default
+              {resetting ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  Mereset…
+                </>
+              ) : (
+                'Reset semua ke default'
+              )}
             </button>
           </div>
         )}

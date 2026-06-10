@@ -350,6 +350,7 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [replayingPurchases, setReplayingPurchases] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [saved, setSaved] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('unconfigured');
@@ -844,6 +845,7 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
             type="button"
             onClick={async () => {
               if (!window.confirm('Apakah Anda yakin ingin mereset Pixel ID dan Access Token? Data akan dihapus permanen.')) return;
+              setResetting(true);
               try {
                 const res = await fetch(`/api/capi/${agentSlug}/config`, { method: 'DELETE', headers: getAuthHeaders() });
                 const data = await res.json();
@@ -856,12 +858,19 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
                 }
               } catch {
                 showToast('Gagal menghubungi server.', 'error');
+              } finally {
+                setResetting(false);
               }
             }}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-gray-400 dark:text-slate-500 border border-dashed border-gray-200 dark:border-slate-700 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-800/40 hover:bg-red-50/50 dark:hover:bg-red-900/10 transition-colors"
+            disabled={resetting || saving}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-gray-400 dark:text-slate-500 border border-dashed border-gray-200 dark:border-slate-700 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-800/40 hover:bg-red-50/50 dark:hover:bg-red-900/10 transition-colors disabled:opacity-50"
           >
-            <Trash2 size={13} strokeWidth={2.2} />
-            Reset Pixel & Token
+            {resetting ? (
+              <Loader2 size={13} strokeWidth={2.2} className="animate-spin" />
+            ) : (
+              <Trash2 size={13} strokeWidth={2.2} />
+            )}
+            {resetting ? 'Mereset...' : 'Reset Pixel & Token'}
           </button>
         </>
       )}

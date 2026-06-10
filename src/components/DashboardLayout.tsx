@@ -289,6 +289,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [jamaahRefreshKey, setJamaahRefreshKey] = useState(0);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [disconnectClosing, setDisconnectClosing] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   // Statistik header slot for year dropdown
   const [statistikHeaderRight, setStatistikHeaderRight] = useState<React.ReactNode>(null);
   const [jamaahHeaderRight, setJamaahHeaderRight] = useState<React.ReactNode>(null);
@@ -363,6 +364,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     setTimeout(() => {
       setShowDisconnectConfirm(false);
       setDisconnectClosing(false);
+      setDisconnecting(false);
     }, 200);
   }, []);
 
@@ -611,7 +613,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         {showDisconnectConfirm && (
           <div
             className={`fixed inset-0 z-50 flex items-center justify-center px-6 ${disconnectClosing ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
-            onClick={closeDisconnect}
+            onClick={disconnecting ? undefined : closeDisconnect}
             style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
           >
             <div
@@ -628,24 +630,34 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               <div className="flex border-t border-gray-100 dark:border-slate-700">
                 <button
                   onClick={closeDisconnect}
-                  className="flex-1 py-3 text-sm font-semibold text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
+                  disabled={disconnecting}
+                  className="flex-1 py-3 text-sm font-semibold text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors disabled:opacity-50"
                 >
                   Batal
                 </button>
                 <div className="w-px bg-gray-100 dark:bg-slate-700" />
                 <button
                   onClick={async () => {
-                    closeDisconnect();
+                    setDisconnecting(true);
                     try {
                       await fetch('/api/laporan/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
                       await fetch('/api/laporan/credentials', { method: 'DELETE', headers: { ...getAuthHeaders() } });
-                    } catch {}
-                    setJamaahConnected(false);
-                    setJamaahUser('');
+                    } catch {} finally {
+                      setJamaahConnected(false);
+                      setJamaahUser('');
+                      // disconnecting di-reset di dalam timeout closeDisconnect,
+                      // agar tombol tetap disabled selama animasi exit (anti double-fetch)
+                      closeDisconnect();
+                    }
                   }}
-                  className="flex-1 py-3 text-sm font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  disabled={disconnecting}
+                  className="flex-1 py-3 text-sm font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
                 >
-                  Disconnect
+                  {disconnecting ? (
+                    <span className="flex items-center justify-center gap-1.5">
+                      <Loader2 size={14} className="animate-spin" />Memutuskan...
+                    </span>
+                  ) : 'Disconnect'}
                 </button>
               </div>
             </div>
