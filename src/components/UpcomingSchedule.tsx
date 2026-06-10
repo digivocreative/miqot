@@ -10,17 +10,18 @@ interface EventDetail {
   paket: string | null;
   pax: number;
   pax_jamaah: number | null;
+  pax_terisi: number | null;
   staff: string | null;
   tour_leader: string | null;
   jam_kumpul: string | null;
   titik_kumpul: string | null;
 }
 
-// pax legacy = kuota grup nasional, bukan jumlah jamaah. Tampilkan jumlah
-// jamaah jaringan (pax_jamaah) bila baris ter-map ke jadwal; fallback ke
-// kuota legacy bila tidak (mis. WAITINGLIST tanpa jadwal padanan).
+// pax legacy = kuota grup nasional, bukan jumlah jamaah. Tampilkan kursi
+// terisi nasional (pax_terisi = kuota − sisa) bila baris ter-map ke jadwal;
+// fallback ke kuota legacy bila tidak (mis. WAITINGLIST tanpa jadwal padanan).
 function displayPax(d: EventDetail): number {
-  return d.pax_jamaah ?? d.pax ?? 0;
+  return d.pax_terisi ?? d.pax ?? 0;
 }
 
 interface CalendarEvent {

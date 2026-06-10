@@ -695,8 +695,9 @@ function buildAgentMcpServer({ agent, supabase, log }) {
       + 'termasuk paket, pesawat, jam, jumlah pax, Tour Leader (TL), staff, dan jam/titik kumpul bila ada. '
       + 'Untuk tahu siapa TL sebuah keberangkatan, cari event keberangkatan grup tersebut. '
       + 'PENTING: pax di sini adalah KUOTA grup operasional (alokasi kursi nasional, identik seat_total jadwal) — '
-      + 'BUKAN jumlah jamaah ter-booking; pax_jamaah = jumlah jamaah ter-booking di seluruh jaringan agent aplikasi '
-      + 'ini (null bila grup tak ter-map ke jadwal). Untuk jamaah milik agent ini pakai list_jamaah dengan '
+      + 'BUKAN jumlah jamaah ter-booking; pax_terisi = kursi terisi nasional (kuota − sisa seat, angka utama dashboard); '
+      + 'pax_jamaah = jumlah jamaah ter-booking di seluruh jaringan agent aplikasi ini (keduanya null bila grup tak '
+      + 'ter-map ke jadwal). Untuk jamaah milik agent ini pakai list_jamaah dengan '
       + 'departure_from/departure_to. ' + GLOBAL_NOTE,
     inputSchema: {
       type: z.enum(['manasik', 'keberangkatan', 'kepulangan']).optional().describe('Default semua tipe'),
@@ -711,7 +712,7 @@ function buildAgentMcpServer({ agent, supabase, log }) {
     const FETCH_CAP = 150;
     let q = supabase
       .from('calendar_events')
-      .select('event_date, event_type, group_number, paket, pesawat, jam, pax, pax_jamaah, tour_leader, staff, jam_kumpul, titik_kumpul')
+      .select('event_date, event_type, group_number, paket, pesawat, jam, pax, pax_jamaah, pax_terisi, tour_leader, staff, jam_kumpul, titik_kumpul')
       .gte('event_date', start)
       .lte('event_date', end)
       .order('event_date', { ascending: true })
@@ -735,6 +736,7 @@ function buildAgentMcpServer({ agent, supabase, log }) {
       jam: row.jam || null,
       pax: row.pax ?? null,
       pax_jamaah: row.pax_jamaah ?? null,
+      pax_terisi: row.pax_terisi ?? null,
       tour_leader: cleanCalendarPerson(row.tour_leader),
       staff: cleanCalendarPerson(row.staff),
       jam_kumpul: row.jam_kumpul || null,

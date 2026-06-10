@@ -335,12 +335,15 @@ export async function syncCalendar(supabase) {
   return { success: true, count: allRows.length };
 }
 
-// ── Enrich calendar events with pax jamaah jaringan ──
+// ── Enrich calendar events with pax terisi & pax jamaah jaringan ──
 // pax legacy = kuota grup nasional (== seat_total), bukan jumlah jamaah.
-// Petakan tiap baris kalender → jadwal umroh_schedules, lalu isi pax_jamaah
-// dari agregat tabel jamaah (view jamaah_network_pax). Baris tak ter-map
-// dibiarkan NULL — frontend fallback ke pax legacy. Dipanggil setelah
-// syncCalendar dan tiap jam dari server.js agar mengikuti sync jamaah.
+// Petakan tiap baris kalender → jadwal umroh_schedules, lalu isi:
+//  - pax_terisi  = kursi terisi nasional (seat_total - seat_sisa) — angka
+//    utama dashboard (keputusan user 10 Jun 2026: isi grup, bukan jaringan)
+//  - pax_jamaah  = booking jaringan agent (view jamaah_network_pax) — metrik
+//    sekunder utk MCP/analitik; bisa undercount bila sync agent macet
+// Baris tak ter-map dibiarkan NULL — frontend fallback ke pax legacy.
+// Dipanggil setelah syncCalendar dan tiap jam dari server.js.
 export async function enrichCalendarPaxJamaah(supabase) {
   const now = new Date();
   const rangeStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -349,11 +352,11 @@ export async function enrichCalendarPaxJamaah(supabase) {
   const [evRes, schedRes, paxRes] = await Promise.all([
     supabase
       .from('calendar_events')
-      .select('id, event_date, event_type, group_number, paket, pax, jadwal_id, pax_jamaah')
+      .select('id, event_date, event_type, group_number, paket, pax, jadwal_id, pax_jamaah, pax_terisi')
       .gte('event_date', rangeStartStr),
     supabase
       .from('umroh_schedules')
-      .select('jadwal_id, jadwal_nama, berangkat_tgl, pulang_tgl, manasik_tgl, seat_total')
+      .select('jadwal_id, jadwal_nama, berangkat_tgl, pulang_tgl, manasik_tgl, seat_total, seat_sisa')
       .order('jadwal_id'),
     supabase.from('jamaah_network_pax').select('jadwal_id, pax'),
   ]);
@@ -366,6 +369,7 @@ export async function enrichCalendarPaxJamaah(supabase) {
 
   const events = evRes.data || [];
   const schedules = schedRes.data || [];
+  const schedById = new Map(schedules.map(s => [s.jadwal_id, s]));
   const networkPax = new Map((paxRes.data || []).map(r => [r.jadwal_id, r.pax]));
 
   // Pass 1: match via tanggal + nama. Sticky: jadwal yang sudah berangkat
@@ -397,14 +401,29 @@ export async function enrichCalendarPaxJamaah(supabase) {
     const jadwalId = resolved.get(ev.id);
     // Ter-map tapi belum ada jamaah di jaringan = 0 (bukan NULL) — itu fakta.
     const paxJamaah = jadwalId ? (networkPax.get(jadwalId) ?? 0) : null;
+    // Kursi terisi nasional. Jadwal yang sudah hilang dari API (kloter
+    // berangkat) tidak punya seat lagi — pertahankan angka terakhir (sticky).
+    let paxTerisi = ev.pax_terisi ?? null;
+    if (!jadwalId) {
+      paxTerisi = null;
+    } else {
+      const sched = schedById.get(jadwalId);
+      if (sched) {
+        const total = parseInt(sched.seat_total, 10);
+        const sisa = parseInt(sched.seat_sisa, 10);
+        if (Number.isFinite(total) && Number.isFinite(sisa)) {
+          paxTerisi = Math.min(total, Math.max(0, total - sisa));
+        }
+      }
+    }
     if (jadwalId) matched++; else unmatched++;
 
     // Skip-unchanged agar tidak membebani Disk-IO DB
-    if (ev.jadwal_id === jadwalId && ev.pax_jamaah === paxJamaah) continue;
+    if (ev.jadwal_id === jadwalId && ev.pax_jamaah === paxJamaah && ev.pax_terisi === paxTerisi) continue;
 
     const { error } = await supabase
       .from('calendar_events')
-      .update({ jadwal_id: jadwalId, pax_jamaah: paxJamaah })
+      .update({ jadwal_id: jadwalId, pax_jamaah: paxJamaah, pax_terisi: paxTerisi })
       .eq('id', ev.id);
     if (error) {
       console.error(`[PaxJamaah] Update error ${ev.id}:`, error.message);

@@ -333,6 +333,7 @@ alhijaz/
 - `migrations/20260606020000_agents_mcp_api_key.sql` — kolom `mcp_api_key` + `mcp_api_key_created_at` di `agents` (partial unique index) untuk auth MCP endpoint; self-host perlu `NOTIFY pgrst, 'reload schema'` setelah ALTER
 - `migrations/20260606040000_agents_mcp_key_last_used.sql` — kolom `mcp_key_last_used_at` di `agents` (stamp pemakaian MCP key utk status "Tersambung" yang jujur di UI)
 - `migrations/20260610120000_calendar_pax_jamaah.sql` — kolom `jadwal_id` + `pax_jamaah` di `calendar_events` + view `jamaah_network_pax` (count distinct (id_umroh,jm_id) per id_jadwal; REVOKE anon/authenticated, GRANT service_role) — pax legacy = kuota, dashboard butuh jamaah jaringan
+- `migrations/20260610170000_calendar_pax_terisi.sql` — kolom `pax_terisi` di `calendar_events` (kursi terisi nasional = seat_total − seat_sisa via mapping jadwal_id) — menggantikan pax_jamaah sebagai angka utama tampilan kalender
 
 ## 4. Konvensi & Aturan
 
@@ -456,7 +457,7 @@ alhijaz/
 - **Kalender & Status Penerbangan** — mini calendar widget dan dashboard status penerbangan:
   - Calendar grid bulanan dengan colored dots (Manasik, Keberangkatan, Kepulangan)
   - Bottom sheet popup saat klik tanggal — detail group cards
-  - Angka pax yang ditampilkan = `pax_jamaah ?? pax` (jumlah jamaah jaringan bila baris ter-map ke jadwal; fallback kuota legacy bila tidak, mis. WAITINGLIST). Filter validitas baris tetap `pax > 0` (kuota legacy)
+  - Angka pax yang ditampilkan = `pax_terisi ?? pax` (kursi terisi nasional = kuota − sisa seat bila baris ter-map ke jadwal; fallback kuota legacy bila tidak, mis. WAITINGLIST). Filter validitas baris tetap `pax > 0` (kuota legacy)
   - Real-time flight tracking menggunakan AirLabs API (menggabungkan group/kloter dengan nomor penerbangan sama dalam 1 card `FlightStatusCard`)
   - **Flight Share**: Public share link per penerbangan (`/f/:code`) — hero card, peta rute (Leaflet), boarding pass, cuaca destinasi, agent CTA WhatsApp
   - Server-side OG injection untuk link preview: title "Lacak Penerbangan [maskapai] [kode] - [agent]", og:image per agent
@@ -565,7 +566,7 @@ alhijaz/
   - Login ke internal system → fetch halaman Beranda → parse FullCalendar events JSON
   - Fetch detail popup via `_jmodal.php` per event → parse HTML table (group, pesawat, jam, paket, PAX, staff, TL)
   - Upsert ke `calendar_events` table
-  - Lalu `enrichCalendarPaxJamaah`: map tiap baris → `umroh_schedules.jadwal_id` dan isi `pax_jamaah` (jamaah jaringan dari view `jamaah_network_pax`); juga refresh per jam via `setInterval` terpisah agar mengikuti sync jamaah (skip-unchanged)
+  - Lalu `enrichCalendarPaxJamaah`: map tiap baris → `umroh_schedules.jadwal_id` dan isi `pax_terisi` (kursi terisi nasional = seat_total − seat_sisa) + `pax_jamaah` (jamaah jaringan dari view `jamaah_network_pax`); juga refresh per jam via `setInterval` terpisah agar mengikuti sync jadwal/jamaah (skip-unchanged)
 - AI Calendar Insight (OpenAI `gpt-4o-mini`):
   - Generate via cron harian (06:15 WIB) + setelah first calendar sync jika cache kosong
   - Prompt includes calendar events + Mekah/Madinah temperature data
@@ -697,12 +698,13 @@ raw_data      JSONB                -- data mentah scraping
 jam_kumpul    TEXT                 -- waktu kumpul (enriched dari PDF itinerary)
 titik_kumpul  TEXT                 -- titik kumpul / gathering point (enriched dari PDF itinerary)
 jadwal_id     TEXT                 -- hasil mapping ke umroh_schedules (lib/calendar-jadwal-match.js); NULL = tak ter-map
-pax_jamaah    INTEGER              -- jumlah jamaah jaringan (view jamaah_network_pax, dedup (id_umroh,jm_id) per id_jadwal); NULL = tak ter-map → UI fallback ke pax
+pax_jamaah    INTEGER              -- jumlah jamaah jaringan (view jamaah_network_pax, dedup (id_umroh,jm_id) per id_jadwal); metrik sekunder (MCP/analitik), bisa undercount bila sync agent macet
+pax_terisi    INTEGER              -- kursi terisi nasional = seat_total − seat_sisa jadwal ter-map; ANGKA UTAMA tampilan (keputusan user 10 Jun 2026); NULL = tak ter-map → UI fallback ke pax
 synced_at     TIMESTAMPTZ          -- terakhir sync
 -- Indexes: event_date, event_type
 ```
 
-Semua permukaan (dashboard `UpcomingSchedule`, AI insight, reminder manasik Telegram, flight status/notif/share, MCP `calendar_events`) menampilkan `pax_jamaah ?? pax`. Mapping diisi `enrichCalendarPaxJamaah` (calendar-api.js): pass 1 match tanggal+nama (Jaccard token ambang 0.6, tie-break |pax−seat_total| lalu jadwal_id), pass 2 sibling se-kloter (group_number+paket sama, utk `pulang_tgl` API yang melenceng), **sticky** (jadwal yang hilang dari API pasca-berangkat tidak me-NULL-kan mapping). Salah-map lebih buruk daripada tak-ter-map: tanpa match → NULL → fallback kuota.
+Semua permukaan (dashboard `UpcomingSchedule`, AI insight, reminder manasik Telegram, flight status/notif/share, MCP `calendar_events`) menampilkan `pax_terisi ?? pax` (kursi terisi nasional; grup penuh = kuota — itu memang isi grup sebenarnya per konfirmasi user). `pax_jamaah` tetap dipelihara sebagai metrik porsi jaringan (diekspos di API/MCP, tidak jadi angka utama — undercount bila sync agent macet, lihat insiden 9 agent berhenti sync sejak 11–13 Mei 2026). Mapping diisi `enrichCalendarPaxJamaah` (calendar-api.js): pass 1 match tanggal+nama (Jaccard token ambang 0.6, tie-break |pax−seat_total| lalu jadwal_id), pass 2 sibling se-kloter (group_number+paket sama, utk `pulang_tgl` API yang melenceng), **sticky** (jadwal yang hilang dari API pasca-berangkat tidak me-NULL-kan mapping; `pax_terisi` ikut dipertahankan karena seat-nya ikut hilang). Salah-map lebih buruk daripada tak-ter-map: tanpa match → NULL → fallback kuota.
 
 ### Tabel `calendar_insights`
 ```
