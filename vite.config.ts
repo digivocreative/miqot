@@ -311,8 +311,8 @@ export default defineConfig({
           },
           {
             // Agent photos: always try network first, fallback to cache for offline
-            // Matches local /agents/ paths and Supabase Storage URLs
-            urlPattern: /(?:^\/agents\/|supabase\.co\/storage\/.*agent-photos\/).*\.(?:jpg|jpeg|png|webp)/i,
+            // Matches local /agents/ paths and Supabase Storage URLs (self-hosted sb.alhijaz.co + legacy supabase.co)
+            urlPattern: /(?:^\/agents\/|(?:supabase\.co|sb\.alhijaz\.co)\/storage\/.*agent-photos\/).*\.(?:jpg|jpeg|png|webp)/i,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'agent-photos',

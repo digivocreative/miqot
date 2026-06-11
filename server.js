@@ -2601,7 +2601,7 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
         if (downloaded) {
           const arrayBuf = await downloaded.arrayBuffer();
           await supabase.storage.from('agent-photos').upload(newFile, Buffer.from(arrayBuf), {
-            contentType: 'image/jpeg', upsert: true,
+            contentType: 'image/jpeg', upsert: true, cacheControl: '31536000',
           });
           await supabase.storage.from('agent-photos').remove([oldFile]);
           const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(newFile);
@@ -2947,6 +2947,8 @@ app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), asy
       .upload(fileName, buffer, {
         contentType: 'image/jpeg',
         upsert: true,
+        // URL selalu dirujuk dengan ?v= buster, jadi aman di-cache setahun
+        cacheControl: '31536000',
       });
     if (uploadError) {
       console.error('Supabase Storage upload error:', uploadError);
@@ -3082,7 +3084,7 @@ app.post('/api/landing-config/og-image', authMiddleware, express.json({ limit: '
     stage = 'storage-upload';
     const { error: uploadError } = await supabase.storage
       .from('agent-photos')
-      .upload(fileName, buffer, { contentType: mime, upsert: true });
+      .upload(fileName, buffer, { contentType: mime, upsert: true, cacheControl: '31536000' });
     if (uploadError) {
       console.error('[landing-config] Storage upload error:', uploadError);
       throw new Error(`storage-upload: ${uploadError.message || JSON.stringify(uploadError)}`);
@@ -3961,7 +3963,7 @@ app.post('/api/bio/:slug/og-image', authMiddleware, express.json({ limit: '6mb' 
 
     const { error: uploadError } = await supabase.storage
       .from('agent-photos')
-      .upload(fileName, buffer, { contentType: mime, upsert: true });
+      .upload(fileName, buffer, { contentType: mime, upsert: true, cacheControl: '31536000' });
     if (uploadError) {
       console.error('[bio-config] OG upload error:', uploadError);
       return res.status(500).json({ error: 'Gagal mengunggah gambar' });
@@ -4084,7 +4086,7 @@ app.post('/api/bio/:slug/photo-upload', authMiddleware, express.json({ limit: '8
 
     const { error: uploadError } = await supabase.storage
       .from('agent-photos')
-      .upload(fileName, buffer, { contentType: mime, upsert: false });
+      .upload(fileName, buffer, { contentType: mime, upsert: false, cacheControl: '31536000' });
     if (uploadError) {
       console.error('[bio-config] photo upload error:', uploadError);
       return res.status(500).json({ error: 'Gagal mengunggah foto' });
