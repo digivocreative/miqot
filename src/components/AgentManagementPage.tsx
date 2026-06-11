@@ -23,6 +23,17 @@ interface AgentItem {
   jamaah_kantor: string;
   status?: string;
   registered_at?: string;
+  last_jamaah_sync_at?: string | null;
+  sync_health?: 'ok' | 'stale' | 'pending' | 'disconnected' | 'no_credentials';
+  sync_age_hours?: number | null;
+}
+
+// Compact "time since last sync" label, e.g. "29 hari" / "13 jam".
+function fmtSyncAge(hours?: number | null): string {
+  if (hours == null || !isFinite(hours)) return '—';
+  if (hours >= 48) return `${Math.floor(hours / 24)} hari`;
+  if (hours >= 1) return `${Math.floor(hours)} jam`;
+  return '<1 jam';
 }
 
 interface FormData {
@@ -128,6 +139,14 @@ export default function AgentManagementPage() {
 
   // ── Counts ──
   const pendingCount = agents.filter(a => a.status === 'pending').length;
+
+  // ── Sync watchlist: active agents whose jamaah sync has silently stopped ──
+  // 'stale' = credentials saved but rejected upstream; 'disconnected' = creds
+  // removed but the agent had been syncing (data going stale). Computed from the
+  // FULL list, not the filtered view, so it stays visible under any filter.
+  const stuckAgents = agents
+    .filter(a => (a.sync_health === 'stale' || a.sync_health === 'disconnected') && (!a.status || a.status === 'active'))
+    .sort((x, y) => (y.sync_age_hours ?? 0) - (x.sync_age_hours ?? 0));
 
   // ── Filtered list ──
   const statusFiltered = statusFilter === 'all'
@@ -465,6 +484,41 @@ export default function AgentManagementPage() {
         ))}
       </div>
 
+      {/* Sync watchlist — agents whose jamaah sync has frozen (need re-login) */}
+      {stuckAgents.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/80 dark:bg-amber-900/15 overflow-hidden mb-3">
+          <div className="flex items-start gap-2.5 px-3.5 py-3 border-b border-amber-100 dark:border-amber-800/30">
+            <AlertTriangle size={16} className="text-amber-500 mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[13px] font-bold text-amber-800 dark:text-amber-300">
+                {stuckAgents.length} agen berhenti sinkronisasi
+              </p>
+              <p className="text-[11px] text-amber-700/80 dark:text-amber-400/70 leading-snug">
+                Kredensial ditolak atau terhapus dari sistem internal — pendaftaran & pembayaran jamaah mereka tidak masuk. Perlu login ulang dari dashboard masing-masing.
+              </p>
+            </div>
+          </div>
+          <div className="divide-y divide-amber-100/70 dark:divide-amber-800/20">
+            {stuckAgents.map(a => (
+              <button
+                key={a.slug}
+                onClick={() => openEdit(a)}
+                className="w-full flex items-center gap-2 px-3.5 py-2 text-left hover:bg-amber-100/50 dark:hover:bg-amber-900/20 transition-colors"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                <span className="text-[12px] font-semibold text-amber-900 dark:text-amber-200 truncate">{a.name}</span>
+                {a.jamaah_username && (
+                  <span className="text-[11px] text-amber-700/60 dark:text-amber-400/50 shrink-0">{a.jamaah_username}</span>
+                )}
+                <span className="ml-auto text-[11px] font-medium text-amber-600 dark:text-amber-400/80 shrink-0 whitespace-nowrap">
+                  {a.sync_health === 'disconnected' ? 'terputus' : 'login ditolak'} · {fmtSyncAge(a.sync_age_hours)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Agent List */}
       {filtered.map(a => (
         <button
@@ -494,6 +548,11 @@ export default function AgentManagementPage() {
               {a.status === 'rejected' && (
                 <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/40 shrink-0">
                   DITOLAK
+                </span>
+              )}
+              {(!a.status || a.status === 'active') && (a.sync_health === 'stale' || a.sync_health === 'disconnected') && (
+                <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40 shrink-0">
+                  <AlertTriangle size={9} /> {a.sync_health === 'disconnected' ? 'TERPUTUS' : 'MACET'}
                 </span>
               )}
             </div>

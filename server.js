@@ -30,6 +30,7 @@ import { syncCalendar, enrichKeberangkatanWithKumpul, enrichCalendarPaxJamaah } 
 import { regenerateOgForAgent, generatePortalJamaahOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
+import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
 import {
   validateMedia,
   kindFromMime,
@@ -4139,11 +4140,22 @@ app.get('/api/bio/:slug/featured-paket-preview', async (req, res) => {
 app.get('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
   const { data, error } = await supabase
     .from('agents')
-    .select('slug, name, website, phone, email, photo, role, jamaah_username, jamaah_password, jamaah_kantor, card_variant, status, registered_at')
+    .select('slug, name, website, phone, email, photo, role, jamaah_username, jamaah_password, jamaah_kantor, card_variant, status, registered_at, last_jamaah_sync_at')
     .order('name');
   if (error) return res.status(500).json({ error: error.message });
-  // Don't expose raw encrypted password — just indicate if it's set
-  const safe = (data || []).map(a => ({ ...a, jamaah_password: a.jamaah_password ? '••••••' : '' }));
+  // Don't expose raw encrypted password — just indicate if it's set.
+  // Attach sync_health so the admin watchlist can flag agents whose jamaah sync
+  // has silently frozen (rejected credentials) — see lib/jamaah-sync-health.js.
+  const now = Date.now();
+  const safe = (data || []).map(a => {
+    const health = classifyJamaahSyncHealth(a, { now });
+    return {
+      ...a,
+      jamaah_password: a.jamaah_password ? '••••••' : '',
+      sync_health: health.status,
+      sync_age_hours: health.ageHours == null ? null : Math.round(health.ageHours),
+    };
+  });
   res.json(safe);
 });
 
@@ -5437,6 +5449,14 @@ app.get('/api/laporan/status', authMiddleware, async (req, res) => {
     if (data?.last_jamaah_sync_at) lastSync = data.last_jamaah_sync_at;
   }
 
+  // Honest sync health — the green "Terhubung" badge must NOT be driven by
+  // "credentials are saved" alone, because rejected-but-not-deleted credentials
+  // (password changed upstream) leave hasCredentials=true forever while data
+  // silently freezes. Derive the real state from last_jamaah_sync_at staleness.
+  const health = classifyJamaahSyncHealth(
+    { jamaah_username: agent.jamaah_username, jamaah_password: agent.jamaah_password, last_jamaah_sync_at: lastSync },
+  );
+
   res.json({
     success: true,
     data: {
@@ -5445,6 +5465,8 @@ app.get('/api/laporan/status', authMiddleware, async (req, res) => {
       username: hasCredentials ? agent.jamaah_username : null,
       kantor: agent.jamaah_kantor || '2',
       lastSync,
+      syncHealth: health.status,                                   // 'ok' | 'stale' | 'pending'
+      syncAgeHours: health.ageHours == null ? null : Math.round(health.ageHours),
     },
   });
 });

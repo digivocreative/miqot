@@ -694,24 +694,77 @@ function PasswordModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; onClos
 
 // ── Internal System (AIW) Credentials Section ──
 function InternalSystemSection() {
-  const [status, setStatus] = useState<{ hasCredentials: boolean; username: string | null } | null>(null);
+  const [status, setStatus] = useState<{ hasCredentials: boolean; username: string | null; syncHealth: string; lastSync: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [closingConfirm, setClosingConfirm] = useState(false);
+  // Re-login form (shown when credentials were rejected upstream → syncHealth 'stale')
+  const [reloginOpen, setReloginOpen] = useState(false);
+  const [reloginPw, setReloginPw] = useState('');
+  const [reloginErr, setReloginErr] = useState('');
+  const [reloginBusy, setReloginBusy] = useState(false);
+  const [reloginPwVisible, setReloginPwVisible] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch('/api/laporan/status', { headers: { ...getAuthHeaders() } });
-        const json = await res.json();
-        if (json.success) {
-          setStatus({ hasCredentials: json.data.hasCredentials, username: json.data.username || null });
-        }
-      } catch { /* ignore */ }
-      setLoading(false);
-    })();
-  }, []);
+  const fetchStatus = async () => {
+    try {
+      const res = await fetch('/api/laporan/status', { headers: { ...getAuthHeaders() } });
+      const json = await res.json();
+      if (json.success) {
+        setStatus({
+          hasCredentials: json.data.hasCredentials,
+          username: json.data.username || null,
+          syncHealth: json.data.syncHealth || 'ok',
+          lastSync: json.data.lastSync || null,
+        });
+      }
+    } catch { /* ignore */ }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchStatus(); }, []);
+
+  // Re-login with the (new) internal-system password. On success the backend
+  // re-accepts the credentials and rediscovers the AWAPI key, so background sync
+  // resumes; reflect 'ok' optimistically (lastSync updates on the next cycle).
+  const handleRelogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setReloginErr('');
+    if (!reloginPw) { setReloginErr('Password wajib diisi'); return; }
+    setReloginBusy(true);
+    try {
+      const res = await fetch('/api/laporan/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ username: status?.username, password: reloginPw, kantor: '2' }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        setReloginErr(result.error || 'Login gagal — periksa kembali password');
+        setReloginBusy(false);
+        return;
+      }
+      setReloginPw('');
+      setReloginOpen(false);
+      setReloginBusy(false);
+      setStatus(prev => prev ? { ...prev, syncHealth: 'ok' } : prev);
+    } catch {
+      setReloginErr('Gagal menghubungi server');
+      setReloginBusy(false);
+    }
+  };
+
+  // Relative time label for the last successful sync, e.g. "29 hari lalu".
+  const relTime = (iso: string | null): string | null => {
+    if (!iso) return null;
+    const ms = Date.now() - new Date(iso).getTime();
+    if (!isFinite(ms) || ms < 0) return null;
+    const days = Math.floor(ms / 86400000);
+    if (days >= 1) return `${days} hari lalu`;
+    const hours = Math.floor(ms / 3600000);
+    if (hours >= 1) return `${hours} jam lalu`;
+    return `${Math.max(Math.floor(ms / 60000), 1)} menit lalu`;
+  };
 
   useEffect(() => {
     if (showConfirm) document.body.style.overflow = 'hidden';
@@ -730,7 +783,7 @@ function InternalSystemSection() {
     setDeleting(true);
     try {
       await fetch('/api/laporan/credentials', { method: 'DELETE', headers: { ...getAuthHeaders() } });
-      setStatus({ hasCredentials: false, username: null });
+      setStatus({ hasCredentials: false, username: null, syncHealth: 'no_credentials', lastSync: null });
     } catch { /* ignore */ }
     setDeleting(false);
     setShowConfirm(false);
@@ -751,7 +804,93 @@ function InternalSystemSection() {
     <div className="border-t border-gray-100 dark:border-slate-700/50 pt-4 mt-4">
       <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">SISTEM INTERNAL</p>
 
-      {/* Branded card */}
+      {status.syncHealth === 'stale' ? (
+        /* ── Credentials rejected upstream — sync frozen, needs re-login ── */
+        <div className="relative overflow-hidden rounded-2xl border border-amber-200 dark:border-amber-800/40 bg-gradient-to-br from-amber-50 to-amber-100/70 dark:from-amber-900/20 dark:to-amber-800/15">
+          <div className="relative px-4 py-3.5 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-800 shadow-sm border border-amber-200 dark:border-amber-700/50 flex items-center justify-center flex-shrink-0">
+              <AlertCircle size={18} className="text-amber-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{status.username || 'Sistem internal'}</p>
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />
+              </div>
+              <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400/80">
+                Sinkronisasi terhenti{relTime(status.lastSync) ? ` · terakhir ${relTime(status.lastSync)}` : ''}
+              </p>
+            </div>
+            {!reloginOpen && (
+              <button
+                onClick={() => { setReloginOpen(true); setReloginErr(''); }}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-amber-700 dark:text-amber-300 bg-white/80 dark:bg-slate-800/70 border border-amber-300/60 dark:border-amber-700/40 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-all flex-shrink-0 active:scale-95"
+              >
+                <LogIn size={11} />
+                Login ulang
+              </button>
+            )}
+          </div>
+
+          {reloginOpen && (
+            <form onSubmit={handleRelogin} className="px-4 pb-3.5 space-y-2">
+              <p className="text-[11px] leading-snug text-amber-700/90 dark:text-amber-300/70">
+                Password sistem internal kemungkinan berubah. Masukkan password terbaru untuk <span className="font-semibold">{status.username}</span> agar data jamaah kembali tersinkron.
+              </p>
+              <div className="relative">
+                <input
+                  type={reloginPwVisible ? 'text' : 'password'}
+                  value={reloginPw}
+                  onChange={e => { setReloginPw(e.target.value); setReloginErr(''); }}
+                  placeholder="Password sistem internal"
+                  autoFocus
+                  className="w-full pl-3 pr-9 py-2 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/50 rounded-xl text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400"
+                />
+                <button type="button" onClick={() => setReloginPwVisible(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                  {reloginPwVisible ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              {reloginErr && <p className="text-[11px] font-medium text-red-500">{reloginErr}</p>}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setReloginOpen(false); setReloginPw(''); setReloginErr(''); }}
+                  className="flex-1 py-2 rounded-xl text-[12px] font-semibold text-gray-600 dark:text-slate-300 bg-white/70 dark:bg-slate-800/70 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={reloginBusy}
+                  className="flex-1 py-2 rounded-xl text-[12px] font-bold text-white bg-amber-500 hover:bg-amber-600 transition-colors disabled:opacity-70 flex items-center justify-center gap-1.5"
+                >
+                  {reloginBusy ? <><Loader2 size={13} className="animate-spin" /> Menghubungkan…</> : 'Hubungkan ulang'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      ) : status.syncHealth === 'pending' ? (
+        /* ── Connected, first background sync not recorded yet ── */
+        <div className="relative overflow-hidden rounded-2xl border border-sky-100 dark:border-sky-800/40 bg-gradient-to-br from-sky-50 to-sky-100/70 dark:from-sky-900/20 dark:to-sky-800/15">
+          <div className="relative px-4 py-3.5 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-800 shadow-sm border border-sky-200 dark:border-sky-700/50 flex items-center justify-center flex-shrink-0">
+              <Loader2 size={18} className="text-sky-500 animate-spin" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{status.username || 'Terhubung'}</p>
+              <p className="text-[11px] text-sky-700/80 dark:text-sky-400/70">Menunggu sinkronisasi pertama…</p>
+            </div>
+            <button
+              onClick={() => setShowConfirm(true)}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-red-500 dark:text-red-400 bg-white/70 dark:bg-slate-800/70 border border-red-200/60 dark:border-red-800/40 hover:bg-red-50 dark:hover:bg-red-900/30 transition-all flex-shrink-0 active:scale-95"
+            >
+              <Unlink size={11} />
+              Putuskan
+            </button>
+          </div>
+        </div>
+      ) : (
+      /* Branded card — healthy (connected & syncing) */
       <div
         className="relative overflow-hidden rounded-2xl border border-emerald-100 dark:border-emerald-800/40 bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900/20 dark:to-emerald-800/20"
       >
@@ -784,6 +923,7 @@ function InternalSystemSection() {
           </button>
         </div>
       </div>
+      )}
 
       {/* Confirmation dialog — matches DashboardLayout disconnect style */}
       {showConfirm && (

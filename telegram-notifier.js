@@ -18,6 +18,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getTodaysBirthdays } from './lib/birthdays.js';
 import { getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { buildNotifierPackagesUrl } from './lib/notifier-package-source.js';
+import { classifyJamaahSyncHealth, isSyncStuck } from './lib/jamaah-sync-health.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATE_FILE = path.join(__dirname, 'data', 'notifier-state.json');
@@ -380,6 +381,74 @@ export async function sendOpsAlert(text) {
   await sendTelegramToAgent(chatId, text);
 }
 
+// Daily ops alert: surface agents whose jamaah sync has silently frozen —
+// credentials saved but rejected by the internal system, so no AWAPI key is
+// discovered and the agent is skipped every background cycle (data stops
+// flowing without any surface error). Shares the staleness classifier with the
+// profile badge and admin watchlist (lib/jamaah-sync-health.js). Deduped: an
+// unchanged stuck-set is re-nudged at most every SYNC_HEALTH_RENUDGE_DAYS.
+const SYNC_HEALTH_RENUDGE_DAYS = 3;
+
+async function syncHealthAlert() {
+  try {
+    if (!supabaseAdmin) { warn('syncHealthAlert: no supabaseAdmin'); return; }
+
+    // Fetch all agents (no username filter) — 'disconnected' agents may have a
+    // null username, so let the classifier decide rather than pre-filtering.
+    const { data: agents, error } = await supabaseAdmin
+      .from('agents')
+      .select('slug, name, jamaah_username, jamaah_password, last_jamaah_sync_at, status');
+    if (error) throw error;
+
+    const now = Date.now();
+    const stuck = (agents || [])
+      .filter(a => !a.status || a.status === 'active')
+      .map(a => ({ a, h: classifyJamaahSyncHealth(a, { now }) }))
+      .filter(x => isSyncStuck(x.h.status))
+      .sort((x, y) => (y.h.ageHours ?? 0) - (x.h.ageHours ?? 0));
+
+    const state = await loadState() || freshState();
+    const prev = state.syncHealthAlert || null;
+
+    if (stuck.length === 0) {
+      // Recovered (or never stuck) — clear signature so a future freeze re-alerts.
+      if (prev) { state.syncHealthAlert = null; await saveState(state); }
+      log('[syncHealth] no stuck agents');
+      return;
+    }
+
+    const signature = stuck.map(x => x.a.slug).sort().join(',');
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    if (prev && prev.signature === signature && prev.sentDate) {
+      const ageDays = Math.floor((Date.parse(today) - Date.parse(prev.sentDate)) / 86400000);
+      if (ageDays < SYNC_HEALTH_RENUDGE_DAYS) {
+        log(`[syncHealth] ${stuck.length} stuck — unchanged, alerted ${ageDays}d ago, skipping`);
+        return;
+      }
+    }
+
+    const lines = stuck.map(({ a, h }) => {
+      const days = h.ageHours == null ? '?' : Math.floor(h.ageHours / 24);
+      const user = a.jamaah_username ? ` (${escHtml(a.jamaah_username)})` : '';
+      const reason = h.status === 'disconnected' ? 'kredensial terhapus' : 'login ditolak';
+      return `• <b>${escHtml(a.name || a.slug)}</b>${user} — ${reason}, ${days} hari`;
+    });
+
+    const msg =
+      `⚠️ <b>Sinkronisasi jamaah terhenti</b>\n\n` +
+      `${stuck.length} agen tidak lagi menyetor data ke sistem — pendaftaran & pembayaran mereka tidak masuk:\n\n` +
+      `${lines.join('\n')}\n\n` +
+      `Perbaikan: minta tiap agen <b>login ulang sistem internal</b> dari dashboard (Profil → Sistem Internal) dengan password terbaru.`;
+
+    await sendOpsAlert(msg);
+    state.syncHealthAlert = { signature, sentDate: today };
+    await saveState(state);
+    log(`[syncHealth] alerted ops about ${stuck.length} stuck agent(s)`);
+  } catch (err) {
+    warn('syncHealthAlert failed:', err.message);
+  }
+}
+
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
@@ -412,6 +481,7 @@ function freshState() {
     sentDepartureReminders: {},
     lastHotDeal: null,
     lastKursSentDate: null,
+    syncHealthAlert: null,
   };
 }
 
@@ -3179,6 +3249,12 @@ export function initNotifier() {
   // CRON: Departure Reminder Sore (17:00 WIB) — H-1 only, urgent
   cron.schedule('0 17 * * *', () => {
     departureReminderSore();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // CRON: Sync-health watchlist (09:15 WIB) — alert ops about agents whose
+  // jamaah sync has frozen (rejected internal-system credentials).
+  cron.schedule('15 9 * * *', () => {
+    syncHealthAlert();
   }, { timezone: 'Asia/Jakarta' });
 
   // CRON: Passport Reminder (09:30 WIB) — paspor belum kumpul / expired
