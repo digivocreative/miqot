@@ -310,15 +310,18 @@ export default defineConfig({
             handler: 'NetworkOnly',
           },
           {
-            // Agent photos: always try network first, fallback to cache for offline
+            // Agent photos are immutable per version (1yr Cache-Control + ?v= cache-bust),
+            // so serve instantly from cache and revalidate in the background. NetworkFirst
+            // made every render wait on the network → stalls + onError→initials on any hiccup.
             // Matches local /agents/ paths and Supabase Storage URLs (self-hosted sb.alhijaz.co + legacy supabase.co)
             urlPattern: /(?:^\/agents\/|(?:supabase\.co|sb\.alhijaz\.co)\/storage\/.*agent-photos\/).*\.(?:jpg|jpeg|png|webp)/i,
-            handler: 'NetworkFirst',
+            handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'agent-photos',
+              cacheableResponse: { statuses: [0, 200] },
               expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 7 * 24 * 60 * 60, // 7 days
+                maxEntries: 100,
+                maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
               },
             },
           },

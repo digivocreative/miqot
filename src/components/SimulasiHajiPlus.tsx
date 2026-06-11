@@ -163,6 +163,8 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
   const [sharing, setSharing] = useState(false);
   const [agentPhotoFailed, setAgentPhotoFailed] = useState(false);
+  const photoRetry = useRef(0);
+  const [photoBust, setPhotoBust] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
 
   // ── Fetch Kurs ──
@@ -308,6 +310,8 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
 
   useEffect(() => {
     setAgentPhotoFailed(false);
+    photoRetry.current = 0;
+    setPhotoBust(0);
   }, [agentPhotoSrc]);
 
   return (
@@ -666,7 +670,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
                     </div>
                     <div style={{ position: 'relative', width: 36, height: 36, flexShrink: 0 }}>
                       {agentPhotoSrc && !agentPhotoFailed ? (
-                        <img src={agentPhotoSrc} crossOrigin="anonymous" onError={() => setAgentPhotoFailed(true)} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.25)', display: 'block' }} alt="" />
+                        <img src={photoBust ? `${agentPhotoSrc}${agentPhotoSrc.includes('?') ? '&' : '?'}_r=${photoBust}` : agentPhotoSrc} crossOrigin="anonymous" onError={() => { if (photoRetry.current < 2) { photoRetry.current += 1; setPhotoBust(photoRetry.current); } else { setAgentPhotoFailed(true); } }} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.25)', display: 'block' }} alt="" />
                       ) : (
                         <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#ffffff', border: '2px solid rgba(255,255,255,0.18)' }}>
                           {agentInitials}

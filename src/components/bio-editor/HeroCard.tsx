@@ -1,4 +1,5 @@
 import { ChevronRight } from 'lucide-react';
+import { handleAgentPhotoError } from '../../lib/agent-photo';
 import type { BioAgentPublic, BioHeroConfig } from '../bio/types';
 
 interface Props {
@@ -39,9 +40,7 @@ export default function HeroCard({ agent, hero, onTap }: Props) {
           src={agent.photo}
           alt={agent.name}
           className="w-11 h-11 rounded-full object-cover border-2 border-emerald-200 dark:border-emerald-800 shrink-0"
-          onError={(e) => {
-            (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(agent.name)}&background=random&size=72`;
-          }}
+          onError={(e) => handleAgentPhotoError(e.currentTarget, agent.name, 72)}
         />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{agent.name}</p>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { handleAgentPhotoError } from '../lib/agent-photo';
 import {
   Search, Plus, X, User, Globe, Phone as PhoneIcon, Mail, Lock,
   Shield, Building2, Eye, EyeOff, Loader2, ChevronRight, Check,
@@ -475,7 +476,7 @@ export default function AgentManagementPage() {
             src={a.photo}
             alt={a.name}
             className="w-10 h-10 rounded-full object-cover border-2 border-white dark:border-slate-700 shadow-sm shrink-0"
-            onError={e => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(a.name)}&background=random`; }}
+            onError={e => handleAgentPhotoError(e.currentTarget, a.name)}
           />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">

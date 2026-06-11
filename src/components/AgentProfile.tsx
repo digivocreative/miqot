@@ -1,6 +1,7 @@
 import type { AgentData } from '../data/agents';
 import { AGENTS_DATA } from '../data/agents';
 import { sendCapiEvent } from '../lib/capi';
+import { handleAgentPhotoError } from '../lib/agent-photo';
 
 interface AgentProfileProps {
   agent: AgentData;
@@ -44,9 +45,7 @@ export default function AgentProfile({ agent, packageName = "Umrah Alhijaz", dep
               src={agent.photo} 
               alt={agent.name} 
               className="w-full h-full object-cover rounded-full border-2 border-white dark:border-slate-700 shadow-md"
-              onError={(e) => {
-                  (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(agent.name)}&background=random`;
-              }}
+              onError={(e) => handleAgentPhotoError(e.currentTarget, agent.name)}
             />
         </div>
 

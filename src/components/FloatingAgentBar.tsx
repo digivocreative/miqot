@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { handleAgentPhotoError } from '../lib/agent-photo';
 import type { AgentData } from '../data/agents';
 import { AGENTS_DATA } from '../data/agents';
 import { sendCapiEvent } from '../lib/capi';
@@ -68,9 +69,7 @@ export default function FloatingAgentBar({ agent }: FloatingAgentBarProps) {
             src={agent.photo}
             alt={agent.name}
             className="w-full h-full object-cover rounded-full border-2 border-white dark:border-slate-700 shadow-sm"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(agent.name)}&background=random`;
-            }}
+            onError={(e) => handleAgentPhotoError(e.currentTarget, agent.name)}
           />
         </div>
         <div className="flex flex-col min-w-0">

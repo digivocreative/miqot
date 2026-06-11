@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { handleAgentPhotoError } from '../lib/agent-photo';
 import {
   Calculator, ArrowLeftRight, Settings,
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
@@ -848,9 +849,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 src={agentData.photo}
                 alt={agentData.name}
                 className="w-9 h-9 rounded-full object-cover border-2 border-emerald-200 dark:border-emerald-700 shadow-sm"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(agentData.name)}&background=random&size=72`;
-                }}
+                onError={(e) => handleAgentPhotoError(e.currentTarget, agentData.name, 72)}
               />
             </button>
             <div className="min-w-0">

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { handleAgentPhotoError } from '@/lib/agent-photo';
 import { normalizeWaNumber } from '@/utils/phone';
 import type { PortalAgentInfo, PortalBooking, PortalJamaah } from '../hooks/usePortalMe';
 
@@ -70,9 +71,7 @@ export default function StickyWhatsAppCta({
               src={agent.photo}
               alt={agent.name}
               className="w-full h-full object-cover rounded-full border-2 border-white dark:border-slate-700 shadow-sm"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(agent.name || 'Agent')}&background=random`;
-              }}
+              onError={(e) => handleAgentPhotoError(e.currentTarget, agent.name || 'Agent')}
             />
           ) : (
             <div className="w-full h-full rounded-full border-2 border-white dark:border-slate-700 shadow-sm bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-xs font-bold text-white">

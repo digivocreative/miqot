@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { handleAgentPhotoError } from '../lib/agent-photo';
 import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle, Unlink, LogIn, LogOut, Check, ShieldOff } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PhotoCropModal from './PhotoCropModal';
@@ -1495,9 +1496,7 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
               alt={agent.name}
               className="w-[90px] h-[90px] rounded-full object-cover"
               style={{ border: '3px solid #e5e7eb' }}
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(agent.name)}&background=random&size=180`;
-              }}
+              onError={(e) => handleAgentPhotoError(e.currentTarget, agent.name, 180)}
             />
             <button
               type="button"
