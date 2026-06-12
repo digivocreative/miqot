@@ -43,7 +43,7 @@ function getSetCookieHeaders(headers) {
   return raw ? [raw] : [];
 }
 
-function buildCookieString(cookies) {
+export function buildCookieString(cookies) {
   const jar = new Map();
   for (const cookie of cookies || []) {
     let name = '';
@@ -114,7 +114,7 @@ const SESSION_TTL = 60 * 60 * 1000; // 1 hour
 // redirect (cek_login.php / "Sign in to start your session") plus the inline
 // alert legacy serves on protected pages when PHPSESSID is rejected:
 //   <script>alert('Sesi Anda habis, silahkan re-login!!'); window.location='/aiw/staff/';</script>
-function isSessionExpiredHtml(html) {
+export function isSessionExpiredHtml(html) {
   if (!html) return false;
   if (html.includes('cek_login.php')) return true;
   if (html.includes('Sign in to start your session')) return true;

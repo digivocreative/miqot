@@ -15,6 +15,7 @@
 import * as cheerio from 'cheerio';
 import { PDFParse } from 'pdf-parse';
 import { matchEventToSchedule, findSiblingKeberangkatan, tokenizeName, overlapScore } from './lib/calendar-jadwal-match.js';
+import { buildCookieString, isSessionExpiredHtml } from './laporan-api.js';
 
 const BASE = (process.env.INTERNAL_API_BASE || 'http://115.124.86.220') + '/aiw/staff';
 // Dedicated calendar credential — terpisah dari agent agar tidak bentrok session
@@ -53,12 +54,15 @@ async function loginInternal() {
       cookies = raw ? [raw] : [];
     }
 
-    const phpSessionCookie = cookies?.find(c => c.includes('PHPSESSID'));
-    if (!phpSessionCookie) {
+    // Legacy bisa set PHPSESSID dua kali (regenerasi session saat login).
+    // buildCookieString dedupe per nama — nilai terakhir yang menang; mengirim
+    // keduanya membuat PHP membaca session pertama (mati) → "Sesi Anda habis".
+    const cookieString = buildCookieString(cookies);
+    if (!cookieString.includes('PHPSESSID')) {
       throw new Error('Calendar sync: login failed — no session cookie');
     }
 
-    return cookies.map(c => c.split(';')[0]).join('; ');
+    return cookieString;
   } catch (err) {
     if (err.cause?.code === 'ECONNREFUSED' || err.cause?.code === 'ETIMEDOUT') {
       throw new Error('Calendar sync: internal system unreachable');
@@ -81,7 +85,7 @@ async function fetchAllCalendarEvents(cookie) {
 
   const html = await res.text();
 
-  if (html.includes('cek_login.php') || html.includes('Sign in to start your session')) {
+  if (isSessionExpiredHtml(html)) {
     throw new Error('Calendar sync: session expired');
   }
 
@@ -144,7 +148,7 @@ async function fetchEventDetail(cookie, event) {
     });
 
     const html = await res.text();
-    if (html.includes('cek_login.php')) return [];
+    if (isSessionExpiredHtml(html)) return [];
 
     return parseEventDetailHTML(html);
   } catch (err) {
