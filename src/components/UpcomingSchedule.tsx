@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Plane, User, Clock, X } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Plane, User, Users, Clock, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
 
@@ -36,7 +36,6 @@ const TAB_CONFIG: Record<TabKey, {
   label: string;
   dotColor: string;
   activeTab: string;
-  badgeBg: string;
   borderColor: string;
   textColor: string;
   textColorDark: string;
@@ -48,7 +47,6 @@ const TAB_CONFIG: Record<TabKey, {
     label: 'Berangkat',
     dotColor: 'bg-emerald-500',
     activeTab: 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20',
-    badgeBg: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/40',
     borderColor: 'border-l-emerald-400',
     textColor: 'text-emerald-600',
     textColorDark: 'dark:text-emerald-400',
@@ -60,7 +58,6 @@ const TAB_CONFIG: Record<TabKey, {
     label: 'Pulang',
     dotColor: 'bg-blue-500',
     activeTab: 'bg-blue-500 text-white shadow-md shadow-blue-500/20',
-    badgeBg: 'bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800/40',
     borderColor: 'border-l-blue-400',
     textColor: 'text-blue-600',
     textColorDark: 'dark:text-blue-400',
@@ -72,7 +69,6 @@ const TAB_CONFIG: Record<TabKey, {
     label: 'Manasik',
     dotColor: 'bg-violet-500',
     activeTab: 'bg-violet-500 text-white shadow-md shadow-violet-500/20',
-    badgeBg: 'bg-violet-50 dark:bg-violet-900/20 border-violet-100 dark:border-violet-800/40',
     borderColor: 'border-l-violet-400',
     textColor: 'text-violet-600',
     textColorDark: 'dark:text-violet-400',
@@ -408,6 +404,7 @@ export default function UpcomingSchedule() {
                       const paket = parsePaket(detail.paket);
                       // Data legacy memprefiks nama tour leader dengan "•  " — buang
                       const tourLeader = (detail.tour_leader || '').replace(/^[•\s]+/, '').trim();
+                      const hasTourLeader = !!tourLeader && tourLeader !== '-';
                       return (
                       <div
                         key={i}
@@ -415,14 +412,6 @@ export default function UpcomingSchedule() {
                           i > 0 ? 'border-t border-gray-100 dark:border-slate-700' : ''
                         }`}
                       >
-                        {/* Left — Group Badge */}
-                        <div className="flex-shrink-0 pt-0.5">
-                          <div className={`w-10 h-10 rounded-xl border flex flex-col items-center justify-center shadow-sm ${tabConfig.badgeBg}`}>
-                            <span className={`text-[8px] font-bold uppercase leading-none ${tabConfig.textColor} ${tabConfig.textColorDark}`}>GRP</span>
-                            <span className={`text-sm font-extrabold leading-none ${tabConfig.textColor} ${tabConfig.textColorDark}`}>{detail.group_number || '-'}</span>
-                          </div>
-                        </div>
-
                         {/* Center — Info */}
                         <div className="flex-1 min-w-0">
                           {/* Pesawat */}
@@ -467,11 +456,24 @@ export default function UpcomingSchedule() {
                               )}
                             </div>
                           )}
-                          {/* Tour Leader */}
-                          {tourLeader && tourLeader !== '-' && (
+                          {/* Kloter + Tour Leader */}
+                          {(detail.group_number || hasTourLeader) && (
                             <div className="flex items-center gap-1 text-[10px] text-gray-600 dark:text-slate-300 mt-1">
-                              <User size={10} className="shrink-0" />
-                              <span>{tourLeader}</span>
+                              {detail.group_number && (
+                                <>
+                                  <Users size={10} className={`shrink-0 ${tabConfig.textColor} ${tabConfig.textColorDark}`} />
+                                  <span className={`font-bold ${tabConfig.textColor} ${tabConfig.textColorDark}`}>KLOTER {detail.group_number}</span>
+                                </>
+                              )}
+                              {detail.group_number && hasTourLeader && (
+                                <span className="text-gray-300 dark:text-slate-600 mx-0.5">·</span>
+                              )}
+                              {hasTourLeader && (
+                                <>
+                                  <User size={10} className="shrink-0" />
+                                  <span>{tourLeader}</span>
+                                </>
+                              )}
                             </div>
                           )}
                         </div>
@@ -492,7 +494,7 @@ export default function UpcomingSchedule() {
                       Total {tabConfig.label}
                     </span>
                     <span className={`text-xs font-extrabold ${tabConfig.textColor} ${tabConfig.textColorDark}`}>
-                      {activeDetails.length} group · {totalPax} pax
+                      {activeDetails.length} kloter · {totalPax} pax
                     </span>
                   </div>
                 </>
