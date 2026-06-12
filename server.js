@@ -7793,7 +7793,7 @@ app.get('/api/calendar/insight-jamaah', authMiddleware, async (req, res) => {
 const KNOWN_ROUTES = {
   'SV821':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'MED', arrCity: 'Madinah',  durationMin: 570, depTerminal: '3' },
   'SV822':  { dep: 'MED', depCity: 'Madinah',  arr: 'CGK', arrCity: 'Jakarta',  durationMin: 570 },
-  'SV827':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'JED', arrCity: 'Jeddah',   durationMin: 540, depTerminal: '3' },
+  'SV827':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'JED', arrCity: 'Jeddah',   durationMin: 600, depTerminal: '3' },
   'SV828':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
   'SV816':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 600, depTerminal: '1' },
   'SV817':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
@@ -7899,6 +7899,52 @@ function parseHHmmToMinutes(hhmm) {
 function getWIBDateStr(date = new Date()) {
   const wib = new Date(date.getTime() + 7 * 60 * 60 * 1000);
   return wib.toISOString().split('T')[0];
+}
+
+/**
+ * Derive flight times from a calendar event's `jam` field.
+ * Legacy convention: `jam` is always the Indonesia-side time —
+ *   keberangkatan → take-off at the departure airport (e.g. SV827 "00.40" = 00:40 WIB),
+ *   kepulangan    → landing at the arrival airport  (e.g. SV818 "16.00" = 16:00 WIB).
+ * The opposite end is estimated from route duration.
+ * Returns { depLocal, arrLocal ("HH:mm" airport-local), depUTC, arrUTC (ms), durationMin },
+ * or null when `jam` is unparseable.
+ */
+function deriveCalendarFlightTimes(event, route) {
+  const jamLocal = (event.jam || '00:00').replace('.', ':');
+  const [jamH, jamM] = jamLocal.split(':').map(Number);
+  if (isNaN(jamH) || isNaN(jamM)) return null;
+
+  const isKepulangan = event.event_type === 'kepulangan';
+  const depAirport = route?.dep || (isKepulangan ? 'JED' : 'CGK');
+  const arrAirport = route?.arr || (isKepulangan ? 'CGK' : 'JED');
+  const depTZ = AIRPORT_TZ_OFFSETS[depAirport] || 7;
+  const arrTZ = AIRPORT_TZ_OFFSETS[arrAirport] || 7;
+  const durationMin = route?.durationMin || 540;
+
+  const jamMs = new Date(`${event.event_date}T00:00:00Z`).getTime() + (jamH * 60 + jamM) * 60 * 1000;
+
+  let depUTC, arrUTC;
+  if (isKepulangan) {
+    arrUTC = jamMs - arrTZ * 60 * 60 * 1000;
+    depUTC = arrUTC - durationMin * 60 * 1000;
+  } else {
+    depUTC = jamMs - depTZ * 60 * 60 * 1000;
+    arrUTC = depUTC + durationMin * 60 * 1000;
+  }
+
+  const toAirportHHmm = (utcMs, tz) => {
+    const d = new Date(utcMs + tz * 60 * 60 * 1000);
+    return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  };
+
+  return {
+    depLocal: toAirportHHmm(depUTC, depTZ),
+    arrLocal: toAirportHHmm(arrUTC, arrTZ),
+    depUTC,
+    arrUTC,
+    durationMin,
+  };
 }
 
 /**
@@ -8410,61 +8456,31 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
           }
         }
 
-        // Attach calendar reference times if they differ significantly from AirLabs
+        // Attach calendar reference time if it differs significantly from AirLabs.
+        // Only the side `jam` actually records (dep for keberangkatan, arr for kepulangan) —
+        // the opposite end would just be our own duration estimate, not internal data.
         if (event.jam && entry.depScheduled) {
-          const calArrLocal = (event.jam || '00:00').replace('.', ':');
-          const calRoute = lookupRoute(parsed.flightIata, event.event_type);
-          const calArrAirport = calRoute?.arr || (event.event_type === 'kepulangan' ? 'CGK' : 'JED');
-          const calDepAirport = calRoute?.dep || (event.event_type === 'kepulangan' ? 'JED' : 'CGK');
-          const calArrTZ = AIRPORT_TZ_OFFSETS[calArrAirport] || 7;
-          const calDepTZ = AIRPORT_TZ_OFFSETS[calDepAirport] || 7;
-          const calDurationMin = calRoute?.durationMin || 540;
-
-          const [calArrH, calArrM] = calArrLocal.split(':').map(Number);
-          if (!isNaN(calArrH) && !isNaN(calArrM)) {
-            const calArrDateObj = new Date(`${event.event_date}T00:00:00Z`);
-            const calArrUTC = calArrDateObj.getTime() + (calArrH * 60 + calArrM) * 60 * 1000 - calArrTZ * 60 * 60 * 1000;
-            const calDepUTC = calArrUTC - calDurationMin * 60 * 1000;
-            const calDepLocalMs = calDepUTC + calDepTZ * 60 * 60 * 1000;
-            const calDepD = new Date(calDepLocalMs);
-            const calDepLocal = `${String(calDepD.getUTCHours()).padStart(2, '0')}:${String(calDepD.getUTCMinutes()).padStart(2, '0')}`;
-
-            const depDiff = Math.abs(parseHHmmToMinutes(entry.depScheduled) - parseHHmmToMinutes(calDepLocal));
-            const arrDiff = Math.abs(parseHHmmToMinutes(entry.arrScheduled) - parseHHmmToMinutes(calArrLocal));
-
-            if (depDiff >= 15 || arrDiff >= 15) {
-              entry.calendarDepTime = calDepLocal;
-              entry.calendarArrTime = calArrLocal;
+          const calTimes = deriveCalendarFlightTimes(event, lookupRoute(parsed.flightIata, event.event_type));
+          if (calTimes) {
+            if (event.event_type === 'kepulangan') {
+              const arrDiff = Math.abs(parseHHmmToMinutes(entry.arrScheduled) - parseHHmmToMinutes(calTimes.arrLocal));
+              if (arrDiff >= 15) entry.calendarArrTime = calTimes.arrLocal;
+            } else {
+              const depDiff = Math.abs(parseHHmmToMinutes(entry.depScheduled) - parseHHmmToMinutes(calTimes.depLocal));
+              if (depDiff >= 15) entry.calendarDepTime = calTimes.depLocal;
             }
           }
         }
 
         flights.push(entry);
       } else {
-        // Fallback: enrich from calendar + route lookup
+        // Fallback: enrich from calendar + route lookup.
+        // `jam` is the Indonesia-side time (keberangkatan: take-off, kepulangan: landing);
+        // deriveCalendarFlightTimes estimates the opposite end from route duration.
         const route = lookupRoute(parsed.flightIata, event.event_type);
-        // event.jam is the ARRIVAL time at **arr airport** local timezone
-        const arrLocal = (event.jam || '00:00').replace('.', ':');
-        const arrAirport = route?.arr || (event.event_type === 'kepulangan' ? 'CGK' : 'JED');
-        const depAirport = route?.dep || (event.event_type === 'kepulangan' ? 'JED' : 'CGK');
-        const arrTZ = AIRPORT_TZ_OFFSETS[arrAirport] || 7;
-        const depTZ = AIRPORT_TZ_OFFSETS[depAirport] || 7;
-        const durationMin = route?.durationMin || 540;
-
-        // Calculate departure time from arrival time:
-        // arrLocal is HH:mm in arrival airport's timezone
-        const [arrH, arrM] = arrLocal.split(':').map(Number);
-        // Arrival in UTC
-        const arrDateObj = new Date(`${event.event_date}T00:00:00Z`);
-        const arrUTC = arrDateObj.getTime() + (arrH * 60 + arrM) * 60 * 1000 - arrTZ * 60 * 60 * 1000;
-        // Departure in UTC = arrival UTC - duration
-        const depUTC = arrUTC - durationMin * 60 * 1000;
-        // Convert departure UTC to departure airport local HH:mm
-        const depLocalMs = depUTC + depTZ * 60 * 60 * 1000;
-        const depD = new Date(depLocalMs);
-        const depHH = String(depD.getUTCHours()).padStart(2, '0');
-        const depMM = String(depD.getUTCMinutes()).padStart(2, '0');
-        const depLocal = `${depHH}:${depMM}`;
+        const times = deriveCalendarFlightTimes(event, route)
+          || deriveCalendarFlightTimes({ ...event, jam: '00:00' }, route);
+        const { depLocal, arrLocal, depUTC, arrUTC, durationMin } = times;
 
         const todayWIBStr = getWIBDateStr();
         const nowUTCFb = Date.now();
@@ -8616,8 +8632,11 @@ function getPollingIntervalMs(status, hoursUntilDeparture) {
 }
 
 function getHoursUntilDeparture(event) {
-  const depTime = new Date(`${event.event_date}T${(event.jam || '00:00').replace('.', ':')}:00`);
-  return (depTime - new Date()) / (1000 * 60 * 60);
+  const parsed = parseFlightFromCalendar(event.pesawat);
+  const route = parsed ? lookupRoute(parsed.flightIata, event.event_type) : null;
+  const times = deriveCalendarFlightTimes(event, route);
+  if (!times) return Infinity;
+  return (times.depUTC - Date.now()) / (1000 * 60 * 60);
 }
 
 function formatTimeWIB(isoString) {
