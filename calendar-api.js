@@ -91,10 +91,11 @@ async function fetchAllCalendarEvents(cookie) {
 
   // Extract the events JSON array from FullCalendar init
   // Pattern: events: [{...}, {...}],
+  // Gagal ekstrak = THROW, bukan return [] — return kosong membuat sync
+  // melaporkan "success 0 event" dan kegagalan tak terlihat (insiden 12 Jun 2026).
   const eventsMatch = html.match(/events:\s*(\[[\s\S]*?\])\s*,\s*\n/);
   if (!eventsMatch) {
-    console.warn('[Calendar] Could not find events array in page source');
-    return [];
+    throw new Error('Calendar sync: events array tidak ditemukan di halaman — layout berubah atau session tidak valid');
   }
 
   try {
@@ -112,8 +113,7 @@ async function fetchAllCalendarEvents(cookie) {
         raw: ev,
       }));
   } catch (e) {
-    console.error('[Calendar] Failed to parse events JSON:', e.message);
-    return [];
+    throw new Error(`Calendar sync: gagal parse events JSON — ${e.message}`);
   }
 }
 
@@ -130,31 +130,46 @@ function detectEventType(title) {
 // Returns HTML table — layout kolom BERBEDA per tipe event:
 //   keberangkatan/kepulangan: GROUP | PESAWAT | JAM | PAKET | PAX | STAFF | TL | MUTAWIF
 //   manasik:                  GROUP | PESAWAT | JAM | PAKET | PAX | TL | MUTAWIF (tanpa STAFF)
+// Lempar error bila gagal — JANGAN return [] untuk kegagalan: [] berarti
+// "modal benar-benar kosong"; kegagalan yang menyaru [] membuat sync menulis
+// placeholder _0 dan stale-delete menghapus baris grup lama yang masih benar.
+// err.sessionExpired = true → fatal utk seluruh run (modal berikutnya pasti gagal juga).
 async function fetchEventDetail(cookie, event) {
   if (!event.aid) return [];
 
   const detailUrl = `${BASE}/pages/_jmodal.php?.m=${encodeURIComponent(event.aid)}&.g=${encodeURIComponent(event.apalah)}`;
+  const MAX_TRIES = 2;
+  let lastErr;
 
-  try {
-    const res = await fetch(detailUrl, {
-      method: 'GET',
-      headers: {
-        Cookie: cookie,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html, */*',
-        'X-Requested-With': 'XMLHttpRequest',
-        'Referer': `${BASE}/pages/main.php?route=home`,
-      },
-    });
+  for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
+    try {
+      const res = await fetch(detailUrl, {
+        method: 'GET',
+        headers: {
+          Cookie: cookie,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'text/html, */*',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Referer': `${BASE}/pages/main.php?route=home`,
+        },
+      });
 
-    const html = await res.text();
-    if (isSessionExpiredHtml(html)) return [];
+      const html = await res.text();
+      if (isSessionExpiredHtml(html)) {
+        const err = new Error('Calendar sync: session expired di tengah run (modal)');
+        err.sessionExpired = true;
+        throw err;
+      }
+      if (!res.ok) throw new Error(`modal HTTP ${res.status}`);
 
-    return parseEventDetailHTML(html);
-  } catch (err) {
-    console.error(`[Calendar] Detail fetch error for ${event.date}/${event.type}:`, err.message);
-    return [];
+      return parseEventDetailHTML(html);
+    } catch (err) {
+      if (err.sessionExpired) throw err;
+      lastErr = err;
+      if (attempt < MAX_TRIES) await new Promise(r => setTimeout(r, 2000));
+    }
   }
+  throw new Error(`Detail fetch gagal utk ${event.date}/${event.type}: ${lastErr.message}`);
 }
 
 // ── Parse event detail HTML table ──
@@ -213,8 +228,8 @@ export async function syncCalendar(supabase) {
   }
 
   if (calendarEvents.length === 0) {
-    console.log('[Calendar] No events found');
-    return { success: true, count: 0 };
+    // Sumber selalu pre-load ~120 event — kosong berarti rusak, bukan "tidak ada jadwal"
+    return { success: false, error: 'sumber tidak memuat event sama sekali — layout/login berubah?' };
   }
 
   // Filter to relevant range: 1 month back, tanpa batas atas — sumber hanya
@@ -227,12 +242,28 @@ export async function syncCalendar(supabase) {
   const filtered = calendarEvents.filter(ev => ev.date >= rangeStartStr);
   console.log(`[Calendar] ${filtered.length} events in range (${rangeStartStr} →)`);
 
+  if (filtered.length === 0) {
+    return { success: false, error: `0 dari ${calendarEvents.length} event masuk range sync (${rangeStartStr} →) — anomali` };
+  }
+
   // Fetch details for each event
   const allRows = [];
+  // Event yang detail-nya gagal di-fetch: di-skip dan baris LAMA-nya dipertahankan
+  // (dikecualikan dari stale-delete) — kegagalan parsial tidak boleh merusak data baik.
+  const failedEventKeys = new Set();
   let detailsFetched = 0;
 
   for (const event of filtered) {
-    const details = await fetchEventDetail(cookie, event);
+    let details;
+    try {
+      details = await fetchEventDetail(cookie, event);
+    } catch (err) {
+      if (err.sessionExpired) throw err; // fatal — caller retry run penuh dengan login baru
+      failedEventKeys.add(`${event.date}_${event.type}`);
+      console.warn(`[Calendar] ${err.message} — baris lama event ini dipertahankan`);
+      detailsFetched++;
+      continue;
+    }
     detailsFetched++;
 
     if (details.length === 0) {
@@ -272,10 +303,15 @@ export async function syncCalendar(supabase) {
     await new Promise(r => setTimeout(r, 500));
   }
 
+  if (allRows.length === 0) {
+    return { success: false, error: `tidak ada baris dihasilkan dari ${filtered.length} event (${failedEventKeys.size} detail gagal)` };
+  }
+
   // Delete stale records in the sync range that no longer exist in source.
   // This prevents ghost entries when groups get moved between dates.
-  if (allRows.length > 0) {
+  {
     const freshIds = new Set(allRows.map(r => r.id));
+    const failedPrefixes = [...failedEventKeys].map(k => `${k}_`);
 
     // Fetch existing IDs in the sync range
     const { data: existingRows, error: fetchErr } = await supabase
@@ -286,7 +322,11 @@ export async function syncCalendar(supabase) {
     if (!fetchErr && existingRows) {
       const staleIds = existingRows
         .map(r => r.id)
-        .filter(id => !freshIds.has(id) && !id.startsWith('_DEMO_'));
+        .filter(id =>
+          !freshIds.has(id) &&
+          !id.startsWith('_DEMO_') &&
+          !failedPrefixes.some(p => id.startsWith(p)) // baris event yang gagal di-fetch: jangan dihapus
+        );
 
       if (staleIds.length > 0) {
         const DEL_BATCH = 50;
@@ -319,9 +359,10 @@ export async function syncCalendar(supabase) {
         upserted += batch.length;
       }
     }
+    if (failedEventKeys.size > 0) {
+      console.warn(`[Calendar] ${failedEventKeys.size} event dilewati (detail gagal) — baris lamanya dipertahankan`);
+    }
     console.log(`[Calendar] Sync complete: ${upserted} rows upserted from ${detailsFetched} events`);
-  } else {
-    console.log('[Calendar] Sync complete: no rows generated');
   }
 
   // Isi pax jamaah jaringan untuk baris yang baru di-sync
@@ -336,7 +377,7 @@ export async function syncCalendar(supabase) {
     console.error('[KumpulParser] Enrichment failed:', err.message);
   });
 
-  return { success: true, count: allRows.length };
+  return { success: true, count: allRows.length, failedEvents: failedEventKeys.size };
 }
 
 // ── Enrich calendar events with pax terisi & pax jamaah jaringan ──

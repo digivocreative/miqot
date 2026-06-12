@@ -16654,15 +16654,90 @@ function scheduleBunnyCleanup() {
 if (shouldRunBackgroundJobs()) scheduleBunnyCleanup();
 
 // ── Calendar sync: every 12 hours (shared data, doesn't change often) ──
-async function runCalendarSync() {
+// Resiliensi (insiden 12 Jun 2026 — sync gagal diam-diam 18 jam, grup basi):
+// gagal → retry +10m lalu +30m (login baru tiap attempt); 3x gagal → ops alert
+// sekali per insiden + notifikasi saat pulih; last_success_at/last_error
+// dicatat di calendar_insights utk observability.
+const CALENDAR_RETRY_DELAYS_MIN = [10, 30];
+let calendarSyncRetryTimer = null;
+let calendarSyncAlerted = false;
+let calendarLastSuccessAt = null;
+
+async function persistCalendarSyncHealth(patch) {
   try {
-    await syncCalendar(supabase);
+    const { data: row } = await supabase
+      .from('calendar_insights')
+      .select('data')
+      .eq('id', 'calendar_sync_health')
+      .maybeSingle();
+    await supabase.from('calendar_insights').upsert({
+      id: 'calendar_sync_health',
+      data: { ...(row?.data || {}), ...patch },
+    }, { onConflict: 'id' });
+  } catch (err) {
+    console.warn('[Calendar] Gagal simpan sync health:', err.message);
+  }
+}
+
+async function runCalendarSync(attempt = 0) {
+  // Siklus 12-jam dimulai saat chain retry masih pending → batalkan chain lama
+  if (calendarSyncRetryTimer) {
+    clearTimeout(calendarSyncRetryTimer);
+    calendarSyncRetryTimer = null;
+  }
+
+  let failReason = null;
+  try {
+    const result = await syncCalendar(supabase);
+    if (result?.success === false) failReason = result.error || 'sync mengembalikan kegagalan tanpa detail';
+  } catch (err) {
+    failReason = err.message;
+  }
+
+  if (!failReason) {
+    calendarLastSuccessAt = new Date().toISOString();
+    persistCalendarSyncHealth({ last_success_at: calendarLastSuccessAt, last_error: null });
+    if (calendarSyncAlerted) {
+      calendarSyncAlerted = false;
+      sendOpsAlert('✅ <b>Sync kalender pulih</b> — event & grup ter-update lagi.').catch(() => {});
+    }
     // Generate AI insight after first sync (if cache is empty or stale format)
     if (isInsightStale(insightCache)) {
       try { await generateCalendarInsight(); } catch (e) { console.error('[AI Insight] Post-sync error:', e.message); }
     }
-  } catch (err) {
-    console.error('[Calendar] Sync error:', err.message);
+    return;
+  }
+
+  const totalAttempts = CALENDAR_RETRY_DELAYS_MIN.length + 1;
+  console.error(`[Calendar] Sync error (attempt ${attempt + 1}/${totalAttempts}): ${failReason}`);
+  persistCalendarSyncHealth({ last_error: failReason, last_error_at: new Date().toISOString() });
+
+  if (attempt < CALENDAR_RETRY_DELAYS_MIN.length) {
+    const delayMin = CALENDAR_RETRY_DELAYS_MIN[attempt];
+    console.log(`[Calendar] Retry dalam ${delayMin} menit`);
+    calendarSyncRetryTimer = setTimeout(() => runCalendarSync(attempt + 1), delayMin * 60 * 1000);
+    return;
+  }
+
+  // Retry habis — alert sekali per insiden (reset saat pulih); siklus 12 jam tetap jalan
+  if (!calendarSyncAlerted) {
+    calendarSyncAlerted = true;
+    if (!calendarLastSuccessAt) {
+      try {
+        const { data: row } = await supabase
+          .from('calendar_insights').select('data').eq('id', 'calendar_sync_health').maybeSingle();
+        calendarLastSuccessAt = row?.data?.last_success_at || null;
+      } catch { /* ignore */ }
+    }
+    const sejak = calendarLastSuccessAt
+      ? `\nSukses terakhir: ${new Date(calendarLastSuccessAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB`
+      : '';
+    sendOpsAlert(
+      `🗓️⚠️ <b>Sync kalender gagal ${totalAttempts}x berturut-turut</b>\n\n` +
+      `${escapeHtml(failReason)}${sejak}\n\n` +
+      `Data kalender (event, grup, jam) membeku sampai sync pulih — card penerbangan ikut terdampak. ` +
+      `Cek: login legacy (kredensial kalender), layout halaman, atau server legacy down.`
+    ).catch(() => {});
   }
 }
 
