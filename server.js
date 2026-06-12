@@ -8363,6 +8363,22 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
       }
     }
 
+    // Satu penerbangan bisa dipakai beberapa kloter dengan jam kalender yang
+    // sengaja diselisihkan 1 menit oleh admin legacy (mis. SV827: grup 1 "00.40",
+    // grup 2 "00.41") — pesawatnya satu, take off riil = jam PALING AWAL.
+    // Pakai waktu bersama itu untuk semua kloter se-flight agar card konsisten.
+    const sharedFlightTimes = new Map(); // `${event_date}_${flightIata}_${event_type}` → times
+    for (const event of events) {
+      const parsed = parseFlightFromCalendar(event.pesawat);
+      if (!parsed) continue;
+      const route = lookupRoute(parsed.flightIata, event.event_type);
+      const times = deriveCalendarFlightTimes(event, route);
+      if (!times) continue; // jam tidak ter-parse — jangan ikut menentukan waktu bersama
+      const key = `${event.event_date}_${parsed.flightIata}_${event.event_type}`;
+      const cur = sharedFlightTimes.get(key);
+      if (!cur || times.depUTC < cur.depUTC) sharedFlightTimes.set(key, times);
+    }
+
     // 2b. For each event: cache → Supabase → AirLabs
     const flights = [];
     // Track which flightIds we've already fetched from cache/DB to avoid repeated queries
@@ -8477,8 +8493,9 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
         // Fallback: enrich from calendar + route lookup.
         // `jam` is the Indonesia-side time (keberangkatan: take-off, kepulangan: landing);
         // deriveCalendarFlightTimes estimates the opposite end from route duration.
+        // Waktu diambil dari sharedFlightTimes (jam paling awal antar kloter se-flight).
         const route = lookupRoute(parsed.flightIata, event.event_type);
-        const times = deriveCalendarFlightTimes(event, route)
+        const times = sharedFlightTimes.get(`${event.event_date}_${parsed.flightIata}_${event.event_type}`)
           || deriveCalendarFlightTimes({ ...event, jam: '00:00' }, route);
         const { depLocal, arrLocal, depUTC, arrUTC, durationMin } = times;
 
@@ -8547,7 +8564,10 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
       if (dateA > dateB) return -1;
       if (dateA < dateB) return 1;
       // Same date: sort by status
-      return (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
+      const byStatus = (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
+      if (byStatus !== 0) return byStatus;
+      // Kloter se-flight (waktu & status sama): nomor grup naik
+      return String(a.group || '').localeCompare(String(b.group || ''), undefined, { numeric: true });
     });
 
     // Filter out landed/cancelled flights older than 6 hours
