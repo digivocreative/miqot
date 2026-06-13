@@ -15166,7 +15166,11 @@ app.get('{*path}', async (req, res) => {
   // cached shell pinned by max-age could reference purged hashed chunks → broken
   // app. no-cache = always conditional-GET → 304 when unchanged, fresh 200 right
   // after a deploy. The OG/title/context injection above is part of the hashed body.
-  const etag = '"' + crypto.createHash('sha256').update(html).digest('hex').slice(0, 32) + '"';
+  // Weak ETag (W/): Caddy's `encode` strips STRONG ETags because gzip/zstd changes
+  // the body bytes, which would defeat the 304 at the edge. A weak validator asserts
+  // only semantic equivalence, so it survives compression — the browser echoes it
+  // back in If-None-Match and we can still 304.
+  const etag = 'W/"' + crypto.createHash('sha256').update(html).digest('hex').slice(0, 32) + '"';
   res.set('ETag', etag);
   res.set('Cache-Control', 'no-cache');
   if (req.headers['if-none-match'] === etag) {
