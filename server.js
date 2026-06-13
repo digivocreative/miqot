@@ -14699,8 +14699,7 @@ app.get('/:slug/bio', async (req, res, next) => {
     const ogImage = bioConfig.seo?.og_image_url || `${origin}/og/${slug}.png`;
     const pageUrl = `${origin}/${slug}/bio`;
 
-    const indexPath = resolve(distPath, 'index.html');
-    let html = readFileSync(indexPath, 'utf-8');
+    let html = getIndexHtml();
 
     const t = escapeHtmlAttr(title);
     const d = escapeHtmlAttr(description);
@@ -14862,6 +14861,17 @@ app.use((err, req, res, next) => {
 const distPath = resolve(__dirname, 'dist');
 const publicPath = resolve(__dirname, 'public');
 
+// The built index.html only changes on deploy, and the systemd service restarts
+// on every deploy (re-reading it). Cache it in memory so the SPA / bio / flight-share
+// hot paths don't do a synchronous readFileSync on every single request.
+let _indexHtmlTemplate = null;
+function getIndexHtml() {
+  if (_indexHtmlTemplate === null) {
+    _indexHtmlTemplate = readFileSync(resolve(distPath, 'index.html'), 'utf-8');
+  }
+  return _indexHtmlTemplate;
+}
+
 function detectImageContentType(buffer, fallback = 'image/jpeg') {
   if (!Buffer.isBuffer(buffer) || buffer.length < 12) return fallback;
   if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
@@ -14968,8 +14978,7 @@ app.get('/f/:code', async (req, res, next) => {
     const description = `Status penerbangan ${share.flight_number} dari ${share.dep_city || share.dep_iata} ke ${share.arr_city || share.arr_iata}. Dikelola oleh ${agentName} — Alhijaz Indowisata.`;
     const ogImageUrl = `${req.protocol}://${req.get('host')}/og/${agentSlug}.png`;
 
-    const indexPath = resolve(distPath, 'index.html');
-    let html = readFileSync(indexPath, 'utf-8');
+    let html = getIndexHtml();
 
     // Replace existing <title>
     html = html.replace(/<title>[^<]*<\/title>/i, `<title>${title}</title>`);
@@ -15011,8 +15020,7 @@ app.get('/f/:code', async (req, res, next) => {
 
 // SPA fallback — inject OG tags for agent slugs (or custom-domain agent)
 app.get('{*path}', async (req, res) => {
-  const indexPath = resolve(distPath, 'index.html');
-  let html = readFileSync(indexPath, 'utf-8');
+  let html = getIndexHtml();
 
   let agent = null;
   let pageUrl = null;
@@ -15150,6 +15158,19 @@ app.get('{*path}', async (req, res) => {
   // or the next visitor on this origin gets the previous agent's shell.
   if (req.customDomain) {
     res.set('Cache-Control', 'private, no-store, must-revalidate');
+    return res.send(html);
+  }
+  // alhijaz.co / agent-slug shell: revalidate on every load via ETag so a reload
+  // returns a tiny 304 instead of re-downloading the whole HTML. Deliberately
+  // no-cache (not a long max-age): `vite build` empties dist/ each deploy, so a
+  // cached shell pinned by max-age could reference purged hashed chunks → broken
+  // app. no-cache = always conditional-GET → 304 when unchanged, fresh 200 right
+  // after a deploy. The OG/title/context injection above is part of the hashed body.
+  const etag = '"' + crypto.createHash('sha256').update(html).digest('hex').slice(0, 32) + '"';
+  res.set('ETag', etag);
+  res.set('Cache-Control', 'no-cache');
+  if (req.headers['if-none-match'] === etag) {
+    return res.status(304).end();
   }
   res.send(html);
 });
