@@ -2156,7 +2156,7 @@ _________________________
                 data-screenshot-ignore
                 role="tablist"
                 aria-label="Pilih tipe paket"
-                className="flex w-full gap-1 mb-3 p-1 rounded-xl bg-gray-100 dark:bg-slate-800"
+                className="flex w-full gap-1 mb-3 p-1 rounded-xl bg-gray-100 dark:bg-slate-900"
               >
                 {tiers.map((tier) => {
                   const isActive = tier === activeTier;
