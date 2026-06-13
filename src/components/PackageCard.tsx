@@ -145,6 +145,7 @@ function PackageCardImpl({
   const [isLinkCopying, setIsLinkCopying] = useState(false);
   const [linkCheckVisible, setLinkCheckVisible] = useState(false);
   const [linkToastVisible, setLinkToastVisible] = useState(false);
+  const [selectedTier, setSelectedTier] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const brosurSectionRef = useRef<HTMLDivElement>(null);
   const linkCheckTimerRef = useRef<number | null>(null);
@@ -218,15 +219,23 @@ function PackageCardImpl({
     };
   }, [pkg.harga]);
 
-  // Use the pricing and hotel info from the cheapest tier
-  const pricing = pkg.harga[cheapestTier] as RoomPricing;
-  const hotelInfo = pkg.hotel[cheapestTier];
+  // Available pricing tiers (e.g. HEMAT, UHUD, RAHMAH)
+  const tiers = useMemo(() => Object.keys(pkg.harga), [pkg.harga]);
+
+  // Active tier drives BOTH the hotel block (above) and the pricing table.
+  // Falls back to the cheapest tier when nothing is selected or the selection
+  // is stale (e.g. the memoized card was reused for a different package).
+  const activeTier = (selectedTier && pkg.harga[selectedTier]) ? selectedTier : cheapestTier;
+
+  // Use the pricing and hotel info from the active tier
+  const pricing = pkg.harga[activeTier] as RoomPricing;
+  const hotelInfo = pkg.hotel[activeTier];
 
   // ── Caption AI (modal logic lives in CaptionAIModal) ──
-  // Both builders use cheapestTier for consistent hotel/pricing data
+  // Both builders use the active tier so caption/share match what's on screen
   const buildAiCopyPayload = () => {
-    const hotelData = pkg.hotel?.[cheapestTier] as any;
-    const tierPricing = pkg.harga?.[cheapestTier] as any;
+    const hotelData = pkg.hotel?.[activeTier] as any;
+    const tierPricing = pkg.harga?.[activeTier] as any;
     return {
       packageData: {
         nama: pkg.nama,
@@ -258,8 +267,8 @@ function PackageCardImpl({
 
   // Local fallback template when the API call fails
   const buildAiCopyFallback = () => {
-    const hotelData = pkg.hotel?.[cheapestTier] as any;
-    const tierPricing = pkg.harga?.[cheapestTier] as any;
+    const hotelData = pkg.hotel?.[activeTier] as any;
+    const tierPricing = pkg.harga?.[activeTier] as any;
     const depDate = new Date(pkg.keberangkatan?.tgl).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
     const prices: string[] = [];
@@ -905,6 +914,14 @@ _________________________
       if (pricingH4) {
         // Title: text-xs (12px) → 14px
         pricingH4.style.setProperty('font-size', '14px', 'important');
+        // Annotate active tier in the screenshot (the interactive tab is
+        // stripped via data-screenshot-ignore, so label the tier here).
+        if (tiers.length > 1) {
+          pricingH4.textContent = `Rincian Biaya Paket · ${activeTier}`;
+          // Override the snapshot h4 nowrap/ellipsis rule so the tier suffix isn't clipped.
+          pricingH4.style.setProperty('white-space', 'normal', 'important');
+          pricingH4.style.setProperty('overflow', 'visible', 'important');
+        }
         // All rows inside the pricing container
         const pricingContainer = pricingH4.nextElementSibling as HTMLElement;
         if (pricingContainer) {
@@ -2134,6 +2151,37 @@ _________________________
             <h4 className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
               Rincian Biaya Paket
             </h4>
+            {tiers.length > 1 && (
+              <div
+                data-screenshot-ignore
+                role="tablist"
+                aria-label="Pilih tipe paket"
+                className="flex gap-1.5 mb-3 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/70"
+              >
+                {tiers.map((tier) => {
+                  const isActive = tier === activeTier;
+                  return (
+                    <button
+                      key={tier}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedTier(tier);
+                      }}
+                      className={`flex-1 min-w-0 truncate rounded-md py-1.5 px-2 text-xs font-semibold transition-colors ${
+                        isActive
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      {tier}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <div className="border-t border-gray-100 dark:border-slate-700">
               {pricing?.Quard && (
                 <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
