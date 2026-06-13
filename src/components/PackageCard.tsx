@@ -2156,7 +2156,7 @@ _________________________
                 data-screenshot-ignore
                 role="tablist"
                 aria-label="Pilih tipe paket"
-                className="flex gap-1.5 mb-3 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/70"
+                className="flex w-full gap-1 mb-3 p-1 rounded-xl bg-gray-100 dark:bg-slate-800"
               >
                 {tiers.map((tier) => {
                   const isActive = tier === activeTier;
@@ -2170,13 +2170,13 @@ _________________________
                         e.stopPropagation();
                         setSelectedTier(tier);
                       }}
-                      className={`flex-1 min-w-0 truncate rounded-md py-1.5 px-2 text-xs font-semibold transition-colors ${
+                      className={`flex-1 min-w-0 flex items-center justify-center py-2 rounded-lg text-[11px] transition-all duration-200 ${
                         isActive
-                          ? 'bg-emerald-600 text-white shadow-sm'
-                          : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
+                          ? 'bg-white dark:bg-slate-700 shadow-sm font-semibold text-emerald-500 dark:text-emerald-400'
+                          : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium active:opacity-70'
                       }`}
                     >
-                      {tier}
+                      <span className="truncate">{tier}</span>
                     </button>
                   );
                 })}
