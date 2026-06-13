@@ -58,24 +58,17 @@
     <meta property="og:site_name" content="Alhijaz Indowisata" />
 
     <title>Jadwal Umroh - Alhijaz Indowisata</title>
-    <!-- Self-hosted brochure fonts (WOFF2 — ~58% smaller than the original TTFs).
-         Same-origin so snapdom can embed deterministically without CDN timing
-         variance. `crossorigin="anonymous"` is required by the spec for `as=font`
-         preloads even on same-origin, otherwise the browser ignores the hint. -->
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/BebasNeue-Regular.woff2">
+    <!-- Preload ONLY the Inter weights used above-the-fold in the app UI (Tailwind
+         font-sans = Inter: body 400, labels/titles 600, headings 700). The display
+         fonts (Bebas/Oswald/Montserrat/Roboto Condensed) and heavy Inter weights are
+         brochure/snapdom-only: BrochureSchedulePage loads them on demand via
+         document.fonts.load() and awaits document.fonts.ready before capture, so they
+         must NOT block (and steal bandwidth on) every page load. They remain available
+         through the @font-face rules below (font-display: swap). `crossorigin="anonymous"`
+         is required by spec for `as=font` preloads even same-origin. -->
     <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-Regular.woff2">
     <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-SemiBold.woff2">
     <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-Bold.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-ExtraBold.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-Black.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Oswald-Regular.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Oswald-Medium.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Oswald-Bold.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Montserrat-Bold.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Montserrat-ExtraBold.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Montserrat-Black.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/RobotoCondensed-SemiBold.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/RobotoCondensed-Bold.woff2">
     <style>
       @font-face { font-family: 'Bebas Neue'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/BebasNeue-Regular.woff2') format('woff2'); }
       @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/Inter-Regular.woff2') format('woff2'); }
