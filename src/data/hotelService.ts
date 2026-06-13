@@ -27,6 +27,7 @@ const FALLBACK_DISTANCES: Record<string, string> = {
   'RAYYANA AJYAD':                '±300m',
   'SOFWAH ROYAL ORCHID':          '±50m',
   'SAJA MAKKAH EX LE MERIDIEN TOWERS MAKKAH': '±2.5km',
+  'ANJUM':                        '±450m',
   // ── Madinah ──
   'AL HARAM':                     '±50m',
   'DEYAR AL EIMAN':               '±50m',
@@ -35,6 +36,8 @@ const FALLBACK_DISTANCES: Record<string, string> = {
   'ODST ALMADINAH':               '±200m',
   'ARTAL INTERNATIONAL':          '±700m',
   'ANWAR ALMADINAH MOVENPICK':    '±200m',
+  'PROVINCE ALSHAM':              '±350m',
+  'TRIPLE ONE':                   '±600m',
   // ── Cairo ──
   'TIBA PYRAMID':                         '',
   // ── Dubai ──
