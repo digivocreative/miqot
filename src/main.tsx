@@ -43,7 +43,10 @@ if (isPwaHost) {
       const checkForUpdate = () => {
         registration.update().catch(() => { /* offline — ignore */ })
       }
-      setInterval(checkForUpdate, 60_000)
+      // Poll hourly — the visibilitychange handler below already catches updates
+      // whenever the user returns to the tab, so a tight 60s poll was redundant
+      // network chatter.
+      setInterval(checkForUpdate, 3_600_000)
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') checkForUpdate()
       })

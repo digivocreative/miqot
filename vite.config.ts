@@ -302,6 +302,12 @@ export default defineConfig({
         // Force new SW to take over immediately
         skipWaiting: true,
         clientsClaim: true,
+        // Serve the precached shell instantly for in-app navigations (no network
+        // round-trip for HTML). SW only registers on alhijaz.co, where the SPA
+        // derives the agent from the URL path — so the generic shell is correct.
+        // The denylist routes still hit the server (OG/SSR injection, landing
+        // pages, portal-jamaah meta, dashboard auth shell).
+        navigateFallback: '/index.html',
         // Don't cache API responses in SW
         navigateFallbackDenylist: [/^\/api/, /\/umroh$/, /\/haji$/, /\/brosur/, /\/itinerary/, /^\/agents\//, /^\/login/, /^\/dashboard/, /^\/f\//, /\/jamaah(\/|$)/],
         runtimeCaching: [
