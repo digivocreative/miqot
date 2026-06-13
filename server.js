@@ -8088,6 +8088,27 @@ function getAircraftName(icao) {
 }
 
 /**
+ * Timestamp epoch utk progress. AirLabs bisa menandai en-route TANPA dep_actual_ts
+ * (SV827 13 Jun: hanya dep_time_ts) — fallback ke estimated/scheduled ts.
+ */
+function flightProgressTs(rawApi) {
+  const raw = rawApi || {};
+  return {
+    depTs: raw.dep_actual_ts || raw.dep_estimated_ts || raw.dep_time_ts || null,
+    arrTs: raw.arr_estimated_ts || raw.arr_time_ts || null,
+  };
+}
+
+function computeFlightProgress(status, depTs, arrTs, fallback = 0) {
+  if (status === 'landed') return 100;
+  if (status === 'en-route' && depTs && arrTs && arrTs > depTs) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    return Math.min(99, Math.max(1, Math.round(((nowSec - depTs) / (arrTs - depTs)) * 100)));
+  }
+  return fallback;
+}
+
+/**
  * Map AirLabs response to our flight_status schema
  */
 function mapAirLabsToFlightStatus(apiData, calendarEvent) {
@@ -8129,15 +8150,8 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent) {
   const delayed = Math.max(apiData.dep_delayed || 0, apiData.arr_delayed || 0);
 
   // Calculate progress
-  let progress = 0;
-  if (status === 'en-route' && apiData.dep_actual_ts && apiData.arr_estimated_ts) {
-    const now = Math.floor(Date.now() / 1000);
-    const totalDuration = apiData.arr_estimated_ts - apiData.dep_actual_ts;
-    const elapsed = now - apiData.dep_actual_ts;
-    progress = Math.min(99, Math.max(1, Math.round((elapsed / totalDuration) * 100)));
-  } else if (status === 'landed') {
-    progress = 100;
-  }
+  const { depTs: depProgTs, arrTs: arrProgTs } = flightProgressTs(apiData);
+  const progress = computeFlightProgress(status, depProgTs, arrProgTs);
 
   const result = {
     id: `${calendarEvent.event_date}_${parsed.flightIata}`,
@@ -8205,6 +8219,8 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent) {
  * We just extract HH:mm — no timezone conversion needed.
  */
 function formatFlightForFrontend(row) {
+  // Epoch ts utk hitung-ulang progress live di endpoint (fallback sama dgn sync)
+  const { depTs, arrTs } = flightProgressTs(row.raw_api);
   return {
     id: row.id,
     flightNumber: row.flight_iata
@@ -8233,7 +8249,10 @@ function formatFlightForFrontend(row) {
     lng: row.lng || null,
     alt: row.alt || null,
     speed: row.speed || null,
+    direction: row.direction || null,
     progress: row.progress || 0,
+    depTs,
+    arrTs,
     delayed: row.delayed || 0,
     aircraftType: getAircraftName(row.aircraft_icao),
     aircraftReg: row.aircraft_reg || null,
@@ -8470,6 +8489,12 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
               entry.progress = Math.min(99, Math.max(1, Math.round((elapsed / totalDuration) * 100)));
             }
           }
+        }
+
+        // Progress en-route dihitung ulang per-request: nilai tersimpan hanya
+        // snapshot poll terakhir (poller per jam) sehingga selalu basi/beku.
+        if (entry.status === 'en-route') {
+          entry.progress = computeFlightProgress(entry.status, entry.depTs, entry.arrTs, entry.progress);
         }
 
         // Attach calendar reference time if it differs significantly from AirLabs.
@@ -12366,10 +12391,11 @@ app.get('/api/flight-share/:code', async (req, res) => {
     let liveArrTime = share.arr_time;
     let liveDuration = share.duration;
     let liveStatus = share.flight_status || 'scheduled';
+    let liveProgress = 0;
 
     const { data: liveData } = await supabase
       .from('flight_status')
-      .select('dep_scheduled, dep_actual, arr_scheduled, arr_estimated, status, duration')
+      .select('dep_scheduled, dep_actual, arr_scheduled, arr_estimated, status, duration, progress, raw_api')
       .eq('id', liveId)
       .single();
 
@@ -12380,6 +12406,9 @@ app.get('/api/flight-share/:code', async (req, res) => {
       if (depTime) liveDepTime = depTime;
       if (arrTime) liveArrTime = arrTime;
       if (liveData.status) liveStatus = liveData.status;
+
+      const { depTs, arrTs } = flightProgressTs(liveData.raw_api);
+      liveProgress = computeFlightProgress(liveStatus, depTs, arrTs, liveData.progress || 0);
 
       // Format duration from minutes to human-readable
       if (liveData.duration && liveData.duration > 0) {
@@ -12429,6 +12458,7 @@ app.get('/api/flight-share/:code', async (req, res) => {
           tour_leader: share.tour_leader,
           airline_code: share.airline_code,
           flight_status: liveStatus,
+          progress: liveProgress,
           created_at: share.created_at,
         },
         agent: agent || null,
