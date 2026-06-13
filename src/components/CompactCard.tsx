@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, memo } from 'react';
 import { PlaneTakeoff, PlaneLanding } from 'lucide-react';
 import type { UmrohPackage } from '@/types';
 import type { AgentData } from '@/data/agents';
@@ -14,7 +14,7 @@ interface CompactCardProps {
 /**
  * CompactCard — Dense 2-column layout with all essential package info
  */
-export function CompactCard({ package: pkg, onToggle, agent: _agent }: CompactCardProps) {
+function CompactCardImpl({ package: pkg, onToggle, agent: _agent }: CompactCardProps) {
   // ---- Derived: cheapest tier ----
   const absoluteMinPrice = useMemo(() => {
     let minPrice = Infinity;
@@ -127,5 +127,12 @@ export function CompactCard({ package: pkg, onToggle, agent: _agent }: CompactCa
     </div>
   );
 }
+
+// Memoized for the dense ~500-row listing — see PackageCard. onToggle ignored
+// (stable closure over the package id + setState).
+const areCompactCardPropsEqual = (prev: CompactCardProps, next: CompactCardProps) =>
+  prev.package === next.package && prev.agent === next.agent;
+
+export const CompactCard = memo(CompactCardImpl, areCompactCardPropsEqual);
 
 export default CompactCard;

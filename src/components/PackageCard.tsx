@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState, useRef, useEffect, useMemo, Suspense, lazy } from 'react';
+import { Fragment, useState, useRef, useEffect, useMemo, Suspense, lazy, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check, Route, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -121,7 +121,7 @@ const copyTextToClipboard = async (text: string): Promise<boolean> => {
  * PackageCard Component - Expandable Card
  * Displays Umroh package information with expand/collapse functionality
  */
-export function PackageCard({ 
+function PackageCardImpl({
   package: pkg, 
   isExpanded = false,
   onToggle,
@@ -2424,5 +2424,21 @@ _________________________
     </>
   );
 }
+
+// Memoized: in the public listing ~500 cards mount at once. Without this, expanding
+// one card re-renders App and re-runs every sibling's render + framer-motion. The
+// comparator skips re-render when the render-affecting props are referentially equal.
+// onToggle is intentionally omitted — its closure depends only on the (stable)
+// package id and a functional setState, so it never goes stale.
+const arePackageCardPropsEqual = (prev: PackageCardProps, next: PackageCardProps) =>
+  prev.package === next.package &&
+  prev.isExpanded === next.isExpanded &&
+  prev.agent === next.agent &&
+  prev.isSingleView === next.isSingleView &&
+  prev.isComparing === next.isComparing &&
+  prev.onCompare === next.onCompare &&
+  prev.onExpandChange === next.onExpandChange;
+
+export const PackageCard = memo(PackageCardImpl, arePackageCardPropsEqual);
 
 export default PackageCard;
