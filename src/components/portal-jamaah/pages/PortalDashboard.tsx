@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { PortalSession } from '../lib/portalSession';
 import { usePortalMe } from '../hooks/usePortalMe';
@@ -7,14 +7,16 @@ import { usePortalRoute, type PortalRoute } from '../hooks/usePortalRoute';
 import { portalApi } from '../lib/portalApi';
 import { clearPortalSession } from '../lib/portalSession';
 import { clearPortalMeCache } from '../hooks/usePortalMe';
-import BerandaPage from './BerandaPage';
-import PerjalananPage from './PerjalananPage';
-import PembayaranPage from './PembayaranPage';
-import DokumenPage from './DokumenPage';
-import PerlengkapanPage from './PerlengkapanPage';
-import ManasikSpiritualPage from './ManasikSpiritualPage';
-import FaqPage from './FaqPage';
 import StickyWhatsAppCta from '../components/StickyWhatsAppCta';
+
+// Portal sub-pages are code-split — only the active route's chunk loads.
+const BerandaPage = lazy(() => import('./BerandaPage'));
+const PerjalananPage = lazy(() => import('./PerjalananPage'));
+const PembayaranPage = lazy(() => import('./PembayaranPage'));
+const DokumenPage = lazy(() => import('./DokumenPage'));
+const PerlengkapanPage = lazy(() => import('./PerlengkapanPage'));
+const ManasikSpiritualPage = lazy(() => import('./ManasikSpiritualPage'));
+const FaqPage = lazy(() => import('./FaqPage'));
 
 function LoadingScreen() {
   return (
@@ -96,13 +98,15 @@ export default function PortalDashboard({
 
   return (
     <div data-agent-slug={slug} data-booking-id={session.id_umroh}>
-      {route === 'beranda' && <BerandaPage data={data} onNavigate={navigate} onLogout={handleLogout} />}
-      {route === 'perjalanan' && <PerjalananPage data={data} onBack={goBack} />}
-      {route === 'pembayaran' && <PembayaranPage data={data} onBack={goBack} />}
-      {route === 'dokumen' && <DokumenPage data={data} onBack={goBack} />}
-      {route === 'perlengkapan' && <PerlengkapanPage data={data} onBack={goBack} />}
-      {route === 'manasik' && <ManasikSpiritualPage data={data} onBack={goBack} />}
-      {route === 'faq' && <FaqPage data={data} onBack={goBack} />}
+      <Suspense fallback={<LoadingScreen />}>
+        {route === 'beranda' && <BerandaPage data={data} onNavigate={navigate} onLogout={handleLogout} />}
+        {route === 'perjalanan' && <PerjalananPage data={data} onBack={goBack} />}
+        {route === 'pembayaran' && <PembayaranPage data={data} onBack={goBack} />}
+        {route === 'dokumen' && <DokumenPage data={data} onBack={goBack} />}
+        {route === 'perlengkapan' && <PerlengkapanPage data={data} onBack={goBack} />}
+        {route === 'manasik' && <ManasikSpiritualPage data={data} onBack={goBack} />}
+        {route === 'faq' && <FaqPage data={data} onBack={goBack} />}
+      </Suspense>
       <StickyWhatsAppCta agent={data.agent} booking={data.booking} initiator={initiator} />
     </div>
   );

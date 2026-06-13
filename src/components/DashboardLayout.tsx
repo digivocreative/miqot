@@ -9,36 +9,42 @@ import {
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
-import KalkulasiPage from './KalkulasiPage';
-import ComparePage from './ComparePage';
-import JamaahPage from './JamaahPage';
-import StatistikPage from './StatistikPage';
-import AgentManagementPage from './AgentManagementPage';
-import UpcomingSchedule from './UpcomingSchedule';
-import CalendarInsight from './CalendarInsight';
-import TelegramConnectBanner from './TelegramConnectBanner';
-import FlightStatusCard from './FlightStatusCard';
-import AnalyticsPage from './AnalyticsPage';
-import SettingsPage from './SettingsPage';
-import AIToolsPage from './AIToolsPage';
-import VoiceOverPage from './VoiceOverPage';
-import BusinessCardPage from './BusinessCardPage';
-import LandingPagePage from './LandingPagePage';
-import CustomDomainPage from './CustomDomainPage';
-import HajiPlusPage from './HajiPlusPage';
-import HajiPlusExportPage from './HajiPlusExportPage';
-import KursPage from './KursPage';
-import BrochureSchedulePage from './BrochureSchedulePage';
-import McpIntegrationPage from './McpIntegrationPage';
-import WaCopyPage from './wa-copy/WaCopyPage';
-import WaCopyAdminPage from './wa-copy/admin/WaCopyAdminPage';
 import { parseKontenPath, kontenParentPath, kontenTitle } from './wa-copy/lib/kontenRoutes';
 import WhatsAppIcon from './common/WhatsAppIcon';
-import UmrahRegisterPage from './UmrahRegisterPage';
-import CuacaWidget from './CuacaWidget';
-import BirthdayWidget from './BirthdayWidget';
 import type { Birthday } from './BirthdayWidget';
 import { trackEvent } from '../utils/analytics';
+
+// Heavy sub-pages are code-split: each becomes its own chunk, fetched on-demand
+// the first time its tab renders. This keeps the initial bundle (and the JS that
+// must be parsed on every reload) small. lazy/Suspense imported at top.
+const KalkulasiPage = lazy(() => import('./KalkulasiPage'));
+const ComparePage = lazy(() => import('./ComparePage'));
+const JamaahPage = lazy(() => import('./JamaahPage'));
+const StatistikPage = lazy(() => import('./StatistikPage'));
+const AgentManagementPage = lazy(() => import('./AgentManagementPage'));
+const AnalyticsPage = lazy(() => import('./AnalyticsPage'));
+const SettingsPage = lazy(() => import('./SettingsPage'));
+const AIToolsPage = lazy(() => import('./AIToolsPage'));
+const VoiceOverPage = lazy(() => import('./VoiceOverPage'));
+const BusinessCardPage = lazy(() => import('./BusinessCardPage'));
+const LandingPagePage = lazy(() => import('./LandingPagePage'));
+const CustomDomainPage = lazy(() => import('./CustomDomainPage'));
+const HajiPlusPage = lazy(() => import('./HajiPlusPage'));
+const HajiPlusExportPage = lazy(() => import('./HajiPlusExportPage'));
+const KursPage = lazy(() => import('./KursPage'));
+const BrochureSchedulePage = lazy(() => import('./BrochureSchedulePage'));
+const McpIntegrationPage = lazy(() => import('./McpIntegrationPage'));
+const WaCopyPage = lazy(() => import('./wa-copy/WaCopyPage'));
+const WaCopyAdminPage = lazy(() => import('./wa-copy/admin/WaCopyAdminPage'));
+const UmrahRegisterPage = lazy(() => import('./UmrahRegisterPage'));
+// Home widgets — only mounted on the home tab; split out of the initial chunk
+// so a deep-link to a non-home dashboard route doesn't pay for them.
+const UpcomingSchedule = lazy(() => import('./UpcomingSchedule'));
+const CalendarInsight = lazy(() => import('./CalendarInsight'));
+const TelegramConnectBanner = lazy(() => import('./TelegramConnectBanner'));
+const FlightStatusCard = lazy(() => import('./FlightStatusCard'));
+const CuacaWidget = lazy(() => import('./CuacaWidget'));
+const BirthdayWidget = lazy(() => import('./BirthdayWidget'));
 
 const ShareKursModal = lazy(() => import('./ShareKursModal'));
 const BirthdayDetailSheet = lazy(() => import('./BirthdayDetailSheet'));
@@ -667,6 +673,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
         {/* Sub-page content */}
         <main className="max-w-lg mx-auto">
+          <Suspense fallback={<div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-emerald-500" /></div>}>
           {activeTab === 'settings' && (
             <SettingsPage agent={agentData} onUpdated={refreshAgent} initialTab={getSettingsTabFromPath()} />
           )}
@@ -768,6 +775,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               />
             );
           })()}
+          </Suspense>
         </main>
       </div>
     );
@@ -878,16 +886,18 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
       <main className="max-w-lg mx-auto px-4 pt-5 pb-8">
 
-        {/* ── Telegram Connect Banner ── */}
-        <TelegramConnectBanner
-          onConnect={() => {
-            navigateTab('settings');
-            window.history.replaceState({}, '', '/dashboard/settings/telegram');
-          }}
-        />
+        <Suspense fallback={null}>
+          {/* ── Telegram Connect Banner ── */}
+          <TelegramConnectBanner
+            onConnect={() => {
+              navigateTab('settings');
+              window.history.replaceState({}, '', '/dashboard/settings/telegram');
+            }}
+          />
 
-        {/* ── AI Insight Alert Bar ── */}
-        <CalendarInsight onNavigate={(tab) => navigateTab(tab as TabId)} />
+          {/* ── AI Insight Alert Bar ── */}
+          <CalendarInsight onNavigate={(tab) => navigateTab(tab as TabId)} />
+        </Suspense>
 
         {/* ── Feature Cards Grid ── */}
         <div className="grid grid-cols-3 gap-3">
@@ -897,16 +907,16 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         {/* ── Flight Status + Kurs + Birthday + Upcoming Schedule + Cuaca (flight card goes above when has flights) ── */}
         <div className="flex flex-col mt-4 gap-4">
           <div style={{ order: flightCount > 0 ? 0 : 5 }}>
-            <FlightStatusCard onFlightCount={setFlightCount} />
+            <Suspense fallback={null}><FlightStatusCard onFlightCount={setFlightCount} /></Suspense>
           </div>
           <div style={{ order: 1 }} className="empty:hidden">
-            <BirthdayWidget onSelectJamaah={setSelectedBirthday} />
+            <Suspense fallback={null}><BirthdayWidget onSelectJamaah={setSelectedBirthday} /></Suspense>
           </div>
           <div style={{ order: 2 }}>
-            <UpcomingSchedule />
+            <Suspense fallback={null}><UpcomingSchedule /></Suspense>
           </div>
           <div style={{ order: 4 }}>
-            <CuacaWidget />
+            <Suspense fallback={null}><CuacaWidget /></Suspense>
           </div>
 
           {/* ── Kurs Hari Ini Widget ── */}

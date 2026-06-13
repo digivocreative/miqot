@@ -363,6 +363,14 @@ export default defineConfig({
           if (id.includes('modern-screenshot')) {
             return 'vendor-screenshot';
           }
+          // recharts (Analytics/Statistik/HajiPlus) — only reached via lazy pages
+          if (id.includes('recharts')) {
+            return 'vendor-recharts';
+          }
+          // leaflet + react-leaflet (FlightSharePage / FlightMap only)
+          if (id.includes('leaflet')) {
+            return 'vendor-leaflet';
+          }
         },
       },
     },

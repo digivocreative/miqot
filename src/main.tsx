@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
 import './index.css'
@@ -14,10 +14,12 @@ console.log(
   'background:#001427;color:#4ade80;padding:4px 8px;border-radius:4px 0 0 4px;font-weight:bold',
   'background:#1e293b;color:#94a3b8;padding:4px 8px;border-radius:0 4px 4px 0'
 )
-import KalkulasiPage from './components/KalkulasiPage.tsx'
-import ComparePage from './components/ComparePage.tsx'
-import FlightSharePage from './components/FlightSharePage.tsx'
-import BioPage from './components/bio/BioPage.tsx'
+// Route-level pages are code-split so the initial entry chunk stays small.
+// KalkulasiPage/ComparePage pull in heavy PDF libs — keep them off the critical path.
+const KalkulasiPage = lazy(() => import('./components/KalkulasiPage.tsx'))
+const ComparePage = lazy(() => import('./components/ComparePage.tsx'))
+const FlightSharePage = lazy(() => import('./components/FlightSharePage.tsx'))
+const BioPage = lazy(() => import('./components/bio/BioPage.tsx'))
 import { AGENTS_DATA, loadAgentsFromSupabase } from '@/data/agents'
 
 // PWA scope is alhijaz.co only. On a custom domain the HTML is server-rendered
@@ -112,7 +114,7 @@ if (searchParams.has('transition')) {
 
 // ── Login/Dashboard wrapper component ──
 import { useState, useEffect } from 'react'
-import LoginPage, { getStoredSession, type AuthSession } from './components/LoginPage.tsx'
+import LoginPage, { getStoredSession, clearSession, type AuthSession } from './components/LoginPage.tsx'
 import DashboardLayout from './components/DashboardLayout.tsx'
 import ResetPasswordPage from './components/ResetPasswordPage.tsx'
 import RegisterPage from './components/RegisterPage.tsx'
@@ -175,7 +177,7 @@ function DashboardRouter() {
   }
 
   return <DashboardLayout session={session} onLogout={() => {
-    import('./components/LoginPage.tsx').then(mod => mod.clearSession())
+    clearSession()
     window.location.href = '/login'
   }} />
 }
@@ -247,6 +249,14 @@ if (!shouldAutoRedirect) {
       return <App singlePackageId={singlePackageId} />
     })()
 
-    createRoot(document.getElementById('root')!).render(page)
+    createRoot(document.getElementById('root')!).render(
+      <Suspense fallback={
+        <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
+        </div>
+      }>
+        {page}
+      </Suspense>
+    )
   })()
 }
