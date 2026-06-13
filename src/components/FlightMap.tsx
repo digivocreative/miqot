@@ -15,6 +15,7 @@ interface FlightMapProps {
     lng?: number | null;
     alt?: number | null;
     speed?: number | null;
+    direction?: number | null;
     progress: number;
     status: string;
     flightNumber: string;
@@ -65,28 +66,25 @@ function airportIcon(code: string, isArrival: boolean) {
   });
 }
 
-function planeIcon(direction?: number) {
-  const deg = direction || 45;
+function planeIcon(bearing?: number | null) {
+  // Icon pesawat (path lucide Plane) menghadap NE (45°) — offset agar `bearing` = arah kompas
+  const deg = (bearing ?? 90) - 45;
   return L.divIcon({
     className: '',
-    html: `<div style="position:relative;width:28px;height:28px;">
-      <div style="
-        position:absolute;inset:-6px;border-radius:50%;
-        background:rgba(59,130,246,0.2);
-        animation:planePulse 2s ease-in-out infinite;
-      "></div>
-      <div style="
-        width:28px;height:28px;border-radius:50%;
-        background:#3b82f6;
-        box-shadow:0 4px 12px rgba(59,130,246,0.4);
-        display:flex;align-items:center;justify-content:center;
-        color:white;font-size:14px;
-        transform:rotate(${deg}deg);
-      ">✈</div>
+    html: `<div style="width:22px;height:22px;transform:rotate(${deg}deg);filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="#facc15" stroke="black" stroke-width="1" stroke-linejoin="round" style="animation:planePulse 2s ease-in-out infinite;transform-origin:center;">
+        <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>
+      </svg>
     </div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
   });
+}
+
+function bearingDeg(a: [number, number], b: [number, number]): number {
+  const dLat = b[0] - a[0];
+  const dLng = (b[1] - a[1]) * Math.cos((((a[0] + b[0]) / 2) * Math.PI) / 180);
+  return (Math.atan2(dLng, dLat) * 180) / Math.PI;
 }
 
 function generateArc(start: [number, number], end: [number, number], points = 50): [number, number][] {
@@ -108,14 +106,25 @@ export default function FlightMap({ flight }: FlightMapProps) {
   const arrCoord = AIRPORT_COORDS[flight.arrCode];
   const isDark = document.documentElement.classList.contains('dark');
 
-  const hasPlane = flight.status === 'en-route' && flight.lat && flight.lng;
-  const planePos: [number, number] | null = hasPlane ? [flight.lat!, flight.lng!] : null;
-
   // Generate arc path
   const arcPath = useMemo(() => {
     if (!depCoord || !arrCoord) return null;
     return generateArc(depCoord, arrCoord);
   }, [depCoord, arrCoord]);
+
+  // Posisi pesawat: lat/lng live dari AirLabs, atau — karena AirLabs sering tidak
+  // mengirim posisi live — titik progress di sepanjang arc rute.
+  const { planePos, planeBearing } = useMemo((): { planePos: [number, number] | null; planeBearing: number | null } => {
+    if (flight.status !== 'en-route') return { planePos: null, planeBearing: null };
+    if (flight.lat && flight.lng) {
+      return { planePos: [flight.lat, flight.lng], planeBearing: flight.direction ?? null };
+    }
+    if (!arcPath) return { planePos: null, planeBearing: null };
+    const idx = Math.min(arcPath.length - 1, Math.max(0, Math.round((flight.progress / 100) * (arcPath.length - 1))));
+    const prev = arcPath[Math.max(0, idx - 1)];
+    const next = arcPath[Math.min(arcPath.length - 1, idx + 1)];
+    return { planePos: arcPath[idx], planeBearing: bearingDeg(prev, next) };
+  }, [flight.status, flight.lat, flight.lng, flight.direction, flight.progress, arcPath]);
 
   // Traveled portion of the arc
   const traveledArc = useMemo(() => {
@@ -181,7 +190,7 @@ export default function FlightMap({ flight }: FlightMapProps) {
 
         {/* Airplane marker (en-route only) */}
         {planePos && (
-          <Marker position={planePos} icon={planeIcon()}>
+          <Marker position={planePos} icon={planeIcon(planeBearing)}>
             <Popup>
               <div style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', lineHeight: 1.4, minWidth: 120 }}>
                 <div style={{ fontWeight: 700, fontSize: '13px', marginBottom: 4 }}>{flight.flightNumber}</div>
@@ -215,8 +224,8 @@ export default function FlightMap({ flight }: FlightMapProps) {
       {/* Pulse animation for plane marker */}
       <style>{`
         @keyframes planePulse {
-          0%, 100% { transform: scale(1); opacity: 0.4; }
-          50% { transform: scale(1.5); opacity: 0; }
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.2); }
         }
       `}</style>
     </div>

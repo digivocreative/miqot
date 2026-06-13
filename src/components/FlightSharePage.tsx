@@ -30,6 +30,7 @@ interface FlightData {
   tour_leader: string | null;
   airline_code: string | null;
   flight_status: string;
+  progress?: number;
   created_at: string | null;
 }
 
@@ -159,6 +160,27 @@ function airportIcon(code: string, isArrival: boolean) {
   });
 }
 
+function planeIcon(bearing?: number | null) {
+  // Icon pesawat (path lucide Plane) menghadap NE (45°) — offset agar `bearing` = arah kompas
+  const deg = (bearing ?? 90) - 45;
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:22px;height:22px;transform:rotate(${deg}deg);filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="#facc15" stroke="black" stroke-width="1" stroke-linejoin="round" style="animation:planePulse 2s ease-in-out infinite;transform-origin:center;">
+        <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>
+      </svg>
+    </div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+  });
+}
+
+function bearingDeg(a: [number, number], b: [number, number]): number {
+  const dLat = b[0] - a[0];
+  const dLng = (b[1] - a[1]) * Math.cos((((a[0] + b[0]) / 2) * Math.PI) / 180);
+  return (Math.atan2(dLng, dLat) * 180) / Math.PI;
+}
+
 function formatDate(dateStr: string): string {
   try {
     return new Date(dateStr).toLocaleDateString('id-ID', {
@@ -282,6 +304,24 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
     if (pts.length < 2) return null;
     return L.latLngBounds(pts);
   }, [depCoord, arrCoord]);
+
+  // Pesawat di titik progress sepanjang arc, menghadap searah rute (en-route saja)
+  const flightProgress = data?.flight.progress ?? 0;
+  const isEnRoute = data?.flight.flight_status === 'en-route';
+  const { planePos, planeBearing } = useMemo((): { planePos: [number, number] | null; planeBearing: number | null } => {
+    if (!isEnRoute || !arcPath) return { planePos: null, planeBearing: null };
+    const idx = Math.min(arcPath.length - 1, Math.max(0, Math.round((flightProgress / 100) * (arcPath.length - 1))));
+    const prev = arcPath[Math.max(0, idx - 1)];
+    const next = arcPath[Math.min(arcPath.length - 1, idx + 1)];
+    return { planePos: arcPath[idx], planeBearing: bearingDeg(prev, next) };
+  }, [isEnRoute, arcPath, flightProgress]);
+
+  // Bagian rute yang sudah ditempuh (solid, sisanya tetap dashed)
+  const traveledArc = useMemo(() => {
+    if (!planePos || !arcPath) return null;
+    const idx = Math.round((flightProgress / 100) * (arcPath.length - 1));
+    return arcPath.slice(0, Math.max(1, idx) + 1);
+  }, [planePos, arcPath, flightProgress]);
 
   // Set document title — matches server-side OG injection format
   useEffect(() => {
@@ -558,17 +598,14 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
             <span className="text-xs text-gray-400 text-right">{flight.arr_city || flight.arr_iata}</span>
           </div>
 
-          {/* Group info — 3 columns */}
-          {(flight.group_number || flight.pax || tlClean) && (
-            <div className="flex items-center justify-between pt-3 border-t border-gray-50 text-xs text-gray-500">
-              {flight.group_number && (
-                <span className="font-bold text-emerald-700">{flight.group_number}</span>
-              )}
+          {/* Group info — pax (20%) & tour leader (80%) */}
+          {(flight.pax || tlClean) && (
+            <div className="flex items-center pt-3 border-t border-gray-50 text-xs text-gray-500">
               {flight.pax && (
-                <span>{flight.pax} pax</span>
+                <span className="w-1/5 flex-shrink-0">{flight.pax} pax</span>
               )}
               {tlClean && (
-                <span className="max-w-[140px] truncate text-right">TL: {tlClean}</span>
+                <span className="flex-1 truncate text-right">TL: {tlClean}</span>
               )}
             </div>
           )}
@@ -591,15 +628,24 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
               style={{ height: '100%', width: '100%' }}
             >
               <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />
-              <Polyline
-                positions={arcPath}
-                pathOptions={{ color: '#10b981', weight: 2.5, dashArray: '8 6' }}
-              />
+              {/* Style garis = FlightMap dashboard: dashed abu sisa rute,
+                  solid biru tertempuh, solid hijau penuh saat landed */}
+              {flight.flight_status === 'landed' ? (
+                <Polyline positions={arcPath} pathOptions={{ color: '#10b981', weight: 3 }} />
+              ) : (
+                <Polyline positions={arcPath} pathOptions={{ color: '#cbd5e1', weight: 2, dashArray: '8 6' }} />
+              )}
+              {traveledArc && traveledArc.length > 1 && (
+                <Polyline positions={traveledArc} pathOptions={{ color: '#3b82f6', weight: 3 }} />
+              )}
               {depCoord && (
                 <Marker position={depCoord} icon={airportIcon(flight.dep_iata, false)} />
               )}
               {arrCoord && (
                 <Marker position={arrCoord} icon={airportIcon(flight.arr_iata, true)} />
+              )}
+              {planePos && (
+                <Marker position={planePos} icon={planeIcon(planeBearing)} />
               )}
             </MapContainer>
           </div>
@@ -823,6 +869,10 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
         @keyframes liveBreathe {
           0%, 100% { transform: scale(1); }
           50% { transform: scale(1.03); }
+        }
+        @keyframes planePulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.2); }
         }
       `}</style>
     </div>
