@@ -2170,13 +2170,14 @@ _________________________
                         e.stopPropagation();
                         setSelectedTier(tier);
                       }}
-                      className={`flex-1 min-w-0 flex items-center justify-center py-2 rounded-lg text-[11px] transition-all duration-200 ${
+                      className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 active:opacity-70 ${
                         isActive
-                          ? 'bg-white dark:bg-slate-700 shadow-sm font-semibold text-emerald-500 dark:text-emerald-400'
-                          : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium active:opacity-70'
+                          ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-500 dark:text-emerald-400 font-semibold'
+                          : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium'
                       }`}
+                      style={isActive ? { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } : undefined}
                     >
-                      <span className="truncate">{tier}</span>
+                      <span className="text-[11px] truncate">{tier}</span>
                     </button>
                   );
                 })}
