@@ -223,6 +223,23 @@ export interface GetPackagesOptions {
    * Silent mode — don't throw on error, used for background refresh (default: false)
    */
   silent?: boolean;
+
+  /**
+   * Non-blocking stale handling (default: false).
+   *
+   * When a cache entry is STALE (age >= TTL):
+   *  - false (default): revalidate against the API BEFORE returning, so one-shot
+   *    callers that render once and never refetch (e.g. the standalone
+   *    /:agent/kalkulasi & /:agent/compare routes) always quote the latest price.
+   *  - true: return the stale snapshot IMMEDIATELY so the UI paints without a
+   *    spinner. The caller MUST revalidate itself in the background — App.tsx
+   *    already does this whenever `fromCache` is true. Fetch frequency is
+   *    unchanged (still exactly one background fetch per stale read); only the
+   *    *timing* of the block moves off the critical path.
+   *
+   * Only opt in from mounted, re-rendering consumers that handle `fromCache`.
+   */
+  nonBlockingStale?: boolean;
 }
 
 export interface GetPackagesResult {
@@ -265,6 +282,7 @@ export async function getPackages(
     fetchOptions = {},
     forceRefresh = false,
     silent = false,
+    nonBlockingStale = false,
   } = options;
 
   // ── Step 1: Try cache first (unless forceRefresh) ──
@@ -285,13 +303,26 @@ export async function getPackages(
         };
       }
 
-      // Stale cache (age >= TTL): revalidate against the API BEFORE returning, so
-      // every caller — not just App.tsx — gets the current price. An agent quoting a
-      // customer from the standalone /:agent/kalkulasi route (which never mounts App
-      // and so never triggers a refresh) must see the latest figure, not a stale
-      // localStorage snapshot. fetchFromApi rewrites the shared cache on success, so
-      // subsequent loads are fresh too. Fall back to the stale snapshot only when the
-      // network fetch fails (stale-while-error) so the page never breaks offline.
+      // Stale cache (age >= TTL). Non-blocking consumers (App.tsx) opt in to get
+      // the stale snapshot immediately so the listing paints without a spinner;
+      // they revalidate in the background (they already do, on `fromCache`).
+      if (nonBlockingStale) {
+        console.log(`[data-service] ⏳ Cache STALE (${Math.round(cached.age / 60000)}min old) — serving stale, caller revalidates`);
+        return {
+          success: true,
+          packages,
+          totalRecords: cached.data.iTotalDisplayRecords,
+          fromCache: true,
+          cacheAge: cached.age,
+        };
+      }
+
+      // Default: revalidate against the API BEFORE returning, so one-shot callers —
+      // the standalone /:agent/kalkulasi & /:agent/compare routes that render once
+      // and never refetch — always quote the current price, not a stale snapshot.
+      // fetchFromApi rewrites the shared cache on success, so subsequent loads are
+      // fresh too. Fall back to the stale snapshot only when the network fetch fails
+      // (stale-while-error) so the page never breaks offline.
       console.log(`[data-service] ⏳ Cache STALE (${Math.round(cached.age / 60000)}min old) — revalidating`);
       const revalidated = await fetchFromApi(yearCode, timeout, fetchOptions, silent);
       if (revalidated.success) {

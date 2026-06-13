@@ -254,10 +254,13 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       setError(null);
     }
     
-    // If silent (background refresh), force from API
+    // If silent (background refresh), force from API.
+    // Non-silent: serve any cache (fresh OR stale) instantly so the listing paints
+    // without a blocking spinner; the `fromCache` branch below revalidates stale
+    // data in the background (one fetch, off the critical path).
     const result = silent
       ? await refreshPackages({ yearCode, silent: true })
-      : await getPackages({ yearCode });
+      : await getPackages({ yearCode, nonBlockingStale: true });
     
     if (result.success) {
       setPackages(result.packages);
