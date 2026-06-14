@@ -115,6 +115,51 @@ function parseHotelString(value: string): { name: string; star: string } {
   return { name, star };
 }
 
+// ── Hotel star fallback ──────────────────────────────────────────────────────
+// Sejak ~Jun 2026 API Alhijaz berhenti mengirim suffix "(⭐N)" pada sebagian besar
+// nama hotel, sehingga bintang hilang dari kartu. Tabel ini (rating hasil riset web)
+// dipakai HANYA bila API tidak menyertakan bintang. Perawatan: tambah hotel baru di
+// sini; perbaikan akar tetap di sumber (Alhijaz mengembalikan suffix). Province Al
+// Sham = 4 (sumber terbelah 3–5, menunggu konfirmasi).
+const HOTEL_STAR_FALLBACK: Record<string, number> = {
+  // Makkah
+  'ANJUM': 5,
+  'PULLMAN ZAMZAM': 5,
+  'MOVENPICK': 5,
+  'AL MASSA GRAND': 4,
+  'PRESTIGE EX ELAF AL MASHAER': 5,
+  'PRESTIGE': 5,
+  'ELAF AL MASHAER': 5,
+  // Madinah
+  'ANWAR ALMADINAH MOVENPICK': 5,
+  'ANWAR AL MADINAH MOVENPICK': 5,
+  'AL HARAM': 4,
+  'AL RITZ AL MADINAH': 4,
+  'ODST ALMADINAH': 3,
+  'ODST AL MADINAH': 3,
+  'TRIPLE ONE': 3,
+  'PROVINCE ALSHAM': 4,
+  'PROVINCE AL SHAM': 4,
+};
+
+function normalizeHotelName(name: string): string {
+  return String(name || '')
+    .toUpperCase()
+    .replace(/\/\s*SETARAF.*$/, '') // "/SETARAF" = "atau setaraf" → cocokkan ke hotel dasar
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Bintang dari tabel fallback berdasarkan nama hotel ('' bila tak dikenal). */
+function lookupHotelStar(name: string): string {
+  const n = normalizeHotelName(name);
+  if (HOTEL_STAR_FALLBACK[n]) return String(HOTEL_STAR_FALLBACK[n]);
+  for (const [key, star] of Object.entries(HOTEL_STAR_FALLBACK)) {
+    if (n.includes(key)) return String(star);
+  }
+  return '';
+}
+
 /**
  * Transform raw API hotel data to typed HotelInfo.
  * Handles both old format (mekkah_hotel, mekkah_bintang) and
@@ -127,7 +172,8 @@ function transformHotelInfo(rawHotel: Record<string, string>): HotelInfo {
     for (const [city, value] of Object.entries(rawHotel)) {
       const { name, star } = parseHotelString(value);
       result[`${city}_hotel`] = name;
-      result[`${city}_bintang`] = star;
+      // API tak lagi kirim bintang utk kebanyakan hotel → fallback by name.
+      result[`${city}_bintang`] = star !== '0' ? star : (lookupHotelStar(name) || '0');
     }
     return result as unknown as HotelInfo;
   }
