@@ -136,12 +136,13 @@ function splitPackagesIntoPages(
   return pages;
 }
 
-type FilterDim = 'bulan' | 'tipe' | 'maskapai';
+type FilterDim = 'bulan' | 'tipe' | 'maskapai' | 'landing';
 
 const FILTER_DIM_LABELS: Record<FilterDim, string> = {
   bulan: 'Bulan',
   tipe: 'Tipe Paket',
   maskapai: 'Maskapai',
+  landing: 'Landing',
 };
 
 const TYPE_UMROH_SAJA = 'UMROH SAJA';
@@ -337,6 +338,12 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       const set = new Set(optionPackages.map(p => p.maskapai).filter((m): m is string => !!m && m.trim().length > 0));
       return [...set].sort(compareAirlineOptions).map(m => ({ value: m, label: m }));
     }
+    if (filterDim === 'landing') {
+      const set = new Set(optionPackages.map(p => p.landing).filter((c): c is string => !!c && c.trim().length > 0));
+      return [...set]
+        .sort((a, b) => a.localeCompare(b, 'id', { sensitivity: 'base' }))
+        .map(c => ({ value: c, label: c }));
+    }
     return [];
   }, [filterDim, months, optionPackages, musimDinginWindow]);
 
@@ -445,6 +452,12 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         // Span multiple months → sort by departure date so rows read chronologically.
         .sort((a, b) => String(a.berangkat_tgl).localeCompare(String(b.berangkat_tgl)));
       return { filterLabel: brochureLabel, filteredPackages: applyAvailability(matches), showFullDate: true };
+    }
+    if (filterDim === 'landing') {
+      const matches = allPackages
+        .filter(p => p.landing === filterValue)
+        .sort((a, b) => String(a.berangkat_tgl).localeCompare(String(b.berangkat_tgl)));
+      return { filterLabel: `Landing ${filterValue}`, filteredPackages: applyAvailability(matches), showFullDate: true };
     }
     // maskapai
     const matches = allPackages
@@ -824,7 +837,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
           <FilterSelect
             value={filterDim}
             onChange={(v) => setFilterDim(v as FilterDim)}
-            options={(['bulan', 'tipe', 'maskapai'] as FilterDim[]).map(d => ({ value: d, label: FILTER_DIM_LABELS[d] }))}
+            options={(['bulan', 'tipe', 'maskapai', 'landing'] as FilterDim[]).map(d => ({ value: d, label: FILTER_DIM_LABELS[d] }))}
             ariaLabel="Filter berdasarkan"
             widthClass="flex-1 min-w-0"
           />

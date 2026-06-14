@@ -14,6 +14,8 @@ export interface BrochurePackage {
   soldOut?: boolean;
   isPromo?: boolean;
   umrohDulu?: boolean;
+  /** Kota landing (arrival terakhir penerbangan berangkat), mis. "Jeddah" / "Madinah" */
+  landing?: string;
 }
 
 export interface BrochureHotel {

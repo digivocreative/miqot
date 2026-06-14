@@ -65,7 +65,7 @@ import {
   tallyBy,
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
-import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
+import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, landingCityFromRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { inferSaudiJourneyOrderFromItinerary } from './lib/journey-order.js';
 import { appendUrlVersion, buildScheduleRows, hasValidPricing, serializeScheduleRows } from './lib/umroh-schedules.js';
 import { buildCdnMetadataUpdate, getCdnFileDecision } from './lib/cdn-file-sync.js';
@@ -12220,6 +12220,7 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
         soldOut,
         isPromo: String(r.promo || '') === '1',
         umrohDulu: isUmrohFirstRoute(r.berangkat_rute),
+        landing: landingCityFromRoute(r.berangkat_rute),
       });
     }
     if (droppedNoPrice > 0) {
