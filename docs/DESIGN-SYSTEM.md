@@ -1644,6 +1644,13 @@ closed: opacity-0 scale-95 -translate-y-1 pointer-events-none
 sebagai prop → set via ref di `useEffect([open])`:
 `open ? el.removeAttribute('inert') : el.setAttribute('inert','')`.
 
+**Prop `portal` (opsional):** kalau dropdown ada DI DALAM ancestor `overflow:hidden`
+atau kontainer ber-scroll (mis. panel filter beranimasi `height:auto` + `overflow:hidden`,
+sheet/modal), panel `absolute` akan **ke-clip**. Set `portal` → panel di-render ke
+`document.body` via `createPortal`, `position:fixed`, koordinat dari `getBoundingClientRect()`
+trigger, di-update saat `scroll` (capture) + `resize`. Outside-click WAJIB cek `panelRef`
+juga (panel kini di luar root). Default `false` (pakai `absolute`).
+
 **Search pill** (muncul saat `options.length >= 8`):
 ```
 p-2 border-b border-gray-100 dark:border-slate-700
