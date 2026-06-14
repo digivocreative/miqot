@@ -71,6 +71,50 @@ if (isPwaHost) {
     },
     immediate: true
   })
+
+  // ── Stuck-SW escape hatch ──────────────────────────────────────────────────
+  // After a deploy the SW's navigateFallback can keep serving a stale precached
+  // shell (made worse by Cloudflare caching *.js immutable), so registration.update()
+  // alone may never take. Poll /api/version (NetworkOnly → always fresh) and, when the
+  // deployed entry chunk differs from the running one, force a CLEAN reload: unregister
+  // the SW + clear caches so the navigation actually hits the new shell. Guarded so it
+  // fires at most once per new build per tab session (no reload loop).
+  const runningEntry = (
+    document.querySelector('script[type="module"][src*="/assets/index-"]') as HTMLScriptElement | null
+  )?.src.match(/index-[A-Za-z0-9]+\.js/)?.[0] || ''
+
+  let versionChecking = false
+  const checkBuildVersion = async () => {
+    if (versionChecking || !runningEntry || document.visibilityState !== 'visible') return
+    versionChecking = true
+    try {
+      const res = await fetch('/api/version', { cache: 'no-store' })
+      if (!res.ok) return
+      const { entry } = (await res.json()) as { entry?: string }
+      if (!entry || entry === runningEntry) return
+      const KEY = 'forced-reload-entry'
+      if (sessionStorage.getItem(KEY) === entry) return // already tried for this build
+      sessionStorage.setItem(KEY, entry)
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations()
+        await Promise.all(regs.map(r => r.unregister()))
+        if (window.caches) {
+          const keys = await caches.keys()
+          await Promise.all(keys.map(k => caches.delete(k)))
+        }
+      } catch { /* ignore */ }
+      window.location.reload()
+    } catch {
+      /* offline / network error — ignore */
+    } finally {
+      versionChecking = false
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkBuildVersion()
+  })
+  window.addEventListener('online', checkBuildVersion)
+  setTimeout(checkBuildVersion, 4000) // shortly after load
 } else if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations()
     .then(regs => Promise.all(regs.map(r => r.unregister())))

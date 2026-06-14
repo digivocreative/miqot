@@ -14361,6 +14361,19 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
   }
 });
 
+// Build version marker = entry chunk hash of the deployed bundle. The client polls
+// this (it's NetworkOnly in the SW, so always fresh) to detect a new deploy and
+// force-refresh even when the SW serves a stale precached shell. MUST be before the
+// /api/{*path} proxy below.
+app.get('/api/version', (req, res) => {
+  let entry = '';
+  try {
+    const m = getIndexHtml().match(/assets\/(index-[A-Za-z0-9]+\.js)/);
+    entry = m ? m[1] : '';
+  } catch { /* ignore */ }
+  res.set('Cache-Control', 'no-store').json({ entry });
+});
+
 // ──────────────────────────────────────────────
 // API: Proxy to jadwal.alhijaz.co
 // ──────────────────────────────────────────────
