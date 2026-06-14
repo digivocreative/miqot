@@ -2,7 +2,7 @@
 
 Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 
-Terakhir diperbarui: 2026-06-06
+Terakhir diperbarui: 2026-06-14
 
 ---
 
@@ -1590,6 +1590,76 @@ Options list:
   Empty state: px-3 py-4 text-center text-[11px] text-gray-400 "Tidak ada hasil"
 ```
 
+### Custom Filter Dropdown (`FilterDropdown`)
+
+Dropdown filter custom (**BUKAN `<select>` bawaan browser**) — standar untuk semua
+filter/pemilihan di dashboard. Trigger kompak + panel popover **beranimasi**, baris
+opsi ter-highlight emerald + Check, dan search pill otomatis saat opsi ≥ 8.
+Komponen bersama: `src/components/FilterDropdown.tsx` (default export, prop `variant: 'compact' | 'default'`). Dipakai di jadwal-paket header (`FilterHeader.tsx`, variant `default`) & brosur-jadwal (`BrochureSchedulePage.tsx`, variant `compact`). Tambah pemakaian baru lewat komponen ini, jangan copy-paste.
+
+> **Aturan pasangan tetap:** trigger + panel + **animasi buka/tutup** adalah satu
+> paket. Kalau diminta "sesuaikan dropdown", animasi di bawah ikut otomatis — bukan
+> opsional.
+
+**Trigger** (`<button>`, non-native — dua varian via prop `variant`):
+```
+variant="compact"  (filter rows, mis. brosur-jadwal):
+  w-full h-9 flex items-center justify-between gap-2 text-xs font-bold rounded-lg px-3 border
+  bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700
+  enabled: text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700/70 ; ChevronDown 14
+
+variant="default"  (page header, mis. jadwal paket):
+  w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium rounded-xl border border-transparent
+  bg-gray-100/80 dark:bg-slate-800/80
+  enabled: text-gray-700 dark:text-slate-200 hover:bg-gray-200/80 dark:hover:bg-slate-700/80 ; ChevronDown 16
+
+both: disabled → text-gray-400 dark:text-slate-500 cursor-not-allowed ; focus-visible:ring-2 ring-emerald-500/50
+Isi: <span class="truncate">{label || '—'}</span> + ChevronDown
+ChevronDown: rotate-180 saat open (transition-transform duration-150), opacity-50 saat disabled
+a11y: aria-haspopup="listbox" + aria-expanded={open} + aria-label
+```
+
+**Panel + ANIMASI (WAJIB)** — panel **selalu mounted** supaya buka DAN tutup sama-sama beranimasi:
+```
+absolute left-0 right-0 top-full mt-1 z-40 origin-top
+rounded-xl border border-gray-100 dark:border-slate-700
+bg-white dark:bg-slate-800 shadow-lg overflow-hidden
+transition-all duration-150 ease-out
+open:   opacity-100 scale-100 translate-y-0
+closed: opacity-0 scale-95 -translate-y-1 pointer-events-none
+```
+⚠️ Animasi HARUS pakai utilitas transisi **inti** Tailwind di atas. JANGAN pakai
+`animate-in` / `fade-in-0` / `zoom-in-95` / `slide-in-from-*` — plugin
+`tailwindcss-animate` **tidak terpasang** di project ini sehingga kelas-kelas itu
+**no-op (tidak menghasilkan CSS)**.
+
+**Aksesibilitas (karena panel selalu mounted):** saat tertutup set atribut native
+`inert` + `aria-hidden` agar opsi tidak masuk tab order / a11y tree, dengan
+`pointer-events-none` sebagai fallback pointer. React 18 belum mengenali `inert`
+sebagai prop → set via ref di `useEffect([open])`:
+`open ? el.removeAttribute('inert') : el.setAttribute('inert','')`.
+
+**Search pill** (muncul saat `options.length >= 8`):
+```
+p-2 border-b border-gray-100 dark:border-slate-700
+Pill: flex items-center gap-2 px-2.5 py-1.5 bg-gray-50 dark:bg-slate-900 rounded-lg
+Search 14 + input (bg-transparent text-xs) + clear X 12
+Fokus input on open: focus({ preventScroll: true }) supaya sticky filter row tak loncat
+```
+
+**Options list:**
+```
+max-h-60 overflow-y-auto
+Row: w-full flex items-start gap-2 px-3 py-2 text-xs text-left
+  selected:   bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 font-semibold
+  unselected: text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700/50
+  Check slot: w-3.5 h-3.5 (mt-0.5); selected → Check 14 strokeWidth=3 emerald
+Empty: px-3 py-4 text-center text-[11px] text-gray-400 dark:text-slate-500 "Tidak ada hasil"
+```
+
+**Behavior:** tutup saat klik di luar (`pointerdown` di luar root) atau `Escape`;
+reset query tiap kali tertutup; pilih opsi → `onChange(value)` lalu `setOpen(false)`.
+
 ### KTP OCR Inline (Top of Form)
 
 Integrated di atas section pertama. Upload KTP image → OpenAI Vision extract → auto-fill fields.
@@ -1979,6 +2049,10 @@ rounded-lg px-2 pr-6 outline-none appearance-none cursor-pointer
 ```
 
 Options: Semua, Purchase, Contact, PageView, Search, ViewContent
+
+> Varian native lama (halaman Analytics). Untuk filter/pemilihan **baru**, jangan pakai
+> `<select>` bawaan — pakai **Custom Filter Dropdown (`FilterDropdown`)** yang non-native
+> + beranimasi (lihat section tersendiri di atas).
 
 ### Refresh Button
 
@@ -2994,6 +3068,8 @@ Kontrol ini tidak mengubah token visual, tapi mempengaruhi freshness data yang t
 - **Responsive**: Mobile-first (`max-w-lg` centered)
 - **Border radius**: `rounded-xl` (inputs, small buttons) or `rounded-2xl` (cards)
 - **Shadow**: `shadow-sm` (cards), `shadow-md shadow-{color}-500/20` (CTA), `shadow-2xl` (modals)
+- **Dropdown / Select**: jangan pakai `<select>` bawaan browser untuk filter — pakai **Custom Filter Dropdown** (`FilterDropdown`, lihat sectionnya); panel **wajib beranimasi** buka/tutup (trigger + panel + animasi = satu paket).
+- **Animasi**: plugin `tailwindcss-animate` **tidak terpasang** → kelas `animate-in` / `fade-in-*` / `zoom-in-*` / `slide-in-from-*` adalah **no-op** (tak menghasilkan CSS). Animasikan dengan utilitas transisi inti (`transition-all duration-150 ease-out` + `opacity`/`scale`/`translate`) atau keyframe custom di `tailwind.config.js`.
 - **State management**: `useState` + `useEffect` + `useCallback` (no external library)
 - **Language**: Code in English, UI text in Bahasa Indonesia
 - **Pagination**: Numbered buttons `w-8 h-8 rounded-xl text-xs font-bold` with active state using primary emerald

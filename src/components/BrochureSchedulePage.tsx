@@ -1,7 +1,8 @@
 // src/components/BrochureSchedulePage.tsx
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Options as ModernScreenshotOptions } from 'modern-screenshot';
-import { Download, Share2, Loader2, ChevronDown, CircleCheck } from 'lucide-react';
+import { Download, Share2, Loader2, CircleCheck } from 'lucide-react';
+import FilterDropdown from './FilterDropdown';
 import {
   BrochureScheduleTemplate,
   BROCHURE_W,
@@ -216,44 +217,8 @@ function compareAirlineOptions(a: string, b: string): number {
   return a.localeCompare(b, 'id', { sensitivity: 'base' });
 }
 
-interface FilterSelectProps {
-  value: string;
-  onChange: (v: string) => void;
-  options: ReadonlyArray<{ value: string; label: string }>;
-  ariaLabel: string;
-  widthClass?: string;
-  disabled?: boolean;
-}
-
-// Adapted from "Filter Select (Compact)" pattern in docs/DESIGN-SYSTEM.md, sized
-// up slightly (h-9 / text-xs) so it reads comfortably on the brochure page where
-// the preview below uses larger type. Same shape language as the DS pattern:
-// rectangular rounded-lg + thin border + subtle bg.
-function FilterSelect({ value, onChange, options, ariaLabel, widthClass = '', disabled = false }: FilterSelectProps) {
-  return (
-    <div className={`relative ${widthClass}`}>
-      <select
-        aria-label={ariaLabel}
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full h-9 text-xs font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 pr-8 outline-none appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed truncate"
-      >
-        {options.length === 0 ? (
-          <option value="">—</option>
-        ) : (
-          options.map(o => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))
-        )}
-      </select>
-      <ChevronDown
-        size={14}
-        className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500 dark:text-slate-400"
-      />
-    </div>
-  );
-}
+// FilterDropdown (custom, animated) now lives in ./FilterDropdown and is shared
+// with the public jadwal-paket header. See docs/DESIGN-SYSTEM.md.
 
 export default function BrochureSchedulePage({ agent: agentProp }: BrochureSchedulePageProps) {
   const [loading, setLoading] = useState(true);
@@ -834,14 +799,16 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         style={{ top: headerOffset }}
       >
         <div className="flex gap-2 px-4 py-3">
-          <FilterSelect
+          <FilterDropdown
+            variant="compact"
             value={filterDim}
             onChange={(v) => setFilterDim(v as FilterDim)}
             options={(['bulan', 'tipe', 'maskapai', 'landing'] as FilterDim[]).map(d => ({ value: d, label: FILTER_DIM_LABELS[d] }))}
             ariaLabel="Filter berdasarkan"
             widthClass="flex-1 min-w-0"
           />
-          <FilterSelect
+          <FilterDropdown
+            variant="compact"
             value={filterValue ?? ''}
             onChange={setFilterValue}
             options={availableValues}

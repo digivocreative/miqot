@@ -14,6 +14,7 @@ import {
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { Sun, Moon, Search, X, SlidersHorizontal, LayoutList, LogIn, Home } from 'lucide-react';
 import { AGENTS_DATA } from '@/data/agents';
+import FilterDropdown from './FilterDropdown';
 
 // ============================================
 // Types
@@ -242,194 +243,76 @@ export function FilterHeader({
         {/* ============================================ */}
         <div className="flex gap-2 mt-3">
           {/* Main Filter Dropdown */}
-          <div className="relative flex-1">
-            <select
-              value={filterMode}
-              onChange={(e) => {
-                const newMode = e.target.value as FilterMode;
-                onFilterModeChange(newMode);
-                // Reset secondary value and sort when mode changes
-                onSecondaryValueChange('');
-                onSortOrderChange?.(null);
-              }}
-              className="
-                w-full appearance-none
-                px-3 py-2.5 pr-8
-                text-sm font-medium text-gray-700
-                bg-gray-100/80 border border-transparent
-                dark:bg-slate-800/80 dark:border-transparent dark:text-slate-200
-                rounded-xl
-                cursor-pointer
-                hover:bg-gray-200/80 dark:hover:bg-slate-700/80
-                focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:bg-white dark:focus:bg-slate-800
-                transition-colors
-              "
-            >
-              {FILTER_MODE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <svg 
-              xmlns="http://www.w3.org/2000/svg" 
-              viewBox="0 0 20 20" 
-              fill="currentColor" 
-              className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
-            >
-              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-            </svg>
-          </div>
+          <FilterDropdown
+            variant="default"
+            value={filterMode}
+            onChange={(v) => {
+              const newMode = v as FilterMode;
+              onFilterModeChange(newMode);
+              // Reset secondary value and sort when mode changes
+              onSecondaryValueChange('');
+              onSortOrderChange?.(null);
+            }}
+            options={FILTER_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+            ariaLabel="Filter paket"
+            widthClass="flex-1"
+          />
 
           {/* Secondary Dropdown: Sort Order (for AVAILABLE & PROMO) */}
           {showSortDropdown && (
-            <div className="relative flex-1 animate-in slide-in-from-right-2 duration-200">
-              <select
-                value={sortOrder || ''}
-                onChange={(e) => {
-                  const val = e.target.value as SortOrder | '';
-                  onSortOrderChange?.(val || null);
-                }}
-                className="
-                  w-full appearance-none
-                  px-3 py-2.5 pr-8
-                  text-sm font-medium text-gray-700
-                  bg-gray-100/80 border border-transparent
-                  dark:bg-slate-800/80 dark:border-transparent dark:text-slate-200
-                  rounded-xl
-                  cursor-pointer
-                  hover:bg-gray-200/80 dark:hover:bg-slate-700/80
-                  focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:bg-white dark:focus:bg-slate-800
-                  transition-colors
-                "
-              >
-                <option value="">- Urutkan -</option>
-                {SORT_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                viewBox="0 0 20 20" 
-                fill="currentColor" 
-                className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
-              >
-                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-              </svg>
-            </div>
+            <FilterDropdown
+              variant="default"
+              value={sortOrder || ''}
+              onChange={(v) => onSortOrderChange?.((v as SortOrder) || null)}
+              options={[{ value: '', label: '- Urutkan -' }, ...SORT_OPTIONS]}
+              ariaLabel="Urutkan"
+              widthClass="flex-1"
+            />
           )}
 
           {/* Secondary Dropdown: Landing City */}
           {showLandingDropdown && (
-            <div className="relative flex-1 animate-in slide-in-from-right-2 duration-200">
-              <select
-                value={secondaryValue || ''}
-                onChange={(e) => onSecondaryValueChange(e.target.value)}
-                className="
-                  w-full appearance-none
-                  px-3 py-2.5 pr-8
-                  text-sm font-medium text-gray-700
-                  bg-gray-100/80 border border-transparent
-                  dark:bg-slate-800/80 dark:border-transparent dark:text-slate-200
-                  rounded-xl
-                  cursor-pointer
-                  hover:bg-gray-200/80 dark:hover:bg-slate-700/80
-                  focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:bg-white dark:focus:bg-slate-800
-                  transition-colors
-                "
-              >
-                <option value="">- Pilih Landing -</option>
-                {landingOptions.map((landing) => (
-                  <option key={landing.code} value={landing.code}>
-                    {landing.name} ({landing.packageCount} paket)
-                  </option>
-                ))}
-              </select>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
-              >
-                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-              </svg>
-            </div>
+            <FilterDropdown
+              variant="default"
+              value={secondaryValue || ''}
+              onChange={onSecondaryValueChange}
+              options={[
+                { value: '', label: '- Pilih Landing -' },
+                ...landingOptions.map((l) => ({ value: l.code, label: `${l.name} (${l.packageCount} paket)` })),
+              ]}
+              ariaLabel="Pilih Landing"
+              widthClass="flex-1"
+            />
           )}
 
           {/* Secondary Dropdown: Months */}
           {showMonthDropdown && (
-            <div className="relative flex-1 animate-in slide-in-from-right-2 duration-200">
-              <select
-                value={secondaryValue || ''}
-                onChange={(e) => onSecondaryValueChange(e.target.value)}
-                className="
-                  w-full appearance-none
-                  px-3 py-2.5 pr-8
-                  text-sm font-medium text-gray-700
-                  bg-gray-100/80 border border-transparent
-                  dark:bg-slate-800/80 dark:border-transparent dark:text-slate-200
-                  rounded-xl
-                  cursor-pointer
-                  hover:bg-gray-200/80 dark:hover:bg-slate-700/80
-                  focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:bg-white dark:focus:bg-slate-800
-                  transition-colors
-                "
-              >
-                <option value="">- Pilih Bulan -</option>
-                {monthGroups.map((month) => (
-                  <option key={month.monthKey} value={month.monthKey}>
-                    {month.monthName} ({month.availableSeat}/{month.totalSeat})
-                  </option>
-                ))}
-              </select>
-              <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                viewBox="0 0 20 20" 
-                fill="currentColor" 
-                className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
-              >
-                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-              </svg>
-            </div>
+            <FilterDropdown
+              variant="default"
+              value={secondaryValue || ''}
+              onChange={onSecondaryValueChange}
+              options={[
+                { value: '', label: '- Pilih Bulan -' },
+                ...monthGroups.map((m) => ({ value: m.monthKey, label: `${m.monthName} (${m.availableSeat}/${m.totalSeat})` })),
+              ]}
+              ariaLabel="Pilih Bulan"
+              widthClass="flex-1"
+            />
           )}
 
           {/* Secondary Dropdown: Duration */}
           {showDurationDropdown && (
-            <div className="relative flex-1 animate-in slide-in-from-right-2 duration-200">
-              <select
-                value={secondaryValue || ''}
-                onChange={(e) => onSecondaryValueChange(e.target.value)}
-                className="
-                  w-full appearance-none
-                  px-3 py-2.5 pr-8
-                  text-sm font-medium text-gray-700
-                  bg-gray-100/80 border border-transparent
-                  dark:bg-slate-800/80 dark:border-transparent dark:text-slate-200
-                  rounded-xl
-                  cursor-pointer
-                  hover:bg-gray-200/80 dark:hover:bg-slate-700/80
-                  focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:bg-white dark:focus:bg-slate-800
-                  transition-colors
-                "
-              >
-                <option value="">- Pilih Durasi -</option>
-                {durationOptions.map((dur) => (
-                  <option key={dur.days} value={dur.days.toString()}>
-                    {dur.label} ({dur.count} paket)
-                  </option>
-                ))}
-              </select>
-              <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                viewBox="0 0 20 20" 
-                fill="currentColor" 
-                className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
-              >
-                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-              </svg>
-            </div>
+            <FilterDropdown
+              variant="default"
+              value={secondaryValue || ''}
+              onChange={onSecondaryValueChange}
+              options={[
+                { value: '', label: '- Pilih Durasi -' },
+                ...durationOptions.map((d) => ({ value: d.days.toString(), label: `${d.label} (${d.count} paket)` })),
+              ]}
+              ariaLabel="Pilih Durasi"
+              widthClass="flex-1"
+            />
           )}
         </div>
 
