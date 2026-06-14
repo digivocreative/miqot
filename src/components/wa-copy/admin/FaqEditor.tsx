@@ -4,6 +4,7 @@ import WaMarkupText from '../WaMarkupText';
 import Toggle from './Toggle';
 import MediaUploadField from './MediaUploadField';
 import FormatToolbar from './FormatToolbar';
+import FilterDropdown from '../../FilterDropdown';
 
 export interface FaqDraft {
   category: FaqCategory;
@@ -42,13 +43,14 @@ export default function FaqEditor({ categories, initial, onSave, onCancel }: Faq
     <div className="px-4 pt-4 pb-8 space-y-4">
       <div>
         <label className={LABEL_CLASS}>Kategori</label>
-        <select value={category} onChange={e => setCategory(e.target.value as FaqCategory)} className={INPUT_CLASS}>
-          {categories.map(c => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+        <FilterDropdown
+          variant="default"
+          value={category}
+          onChange={v => setCategory(v as FaqCategory)}
+          options={categories.map(c => ({ value: c.value, label: c.label }))}
+          ariaLabel="Kategori"
+          widthClass="w-full"
+        />
       </div>
 
       <div>

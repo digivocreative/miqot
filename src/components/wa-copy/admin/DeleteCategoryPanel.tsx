@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { CategoryMeta } from '../lib/types';
+import FilterDropdown from '../../FilterDropdown';
 
 interface DeleteCategoryPanelProps {
   unitLabel: string;
@@ -11,8 +12,6 @@ interface DeleteCategoryPanelProps {
   onCancel: () => void;
 }
 
-const INPUT_CLASS =
-  'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white';
 const LABEL_CLASS = 'block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300 mb-1.5';
 
 export default function DeleteCategoryPanel({
@@ -43,11 +42,14 @@ export default function DeleteCategoryPanel({
       ) : (
         <div>
           <label className={LABEL_CLASS}>Pindahkan konten ke</label>
-          <select value={reassignTo} onChange={e => setReassignTo(e.target.value)} className={INPUT_CLASS}>
-            {others.map(c => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-          </select>
+          <FilterDropdown
+            variant="default"
+            value={reassignTo}
+            onChange={setReassignTo}
+            options={others.map(c => ({ value: c.value, label: c.label }))}
+            ariaLabel="Pindahkan konten ke"
+            widthClass="w-full"
+          />
         </div>
       )}
 

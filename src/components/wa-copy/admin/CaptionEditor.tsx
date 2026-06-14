@@ -6,6 +6,7 @@ import PreviewText from '../tabs/caption/PreviewText';
 import Toggle from './Toggle';
 import MediaUploadField from './MediaUploadField';
 import FormatToolbar from './FormatToolbar';
+import FilterDropdown from '../../FilterDropdown';
 
 export interface CaptionDraft {
   category: CaptionCategory;
@@ -65,13 +66,14 @@ export default function CaptionEditor({ categories, initial, onSave, onCancel }:
     <div className="px-4 pt-4 pb-8 space-y-4">
       <div>
         <label className={LABEL_CLASS}>Kategori</label>
-        <select value={category} onChange={e => setCategory(e.target.value as CaptionCategory)} className={INPUT_CLASS}>
-          {categories.map(c => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+        <FilterDropdown
+          variant="default"
+          value={category}
+          onChange={v => setCategory(v as CaptionCategory)}
+          options={categories.map(c => ({ value: c.value, label: c.label }))}
+          ariaLabel="Kategori"
+          widthClass="w-full"
+        />
       </div>
 
       <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700">

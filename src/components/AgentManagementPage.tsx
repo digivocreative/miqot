@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PhotoCropModal from './PhotoCropModal';
+import FilterDropdown from './FilterDropdown';
 import { validateName, validatePhone, validateEmail, validateWebsite, validateSlug, validatePassword, cleanPhone, cleanWebsite } from '../utils/validation';
 
 // ── Types ──
@@ -787,17 +788,14 @@ export default function AgentManagementPage() {
                 {/* Kantor */}
                 <div>
                   <label className={labelCls}><Building2 size={12} /> Kode Kantor</label>
-                  <div className="relative">
-                    <select
-                      className={`${inputCls()} appearance-none pr-8`}
-                      value={form.jamaah_kantor}
-                      onChange={e => setField('jamaah_kantor', e.target.value)}
-                    >
-                      <option value="1">Pusat</option>
-                      <option value="2">Cabang</option>
-                    </select>
-                    <ChevronRight size={14} className="absolute right-3 top-1/2 -translate-y-1/2 rotate-90 text-gray-400 pointer-events-none" />
-                  </div>
+                  <FilterDropdown
+                    variant="default"
+                    value={form.jamaah_kantor}
+                    onChange={v => setField('jamaah_kantor', v)}
+                    options={[{ value: '1', label: 'Pusat' }, { value: '2', label: 'Cabang' }]}
+                    ariaLabel="Kode Kantor"
+                    widthClass="w-full"
+                  />
                 </div>
               </div>
             </div>

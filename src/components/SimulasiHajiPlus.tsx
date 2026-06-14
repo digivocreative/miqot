@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import logoWhite from '@/logo-alhijaz-white.png';
 import PriceLadder from './PriceLadder';
+import FilterDropdown from './FilterDropdown';
 import { computeHajiPlusEscalation, condenseLadder } from '@/lib/hajiPlusPricing';
 
 // ── Constants ──
@@ -431,15 +432,14 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
           <label className="flex items-center gap-1 text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">
             <Calendar size={10} /> Tahun Berangkat
           </label>
-          <select
-            value={tahunBerangkat}
-            onChange={e => setTahunBerangkat(Number(e.target.value))}
-            className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-colors appearance-none"
-          >
-            {Array.from({ length: 6 }, (_, i) => 2036 + i).map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+          <FilterDropdown
+            variant="default"
+            value={String(tahunBerangkat)}
+            onChange={v => setTahunBerangkat(Number(v))}
+            options={Array.from({ length: 6 }, (_, i) => 2036 + i).map(y => ({ value: String(y), label: String(y) }))}
+            ariaLabel="Tahun Berangkat"
+            widthClass="w-full"
+          />
         </div>
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
           <label className="flex items-center gap-1 text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">
@@ -470,29 +470,27 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
           <label className="flex items-center gap-1 text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">
             <TrendingUp size={10} /> Kenaikan Harga
           </label>
-          <select
-            value={priceRate}
-            onChange={e => setPriceRate(Number(e.target.value))}
-            className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-colors appearance-none"
-          >
-            {PRICE_RATE_OPTIONS.map(r => (
-              <option key={r} value={r}>{pctLabel(r)} / tahun</option>
-            ))}
-          </select>
+          <FilterDropdown
+            variant="default"
+            value={String(priceRate)}
+            onChange={v => setPriceRate(Number(v))}
+            options={PRICE_RATE_OPTIONS.map(r => ({ value: String(r), label: `${pctLabel(r)} / tahun` }))}
+            ariaLabel="Kenaikan Harga"
+            widthClass="w-full"
+          />
         </div>
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
           <label className="flex items-center gap-1 text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">
             <TrendingUp size={10} /> Kenaikan Kurs
           </label>
-          <select
-            value={kursRate}
-            onChange={e => setKursRate(Number(e.target.value))}
-            className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-colors appearance-none"
-          >
-            {KURS_RATE_OPTIONS.map(r => (
-              <option key={r} value={r}>{pctLabel(r)} / tahun</option>
-            ))}
-          </select>
+          <FilterDropdown
+            variant="default"
+            value={String(kursRate)}
+            onChange={v => setKursRate(Number(v))}
+            options={KURS_RATE_OPTIONS.map(r => ({ value: String(r), label: `${pctLabel(r)} / tahun` }))}
+            ariaLabel="Kenaikan Kurs"
+            widthClass="w-full"
+          />
         </div>
       </div>
 

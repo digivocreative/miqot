@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { RefreshCw, ChevronLeft, ChevronRight, Inbox, AlertTriangle } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import FilterDropdown from './FilterDropdown';
 
 interface LogEntry {
   id: number;
@@ -103,16 +104,14 @@ export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
           )}
         </div>
         <div className="flex items-center gap-1.5">
-          <select
+          <FilterDropdown
+            variant="mini"
             value={filter}
-            onChange={e => { setFilter(e.target.value); setPage(1); }}
-            className="h-7 text-[10px] font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2 pr-6 outline-none appearance-none cursor-pointer"
-          >
-            <option value="">Semua</option>
-            {eventOptions.map(e => (
-              <option key={e} value={e}>{e}</option>
-            ))}
-          </select>
+            onChange={v => { setFilter(v); setPage(1); }}
+            options={[{ value: '', label: 'Semua' }, ...eventOptions.map(e => ({ value: e, label: e }))]}
+            ariaLabel="Filter event"
+            widthClass="w-28"
+          />
           <button
             onClick={() => { setLoading(true); fetchLogs(page, filter); }}
             className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"

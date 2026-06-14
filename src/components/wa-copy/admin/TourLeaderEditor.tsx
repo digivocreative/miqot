@@ -4,6 +4,7 @@ import WaMarkupText from '../WaMarkupText';
 import Toggle from './Toggle';
 import MediaUploadField from './MediaUploadField';
 import FormatToolbar from './FormatToolbar';
+import FilterDropdown from '../../FilterDropdown';
 
 export interface TourDraft {
   phase: TourPhase;
@@ -42,13 +43,14 @@ export default function TourLeaderEditor({ categories, initial, onSave, onCancel
     <div className="px-4 pt-4 pb-8 space-y-4">
       <div>
         <label className={LABEL_CLASS}>Fase</label>
-        <select value={phase} onChange={e => setPhase(e.target.value as TourPhase)} className={INPUT_CLASS}>
-          {categories.map(p => (
-            <option key={p.value} value={p.value}>
-              {p.label}
-            </option>
-          ))}
-        </select>
+        <FilterDropdown
+          variant="default"
+          value={phase}
+          onChange={v => setPhase(v as TourPhase)}
+          options={categories.map(c => ({ value: c.value, label: c.label }))}
+          ariaLabel="Fase"
+          widthClass="w-full"
+        />
       </div>
 
       <div>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import SheetBase from './SheetBase';
+import FilterDropdown from '../../FilterDropdown';
 import { getPackages } from '@/services';
 import type { UmrohPackage } from '@/types';
 import type { FeaturedPaketPreview } from '../../bio/types';
@@ -92,13 +93,14 @@ export default function PaketPicker({ open, onClose, onPick }: Props) {
     <SheetBase open={open} onClose={onClose} title="Pilih Paket">
       <div className="space-y-3">
         <div className="flex gap-2">
-          <select
+          <FilterDropdown
+            variant="default"
             value={year}
-            onChange={(e) => setYear(e.target.value)}
-            className="px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-gray-800 dark:text-white focus:outline-none"
-          >
-            {YEAR_CODES.map(yc => <option key={yc} value={yc}>{yc} H</option>)}
-          </select>
+            onChange={setYear}
+            options={YEAR_CODES.map(yc => ({ value: yc, label: `${yc} H` }))}
+            ariaLabel="Tahun"
+            widthClass="w-28 shrink-0"
+          />
           <div className="flex-1 relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
