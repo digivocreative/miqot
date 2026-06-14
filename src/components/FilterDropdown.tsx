@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Check, Search, X } from 'lucide-react';
 
 export interface FilterDropdownOption {
@@ -21,6 +22,11 @@ export interface FilterDropdownProps {
    * - 'default' → py-2.5 / rounded-xl / text-sm (page headers/forms, e.g. jadwal paket)
    */
   variant?: 'mini' | 'compact' | 'default';
+  /**
+   * Render the popover into document.body (fixed-positioned) so it escapes an
+   * ancestor with `overflow:hidden`/scroll (e.g. an animated/collapsing filter panel).
+   */
+  portal?: boolean;
 }
 
 /**
@@ -43,12 +49,14 @@ export default function FilterDropdown({
   widthClass = '',
   disabled = false,
   variant = 'default',
+  portal = false,
 }: FilterDropdownProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 });
 
   const selectedLabel = options.find(o => o.value === value)?.label ?? '';
   const showSearch = options.length >= 8;
@@ -67,7 +75,9 @@ export default function FilterDropdown({
     }
     panelRef.current?.removeAttribute('inert');
     const onPointer = (e: PointerEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      // panelRef may live in a portal (outside rootRef), so check it too.
+      if (!rootRef.current?.contains(t) && !panelRef.current?.contains(t)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
@@ -84,6 +94,23 @@ export default function FilterDropdown({
   useEffect(() => {
     if (open && showSearch) searchRef.current?.focus({ preventScroll: true });
   }, [open, showSearch]);
+
+  // Portal mode: the panel is fixed-positioned in <body>, so track the trigger box
+  // (and follow it on scroll/resize) instead of relying on `absolute` positioning.
+  useLayoutEffect(() => {
+    if (!portal || !open) return;
+    const measure = () => {
+      const r = rootRef.current?.getBoundingClientRect();
+      if (r) setCoords({ top: r.bottom + 4, left: r.left, width: r.width });
+    };
+    measure();
+    window.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('scroll', measure, true);
+      window.removeEventListener('resize', measure);
+    };
+  }, [portal, open]);
 
   // Size/skin per variant. 'mini' and 'compact' share the gray-50 skin and differ
   // only in size; 'default' has its own larger, softer (gray-100/80, rounded-xl) skin.
@@ -103,32 +130,17 @@ export default function FilterDropdown({
   }`;
   const chevronSize = variant === 'default' ? 16 : variant === 'compact' ? 14 : 12;
 
-  return (
-    <div ref={rootRef} className={`relative ${widthClass}`}>
-      <button
-        type="button"
-        aria-label={ariaLabel}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        disabled={disabled}
-        onClick={() => setOpen(o => !o)}
-        className={triggerClass}
-      >
-        <span className="truncate">{selectedLabel || '—'}</span>
-        <ChevronDown
-          size={chevronSize}
-          className={`shrink-0 text-gray-400 dark:text-slate-400 transition-transform duration-150 ${open ? 'rotate-180' : ''} ${disabled ? 'opacity-50' : ''}`}
-        />
-      </button>
-
-      {/* Always mounted so both open AND close animate. Core transition utilities
-          only — tailwindcss-animate isn't installed here. */}
+  // Always mounted so both open AND close animate. Core transition utilities only —
+  // tailwindcss-animate isn't installed here. In portal mode it's fixed-positioned
+  // in <body> (coords from the trigger) to escape overflow:hidden ancestors.
+  const panel = (
       <div
         ref={panelRef}
         role="listbox"
         aria-label={ariaLabel}
         aria-hidden={!open}
-        className={`absolute left-0 right-0 top-full mt-1 z-40 origin-top rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg overflow-hidden transition-all duration-150 ease-out ${
+        style={portal ? { position: 'fixed', top: coords.top, left: coords.left, width: coords.width } : undefined}
+        className={`${portal ? 'z-50' : 'absolute left-0 right-0 top-full mt-1 z-40'} origin-top rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg overflow-hidden transition-all duration-150 ease-out ${
           open
             ? 'opacity-100 scale-100 translate-y-0'
             : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
@@ -187,6 +199,26 @@ export default function FilterDropdown({
           )}
         </div>
       </div>
+  );
+
+  return (
+    <div ref={rootRef} className={`relative ${widthClass}`}>
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen(o => !o)}
+        className={triggerClass}
+      >
+        <span className="truncate">{selectedLabel || '—'}</span>
+        <ChevronDown
+          size={chevronSize}
+          className={`shrink-0 text-gray-400 dark:text-slate-400 transition-transform duration-150 ${open ? 'rotate-180' : ''} ${disabled ? 'opacity-50' : ''}`}
+        />
+      </button>
+      {portal ? createPortal(panel, document.body) : panel}
     </div>
   );
 }

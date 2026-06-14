@@ -8,6 +8,7 @@ import {
   KeyRound, Trash2, PenLine,
 } from 'lucide-react';
 import { getAuthHeaders, getStoredSession } from './LoginPage';
+import FilterDropdown from './FilterDropdown';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber } from '../utils/phone';
@@ -361,17 +362,14 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
       return;
     }
     const selector = (
-      <select
+      <FilterDropdown
+        variant="compact"
         value={thnMasehi}
-        onChange={e => { setThnMasehi(e.target.value); setPage(1); }}
-        className="h-9 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 px-2 rounded-xl border border-emerald-200 dark:border-emerald-800/40 outline-none cursor-pointer shrink-0"
-        title="Filter tahun"
-      >
-        <option value="">Semua</option>
-        {tahunOptions.map(y => (
-          <option key={y} value={y}>{y}</option>
-        ))}
-      </select>
+        onChange={v => { setThnMasehi(v); setPage(1); }}
+        options={[{ value: '', label: 'Semua' }, ...tahunOptions.map(y => ({ value: y, label: y }))]}
+        ariaLabel="Filter tahun"
+        widthClass="shrink-0"
+      />
     );
     onHeaderRight(selector);
     return () => onHeaderRight(null);
@@ -799,31 +797,34 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                   <div className="grid grid-cols-2 gap-2">
                     <label className="space-y-1">
                       <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Tahun Daftar</span>
-                      <select
+                      <FilterDropdown
+                        variant="mini"
+                        portal
                         value={daftarYear}
-                        onChange={e => { setDaftarYear(e.target.value); setPage(1); }}
-                        className="w-full h-8 px-2 rounded-lg bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[10px] font-bold text-gray-700 dark:text-slate-200 outline-none"
-                      >
-                        <option value="">Semua</option>
-                        {daftarYearOptions.map(year => (
-                          <option key={year} value={year}>{year}</option>
-                        ))}
-                      </select>
+                        onChange={v => { setDaftarYear(v); setPage(1); }}
+                        options={[{ value: '', label: 'Semua' }, ...daftarYearOptions.map(year => ({ value: year, label: year }))]}
+                        ariaLabel="Tahun Daftar"
+                        widthClass="w-full"
+                      />
                     </label>
 
                     <label className="space-y-1">
                       <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Status Bayar</span>
-                      <select
+                      <FilterDropdown
+                        variant="mini"
+                        portal
                         value={statusBayarFilter}
-                        onChange={e => { setStatusBayarFilter(e.target.value); setPage(1); }}
-                        className="w-full h-8 px-2 rounded-lg bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[10px] font-bold text-gray-700 dark:text-slate-200 outline-none"
-                      >
-                        <option value="">Semua</option>
-                        <option value="BELUM BAYAR">Belum</option>
-                        <option value="CICILAN">Cicilan</option>
-                        <option value="LUNAS">Lunas</option>
-                        <option value="LEBIH BAYAR">Lebih</option>
-                      </select>
+                        onChange={v => { setStatusBayarFilter(v); setPage(1); }}
+                        options={[
+                          { value: '', label: 'Semua' },
+                          { value: 'BELUM BAYAR', label: 'Belum' },
+                          { value: 'CICILAN', label: 'Cicilan' },
+                          { value: 'LUNAS', label: 'Lunas' },
+                          { value: 'LEBIH BAYAR', label: 'Lebih' },
+                        ]}
+                        ariaLabel="Status Bayar"
+                        widthClass="w-full"
+                      />
                     </label>
                   </div>
 

@@ -4,10 +4,11 @@ import {
   Eye, EyeOff, LogIn, Loader2, User, Users, Lock, Search,
   Calendar, Building2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, RefreshCw,
-  ArrowUpDown, SlidersHorizontal, X, Check, Plane, Landmark, PenLine, UserPlus, Plus,
+  SlidersHorizontal, X, Check, Plane, Landmark, PenLine, UserPlus, Plus,
   FileText, Download, Share2, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { getAuthHeaders, getStoredSession } from './LoginPage';
+import FilterDropdown from './FilterDropdown';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import { normalizeWaNumber, formatWaDisplay } from '../utils/phone';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
@@ -533,16 +534,14 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
       return;
     }
     const selector = (
-      <select
+      <FilterDropdown
+        variant="compact"
         value={hijriahYear}
-        onChange={e => { setHijriahYear(e.target.value); setPage(1); }}
-        className="h-9 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 px-2 rounded-xl border border-emerald-200 dark:border-emerald-800/40 outline-none cursor-pointer shrink-0"
-        title="Filter tahun Hijriah"
-      >
-        {hijriahOptions.map(y => (
-          <option key={y} value={String(y)}>{y} H</option>
-        ))}
-      </select>
+        onChange={v => { setHijriahYear(v); setPage(1); }}
+        options={hijriahOptions.map(y => ({ value: String(y), label: `${y} H` }))}
+        ariaLabel="Filter tahun Hijriah"
+        widthClass="shrink-0"
+      />
     );
     onHeaderRight(selector);
     return () => onHeaderRight(null);
@@ -1284,87 +1283,84 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                   <div className="grid grid-cols-2 gap-2.5">
                     <label className="min-w-0 space-y-1">
                       <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Status Bayar</span>
-                      <select
+                      <FilterDropdown
+                        variant="compact"
+                        portal
                         value={paymentFilter}
-                        onChange={e => { setPaymentFilter(e.target.value as PaymentFilter); setPage(1); }}
-                        className="w-full h-9 px-2 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[11px] font-bold text-gray-700 dark:text-slate-200 outline-none"
-                      >
-                        {PAYMENT_OPTIONS.map(o => (
-                          <option key={o.key} value={o.key}>{o.label}</option>
-                        ))}
-                      </select>
+                        onChange={v => { setPaymentFilter(v as PaymentFilter); setPage(1); }}
+                        options={PAYMENT_OPTIONS.map(o => ({ value: o.key, label: o.label }))}
+                        ariaLabel="Status Bayar"
+                        widthClass="w-full"
+                      />
                     </label>
 
                     <label className="min-w-0 space-y-1">
                       <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Keberangkatan</span>
-                      <select
+                      <FilterDropdown
+                        variant="compact"
+                        portal
                         value={departureFilter}
-                        onChange={e => { setDepartureFilter(e.target.value as DepartureFilter); setPage(1); }}
-                        className="w-full h-9 px-2 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[11px] font-bold text-gray-700 dark:text-slate-200 outline-none"
-                      >
-                        {DEPARTURE_OPTIONS.map(o => (
-                          <option key={o.key} value={o.key}>{o.label}</option>
-                        ))}
-                      </select>
+                        onChange={v => { setDepartureFilter(v as DepartureFilter); setPage(1); }}
+                        options={DEPARTURE_OPTIONS.map(o => ({ value: o.key, label: o.label }))}
+                        ariaLabel="Keberangkatan"
+                        widthClass="w-full"
+                      />
                     </label>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2.5">
                     <label className="min-w-0 space-y-1">
                       <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Dokumen</span>
-                      <select
+                      <FilterDropdown
+                        variant="compact"
+                        portal
                         value={documentFilter}
-                        onChange={e => { setDocumentFilter(e.target.value as DocumentFilter); setPage(1); }}
-                        className="w-full h-9 px-2 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[11px] font-bold text-gray-700 dark:text-slate-200 outline-none"
-                      >
-                        {DOCUMENT_OPTIONS.map(o => (
-                          <option key={o.key} value={o.key}>{o.label}</option>
-                        ))}
-                      </select>
+                        onChange={v => { setDocumentFilter(v as DocumentFilter); setPage(1); }}
+                        options={DOCUMENT_OPTIONS.map(o => ({ value: o.key, label: o.label }))}
+                        ariaLabel="Dokumen"
+                        widthClass="w-full"
+                      />
                     </label>
 
                     <label className="min-w-0 space-y-1">
                       <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Perlengkapan</span>
-                      <select
+                      <FilterDropdown
+                        variant="compact"
+                        portal
                         value={equipmentFilter}
-                        onChange={e => { setEquipmentFilter(e.target.value as EquipmentFilter); setPage(1); }}
-                        className="w-full h-9 px-2 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[11px] font-bold text-gray-700 dark:text-slate-200 outline-none"
-                      >
-                        {EQUIPMENT_OPTIONS.map(o => (
-                          <option key={o.key} value={o.key}>{o.label}</option>
-                        ))}
-                      </select>
+                        onChange={v => { setEquipmentFilter(v as EquipmentFilter); setPage(1); }}
+                        options={EQUIPMENT_OPTIONS.map(o => ({ value: o.key, label: o.label }))}
+                        ariaLabel="Perlengkapan"
+                        widthClass="w-full"
+                      />
                     </label>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2.5">
                     <label className="min-w-0 space-y-1">
                       <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Catatan</span>
-                      <select
+                      <FilterDropdown
+                        variant="compact"
+                        portal
                         value={notesFilter}
-                        onChange={e => { setNotesFilter(e.target.value as NotesFilter); setPage(1); }}
-                        className="w-full h-9 px-2 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-[11px] font-bold text-gray-700 dark:text-slate-200 outline-none"
-                      >
-                        {NOTES_OPTIONS.map(o => (
-                          <option key={o.key} value={o.key}>{o.label}</option>
-                        ))}
-                      </select>
+                        onChange={v => { setNotesFilter(v as NotesFilter); setPage(1); }}
+                        options={NOTES_OPTIONS.map(o => ({ value: o.key, label: o.label }))}
+                        ariaLabel="Catatan"
+                        widthClass="w-full"
+                      />
                     </label>
 
                     <label className="min-w-0 space-y-1">
                       <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Urutkan</span>
-                      <div className="relative">
-                        <ArrowUpDown size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                        <select
-                          value={sortKey}
-                          onChange={e => { setSortKey(e.target.value as SortKey); setPage(1); }}
-                          className="w-full h-9 appearance-none pl-7 pr-3 py-0 bg-gray-50 dark:bg-slate-900 border border-gray-100 dark:border-slate-700 rounded-xl text-[11px] font-bold text-gray-600 dark:text-slate-300 outline-none cursor-pointer"
-                        >
-                          {SORT_OPTIONS.map(o => (
-                            <option key={o.key} value={o.key}>{o.label}</option>
-                          ))}
-                        </select>
-                      </div>
+                      <FilterDropdown
+                        variant="compact"
+                        portal
+                        value={sortKey}
+                        onChange={v => { setSortKey(v as SortKey); setPage(1); }}
+                        options={SORT_OPTIONS.map(o => ({ value: o.key, label: o.label }))}
+                        ariaLabel="Urutkan"
+                        widthClass="w-full"
+                      />
                     </label>
                   </div>
 
