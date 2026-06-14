@@ -317,11 +317,27 @@ function PackageCardImpl({
       { key: 'haikou', label: 'Haikou' },
     ];
 
+    // Kota transit/plus (Cairo, Istanbul, dst.) bersifat itinerary-wide, BUKAN per-tier —
+    // tier hanya membedakan hotel Mekkah/Madinah. Upstream kadang hanya mengisi hotel kota
+    // ini di salah satu tier (mis. UHUD), sehingga HEMAT/RAHMAH kosong. Fallback: kalau tier
+    // aktif tak punya hotel utk kota tsb, ambil dari tier lain yang punya agar "Akomodasi Plus"
+    // tetap muncul di semua tier. Tier aktif tetap menang bila punya nilai sendiri.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const otherTiers = Object.values(pkg.hotel || {}) as any[];
+
     potentialCities.forEach(city => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const info = hotelInfo as any;
-      const hotelName = info[`${city.key}_hotel`];
-      const hotelStar = info[`${city.key}_bintang`] || '0';
+      let hotelName = info[`${city.key}_hotel`];
+      let hotelStar = info[`${city.key}_bintang`] || '0';
+
+      if (!hotelName) {
+        const fallback = otherTiers.find(t => t && t[`${city.key}_hotel`]);
+        if (fallback) {
+          hotelName = fallback[`${city.key}_hotel`];
+          hotelStar = fallback[`${city.key}_bintang`] || '0';
+        }
+      }
 
       if (hotelName) {
         extras.push({
@@ -333,7 +349,7 @@ function PackageCardImpl({
     });
 
     return extras;
-  }, [hotelInfo]);
+  }, [hotelInfo, pkg.hotel]);
 
   const journeySteps = useMemo(() => {
     return getPackageJourneySteps(pkg, extraHotels.map(hotel => hotel.city));
