@@ -990,10 +990,8 @@ _________________________
       // Solution: rebuild as a single <p> with all text inline.
       clone.querySelectorAll('[data-stars-row]').forEach(row => {
         const el = row as HTMLElement;
-        // Collect stars
-        const starSpans = el.querySelectorAll('.text-amber-400');
-        const starCount = starSpans.length;
-        const stars = '★'.repeat(starCount);
+        // Collect stars (read the text; stars now render as one span "★★★★")
+        const stars = [...el.querySelectorAll('.text-amber-400')].map(s => s.textContent || '').join('');
         
         // Collect distance text
         let distText = '';
@@ -1012,7 +1010,7 @@ _________________________
         // Stars part
         const starsSpan = document.createElement('span');
         starsSpan.textContent = stars;
-        starsSpan.style.cssText = 'color:#E8A200; font-size:10px; letter-spacing:1px;';
+        starsSpan.style.cssText = 'color:#E8A200; font-size:11px; letter-spacing:-1px;';
         p.appendChild(starsSpan);
         
         // Distance part
@@ -1662,9 +1660,7 @@ _________________________
               </p>
               {hotelInfo?.mekkah_bintang && (
                   <div className="flex items-center gap-0.5" data-stars-row>
-                    {Array.from({ length: parseInt(hotelInfo.mekkah_bintang) }).map((_, i) => (
-                      <span key={i} className="text-[10px] text-amber-400">★</span>
-                    ))}
+                    <span className="text-[11px] text-amber-400 tracking-[-1px]">{'★'.repeat(parseInt(hotelInfo.mekkah_bintang))}</span>
                     {(() => {
                       const dist = hotelInfo.mekkah_jarak || getDistance(hotelInfo.mekkah_hotel || '');
                       return dist ? (
@@ -1696,9 +1692,7 @@ _________________________
               </p>
               {hotelInfo?.madinah_bintang && (
                   <div className="flex items-center gap-0.5" data-stars-row>
-                    {Array.from({ length: parseInt(hotelInfo.madinah_bintang) }).map((_, i) => (
-                      <span key={i} className="text-[10px] text-amber-400">★</span>
-                    ))}
+                    <span className="text-[11px] text-amber-400 tracking-[-1px]">{'★'.repeat(parseInt(hotelInfo.madinah_bintang))}</span>
                     {(() => {
                       const dist = hotelInfo.madinah_jarak || getDistance(hotelInfo.madinah_hotel || '');
                       return dist ? (
@@ -1853,9 +1847,7 @@ _________________________
                       </p>
                       {parseInt(hotel.star) > 0 && (
                         <div className="flex items-center gap-0.5 mt-0.5" data-stars-row>
-                          {Array.from({ length: parseInt(hotel.star) }).map((_, i) => (
-                            <span key={i} className="text-[10px] text-amber-400">★</span>
-                          ))}
+                          <span className="text-[11px] text-amber-400 tracking-[-1px]">{'★'.repeat(parseInt(hotel.star))}</span>
                         </div>
                       )}
                     </div>
