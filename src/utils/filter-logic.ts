@@ -5,6 +5,7 @@
 
 import type { UmrohPackage } from '@/types';
 import { calculateDuration } from '@/services/data-service';
+import { getLandingAirportCode, getLandingCityName } from './journey';
 
 // ============================================
 // Types
@@ -12,6 +13,7 @@ import { calculateDuration } from '@/services/data-service';
 
 export type FilterMode =
   | 'AVAILABLE'      // Filter paket dengan kursi tersedia
+  | 'LANDING DI'     // Filter berdasarkan kota landing (Jeddah/Madinah/dll)
   | 'LIBURAN_SEKOLAH' // Filter keberangkatan Juni-Juli 2026
   | 'UMROH CUTI 5 HARI' // Berangkat Jumat malam/Sabtu, pulang Sabtu/Minggu/Senin dini hari
   | 'PROMO'          // Filter paket promo
@@ -30,7 +32,7 @@ export type SortOrder =
 
 export interface FilterParams {
   mode: FilterMode;
-  /** Secondary value: nama bulan (DATA PER-BULAN) */
+  /** Secondary value: bulan (DATA PER-BULAN), durasi (DURASI PERJALANAN), atau kode kota landing (LANDING DI) */
   secondaryValue?: string;
 }
 
@@ -64,16 +66,6 @@ export interface LandingCity {
 // Constants
 // ============================================
 
-/** Mapping airport codes to city names */
-const CITY_NAMES: Record<string, string> = {
-  'JED': 'Jeddah',
-  'MED': 'Madinah',
-  'CGK': 'Jakarta',
-  'HAK': 'Haikou',
-  'IST': 'Istanbul',
-  'CAI': 'Cairo',
-};
-
 /** Indonesian month names */
 const MONTH_NAMES_ID = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -94,6 +86,7 @@ const HIJRI_MONTH_NAMES = [
 /** Map FilterMode to URL slug. AVAILABLE (default) has empty slug. */
 export const FILTER_MODE_SLUGS: Record<FilterMode, string> = {
   'AVAILABLE': '',
+  'LANDING DI': 'landing-di',
   'LIBURAN_SEKOLAH': 'liburan-sekolah',
   'UMROH CUTI 5 HARI': 'cuti-5-hari',
   'PROMO': 'umroh-promo',
@@ -125,25 +118,6 @@ export function getFilterModeFromSlug(slug: string): FilterMode | null {
 // ============================================
 // Helper Functions
 // ============================================
-
-/**
- * Extract city code from flight route
- * e.g., "CGK - JED" -> "JED" (destination)
- */
-function extractDestinationCity(route: string): string {
-  const parts = route.split(/\s*[-–]\s*/);
-  if (parts.length >= 2) {
-    return parts[parts.length - 1].trim().toUpperCase();
-  }
-  return route.trim().toUpperCase();
-}
-
-/**
- * Get city name from code
- */
-function getCityName(code: string): string {
-  return CITY_NAMES[code] || code;
-}
 
 /**
  * Extract unique trip durations from packages
@@ -230,42 +204,29 @@ function approximateHijriMonth(dateStr: string): string {
 // ============================================
 
 /**
- * Extract unique landing cities from all packages
- * Scans departure and return routes to find destination cities
+ * Extract unique landing cities from all packages.
+ * Landing = arrival city of the departure flight's final leg (mis. Jeddah / Madinah).
+ * Reuses the same logic as the package card (getLandingAirportCode/Name) so the
+ * filter options match the "Landing di" yang ditampilkan tiap kartu.
  */
 export function extractUniqueLandings(packages: UmrohPackage[]): LandingCity[] {
-  const cityMap = new Map<string, { count: number }>();
+  const cityMap = new Map<string, { name: string; count: number }>();
 
   packages.forEach(pkg => {
-    // Extract from departure route (destination is landing city for departure)
-    const departureCity = extractDestinationCity(pkg.keberangkatan.rute);
-    if (departureCity) {
-      const existing = cityMap.get(departureCity);
-      cityMap.set(departureCity, { count: (existing?.count || 0) + 1 });
-    }
-
-    // Also check return route origin (where they depart from in Saudi)
-    const returnParts = pkg.kepulangan.rute.split(/\s*[-–]\s*/);
-    if (returnParts.length >= 1) {
-      const returnOrigin = returnParts[0].trim().toUpperCase();
-      if (returnOrigin && returnOrigin !== departureCity) {
-        const existing = cityMap.get(returnOrigin);
-        if (!existing) {
-          cityMap.set(returnOrigin, { count: 1 });
-        }
-      }
+    const code = getLandingAirportCode(pkg);
+    const name = getLandingCityName(pkg);
+    const existing = cityMap.get(code);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      cityMap.set(code, { name, count: 1 });
     }
   });
 
-  // Convert to array and sort by count
+  // Landing terbanyak di atas, lalu urut abjad nama kota
   return Array.from(cityMap.entries())
-    .map(([code, data]) => ({
-      code,
-      name: getCityName(code),
-      packageCount: data.count,
-    }))
-    .filter(city => ['JED', 'MED'].includes(city.code)) // Only Saudi cities
-    .sort((a, b) => b.packageCount - a.packageCount);
+    .map(([code, data]) => ({ code, name: data.name, packageCount: data.count }))
+    .sort((a, b) => b.packageCount - a.packageCount || a.name.localeCompare(b.name));
 }
 
 /**
@@ -349,6 +310,13 @@ export function filterPackages(
     case 'AVAILABLE':
       // Filter packages with available seats
       return data.filter(pkg => pkg.seatSisa > 0);
+
+    case 'LANDING DI':
+      // Filter by landing city (airport code of the departure flight's final leg)
+      if (!secondaryValue) {
+        return data;
+      }
+      return data.filter(pkg => getLandingAirportCode(pkg) === secondaryValue);
 
     case 'LIBURAN_SEKOLAH':
       // Filter packages with departure in June or July 2026

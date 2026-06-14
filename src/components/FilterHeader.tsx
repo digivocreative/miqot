@@ -3,11 +3,12 @@
 import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { isSessionValid } from '@/utils/authUtils';
 import type { UmrohPackage } from '@/types';
-import { 
-  FilterMode, 
+import {
+  FilterMode,
   SortOrder,
   groupByMonth,
   extractUniqueDurations,
+  extractUniqueLandings,
   type MonthGroup,
 } from '@/utils';
 import logoAlhijaz from '@/logo-alhijaz.webp';
@@ -59,6 +60,7 @@ export interface FilterHeaderProps {
 // Filter mode options for dropdown
 const FILTER_MODE_OPTIONS: { value: FilterMode; label: string }[] = [
   { value: 'AVAILABLE', label: 'SEAT TERSEDIA' },
+  { value: 'LANDING DI', label: 'LANDING DI' },
   { value: 'LIBURAN_SEKOLAH', label: 'LIBURAN SEKOLAH' },
   { value: 'UMROH CUTI 5 HARI', label: 'UMROH CUTI 5 HARI' },
   { value: 'PROMO', label: 'UMROH PROMO' },
@@ -151,10 +153,16 @@ export function FilterHeader({
     return extractUniqueDurations(packages);
   }, [packages]);
 
+  // Extract unique landing cities from packages
+  const landingOptions = useMemo(() => {
+    return extractUniqueLandings(packages);
+  }, [packages]);
+
   // Check if secondary dropdown should be shown
   const showSortDropdown = filterMode === 'AVAILABLE' || filterMode === 'LIBURAN_SEKOLAH' || filterMode === 'UMROH CUTI 5 HARI' || filterMode === 'PROMO' || filterMode === 'UMROH REGULER' || filterMode === 'UMROH MUSIM DINGIN' || filterMode === 'BINTANG 5';
   const showDurationDropdown = filterMode === 'DURASI PERJALANAN';
   const showMonthDropdown = filterMode === 'DATA PER-BULAN';
+  const showLandingDropdown = filterMode === 'LANDING DI';
 
   return (
     <header 
@@ -306,6 +314,43 @@ export function FilterHeader({
                 xmlns="http://www.w3.org/2000/svg" 
                 viewBox="0 0 20 20" 
                 fill="currentColor" 
+                className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+              >
+                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+              </svg>
+            </div>
+          )}
+
+          {/* Secondary Dropdown: Landing City */}
+          {showLandingDropdown && (
+            <div className="relative flex-1 animate-in slide-in-from-right-2 duration-200">
+              <select
+                value={secondaryValue || ''}
+                onChange={(e) => onSecondaryValueChange(e.target.value)}
+                className="
+                  w-full appearance-none
+                  px-3 py-2.5 pr-8
+                  text-sm font-medium text-gray-700
+                  bg-gray-100/80 border border-transparent
+                  dark:bg-slate-800/80 dark:border-transparent dark:text-slate-200
+                  rounded-xl
+                  cursor-pointer
+                  hover:bg-gray-200/80 dark:hover:bg-slate-700/80
+                  focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:bg-white dark:focus:bg-slate-800
+                  transition-colors
+                "
+              >
+                <option value="">- Pilih Landing -</option>
+                {landingOptions.map((landing) => (
+                  <option key={landing.code} value={landing.code}>
+                    {landing.name} ({landing.packageCount} paket)
+                  </option>
+                ))}
+              </select>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
                 className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
               >
                 <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
