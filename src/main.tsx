@@ -14,6 +14,24 @@ console.log(
   'background:#001427;color:#4ade80;padding:4px 8px;border-radius:4px 0 0 4px;font-weight:bold',
   'background:#1e293b;color:#94a3b8;padding:4px 8px;border-radius:0 4px 4px 0'
 )
+
+// ── Stale-deploy guard ──
+// After a new build, the loaded HTML can reference JS chunk hashes that no longer
+// exist (classic case: a precached SW shell pointing at chunks already purged by
+// the new SW). The next dynamic import then fails and the page goes blank. Vite
+// fires `vite:preloadError` for exactly this — reload once to pull the fresh index
+// + chunks. A sessionStorage cooldown stops a reload loop when a chunk is genuinely
+// gone or the user is offline.
+window.addEventListener('vite:preloadError', (event) => {
+  const KEY = 'preload-error-reloaded-at'
+  const now = Date.now()
+  const last = Number(sessionStorage.getItem(KEY) || '0')
+  if (now - last < 10_000) return // already retried recently — let the error surface
+  sessionStorage.setItem(KEY, String(now))
+  event.preventDefault() // we're handling it via reload; don't rethrow
+  window.location.reload()
+})
+
 // Route-level pages are code-split so the initial entry chunk stays small.
 // KalkulasiPage/ComparePage pull in heavy PDF libs — keep them off the critical path.
 const KalkulasiPage = lazy(() => import('./components/KalkulasiPage.tsx'))
