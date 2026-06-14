@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check, Search, X } from 'lucide-react';
 
@@ -59,7 +59,7 @@ export default function FilterDropdown({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 });
+  const [coords, setCoords] = useState({ top: 0, left: 0, right: 0, width: 0, alignRight: false });
 
   const selectedLabel = options.find(o => o.value === value)?.label ?? '';
   const showSearch = options.length >= 8;
@@ -104,7 +104,12 @@ export default function FilterDropdown({
     if (!portal || !open) return;
     const measure = () => {
       const r = rootRef.current?.getBoundingClientRect();
-      if (r) setCoords({ top: r.bottom + 4, left: r.left, width: r.width });
+      if (!r) return;
+      const vw = window.innerWidth;
+      // Anchor the (content-width) panel to the trigger's right edge when the trigger
+      // sits past the viewport midline, so a panel wider than the trigger grows left
+      // instead of overflowing the right edge.
+      setCoords({ top: r.bottom + 4, left: r.left, right: vw - r.right, width: r.width, alignRight: r.left + r.width / 2 > vw / 2 });
     };
     measure();
     window.addEventListener('scroll', measure, true);
@@ -136,17 +141,33 @@ export default function FilterDropdown({
   const chevronSize = variant === 'default' ? 16 : variant === 'compact' ? 14 : 12;
   const chevronColor = accent ? 'text-emerald-500 dark:text-emerald-400' : 'text-gray-400 dark:text-slate-400';
 
+  // Panel width: at least the trigger width, but grow to fit the longest option
+  // (options have a left check-mark slot the trigger lacks, and the selected label
+  // shown in the trigger is often shorter than other options — so a trigger-width
+  // panel truncates). Portal mode positions fixed in <body> and anchors to the
+  // trigger's right edge near the viewport edge so it grows left, not off-screen.
+  const panelStyle: CSSProperties | undefined = portal
+    ? {
+        position: 'fixed',
+        top: coords.top,
+        minWidth: coords.width,
+        width: 'max-content',
+        ...(coords.alignRight
+          ? { right: coords.right, maxWidth: `calc(100vw - ${coords.right + 8}px)` }
+          : { left: coords.left, maxWidth: `calc(100vw - ${coords.left + 8}px)` }),
+      }
+    : undefined;
+
   // Always mounted so both open AND close animate. Core transition utilities only —
-  // tailwindcss-animate isn't installed here. In portal mode it's fixed-positioned
-  // in <body> (coords from the trigger) to escape overflow:hidden ancestors.
+  // tailwindcss-animate isn't installed here.
   const panel = (
       <div
         ref={panelRef}
         role="listbox"
         aria-label={ariaLabel}
         aria-hidden={!open}
-        style={portal ? { position: 'fixed', top: coords.top, left: coords.left, width: coords.width } : undefined}
-        className={`${portal ? 'z-50' : 'absolute left-0 right-0 top-full mt-1 z-40'} origin-top rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg overflow-hidden transition-all duration-150 ease-out ${
+        style={panelStyle}
+        className={`${portal ? `z-50 ${coords.alignRight ? 'origin-top-right' : 'origin-top'}` : 'absolute left-0 top-full mt-1 z-40 min-w-full w-max max-w-[90vw] origin-top'} rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg overflow-hidden transition-all duration-150 ease-out ${
           open
             ? 'opacity-100 scale-100 translate-y-0'
             : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
