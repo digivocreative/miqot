@@ -1601,8 +1601,13 @@ Komponen bersama: `src/components/FilterDropdown.tsx` (default export, prop `var
 > paket. Kalau diminta "sesuaikan dropdown", animasi di bawah ikut otomatis — bukan
 > opsional.
 
-**Trigger** (`<button>`, non-native — dua varian via prop `variant`):
+**Trigger** (`<button>`, non-native — tiga varian via prop `variant`):
 ```
+variant="mini"  (header pill super-kompak & kontrol inline; pengganti native select h-6/h-7/h-8):
+  w-full h-7 flex items-center justify-between gap-1.5 text-[10px] font-bold rounded-lg px-2.5 border
+  bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700  (skin sama dgn compact, beda ukuran)
+  enabled: text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700/70 ; ChevronDown 12
+
 variant="compact"  (filter rows, mis. brosur-jadwal):
   w-full h-9 flex items-center justify-between gap-2 text-xs font-bold rounded-lg px-3 border
   bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700

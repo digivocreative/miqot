@@ -14,12 +14,13 @@ export interface FilterDropdownProps {
   widthClass?: string;
   disabled?: boolean;
   /**
-   * Trigger size/skin:
+   * Trigger size/skin (the popover panel, animation and behavior are identical across all):
+   * - 'mini'    → h-7 / rounded-lg / text-[10px] (very tight header pills & inline controls,
+   *               replaces native selects sized h-6/h-7/h-8; shares the compact gray skin)
    * - 'compact' → h-9 / rounded-lg / text-xs (filter rows, e.g. brosur-jadwal)
-   * - 'default' → py-2.5 / rounded-xl / text-sm (page headers, e.g. jadwal paket)
-   * Panel, animation and behavior are identical across variants.
+   * - 'default' → py-2.5 / rounded-xl / text-sm (page headers/forms, e.g. jadwal paket)
    */
-  variant?: 'compact' | 'default';
+  variant?: 'mini' | 'compact' | 'default';
 }
 
 /**
@@ -84,17 +85,23 @@ export default function FilterDropdown({
     if (open && showSearch) searchRef.current?.focus({ preventScroll: true });
   }, [open, showSearch]);
 
-  const triggerClass = variant === 'compact'
-    ? `w-full h-9 flex items-center justify-between gap-2 text-xs font-bold rounded-lg px-3 border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 ${
-        disabled
-          ? 'text-gray-400 dark:text-slate-500 cursor-not-allowed'
-          : 'text-gray-600 dark:text-slate-300 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700/70'
-      }`
-    : `w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium rounded-xl border border-transparent dark:border-transparent outline-none transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 bg-gray-100/80 dark:bg-slate-800/80 ${
-        disabled
-          ? 'text-gray-400 dark:text-slate-500 cursor-not-allowed'
-          : 'text-gray-700 dark:text-slate-200 cursor-pointer hover:bg-gray-200/80 dark:hover:bg-slate-700/80'
-      }`;
+  // Size/skin per variant. 'mini' and 'compact' share the gray-50 skin and differ
+  // only in size; 'default' has its own larger, softer (gray-100/80, rounded-xl) skin.
+  const TRIGGER_BASE = 'w-full flex items-center justify-between border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50';
+  const TRIGGER_SIZE_SKIN: Record<'mini' | 'compact' | 'default', string> = {
+    mini: 'h-7 gap-1.5 px-2.5 text-[10px] font-bold rounded-lg bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700',
+    compact: 'h-9 gap-2 px-3 text-xs font-bold rounded-lg bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700',
+    default: 'gap-2 px-3 py-2.5 text-sm font-medium rounded-xl bg-gray-100/80 dark:bg-slate-800/80 border-transparent dark:border-transparent',
+  };
+  const TRIGGER_TEXT: Record<'mini' | 'compact' | 'default', string> = {
+    mini: 'text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700/70',
+    compact: 'text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700/70',
+    default: 'text-gray-700 dark:text-slate-200 hover:bg-gray-200/80 dark:hover:bg-slate-700/80',
+  };
+  const triggerClass = `${TRIGGER_BASE} ${TRIGGER_SIZE_SKIN[variant]} ${
+    disabled ? 'text-gray-400 dark:text-slate-500 cursor-not-allowed' : `cursor-pointer ${TRIGGER_TEXT[variant]}`
+  }`;
+  const chevronSize = variant === 'default' ? 16 : variant === 'compact' ? 14 : 12;
 
   return (
     <div ref={rootRef} className={`relative ${widthClass}`}>
@@ -109,7 +116,7 @@ export default function FilterDropdown({
       >
         <span className="truncate">{selectedLabel || '—'}</span>
         <ChevronDown
-          size={variant === 'compact' ? 14 : 16}
+          size={chevronSize}
           className={`shrink-0 text-gray-400 dark:text-slate-400 transition-transform duration-150 ${open ? 'rotate-180' : ''} ${disabled ? 'opacity-50' : ''}`}
         />
       </button>
