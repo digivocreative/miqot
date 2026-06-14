@@ -536,6 +536,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
     const selector = (
       <FilterDropdown
         variant="compact"
+        accent
         value={hijriahYear}
         onChange={v => { setHijriahYear(v); setPage(1); }}
         options={hijriahOptions.map(y => ({ value: String(y), label: `${y} H` }))}

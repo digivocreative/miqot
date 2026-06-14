@@ -364,6 +364,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
     const selector = (
       <FilterDropdown
         variant="compact"
+        accent
         value={thnMasehi}
         onChange={v => { setThnMasehi(v); setPage(1); }}
         options={[{ value: '', label: 'Semua' }, ...tahunOptions.map(y => ({ value: y, label: y }))]}

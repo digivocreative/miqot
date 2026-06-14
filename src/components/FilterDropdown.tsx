@@ -27,6 +27,8 @@ export interface FilterDropdownProps {
    * ancestor with `overflow:hidden`/scroll (e.g. an animated/collapsing filter panel).
    */
   portal?: boolean;
+  /** Emerald-tinted trigger skin for accent header pills (e.g. Jamaah/Haji year filter). Default gray. */
+  accent?: boolean;
 }
 
 /**
@@ -50,6 +52,7 @@ export default function FilterDropdown({
   disabled = false,
   variant = 'default',
   portal = false,
+  accent = false,
 }: FilterDropdownProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -112,23 +115,26 @@ export default function FilterDropdown({
     };
   }, [portal, open]);
 
-  // Size/skin per variant. 'mini' and 'compact' share the gray-50 skin and differ
-  // only in size; 'default' has its own larger, softer (gray-100/80, rounded-xl) skin.
+  // Size (geometry) is per-variant; skin (colors) is gray by default or emerald when
+  // `accent` is set. Kept separate so accent can swap colors without conflicting
+  // Tailwind utilities (you can't reliably override a class by appending another).
   const TRIGGER_BASE = 'w-full flex items-center justify-between border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50';
-  const TRIGGER_SIZE_SKIN: Record<'mini' | 'compact' | 'default', string> = {
-    mini: 'h-7 gap-1.5 px-2.5 text-[10px] font-bold rounded-lg bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700',
-    compact: 'h-9 gap-2 px-3 text-xs font-bold rounded-lg bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700',
-    default: 'gap-2 px-3 py-2.5 text-sm font-medium rounded-xl bg-gray-100/80 dark:bg-slate-800/80 border-transparent dark:border-transparent',
+  const TRIGGER_SIZE: Record<'mini' | 'compact' | 'default', string> = {
+    mini: 'h-7 gap-1.5 px-2.5 text-[10px] font-bold rounded-lg',
+    compact: 'h-9 gap-2 px-3 text-xs font-bold rounded-lg',
+    default: 'gap-2 px-3 py-2.5 text-sm font-medium rounded-xl',
   };
-  const TRIGGER_TEXT: Record<'mini' | 'compact' | 'default', string> = {
-    mini: 'text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700/70',
-    compact: 'text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700/70',
-    default: 'text-gray-700 dark:text-slate-200 hover:bg-gray-200/80 dark:hover:bg-slate-700/80',
-  };
-  const triggerClass = `${TRIGGER_BASE} ${TRIGGER_SIZE_SKIN[variant]} ${
-    disabled ? 'text-gray-400 dark:text-slate-500 cursor-not-allowed' : `cursor-pointer ${TRIGGER_TEXT[variant]}`
+  const graySkin = variant === 'default'
+    ? 'bg-gray-100/80 dark:bg-slate-800/80 border-transparent dark:border-transparent text-gray-700 dark:text-slate-200 hover:bg-gray-200/80 dark:hover:bg-slate-700/80'
+    : 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700/70';
+  const emeraldSkin = 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/30';
+  const triggerClass = `${TRIGGER_BASE} ${TRIGGER_SIZE[variant]} ${
+    disabled
+      ? 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed'
+      : `cursor-pointer ${accent ? emeraldSkin : graySkin}`
   }`;
   const chevronSize = variant === 'default' ? 16 : variant === 'compact' ? 14 : 12;
+  const chevronColor = accent ? 'text-emerald-500 dark:text-emerald-400' : 'text-gray-400 dark:text-slate-400';
 
   // Always mounted so both open AND close animate. Core transition utilities only —
   // tailwindcss-animate isn't installed here. In portal mode it's fixed-positioned
@@ -215,7 +221,7 @@ export default function FilterDropdown({
         <span className="truncate">{selectedLabel || '—'}</span>
         <ChevronDown
           size={chevronSize}
-          className={`shrink-0 text-gray-400 dark:text-slate-400 transition-transform duration-150 ${open ? 'rotate-180' : ''} ${disabled ? 'opacity-50' : ''}`}
+          className={`shrink-0 ${chevronColor} transition-transform duration-150 ${open ? 'rotate-180' : ''} ${disabled ? 'opacity-50' : ''}`}
         />
       </button>
       {portal ? createPortal(panel, document.body) : panel}
