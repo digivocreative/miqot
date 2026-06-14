@@ -219,8 +219,15 @@ function PackageCardImpl({
     };
   }, [pkg.harga]);
 
-  // Available pricing tiers (e.g. HEMAT, UHUD, RAHMAH)
-  const tiers = useMemo(() => Object.keys(pkg.harga), [pkg.harga]);
+  // Available pricing tiers (e.g. HEMAT, UHUD, RAHMAH).
+  // "Hemat" selalu di-hoist ke tab paling kiri; tier lain mempertahankan urutan aslinya (sort stabil).
+  const tiers = useMemo(
+    () =>
+      Object.keys(pkg.harga).sort(
+        (a, b) => Number(b.trim().toLowerCase() === 'hemat') - Number(a.trim().toLowerCase() === 'hemat')
+      ),
+    [pkg.harga]
+  );
 
   // Active tier drives BOTH the hotel block (above) and the pricing table.
   // Falls back to the cheapest tier when nothing is selected or the selection
@@ -347,7 +354,14 @@ function PackageCardImpl({
   const formatRupiah = (price: string | undefined): string => {
     if (!price) return '-';
     const num = parseInt(price, 10);
+    if (!Number.isFinite(num)) return '-';
     return new Intl.NumberFormat('id-ID').format(num);
+  };
+
+  // Pricing-table cell: "Rp 1.234.567" when valid, plain "-" (no stray "Rp") when harga tidak ada.
+  const formatHargaCell = (price: string | undefined): string => {
+    const formatted = formatRupiah(price);
+    return formatted === '-' ? '-' : `Rp ${formatted}`;
   };
 
   // Update content height for animation
@@ -2179,31 +2193,31 @@ _________________________
               {pricing?.Quard && (
                 <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
                   <span className="text-sm text-gray-600 dark:text-slate-300">Quad (Sekamar 4)</span>
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">Rp {formatRupiah(pricing.Quard)}</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">{formatHargaCell(pricing.Quard)}</span>
                 </div>
               )}
               {pricing?.Triple && (
                 <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
                   <span className="text-sm text-gray-600 dark:text-slate-300">Triple (Sekamar 3)</span>
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">Rp {formatRupiah(pricing.Triple)}</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">{formatHargaCell(pricing.Triple)}</span>
                 </div>
               )}
               {pricing?.Double && (
                 <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
                   <span className="text-sm text-gray-600 dark:text-slate-300">Double (Sekamar 2)</span>
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">Rp {formatRupiah(pricing.Double)}</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">{formatHargaCell(pricing.Double)}</span>
                 </div>
               )}
               {pricing?.Single && (
                 <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
                   <span className="text-sm text-gray-600 dark:text-slate-300">Single (1 Orang)</span>
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">Rp {formatRupiah(pricing.Single)}</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">{formatHargaCell(pricing.Single)}</span>
                 </div>
               )}
               {pricing?.Infant && (
                 <div className="flex justify-between items-center py-1.5 border-b border-gray-100 dark:border-slate-700">
                   <span className="text-sm text-gray-600 dark:text-slate-300">Infant ({'<'}2 Tahun)</span>
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">Rp {formatRupiah(pricing.Infant)}</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">{formatHargaCell(pricing.Infant)}</span>
                 </div>
               )}
             </div>
