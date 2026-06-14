@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PinInput from './PinInput';
+import FilterDropdown from './FilterDropdown';
 import { normalizeWaNumber } from '../utils/phone';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, CartesianGrid,
@@ -645,14 +646,14 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
     if (statTab === 'haji') {
       if (hajiHeaderYears.length === 0) { onHeaderRight(null); return; }
       onHeaderRight(
-        <select
+        <FilterDropdown
+          variant="mini"
           value={selectedYearMasehi}
-          onChange={e => setSelectedYearMasehi(e.target.value)}
-          className="h-8 text-[10px] font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2 pr-6 outline-none appearance-none cursor-pointer shrink-0"
-          style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
-        >
-          {hajiHeaderYears.map(y => <option key={y} value={y}>{y} M</option>)}
-        </select>
+          onChange={setSelectedYearMasehi}
+          options={hajiHeaderYears.map(y => ({ value: y, label: `${y} M` }))}
+          ariaLabel="Pilih tahun"
+          widthClass="shrink-0"
+        />
       );
       return;
     }
@@ -660,14 +661,14 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
     // Umroh + Tren tabs use hijriah dropdown
     if (!data || hijriahDropdownYears.length === 0) { onHeaderRight(null); return; }
     onHeaderRight(
-      <select
+      <FilterDropdown
+        variant="mini"
         value={selectedYear}
-        onChange={e => setSelectedYear(e.target.value)}
-        className="h-8 text-[10px] font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2 pr-6 outline-none appearance-none cursor-pointer shrink-0"
-        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
-      >
-        {hijriahDropdownYears.map(y => <option key={y} value={y}>{y} H</option>)}
-      </select>
+        onChange={setSelectedYear}
+        options={hijriahDropdownYears.map(y => ({ value: y, label: `${y} H` }))}
+        ariaLabel="Pilih tahun"
+        widthClass="shrink-0"
+      />
     );
   }, [statTab, data, selectedYear, selectedYearMasehi, hijriahDropdownYears, hajiHeaderYears, onHeaderRight]);
 

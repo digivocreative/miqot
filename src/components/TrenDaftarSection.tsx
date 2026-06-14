@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { pickNearestMasehiYear } from './StatistikPage';
+import FilterDropdown from './FilterDropdown';
 import {
   ResponsiveContainer, BarChart, Bar, AreaChart, Area,
   CartesianGrid, XAxis, YAxis, Tooltip,
@@ -232,16 +233,15 @@ function HajiAgentRankingSection() {
           </button>
         ))}
       </div>
-      <select
+      <FilterDropdown
+        variant="mini"
         value={selectedYear}
-        onChange={e => setSelectedYear(e.target.value)}
+        onChange={setSelectedYear}
+        options={activeYears.length === 0 ? [{ value: '', label: '—' }] : activeYears.map(y => ({ value: y, label: `${y} M` }))}
+        ariaLabel="Pilih tahun"
         disabled={activeYears.length === 0}
-        className="h-6 text-[10px] font-bold text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-md px-1.5 pr-5 outline-none appearance-none cursor-pointer disabled:opacity-50"
-        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 4px center' }}
-      >
-        {activeYears.length === 0 && <option value="">—</option>}
-        {activeYears.map(y => <option key={y} value={y}>{y} M</option>)}
-      </select>
+        widthClass="shrink-0"
+      />
     </div>
   );
 
