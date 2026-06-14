@@ -14938,9 +14938,22 @@ app.get('/agents/:file', async (req, res, next) => {
   }
 });
 // maxAge+immutable: kebijakan cache milik origin sendiri — tidak bergantung header
-// injeksi Cloudflare (custom domain tidak melewatinya). Asset ber-?ver= aman immutable.
-app.use(express.static(distPath, { index: false, maxAge: '30d', immutable: true }));
-app.use(express.static(publicPath, { index: false, maxAge: '30d', immutable: true }));
+// injeksi Cloudflare (custom domain tidak melewatinya). Asset ber-hash di assets/
+// aman immutable. TAPI file kontrol PWA (sw.js, manifest, index.html) memakai URL
+// TETAP yang isinya berubah tiap deploy — kalau immutable, browser nyangkut di
+// service worker lama → layar blank pasca-deploy. Paksa revalidasi untuk file itu.
+const forceRevalidate = (res, filePath) => {
+  if (
+    filePath.endsWith('/sw.js') ||
+    filePath.endsWith('/index.html') ||
+    filePath.endsWith('/manifest.webmanifest') ||
+    filePath.endsWith('/registerSW.js')
+  ) {
+    res.setHeader('Cache-Control', 'no-cache');
+  }
+};
+app.use(express.static(distPath, { index: false, maxAge: '30d', immutable: true, setHeaders: forceRevalidate }));
+app.use(express.static(publicPath, { index: false, maxAge: '30d', immutable: true, setHeaders: forceRevalidate }));
 
 // Airline code → name mapping untuk OG meta
 const AIRLINE_NAMES_SERVER = {
