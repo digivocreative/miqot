@@ -14402,7 +14402,11 @@ app.all('/api/{*path}', async (req, res) => {
 // ──────────────────────────────────────────────
 // Proxy: itinerary & brosur files (with timeout + retry)
 // ──────────────────────────────────────────────
-async function fetchWithTimeout(url, timeoutMs = 15000) {
+// 25s default: origin alhijaz men-generate PDF on-the-fly & sering lambat;
+// Cloudflare-nya menyerah dgn 522 di ~19.5s. Timeout di atas itu memberi
+// regen lambat-tapi-sukses kesempatan selesai, dan membuat kita menerima
+// status upstream asli alih-alih meng-abort jadi 502 palsu.
+async function fetchWithTimeout(url, timeoutMs = 25000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -14421,7 +14425,7 @@ app.get(['/itinerary/{*path}', '/brosur/{*path}'], async (req, res) => {
   // Try up to 2 times (initial + 1 retry)
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const response = await fetchWithTimeout(targetUrl, 15000);
+      const response = await fetchWithTimeout(targetUrl, 25000);
       if (!response.ok) {
         if (attempt === 0 && response.status >= 500) continue; // retry on server error
         return res.sendStatus(response.status);
