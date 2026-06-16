@@ -8,7 +8,6 @@ import FilterDropdown from './FilterDropdown';
 import { trackEvent } from '../utils/analytics';
 import {
   buildBrochurePrompt,
-  VARIANTS,
   DESIGN_STYLES,
   RATIOS,
   type BrochureVariant,
@@ -40,7 +39,8 @@ const labelCls = 'block text-[11px] font-semibold text-gray-500 dark:text-slate-
  * & gratis. Agen menyalin prompt, buka ChatGPT, lampirkan brosur ini, tempel.
  */
 export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: BrochurePromptModalProps) {
-  const [variant, setVariant] = useState<BrochureVariant>('keep');
+  // Perilaku tetap "pertahankan desain" (paling aman utk akurasi harga/WA); tanpa pilihan tab.
+  const variant: BrochureVariant = 'keep';
   const [style, setStyle] = useState('asli');
   const [ratio, setRatio] = useState('4:5');
   const [reserveQr, setReserveQr] = useState(true);
@@ -78,8 +78,6 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
       }),
     [name, phone, website, instagram, alamat, note, variant, style, ratio, reserveQr, pkg],
   );
-
-  const isStory = variant === 'story';
 
   const handleCopy = async () => {
     try {
@@ -141,26 +139,6 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-              {/* Perlakuan (segmented) */}
-              <div>
-                <span className={labelCls}>Perlakuan</span>
-                <div className="bg-gray-100 dark:bg-slate-900/60 rounded-xl p-1 flex gap-1">
-                  {VARIANTS.map((v) => (
-                    <button
-                      key={v.value}
-                      onClick={() => setVariant(v.value)}
-                      className={`flex-1 py-2 px-1 rounded-lg text-[11px] transition-all duration-200 ${
-                        v.value === variant
-                          ? 'bg-white dark:bg-slate-700 text-violet-600 dark:text-violet-300 font-semibold shadow-sm'
-                          : 'text-gray-400 dark:text-slate-500 font-medium active:opacity-70'
-                      }`}
-                    >
-                      {v.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* Gaya desain + Rasio */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -179,7 +157,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
                 <div>
                   <span className={labelCls}>Rasio</span>
                   <FilterDropdown
-                    value={isStory ? '9:16' : ratio}
+                    value={ratio}
                     onChange={setRatio}
                     options={RATIOS}
                     ariaLabel="Rasio brosur"
@@ -187,7 +165,6 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
                     widthClass="w-full"
                     portal
                     portalZClass="z-[10000]"
-                    disabled={isStory}
                   />
                 </div>
               </div>
