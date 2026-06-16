@@ -43,7 +43,6 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
   const variant: BrochureVariant = 'keep';
   const [style, setStyle] = useState('asli');
   const [ratio, setRatio] = useState('4:5');
-  const [reserveQr, setReserveQr] = useState(true);
 
   // Info kontak — di-prefill dari profil, bisa diedit per kampanye
   const [name, setName] = useState(agent.name);
@@ -74,9 +73,9 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
         variant,
         style,
         ratio,
-        reserveQr,
+        reserveQr: false,
       }),
-    [name, phone, website, instagram, alamat, note, variant, style, ratio, reserveQr, pkg],
+    [name, phone, website, instagram, alamat, note, variant, style, ratio, pkg],
   );
 
   const handleCopy = async () => {
@@ -168,31 +167,6 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
                   />
                 </div>
               </div>
-
-              {/* Toggle QR */}
-              <button
-                type="button"
-                role="switch"
-                aria-checked={reserveQr}
-                onClick={() => setReserveQr((q) => !q)}
-                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-gray-50 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-700 text-left"
-              >
-                <span className="text-xs text-gray-600 dark:text-slate-300">
-                  Sisakan kotak untuk QR
-                  <span className="block text-[10px] text-gray-400 dark:text-slate-500">QR ditempel manual — ChatGPT tak bisa buat QR valid</span>
-                </span>
-                <span
-                  className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
-                    reserveQr ? 'bg-violet-500' : 'bg-gray-300 dark:bg-slate-600'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                      reserveQr ? 'translate-x-4' : ''
-                    }`}
-                  />
-                </span>
-              </button>
 
               {/* Info kontak (disclosure) */}
               <div className="rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden">
