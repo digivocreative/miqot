@@ -7,7 +7,7 @@ setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
 import express from 'express';
 import compression from 'compression';
 import * as Sentry from '@sentry/node';
-import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, statSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config'; // ⚠️ Harus sebelum import file lokal agar env var terbaca
@@ -14879,13 +14879,23 @@ app.use((err, req, res, next) => {
 const distPath = resolve(__dirname, 'dist');
 const publicPath = resolve(__dirname, 'public');
 
-// The built index.html only changes on deploy, and the systemd service restarts
-// on every deploy (re-reading it). Cache it in memory so the SPA / bio / flight-share
-// hot paths don't do a synchronous readFileSync on every single request.
+// Cache index.html in memory so the SPA / bio / flight-share hot paths don't readFileSync
+// its full contents on every request — but re-read when its mtime changes so a RUNNING
+// process picks up a fresh deploy immediately (deploy.sh swaps dist/ atomically), instead
+// of serving a stale shell that points at chunk files the new build has removed (blank page).
+// Only a cheap statSync runs per shell request; assets are served by express.static directly.
 let _indexHtmlTemplate = null;
+let _indexHtmlMtimeMs = 0;
 function getIndexHtml() {
-  if (_indexHtmlTemplate === null) {
-    _indexHtmlTemplate = readFileSync(resolve(distPath, 'index.html'), 'utf-8');
+  try {
+    const p = resolve(distPath, 'index.html');
+    const mtimeMs = statSync(p).mtimeMs;
+    if (_indexHtmlTemplate === null || mtimeMs !== _indexHtmlMtimeMs) {
+      _indexHtmlTemplate = readFileSync(p, 'utf-8');
+      _indexHtmlMtimeMs = mtimeMs;
+    }
+  } catch {
+    // index.html momentarily unreadable (e.g. mid-swap) — serve the last good template.
   }
   return _indexHtmlTemplate;
 }

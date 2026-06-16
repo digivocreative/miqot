@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node -e \"const e=require('esbuild');e.buildSync({entryPoints:['functions/[slug]/umroh.ts'],outfile:'functions/umroh-landing.mjs',format:'esm',platform:'node',bundle:true});e.buildSync({entryPoints:['functions/[slug]/haji.ts'],outfile:'functions/haji-landing.mjs',format:'esm',platform:'node',bundle:true})\"",
+    "build:spa": "vite build",
+    "build:functions": "node -e \"const e=require('esbuild');e.buildSync({entryPoints:['functions/[slug]/umroh.ts'],outfile:'functions/umroh-landing.mjs',format:'esm',platform:'node',bundle:true});e.buildSync({entryPoints:['functions/[slug]/haji.ts'],outfile:'functions/haji-landing.mjs',format:'esm',platform:'node',bundle:true})\"",
+    "build": "npm run build:spa && npm run build:functions",
     "verify:landing": "node scripts/verify-landing.mjs",
     "start": "node server.js",
     "lint": "eslint .",

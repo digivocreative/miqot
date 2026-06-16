@@ -31,13 +31,26 @@ git pull origin main
 echo "==> Installing dependencies..."
 npm install --production=false
 
-echo "==> Building application..."
+echo "==> Building application (staging — zero blank window)..."
 # Re-export VITE_* from the CURRENT .env so Vite bakes the right values, overriding
 # any stale VITE_* inherited from the long-running webhook listener's environment.
 while IFS= read -r kv; do export "$kv"; done < <(grep -E '^VITE_[A-Za-z0-9_]+=' .env || true)
-npm run build
+# Build the SPA into a staging dir. Vite empties its outDir at the START of the build,
+# so building in place would leave the live dist/ without its chunks for ~40s (blank
+# page on fresh loads). Build to dist_staging, then swap into place atomically below.
+rm -rf dist_staging dist_old
+npm run build:spa -- --outDir dist_staging --emptyOutDir
+npm run build:functions
+
+echo "==> Swapping dist into place (atomic)..."
+mv dist dist_old
+mv dist_staging dist || { mv dist_old dist; echo "==> Swap failed — rolled back to previous dist"; exit 1; }
+rm -rf dist_old
 
 echo "==> Restarting miqot service..."
+# getIndexHtml() re-reads on mtime change, so the running process already serves the new
+# build the instant dist/ is swapped — the restart is only to pick up backend/server.js
+# changes, and no longer causes a blank window.
 sudo systemctl restart miqot.service
 
 # Verify service is running

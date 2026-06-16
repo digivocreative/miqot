@@ -1,5 +1,7 @@
 node_modules
 dist
+dist_staging
+dist_old
 .DS_Store
 .dev.vars
 .env
