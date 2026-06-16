@@ -158,8 +158,8 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
   // AI Tools (agent-only) — Caption + Buat Ulang digabung jadi satu tombol dropdown.
   // Menu membuka KE ATAS karena footer dipatok di dasar modal.
   const aiActions = [
-    onCaption ? { key: 'caption', label: 'Caption', desc: 'Caption promosi WhatsApp', Icon: Sparkles, onClick: onCaption } : null,
-    onPrompt ? { key: 'prompt', label: 'Buat Ulang (AI)', desc: 'Prompt ChatGPT untuk re-create brosur', Icon: Wand2, onClick: onPrompt } : null,
+    onCaption ? { key: 'caption', label: 'Caption AI', desc: 'Caption promosi WhatsApp', Icon: Sparkles, onClick: onCaption } : null,
+    onPrompt ? { key: 'prompt', label: 'Buat Ulang Brosur', desc: 'Prompt ChatGPT untuk re-create brosur', Icon: Wand2, onClick: onPrompt } : null,
   ].filter(Boolean) as { key: string; label: string; desc: string; Icon: typeof Sparkles; onClick: () => void }[];
 
   const aiToolsControl = aiActions.length > 0 ? (
@@ -167,7 +167,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
       {/* Menu — selalu ter-mount agar buka & tutup sama-sama beranimasi; membuka ke atas */}
       <div
         role="menu"
-        className={`absolute bottom-full left-0 right-0 mb-2 z-20 rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl overflow-hidden origin-bottom transition-all duration-150 ${
+        className={`absolute bottom-full left-0 w-[calc(200%_+_0.5rem)] mb-2 z-20 rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl overflow-hidden origin-bottom transition-all duration-150 ${
           aiMenuOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-1 pointer-events-none'
         }`}
       >
@@ -183,7 +183,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
             </span>
             <span className="min-w-0">
               <span className="block text-sm font-semibold text-gray-800 dark:text-white">{a.label}</span>
-              <span className="block text-[11px] text-gray-400 dark:text-slate-500 truncate">{a.desc}</span>
+              <span className="block text-[11px] text-gray-400 dark:text-slate-500 leading-tight">{a.desc}</span>
             </span>
           </button>
         ))}
