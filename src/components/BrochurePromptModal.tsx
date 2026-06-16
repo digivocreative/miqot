@@ -39,9 +39,10 @@ const labelCls = 'block text-[11px] font-semibold text-gray-500 dark:text-slate-
  * & gratis. Agen menyalin prompt, buka ChatGPT, lampirkan brosur ini, tempel.
  */
 export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: BrochurePromptModalProps) {
-  // Perilaku tetap "pertahankan desain" (paling aman utk akurasi harga/WA); tanpa pilihan tab.
-  const variant: BrochureVariant = 'keep';
-  const [style, setStyle] = useState('asli');
+  // Perilaku tetap "rancang ulang" (poster premium yg benar2 berubah); akurasi dijaga lewat
+  // data acuan + pengingat cek WA. Tanpa pilihan tab.
+  const variant: BrochureVariant = 'redesign';
+  const [style, setStyle] = useState('modern');
   const [ratio, setRatio] = useState('4:5');
 
   // Info kontak — di-prefill dari profil, bisa diedit per kampanye

@@ -20,12 +20,12 @@ export const VARIANTS: ReadonlyArray<{ value: BrochureVariant; label: string }> 
 
 /** Preset "Gaya desain" — value, label dropdown, dan frasa yang disuntik ke prompt. */
 export const DESIGN_STYLES: ReadonlyArray<{ value: string; label: string; phrase: string }> = [
-  { value: 'asli', label: 'Sesuai aslinya', phrase: '' },
-  { value: 'elegan', label: 'Elegan emas', phrase: 'dengan nuansa elegan dan aksen warna emas' },
-  { value: 'mewah', label: 'Mewah modern', phrase: 'dengan kesan mewah dan modern' },
-  { value: 'minimalis', label: 'Minimalis bersih', phrase: 'dengan gaya minimalis yang bersih dan rapi' },
-  { value: 'cerah', label: 'Cerah & ceria', phrase: 'dengan palet warna cerah dan ceria' },
-  { value: 'klasik', label: 'Klasik islami', phrase: 'dengan ornamen islami klasik (arabesque)' },
+  { value: 'modern', label: 'Modern premium', phrase: 'modern, bersih, dan premium' },
+  { value: 'elegan', label: 'Elegan emas', phrase: 'elegan dengan aksen emas dan kontras mewah' },
+  { value: 'mewah', label: 'Mewah & dramatis', phrase: 'mewah dan dramatis dengan kontras serta pencahayaan tinggi' },
+  { value: 'minimalis', label: 'Minimalis', phrase: 'minimalis dan bersih dengan banyak ruang kosong, fokus ke tipografi' },
+  { value: 'cerah', label: 'Cerah & ceria', phrase: 'cerah, ceria, dan ramah' },
+  { value: 'klasik', label: 'Klasik islami', phrase: 'klasik islami dengan ornamen arabesque dan nuansa hangat' },
 ];
 
 export const RATIOS: ReadonlyArray<{ value: string; label: string }> = [
@@ -90,44 +90,33 @@ export function buildBrochurePrompt(input: BrochurePromptInput): string {
   if (extra.alamat?.trim()) contact.push(`• Alamat: ${extra.alamat.trim()}`);
 
   // ── Kalimat pembuka per perlakuan ──
+  const stylePhrase = phrase ? ` Gaya visual: ${phrase}.` : '';
   let intro: string;
+  let goals = '';
   if (variant === 'keep') {
     intro =
       'Tolong EDIT gambar brosur paket umroh yang saya lampirkan. Pertahankan seluruh ' +
       'desain, tata letak, warna, foto, dan semua teks (harga, tanggal, hotel, maskapai) ' +
-      'PERSIS seperti aslinya — jangan diubah, jangan diketik ulang, jangan dirapikan.';
-  } else if (variant === 'redesign') {
-    intro =
-      `Tolong BUAT ULANG brosur paket umroh yang saya lampirkan${phrase ? ' ' + phrase : ''}, ` +
-      'tetapi pertahankan SEMUA informasi (harga, tanggal, hotel, maskapai) sama persis. ' +
-      'Gunakan data acuan di bawah sebagai sumber kebenaran.';
+      `PERSIS seperti aslinya — jangan diubah, jangan diketik ulang.${stylePhrase}`;
   } else {
+    const isStory = variant === 'story';
     intro =
-      'Tolong SUSUN ULANG konten brosur yang saya lampirkan menjadi format vertical story ' +
-      `9:16 untuk Instagram/WhatsApp Story${phrase ? ' ' + phrase : ''}, dengan semua ` +
-      'informasi sama persis. Gunakan data acuan di bawah sebagai sumber kebenaran.';
+      'Kamu adalah senior graphic designer spesialis materi promosi umroh & haji. Saya lampirkan ' +
+      'sebuah brosur paket umroh sebagai ACUAN ISI (bukan untuk ditiru mentah-mentah). ' +
+      (isStory
+        ? 'Susun ulang isinya menjadi konten vertical story 9:16 untuk Instagram/WhatsApp Story '
+        : 'Rancang ULANG menjadi sebuah poster promosi ') +
+      'yang jauh lebih menarik, modern, dan premium dari aslinya — tingkatkan kualitas komposisi, ' +
+      `hierarki visual, tipografi, dan warna.${stylePhrase}`;
+    goals =
+      'Sasaran desain (buat eye-catching & layak dibagikan di Instagram/WhatsApp):\n' +
+      '- Headline kuat dengan hierarki jelas: nama paket → harga → tanggal keberangkatan → fasilitas utama.\n' +
+      "- Visual Tanah Suci yang elegan (Ka'bah / Masjid Nabawi / Kubah Hijau), ornamen islami halus, latar bergradien premium.\n" +
+      '- Tipografi modern yang mudah dibaca, ikon kecil untuk tiap fasilitas, dan ajakan menghubungi agen yang jelas.';
   }
 
-  // Untuk perlakuan "Pertahankan", gaya desain hanya mempengaruhi strip kontak (brosur tak diubah).
-  const stripStyle = variant === 'keep' && phrase ? ` (buat strip kontak ${phrase})` : '';
-  const contactBlock =
-    'Tambahkan strip kontak agen di bagian bawah brosur (perlebar kanvas ke bawah bila ' +
-    `perlu), dengan latar senada brosur dan teks besar yang terbaca jelas${stripStyle}:\n` +
-    contact.join('\n');
-
-  // ── Aturan ──
-  const rules: string[] = [
-    `- Tulis nomor WhatsApp PERSIS, digit per digit: ${wa || '(isi nomor WhatsApp)'} — jangan menebak dari gambar.`,
-  ];
-  if (reserveQr) {
-    rules.push('- Sisakan kotak putih ±2,5 cm di sisi kanan strip kontak untuk QR code (saya tempel sendiri).');
-  }
-  rules.push('- Bahasa Indonesia. Jangan menambah logo, teks, atau klaim promosi lain yang tidak diminta.');
-  rules.push(`- Output rasio ${ratioOut}, resolusi tinggi dan tajam.`);
-  if (extra.note?.trim()) rules.push(`- ${extra.note.trim()}`);
-
-  // ── Data acuan (hanya brosur per-paket) ──
-  let ref = '';
+  // ── Data acuan (sumber kebenaran — jaga akurasi meski desain diubah total) ──
+  let dataBlock = '';
   if (pkg) {
     const parts: string[] = [];
     if (pkg.tgl) parts.push(`berangkat ${pkg.tgl}`);
@@ -138,8 +127,25 @@ export function buildBrochurePrompt(input: BrochurePromptInput): string {
     if (hotelBits.length) parts.push(`hotel ${hotelBits.join(' / ')}`);
     if (pkg.maskapai) parts.push(`maskapai ${pkg.maskapai}`);
     const detail = parts.length ? ` — ${parts.join(', ')}` : '';
-    ref = `\n\nData acuan paket (jangan mengarang angka): ${pkg.nama}${detail}.`;
+    dataBlock =
+      'WAJIB AKURAT — pakai data ini sebagai sumber kebenaran, JANGAN mengubah atau mengarang angka:\n' +
+      `${pkg.nama}${detail}.`;
   }
 
-  return `${intro}\n\n${contactBlock}\n\nAturan:\n${rules.join('\n')}${ref}`;
+  // ── Strip kontak ──
+  const contactBlock = 'Tambahkan strip kontak agen di bagian bawah, rapi dan menonjol:\n' + contact.join('\n');
+
+  // ── Ketentuan ──
+  const rules: string[] = [
+    '- Bahasa Indonesia; pastikan tidak ada teks yang salah eja.',
+    `- Tulis nomor WhatsApp PERSIS, digit per digit: ${wa || '(isi nomor WhatsApp)'} — periksa tiap digit.`,
+  ];
+  if (reserveQr) {
+    rules.push('- Sisakan kotak putih ±2,5 cm di sisi kanan strip kontak untuk QR code (saya tempel sendiri).');
+  }
+  rules.push(`- Rasio ${ratioOut}, resolusi tinggi dan tajam (kualitas siap cetak).`);
+  if (extra.note?.trim()) rules.push(`- ${extra.note.trim()}`);
+
+  const sections = [intro, goals, dataBlock, contactBlock, `Ketentuan:\n${rules.join('\n')}`].filter(Boolean);
+  return sections.join('\n\n');
 }
