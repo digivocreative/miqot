@@ -95,7 +95,13 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
     trackEvent('feature', 'brochure_prompt_copy', { variant });
   };
 
+  // Auto-copy the prompt first (while this document is still focused), THEN open ChatGPT —
+  // agent attaches the brochure & pastes. ChatGPT has no way to pre-attach an image (or
+  // reliably prefill text on the mobile app) via URL, so we copy instead of using ?q=.
   const openChatGPT = () => {
+    try { navigator.clipboard?.writeText(prompt).catch(() => {}); } catch { /* ignore */ }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
     trackEvent('feature', 'brochure_prompt_open_chatgpt', { variant });
     window.open('https://chatgpt.com/', '_blank', 'noopener,noreferrer');
   };
@@ -224,19 +230,6 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
                   className="w-full h-40 px-3 py-2 rounded-xl text-xs leading-relaxed font-mono resize-none bg-gray-50 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                 />
               </div>
-
-              {/* Langkah singkat */}
-              <ol className="text-[11px] text-gray-500 dark:text-slate-400 space-y-1 list-decimal list-inside">
-                <li>Salin prompt di atas</li>
-                <li>Buka ChatGPT</li>
-                <li><span className="font-semibold">Lampirkan brosur ini</span> ke chat</li>
-                <li>Tempel prompt &amp; kirim</li>
-              </ol>
-
-              {/* Pengingat WA */}
-              <p className="text-[11px] font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 rounded-lg px-3 py-2">
-                ⚠️ Periksa nomor WhatsApp pada hasil sebelum dibagikan — model gambar kadang keliru menulis angka.
-              </p>
             </div>
 
             {/* Footer */}
