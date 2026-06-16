@@ -167,7 +167,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
       {/* Menu — selalu ter-mount agar buka & tutup sama-sama beranimasi; membuka ke atas */}
       <div
         role="menu"
-        className={`absolute bottom-full left-0 w-[calc(200%_+_0.5rem)] mb-2 z-20 rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl overflow-hidden origin-bottom transition-all duration-150 ${
+        className={`absolute bottom-full left-0 w-max max-w-[calc(100vw_-_2rem)] mb-2 z-20 rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl overflow-hidden origin-bottom-left transition-all duration-150 ${
           aiMenuOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-1 pointer-events-none'
         }`}
       >
@@ -275,8 +275,8 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
 
           {/* ─── ZOOM CONTROLS — bottom right ─── */}
           {isImageLoaded && (
-            <div className="fixed bottom-24 right-4 z-[10000] pointer-events-none">
-              <div className="pointer-events-auto flex items-center gap-0.5 bg-black/70 backdrop-blur-md rounded-full px-1 py-1 shadow-lg">
+            <div className={`fixed bottom-24 right-4 z-[10000] pointer-events-none transition-opacity duration-150 ${aiMenuOpen ? 'opacity-0' : 'opacity-100'}`}>
+              <div className={`${aiMenuOpen ? 'pointer-events-none' : 'pointer-events-auto'} flex items-center gap-0.5 bg-black/70 backdrop-blur-md rounded-full px-1 py-1 shadow-lg`}>
                 <button
                   type="button"
                   onClick={() => setScale(s => Math.max(1, +(s - 0.25).toFixed(2)))}
