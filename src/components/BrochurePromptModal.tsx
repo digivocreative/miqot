@@ -30,7 +30,7 @@ const STYLE_OPTIONS = DESIGN_STYLES.map((s) => ({ value: s.value, label: s.label
 const inputCls =
   'w-full px-3 py-2 rounded-lg text-sm bg-gray-50 dark:bg-slate-900/60 border border-gray-200 ' +
   'dark:border-slate-700 text-gray-800 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 ' +
-  'focus:outline-none focus:ring-2 focus:ring-violet-400/40 focus:border-violet-400 transition';
+  'focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-400 transition';
 const labelCls = 'block text-[11px] font-semibold text-gray-500 dark:text-slate-400 mb-1';
 
 /**
@@ -121,7 +121,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700">
               <div className="flex items-center gap-2 min-w-0">
-                <Wand2 size={16} className="text-violet-500 shrink-0" />
+                <Wand2 size={16} className="text-emerald-500 shrink-0" />
                 <div className="min-w-0">
                   <h2 className="text-sm font-bold text-gray-900 dark:text-white leading-tight">Buat Ulang Brosur (AI)</h2>
                   <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">{title}</p>
@@ -220,7 +220,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
                   readOnly
                   value={prompt}
                   onFocus={(e) => e.currentTarget.select()}
-                  className="w-full h-40 px-3 py-2 rounded-xl text-xs leading-relaxed font-mono resize-none bg-gray-50 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-400/40"
+                  className="w-full h-40 px-3 py-2 rounded-xl text-xs leading-relaxed font-mono resize-none bg-gray-50 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                 />
               </div>
 
@@ -242,7 +242,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
             <div className="px-4 py-3 border-t border-gray-200 dark:border-slate-700 flex gap-2">
               <button
                 onClick={handleCopy}
-                className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-white bg-violet-600 hover:bg-violet-700 shadow-md shadow-violet-500/20 transition-all duration-200 active:scale-95"
+                className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95"
               >
                 {copied ? (
                   <><ClipboardCheck size={17} /><span>Tersalin</span></>
@@ -252,7 +252,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
               </button>
               <button
                 onClick={openChatGPT}
-                className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-slate-700/60 border border-violet-200 dark:border-violet-700/60 transition-all duration-200 active:scale-95"
+                className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-slate-700/60 border border-emerald-200 dark:border-emerald-700/60 transition-all duration-200 active:scale-95"
               >
                 <ExternalLink size={16} />
                 <span>Buka ChatGPT</span>

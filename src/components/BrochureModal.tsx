@@ -178,8 +178,8 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
             onClick={() => { setAiMenuOpen(false); a.onClick(); }}
             className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors"
           >
-            <span className="w-8 h-8 rounded-lg bg-violet-50 dark:bg-violet-900/20 flex items-center justify-center shrink-0">
-              <a.Icon size={16} className="text-violet-600 dark:text-violet-400" />
+            <span className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center shrink-0">
+              <a.Icon size={16} className="text-emerald-600 dark:text-emerald-400" />
             </span>
             <span className="min-w-0">
               <span className="block text-sm font-semibold text-gray-800 dark:text-white">{a.label}</span>
@@ -196,9 +196,9 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
         className="
           w-full flex items-center justify-center gap-1.5 py-3
           rounded-xl text-sm font-bold
-          text-violet-700 dark:text-violet-300
-          bg-violet-50 dark:bg-slate-800
-          border border-violet-200 dark:border-violet-700/70
+          text-emerald-700 dark:text-emerald-300
+          bg-emerald-50 dark:bg-slate-800
+          border border-emerald-200 dark:border-emerald-700/70
           transition-all duration-200 active:scale-95
         "
       >

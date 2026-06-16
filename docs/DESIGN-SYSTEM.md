@@ -1572,7 +1572,7 @@ Disabled (locked) state:
 Dropdown panel (always mounted for animation):
   absolute left-0 right-0 top-full mt-1 z-40
   bg-white dark:bg-slate-800 rounded-xl border shadow-lg overflow-hidden
-  origin-top transition-all duration-150 ease-out
+  origin-top transition duration-150 ease-out
   open: opacity-100 scale-100 translate-y-0
   closed: opacity-0 scale-95 -translate-y-1 pointer-events-none
 
@@ -1629,7 +1629,7 @@ a11y: aria-haspopup="listbox" + aria-expanded={open} + aria-label
 absolute left-0 right-0 top-full mt-1 z-40 origin-top
 rounded-xl border border-gray-100 dark:border-slate-700
 bg-white dark:bg-slate-800 shadow-lg overflow-hidden
-transition-all duration-150 ease-out
+transition duration-150 ease-out   (transition, BUKAN transition-all — lihat catatan portal)
 open:   opacity-100 scale-100 translate-y-0
 closed: opacity-0 scale-95 -translate-y-1 pointer-events-none
 ```
@@ -1649,7 +1649,11 @@ atau kontainer ber-scroll (mis. panel filter beranimasi `height:auto` + `overflo
 sheet/modal), panel `absolute` akan **ke-clip**. Set `portal` → panel di-render ke
 `document.body` via `createPortal`, `position:fixed`, koordinat dari `getBoundingClientRect()`
 trigger, di-update saat `scroll` (capture) + `resize`. Outside-click WAJIB cek `panelRef`
-juga (panel kini di luar root). Default `false` (pakai `absolute`).
+juga (panel kini di luar root). Default `false` (pakai `absolute`). **Animasi pakai `transition`
+(BUKAN `transition-all`)**: di mode portal `top/left` di-set via style dinamis dari hasil ukur
+saat buka — `transition-all` akan ikut menganimasikan koordinat itu sehingga panel meluncur
+dari pojok kiri-atas saat PERTAMA dibuka. `transition` hanya menganimasikan opacity/transform,
+posisi snap. Posisi awal juga diukur sinkron di `onClick` (sebelum `setOpen`) sebagai jaring.
 
 **Search pill** (muncul saat `options.length >= 8`):
 ```

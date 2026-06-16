@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check, Search, X } from 'lucide-react';
 
@@ -102,19 +102,21 @@ export default function FilterDropdown({
     if (open && showSearch) searchRef.current?.focus({ preventScroll: true });
   }, [open, showSearch]);
 
-  // Portal mode: the panel is fixed-positioned in <body>, so track the trigger box
-  // (and follow it on scroll/resize) instead of relying on `absolute` positioning.
+  // Measure the trigger box so the portaled (fixed) panel can anchor to it. Anchor to
+  // the trigger's right edge when it sits past the viewport midline, so a panel wider
+  // than the trigger grows left instead of overflowing the right edge.
+  const measure = useCallback(() => {
+    const r = rootRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const vw = window.innerWidth;
+    setCoords({ top: r.bottom + 4, left: r.left, right: vw - r.right, width: r.width, alignRight: r.left + r.width / 2 > vw / 2 });
+  }, []);
+
+  // Portal mode: the panel is fixed-positioned in <body>, so follow the trigger on
+  // scroll/resize. The initial position is measured synchronously in the trigger's
+  // onClick (before opening) to avoid a first-open flash at the top-left corner.
   useLayoutEffect(() => {
     if (!portal || !open) return;
-    const measure = () => {
-      const r = rootRef.current?.getBoundingClientRect();
-      if (!r) return;
-      const vw = window.innerWidth;
-      // Anchor the (content-width) panel to the trigger's right edge when the trigger
-      // sits past the viewport midline, so a panel wider than the trigger grows left
-      // instead of overflowing the right edge.
-      setCoords({ top: r.bottom + 4, left: r.left, right: vw - r.right, width: r.width, alignRight: r.left + r.width / 2 > vw / 2 });
-    };
     measure();
     window.addEventListener('scroll', measure, true);
     window.addEventListener('resize', measure);
@@ -122,7 +124,7 @@ export default function FilterDropdown({
       window.removeEventListener('scroll', measure, true);
       window.removeEventListener('resize', measure);
     };
-  }, [portal, open]);
+  }, [portal, open, measure]);
 
   // Size (geometry) is per-variant; skin (colors) is gray by default or emerald when
   // `accent` is set. Kept separate so accent can swap colors without conflicting
@@ -171,7 +173,7 @@ export default function FilterDropdown({
         aria-label={ariaLabel}
         aria-hidden={!open}
         style={panelStyle}
-        className={`${portal ? `${portalZClass} ${coords.alignRight ? 'origin-top-right' : 'origin-top'}` : 'absolute left-0 top-full mt-1 z-40 min-w-full w-max max-w-[90vw] origin-top'} rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg overflow-hidden transition-all duration-150 ease-out ${
+        className={`${portal ? `${portalZClass} ${coords.alignRight ? 'origin-top-right' : 'origin-top'}` : 'absolute left-0 top-full mt-1 z-40 min-w-full w-max max-w-[90vw] origin-top'} rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg overflow-hidden transition duration-150 ease-out ${
           open
             ? 'opacity-100 scale-100 translate-y-0'
             : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
@@ -240,7 +242,7 @@ export default function FilterDropdown({
         aria-haspopup="listbox"
         aria-expanded={open}
         disabled={disabled}
-        onClick={() => setOpen(o => !o)}
+        onClick={() => { if (portal && !open) measure(); setOpen(o => !o); }}
         className={triggerClass}
       >
         <span className="truncate">{selectedLabel || '—'}</span>
