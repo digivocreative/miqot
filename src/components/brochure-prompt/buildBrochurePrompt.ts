@@ -111,20 +111,29 @@ export function buildBrochurePrompt(input: BrochurePromptInput): string {
       `untuk Instagram/Facebook Ads — INI BUKAN brosur.${stylePhrase}`;
     const goalsB =
       'Aturan banner iklan (WAJIB):\n' +
-      '- TEKS MINIM — hanya: 1 HEADLINE utama, 1 SUB-HEADLINE pendek, harga, serta nama & WhatsApp agen. ' +
-      'DILARANG menaruh tanggal, daftar hotel, fasilitas, itinerary, paragraf, atau tombol/CTA apa pun.\n' +
-      '- HEADLINE harus MENARIK & menggugah — pakai sentuhan emosional / hook / urgensi (mis. rindu Baitullah, ' +
+      '- Teks ringkas tapi MENJUAL (BUKAN brosur): 1 HEADLINE utama, 1 SUB-HEADLINE pendek, ' +
+      '2–4 BENEFIT singkat (poin/ikon, masing-masing 2–4 kata), harga, serta nama & WhatsApp agen. ' +
+      'DILARANG menaruh tanggal, itinerary, paragraf panjang, atau tombol/CTA.\n' +
+      '- HEADLINE harus MENARIK & menggugah — emosional / hook / urgensi (mis. rindu Baitullah, ' +
       'panggilan ke Tanah Suci, kesempatan terbatas), BUKAN sekadar menyalin nama paket.\n' +
-      '- SUB-HEADLINE pendek sebagai pendukung (boleh memuat nama paket atau keunggulan singkat).\n' +
-      "- Satu fokus visual yang kuat & memukau (Ka'bah / Masjid Nabawi / suasana Tanah Suci), " +
-      'komposisi bersih dengan banyak ruang napas.\n' +
-      '- Hierarki: visual dominan → headline → sub-headline → harga (TANPA tombol/CTA).\n' +
-      '- Harus berhenti-scroll dan terbaca dalam 1 detik; layak jadi materi iklan berbayar.';
+      '- SUB-HEADLINE pendek mendukung headline (boleh memuat nama paket / keunggulan utama).\n' +
+      '- BENEFIT berupa poin singkat & menjual (mis. "Hotel ⭐5 dekat Masjid", "Penerbangan langsung", ' +
+      '"Bimbingan ibadah", "Kuota terbatas") — olah dari keunggulan paket di bawah, JANGAN mengarang fakta/angka.\n' +
+      "- Satu fokus visual yang kuat & memukau (Ka'bah / Masjid Nabawi / suasana Tanah Suci), komposisi rapi & lega.\n" +
+      '- Hierarki: visual dominan → headline → sub-headline → benefit singkat → harga.\n' +
+      '- Tetap berhenti-scroll & terbaca cepat; layak jadi materi iklan berbayar.';
     let dataB = '';
     if (pkg) {
+      const hl: string[] = [];
+      if (pkg.mekkah) hl.push(`hotel Mekkah ${pkg.mekkah}`);
+      if (pkg.madinah) hl.push(`hotel Madinah ${pkg.madinah}`);
+      if (pkg.maskapai) hl.push(`maskapai ${pkg.maskapai}`);
       dataB =
-        `Pakai HANYA info ini (akurat, jangan diubah): paket "${normalizePackageName(pkg.nama)}"` +
-        `${pkg.harga ? `, ${pkg.harga}` : ''}. Jangan menulis tanggal/hotel/maskapai/fasilitas di banner.`;
+        'Pakai data ini (akurat, jangan diubah atau dikarang):\n' +
+        `- Paket: ${normalizePackageName(pkg.nama)}` +
+        `${pkg.harga ? `\n- Harga: ${pkg.harga}` : ''}` +
+        `${hl.length ? `\n- Keunggulan (olah jadi 2–4 benefit singkat): ${hl.join('; ')}` : ''}\n` +
+        'Jangan menulis tanggal/itinerary atau detail bertele-tele — ringkas jadi poin benefit yang menjual.';
     }
     const contactB: string[] = [];
     if (agent.name?.trim()) contactB.push(`• Nama: ${agent.name.trim()}`);
