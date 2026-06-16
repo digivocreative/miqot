@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles, Wand2 } from 'lucide-react';
+import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles, Wand2, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 
@@ -29,7 +29,9 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [scale, setScale] = useState(1);
+  const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const pinchRef = useRef({ startDist: 0, startScale: 1 });
+  const aiMenuRef = useRef<HTMLDivElement>(null);
   const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   // Use CDN URL directly if available, otherwise use proxy path
@@ -45,8 +47,24 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
     if (isOpen) {
       setScale(1);
       setIsImageLoaded(false);
+      setAiMenuOpen(false);
     }
   }, [isOpen, imageUrl]);
+
+  // Close the AI Tools menu on outside-click / Escape (without closing the modal)
+  useEffect(() => {
+    if (!aiMenuOpen) return;
+    const onPointer = (e: PointerEvent) => {
+      if (!aiMenuRef.current?.contains(e.target as Node)) setAiMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAiMenuOpen(false); };
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [aiMenuOpen]);
 
   // ── Pinch-to-zoom ──
   const getTouchDistance = (touches: React.TouchList) => {
@@ -137,40 +155,58 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
     }
   };
 
-  // Secondary footer actions (agent-only). Defined once so the footer can place
-  // them either side-by-side (both present) or inline with Share (only one).
-  const captionBtn = onCaption ? (
-    <button
-      onClick={onCaption}
-      className="
-        flex-1 flex items-center justify-center gap-1.5 py-3
-        rounded-xl text-sm font-bold
-        text-indigo-700 dark:text-indigo-400
-        bg-indigo-50 dark:bg-slate-800
-        border border-indigo-200 dark:border-indigo-700/70
-        transition-all duration-200 active:scale-95
-      "
-    >
-      <Sparkles size={17} />
-      <span>Caption</span>
-    </button>
-  ) : null;
+  // AI Tools (agent-only) — Caption + Buat Ulang digabung jadi satu tombol dropdown.
+  // Menu membuka KE ATAS karena footer dipatok di dasar modal.
+  const aiActions = [
+    onCaption ? { key: 'caption', label: 'Caption', desc: 'Caption promosi WhatsApp', Icon: Sparkles, onClick: onCaption } : null,
+    onPrompt ? { key: 'prompt', label: 'Buat Ulang (AI)', desc: 'Prompt ChatGPT untuk re-create brosur', Icon: Wand2, onClick: onPrompt } : null,
+  ].filter(Boolean) as { key: string; label: string; desc: string; Icon: typeof Sparkles; onClick: () => void }[];
 
-  const promptBtn = onPrompt ? (
-    <button
-      onClick={onPrompt}
-      className="
-        flex-1 flex items-center justify-center gap-1.5 py-3
-        rounded-xl text-sm font-bold
-        text-violet-700 dark:text-violet-300
-        bg-violet-50 dark:bg-slate-800
-        border border-violet-200 dark:border-violet-700/70
-        transition-all duration-200 active:scale-95
-      "
-    >
-      <Wand2 size={17} />
-      <span>Buat Ulang (AI)</span>
-    </button>
+  const aiToolsControl = aiActions.length > 0 ? (
+    <div className="relative flex-1" ref={aiMenuRef}>
+      {/* Menu — selalu ter-mount agar buka & tutup sama-sama beranimasi; membuka ke atas */}
+      <div
+        role="menu"
+        className={`absolute bottom-full left-0 right-0 mb-2 z-20 rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl overflow-hidden origin-bottom transition-all duration-150 ${
+          aiMenuOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-1 pointer-events-none'
+        }`}
+      >
+        {aiActions.map((a) => (
+          <button
+            key={a.key}
+            role="menuitem"
+            onClick={() => { setAiMenuOpen(false); a.onClick(); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors"
+          >
+            <span className="w-8 h-8 rounded-lg bg-violet-50 dark:bg-violet-900/20 flex items-center justify-center shrink-0">
+              <a.Icon size={16} className="text-violet-600 dark:text-violet-400" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-gray-800 dark:text-white">{a.label}</span>
+              <span className="block text-[11px] text-gray-400 dark:text-slate-500 truncate">{a.desc}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <button
+        onClick={() => setAiMenuOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={aiMenuOpen}
+        className="
+          w-full flex items-center justify-center gap-1.5 py-3
+          rounded-xl text-sm font-bold
+          text-violet-700 dark:text-violet-300
+          bg-violet-50 dark:bg-slate-800
+          border border-violet-200 dark:border-violet-700/70
+          transition-all duration-200 active:scale-95
+        "
+      >
+        <Sparkles size={17} />
+        <span>AI Tools</span>
+        <ChevronDown size={15} className={`transition-transform duration-200 ${aiMenuOpen ? 'rotate-180' : ''}`} />
+      </button>
+    </div>
   ) : null;
 
   return createPortal(
@@ -273,21 +309,11 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
 
           {/* ─── FIXED FOOTER ─── */}
           {displayUrl && (
-            <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex flex-col gap-2">
-              {/* Two secondary actions share their own row when both are present */}
-              {captionBtn && promptBtn && (
-                <div className="flex gap-2">
-                  {captionBtn}
-                  {promptBtn}
-                </div>
-              )}
-              {/* Share row — a lone secondary action sits inline to keep the single-row look */}
-              <div className="flex gap-2">
-                {captionBtn && !promptBtn && captionBtn}
-                {promptBtn && !captionBtn && promptBtn}
-                <button
-                  onClick={handleShareBrosur}
-                  disabled={isSharing}
+            <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2">
+              {aiToolsControl}
+              <button
+                onClick={handleShareBrosur}
+                disabled={isSharing}
                 className="
                   flex-1 flex items-center justify-center gap-1.5 py-3
                   rounded-xl text-sm font-bold text-white
@@ -312,8 +338,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
                     <span>{(onCaption || onPrompt) ? 'Download' : 'Download Brosur'}</span>
                   </>
                 )}
-                </button>
-              </div>
+              </button>
             </div>
           )}
 
