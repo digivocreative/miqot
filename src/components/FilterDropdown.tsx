@@ -29,6 +29,9 @@ export interface FilterDropdownProps {
   portal?: boolean;
   /** Emerald-tinted trigger skin for accent header pills (e.g. Jamaah/Haji year filter). Default gray. */
   accent?: boolean;
+  /** Tailwind z-index class for the portaled panel (default `z-50`). Raise it (e.g. `z-[10000]`)
+   *  when the dropdown lives inside a high-z modal so the panel renders above it. */
+  portalZClass?: string;
 }
 
 /**
@@ -53,6 +56,7 @@ export default function FilterDropdown({
   variant = 'default',
   portal = false,
   accent = false,
+  portalZClass = 'z-50',
 }: FilterDropdownProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -167,7 +171,7 @@ export default function FilterDropdown({
         aria-label={ariaLabel}
         aria-hidden={!open}
         style={panelStyle}
-        className={`${portal ? `z-50 ${coords.alignRight ? 'origin-top-right' : 'origin-top'}` : 'absolute left-0 top-full mt-1 z-40 min-w-full w-max max-w-[90vw] origin-top'} rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg overflow-hidden transition-all duration-150 ease-out ${
+        className={`${portal ? `${portalZClass} ${coords.alignRight ? 'origin-top-right' : 'origin-top'}` : 'absolute left-0 top-full mt-1 z-40 min-w-full w-max max-w-[90vw] origin-top'} rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg overflow-hidden transition-all duration-150 ease-out ${
           open
             ? 'opacity-100 scale-100 translate-y-0'
             : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'

@@ -22,6 +22,8 @@ import { trackEvent, trackPublicEvent } from '@/utils/analytics';
 import { getLandingCityName, getPackageJourneySteps } from '@/utils/journey';
 import { isSessionValid } from '@/utils/authUtils';
 import { CaptionAIModal } from './CaptionAIModal';
+import { BrochurePromptModal } from './BrochurePromptModal';
+import type { BrochurePromptPkg } from './brochure-prompt/buildBrochurePrompt';
 
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
@@ -140,6 +142,7 @@ function PackageCardImpl({
   const [selectedGradient, setSelectedGradient] = useState(0);
   const gradientRef = useRef(0);
   const [isAiCopyOpen, setIsAiCopyOpen] = useState(false);
+  const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [askAIOpen, setAskAIOpen] = useState(false);
   const [brosurError, setBrosurError] = useState(false);
   const [isLinkCopying, setIsLinkCopying] = useState(false);
@@ -292,6 +295,29 @@ function PackageCardImpl({
     if (currentAgent?.website) text += ` - ${currentAgent.website}`;
     text += `\n\nSemoga Allah memudahkan langkah kita menuju Baitullah. Aamiin 🤲`;
     return text;
+  };
+
+  // Ringkasan paket (tier aktif) sebagai "sumber kebenaran" untuk prompt brosur AI
+  const buildBrochurePromptData = (): BrochurePromptPkg => {
+    const hotelData = pkg.hotel?.[activeTier] as any;
+    const tierPricing = pkg.harga?.[activeTier] as any;
+
+    let tgl: string | undefined;
+    if (pkg.keberangkatan?.tgl) {
+      const d = new Date(pkg.keberangkatan.tgl);
+      if (!isNaN(d.getTime())) tgl = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    }
+
+    const priceNums = [tierPricing?.Quard, tierPricing?.Triple, tierPricing?.Double]
+      .map((v: any) => Number(v))
+      .filter((n: number) => Number.isFinite(n) && n > 0);
+    const harga = priceNums.length ? `mulai Rp ${Math.min(...priceNums).toLocaleString('id-ID')}` : undefined;
+
+    const star = (b: any) => { const n = parseInt(b || '0', 10); return n > 0 ? ` (${'★'.repeat(n)})` : ''; };
+    const mekkah = hotelData?.mekkah_hotel ? `${hotelData.mekkah_hotel}${star(hotelData.mekkah_bintang)}` : undefined;
+    const madinah = hotelData?.madinah_hotel ? `${hotelData.madinah_hotel}${star(hotelData.madinah_bintang)}` : undefined;
+
+    return { nama: pkg.nama, tgl, harga, mekkah, madinah, maskapai: pkg.maskapai || undefined };
   };
 
   /**
@@ -2347,6 +2373,10 @@ _________________________
             setIsBrochureOpen(false);
             setIsAiCopyOpen(true);
           } : undefined}
+          onPrompt={isSessionValid() ? () => {
+            setIsBrochureOpen(false);
+            setIsPromptOpen(true);
+          } : undefined}
         />
       )}
 
@@ -2392,6 +2422,15 @@ _________________________
         subject={pkg.nama}
         buildPayload={buildAiCopyPayload}
         buildFallbackText={buildAiCopyFallback}
+      />
+
+      {/* Brochure Prompt Generator (agent-only) — bikin prompt ChatGPT re-create brosur */}
+      <BrochurePromptModal
+        isOpen={isPromptOpen}
+        onClose={() => setIsPromptOpen(false)}
+        agent={{ name: currentAgent?.name || '', phone: currentAgent?.phone || '', website: currentAgent?.website || '' }}
+        pkg={isPromptOpen ? buildBrochurePromptData() : null}
+        title={pkg.nama}
       />
 
       {/* Full Screen Screenshot Preview Overlay */}

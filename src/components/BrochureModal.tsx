@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles } from 'lucide-react';
+import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles, Wand2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 
@@ -17,13 +17,15 @@ interface BrochureModalProps {
   title: string;
   /** When provided, shows a "Caption" button in the footer (agent-only tool). */
   onCaption?: () => void;
+  /** When provided, shows a "Buat Ulang (AI)" button — opens the ChatGPT prompt generator (agent-only). */
+  onPrompt?: () => void;
 }
 
 // ============================================
 // Component
 // ============================================
 
-export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption }: BrochureModalProps) {
+export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onPrompt }: BrochureModalProps) {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [scale, setScale] = useState(1);
@@ -135,6 +137,42 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption }: B
     }
   };
 
+  // Secondary footer actions (agent-only). Defined once so the footer can place
+  // them either side-by-side (both present) or inline with Share (only one).
+  const captionBtn = onCaption ? (
+    <button
+      onClick={onCaption}
+      className="
+        flex-1 flex items-center justify-center gap-1.5 py-3
+        rounded-xl text-sm font-bold
+        text-indigo-700 dark:text-indigo-400
+        bg-indigo-50 dark:bg-slate-800
+        border border-indigo-200 dark:border-indigo-700/70
+        transition-all duration-200 active:scale-95
+      "
+    >
+      <Sparkles size={17} />
+      <span>Caption</span>
+    </button>
+  ) : null;
+
+  const promptBtn = onPrompt ? (
+    <button
+      onClick={onPrompt}
+      className="
+        flex-1 flex items-center justify-center gap-1.5 py-3
+        rounded-xl text-sm font-bold
+        text-violet-700 dark:text-violet-300
+        bg-violet-50 dark:bg-slate-800
+        border border-violet-200 dark:border-violet-700/70
+        transition-all duration-200 active:scale-95
+      "
+    >
+      <Wand2 size={17} />
+      <span>Buat Ulang (AI)</span>
+    </button>
+  ) : null;
+
   return createPortal(
     <AnimatePresence onExitComplete={() => { setIsImageLoaded(false); setScale(1); }}>
       {isOpen && (
@@ -235,26 +273,21 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption }: B
 
           {/* ─── FIXED FOOTER ─── */}
           {displayUrl && (
-            <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2">
-              {onCaption && (
-                <button
-                  onClick={onCaption}
-                  className="
-                    flex-1 flex items-center justify-center gap-1.5 py-3
-                    rounded-xl text-sm font-bold
-                    text-indigo-700 dark:text-indigo-400
-                    bg-indigo-50 dark:bg-slate-800
-                    border border-indigo-200 dark:border-indigo-700/70
-                    transition-all duration-200 active:scale-95
-                  "
-                >
-                  <Sparkles size={17} />
-                  <span>Caption</span>
-                </button>
+            <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex flex-col gap-2">
+              {/* Two secondary actions share their own row when both are present */}
+              {captionBtn && promptBtn && (
+                <div className="flex gap-2">
+                  {captionBtn}
+                  {promptBtn}
+                </div>
               )}
-              <button
-                onClick={handleShareBrosur}
-                disabled={isSharing}
+              {/* Share row — a lone secondary action sits inline to keep the single-row look */}
+              <div className="flex gap-2">
+                {captionBtn && !promptBtn && captionBtn}
+                {promptBtn && !captionBtn && promptBtn}
+                <button
+                  onClick={handleShareBrosur}
+                  disabled={isSharing}
                 className="
                   flex-1 flex items-center justify-center gap-1.5 py-3
                   rounded-xl text-sm font-bold text-white
@@ -271,15 +304,16 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption }: B
                 ) : useShareLabel ? (
                   <>
                     <Share2 size={17} />
-                    <span>{onCaption ? 'Bagikan' : 'Bagikan Brosur'}</span>
+                    <span>{(onCaption || onPrompt) ? 'Bagikan' : 'Bagikan Brosur'}</span>
                   </>
                 ) : (
                   <>
                     <Download size={17} />
-                    <span>{onCaption ? 'Download' : 'Download Brosur'}</span>
+                    <span>{(onCaption || onPrompt) ? 'Download' : 'Download Brosur'}</span>
                   </>
                 )}
-              </button>
+                </button>
+              </div>
             </div>
           )}
 
