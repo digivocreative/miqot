@@ -2373,10 +2373,7 @@ _________________________
             setIsBrochureOpen(false);
             setIsAiCopyOpen(true);
           } : undefined}
-          onPrompt={isSessionValid() ? () => {
-            setIsBrochureOpen(false);
-            setIsPromptOpen(true);
-          } : undefined}
+          onPrompt={isSessionValid() ? () => setIsPromptOpen(true) : undefined}
         />
       )}
 
