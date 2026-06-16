@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Wand2, Copy, ClipboardCheck, ExternalLink, ChevronDown } from 'lucide-react';
+import { X, Wand2, Copy, ClipboardCheck, ExternalLink, ChevronDown, FileImage, Megaphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import FilterDropdown from './FilterDropdown';
 import { trackEvent } from '../utils/analytics';
@@ -11,6 +11,7 @@ import {
   DESIGN_STYLES,
   RATIOS,
   type BrochureVariant,
+  type BrochureKind,
   type BrochurePromptPkg,
 } from './brochure-prompt/buildBrochurePrompt';
 
@@ -42,6 +43,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
   // Perilaku tetap "rancang ulang" (poster premium yg benar2 berubah); akurasi dijaga lewat
   // data acuan + pengingat cek WA. Tanpa pilihan tab.
   const variant: BrochureVariant = 'redesign';
+  const [kind, setKind] = useState<BrochureKind>('brosur');
   const [style, setStyle] = useState('modern');
   const [ratio, setRatio] = useState('4:5');
 
@@ -72,11 +74,12 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
         pkg,
         extra: { instagram, alamat, note },
         variant,
+        kind,
         style,
         ratio,
         reserveQr: false,
       }),
-    [name, phone, website, instagram, alamat, note, variant, style, ratio, pkg],
+    [name, phone, website, instagram, alamat, note, variant, kind, style, ratio, pkg],
   );
 
   const handleCopy = async () => {
@@ -92,7 +95,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    trackEvent('feature', 'brochure_prompt_copy', { variant });
+    trackEvent('feature', 'brochure_prompt_copy', { variant, kind });
   };
 
   // Auto-copy the prompt first (while this document is still focused), THEN open ChatGPT —
@@ -102,7 +105,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
     try { navigator.clipboard?.writeText(prompt).catch(() => {}); } catch { /* ignore */ }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    trackEvent('feature', 'brochure_prompt_open_chatgpt', { variant });
+    trackEvent('feature', 'brochure_prompt_open_chatgpt', { variant, kind });
     window.open('https://chatgpt.com/', '_blank', 'noopener,noreferrer');
   };
 
@@ -130,7 +133,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
               <div className="flex items-center gap-2 min-w-0">
                 <Wand2 size={16} className="text-emerald-500 shrink-0" />
                 <div className="min-w-0">
-                  <h2 className="text-sm font-bold text-gray-900 dark:text-white leading-tight">Buat Ulang Brosur (AI)</h2>
+                  <h2 className="text-sm font-bold text-gray-900 dark:text-white leading-tight">{kind === 'banner' ? 'Buat Banner Ads (AI)' : 'Buat Ulang Brosur (AI)'}</h2>
                   <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">{title}</p>
                 </div>
               </div>
@@ -145,6 +148,27 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+              {/* Tab jenis materi */}
+              <div className="bg-gray-100 dark:bg-slate-900/60 rounded-xl p-1 flex gap-1">
+                {([
+                  { k: 'brosur', label: 'Brosur', Icon: FileImage },
+                  { k: 'banner', label: 'Banner Ads', Icon: Megaphone },
+                ] as const).map((t) => (
+                  <button
+                    key={t.k}
+                    onClick={() => setKind(t.k)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg text-xs transition-all duration-200 ${
+                      kind === t.k
+                        ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-300 font-semibold shadow-sm'
+                        : 'text-gray-400 dark:text-slate-500 font-medium active:opacity-70'
+                    }`}
+                  >
+                    <t.Icon size={15} />
+                    <span>{t.label}</span>
+                  </button>
+                ))}
+              </div>
+
               {/* Gaya desain + Rasio */}
               <div className="grid grid-cols-2 gap-3">
                 <div>

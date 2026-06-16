@@ -11,6 +11,9 @@
 
 export type BrochureVariant = 'keep' | 'redesign' | 'story';
 
+/** Jenis materi — tab di modal: 'brosur' (poster lengkap) vs 'banner' (iklan, teks minim). */
+export type BrochureKind = 'brosur' | 'banner';
+
 /** Perlakuan brosur — dipakai sebagai segmented tabs di modal. */
 export const VARIANTS: ReadonlyArray<{ value: BrochureVariant; label: string }> = [
   { value: 'keep', label: 'Pertahankan' },
@@ -53,6 +56,8 @@ export interface BrochurePromptInput {
   pkg?: BrochurePromptPkg | null;
   extra: { instagram?: string; alamat?: string; note?: string };
   variant: BrochureVariant;
+  /** Jenis materi: brosur (poster lengkap) atau banner (iklan, teks minim). */
+  kind: BrochureKind;
   /** value dari DESIGN_STYLES */
   style: string;
   /** value dari RATIOS — diabaikan untuk variant 'story' (dipaksa 9:16). */
@@ -76,9 +81,10 @@ export function effectiveRatio(variant: BrochureVariant, ratio: string): string 
 }
 
 export function buildBrochurePrompt(input: BrochurePromptInput): string {
-  const { agent, pkg, extra, variant, style, ratio, reserveQr } = input;
+  const { agent, pkg, extra, variant, kind, style, ratio, reserveQr } = input;
   const wa = formatWa(agent.phone);
   const phrase = DESIGN_STYLES.find((s) => s.value === style)?.phrase ?? '';
+  const stylePhrase = phrase ? ` Gaya visual: ${phrase}.` : '';
   const ratioOut = effectiveRatio(variant, ratio);
 
   // ── Strip kontak ──
@@ -89,8 +95,46 @@ export function buildBrochurePrompt(input: BrochurePromptInput): string {
   if (extra.instagram?.trim()) contact.push(`• Instagram: ${extra.instagram.trim()}`);
   if (extra.alamat?.trim()) contact.push(`• Alamat: ${extra.alamat.trim()}`);
 
-  // ── Kalimat pembuka per perlakuan ──
-  const stylePhrase = phrase ? ` Gaya visual: ${phrase}.` : '';
+  // ════ BANNER ADS — sengaja MINIM teks; beda total dari brosur ════
+  if (kind === 'banner') {
+    const introB =
+      'Kamu adalah senior art director iklan digital. Saya lampirkan sebuah brosur paket umroh ' +
+      'HANYA sebagai acuan isi. Buatkan sebuah BANNER IKLAN (ad creative) yang scroll-stopping ' +
+      `untuk Instagram/Facebook Ads — INI BUKAN brosur.${stylePhrase}`;
+    const goalsB =
+      'Aturan banner iklan (WAJIB):\n' +
+      '- TEKS SANGAT MINIM — hanya 1 headline pendek (3–6 kata) + harga + nama & WhatsApp agen. ' +
+      'DILARANG menaruh tanggal, daftar hotel, fasilitas, itinerary, atau paragraf apa pun.\n' +
+      "- Satu fokus visual yang kuat & memukau (Ka'bah / Masjid Nabawi / suasana Tanah Suci), " +
+      'komposisi bersih dengan banyak ruang napas.\n' +
+      '- Hierarki sederhana: visual dominan → headline pendek → harga → CTA singkat (mis. "Daftar Sekarang").\n' +
+      '- Harus berhenti-scroll dan terbaca dalam 1 detik; layak jadi materi iklan berbayar.';
+    let dataB = '';
+    if (pkg) {
+      dataB =
+        `Pakai HANYA info ini (akurat, jangan diubah): paket "${pkg.nama}"` +
+        `${pkg.harga ? `, ${pkg.harga}` : ''}. Jangan menulis tanggal/hotel/maskapai/fasilitas di banner.`;
+    }
+    const contactB: string[] = [];
+    if (agent.name?.trim()) contactB.push(`• Nama: ${agent.name.trim()}`);
+    if (wa) contactB.push(`• WhatsApp: ${wa}`);
+    if (agent.website?.trim()) contactB.push(`• Website: ${agent.website.trim()}`);
+    const rulesB: string[] = [
+      '- Bahasa Indonesia; teks sesedikit mungkin dan tidak ada yang salah eja.',
+      `- Tulis nomor WhatsApp PERSIS, digit per digit: ${wa || '(isi nomor WhatsApp)'} — periksa tiap digit.`,
+      `- Rasio ${ratioOut}, resolusi tinggi dan tajam.`,
+    ];
+    if (extra.note?.trim()) rulesB.push(`- ${extra.note.trim()}`);
+    return [
+      introB,
+      goalsB,
+      dataB,
+      `Cantumkan kontak agen secara kecil & rapi (jangan dominan):\n${contactB.join('\n')}`,
+      `Ketentuan:\n${rulesB.join('\n')}`,
+    ].filter(Boolean).join('\n\n');
+  }
+
+  // ════ BROSUR — rancang ulang poster premium (default) ════
   let intro: string;
   let goals = '';
   if (variant === 'keep') {
