@@ -80,6 +80,14 @@ export function effectiveRatio(variant: BrochureVariant, ratio: string): string 
   return variant === 'story' ? '9:16' : ratio;
 }
 
+/** Rapikan nama paket agar tak tersingkat: "REGULER 9HR" / "9 HR" → "REGULER 9 HARI". */
+export function normalizePackageName(nama: string): string {
+  return (nama || '')
+    .replace(/(\d+)\s*HR\b/gi, '$1 HARI')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 export function buildBrochurePrompt(input: BrochurePromptInput): string {
   const { agent, pkg, extra, variant, kind, style, ratio, reserveQr } = input;
   const wa = formatWa(agent.phone);
@@ -103,16 +111,19 @@ export function buildBrochurePrompt(input: BrochurePromptInput): string {
       `untuk Instagram/Facebook Ads — INI BUKAN brosur.${stylePhrase}`;
     const goalsB =
       'Aturan banner iklan (WAJIB):\n' +
-      '- TEKS SANGAT MINIM — hanya 1 headline pendek (3–6 kata) + harga + nama & WhatsApp agen. ' +
-      'DILARANG menaruh tanggal, daftar hotel, fasilitas, itinerary, atau paragraf apa pun.\n' +
+      '- TEKS MINIM — hanya: 1 HEADLINE utama, 1 SUB-HEADLINE pendek, harga, serta nama & WhatsApp agen. ' +
+      'DILARANG menaruh tanggal, daftar hotel, fasilitas, itinerary, paragraf, atau tombol/CTA apa pun.\n' +
+      '- HEADLINE harus MENARIK & menggugah — pakai sentuhan emosional / hook / urgensi (mis. rindu Baitullah, ' +
+      'panggilan ke Tanah Suci, kesempatan terbatas), BUKAN sekadar menyalin nama paket.\n' +
+      '- SUB-HEADLINE pendek sebagai pendukung (boleh memuat nama paket atau keunggulan singkat).\n' +
       "- Satu fokus visual yang kuat & memukau (Ka'bah / Masjid Nabawi / suasana Tanah Suci), " +
       'komposisi bersih dengan banyak ruang napas.\n' +
-      '- Hierarki sederhana: visual dominan → headline pendek → harga → CTA singkat (mis. "Daftar Sekarang").\n' +
+      '- Hierarki: visual dominan → headline → sub-headline → harga (TANPA tombol/CTA).\n' +
       '- Harus berhenti-scroll dan terbaca dalam 1 detik; layak jadi materi iklan berbayar.';
     let dataB = '';
     if (pkg) {
       dataB =
-        `Pakai HANYA info ini (akurat, jangan diubah): paket "${pkg.nama}"` +
+        `Pakai HANYA info ini (akurat, jangan diubah): paket "${normalizePackageName(pkg.nama)}"` +
         `${pkg.harga ? `, ${pkg.harga}` : ''}. Jangan menulis tanggal/hotel/maskapai/fasilitas di banner.`;
     }
     const contactB: string[] = [];
@@ -173,7 +184,7 @@ export function buildBrochurePrompt(input: BrochurePromptInput): string {
     const detail = parts.length ? ` — ${parts.join(', ')}` : '';
     dataBlock =
       'WAJIB AKURAT — pakai data ini sebagai sumber kebenaran, JANGAN mengubah atau mengarang angka:\n' +
-      `${pkg.nama}${detail}.`;
+      `${normalizePackageName(pkg.nama)}${detail}.`;
   }
 
   // ── Strip kontak ──
