@@ -1119,7 +1119,6 @@ export interface BrochureCatalogCoverProps {
   dateLabel: string;
 }
 
-const CATALOG_TITLE_GRADIENT = `linear-gradient(180deg, #FF5A70 0%, ${BRAND_RED} 34%, #A4001D 68%, ${DARK_RED} 100%)`;
 const CATALOG_MAX_ROWS = 7;
 
 // 3-letter Indonesian month abbreviation from a "Juni 2026" style label.
@@ -1162,6 +1161,9 @@ export function BrochureCatalogCover({ agent, months, dateLabel }: BrochureCatal
     { value: months.length, label: 'Bulan Keberangkatan' },
   ];
 
+  const heroGradient = `linear-gradient(135deg, ${DARK_RED} 0%, ${DEEP_RED} 52%, #A4001D 100%)`;
+  const goldFoil = 'linear-gradient(180deg, #FFF4D6 0%, #F4DC9A 32%, #DDA84A 64%, #B9842B 100%)';
+
   return (
     <div style={{
       width: BROCHURE_W,
@@ -1177,137 +1179,143 @@ export function BrochureCatalogCover({ agent, months, dateLabel }: BrochureCatal
     }}>
       <style>{BROCHURE_FONT_FACE_CSS}</style>
 
-      {/* Top accent bar */}
-      <div aria-hidden="true" style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: 10,
-        background: CLASSIC_THEME.topBar, zIndex: 10,
-      }} />
-
       {/* Corner geometric patterns */}
       <div aria-hidden="true" style={{
         position: 'absolute', top: -78, right: -90, width: 500, height: 500,
         backgroundImage: ISLAMIC_PATTERN_BG, backgroundSize: '132px 132px',
-        opacity: 0.24, transform: 'rotate(7deg)', zIndex: 0,
+        opacity: 0.18, transform: 'rotate(7deg)', zIndex: 0,
       }} />
       <div aria-hidden="true" style={{
-        position: 'absolute', left: -110, top: 150, width: 560, height: 560,
+        position: 'absolute', left: -110, bottom: 110, width: 560, height: 560,
         backgroundImage: ISLAMIC_PATTERN_BG, backgroundSize: '140px 140px',
         opacity: 0.12, transform: 'rotate(-9deg)', zIndex: 0,
-      }} />
-      <img src={DOME_IMAGE} alt="" style={{
-        position: 'absolute', top: 150, right: -180, width: 520, height: 'auto',
-        objectFit: 'contain', opacity: 0.09, filter: 'saturate(0.85)', zIndex: 0,
       }} />
 
       {/* Faint landmarks at the bottom */}
       <img src={KABAH_IMAGE} alt="" style={{
-        position: 'absolute', left: 84, bottom: 156, maxHeight: 360, width: 'auto',
-        objectFit: 'contain', opacity: 0.15,
+        position: 'absolute', left: 84, bottom: 152, maxHeight: 340, width: 'auto',
+        objectFit: 'contain', opacity: 0.14,
         filter: 'saturate(0.62) contrast(0.82) brightness(1.14)',
         WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
         maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
         zIndex: 0,
       }} />
       <img src={NABAWI_WIDE_IMAGE} alt="" style={{
-        position: 'absolute', right: 64, bottom: 156, maxHeight: 380, width: 'auto',
-        objectFit: 'contain', opacity: 0.15,
+        position: 'absolute', right: 64, bottom: 152, maxHeight: 360, width: 'auto',
+        objectFit: 'contain', opacity: 0.14,
         filter: 'saturate(0.62) contrast(0.82) brightness(1.14)',
         WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
         maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
         zIndex: 0,
       }} />
 
-      {/* Header — logo + 5 Pasti Umrah */}
-      <div style={{ height: 158, position: 'relative', zIndex: 2 }}>
+      {/* Gold double frame around the whole page */}
+      <div aria-hidden="true" style={{ position: 'absolute', inset: 16, border: `2px solid ${GOLD}`, borderRadius: 24, opacity: 0.5, zIndex: 1, pointerEvents: 'none' }} />
+      <div aria-hidden="true" style={{ position: 'absolute', inset: 25, border: `1px solid ${GOLD}`, borderRadius: 18, opacity: 0.3, zIndex: 1, pointerEvents: 'none' }} />
+
+      {/* Header strip — logo + 5 Pasti Umrah */}
+      <div style={{ height: 134, position: 'relative', zIndex: 2 }}>
         <img src="/logo-alhijaz-besar.png" alt="Alhijaz" style={{
-          position: 'absolute', top: 40, left: 50, height: 110, width: 'auto', objectFit: 'contain',
+          position: 'absolute', top: 38, left: 54, height: 98, width: 'auto', objectFit: 'contain',
         }} />
         <img src="/img-brosur/pasti-umrah.png" alt="5 Pasti Umrah" style={{
-          position: 'absolute', top: 46, right: 50, width: 102, height: 'auto', objectFit: 'contain',
+          position: 'absolute', top: 42, right: 54, width: 94, height: 'auto', objectFit: 'contain',
           filter: 'drop-shadow(0 10px 18px rgba(90,0,16,0.18))',
         }} />
-        <div style={{
-          position: 'absolute', left: 50, right: 50, bottom: 0, height: 2,
-          background: CLASSIC_THEME.headerDivider, opacity: 0.75,
-        }} />
       </div>
 
-      {/* Title block */}
-      <div style={{ padding: '34px 60px 0', textAlign: 'center', position: 'relative', zIndex: 2 }}>
-        {/* Ornamental eyebrow: line ◆ KATALOG EKSKLUSIF ◆ line */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
-          <span style={{ width: 64, height: 2, background: `linear-gradient(90deg, rgba(201,138,44,0) 0%, ${GOLD} 100%)` }} />
-          <span style={{ width: 9, height: 9, background: GOLD, transform: 'rotate(45deg)' }} />
-          <span style={{
-            fontFamily: BROCHURE_OSWALD_FONT_STACK, fontSize: 25, fontWeight: 700,
-            letterSpacing: 7, color: GOLD, lineHeight: 1,
-          }}>KATALOG EKSKLUSIF</span>
-          <span style={{ width: 9, height: 9, background: GOLD, transform: 'rotate(45deg)' }} />
-          <span style={{ width: 64, height: 2, background: `linear-gradient(90deg, ${GOLD} 0%, rgba(201,138,44,0) 100%)` }} />
-        </div>
-
-        {/* Big layered title (matches brochure headline language) */}
-        <div style={{
-          position: 'relative', display: 'inline-block',
-          fontFamily: BROCHURE_FONT_STACK,
-          fontSize: 120, fontWeight: 900, lineHeight: 0.95, letterSpacing: -1,
-          marginTop: 14, padding: '0 22px 12px',
-        }}>
-          <span aria-hidden="true" style={{
-            position: 'absolute', inset: '0 22px 12px', transform: 'translateY(6px)',
-            color: PALE_GOLD, opacity: 0.95, zIndex: 0,
-          }}>PAKET UMROH</span>
-          <span aria-hidden="true" style={{
-            position: 'absolute', inset: '0 22px 12px', color: 'transparent',
-            WebkitTextStroke: `7px ${PALE_GOLD}`, zIndex: 1,
-          }}>PAKET UMROH</span>
-          <span style={{
-            position: 'relative', zIndex: 3, color: BRAND_RED,
-            backgroundImage: CATALOG_TITLE_GRADIENT,
-            backgroundClip: 'text', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-            WebkitTextStroke: `2px ${DEEP_RED}`,
-            filter: 'drop-shadow(0 2px 0 rgba(255,255,255,0.38)) drop-shadow(0 11px 15px rgba(90,0,16,0.18))',
-          }}>PAKET UMROH</span>
-        </div>
-
-        {/* Date-range pill */}
-        {rangeLabel && (
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 12,
-            margin: '8px auto 0', padding: '11px 28px 12px', borderRadius: 999,
-            background: `linear-gradient(135deg, ${DEEP_RED} 0%, ${BRAND_RED} 100%)`,
-            border: `2px solid ${PALE_GOLD}`, color: '#fff',
-            boxShadow: '0 12px 28px rgba(90,0,16,0.18)',
-            fontFamily: BROCHURE_OSWALD_FONT_STACK, fontSize: 30, fontWeight: 700, letterSpacing: 0.5, lineHeight: 1,
-          }}>
-            <CalendarDays size={26} strokeWidth={2.4} />
-            {rangeLabel}
-          </div>
-        )}
-
-        <div style={{ marginTop: 13, fontSize: 21, fontWeight: 700, color: MUTED }}>
-          {landingUrl} · Diperbarui {dateLabel}
-        </div>
-      </div>
-
-      {/* Stat ribbon */}
+      {/* HERO banner — deep maroon with gold-foil title */}
       <div style={{
-        display: 'flex', margin: '20px 50px 0', position: 'relative', zIndex: 2,
-        borderRadius: 20, background: '#FFFFFF', border: `2px solid ${ROW_LINE}`,
-        boxShadow: '0 14px 30px rgba(90,0,16,0.08)', overflow: 'hidden',
+        position: 'relative', zIndex: 2, margin: '0 50px',
+        borderRadius: 28, overflow: 'hidden',
+        background: heroGradient, border: `3px solid ${PALE_GOLD}`,
+        boxShadow: '0 26px 60px rgba(90,0,16,0.34)',
+        padding: '34px 50px 40px', textAlign: 'center',
+      }}>
+        {/* faint Kabah silhouette inside the hero */}
+        <img src={KABAH_IMAGE} alt="" style={{
+          position: 'absolute', right: -46, bottom: -44, width: 300, height: 'auto',
+          objectFit: 'contain', opacity: 0.16, filter: 'brightness(0) invert(1)', zIndex: 0,
+        }} />
+        <div aria-hidden="true" style={{
+          position: 'absolute', left: -60, top: -60, width: 320, height: 320,
+          backgroundImage: ISLAMIC_PATTERN_BG, backgroundSize: '120px 120px',
+          opacity: 0.12, filter: 'brightness(0) invert(1)', zIndex: 0,
+        }} />
+
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          {/* Ornamental eyebrow */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+            <span style={{ width: 56, height: 2, background: `linear-gradient(90deg, rgba(248,223,161,0) 0%, ${PALE_GOLD} 100%)` }} />
+            <span style={{ width: 9, height: 9, background: PALE_GOLD, transform: 'rotate(45deg)' }} />
+            <span style={{ fontFamily: BROCHURE_OSWALD_FONT_STACK, fontSize: 24, fontWeight: 700, letterSpacing: 7, color: PALE_GOLD, lineHeight: 1 }}>KATALOG EKSKLUSIF</span>
+            <span style={{ width: 9, height: 9, background: PALE_GOLD, transform: 'rotate(45deg)' }} />
+            <span style={{ width: 56, height: 2, background: `linear-gradient(90deg, ${PALE_GOLD} 0%, rgba(248,223,161,0) 100%)` }} />
+          </div>
+
+          {/* Gold-foil title */}
+          <div style={{
+            position: 'relative', display: 'inline-block',
+            fontFamily: BROCHURE_FONT_STACK,
+            fontSize: 120, fontWeight: 900, lineHeight: 0.94, letterSpacing: -1,
+            marginTop: 14, padding: '0 14px 10px',
+          }}>
+            <span aria-hidden="true" style={{
+              position: 'absolute', inset: '0 14px 10px', transform: 'translateY(5px)',
+              color: 'rgba(0,0,0,0.40)', zIndex: 0,
+            }}>PAKET UMROH</span>
+            <span style={{
+              position: 'relative', zIndex: 1,
+              backgroundImage: goldFoil,
+              backgroundClip: 'text', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+              WebkitTextStroke: '2px rgba(255,255,255,0.28)',
+              filter: 'drop-shadow(0 3px 2px rgba(0,0,0,0.45)) drop-shadow(0 12px 18px rgba(0,0,0,0.35))',
+            }}>PAKET UMROH</span>
+          </div>
+
+          {/* Date-range pill */}
+          {rangeLabel && (
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 12,
+              margin: '4px auto 0', padding: '11px 28px 12px', borderRadius: 999,
+              background: 'rgba(255,248,236,0.96)', border: `2px solid ${PALE_GOLD}`, color: DEEP_RED,
+              boxShadow: '0 10px 24px rgba(0,0,0,0.28)',
+              fontFamily: BROCHURE_OSWALD_FONT_STACK, fontSize: 29, fontWeight: 700, letterSpacing: 0.5, lineHeight: 1,
+            }}>
+              <CalendarDays size={25} strokeWidth={2.4} />
+              {rangeLabel}
+            </div>
+          )}
+
+          {/* Tagline */}
+          <div style={{ marginTop: 14, fontSize: 21, fontWeight: 600, color: PALE_GOLD, letterSpacing: 0.3 }}>
+            Pilihan terlengkap keberangkatan umroh bersama Alhijaz
+          </div>
+        </div>
+      </div>
+
+      {/* Stat ribbon — overlaps the hero's bottom edge */}
+      <div style={{
+        display: 'flex', margin: '-30px 74px 0', position: 'relative', zIndex: 3,
+        borderRadius: 20, background: '#FFFFFF', border: `2px solid ${PALE_GOLD}`,
+        boxShadow: '0 18px 38px rgba(90,0,16,0.18)', overflow: 'hidden',
       }}>
         {stats.map((stat, i) => (
           <div key={stat.label} style={{
-            flex: 1, textAlign: 'center', padding: '15px 12px',
+            flex: 1, textAlign: 'center', padding: '14px 12px',
             borderLeft: i > 0 ? `2px solid ${ROW_LINE}` : 'none',
           }}>
             <span style={{
               fontFamily: BROCHURE_MONTSERRAT_FONT_STACK,
-              fontSize: 46, fontWeight: 900, color: BRAND_RED, lineHeight: 1,
+              fontSize: 44, fontWeight: 900, color: BRAND_RED, lineHeight: 1,
             }}>{stat.value}</span>
-            <div style={{ fontSize: 19, fontWeight: 700, color: MUTED, marginTop: 3, letterSpacing: 0.3 }}>{stat.label}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: MUTED, marginTop: 3, letterSpacing: 0.3 }}>{stat.label}</div>
           </div>
         ))}
+      </div>
+      {/* "Diperbarui" caption under the ribbon */}
+      <div style={{ marginTop: 12, textAlign: 'center', fontSize: 20, fontWeight: 700, color: MUTED, position: 'relative', zIndex: 2 }}>
+        {landingUrl} · Diperbarui {dateLabel}
       </div>
 
       {/* Months panel — card hugs its rows; centered in the remaining space. */}

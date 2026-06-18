@@ -31,6 +31,11 @@ const EXPORT_QUALITY = 0.9;
 // browser rasterize 6.9M pixels and produces multi-MB PNGs; 1x JPG is enough
 // for WhatsApp/status sharing and keeps mobile clicks responsive.
 const EXPORT_SCALE = 1;
+// Catalog PDF renders at 1.5× (1620px wide) so pages stay crisp when zoomed in a
+// PDF viewer, without the ~4× file-size hit of full 2×. Slightly lower JPEG
+// quality offsets the larger dimensions to keep the overall file manageable.
+const CATALOG_SCALE = 1.5;
+const CATALOG_JPEG_QUALITY = 0.82;
 const EXPORT_CACHE_LIMIT = 3;
 const PACKAGES_PER_IMAGE = 10;
 
@@ -578,7 +583,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   // Rasterize a single full-size brochure node to a canvas. Shared by the
   // per-image export (captureBlob) and the catalog PDF builder so both go
   // through the exact same font/image-wait + blank-detection + retry path.
-  async function captureCanvasFromElement(target: HTMLElement): Promise<HTMLCanvasElement> {
+  async function captureCanvasFromElement(target: HTMLElement, scale: number = EXPORT_SCALE): Promise<HTMLCanvasElement> {
     await waitForFonts();
     await waitForImages(target);
     await waitForNextPaint();
@@ -596,7 +601,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         .join('\n');
     }
     const captureOptions: ModernScreenshotOptions = {
-      scale: EXPORT_SCALE,
+      scale,
       width: BROCHURE_W,
       height: BROCHURE_H,
       type: EXPORT_MIME,
@@ -622,7 +627,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const canvas = await domToCanvas(target, captureOptions);
-        if (canvas.width !== BROCHURE_W * EXPORT_SCALE || canvas.height !== BROCHURE_H * EXPORT_SCALE) {
+        if (canvas.width !== BROCHURE_W * scale || canvas.height !== BROCHURE_H * scale) {
           console.warn('[brosur] unexpected canvas size:', canvas.width, canvas.height);
         }
         if (isMostlyBlank(canvas)) {
@@ -678,7 +683,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       flushSync(() => setCatalogStage(stage));
       const el = catalogStageRef.current;
       if (!el) throw new Error('catalog-stage-missing');
-      return captureCanvasFromElement(el);
+      return captureCanvasFromElement(el, CATALOG_SCALE);
     };
 
     let added = 0;
@@ -691,7 +696,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
 
       const addCanvas = (canvas: HTMLCanvasElement) => {
         if (added > 0) pdf.addPage([BROCHURE_W, BROCHURE_H], 'portrait');
-        pdf.addImage(canvas.toDataURL(EXPORT_MIME, EXPORT_QUALITY), 'JPEG', 0, 0, pw, ph);
+        pdf.addImage(canvas.toDataURL(EXPORT_MIME, CATALOG_JPEG_QUALITY), 'JPEG', 0, 0, pw, ph);
         added += 1;
       };
 
@@ -700,7 +705,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         flushSync(() => { setCatalogMeta({ summary, dateLabel }); setCatalogStage({ kind: 'cover' }); });
         const el = catalogStageRef.current;
         if (!el) throw new Error('catalog-stage-missing');
-        addCanvas(await captureCanvasFromElement(el));
+        addCanvas(await captureCanvasFromElement(el, CATALOG_SCALE));
       } catch (e) {
         failed += 1;
         console.error('[katalog] cover failed:', e);
