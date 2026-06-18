@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react';
+import { Check, CalendarDays } from 'lucide-react';
 import { normalizeWaNumber } from '../utils/phone';
 import WhatsAppIcon from './bio/WhatsAppIcon';
 
@@ -1120,7 +1120,26 @@ export interface BrochureCatalogCoverProps {
 }
 
 const CATALOG_TITLE_GRADIENT = `linear-gradient(180deg, #FF5A70 0%, ${BRAND_RED} 34%, #A4001D 68%, ${DARK_RED} 100%)`;
-const CATALOG_MAX_ROWS = 8;
+const CATALOG_MAX_ROWS = 7;
+
+// 3-letter Indonesian month abbreviation from a "Juni 2026" style label.
+function catalogMonthAbbr(label: string): string {
+  const word = String(label || '').trim().split(/\s+/)[0]?.toUpperCase() || '';
+  const idx = MONTH_FULL_ID.indexOf(word);
+  return idx >= 0 ? MONTH_ABBR_ID[idx] : word.slice(0, 3);
+}
+
+// "Juni 2026 – Desember 2026" → "Juni – Desember 2026" when years match.
+function catalogRangeLabel(months: ReadonlyArray<{ label: string }>): string {
+  if (months.length === 0) return '';
+  if (months.length === 1) return months[0].label;
+  const first = months[0].label;
+  const last = months[months.length - 1].label;
+  const fy = first.match(/\d{4}$/)?.[0];
+  const ly = last.match(/\d{4}$/)?.[0];
+  if (fy && ly && fy === ly) return `${first.replace(/\s*\d{4}$/, '')} – ${last}`;
+  return `${first} – ${last}`;
+}
 
 // Cover page for the multi-month "Unduh Katalog" PDF. Same canvas size, palette
 // and fonts as BrochureScheduleTemplate so it reads as one cohesive document and
@@ -1136,6 +1155,12 @@ export function BrochureCatalogCover({ agent, months, dateLabel }: BrochureCatal
   const totalPaket = months.reduce((sum, m) => sum + m.count, 0);
   const shownMonths = months.slice(0, CATALOG_MAX_ROWS);
   const extraMonths = months.length - shownMonths.length;
+  const rangeLabel = catalogRangeLabel(months);
+
+  const stats: Array<{ value: number; label: string }> = [
+    { value: totalPaket, label: 'Paket Pilihan' },
+    { value: months.length, label: 'Bulan Keberangkatan' },
+  ];
 
   return (
     <div style={{
@@ -1165,23 +1190,27 @@ export function BrochureCatalogCover({ agent, months, dateLabel }: BrochureCatal
         opacity: 0.24, transform: 'rotate(7deg)', zIndex: 0,
       }} />
       <div aria-hidden="true" style={{
-        position: 'absolute', left: -110, top: 120, width: 560, height: 560,
+        position: 'absolute', left: -110, top: 150, width: 560, height: 560,
         backgroundImage: ISLAMIC_PATTERN_BG, backgroundSize: '140px 140px',
-        opacity: 0.14, transform: 'rotate(-9deg)', zIndex: 0,
+        opacity: 0.12, transform: 'rotate(-9deg)', zIndex: 0,
+      }} />
+      <img src={DOME_IMAGE} alt="" style={{
+        position: 'absolute', top: 150, right: -180, width: 520, height: 'auto',
+        objectFit: 'contain', opacity: 0.09, filter: 'saturate(0.85)', zIndex: 0,
       }} />
 
       {/* Faint landmarks at the bottom */}
       <img src={KABAH_IMAGE} alt="" style={{
-        position: 'absolute', left: 96, bottom: 150, maxHeight: 360, width: 'auto',
-        objectFit: 'contain', opacity: 0.16,
+        position: 'absolute', left: 84, bottom: 156, maxHeight: 360, width: 'auto',
+        objectFit: 'contain', opacity: 0.15,
         filter: 'saturate(0.62) contrast(0.82) brightness(1.14)',
         WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
         maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
         zIndex: 0,
       }} />
       <img src={NABAWI_WIDE_IMAGE} alt="" style={{
-        position: 'absolute', right: 70, bottom: 150, maxHeight: 380, width: 'auto',
-        objectFit: 'contain', opacity: 0.16,
+        position: 'absolute', right: 64, bottom: 156, maxHeight: 380, width: 'auto',
+        objectFit: 'contain', opacity: 0.15,
         filter: 'saturate(0.62) contrast(0.82) brightness(1.14)',
         WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
         maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
@@ -1189,12 +1218,12 @@ export function BrochureCatalogCover({ agent, months, dateLabel }: BrochureCatal
       }} />
 
       {/* Header — logo + 5 Pasti Umrah */}
-      <div style={{ height: 168, position: 'relative', zIndex: 2 }}>
+      <div style={{ height: 158, position: 'relative', zIndex: 2 }}>
         <img src="/logo-alhijaz-besar.png" alt="Alhijaz" style={{
-          position: 'absolute', top: 44, left: 50, height: 112, width: 'auto', objectFit: 'contain',
+          position: 'absolute', top: 40, left: 50, height: 110, width: 'auto', objectFit: 'contain',
         }} />
         <img src="/img-brosur/pasti-umrah.png" alt="5 Pasti Umrah" style={{
-          position: 'absolute', top: 50, right: 50, width: 104, height: 'auto', objectFit: 'contain',
+          position: 'absolute', top: 46, right: 50, width: 102, height: 'auto', objectFit: 'contain',
           filter: 'drop-shadow(0 10px 18px rgba(90,0,16,0.18))',
         }} />
         <div style={{
@@ -1204,17 +1233,25 @@ export function BrochureCatalogCover({ agent, months, dateLabel }: BrochureCatal
       </div>
 
       {/* Title block */}
-      <div style={{ padding: '38px 60px 6px', textAlign: 'center', position: 'relative', zIndex: 2 }}>
-        <div style={{
-          fontFamily: BROCHURE_MONTSERRAT_FONT_STACK,
-          fontSize: 46, fontWeight: 800, letterSpacing: 14, color: GOLD, lineHeight: 1,
-          textShadow: '0 2px 0 rgba(255,255,255,0.5)',
-        }}>KATALOG</div>
+      <div style={{ padding: '34px 60px 0', textAlign: 'center', position: 'relative', zIndex: 2 }}>
+        {/* Ornamental eyebrow: line ◆ KATALOG EKSKLUSIF ◆ line */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+          <span style={{ width: 64, height: 2, background: `linear-gradient(90deg, rgba(201,138,44,0) 0%, ${GOLD} 100%)` }} />
+          <span style={{ width: 9, height: 9, background: GOLD, transform: 'rotate(45deg)' }} />
+          <span style={{
+            fontFamily: BROCHURE_OSWALD_FONT_STACK, fontSize: 25, fontWeight: 700,
+            letterSpacing: 7, color: GOLD, lineHeight: 1,
+          }}>KATALOG EKSKLUSIF</span>
+          <span style={{ width: 9, height: 9, background: GOLD, transform: 'rotate(45deg)' }} />
+          <span style={{ width: 64, height: 2, background: `linear-gradient(90deg, ${GOLD} 0%, rgba(201,138,44,0) 100%)` }} />
+        </div>
+
+        {/* Big layered title (matches brochure headline language) */}
         <div style={{
           position: 'relative', display: 'inline-block',
-          fontFamily: BROCHURE_MONTSERRAT_FONT_STACK,
-          fontSize: 116, fontWeight: 900, lineHeight: 0.96, letterSpacing: 0,
-          marginTop: 6, padding: '0 22px 12px',
+          fontFamily: BROCHURE_FONT_STACK,
+          fontSize: 120, fontWeight: 900, lineHeight: 0.95, letterSpacing: -1,
+          marginTop: 14, padding: '0 22px 12px',
         }}>
           <span aria-hidden="true" style={{
             position: 'absolute', inset: '0 22px 12px', transform: 'translateY(6px)',
@@ -1232,84 +1269,102 @@ export function BrochureCatalogCover({ agent, months, dateLabel }: BrochureCatal
             filter: 'drop-shadow(0 2px 0 rgba(255,255,255,0.38)) drop-shadow(0 11px 15px rgba(90,0,16,0.18))',
           }}>PAKET UMROH</span>
         </div>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          width: 'max-content', maxWidth: '100%', margin: '6px auto 0',
-          padding: '8px 22px 9px', borderRadius: 999,
-          background: 'rgba(255,255,255,0.78)', border: `2px solid ${PALE_GOLD}`,
-          boxShadow: '0 9px 25px rgba(90,0,16,0.08)',
-          color: DEEP_RED, fontSize: 24, fontWeight: 900, lineHeight: 1,
-        }}>{landingUrl}</div>
-        <div style={{ marginTop: 14, fontSize: 22, fontWeight: 700, color: MUTED }}>
-          Diperbarui {dateLabel}
+
+        {/* Date-range pill */}
+        {rangeLabel && (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 12,
+            margin: '8px auto 0', padding: '11px 28px 12px', borderRadius: 999,
+            background: `linear-gradient(135deg, ${DEEP_RED} 0%, ${BRAND_RED} 100%)`,
+            border: `2px solid ${PALE_GOLD}`, color: '#fff',
+            boxShadow: '0 12px 28px rgba(90,0,16,0.18)',
+            fontFamily: BROCHURE_OSWALD_FONT_STACK, fontSize: 30, fontWeight: 700, letterSpacing: 0.5, lineHeight: 1,
+          }}>
+            <CalendarDays size={26} strokeWidth={2.4} />
+            {rangeLabel}
+          </div>
+        )}
+
+        <div style={{ marginTop: 13, fontSize: 21, fontWeight: 700, color: MUTED }}>
+          {landingUrl} · Diperbarui {dateLabel}
         </div>
       </div>
 
-      {/* Stat pills */}
+      {/* Stat ribbon */}
       <div style={{
-        display: 'flex', justifyContent: 'center', gap: 16,
-        margin: '14px 50px 0', position: 'relative', zIndex: 2,
+        display: 'flex', margin: '20px 50px 0', position: 'relative', zIndex: 2,
+        borderRadius: 20, background: '#FFFFFF', border: `2px solid ${ROW_LINE}`,
+        boxShadow: '0 14px 30px rgba(90,0,16,0.08)', overflow: 'hidden',
       }}>
-        {[
-          { value: String(totalPaket), label: 'Paket Tersedia' },
-          { value: String(months.length), label: 'Bulan Keberangkatan' },
-        ].map(stat => (
+        {stats.map((stat, i) => (
           <div key={stat.label} style={{
-            flex: 1, maxWidth: 340, textAlign: 'center',
-            padding: '14px 18px', borderRadius: 18,
-            background: '#FFFFFF', border: `2px solid ${ROW_LINE}`,
-            boxShadow: '0 12px 28px rgba(90,0,16,0.08)',
+            flex: 1, textAlign: 'center', padding: '15px 12px',
+            borderLeft: i > 0 ? `2px solid ${ROW_LINE}` : 'none',
           }}>
-            <div style={{
+            <span style={{
               fontFamily: BROCHURE_MONTSERRAT_FONT_STACK,
-              fontSize: 48, fontWeight: 900, color: BRAND_RED, lineHeight: 1,
-            }}>{stat.value}</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: MUTED, marginTop: 4 }}>{stat.label}</div>
+              fontSize: 46, fontWeight: 900, color: BRAND_RED, lineHeight: 1,
+            }}>{stat.value}</span>
+            <div style={{ fontSize: 19, fontWeight: 700, color: MUTED, marginTop: 3, letterSpacing: 0.3 }}>{stat.label}</div>
           </div>
         ))}
       </div>
 
-      {/* Months panel — card hugs its rows; spare vertical space sits below it. */}
-      <div style={{ flex: 1, position: 'relative', zIndex: 2, margin: '22px 50px 0', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* Months panel — card hugs its rows; centered in the remaining space. */}
+      <div style={{ flex: 1, position: 'relative', zIndex: 2, margin: '20px 50px 0', minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         <div style={{
           borderRadius: 26, overflow: 'hidden', background: '#FFFFFF',
           border: `2px solid ${ROW_LINE}`, boxShadow: '0 26px 54px rgba(90,0,16,0.14)',
         }}>
           <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             background: CLASSIC_THEME.tableHeader, color: '#fff',
             fontFamily: BROCHURE_ROBOTO_CONDENSED_FONT_STACK,
             fontWeight: 600, fontSize: 28, letterSpacing: 0.5,
-            padding: '0 26px', height: 70, display: 'flex', alignItems: 'center',
-          }}>JADWAL KEBERANGKATAN</div>
+            padding: '0 26px', height: 72,
+          }}>
+            <span>JADWAL KEBERANGKATAN</span>
+            <span style={{ fontSize: 22, fontWeight: 600, opacity: 0.92 }}>{months.length} BULAN</span>
+          </div>
           {shownMonths.map((m, i) => (
             <div key={`${m.label}-${i}`} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '0 26px', height: 66,
+              display: 'flex', alignItems: 'center', gap: 22,
+              padding: '0 26px', height: 96,
+              background: i % 2 === 1 ? CREAM : '#FFFFFF',
               borderTop: i === 0 ? 'none' : `1px solid ${ROW_LINE}`,
             }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 18, minWidth: 0 }}>
-                <span style={{
-                  width: 44, height: 44, flexShrink: 0, borderRadius: 12,
-                  background: CREAM, border: `2px solid ${PALE_GOLD}`, color: DEEP_RED,
-                  fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, fontSize: 24, fontWeight: 900,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>{i + 1}</span>
+              {/* Month date chip (mirrors brochure date badge) */}
+              <span style={{
+                width: 86, height: 66, flexShrink: 0, borderRadius: 14,
+                background: CLASSIC_THEME.badgeGradient, border: `2px solid ${PALE_GOLD}`,
+                boxShadow: '0 8px 16px rgba(90,0,16,0.18)', color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: BROCHURE_TABLE_FONT_STACK, fontSynthesis: 'none',
+                fontSize: 40, fontWeight: 400, letterSpacing: 1, lineHeight: 1,
+              }}>{catalogMonthAbbr(m.label)}</span>
+              {/* Month label + sublabel */}
+              <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <span style={{
                   fontFamily: BROCHURE_ROBOTO_CONDENSED_FONT_STACK,
-                  fontSize: 34, fontWeight: 700, color: INK,
+                  fontSize: 37, fontWeight: 700, color: INK, lineHeight: 1.04,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>{m.label}</span>
+                <span style={{ fontSize: 18, fontWeight: 600, color: MUTED, letterSpacing: 0.3 }}>Keberangkatan Umroh</span>
               </span>
-              <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
-                <span style={{ fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, fontSize: 32, fontWeight: 900, color: BRAND_RED }}>{m.count}</span>
-                <span style={{ fontSize: 22, fontWeight: 700, color: MUTED }}> paket</span>
+              {/* Count pill */}
+              <span style={{
+                flexShrink: 0, display: 'inline-flex', alignItems: 'baseline', gap: 6,
+                padding: '8px 16px', borderRadius: 999, background: CREAM, border: `2px solid ${PALE_GOLD}`,
+              }}>
+                <span style={{ fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, fontSize: 30, fontWeight: 900, color: BRAND_RED, lineHeight: 1 }}>{m.count}</span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: DEEP_RED }}>paket</span>
               </span>
             </div>
           ))}
           {extraMonths > 0 && (
             <div style={{
-              background: CREAM, color: DEEP_RED, fontWeight: 700, fontSize: 22,
-              padding: '12px 18px', textAlign: 'center', borderTop: `1px dashed ${GOLD}`,
+              background: CREAM, color: DEEP_RED, fontWeight: 700, fontSize: 21,
+              padding: '13px 18px', textAlign: 'center', borderTop: `1px dashed ${GOLD}`,
             }}>+ {extraMonths} bulan keberangkatan lainnya</div>
           )}
         </div>
@@ -1317,7 +1372,7 @@ export function BrochureCatalogCover({ agent, months, dateLabel }: BrochureCatal
 
       {/* Footer pill — agent info (mirrors BrochureScheduleTemplate) */}
       <div style={{
-        margin: '22px 50px 56px', padding: '20px 26px', borderRadius: 26,
+        margin: '20px 50px 52px', padding: '20px 26px', borderRadius: 26,
         background: CLASSIC_THEME.footerGradient, border: `3px solid ${CLASSIC_THEME.footerBorder}`,
         display: 'flex', alignItems: 'center', gap: 24, position: 'relative', zIndex: 2,
         boxShadow: '0 -18px 46px -30px rgba(150,166,142,0.34), 0 18px 38px rgba(72,43,30,0.2)',

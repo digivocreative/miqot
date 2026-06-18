@@ -959,16 +959,16 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
           type="button"
           onClick={handleDownloadCatalog}
           disabled={!catalogAllowed || !hasAnyAvailable || catalogBusy || busy !== null}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-rose-500 to-pink-600 shadow-sm shadow-rose-500/25 transition-all duration-200 active:scale-[0.99] disabled:opacity-60"
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95 disabled:opacity-70"
         >
           {catalogBusy
             ? (<><Loader2 size={17} className="animate-spin" /><span>Membuat katalog… {catalogProgress?.done ?? 0}/{catalogProgress?.total ?? 0}</span></>)
             : (<><FileDown size={17} /><span>Unduh Katalog (PDF)</span></>)}
         </button>
         {catalogBusy && catalogProgress ? (
-          <div className="mt-2 h-1.5 w-full rounded-full bg-rose-100 dark:bg-slate-700 overflow-hidden">
+          <div className="mt-2 h-1.5 w-full rounded-full bg-emerald-100 dark:bg-slate-700 overflow-hidden">
             <div
-              className="h-full bg-rose-500 transition-all duration-300"
+              className="h-full bg-emerald-500 transition-all duration-300"
               style={{ width: `${Math.round((catalogProgress.done / Math.max(1, catalogProgress.total)) * 100)}%` }}
             />
           </div>
