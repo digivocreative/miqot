@@ -22,7 +22,7 @@ const FALLBACK_DISTANCES: Record<string, string> = {
   'MOVENPICK':                    '±100m',
   'PRESTIGE EX ELAF AL MASHAER':  '±300m',
   'AL MASSA GRAND':               '±400m',
-  'AL MASSA DAR AL FAYZEEN':      '±1.8km',
+  'AL MASSA DAR AL FAYZEEN':      '±420m',
   'ROYAL MAJESTIC':               '±300m',
   'RAYYANA AJYAD':                '±300m',
   'SOFWAH ROYAL ORCHID':          '±50m',
