@@ -15,6 +15,7 @@ import {
   BROCHURE_MONTSERRAT_FONT,
   BROCHURE_OSWALD_FONT,
   BROCHURE_ROBOTO_CONDENSED_FONT,
+  BROCHURE_PLAYFAIR_FONT,
   PACKAGE_TYPES,
   derivePackageType,
   type BrochureMonth,
@@ -23,6 +24,7 @@ import {
 } from './BrochureScheduleTemplate';
 import { getAuthHeaders } from './LoginPage';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
+import { CatalogLoadingModal } from './CatalogLoadingModal';
 
 const EXPORT_MIME = 'image/jpeg';
 const EXPORT_EXT = 'jpg';
@@ -35,7 +37,7 @@ const EXPORT_SCALE = 1;
 // PDF viewer, without the ~4× file-size hit of full 2×. Slightly lower JPEG
 // quality offsets the larger dimensions to keep the overall file manageable.
 const CATALOG_SCALE = 1.5;
-const CATALOG_JPEG_QUALITY = 0.82;
+const CATALOG_JPEG_QUALITY = 0.9;
 const EXPORT_CACHE_LIMIT = 3;
 const PACKAGES_PER_IMAGE = 10;
 
@@ -265,6 +267,13 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   const [catalogProgress, setCatalogProgress] = useState<{ done: number; total: number } | null>(null);
   const [catalogStage, setCatalogStage] = useState<{ kind: 'cover' } | { kind: 'page'; page: BrochureMonth } | null>(null);
   const [catalogMeta, setCatalogMeta] = useState<{ summary: Array<{ label: string; count: number }>; dateLabel: string }>({ summary: [], dateLabel: '' });
+  // Loading-modal result (success/error) shown after the busy phase ends.
+  const [catalogResult, setCatalogResult] = useState<{ status: 'success' | 'error'; message?: string } | null>(null);
+  useEffect(() => {
+    if (catalogResult?.status !== 'success') return;
+    const t = setTimeout(() => setCatalogResult(null), 1600);
+    return () => clearTimeout(t);
+  }, [catalogResult]);
   const catalogStageRef = useRef<HTMLDivElement | null>(null);
 
   // Measure the dashboard's own sticky header at runtime so the filter row's
@@ -511,6 +520,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         document.fonts.load(`700 25px "${BROCHURE_ROBOTO_CONDENSED_FONT}"`).catch(() => null),
         document.fonts.load(`800 20px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
         document.fonts.load(`900 40px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
+        document.fonts.load(`800 150px "${BROCHURE_PLAYFAIR_FONT}"`).catch(() => null),
       ]);
       await document.fonts.ready;
       // iOS Safari sometimes resolves `fonts.ready` while individual FontFace entries
@@ -675,6 +685,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     const dateLabel = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
     const total = pages.length + 1; // + cover
     setCatalogBusy(true);
+    setCatalogResult(null);
     setCatalogProgress({ done: 0, total });
 
     // Render the current catalogStage into the off-screen node, then capture it.
@@ -725,9 +736,11 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       if (added === 0) throw new Error('semua halaman gagal dibuat');
       pdf.save(catalogFilename(agent));
       showToast(failed > 0 ? `Katalog selesai — ${failed} halaman dilewati` : 'Katalog PDF berhasil diunduh');
+      setCatalogResult({ status: 'success' });
     } catch (e) {
       console.error('[katalog] failed:', e);
       showToast(`Gagal membuat katalog: ${errMsg(e)}`);
+      setCatalogResult({ status: 'error', message: errMsg(e) });
     } finally {
       setCatalogBusy(false);
       setCatalogProgress(null);
@@ -967,18 +980,26 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
           className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95 disabled:opacity-70"
         >
           {catalogBusy
-            ? (<><Loader2 size={17} className="animate-spin" /><span>Membuat katalog… {catalogProgress?.done ?? 0}/{catalogProgress?.total ?? 0}</span></>)
+            ? (<><Loader2 size={17} className="animate-spin" /><span>Membuat katalog…</span></>)
             : (<><FileDown size={17} /><span>Unduh Katalog (PDF)</span></>)}
         </button>
-        {catalogBusy && catalogProgress && (
-          <div className="mt-2 h-1.5 w-full rounded-full bg-emerald-100 dark:bg-slate-700 overflow-hidden">
-            <div
-              className="h-full bg-emerald-500 transition-all duration-300"
-              style={{ width: `${Math.round((catalogProgress.done / Math.max(1, catalogProgress.total)) * 100)}%` }}
-            />
-          </div>
-        )}
       </div>
+
+      <CatalogLoadingModal
+        open={catalogBusy || catalogResult !== null}
+        status={catalogResult ? catalogResult.status : 'loading'}
+        stageLabel={
+          catalogStage?.kind === 'cover'
+            ? 'Menyusun sampul…'
+            : catalogStage?.kind === 'page'
+              ? `Menyiapkan ${catalogStage.page.label}…`
+              : 'Menyiapkan halaman…'
+        }
+        done={catalogProgress?.done ?? 0}
+        total={catalogProgress?.total ?? 0}
+        message={catalogResult?.message}
+        onClose={() => setCatalogResult(null)}
+      />
 
       {/* Brochure previews + per-image actions */}
       <div className="flex justify-center px-4 pt-5">
@@ -1120,10 +1141,10 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       >
         <div ref={catalogStageRef} style={{ width: BROCHURE_W, height: BROCHURE_H }}>
           {catalogStage?.kind === 'cover' && (
-            <BrochureCatalogCover agent={agent} months={catalogMeta.summary} dateLabel={catalogMeta.dateLabel} />
+            <BrochureCatalogCover agent={agent} months={catalogMeta.summary} />
           )}
           {catalogStage?.kind === 'page' && (
-            <BrochureScheduleTemplate month={catalogStage.page} agent={agent} showFullDate={false} variant="default" />
+            <BrochureScheduleTemplate month={catalogStage.page} agent={agent} showFullDate={false} variant="default" rasterSafe />
           )}
         </div>
       </div>

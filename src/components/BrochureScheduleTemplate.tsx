@@ -56,6 +56,14 @@ export interface BrochureScheduleTemplateProps {
    * 'default' (the classic red/gold brochure). See CLASSIC_THEME / WINTER_THEME.
    */
   variant?: 'default' | 'winter';
+  /**
+   * When true, render with raster-deterministic primitives only (flat title fill
+   * instead of background-clip:text + drop-shadow; solid footer shadow instead of
+   * negative-spread). Used for the catalog PDF pages so the exported document looks
+   * identical across device browser engines. The standalone monthly brochure keeps
+   * its richer styling (default false).
+   */
+  rasterSafe?: boolean;
 }
 
 // Order matters: the first matching pattern wins. Foreign extensions are
@@ -87,12 +95,14 @@ export const BROCHURE_BEBAS_FONT = 'AIW Bebas Neue';
 export const BROCHURE_OSWALD_FONT = 'AIW Oswald';
 export const BROCHURE_ROBOTO_CONDENSED_FONT = 'AIW Roboto Condensed';
 export const BROCHURE_MONTSERRAT_FONT = 'AIW Montserrat';
+export const BROCHURE_PLAYFAIR_FONT = 'AIW Playfair';
 
 export const BROCHURE_FONT_STACK = `'${BROCHURE_INTER_FONT}', 'Inter', 'Inter var', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
 export const BROCHURE_TABLE_FONT_STACK = `'${BROCHURE_BEBAS_FONT}', 'Bebas Neue', '${BROCHURE_INTER_FONT}', 'Inter', 'Arial Narrow', system-ui, sans-serif`;
 export const BROCHURE_OSWALD_FONT_STACK = `'${BROCHURE_OSWALD_FONT}', 'Oswald', '${BROCHURE_INTER_FONT}', 'Inter', 'Arial Narrow', system-ui, sans-serif`;
 export const BROCHURE_ROBOTO_CONDENSED_FONT_STACK = `'${BROCHURE_ROBOTO_CONDENSED_FONT}', 'Roboto Condensed', '${BROCHURE_INTER_FONT}', 'Inter', 'Arial Narrow', system-ui, sans-serif`;
 export const BROCHURE_MONTSERRAT_FONT_STACK = `'${BROCHURE_MONTSERRAT_FONT}', 'Montserrat', '${BROCHURE_INTER_FONT}', 'Inter', system-ui, -apple-system, sans-serif`;
+export const BROCHURE_SERIF_FONT_STACK = `'${BROCHURE_PLAYFAIR_FONT}', 'Playfair Display', Georgia, 'Times New Roman', serif`;
 export const BROCHURE_FONT_WEIGHTS = [400, 600, 700, 800, 900] as const;
 export const BROCHURE_LOCAL_FONTS = [
   { family: BROCHURE_BEBAS_FONT, src: '/fonts/brochure/BebasNeue-Regular.woff2', weight: 400, style: 'normal' },
@@ -109,6 +119,7 @@ export const BROCHURE_LOCAL_FONTS = [
   { family: BROCHURE_MONTSERRAT_FONT, src: '/fonts/brochure/Montserrat-Black.woff2', weight: 900, style: 'normal' },
   { family: BROCHURE_ROBOTO_CONDENSED_FONT, src: '/fonts/brochure/RobotoCondensed-SemiBold.woff2', weight: 600, style: 'normal' },
   { family: BROCHURE_ROBOTO_CONDENSED_FONT, src: '/fonts/brochure/RobotoCondensed-Bold.woff2', weight: 700, style: 'normal' },
+  { family: BROCHURE_PLAYFAIR_FONT, src: '/fonts/brochure/PlayfairDisplay.woff2', weight: 800, style: 'normal' },
 ] as const;
 
 export const BROCHURE_FONT_FACE_CSS = BROCHURE_LOCAL_FONTS.map(font => (
@@ -135,6 +146,10 @@ const ISLAMIC_PATTERN_BG = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3
 const DOME_IMAGE = '/img-brosur/nabawi-dome.png';
 const KABAH_IMAGE = '/img-brosur/kabah.png';
 const NABAWI_WIDE_IMAGE = '/img-brosur/nabawi-wide.png';
+// Gold 8-point-star (khatim) texture for the dark catalog cover. Plain SVG
+// background-image (gold stroke) — renders consistently across capture engines
+// (unlike CSS mask-image / filter, which the foreignObject rasterizer drops).
+const CATALOG_GOLD_PATTERN = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Cg fill='none' stroke='%23E6C36B' stroke-width='1'%3E%3Crect x='10' y='10' width='28' height='28'/%3E%3Crect x='10' y='10' width='28' height='28' transform='rotate(45 24 24)'/%3E%3Ccircle cx='24' cy='24' r='3.2'/%3E%3C/g%3E%3C/svg%3E\")";
 
 // Winter palette (Direction B — "Winter Wonderland"). Tunable; values mirror the
 // approved visual-companion mockup.
@@ -466,7 +481,7 @@ function formatDepartureMonthName(iso: string): string {
   return MONTH_FULL_ID[d.getUTCMonth()];
 }
 
-export function BrochureScheduleTemplate({ month, agent, showFullDate = false, variant = 'default' }: BrochureScheduleTemplateProps) {
+export function BrochureScheduleTemplate({ month, agent, showFullDate = false, variant = 'default', rasterSafe = false }: BrochureScheduleTemplateProps) {
   const theme = getTheme(variant);
   const photo = agent.photo || avatarFallback(agent.name);
   const phone = formatPhoneDisplay(agent.phone);
@@ -544,7 +559,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
           height: 'auto',
           objectFit: 'contain',
           opacity: 0.11,
-          filter: `saturate(0.85)${theme.landmarkFilter}`,
+          filter: rasterSafe ? 'none' : `saturate(0.85)${theme.landmarkFilter}`,
           zIndex: 0,
         }}
       />
@@ -559,7 +574,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
           height: 'auto',
           objectFit: 'contain',
           opacity: 0.07,
-          filter: `saturate(0.7)${theme.landmarkFilter}`,
+          filter: rasterSafe ? 'none' : `saturate(0.7)${theme.landmarkFilter}`,
           zIndex: 0,
         }}
       />
@@ -622,7 +637,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
             width: 100,
             height: 'auto',
             objectFit: 'contain',
-            filter: 'drop-shadow(0 10px 18px rgba(90,0,16,0.18))',
+            filter: rasterSafe ? 'none' : 'drop-shadow(0 10px 18px rgba(90,0,16,0.18))',
           }}
         />
       </div>
@@ -657,14 +672,20 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
             opacity: 0.95,
             zIndex: 0,
           }}>{monthTitle}</span>
-          <span aria-hidden="true" style={{
-            position: 'absolute',
-            inset: '0 22px 11px',
-            color: 'transparent',
-            WebkitTextStroke: `7px ${theme.titleOutline}`,
-            zIndex: 1,
-          }}>{monthTitle}</span>
-          <span style={{
+          {!rasterSafe && (
+            <span aria-hidden="true" style={{
+              position: 'absolute',
+              inset: '0 22px 11px',
+              color: 'transparent',
+              WebkitTextStroke: `7px ${theme.titleOutline}`,
+              zIndex: 1,
+            }}>{monthTitle}</span>
+          )}
+          <span style={rasterSafe ? {
+            position: 'relative',
+            zIndex: 3,
+            color: theme.paketUmrohColor,
+          } : {
             position: 'relative',
             zIndex: 3,
             color: theme.paketUmrohColor,
@@ -687,7 +708,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
           borderRadius: 999,
           background: 'rgba(255,255,255,0.78)',
           border: `2px solid ${theme.urlPillBorder}`,
-          boxShadow: '0 9px 25px rgba(90,0,16,0.08)',
+          boxShadow: rasterSafe ? 'none' : '0 9px 25px rgba(90,0,16,0.08)',
           color: theme.urlPillText,
           fontSize: 24,
           fontWeight: 900,
@@ -704,7 +725,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
         overflow: 'hidden',
         background: '#FFFFFF',
         border: `2px solid ${theme.tableBorder}`,
-        boxShadow: '0 26px 54px rgba(90,0,16,0.14)',
+        boxShadow: rasterSafe ? 'none' : '0 26px 54px rgba(90,0,16,0.14)',
         position: 'relative',
         zIndex: 2,
         fontFamily: BROCHURE_TABLE_FONT_STACK,
@@ -766,7 +787,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
                   : theme.badgeGradient,
                 color: '#fff',
                 border: `2px solid ${theme.badgeBorder}`,
-                boxShadow: '0 8px 16px rgba(90,0,16,0.18)',
+                boxShadow: rasterSafe ? '0 3px 0 rgba(90,0,16,0.22)' : '0 8px 16px rgba(90,0,16,0.18)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
@@ -777,7 +798,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
                 overflow: 'hidden',
                 gap: showFullDate ? 1 : 0,
                 opacity: soldOutContentOpacity,
-                filter: isSoldOut ? 'saturate(0.7)' : 'none',
+                filter: rasterSafe ? 'none' : (isSoldOut ? 'saturate(0.7)' : 'none'),
               }}>
                 <span style={{
                   display: 'block',
@@ -841,7 +862,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
                         lineHeight: 1,
                         letterSpacing: 0.3,
                         whiteSpace: 'nowrap',
-                        boxShadow: isSoldOut ? 'none' : '0 1px 3px rgba(0,0,0,0.14)',
+                        boxShadow: rasterSafe ? 'none' : (isSoldOut ? 'none' : '0 1px 3px rgba(0,0,0,0.14)'),
                       }}>
                         {pill.label}
                       </span>
@@ -933,7 +954,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
                       background: '#D71920',
                       color: '#fff',
                       border: '3px solid rgba(255,255,255,0.94)',
-                      boxShadow: '0 0 0 3px #D71920, 0 8px 14px rgba(90,0,16,0.14)',
+                      boxShadow: rasterSafe ? '0 0 0 3px #D71920' : '0 0 0 3px #D71920, 0 8px 14px rgba(90,0,16,0.14)',
                       fontFamily: BROCHURE_FONT_STACK,
                       fontSize: 23,
                       fontWeight: 900,
@@ -1001,9 +1022,9 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
             width: 'auto',
             objectFit: 'contain',
             opacity: 0.23,
-            filter: `saturate(0.62) contrast(0.82) brightness(1.14) drop-shadow(0 18px 34px rgba(90,0,16,0.04))${theme.landmarkFilter}`,
-            WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
-            maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
+            filter: rasterSafe ? 'none' : `saturate(0.62) contrast(0.82) brightness(1.14) drop-shadow(0 18px 34px rgba(90,0,16,0.04))${theme.landmarkFilter}`,
+            WebkitMaskImage: rasterSafe ? undefined : 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
+            maskImage: rasterSafe ? undefined : 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
           }}
         />
         <img
@@ -1017,9 +1038,9 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
             width: 'auto',
             objectFit: 'contain',
             opacity: 0.23,
-            filter: `saturate(0.62) contrast(0.82) brightness(1.14) drop-shadow(0 18px 34px rgba(90,0,16,0.04))${theme.landmarkFilter}`,
-            WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
-            maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
+            filter: rasterSafe ? 'none' : `saturate(0.62) contrast(0.82) brightness(1.14) drop-shadow(0 18px 34px rgba(90,0,16,0.04))${theme.landmarkFilter}`,
+            WebkitMaskImage: rasterSafe ? undefined : 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
+            maskImage: rasterSafe ? undefined : 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.42) 34%, rgba(0,0,0,0.34) 68%, transparent 100%)',
           }}
         />
         <div style={{
@@ -1041,7 +1062,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
         gap: 24,
         position: 'relative',
         zIndex: 2,
-        boxShadow: '0 -18px 46px -30px rgba(150,166,142,0.34), 0 18px 38px rgba(72,43,30,0.2)',
+        boxShadow: rasterSafe ? '0 16px 30px rgba(72,43,30,0.22)' : '0 -18px 46px -30px rgba(150,166,142,0.34), 0 18px 38px rgba(72,43,30,0.2)',
       }}>
         <div style={{ position: 'relative', width: 126, height: 126, flexShrink: 0 }}>
           <img
@@ -1054,7 +1075,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
             style={{
               width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover',
               border: `5px solid ${theme.avatarBorder}`,
-              boxShadow: '0 10px 26px rgba(0,0,0,0.24)',
+              boxShadow: rasterSafe ? 'none' : '0 10px 26px rgba(0,0,0,0.24)',
             }}
           />
           <span style={{
@@ -1070,7 +1091,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 6px 16px rgba(0,0,0,0.28)',
+            boxShadow: rasterSafe ? 'none' : '0 6px 16px rgba(0,0,0,0.28)',
           }}>
             <Check size={24} strokeWidth={4} />
           </span>
@@ -1115,17 +1136,6 @@ export interface BrochureCatalogCoverProps {
   agent: BrochureAgent;
   /** One entry per included month, in catalog (departure) order. */
   months: ReadonlyArray<{ label: string; count: number }>;
-  /** Already-formatted "Diperbarui" date, e.g. "18 Juni 2026". */
-  dateLabel: string;
-}
-
-const CATALOG_MAX_ROWS = 7;
-
-// 3-letter Indonesian month abbreviation from a "Juni 2026" style label.
-function catalogMonthAbbr(label: string): string {
-  const word = String(label || '').trim().split(/\s+/)[0]?.toUpperCase() || '';
-  const idx = MONTH_FULL_ID.indexOf(word);
-  return idx >= 0 ? MONTH_ABBR_ID[idx] : word.slice(0, 3);
 }
 
 // "Juni 2026 – Desember 2026" → "Juni – Desember 2026" when years match.
@@ -1140,277 +1150,104 @@ function catalogRangeLabel(months: ReadonlyArray<{ label: string }>): string {
   return `${first} – ${last}`;
 }
 
+// Radiating light rays for the catalog cover. The radial fade is baked INTO the
+// SVG (an internal mask), so it rasterizes as a plain background-image — unlike
+// a CSS mask-image on a DOM node, which the capture engine drops on some devices.
+function catalogRaysDataUri(): string {
+  let wedges = '';
+  for (let i = 0; i < 24; i++) {
+    wedges += `<path transform='rotate(${i * 15} 500 500)' d='M500 500 L522 0 L478 0 Z'/>`;
+  }
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='1000' height='1000' viewBox='0 0 1000 1000'><defs><radialGradient id='g' cx='50%' cy='50%' r='50%'><stop offset='0%' stop-color='#ffffff' stop-opacity='0.95'/><stop offset='42%' stop-color='#ffffff' stop-opacity='0.45'/><stop offset='70%' stop-color='#ffffff' stop-opacity='0'/></radialGradient><mask id='m'><rect width='1000' height='1000' fill='url(#g)'/></mask></defs><g mask='url(#m)' fill='#E6C36B'>${wedges}</g></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
 // Cover page for the multi-month "Unduh Katalog" PDF. Same canvas size, palette
 // and fonts as BrochureScheduleTemplate so it reads as one cohesive document and
 // gets captured by the identical modern-screenshot pipeline.
-export function BrochureCatalogCover({ agent, months, dateLabel }: BrochureCatalogCoverProps) {
+export function BrochureCatalogCover({ agent, months }: BrochureCatalogCoverProps) {
   const photo = agent.photo || avatarFallback(agent.name);
   const phone = formatPhoneDisplay(agent.phone);
-  const landingUrl = landingUrlForAgent(agent);
   const agentName = agent.name || 'Alhijaz';
-  const agentNameFontSize = agentName.length > 28 ? 32 : agentName.length > 22 ? 36 : agentName.length > 16 ? 39 : 42;
-  const phoneFontSize = phone.length > 14 ? 34 : 38;
-
-  const totalPaket = months.reduce((sum, m) => sum + m.count, 0);
-  const shownMonths = months.slice(0, CATALOG_MAX_ROWS);
-  const extraMonths = months.length - shownMonths.length;
+  const agentNameFontSize = agentName.length > 26 ? 38 : agentName.length > 20 ? 44 : 52;
   const rangeLabel = catalogRangeLabel(months);
 
-  const stats: Array<{ value: number; label: string }> = [
-    { value: totalPaket, label: 'Paket Pilihan' },
-    { value: months.length, label: 'Bulan Keberangkatan' },
-  ];
-
-  const heroGradient = `linear-gradient(135deg, ${DARK_RED} 0%, ${DEEP_RED} 52%, #A4001D 100%)`;
-  const goldFoil = 'linear-gradient(180deg, #FFF4D6 0%, #F4DC9A 32%, #DDA84A 64%, #B9842B 100%)';
+  // Premium dark-maroon cover built ENTIRELY from raster-deterministic primitives
+  // (flat fills, solid borders, radial-gradient "shadows", SVG background-images).
+  // NO box-shadow blur / drop-shadow / background-clip:text / mask-image / filter —
+  // those are exactly what the modern-screenshot foreignObject rasterizer renders
+  // differently (or drops) per device engine, which caused the inconsistent shadows.
+  const GOLD_SOLID = '#E8C36B';
+  const GOLD_DEEP = '#C98A2C';
+  const radiance = catalogRaysDataUri();
 
   return (
     <div style={{
-      width: BROCHURE_W,
-      height: BROCHURE_H,
-      position: 'relative',
-      overflow: 'hidden',
-      fontFamily: BROCHURE_FONT_STACK,
-      fontSynthesis: 'none',
-      background: CANVAS_BACKGROUND,
-      color: INK,
-      display: 'flex',
-      flexDirection: 'column',
+      width: BROCHURE_W, height: BROCHURE_H, position: 'relative', overflow: 'hidden',
+      fontFamily: BROCHURE_FONT_STACK, fontSynthesis: 'none', color: '#fff',
+      display: 'flex', flexDirection: 'column',
+      background: 'radial-gradient(128% 74% at 50% 7%, #7a1320 0%, #5A0010 44%, #2c0007 100%)',
     }}>
       <style>{BROCHURE_FONT_FACE_CSS}</style>
 
-      {/* Corner geometric patterns */}
-      <div aria-hidden="true" style={{
-        position: 'absolute', top: -78, right: -90, width: 500, height: 500,
-        backgroundImage: ISLAMIC_PATTERN_BG, backgroundSize: '132px 132px',
-        opacity: 0.18, transform: 'rotate(7deg)', zIndex: 0,
-      }} />
-      <div aria-hidden="true" style={{
-        position: 'absolute', left: -110, bottom: 110, width: 560, height: 560,
-        backgroundImage: ISLAMIC_PATTERN_BG, backgroundSize: '140px 140px',
-        opacity: 0.12, transform: 'rotate(-9deg)', zIndex: 0,
-      }} />
+      {/* (z0) gold islamic pattern texture */}
+      <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: CATALOG_GOLD_PATTERN, backgroundSize: '150px 150px', opacity: 0.08, zIndex: 0 }} />
+      {/* (z0) radiating light behind the Kaaba — the fade lives INSIDE the SVG → raster-safe */}
+      <div aria-hidden="true" style={{ position: 'absolute', left: '50%', top: '45%', transform: 'translate(-50%, -50%)', width: 1180, height: 1180, backgroundImage: radiance, backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat', opacity: 0.55, zIndex: 0 }} />
+      {/* (z0) warm glow */}
+      <div aria-hidden="true" style={{ position: 'absolute', left: '50%', top: '45%', transform: 'translate(-50%, -50%)', width: 920, height: 920, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,214,150,0.30) 0%, rgba(255,190,120,0.12) 40%, rgba(255,190,120,0) 68%)', zIndex: 0 }} />
+      {/* (z1) mihrab arch frame (solid border → raster-safe) */}
+      <div aria-hidden="true" style={{ position: 'absolute', top: 48, left: 92, right: 92, bottom: 372, border: '2px solid rgba(232,195,107,0.42)', borderRadius: '460px 460px 30px 30px', zIndex: 1, pointerEvents: 'none' }} />
 
-      {/* Faint landmarks at the bottom */}
-      <img src={KABAH_IMAGE} alt="" style={{
-        position: 'absolute', left: 84, bottom: 152, maxHeight: 340, width: 'auto',
-        objectFit: 'contain', opacity: 0.14,
-        filter: 'saturate(0.62) contrast(0.82) brightness(1.14)',
-        WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
-        maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
-        zIndex: 0,
-      }} />
-      <img src={NABAWI_WIDE_IMAGE} alt="" style={{
-        position: 'absolute', right: 64, bottom: 152, maxHeight: 360, width: 'auto',
-        objectFit: 'contain', opacity: 0.14,
-        filter: 'saturate(0.62) contrast(0.82) brightness(1.14)',
-        WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
-        maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
-        zIndex: 0,
-      }} />
-
-      {/* Gold double frame around the whole page */}
-      <div aria-hidden="true" style={{ position: 'absolute', inset: 16, border: `2px solid ${GOLD}`, borderRadius: 24, opacity: 0.5, zIndex: 1, pointerEvents: 'none' }} />
-      <div aria-hidden="true" style={{ position: 'absolute', inset: 25, border: `1px solid ${GOLD}`, borderRadius: 18, opacity: 0.3, zIndex: 1, pointerEvents: 'none' }} />
-
-      {/* Header strip — logo + 5 Pasti Umrah */}
-      <div style={{ height: 134, position: 'relative', zIndex: 2 }}>
-        <img src="/logo-alhijaz-besar.png" alt="Alhijaz" style={{
-          position: 'absolute', top: 38, left: 54, height: 98, width: 'auto', objectFit: 'contain',
-        }} />
-        <img src="/img-brosur/pasti-umrah.png" alt="5 Pasti Umrah" style={{
-          position: 'absolute', top: 42, right: 54, width: 94, height: 'auto', objectFit: 'contain',
-          filter: 'drop-shadow(0 10px 18px rgba(90,0,16,0.18))',
-        }} />
-      </div>
-
-      {/* HERO banner — deep maroon with gold-foil title */}
-      <div style={{
-        position: 'relative', zIndex: 2, margin: '0 50px',
-        borderRadius: 28, overflow: 'hidden',
-        background: heroGradient, border: `3px solid ${PALE_GOLD}`,
-        boxShadow: '0 26px 60px rgba(90,0,16,0.34)',
-        padding: '34px 50px 40px', textAlign: 'center',
-      }}>
-        {/* faint Kabah silhouette inside the hero */}
-        <img src={KABAH_IMAGE} alt="" style={{
-          position: 'absolute', right: -46, bottom: -44, width: 300, height: 'auto',
-          objectFit: 'contain', opacity: 0.16, filter: 'brightness(0) invert(1)', zIndex: 0,
-        }} />
-        <div aria-hidden="true" style={{
-          position: 'absolute', left: -60, top: -60, width: 320, height: 320,
-          backgroundImage: ISLAMIC_PATTERN_BG, backgroundSize: '120px 120px',
-          opacity: 0.12, filter: 'brightness(0) invert(1)', zIndex: 0,
-        }} />
-
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          {/* Ornamental eyebrow */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
-            <span style={{ width: 56, height: 2, background: `linear-gradient(90deg, rgba(248,223,161,0) 0%, ${PALE_GOLD} 100%)` }} />
-            <span style={{ width: 9, height: 9, background: PALE_GOLD, transform: 'rotate(45deg)' }} />
-            <span style={{ fontFamily: BROCHURE_OSWALD_FONT_STACK, fontSize: 24, fontWeight: 700, letterSpacing: 7, color: PALE_GOLD, lineHeight: 1 }}>KATALOG EKSKLUSIF</span>
-            <span style={{ width: 9, height: 9, background: PALE_GOLD, transform: 'rotate(45deg)' }} />
-            <span style={{ width: 56, height: 2, background: `linear-gradient(90deg, ${PALE_GOLD} 0%, rgba(248,223,161,0) 100%)` }} />
-          </div>
-
-          {/* Gold-foil title */}
-          <div style={{
-            position: 'relative', display: 'inline-block',
-            fontFamily: BROCHURE_FONT_STACK,
-            fontSize: 120, fontWeight: 900, lineHeight: 0.94, letterSpacing: -1,
-            marginTop: 14, padding: '0 14px 10px',
-          }}>
-            <span aria-hidden="true" style={{
-              position: 'absolute', inset: '0 14px 10px', transform: 'translateY(5px)',
-              color: 'rgba(0,0,0,0.40)', zIndex: 0,
-            }}>PAKET UMROH</span>
-            <span style={{
-              position: 'relative', zIndex: 1,
-              backgroundImage: goldFoil,
-              backgroundClip: 'text', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-              WebkitTextStroke: '2px rgba(255,255,255,0.28)',
-              filter: 'drop-shadow(0 3px 2px rgba(0,0,0,0.45)) drop-shadow(0 12px 18px rgba(0,0,0,0.35))',
-            }}>PAKET UMROH</span>
-          </div>
-
-          {/* Date-range pill */}
-          {rangeLabel && (
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 12,
-              margin: '4px auto 0', padding: '11px 28px 12px', borderRadius: 999,
-              background: 'rgba(255,248,236,0.96)', border: `2px solid ${PALE_GOLD}`, color: DEEP_RED,
-              boxShadow: '0 10px 24px rgba(0,0,0,0.28)',
-              fontFamily: BROCHURE_OSWALD_FONT_STACK, fontSize: 29, fontWeight: 700, letterSpacing: 0.5, lineHeight: 1,
-            }}>
-              <CalendarDays size={25} strokeWidth={2.4} />
-              {rangeLabel}
-            </div>
-          )}
-
-          {/* Tagline */}
-          <div style={{ marginTop: 14, fontSize: 21, fontWeight: 600, color: PALE_GOLD, letterSpacing: 0.3 }}>
-            Pilihan terlengkap keberangkatan umroh bersama Alhijaz
-          </div>
+      {/* (z2) Brand + title */}
+      <div style={{ position: 'relative', zIndex: 2, paddingTop: 58, textAlign: 'center' }}>
+        <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: 8, color: PALE_GOLD }}>ALHIJAZ INDOWISATA</div>
+        <div style={{ marginTop: 30, fontFamily: BROCHURE_OSWALD_FONT_STACK, fontSize: 27, fontWeight: 600, letterSpacing: 13, color: GOLD_SOLID }}>KATALOG UMROH</div>
+        {/* Title — flat solid gold + solid offset twin (no background-clip / drop-shadow) */}
+        <div style={{ position: 'relative', display: 'inline-block', marginTop: 6, fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: 150, lineHeight: 0.9, letterSpacing: 0 }}>
+          <span aria-hidden="true" style={{ position: 'absolute', left: 0, right: 0, top: 0, transform: 'translateY(7px)', color: 'rgba(0,0,0,0.42)', zIndex: 0 }}>PAKET<br />UMROH</span>
+          <span style={{ position: 'relative', zIndex: 1, color: GOLD_SOLID }}>PAKET<br />UMROH</span>
         </div>
-      </div>
-
-      {/* Stat ribbon — overlaps the hero's bottom edge */}
-      <div style={{
-        display: 'flex', margin: '-30px 74px 0', position: 'relative', zIndex: 3,
-        borderRadius: 20, background: '#FFFFFF', border: `2px solid ${PALE_GOLD}`,
-        boxShadow: '0 18px 38px rgba(90,0,16,0.18)', overflow: 'hidden',
-      }}>
-        {stats.map((stat, i) => (
-          <div key={stat.label} style={{
-            flex: 1, textAlign: 'center', padding: '14px 12px',
-            borderLeft: i > 0 ? `2px solid ${ROW_LINE}` : 'none',
-          }}>
-            <span style={{
-              fontFamily: BROCHURE_MONTSERRAT_FONT_STACK,
-              fontSize: 44, fontWeight: 900, color: BRAND_RED, lineHeight: 1,
-            }}>{stat.value}</span>
-            <div style={{ fontSize: 18, fontWeight: 700, color: MUTED, marginTop: 3, letterSpacing: 0.3 }}>{stat.label}</div>
+        {rangeLabel && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 14, marginTop: 26, padding: '14px 34px', borderRadius: 999, background: 'rgba(255,255,255,0.07)', border: '2px solid rgba(232,195,107,0.55)', color: '#fff', fontFamily: BROCHURE_OSWALD_FONT_STACK, fontSize: 31, fontWeight: 600, letterSpacing: 2, lineHeight: 1 }}>
+            <CalendarDays size={28} strokeWidth={2.4} color={GOLD_SOLID} />
+            {rangeLabel.toUpperCase()}
           </div>
-        ))}
-      </div>
-      {/* "Diperbarui" caption under the ribbon */}
-      <div style={{ marginTop: 12, textAlign: 'center', fontSize: 20, fontWeight: 700, color: MUTED, position: 'relative', zIndex: 2 }}>
-        {landingUrl} · Diperbarui {dateLabel}
+        )}
       </div>
 
-      {/* Months panel — card hugs its rows; centered in the remaining space. */}
-      <div style={{ flex: 1, position: 'relative', zIndex: 2, margin: '20px 50px 0', minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-        <div style={{
-          borderRadius: 26, overflow: 'hidden', background: '#FFFFFF',
-          border: `2px solid ${ROW_LINE}`, boxShadow: '0 26px 54px rgba(90,0,16,0.14)',
-        }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            background: CLASSIC_THEME.tableHeader, color: '#fff',
-            fontFamily: BROCHURE_ROBOTO_CONDENSED_FONT_STACK,
-            fontWeight: 600, fontSize: 28, letterSpacing: 0.5,
-            padding: '0 26px', height: 72,
-          }}>
-            <span>JADWAL KEBERANGKATAN</span>
-            <span style={{ fontSize: 22, fontWeight: 600, opacity: 0.92 }}>{months.length} BULAN</span>
+      {/* (z2) Hero Kaaba — grounded with a baked radial shadow + floor fade (no filters) */}
+      <div style={{ position: 'relative', zIndex: 2, flex: 1, minHeight: 0, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+        <div aria-hidden="true" style={{ position: 'absolute', left: '50%', bottom: 66, transform: 'translateX(-50%)', width: 720, height: 132, borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.3) 45%, rgba(0,0,0,0) 72%)' }} />
+        <img src={KABAH_IMAGE} alt="Ka'bah" style={{ position: 'relative', maxHeight: '100%', maxWidth: 660, width: 'auto', objectFit: 'contain', marginBottom: 28 }} />
+        <div aria-hidden="true" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 360, background: 'linear-gradient(180deg, rgba(22,4,10,0) 0%, rgba(22,4,10,0.5) 100%)' }} />
+      </div>
+
+      {/* (z2) Agent footer — flat panel, solid gold rule, no blur shadows */}
+      <div style={{ position: 'relative', zIndex: 2, flexShrink: 0, background: 'linear-gradient(180deg, #270510 0%, #16040a 100%)', borderTop: `3px solid ${GOLD_DEEP}`, padding: '34px 60px 48px', textAlign: 'center' }}>
+        <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 9, color: GOLD_SOLID }}>INFO &amp; PENDAFTARAN</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 28, marginTop: 24 }}>
+          <div style={{ position: 'relative', width: 132, height: 132, flexShrink: 0 }}>
+            <img
+              src={photo}
+              alt=""
+              onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = avatarFallback(agent.name); }}
+              style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', border: `4px solid ${GOLD_SOLID}` }}
+            />
+            <span aria-hidden="true" style={{ position: 'absolute', inset: -10, borderRadius: '50%', border: '2px solid rgba(232,195,107,0.4)' }} />
+            <span style={{ position: 'absolute', right: 2, bottom: 2, width: 40, height: 40, borderRadius: '50%', background: '#22c55e', border: '4px solid #16040a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Check size={22} strokeWidth={4} />
+            </span>
           </div>
-          {shownMonths.map((m, i) => (
-            <div key={`${m.label}-${i}`} style={{
-              display: 'flex', alignItems: 'center', gap: 22,
-              padding: '0 26px', height: 96,
-              background: i % 2 === 1 ? CREAM : '#FFFFFF',
-              borderTop: i === 0 ? 'none' : `1px solid ${ROW_LINE}`,
-            }}>
-              {/* Month date chip (mirrors brochure date badge) */}
-              <span style={{
-                width: 86, height: 66, flexShrink: 0, borderRadius: 14,
-                background: CLASSIC_THEME.badgeGradient, border: `2px solid ${PALE_GOLD}`,
-                boxShadow: '0 8px 16px rgba(90,0,16,0.18)', color: '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontFamily: BROCHURE_TABLE_FONT_STACK, fontSynthesis: 'none',
-                fontSize: 40, fontWeight: 400, letterSpacing: 1, lineHeight: 1,
-              }}>{catalogMonthAbbr(m.label)}</span>
-              {/* Month label + sublabel */}
-              <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{
-                  fontFamily: BROCHURE_ROBOTO_CONDENSED_FONT_STACK,
-                  fontSize: 37, fontWeight: 700, color: INK, lineHeight: 1.04,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>{m.label}</span>
-                <span style={{ fontSize: 18, fontWeight: 600, color: MUTED, letterSpacing: 0.3 }}>Keberangkatan Umroh</span>
-              </span>
-              {/* Count pill */}
-              <span style={{
-                flexShrink: 0, display: 'inline-flex', alignItems: 'baseline', gap: 6,
-                padding: '8px 16px', borderRadius: 999, background: CREAM, border: `2px solid ${PALE_GOLD}`,
-              }}>
-                <span style={{ fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, fontSize: 30, fontWeight: 900, color: BRAND_RED, lineHeight: 1 }}>{m.count}</span>
-                <span style={{ fontSize: 18, fontWeight: 700, color: DEEP_RED }}>paket</span>
-              </span>
-            </div>
-          ))}
-          {extraMonths > 0 && (
-            <div style={{
-              background: CREAM, color: DEEP_RED, fontWeight: 700, fontSize: 21,
-              padding: '13px 18px', textAlign: 'center', borderTop: `1px dashed ${GOLD}`,
-            }}>+ {extraMonths} bulan keberangkatan lainnya</div>
-          )}
-        </div>
-      </div>
-
-      {/* Footer pill — agent info (mirrors BrochureScheduleTemplate) */}
-      <div style={{
-        margin: '20px 50px 52px', padding: '20px 26px', borderRadius: 26,
-        background: CLASSIC_THEME.footerGradient, border: `3px solid ${CLASSIC_THEME.footerBorder}`,
-        display: 'flex', alignItems: 'center', gap: 24, position: 'relative', zIndex: 2,
-        boxShadow: '0 -18px 46px -30px rgba(150,166,142,0.34), 0 18px 38px rgba(72,43,30,0.2)',
-      }}>
-        <div style={{ position: 'relative', width: 126, height: 126, flexShrink: 0 }}>
-          <img
-            src={photo}
-            alt=""
-            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = avatarFallback(agent.name); }}
-            style={{
-              width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover',
-              border: `5px solid ${CLASSIC_THEME.avatarBorder}`, boxShadow: '0 10px 26px rgba(0,0,0,0.24)',
-            }}
-          />
-          <span style={{
-            position: 'absolute', right: -3, bottom: 0, width: 38, height: 38, borderRadius: '50%',
-            background: '#1D9BF0', border: '4px solid #fff', color: '#fff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 16px rgba(0,0,0,0.28)',
-          }}>
-            <Check size={24} strokeWidth={4} />
-          </span>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-          <span style={{ fontSize: 24, color: CLASSIC_THEME.footerLabel, fontWeight: 800 }}>Info &amp; Pendaftaran:</span>
-          <strong style={{ fontSize: agentNameFontSize, fontWeight: 900, color: '#fff', lineHeight: 1.05, marginTop: 3 }}>{agentName}</strong>
+          <div style={{ textAlign: 'left', minWidth: 0 }}>
+            <div style={{ fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: agentNameFontSize, color: '#fff', lineHeight: 1.02 }}>{agentName}</div>
+            <div style={{ fontSize: 21, letterSpacing: 4, textTransform: 'uppercase', color: PALE_GOLD, marginTop: 8 }}>Konsultan Umroh Alhijaz</div>
+          </div>
         </div>
         {phone && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0, color: '#fff', whiteSpace: 'nowrap' }}>
-            <WhatsAppIcon size={54} />
-            <span style={{ fontSize: phoneFontSize, fontWeight: 900, letterSpacing: 0.4, lineHeight: 1 }}>{phone}</span>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 14, marginTop: 26, padding: '16px 40px', borderRadius: 999, background: `linear-gradient(180deg, #FCEFC0 0%, ${GOLD_SOLID} 45%, ${GOLD_DEEP} 100%)`, color: '#1a0205' }}>
+            <WhatsAppIcon size={42} />
+            <span style={{ fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, fontSize: 40, fontWeight: 900, letterSpacing: 0.5, lineHeight: 1 }}>{phone}</span>
           </div>
         )}
       </div>
