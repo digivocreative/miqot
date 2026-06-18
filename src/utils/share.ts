@@ -1,3 +1,5 @@
+import { normalizeWaNumber } from './phone';
+
 // Detect coarse pointer (touch-primary device): phones, tablets.
 // Desktop with mouse → false, even on Chrome where navigator.share exists.
 export function isTouchPrimary(): boolean {
@@ -28,4 +30,32 @@ export function downloadBlob(blob: Blob, filename: string) {
   link.click();
   document.body.removeChild(link);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * Build a wa.me deep link. With a (normalizable) phone -> targeted chat;
+ * otherwise -> broadcast share sheet (recipient chosen in WhatsApp).
+ */
+export function buildWaLink(text: string, phone?: string | null): string {
+  const encoded = encodeURIComponent(text);
+  const normalized = phone ? normalizeWaNumber(phone) : null;
+  return normalized
+    ? `https://wa.me/${normalized}?text=${encoded}`
+    : `https://wa.me/?text=${encoded}`;
+}
+
+/**
+ * Share caption text: native share sheet on touch devices (so jamaah can be
+ * picked from WhatsApp), falling back to opening wa.me on desktop.
+ */
+export async function shareCaption(text: string, phone?: string | null): Promise<void> {
+  if (isTouchPrimary() && typeof navigator.share === 'function') {
+    try {
+      await navigator.share({ text });
+      return;
+    } catch {
+      /* user cancelled — fall through to wa.me */
+    }
+  }
+  window.open(buildWaLink(text, phone), '_blank', 'noopener,noreferrer');
 }

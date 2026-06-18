@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Mic, CreditCard, BarChart3, Banknote, ArrowLeftRight, Globe, FileImage, Calculator, Bot } from 'lucide-react';
+import { Mic, CreditCard, BarChart3, Banknote, ArrowLeftRight, Globe, Calculator, Bot } from 'lucide-react';
 import { trackEvent } from '../utils/analytics';
 
 interface AIToolsPageProps {
@@ -19,15 +19,6 @@ interface Tool {
 }
 
 const TOOLS: Tool[] = [
-  {
-    id: 'brosur-jadwal',
-    name: 'Brosur Jadwal',
-    desc: 'Brosur paket umroh per bulan, siap share',
-    icon: FileImage,
-    color: 'rose',
-    route: 'brosur-jadwal',
-    active: true,
-  },
   {
     id: 'kalkulasi',
     name: 'Kalkulasi',

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { X, Sparkles, Copy, ClipboardCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getSessionAuthHeaders } from '@/utils/authUtils';
-import { shareCaption } from './wa-copy/utils/waLink';
+import { shareCaption } from '@/utils/share';
 import WhatsAppIcon from './common/WhatsAppIcon';
 
 // Rate limiting: shared across every Caption AI entry point (15 generates per 2 hours per device)

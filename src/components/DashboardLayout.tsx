@@ -1,16 +1,14 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { handleAgentPhotoError } from '../lib/agent-photo';
 import {
   Calculator, ArrowLeftRight, Settings,
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
   BarChart3, Loader2, Sparkles,
   CalendarRange, TrendingUp, Mic, CreditCard,
-  DollarSign, ChevronRight, Globe, Share2, FileImage, FileText, Bot,
+  DollarSign, ChevronRight, Globe, Share2, FileImage, Bot,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
-import { parseKontenPath, kontenParentPath, kontenTitle } from './wa-copy/lib/kontenRoutes';
-import WhatsAppIcon from './common/WhatsAppIcon';
 import type { Birthday } from './BirthdayWidget';
 import { trackEvent } from '../utils/analytics';
 
@@ -34,8 +32,6 @@ const HajiPlusExportPage = lazy(() => import('./HajiPlusExportPage'));
 const KursPage = lazy(() => import('./KursPage'));
 const BrochureSchedulePage = lazy(() => import('./BrochureSchedulePage'));
 const McpIntegrationPage = lazy(() => import('./McpIntegrationPage'));
-const WaCopyPage = lazy(() => import('./wa-copy/WaCopyPage'));
-const WaCopyAdminPage = lazy(() => import('./wa-copy/admin/WaCopyAdminPage'));
 const UmrahRegisterPage = lazy(() => import('./UmrahRegisterPage'));
 // Home widgets — only mounted on the home tab; split out of the initial chunk
 // so a deep-link to a non-home dashboard route doesn't pay for them.
@@ -49,28 +45,26 @@ const BirthdayWidget = lazy(() => import('./BirthdayWidget'));
 const ShareKursModal = lazy(() => import('./ShareKursModal'));
 const BirthdayDetailSheet = lazy(() => import('./BirthdayDetailSheet'));
 
-type TabId = 'home' | 'settings' | 'wa-copy' | 'caption' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'konten' | 'ai-tools';
+type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
-  'wa-copy': 'wa-copy',
+  brosur: 'brosur',
   agents: 'agents',
   jamaah: 'jamaah',
   statistik: 'statistik',
   settings: 'settings',
   analytics: 'analytics',
-  konten: 'konten',
   'ai-tools': 'ai-tools',
 };
 
 const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
-  'wa-copy': 'wa-copy',
+  brosur: 'brosur',
   agents: 'agents',
   jamaah: 'jamaah',
   statistik: 'statistik',
   settings: 'settings',
   analytics: 'analytics',
-  konten: 'konten',
   'ai-tools': 'ai-tools',
 };
 
@@ -133,13 +127,11 @@ function getAIToolsSubFromPath(): string | null {
 const TAB_TITLES: Record<TabId, string> = {
   home: 'Dashboard',
   settings: 'Settings',
-  'wa-copy': 'WA Copy',
-  caption: 'Caption',
+  brosur: 'Brosur',
   agents: 'Agents',
   jamaah: 'Jamaah',
   statistik: 'Statistik',
   analytics: 'Analytics',
-  konten: 'Konten',
   'ai-tools': 'Tools',
 };
 
@@ -205,15 +197,15 @@ const MENU_CARDS: MenuCard[] = [
     iconAnim: 'animate-icon-rise',
   },
   {
-    id: 'wa-copy', label: 'WA Copy', desc: 'Caption, FAQ & tour leader',
-    icon: WhatsAppIcon, color: 'text-blue-600 dark:text-blue-400',
-    bgLight: 'bg-blue-50', bgDark: 'dark:bg-blue-900/20',
-    borderLight: 'border-blue-100', borderDark: 'dark:border-blue-800/40',
-    cardBg: 'bg-gradient-to-br from-sky-50 via-white to-indigo-100/70 dark:from-blue-950/40 dark:via-slate-800 dark:to-slate-800',
-    cardBorder: 'border-sky-200/70 dark:border-blue-800/40',
-    iconBg: 'bg-gradient-to-br from-sky-400 to-indigo-600 dark:from-blue-500 dark:to-indigo-700',
-    iconShadow: 'shadow-lg shadow-blue-500/30 dark:shadow-blue-900/40',
-    hoverShadow: 'hover:shadow-sky-300/40 dark:hover:shadow-blue-900/30',
+    id: 'brosur', label: 'Brosur', desc: 'Brosur paket umroh per bulan',
+    icon: FileImage, color: 'text-rose-600 dark:text-rose-400',
+    bgLight: 'bg-rose-50', bgDark: 'dark:bg-rose-900/20',
+    borderLight: 'border-rose-100', borderDark: 'dark:border-rose-800/40',
+    cardBg: 'bg-gradient-to-br from-rose-50 via-white to-pink-100/70 dark:from-rose-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-rose-200/70 dark:border-rose-800/40',
+    iconBg: 'bg-gradient-to-br from-rose-400 to-pink-600 dark:from-rose-500 dark:to-pink-700',
+    iconShadow: 'shadow-lg shadow-rose-500/30 dark:shadow-rose-900/40',
+    hoverShadow: 'hover:shadow-rose-300/40 dark:hover:shadow-rose-900/30',
     iconAnim: 'animate-icon-wiggle',
   },
   {
@@ -266,19 +258,6 @@ const MENU_CARDS: MenuCard[] = [
     iconAnim: 'animate-icon-rise',
     adminOnly: true,
   },
-  {
-    id: 'konten', label: 'Konten', desc: 'Kelola konten WA Copy',
-    icon: FileText, color: 'text-indigo-600 dark:text-indigo-400',
-    bgLight: 'bg-indigo-50', bgDark: 'dark:bg-indigo-900/20',
-    borderLight: 'border-indigo-100', borderDark: 'dark:border-indigo-800/40',
-    cardBg: 'bg-gradient-to-br from-indigo-50 via-white to-violet-100/70 dark:from-indigo-950/40 dark:via-slate-800 dark:to-slate-800',
-    cardBorder: 'border-indigo-200/70 dark:border-indigo-800/40',
-    iconBg: 'bg-gradient-to-br from-indigo-400 to-violet-600 dark:from-indigo-500 dark:to-violet-700',
-    iconShadow: 'shadow-lg shadow-indigo-500/30 dark:shadow-indigo-900/40',
-    hoverShadow: 'hover:shadow-indigo-300/40 dark:hover:shadow-indigo-900/30',
-    iconAnim: 'animate-icon-breathe',
-    adminOnly: true,
-  },
 ];
 
 export default function DashboardLayout({ session, onLogout }: { session: AuthSession; onLogout: () => void }) {
@@ -307,9 +286,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [showComingSoon, setShowComingSoon] = useState(false);
   // Analytics header slot for month dropdown
   const [analyticsHeaderRight, setAnalyticsHeaderRight] = useState<React.ReactNode>(null);
-  // History entries behind the current one that are internal konten pushes — lets
-  // konten "up" use real history.back() without ever backing out of the app.
-  const kontenPushDepth = useRef(0);
   // Flight status position
   const [flightCount, setFlightCount] = useState(-1); // -1 = not loaded yet
 
@@ -377,7 +353,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
   // Navigate tab + update URL
   const navigateTab = useCallback((tab: TabId, replace = false) => {
-    kontenPushDepth.current = 0;
     setActiveTab(tab);
     document.title = TAB_TITLES[tab] || 'Dashboard';
     const slug = TAB_TO_SLUG[tab];
@@ -396,11 +371,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     if (opts?.replace) {
       window.history.replaceState({}, '', path);
     } else {
-      // Internal konten→konten pushes are the entries konten "up" may back() over.
-      const wasKonten = window.location.pathname.startsWith('/dashboard/konten');
       window.history.pushState({}, '', path);
-      kontenPushDepth.current =
-        wasKonten && path.startsWith('/dashboard/konten') ? kontenPushDepth.current + 1 : 0;
     }
     const tab = getTabFromPath();
     setActiveTab(tab);
@@ -408,26 +379,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     setPathTick(t => t + 1);
   }, []);
 
-  // Konten "up": real back when the previous entry is our own push, else replace
-  // to the parent route (deep link / fresh tab) — never exits the app.
-  const kontenUp = useCallback(() => {
-    const { route } = parseKontenPath(window.location.pathname);
-    const parent = kontenParentPath(route);
-    if (!parent) {
-      navigateTab('home');
-      return;
-    }
-    if (kontenPushDepth.current > 0) window.history.back();
-    else navigatePath(parent, { replace: true });
-  }, [navigatePath, navigateTab]);
-
   // Listen for browser back/forward
   useEffect(() => {
     const onPopState = () => {
       const tab = getTabFromPath();
-      // Any history move within konten consumes one tracked push (forward moves
-      // undercount, which only downgrades konten "up" to a replace — never wrong UX).
-      kontenPushDepth.current = tab === 'konten' ? Math.max(0, kontenPushDepth.current - 1) : 0;
       setActiveTab(tab);
       document.title = TAB_TITLES[tab] || 'Dashboard';
       setPathTick(t => t + 1);
@@ -519,11 +474,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   setJamaahRefreshKey(k => k + 1);
                   return;
                 }
-                // Konten sub-view → step up to the parent konten view
-                if (activeTab === 'konten' && parseKontenPath(window.location.pathname).route.kind !== 'list') {
-                  kontenUp();
-                  return;
-                }
                 // If on AI Tools sub-page, go back appropriately
                 if (activeTab === 'ai-tools' && getAIToolsSubFromPath()) {
                   const aiSub = getAIToolsSubFromPath();
@@ -584,11 +534,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     </>
                   );
                 }
-                // Konten sub-views get a contextual title ("Kategori Caption",
-                // "Tambah Kategori", …) — re-evaluates via pathTick on navigation.
-                const kontenSub = activeTab === 'konten'
-                  ? kontenTitle(parseKontenPath(window.location.pathname).route)
-                  : null;
                 return (
                   <>
                     {activeCard && (
@@ -596,7 +541,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                         <activeCard.icon size={16} className={activeCard.color} />
                       </div>
                     )}
-                    <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">{kontenSub ?? activeCard?.label}</h1>
+                    <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">{activeCard?.label}</h1>
                   </>
                 );
               })()}
@@ -677,8 +622,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           {activeTab === 'settings' && (
             <SettingsPage agent={agentData} onUpdated={refreshAgent} initialTab={getSettingsTabFromPath()} />
           )}
-          {activeTab === 'wa-copy' && (
-            <WaCopyPage isAdmin={isAdmin} />
+          {activeTab === 'brosur' && (
+            <BrochureSchedulePage agent={{
+              slug: agentData.slug,
+              name: agentData.name,
+              phone: agentData.phone,
+              photo: agentData.photo || '',
+              website: agentData.website || '',
+            }} />
           )}
           {activeTab === 'agents' && isAdmin && (
             <div className="px-4 pt-4">
@@ -717,13 +668,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
           {activeTab === 'analytics' && isAdmin && (
             <AnalyticsPage onHeaderRight={setAnalyticsHeaderRight} />
-          )}
-          {activeTab === 'konten' && isAdmin && (
-            <WaCopyAdminPage
-              parsed={parseKontenPath(window.location.pathname)}
-              navigate={navigatePath}
-              navigateUp={kontenUp}
-            />
           )}
 
           {activeTab === 'ai-tools' && (() => {
@@ -817,7 +761,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             return;
           }
           const eventMap: Record<string, string> = {
-            jamaah: 'open_jamaah', 'wa-copy': 'open_wa_copy',
+            jamaah: 'open_jamaah', brosur: 'open_brosur',
             settings: 'open_settings', analytics: 'open_analytics', 'ai-tools': 'open_ai_tools',
           };
           if (eventMap[card.id]) trackEvent('feature', eventMap[card.id]);
