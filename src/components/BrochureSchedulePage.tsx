@@ -965,17 +965,13 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
             ? (<><Loader2 size={17} className="animate-spin" /><span>Membuat katalog… {catalogProgress?.done ?? 0}/{catalogProgress?.total ?? 0}</span></>)
             : (<><FileDown size={17} /><span>Unduh Katalog (PDF)</span></>)}
         </button>
-        {catalogBusy && catalogProgress ? (
+        {catalogBusy && catalogProgress && (
           <div className="mt-2 h-1.5 w-full rounded-full bg-emerald-100 dark:bg-slate-700 overflow-hidden">
             <div
               className="h-full bg-emerald-500 transition-all duration-300"
               style={{ width: `${Math.round((catalogProgress.done / Math.max(1, catalogProgress.total)) * 100)}%` }}
             />
           </div>
-        ) : (
-          <p className="mt-1.5 text-center text-[11px] text-gray-400 dark:text-slate-500">
-            Semua bulan · paket tersedia saja
-          </p>
         )}
       </div>
 
