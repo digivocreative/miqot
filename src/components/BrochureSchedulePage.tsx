@@ -1,10 +1,12 @@
 // src/components/BrochureSchedulePage.tsx
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { Options as ModernScreenshotOptions } from 'modern-screenshot';
-import { Download, Share2, Loader2, CircleCheck } from 'lucide-react';
+import { Download, Share2, Loader2, CircleCheck, FileDown } from 'lucide-react';
 import FilterDropdown from './FilterDropdown';
 import {
   BrochureScheduleTemplate,
+  BrochureCatalogCover,
   BROCHURE_W,
   BROCHURE_H,
   BROCHURE_BEBAS_FONT,
@@ -137,6 +139,18 @@ function splitPackagesIntoPages(
   return pages;
 }
 
+// Only these agent slugs may generate the multi-month catalog PDF. Others see
+// the button disabled.
+const CATALOG_ALLOWED_SLUGS = ['nikita'];
+
+function catalogFilename(agent: BrochureAgent): string {
+  const who = (agent.slug || agent.name || 'alhijaz')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'alhijaz';
+  const d = new Date();
+  const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return `katalog-umroh-${who}-${ym}.pdf`;
+}
+
 type FilterDim = 'bulan' | 'tipe' | 'maskapai' | 'landing';
 
 const FILTER_DIM_LABELS: Record<FilterDim, string> = {
@@ -238,6 +252,16 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   // and state updates would re-render every preview card for no UI benefit.
   const exportCacheRef = useRef<Map<string, ExportedImage>>(new Map());
 
+  // ── "Unduh Katalog" (multi-month PDF) state ──
+  // The catalog always uses Bulan + available-only, independent of the on-screen
+  // filter. Pages are rendered one at a time into a dedicated off-screen stage to
+  // cap memory; catalogStage drives what that stage currently shows.
+  const [catalogBusy, setCatalogBusy] = useState(false);
+  const [catalogProgress, setCatalogProgress] = useState<{ done: number; total: number } | null>(null);
+  const [catalogStage, setCatalogStage] = useState<{ kind: 'cover' } | { kind: 'page'; page: BrochureMonth } | null>(null);
+  const [catalogMeta, setCatalogMeta] = useState<{ summary: Array<{ label: string; count: number }>; dateLabel: string }>({ summary: [], dateLabel: '' });
+  const catalogStageRef = useRef<HTMLDivElement | null>(null);
+
   // Measure the dashboard's own sticky header at runtime so the filter row's
   // sticky offset matches it exactly. Hardcoded values broke when the header's
   // padding/content shifted (e.g. font scaling, browser zoom, additional right-
@@ -262,6 +286,13 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     () => months.flatMap(m => m.packages),
     [months],
   );
+  // Catalog is only meaningful when at least one month has a non-sold-out package.
+  const hasAnyAvailable = useMemo(
+    () => months.some(m => m.packages.some(p => !p.soldOut)),
+    [months],
+  );
+  // Catalog export is restricted to specific agents (see CATALOG_ALLOWED_SLUGS).
+  const catalogAllowed = CATALOG_ALLOWED_SLUGS.includes((agent.slug || '').trim().toLowerCase());
   const optionPackages = useMemo<BrochurePackage[]>(
     () => availableOnly ? allPackages.filter(p => !p.soldOut) : allPackages,
     [availableOnly, allPackages],
@@ -544,9 +575,10 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     });
   }
 
-  async function captureBlob(pageIndex: number): Promise<ExportedImage | null> {
-    const target = exportPageRefs.current[pageIndex];
-    if (!target) return null;
+  // Rasterize a single full-size brochure node to a canvas. Shared by the
+  // per-image export (captureBlob) and the catalog PDF builder so both go
+  // through the exact same font/image-wait + blank-detection + retry path.
+  async function captureCanvasFromElement(target: HTMLElement): Promise<HTMLCanvasElement> {
     await waitForFonts();
     await waitForImages(target);
     await waitForNextPaint();
@@ -596,8 +628,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         if (isMostlyBlank(canvas)) {
           throw new Error('blank-export');
         }
-        const blob = await canvasToBlob(canvas);
-        return { blob, ext: EXPORT_EXT, mime: blob.type || EXPORT_MIME };
+        return canvas;
       } catch (err) {
         lastError = err;
         console.warn(`[brosur] capture attempt ${attempt + 1} failed:`, err);
@@ -607,8 +638,96 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       }
     }
 
-    if (lastError) throw lastError;
-    return null;
+    throw lastError ?? new Error('capture-failed');
+  }
+
+  async function captureBlob(pageIndex: number): Promise<ExportedImage | null> {
+    const target = exportPageRefs.current[pageIndex];
+    if (!target) return null;
+    const canvas = await captureCanvasFromElement(target);
+    const blob = await canvasToBlob(canvas);
+    return { blob, ext: EXPORT_EXT, mime: blob.type || EXPORT_MIME };
+  }
+
+  // Build the catalog PDF: cover page + every month (available packages only,
+  // 10/page) rendered sequentially off-screen and stitched with jsPDF.
+  async function handleDownloadCatalog() {
+    if (!catalogAllowed || catalogBusy || busy !== null) return;
+
+    const summary: Array<{ label: string; count: number }> = [];
+    const pages: BrochureMonth[] = [];
+    for (const m of months) {
+      const available = m.packages.filter(p => !p.soldOut);
+      if (available.length === 0) continue;
+      summary.push({ label: m.label, count: available.length });
+      for (const pg of splitPackagesIntoPages(available, `catalog-${m.key}`, m.label)) pages.push(pg);
+    }
+    if (pages.length === 0) {
+      showToast('Tidak ada paket tersedia untuk katalog');
+      return;
+    }
+
+    const dateLabel = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
+    const total = pages.length + 1; // + cover
+    setCatalogBusy(true);
+    setCatalogProgress({ done: 0, total });
+
+    // Render the current catalogStage into the off-screen node, then capture it.
+    // flushSync guarantees the DOM is committed before modern-screenshot reads it.
+    const renderAndCapture = async (stage: { kind: 'cover' } | { kind: 'page'; page: BrochureMonth }): Promise<HTMLCanvasElement> => {
+      flushSync(() => setCatalogStage(stage));
+      const el = catalogStageRef.current;
+      if (!el) throw new Error('catalog-stage-missing');
+      return captureCanvasFromElement(el);
+    };
+
+    let added = 0;
+    let failed = 0;
+    try {
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [BROCHURE_W, BROCHURE_H], compress: true });
+      const pw = pdf.internal.pageSize.getWidth();
+      const ph = pdf.internal.pageSize.getHeight();
+
+      const addCanvas = (canvas: HTMLCanvasElement) => {
+        if (added > 0) pdf.addPage([BROCHURE_W, BROCHURE_H], 'portrait');
+        pdf.addImage(canvas.toDataURL(EXPORT_MIME, EXPORT_QUALITY), 'JPEG', 0, 0, pw, ph);
+        added += 1;
+      };
+
+      // Cover first. Set meta + stage together so the cover renders with data.
+      try {
+        flushSync(() => { setCatalogMeta({ summary, dateLabel }); setCatalogStage({ kind: 'cover' }); });
+        const el = catalogStageRef.current;
+        if (!el) throw new Error('catalog-stage-missing');
+        addCanvas(await captureCanvasFromElement(el));
+      } catch (e) {
+        failed += 1;
+        console.error('[katalog] cover failed:', e);
+      }
+      setCatalogProgress({ done: 1, total });
+
+      for (let i = 0; i < pages.length; i++) {
+        try {
+          addCanvas(await renderAndCapture({ kind: 'page', page: pages[i] }));
+        } catch (e) {
+          failed += 1;
+          console.error(`[katalog] page ${i + 1} failed:`, e);
+        }
+        setCatalogProgress({ done: i + 2, total });
+      }
+
+      if (added === 0) throw new Error('semua halaman gagal dibuat');
+      pdf.save(catalogFilename(agent));
+      showToast(failed > 0 ? `Katalog selesai — ${failed} halaman dilewati` : 'Katalog PDF berhasil diunduh');
+    } catch (e) {
+      console.error('[katalog] failed:', e);
+      showToast(`Gagal membuat katalog: ${errMsg(e)}`);
+    } finally {
+      setCatalogBusy(false);
+      setCatalogProgress(null);
+      setCatalogStage(null);
+    }
   }
 
   const pageKeys = activeImagePages.map(p => p.key).join('|');
@@ -833,6 +952,33 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         </div>
       </div>
 
+      {/* Unduh Katalog — full-width. Always Bulan + tersedia saja, terlepas dari
+          filter yang sedang aktif. */}
+      <div className="px-4 pt-3">
+        <button
+          type="button"
+          onClick={handleDownloadCatalog}
+          disabled={!catalogAllowed || !hasAnyAvailable || catalogBusy || busy !== null}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-rose-500 to-pink-600 shadow-sm shadow-rose-500/25 transition-all duration-200 active:scale-[0.99] disabled:opacity-60"
+        >
+          {catalogBusy
+            ? (<><Loader2 size={17} className="animate-spin" /><span>Membuat katalog… {catalogProgress?.done ?? 0}/{catalogProgress?.total ?? 0}</span></>)
+            : (<><FileDown size={17} /><span>Unduh Katalog (PDF)</span></>)}
+        </button>
+        {catalogBusy && catalogProgress ? (
+          <div className="mt-2 h-1.5 w-full rounded-full bg-rose-100 dark:bg-slate-700 overflow-hidden">
+            <div
+              className="h-full bg-rose-500 transition-all duration-300"
+              style={{ width: `${Math.round((catalogProgress.done / Math.max(1, catalogProgress.total)) * 100)}%` }}
+            />
+          </div>
+        ) : (
+          <p className="mt-1.5 text-center text-[11px] text-gray-400 dark:text-slate-500">
+            Semua bulan · paket tersedia saja
+          </p>
+        )}
+      </div>
+
       {/* Brochure previews + per-image actions */}
       <div className="flex justify-center px-4 pt-5">
         <div
@@ -902,7 +1048,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
                       {showShareButton && (
                         <button
                           onClick={() => handleShare(index)}
-                          disabled={busy !== null}
+                          disabled={busy !== null || catalogBusy}
                           className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
                         >
                           {shareBusy ? <Loader2 size={17} className="animate-spin" /> : <Share2 size={17} />}
@@ -911,7 +1057,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
                       )}
                       <button
                         onClick={() => handleDownload(index)}
-                        disabled={busy !== null}
+                        disabled={busy !== null || catalogBusy}
                         className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700/70 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
                       >
                         {downloadBusy ? <Loader2 size={17} className="animate-spin" /> : <Download size={17} />}
@@ -957,6 +1103,28 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
             <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} />
           </div>
         ))}
+      </div>
+
+      {/* Off-screen catalog stage — exactly one page (cover or month) is mounted
+          here at a time during PDF export, keeping peak memory to a single canvas. */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          left: -(BROCHURE_W + 80),
+          top: BROCHURE_H + 80,
+          width: BROCHURE_W,
+          pointerEvents: 'none',
+        }}
+      >
+        <div ref={catalogStageRef} style={{ width: BROCHURE_W, height: BROCHURE_H }}>
+          {catalogStage?.kind === 'cover' && (
+            <BrochureCatalogCover agent={agent} months={catalogMeta.summary} dateLabel={catalogMeta.dateLabel} />
+          )}
+          {catalogStage?.kind === 'page' && (
+            <BrochureScheduleTemplate month={catalogStage.page} agent={agent} showFullDate={false} variant="default" />
+          )}
+        </div>
       </div>
     </div>
   );

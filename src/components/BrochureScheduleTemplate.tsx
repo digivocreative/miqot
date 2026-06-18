@@ -1110,3 +1110,247 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
     </div>
   );
 }
+
+export interface BrochureCatalogCoverProps {
+  agent: BrochureAgent;
+  /** One entry per included month, in catalog (departure) order. */
+  months: ReadonlyArray<{ label: string; count: number }>;
+  /** Already-formatted "Diperbarui" date, e.g. "18 Juni 2026". */
+  dateLabel: string;
+}
+
+const CATALOG_TITLE_GRADIENT = `linear-gradient(180deg, #FF5A70 0%, ${BRAND_RED} 34%, #A4001D 68%, ${DARK_RED} 100%)`;
+const CATALOG_MAX_ROWS = 8;
+
+// Cover page for the multi-month "Unduh Katalog" PDF. Same canvas size, palette
+// and fonts as BrochureScheduleTemplate so it reads as one cohesive document and
+// gets captured by the identical modern-screenshot pipeline.
+export function BrochureCatalogCover({ agent, months, dateLabel }: BrochureCatalogCoverProps) {
+  const photo = agent.photo || avatarFallback(agent.name);
+  const phone = formatPhoneDisplay(agent.phone);
+  const landingUrl = landingUrlForAgent(agent);
+  const agentName = agent.name || 'Alhijaz';
+  const agentNameFontSize = agentName.length > 28 ? 32 : agentName.length > 22 ? 36 : agentName.length > 16 ? 39 : 42;
+  const phoneFontSize = phone.length > 14 ? 34 : 38;
+
+  const totalPaket = months.reduce((sum, m) => sum + m.count, 0);
+  const shownMonths = months.slice(0, CATALOG_MAX_ROWS);
+  const extraMonths = months.length - shownMonths.length;
+
+  return (
+    <div style={{
+      width: BROCHURE_W,
+      height: BROCHURE_H,
+      position: 'relative',
+      overflow: 'hidden',
+      fontFamily: BROCHURE_FONT_STACK,
+      fontSynthesis: 'none',
+      background: CANVAS_BACKGROUND,
+      color: INK,
+      display: 'flex',
+      flexDirection: 'column',
+    }}>
+      <style>{BROCHURE_FONT_FACE_CSS}</style>
+
+      {/* Top accent bar */}
+      <div aria-hidden="true" style={{
+        position: 'absolute', top: 0, left: 0, right: 0, height: 10,
+        background: CLASSIC_THEME.topBar, zIndex: 10,
+      }} />
+
+      {/* Corner geometric patterns */}
+      <div aria-hidden="true" style={{
+        position: 'absolute', top: -78, right: -90, width: 500, height: 500,
+        backgroundImage: ISLAMIC_PATTERN_BG, backgroundSize: '132px 132px',
+        opacity: 0.24, transform: 'rotate(7deg)', zIndex: 0,
+      }} />
+      <div aria-hidden="true" style={{
+        position: 'absolute', left: -110, top: 120, width: 560, height: 560,
+        backgroundImage: ISLAMIC_PATTERN_BG, backgroundSize: '140px 140px',
+        opacity: 0.14, transform: 'rotate(-9deg)', zIndex: 0,
+      }} />
+
+      {/* Faint landmarks at the bottom */}
+      <img src={KABAH_IMAGE} alt="" style={{
+        position: 'absolute', left: 96, bottom: 150, maxHeight: 360, width: 'auto',
+        objectFit: 'contain', opacity: 0.16,
+        filter: 'saturate(0.62) contrast(0.82) brightness(1.14)',
+        WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
+        maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
+        zIndex: 0,
+      }} />
+      <img src={NABAWI_WIDE_IMAGE} alt="" style={{
+        position: 'absolute', right: 70, bottom: 150, maxHeight: 380, width: 'auto',
+        objectFit: 'contain', opacity: 0.16,
+        filter: 'saturate(0.62) contrast(0.82) brightness(1.14)',
+        WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
+        maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
+        zIndex: 0,
+      }} />
+
+      {/* Header — logo + 5 Pasti Umrah */}
+      <div style={{ height: 168, position: 'relative', zIndex: 2 }}>
+        <img src="/logo-alhijaz-besar.png" alt="Alhijaz" style={{
+          position: 'absolute', top: 44, left: 50, height: 112, width: 'auto', objectFit: 'contain',
+        }} />
+        <img src="/img-brosur/pasti-umrah.png" alt="5 Pasti Umrah" style={{
+          position: 'absolute', top: 50, right: 50, width: 104, height: 'auto', objectFit: 'contain',
+          filter: 'drop-shadow(0 10px 18px rgba(90,0,16,0.18))',
+        }} />
+        <div style={{
+          position: 'absolute', left: 50, right: 50, bottom: 0, height: 2,
+          background: CLASSIC_THEME.headerDivider, opacity: 0.75,
+        }} />
+      </div>
+
+      {/* Title block */}
+      <div style={{ padding: '38px 60px 6px', textAlign: 'center', position: 'relative', zIndex: 2 }}>
+        <div style={{
+          fontFamily: BROCHURE_MONTSERRAT_FONT_STACK,
+          fontSize: 46, fontWeight: 800, letterSpacing: 14, color: GOLD, lineHeight: 1,
+          textShadow: '0 2px 0 rgba(255,255,255,0.5)',
+        }}>KATALOG</div>
+        <div style={{
+          position: 'relative', display: 'inline-block',
+          fontFamily: BROCHURE_MONTSERRAT_FONT_STACK,
+          fontSize: 116, fontWeight: 900, lineHeight: 0.96, letterSpacing: 0,
+          marginTop: 6, padding: '0 22px 12px',
+        }}>
+          <span aria-hidden="true" style={{
+            position: 'absolute', inset: '0 22px 12px', transform: 'translateY(6px)',
+            color: PALE_GOLD, opacity: 0.95, zIndex: 0,
+          }}>PAKET UMROH</span>
+          <span aria-hidden="true" style={{
+            position: 'absolute', inset: '0 22px 12px', color: 'transparent',
+            WebkitTextStroke: `7px ${PALE_GOLD}`, zIndex: 1,
+          }}>PAKET UMROH</span>
+          <span style={{
+            position: 'relative', zIndex: 3, color: BRAND_RED,
+            backgroundImage: CATALOG_TITLE_GRADIENT,
+            backgroundClip: 'text', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+            WebkitTextStroke: `2px ${DEEP_RED}`,
+            filter: 'drop-shadow(0 2px 0 rgba(255,255,255,0.38)) drop-shadow(0 11px 15px rgba(90,0,16,0.18))',
+          }}>PAKET UMROH</span>
+        </div>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: 'max-content', maxWidth: '100%', margin: '6px auto 0',
+          padding: '8px 22px 9px', borderRadius: 999,
+          background: 'rgba(255,255,255,0.78)', border: `2px solid ${PALE_GOLD}`,
+          boxShadow: '0 9px 25px rgba(90,0,16,0.08)',
+          color: DEEP_RED, fontSize: 24, fontWeight: 900, lineHeight: 1,
+        }}>{landingUrl}</div>
+        <div style={{ marginTop: 14, fontSize: 22, fontWeight: 700, color: MUTED }}>
+          Diperbarui {dateLabel}
+        </div>
+      </div>
+
+      {/* Stat pills */}
+      <div style={{
+        display: 'flex', justifyContent: 'center', gap: 16,
+        margin: '14px 50px 0', position: 'relative', zIndex: 2,
+      }}>
+        {[
+          { value: String(totalPaket), label: 'Paket Tersedia' },
+          { value: String(months.length), label: 'Bulan Keberangkatan' },
+        ].map(stat => (
+          <div key={stat.label} style={{
+            flex: 1, maxWidth: 340, textAlign: 'center',
+            padding: '14px 18px', borderRadius: 18,
+            background: '#FFFFFF', border: `2px solid ${ROW_LINE}`,
+            boxShadow: '0 12px 28px rgba(90,0,16,0.08)',
+          }}>
+            <div style={{
+              fontFamily: BROCHURE_MONTSERRAT_FONT_STACK,
+              fontSize: 48, fontWeight: 900, color: BRAND_RED, lineHeight: 1,
+            }}>{stat.value}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: MUTED, marginTop: 4 }}>{stat.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Months panel — card hugs its rows; spare vertical space sits below it. */}
+      <div style={{ flex: 1, position: 'relative', zIndex: 2, margin: '22px 50px 0', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <div style={{
+          borderRadius: 26, overflow: 'hidden', background: '#FFFFFF',
+          border: `2px solid ${ROW_LINE}`, boxShadow: '0 26px 54px rgba(90,0,16,0.14)',
+        }}>
+          <div style={{
+            background: CLASSIC_THEME.tableHeader, color: '#fff',
+            fontFamily: BROCHURE_ROBOTO_CONDENSED_FONT_STACK,
+            fontWeight: 600, fontSize: 28, letterSpacing: 0.5,
+            padding: '0 26px', height: 70, display: 'flex', alignItems: 'center',
+          }}>JADWAL KEBERANGKATAN</div>
+          {shownMonths.map((m, i) => (
+            <div key={`${m.label}-${i}`} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '0 26px', height: 66,
+              borderTop: i === 0 ? 'none' : `1px solid ${ROW_LINE}`,
+            }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 18, minWidth: 0 }}>
+                <span style={{
+                  width: 44, height: 44, flexShrink: 0, borderRadius: 12,
+                  background: CREAM, border: `2px solid ${PALE_GOLD}`, color: DEEP_RED,
+                  fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, fontSize: 24, fontWeight: 900,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>{i + 1}</span>
+                <span style={{
+                  fontFamily: BROCHURE_ROBOTO_CONDENSED_FONT_STACK,
+                  fontSize: 34, fontWeight: 700, color: INK,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>{m.label}</span>
+              </span>
+              <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
+                <span style={{ fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, fontSize: 32, fontWeight: 900, color: BRAND_RED }}>{m.count}</span>
+                <span style={{ fontSize: 22, fontWeight: 700, color: MUTED }}> paket</span>
+              </span>
+            </div>
+          ))}
+          {extraMonths > 0 && (
+            <div style={{
+              background: CREAM, color: DEEP_RED, fontWeight: 700, fontSize: 22,
+              padding: '12px 18px', textAlign: 'center', borderTop: `1px dashed ${GOLD}`,
+            }}>+ {extraMonths} bulan keberangkatan lainnya</div>
+          )}
+        </div>
+      </div>
+
+      {/* Footer pill — agent info (mirrors BrochureScheduleTemplate) */}
+      <div style={{
+        margin: '22px 50px 56px', padding: '20px 26px', borderRadius: 26,
+        background: CLASSIC_THEME.footerGradient, border: `3px solid ${CLASSIC_THEME.footerBorder}`,
+        display: 'flex', alignItems: 'center', gap: 24, position: 'relative', zIndex: 2,
+        boxShadow: '0 -18px 46px -30px rgba(150,166,142,0.34), 0 18px 38px rgba(72,43,30,0.2)',
+      }}>
+        <div style={{ position: 'relative', width: 126, height: 126, flexShrink: 0 }}>
+          <img
+            src={photo}
+            alt=""
+            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = avatarFallback(agent.name); }}
+            style={{
+              width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover',
+              border: `5px solid ${CLASSIC_THEME.avatarBorder}`, boxShadow: '0 10px 26px rgba(0,0,0,0.24)',
+            }}
+          />
+          <span style={{
+            position: 'absolute', right: -3, bottom: 0, width: 38, height: 38, borderRadius: '50%',
+            background: '#1D9BF0', border: '4px solid #fff', color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 16px rgba(0,0,0,0.28)',
+          }}>
+            <Check size={24} strokeWidth={4} />
+          </span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+          <span style={{ fontSize: 24, color: CLASSIC_THEME.footerLabel, fontWeight: 800 }}>Info &amp; Pendaftaran:</span>
+          <strong style={{ fontSize: agentNameFontSize, fontWeight: 900, color: '#fff', lineHeight: 1.05, marginTop: 3 }}>{agentName}</strong>
+        </div>
+        {phone && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0, color: '#fff', whiteSpace: 'nowrap' }}>
+            <WhatsAppIcon size={54} />
+            <span style={{ fontSize: phoneFontSize, fontWeight: 900, letterSpacing: 0.4, lineHeight: 1 }}>{phone}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
