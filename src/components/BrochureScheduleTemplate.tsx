@@ -146,9 +146,11 @@ const ISLAMIC_PATTERN_BG = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3
 const DOME_IMAGE = '/img-brosur/nabawi-dome.png';
 const KABAH_IMAGE = '/img-brosur/kabah.png';
 const NABAWI_WIDE_IMAGE = '/img-brosur/nabawi-wide.png';
-// Full-bleed hero photo for the catalog cover (design "Alt 3"). A real JPEG →
-// renders identically across capture engines (no CSS effects to drop).
-const CATALOG_HERO_IMAGE = '/img-brosur/cover-haram.jpg';
+// Full-bleed designed cover artwork (Alhijaz logo, landmarks & jamaah photo baked
+// in) synced from the agency CDN into public/. A real PNG → renders identically
+// across capture engines. Re-sync from https://alhijaz.b-cdn.net/png/cover-katalog.png
+// if the agency updates it.
+const CATALOG_HERO_IMAGE = '/img-brosur/cover-katalog.png';
 
 // Winter palette (Direction B — "Winter Wonderland"). Tunable; values mirror the
 // approved visual-companion mockup.
@@ -1149,77 +1151,70 @@ function catalogRangeLabel(months: ReadonlyArray<{ label: string }>): string {
   return `${first} – ${last}`;
 }
 
-// Cover page for the multi-month "Unduh Katalog" PDF (design "Alt 3"): a full-bleed
-// Masjidil-Haram photo with a gradient scrim and a clean typographic overlay. Built
-// ONLY from raster-deterministic primitives (real <img>, CSS gradients, flat fills,
-// solid borders) so the exported PDF looks identical across device browser engines —
-// no box-shadow blur / drop-shadow / background-clip:text / mask-image / filter.
+// Cover page for the multi-month "Unduh Katalog" PDF. Uses the agency's designed
+// cover artwork (CATALOG_HERO_IMAGE — logo, landmarks & jamaah photo baked in) as a
+// full-bleed background; we overlay only the headline (over the red sky) and the
+// agent contact ribbon (bottom). Raster-safe by construction: real <img>, CSS
+// gradients, flat fills, solid borders — no box-shadow blur / drop-shadow /
+// background-clip:text / mask-image / filter.
 export function BrochureCatalogCover({ agent, months }: BrochureCatalogCoverProps) {
   const photo = agent.photo || avatarFallback(agent.name);
   const phone = formatPhoneDisplay(agent.phone);
   const agentName = agent.name || 'Alhijaz';
-  const agentNameFontSize = agentName.length > 26 ? 30 : agentName.length > 20 ? 34 : 40;
+  const agentNameFontSize = agentName.length > 26 ? 30 : agentName.length > 20 ? 34 : 38;
   const rangeLabel = catalogRangeLabel(months);
   const GOLD = '#E8C36B';
 
   return (
     <div style={{
       width: BROCHURE_W, height: BROCHURE_H, position: 'relative', overflow: 'hidden',
-      fontFamily: BROCHURE_FONT_STACK, fontSynthesis: 'none', color: '#fff',
-      display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'center',
-      padding: '74px 84px 58px', background: '#0A0A0A',
+      fontFamily: BROCHURE_FONT_STACK, fontSynthesis: 'none', color: '#fff', background: '#7a0f1a',
     }}>
       <style>{BROCHURE_FONT_FACE_CSS}</style>
 
-      {/* Full-bleed hero photo */}
+      {/* Full-bleed designed cover artwork */}
       <img src={CATALOG_HERO_IMAGE} alt="" aria-hidden="true" style={{
         position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0,
       }} />
-      {/* Legibility scrim — CSS gradient (raster-safe) */}
+
+      {/* Soft scrim behind the headline for legibility on the red sky (raster-safe gradient) */}
       <div aria-hidden="true" style={{
-        position: 'absolute', inset: 0, zIndex: 1,
-        background: 'linear-gradient(180deg, rgba(8,8,8,0.78) 0%, rgba(8,8,8,0) 40%, rgba(8,8,8,0.18) 62%, rgba(8,8,8,0.95) 100%)',
+        position: 'absolute', top: 0, left: 0, right: 0, height: 600, zIndex: 1,
+        background: 'radial-gradient(58% 64% at 50% 30%, rgba(90,0,16,0.45) 0%, rgba(90,0,16,0) 72%)',
       }} />
 
-      {/* Top — brand + eyebrow */}
-      <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-        <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: 8, color: '#F3EEE2' }}>ALHIJAZ INDOWISATA</div>
-        <div style={{ fontSize: 25, fontWeight: 600, letterSpacing: 13, color: GOLD }}>KATALOG UMROH</div>
+      {/* Headline over the red sky */}
+      <div style={{ position: 'absolute', top: 150, left: 90, right: 90, zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+        <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: 13, color: GOLD }}>KATALOG UMROH</div>
+        <div style={{ marginTop: 10, fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: 112, lineHeight: 0.95, color: '#fff' }}>Paket<br />Umroh</div>
+        <div style={{ width: 96, height: 3, borderRadius: 2, background: GOLD, margin: '22px 0 14px' }} />
+        {rangeLabel && <div style={{ fontSize: 30, fontWeight: 600, letterSpacing: 4, color: '#FBF3DF' }}>{rangeLabel}</div>}
       </div>
 
-      {/* Bottom — title + date + agent */}
-      <div style={{ position: 'relative', zIndex: 2, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div style={{ fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: 160, lineHeight: 0.94, textAlign: 'center', color: '#fff' }}>
-          Paket<br />Umroh
-        </div>
-        <div style={{ width: 90, height: 3, borderRadius: 2, background: GOLD, margin: '26px 0 16px' }} />
-        {rangeLabel && (
-          <div style={{ fontSize: 29, fontWeight: 600, letterSpacing: 4, color: '#F3EEE2' }}>{rangeLabel}</div>
-        )}
-
-        <div style={{
-          width: '100%', marginTop: 38, paddingTop: 26, borderTop: '1.5px solid rgba(255,255,255,0.22)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-            <img
-              src={photo}
-              alt=""
-              onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = avatarFallback(agent.name); }}
-              style={{ width: 106, height: 106, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${GOLD}` }}
-            />
-            <div style={{ textAlign: 'left', minWidth: 0 }}>
-              <div style={{ fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: agentNameFontSize, color: '#fff', lineHeight: 1.05 }}>{agentName}</div>
-              <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: 2, color: '#D9CBA6', marginTop: 4 }}>KONSULTAN UMROH ALHIJAZ</div>
-            </div>
+      {/* Agent contact ribbon at the very bottom */}
+      <div style={{
+        position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 2, height: 158, padding: '0 56px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        background: 'linear-gradient(180deg, rgba(74,0,11,0) 0%, rgba(74,0,11,0.92) 28%, #3c0008 100%)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+          <img
+            src={photo}
+            alt=""
+            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = avatarFallback(agent.name); }}
+            style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${GOLD}` }}
+          />
+          <div style={{ textAlign: 'left', minWidth: 0 }}>
+            <div style={{ fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: agentNameFontSize, color: '#fff', lineHeight: 1.05 }}>{agentName}</div>
+            <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: 2, color: '#E8D6A8', marginTop: 4 }}>KONSULTAN UMROH ALHIJAZ</div>
           </div>
-          {phone && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: GOLD }}>
-              <WhatsAppIcon size={42} />
-              <span style={{ fontSize: 32, fontWeight: 700, color: '#fff' }}>{phone}</span>
-            </div>
-          )}
         </div>
+        {phone && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: GOLD }}>
+            <WhatsAppIcon size={40} />
+            <span style={{ fontSize: 32, fontWeight: 700, color: '#fff' }}>{phone}</span>
+          </div>
+        )}
       </div>
     </div>
   );
