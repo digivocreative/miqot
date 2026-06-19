@@ -1193,26 +1193,26 @@ export function BrochureCatalogCover({ agent, months }: BrochureCatalogCoverProp
 
       {/* Agent contact ribbon at the very bottom */}
       <div style={{
-        position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 2, height: 158, padding: '0 56px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 2, height: 158, padding: '0 50px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 28,
         background: 'linear-gradient(180deg, rgba(74,0,11,0) 0%, rgba(74,0,11,0.92) 28%, #3c0008 100%)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, flex: 1, minWidth: 0 }}>
           <img
             src={photo}
             alt=""
             onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = avatarFallback(agent.name); }}
-            style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${GOLD}` }}
+            style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${GOLD}`, flexShrink: 0 }}
           />
           <div style={{ textAlign: 'left', minWidth: 0 }}>
-            <div style={{ fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: agentNameFontSize, color: '#fff', lineHeight: 1.05 }}>{agentName}</div>
-            <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: 2, color: '#E8D6A8', marginTop: 4 }}>KONSULTAN UMROH ALHIJAZ</div>
+            <div style={{ fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: agentNameFontSize, color: '#fff', lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{agentName}</div>
+            <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: 2, color: '#E8D6A8', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>KONSULTAN UMROH ALHIJAZ</div>
           </div>
         </div>
         {phone && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: GOLD }}>
-            <WhatsAppIcon size={40} />
-            <span style={{ fontSize: 32, fontWeight: 700, color: '#fff' }}>{phone}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: GOLD, flexShrink: 0 }}>
+            <WhatsAppIcon size={38} />
+            <span style={{ fontSize: 30, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>{phone}</span>
           </div>
         )}
       </div>
