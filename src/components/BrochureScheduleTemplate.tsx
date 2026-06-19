@@ -1,4 +1,4 @@
-import { Check, CalendarDays } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { normalizeWaNumber } from '../utils/phone';
 import WhatsAppIcon from './bio/WhatsAppIcon';
 
@@ -146,10 +146,9 @@ const ISLAMIC_PATTERN_BG = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3
 const DOME_IMAGE = '/img-brosur/nabawi-dome.png';
 const KABAH_IMAGE = '/img-brosur/kabah.png';
 const NABAWI_WIDE_IMAGE = '/img-brosur/nabawi-wide.png';
-// Gold 8-point-star (khatim) texture for the dark catalog cover. Plain SVG
-// background-image (gold stroke) — renders consistently across capture engines
-// (unlike CSS mask-image / filter, which the foreignObject rasterizer drops).
-const CATALOG_GOLD_PATTERN = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Cg fill='none' stroke='%23E6C36B' stroke-width='1'%3E%3Crect x='10' y='10' width='28' height='28'/%3E%3Crect x='10' y='10' width='28' height='28' transform='rotate(45 24 24)'/%3E%3Ccircle cx='24' cy='24' r='3.2'/%3E%3C/g%3E%3C/svg%3E\")";
+// Full-bleed hero photo for the catalog cover (design "Alt 3"). A real JPEG →
+// renders identically across capture engines (no CSS effects to drop).
+const CATALOG_HERO_IMAGE = '/img-brosur/cover-haram.jpg';
 
 // Winter palette (Direction B — "Winter Wonderland"). Tunable; values mirror the
 // approved visual-companion mockup.
@@ -1150,106 +1149,77 @@ function catalogRangeLabel(months: ReadonlyArray<{ label: string }>): string {
   return `${first} – ${last}`;
 }
 
-// Radiating light rays for the catalog cover. The radial fade is baked INTO the
-// SVG (an internal mask), so it rasterizes as a plain background-image — unlike
-// a CSS mask-image on a DOM node, which the capture engine drops on some devices.
-function catalogRaysDataUri(): string {
-  let wedges = '';
-  for (let i = 0; i < 24; i++) {
-    wedges += `<path transform='rotate(${i * 15} 500 500)' d='M500 500 L522 0 L478 0 Z'/>`;
-  }
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='1000' height='1000' viewBox='0 0 1000 1000'><defs><radialGradient id='g' cx='50%' cy='50%' r='50%'><stop offset='0%' stop-color='#ffffff' stop-opacity='0.95'/><stop offset='42%' stop-color='#ffffff' stop-opacity='0.45'/><stop offset='70%' stop-color='#ffffff' stop-opacity='0'/></radialGradient><mask id='m'><rect width='1000' height='1000' fill='url(#g)'/></mask></defs><g mask='url(#m)' fill='#E6C36B'>${wedges}</g></svg>`;
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-}
-
-// Cover page for the multi-month "Unduh Katalog" PDF. Same canvas size, palette
-// and fonts as BrochureScheduleTemplate so it reads as one cohesive document and
-// gets captured by the identical modern-screenshot pipeline.
+// Cover page for the multi-month "Unduh Katalog" PDF (design "Alt 3"): a full-bleed
+// Masjidil-Haram photo with a gradient scrim and a clean typographic overlay. Built
+// ONLY from raster-deterministic primitives (real <img>, CSS gradients, flat fills,
+// solid borders) so the exported PDF looks identical across device browser engines —
+// no box-shadow blur / drop-shadow / background-clip:text / mask-image / filter.
 export function BrochureCatalogCover({ agent, months }: BrochureCatalogCoverProps) {
   const photo = agent.photo || avatarFallback(agent.name);
   const phone = formatPhoneDisplay(agent.phone);
   const agentName = agent.name || 'Alhijaz';
-  const agentNameFontSize = agentName.length > 26 ? 38 : agentName.length > 20 ? 44 : 52;
+  const agentNameFontSize = agentName.length > 26 ? 30 : agentName.length > 20 ? 34 : 40;
   const rangeLabel = catalogRangeLabel(months);
-
-  // Premium dark-maroon cover built ENTIRELY from raster-deterministic primitives
-  // (flat fills, solid borders, radial-gradient "shadows", SVG background-images).
-  // NO box-shadow blur / drop-shadow / background-clip:text / mask-image / filter —
-  // those are exactly what the modern-screenshot foreignObject rasterizer renders
-  // differently (or drops) per device engine, which caused the inconsistent shadows.
-  const GOLD_SOLID = '#E8C36B';
-  const GOLD_DEEP = '#C98A2C';
-  const radiance = catalogRaysDataUri();
+  const GOLD = '#E8C36B';
 
   return (
     <div style={{
       width: BROCHURE_W, height: BROCHURE_H, position: 'relative', overflow: 'hidden',
       fontFamily: BROCHURE_FONT_STACK, fontSynthesis: 'none', color: '#fff',
-      display: 'flex', flexDirection: 'column',
-      background: 'radial-gradient(128% 74% at 50% 7%, #7a1320 0%, #5A0010 44%, #2c0007 100%)',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'center',
+      padding: '74px 84px 58px', background: '#0A0A0A',
     }}>
       <style>{BROCHURE_FONT_FACE_CSS}</style>
 
-      {/* (z0) gold islamic pattern texture */}
-      <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: CATALOG_GOLD_PATTERN, backgroundSize: '150px 150px', opacity: 0.08, zIndex: 0 }} />
-      {/* (z0) radiating light behind the Kaaba — the fade lives INSIDE the SVG → raster-safe */}
-      <div aria-hidden="true" style={{ position: 'absolute', left: '50%', top: '45%', transform: 'translate(-50%, -50%)', width: 1180, height: 1180, backgroundImage: radiance, backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat', opacity: 0.55, zIndex: 0 }} />
-      {/* (z0) warm glow */}
-      <div aria-hidden="true" style={{ position: 'absolute', left: '50%', top: '45%', transform: 'translate(-50%, -50%)', width: 920, height: 920, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,214,150,0.30) 0%, rgba(255,190,120,0.12) 40%, rgba(255,190,120,0) 68%)', zIndex: 0 }} />
-      {/* (z1) mihrab arch frame (solid border → raster-safe) */}
-      <div aria-hidden="true" style={{ position: 'absolute', top: 48, left: 92, right: 92, bottom: 372, border: '2px solid rgba(232,195,107,0.42)', borderRadius: '460px 460px 30px 30px', zIndex: 1, pointerEvents: 'none' }} />
+      {/* Full-bleed hero photo */}
+      <img src={CATALOG_HERO_IMAGE} alt="" aria-hidden="true" style={{
+        position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0,
+      }} />
+      {/* Legibility scrim — CSS gradient (raster-safe) */}
+      <div aria-hidden="true" style={{
+        position: 'absolute', inset: 0, zIndex: 1,
+        background: 'linear-gradient(180deg, rgba(8,8,8,0.78) 0%, rgba(8,8,8,0) 40%, rgba(8,8,8,0.18) 62%, rgba(8,8,8,0.95) 100%)',
+      }} />
 
-      {/* (z2) Brand + title */}
-      <div style={{ position: 'relative', zIndex: 2, paddingTop: 58, textAlign: 'center' }}>
-        <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: 8, color: PALE_GOLD }}>ALHIJAZ INDOWISATA</div>
-        <div style={{ marginTop: 30, fontFamily: BROCHURE_OSWALD_FONT_STACK, fontSize: 27, fontWeight: 600, letterSpacing: 13, color: GOLD_SOLID }}>KATALOG UMROH</div>
-        {/* Title — flat solid gold + solid offset twin (no background-clip / drop-shadow) */}
-        <div style={{ position: 'relative', display: 'inline-block', marginTop: 6, fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: 150, lineHeight: 0.9, letterSpacing: 0 }}>
-          <span aria-hidden="true" style={{ position: 'absolute', left: 0, right: 0, top: 0, transform: 'translateY(7px)', color: 'rgba(0,0,0,0.42)', zIndex: 0 }}>PAKET<br />UMROH</span>
-          <span style={{ position: 'relative', zIndex: 1, color: GOLD_SOLID }}>PAKET<br />UMROH</span>
+      {/* Top — brand + eyebrow */}
+      <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+        <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: 8, color: '#F3EEE2' }}>ALHIJAZ INDOWISATA</div>
+        <div style={{ fontSize: 25, fontWeight: 600, letterSpacing: 13, color: GOLD }}>KATALOG UMROH</div>
+      </div>
+
+      {/* Bottom — title + date + agent */}
+      <div style={{ position: 'relative', zIndex: 2, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: 160, lineHeight: 0.94, textAlign: 'center', color: '#fff' }}>
+          Paket<br />Umroh
         </div>
+        <div style={{ width: 90, height: 3, borderRadius: 2, background: GOLD, margin: '26px 0 16px' }} />
         {rangeLabel && (
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 14, marginTop: 26, padding: '14px 34px', borderRadius: 999, background: 'rgba(255,255,255,0.07)', border: '2px solid rgba(232,195,107,0.55)', color: '#fff', fontFamily: BROCHURE_OSWALD_FONT_STACK, fontSize: 31, fontWeight: 600, letterSpacing: 2, lineHeight: 1 }}>
-            <CalendarDays size={28} strokeWidth={2.4} color={GOLD_SOLID} />
-            {rangeLabel.toUpperCase()}
-          </div>
+          <div style={{ fontSize: 29, fontWeight: 600, letterSpacing: 4, color: '#F3EEE2' }}>{rangeLabel}</div>
         )}
-      </div>
 
-      {/* (z2) Hero Kaaba — grounded with a baked radial shadow + floor fade (no filters) */}
-      <div style={{ position: 'relative', zIndex: 2, flex: 1, minHeight: 0, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-        <div aria-hidden="true" style={{ position: 'absolute', left: '50%', bottom: 66, transform: 'translateX(-50%)', width: 720, height: 132, borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.3) 45%, rgba(0,0,0,0) 72%)' }} />
-        <img src={KABAH_IMAGE} alt="Ka'bah" style={{ position: 'relative', maxHeight: '100%', maxWidth: 660, width: 'auto', objectFit: 'contain', marginBottom: 28 }} />
-        <div aria-hidden="true" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 360, background: 'linear-gradient(180deg, rgba(22,4,10,0) 0%, rgba(22,4,10,0.5) 100%)' }} />
-      </div>
-
-      {/* (z2) Agent footer — flat panel, solid gold rule, no blur shadows */}
-      <div style={{ position: 'relative', zIndex: 2, flexShrink: 0, background: 'linear-gradient(180deg, #270510 0%, #16040a 100%)', borderTop: `3px solid ${GOLD_DEEP}`, padding: '34px 60px 48px', textAlign: 'center' }}>
-        <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 9, color: GOLD_SOLID }}>INFO &amp; PENDAFTARAN</div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 28, marginTop: 24 }}>
-          <div style={{ position: 'relative', width: 132, height: 132, flexShrink: 0 }}>
+        <div style={{
+          width: '100%', marginTop: 38, paddingTop: 26, borderTop: '1.5px solid rgba(255,255,255,0.22)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
             <img
               src={photo}
               alt=""
               onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = avatarFallback(agent.name); }}
-              style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', border: `4px solid ${GOLD_SOLID}` }}
+              style={{ width: 106, height: 106, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${GOLD}` }}
             />
-            <span aria-hidden="true" style={{ position: 'absolute', inset: -10, borderRadius: '50%', border: '2px solid rgba(232,195,107,0.4)' }} />
-            <span style={{ position: 'absolute', right: 2, bottom: 2, width: 40, height: 40, borderRadius: '50%', background: '#22c55e', border: '4px solid #16040a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Check size={22} strokeWidth={4} />
-            </span>
+            <div style={{ textAlign: 'left', minWidth: 0 }}>
+              <div style={{ fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: agentNameFontSize, color: '#fff', lineHeight: 1.05 }}>{agentName}</div>
+              <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: 2, color: '#D9CBA6', marginTop: 4 }}>KONSULTAN UMROH ALHIJAZ</div>
+            </div>
           </div>
-          <div style={{ textAlign: 'left', minWidth: 0 }}>
-            <div style={{ fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: agentNameFontSize, color: '#fff', lineHeight: 1.02 }}>{agentName}</div>
-            <div style={{ fontSize: 21, letterSpacing: 4, textTransform: 'uppercase', color: PALE_GOLD, marginTop: 8 }}>Konsultan Umroh Alhijaz</div>
-          </div>
+          {phone && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: GOLD }}>
+              <WhatsAppIcon size={42} />
+              <span style={{ fontSize: 32, fontWeight: 700, color: '#fff' }}>{phone}</span>
+            </div>
+          )}
         </div>
-        {phone && (
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 14, marginTop: 26, padding: '16px 40px', borderRadius: 999, background: `linear-gradient(180deg, #FCEFC0 0%, ${GOLD_SOLID} 45%, ${GOLD_DEEP} 100%)`, color: '#1a0205' }}>
-            <WhatsAppIcon size={42} />
-            <span style={{ fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, fontSize: 40, fontWeight: 900, letterSpacing: 0.5, lineHeight: 1 }}>{phone}</span>
-          </div>
-        )}
       </div>
     </div>
   );
