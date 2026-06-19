@@ -796,19 +796,20 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
                 fontFamily: BROCHURE_TABLE_FONT_STACK,
                 fontSynthesis: 'none',
                 lineHeight: 0.9,
-                overflow: 'hidden',
+                overflow: 'visible',
                 gap: showFullDate ? 1 : 0,
                 opacity: soldOutContentOpacity,
                 filter: rasterSafe ? 'none' : (isSoldOut ? 'saturate(0.7)' : 'none'),
               }}>
                 <span style={{
                   display: 'block',
-                  fontFamily: BROCHURE_TABLE_FONT_STACK,
-                  fontSize: showFullDate ? 31 : 42,
-                  fontWeight: 400,
+                  fontFamily: BROCHURE_OSWALD_FONT_STACK,
+                  fontSize: String(departureDay).length >= 2 ? (showFullDate ? 27 : 36) : (showFullDate ? 31 : 44),
+                  fontWeight: 700,
                   fontSynthesis: 'none',
-                  lineHeight: 0.9,
+                  lineHeight: 1,
                   letterSpacing: 0,
+                  whiteSpace: 'nowrap',
                 }}>{departureDay}</span>
                 {showFullDate && departureMonthName && (
                   <span style={{

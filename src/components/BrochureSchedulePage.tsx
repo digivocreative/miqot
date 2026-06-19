@@ -515,6 +515,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         document.fonts.load(`400 42px "${BROCHURE_BEBAS_FONT}"`).catch(() => null),
         document.fonts.load(`500 25px "${BROCHURE_OSWALD_FONT}"`).catch(() => null),
         document.fonts.load(`700 17px "${BROCHURE_OSWALD_FONT}"`).catch(() => null),
+        document.fonts.load(`700 44px "${BROCHURE_OSWALD_FONT}"`).catch(() => null),
         document.fonts.load(`600 24px "${BROCHURE_ROBOTO_CONDENSED_FONT}"`).catch(() => null),
         document.fonts.load(`600 28px "${BROCHURE_ROBOTO_CONDENSED_FONT}"`).catch(() => null),
         document.fonts.load(`700 25px "${BROCHURE_ROBOTO_CONDENSED_FONT}"`).catch(() => null),
