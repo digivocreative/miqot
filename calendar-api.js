@@ -15,6 +15,7 @@
 import * as cheerio from 'cheerio';
 import { PDFParse } from 'pdf-parse';
 import { matchEventToSchedule, findSiblingKeberangkatan, tokenizeName, overlapScore } from './lib/calendar-jadwal-match.js';
+import { buildScheduleFallbackDetails, parseCalendarJadwalIds } from './lib/calendar-schedule-fallback.js';
 import { buildCookieString, isSessionExpiredHtml } from './laporan-api.js';
 
 const BASE = (process.env.INTERNAL_API_BASE || 'http://115.124.86.220') + '/aiw/staff';
@@ -205,6 +206,39 @@ function parseEventDetailHTML(html) {
   return rows;
 }
 
+async function loadScheduleFallbackMap(supabase, events) {
+  const ids = [...new Set(events.flatMap(ev => parseCalendarJadwalIds(ev.apalah)))];
+  if (ids.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from('umroh_schedules')
+    .select([
+      'jadwal_id',
+      'jadwal_nama',
+      'seat_total',
+      'seat_sisa',
+      'maskapai',
+      'berangkat_tgl',
+      'berangkat_jam',
+      'berangkat_rute',
+      'berangkat_kode_penerbangan',
+      'pulang_tgl',
+      'pulang_jam',
+      'pulang_rute',
+      'pulang_kode_penerbangan',
+      'manasik_tgl',
+      'manasik_jam',
+    ].join(','))
+    .in('jadwal_id', ids);
+
+  if (error) {
+    console.error('[Calendar] Schedule fallback query error:', error.message);
+    return new Map();
+  }
+
+  return new Map((data || []).map(row => [row.jadwal_id, row]));
+}
+
 // ── Main sync function ──
 export async function syncCalendar(supabase) {
   console.log('[Calendar] Starting sync...');
@@ -252,6 +286,9 @@ export async function syncCalendar(supabase) {
   // (dikecualikan dari stale-delete) — kegagalan parsial tidak boleh merusak data baik.
   const failedEventKeys = new Set();
   let detailsFetched = 0;
+  const scheduleFallbackById = await loadScheduleFallbackMap(supabase, filtered);
+  let fallbackUsed = 0;
+  let emptyDetails = 0;
 
   for (const event of filtered) {
     let details;
@@ -267,24 +304,24 @@ export async function syncCalendar(supabase) {
     detailsFetched++;
 
     if (details.length === 0) {
-      // No detail — store event as single row
-      allRows.push({
-        id: `${event.date}_${event.type}_0`,
-        event_date: event.date,
-        event_type: event.type,
-        group_number: null,
-        pesawat: null,
-        jam: null,
-        paket: null,
-        pax: 0,
-        staff: null,
-        tour_leader: null,
-        raw_data: event.raw || {},
-        synced_at: new Date().toISOString(),
-      });
-    } else {
-      for (const detail of details) {
-        const id = `${event.date}_${event.type}_${detail.group_number || 'x'}`;
+      const fallback = buildScheduleFallbackDetails(event, scheduleFallbackById);
+      if (fallback.length > 0) {
+        details = fallback;
+        fallbackUsed++;
+      } else {
+        // "no data!" dari modal legacy berarti detail tidak bisa dipercaya.
+        // Jangan tulis placeholder _0 karena itu akan menghapus baris detail lama.
+        failedEventKeys.add(`${event.date}_${event.type}`);
+        emptyDetails++;
+        console.warn(`[Calendar] Detail kosong utk ${event.date}/${event.type} dan fallback jadwal tidak lengkap — baris lama dipertahankan`);
+        continue;
+      }
+    }
+
+    if (details.length > 0) {
+      details.forEach((detail, idx) => {
+        const rowKey = detail.jadwal_id || detail.group_number || `row${idx + 1}`;
+        const id = `${event.date}_${event.type}_${rowKey}`;
         allRows.push({
           id,
           event_date: event.date,
@@ -293,7 +330,12 @@ export async function syncCalendar(supabase) {
           raw_data: detail,
           synced_at: new Date().toISOString(),
         });
-      }
+      });
+    } else {
+      failedEventKeys.add(`${event.date}_${event.type}`);
+      emptyDetails++;
+      console.warn(`[Calendar] Detail kosong utk ${event.date}/${event.type} — baris lama dipertahankan`);
+      continue;
     }
 
     // Throttle: 500ms between detail requests
@@ -361,6 +403,9 @@ export async function syncCalendar(supabase) {
     }
     if (failedEventKeys.size > 0) {
       console.warn(`[Calendar] ${failedEventKeys.size} event dilewati (detail gagal) — baris lamanya dipertahankan`);
+    }
+    if (fallbackUsed > 0 || emptyDetails > 0) {
+      console.log(`[Calendar] Schedule fallback: ${fallbackUsed} event dipulihkan dari umroh_schedules, ${emptyDetails} event tetap kosong`);
     }
     console.log(`[Calendar] Sync complete: ${upserted} rows upserted from ${detailsFetched} events`);
   }

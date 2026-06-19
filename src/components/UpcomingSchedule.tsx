@@ -24,6 +24,10 @@ function displayPax(d: EventDetail): number {
   return d.pax_terisi ?? d.pax ?? 0;
 }
 
+function hasDisplayableDetail(d: EventDetail): boolean {
+  return displayPax(d) > 0 || !!(d.paket || d.pesawat || d.jam || d.group_number);
+}
+
 interface CalendarEvent {
   date: string;
   type: 'manasik' | 'keberangkatan' | 'kepulangan';
@@ -169,6 +173,7 @@ export default function UpcomingSchedule() {
   const eventMap = useMemo(() => {
     const map: Record<number, Set<string>> = {};
     for (const ev of monthEvents) {
+      if (!ev.details.some(hasDisplayableDetail)) continue;
       const day = parseInt(ev.date.split('-')[2], 10);
       if (!map[day]) map[day] = new Set();
       map[day].add(ev.type);
@@ -198,8 +203,9 @@ export default function UpcomingSchedule() {
     const result: Record<TabKey, EventDetail[]> = { keberangkatan: [], kepulangan: [], manasik: [] };
     for (const ev of monthEvents) {
       if (ev.date === dateStr && result[ev.type as TabKey]) {
-        // pax > 0 saja — group_number bisa kosong dari sumber legacy padahal kloternya asli
-        const valid = ev.details.filter(d => d.pax > 0);
+        // Jangan tampilkan placeholder kosong dari sync legacy; group_number bisa kosong
+        // dari sumber lama maupun fallback jadwal, selama detail jadwalnya ada.
+        const valid = ev.details.filter(hasDisplayableDetail);
         result[ev.type as TabKey].push(...valid);
       }
     }
