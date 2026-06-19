@@ -31,6 +31,7 @@ import { regenerateOgForAgent, generatePortalJamaahOgPng, loadAgentPhotoBuffer }
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
+import { buildScheduleFlightMap, buildJamaahFlightIndex, jamaahForFlightCard } from './lib/flight-jamaah.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
 import {
@@ -8351,25 +8352,29 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
       }
     }
 
-    // Fetch agent's jamaah for all relevant departure dates
-    const jamaahByDate = new Map();
+    // Fetch agent's jamaah for all relevant departure dates, then resolve each to
+    // the SPECIFIC flight they fly on. Keying by departure date alone duplicated the
+    // whole date-cohort onto every same-day flight (e.g. SV 827 + EK 357 both 20 Juni
+    // showed the agent's identical full roster). Precise linkage:
+    //   jamaah.raw_data.id_jadwal → umroh_schedules flight code → calendar pesawat.
+    let jamaahIndex = { byKey: new Map(), unresolvedByDate: new Map() };
     if (depDatesNeeded.size > 0) {
       const { data: agentJamaah } = await supabase
         .from('jamaah')
-        .select('nama, jk, wa, tgl_berangkat')
+        .select('nama, jk, wa, tgl_berangkat, id_jadwal:raw_data->>id_jadwal')
         .eq('agent_id', req.user.id)
         .in('tgl_berangkat', Array.from(depDatesNeeded));
 
-      for (const j of (agentJamaah || [])) {
-        const dk = j.tgl_berangkat?.slice(0, 10);
-        if (!dk) continue;
-        if (!jamaahByDate.has(dk)) jamaahByDate.set(dk, []);
-        jamaahByDate.get(dk).push({ nama: j.nama, jk: j.jk || null, wa: j.wa || null });
+      const jadwalIds = [...new Set((agentJamaah || []).map(j => j.id_jadwal).filter(Boolean))];
+      let scheduleMap = new Map();
+      if (jadwalIds.length > 0) {
+        const { data: scheds } = await supabase
+          .from('umroh_schedules')
+          .select('jadwal_id, berangkat_tgl, berangkat_kode_penerbangan, pulang_tgl, pulang_kode_penerbangan')
+          .in('jadwal_id', jadwalIds);
+        scheduleMap = buildScheduleFlightMap(scheds);
       }
-      // Sort each date's jamaah alphabetically by name
-      for (const list of jamaahByDate.values()) {
-        list.sort((a, b) => (a.nama || '').localeCompare(b.nama || ''));
-      }
+      jamaahIndex = buildJamaahFlightIndex(agentJamaah, scheduleMap);
     }
 
     // Satu penerbangan bisa dipakai beberapa kloter dengan jam kalender yang
@@ -8448,11 +8453,12 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
           group: event.group_number || '',
           pax: event.pax_terisi ?? event.pax ?? 0,
           tourLeader: event.tour_leader || '',
-          jamaah: jamaahByDate.get(
-            event.event_type === 'keberangkatan'
-              ? event.event_date
-              : depDateByGroup.get(event.group_number) || ''
-          ) || [],
+          jamaah: jamaahForFlightCard(jamaahIndex, {
+            eventType: event.event_type,
+            eventDate: event.event_date,
+            flightIata: parsed.flightIata,
+            depDate: depDateByGroup.get(event.group_number) || '',
+          }),
         };
 
         // Override stale status if departure time has clearly passed
@@ -8554,11 +8560,12 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
           arrEstimated: arrLocal,
           pax: event.pax_terisi ?? event.pax ?? 0,
           tourLeader: event.tour_leader || '',
-          jamaah: jamaahByDate.get(
-            event.event_type === 'keberangkatan'
-              ? event.event_date
-              : depDateByGroup.get(event.group_number) || ''
-          ) || [],
+          jamaah: jamaahForFlightCard(jamaahIndex, {
+            eventType: event.event_type,
+            eventDate: event.event_date,
+            flightIata: parsed.flightIata,
+            depDate: depDateByGroup.get(event.group_number) || '',
+          }),
           lat: null, lng: null, alt: null, speed: null,
           progress: fallbackProgress,
           delayed: 0,
