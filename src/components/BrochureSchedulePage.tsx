@@ -146,10 +146,6 @@ function splitPackagesIntoPages(
   return pages;
 }
 
-// Only these agent slugs may generate the multi-month catalog PDF. Others see
-// the button disabled.
-const CATALOG_ALLOWED_SLUGS = ['nikita'];
-
 function catalogFilename(agent: BrochureAgent): string {
   const who = (agent.slug || agent.name || 'alhijaz')
     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'alhijaz';
@@ -305,8 +301,8 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     () => months.some(m => m.packages.some(p => !p.soldOut)),
     [months],
   );
-  // Catalog export is restricted to specific agents (see CATALOG_ALLOWED_SLUGS).
-  const catalogAllowed = CATALOG_ALLOWED_SLUGS.includes((agent.slug || '').trim().toLowerCase());
+  // Catalog export (PDF) is available to all agents.
+  const catalogAllowed = true;
   const optionPackages = useMemo<BrochurePackage[]>(
     () => availableOnly ? allPackages.filter(p => !p.soldOut) : allPackages,
     [availableOnly, allPackages],
