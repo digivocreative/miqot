@@ -15,10 +15,16 @@ const DEFAULT_INTERNAL_API_BASE = 'http://115.124.86.220';
 const CLOUDFLARE_INTERNAL_API_BASE = 'https://jadwal.alhijaz.co';
 const INTERNAL_API_BASE = (process.env.INTERNAL_API_BASE || DEFAULT_INTERNAL_API_BASE).replace(/\/+$/, '');
 const BASE = INTERNAL_API_BASE + '/aiw/staff';
+// Cloudflare base (jadwal.alhijaz.co) is deliberately NOT a login/session base:
+// its path to the legacy origin is chronically broken (522 origin-timeout + 403
+// bot-challenge), so any session that pins to it fails on submit/fetch with
+// "Gagal menghubungi server" (incident 2026-06-19). The direct IP is reliable;
+// when it's down Cloudflare 522s during the same outage, so it is no real fallback.
+// It stays in LEGACY_INTERNAL_HOSTS below so normalizeLegacyUrl still rewrites any
+// stray absolute jadwal.alhijaz.co form action back to the direct-IP session base.
 const LOGIN_BASE_CANDIDATES = Array.from(new Set([
   INTERNAL_API_BASE,
   DEFAULT_INTERNAL_API_BASE,
-  CLOUDFLARE_INTERNAL_API_BASE,
 ])).map(base => base.replace(/\/+$/, ''));
 const LEGACY_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 const LEGACY_STAFF_PATH = '/aiw/staff';
