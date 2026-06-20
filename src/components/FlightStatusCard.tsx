@@ -5,6 +5,7 @@ import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber } from '../utils/phone';
 import { flightCardDateKey, flightCardDisplayDateValue, flightCardGroupKey } from '../lib/flightCardDate';
+import { summarizeFlightShareGroup } from '../lib/flightShareSummary';
 
 const FlightMap = lazy(() => import('./FlightMap'));
 
@@ -506,6 +507,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
       const flightDateStr = flightCardDateKey(flight) || depDateStr;
       const airlineCode = flight.airline ? flight.airline.split(' ')[0]?.slice(0, 2) : (flight.flightNumber?.split(' ')[0]?.slice(0, 2) || null);
       const durationStr = flight.duration ? formatDuration(flight.duration) : null;
+      const shareSummary = summarizeFlightShareGroup(group);
       const res = await fetch('/api/flight-share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -519,9 +521,9 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
           dep_time: formatTime(flight.depActual || flight.depScheduled),
           arr_time: formatTime(flight.arrEstimated || flight.arrScheduled),
           duration: durationStr,
-          group_number: firstKloter.group || null,
-          pax: firstKloter.pax || null,
-          tour_leader: firstKloter.tourLeader || null,
+          group_number: shareSummary.group_number || firstKloter.group || null,
+          pax: shareSummary.pax || firstKloter.pax || null,
+          tour_leader: shareSummary.tour_leader || firstKloter.tourLeader || null,
           airline_code: airlineCode,
           flight_status: flight.status || 'scheduled',
         }),

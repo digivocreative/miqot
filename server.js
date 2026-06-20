@@ -32,6 +32,7 @@ import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
 import { buildScheduleFlightMap, buildJamaahFlightIndex, jamaahForFlightCard } from './lib/flight-jamaah.js';
+import { buildDepartureDateLookup, departureDateForCalendarEvent } from './lib/calendar-return-departure.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
 import {
@@ -8349,22 +8350,36 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
       return res.json({ success: true, data: [] });
     }
 
-    // 2a. Build departure date lookup for kepulangan events
-    // For kepulangan: find the keberangkatan event with the same group_number to get departure date
-    const kepulanganGroups = events
-      .filter(e => e.event_type === 'kepulangan' && e.group_number)
-      .map(e => e.group_number);
+    // 2a. Build departure date lookup for kepulangan events.
+    // Prefer jadwal_id; group_number is display data and may be reused, so the
+    // fallback is group+paket, then group-only only when it is unique.
+    const kepulanganEvents = events.filter(e => e.event_type === 'kepulangan');
+    let depDateLookup = buildDepartureDateLookup([]);
+    if (kepulanganEvents.length > 0) {
+      const jadwalIds = [...new Set(kepulanganEvents.map(e => e.jadwal_id).filter(Boolean))];
+      const groupNumbers = [...new Set(kepulanganEvents.map(e => e.group_number).filter(Boolean))];
+      const depEventRows = [];
 
-    let depDateByGroup = new Map(); // group_number → keberangkatan event_date
-    if (kepulanganGroups.length > 0) {
-      const { data: depEvents } = await supabase
-        .from('calendar_events')
-        .select('group_number, event_date')
-        .eq('event_type', 'keberangkatan')
-        .in('group_number', kepulanganGroups);
-      for (const e of (depEvents || [])) {
-        depDateByGroup.set(e.group_number, e.event_date);
+      if (jadwalIds.length > 0) {
+        const { data: depByJadwal } = await supabase
+          .from('calendar_events')
+          .select('jadwal_id, group_number, paket, event_date')
+          .eq('event_type', 'keberangkatan')
+          .in('jadwal_id', jadwalIds);
+        depEventRows.push(...(depByJadwal || []));
       }
+
+      if (groupNumbers.length > 0) {
+        const { data: depByGroup } = await supabase
+          .from('calendar_events')
+          .select('jadwal_id, group_number, paket, event_date')
+          .eq('event_type', 'keberangkatan')
+          .in('group_number', groupNumbers);
+        depEventRows.push(...(depByGroup || []));
+      }
+
+      const uniqueDepEvents = [...new Map(depEventRows.map(e => [`${e.jadwal_id || ''}_${e.group_number || ''}_${e.event_date}`, e])).values()];
+      depDateLookup = buildDepartureDateLookup(uniqueDepEvents);
     }
 
     // Collect all departure dates we need jamaah for (keberangkatan dates from window + mapped from kepulangan)
@@ -8372,8 +8387,8 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
     for (const event of events) {
       if (event.event_type === 'keberangkatan') {
         depDatesNeeded.add(event.event_date);
-      } else if (event.event_type === 'kepulangan' && event.group_number) {
-        const depDate = depDateByGroup.get(event.group_number);
+      } else if (event.event_type === 'kepulangan') {
+        const depDate = departureDateForCalendarEvent(event, depDateLookup);
         if (depDate) depDatesNeeded.add(depDate);
       }
     }
@@ -8488,7 +8503,7 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
             eventType: event.event_type,
             eventDate: event.event_date,
             flightIata: parsed.flightIata,
-            depDate: depDateByGroup.get(event.group_number) || '',
+            depDate: departureDateForCalendarEvent(event, depDateLookup),
           }),
         };
 
@@ -8596,7 +8611,7 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
             eventType: event.event_type,
             eventDate: event.event_date,
             flightIata: parsed.flightIata,
-            depDate: depDateByGroup.get(event.group_number) || '',
+            depDate: departureDateForCalendarEvent(event, depDateLookup),
           }),
           lat: null, lng: null, alt: null, speed: null,
           progress: fallbackProgress,
