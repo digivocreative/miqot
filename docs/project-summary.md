@@ -15,7 +15,7 @@
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript, Vite 4, TailwindCSS 3 |
 | **Backend** | Express 5 (Node.js), ES Modules |
-| **Database** | Supabase (PostgreSQL) — 16 tabel: `agents`, `capi_configs`, `capi_event_logs`, `jamaah`, `jamaah_haji`, `calendar_events`, `calendar_insights`, `ai_credits`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events`, `analytics_events_daily`, `umroh_schedules`, `kurs_cache` |
+| **Database** | Supabase (PostgreSQL) — 17 tabel: `agents`, `agent_slug_history`, `capi_configs`, `capi_event_logs`, `jamaah`, `jamaah_haji`, `calendar_events`, `calendar_insights`, `ai_credits`, `flight_status`, `flight_shares`, `itineraries`, `haji_plus_stats`, `analytics_events`, `analytics_events_daily`, `umroh_schedules`, `kurs_cache` |
 | **Telegram** | Telegram Bot API — group alerts (node-cron) + per-agent DM (deep link connect, departure reminders, pembayaran masuk) |
 | **Auth** | JWT custom (bcrypt + jsonwebtoken), bukan Supabase Auth |
 | **PDF** | `@react-pdf/renderer` (generate quotation), `react-pdf` + pdfjs (view itinerary) |
@@ -68,7 +68,7 @@ Client (Browser)
 
 ```
 alhijaz/
-├── server.js              # Express backend (~8090 lines) — API, proxy, auth, register, sync, stats, AI insight, AI tools, flight tracking, analytics, CAPI event logs, PIN auth, SPA serve
+├── server.js              # Express backend (~9050 lines) — API, proxy, auth, register, sync, stats, AI insight, AI tools, flight tracking, analytics, CAPI event logs, PIN auth, landing config, umrah jamaah register + KTP OCR, SPA serve
 ├── instrument.mjs         # Sentry initialization (must be imported before everything else)
 ├── laporan-api.js          # Lightweight HTTP session-based fetch + HTML parse (Cheerio)
 ├── calendar-api.js         # Calendar scraper — fetch FullCalendar events from internal system, detail via _jmodal.php
@@ -86,19 +86,21 @@ alhijaz/
 │   ├── main.tsx            # Entry point — routing, PWA registration, page resolution
 │   ├── App.tsx             # Main SPA component — package list, filters, layout
 │   ├── index.css           # Global CSS (TailwindCSS + custom animations)
-│   ├── components/         # 43 React components
+│   ├── components/         # 45 React components
 │   │   ├── PackageCard.tsx        # Card paket umroh (komponen terbesar, ~2452 lines) — flag overlay per negara tujuan
 │   │   ├── DashboardProfile.tsx   # Edit profile + photo crop + Telegram + AIW internal system + PIN management (~2334 lines)
 │   │   ├── CapiPage.tsx           # Meta Conversion API config UI + event log (~1876 lines)
 │   │   ├── KalkulasiPage.tsx      # Hitung harga + generate quotation PDF (~1498 lines)
-│   │   ├── JamaahPage.tsx         # View jamaah umroh data, sync & filter (~1435 lines)
+│   │   ├── JamaahPage.tsx         # View jamaah umroh data, sync & filter (~1479 lines)
+│   │   ├── UmrahRegisterPage.tsx  # Admin: form pendaftaran jamaah umroh — proxy ke legacy PHP, KTP OCR auto-fill, dependent paket dropdown (~1291 lines)
 │   │   ├── HajiPage.tsx           # View jamaah haji data, login to legacy, sync, document viewer popup (~1171 lines)
 │   │   ├── FlightStatusCard.tsx   # Real-time flight tracking with AirLabs API, grouped kloter cards, share link (~1159 lines)
 │   │   ├── ComparePage.tsx        # Bandingkan 2 paket side-by-side (~1101 lines)
 │   │   ├── StatistikPage.tsx      # Dashboard statistik: ringkasan jamaah, komisi, chart tren, PIN-gated (~1070 lines)
 │   │   ├── AgentManagementPage.tsx # Admin: manage all agents CRUD + approval (~851 lines)
 │   │   ├── FlightSharePage.tsx    # Public flight share page /f/:code — hero card, map, boarding pass, weather, agent CTA (~830 lines)
-│   │   ├── DashboardLayout.tsx    # Dashboard home + navigation + tab routing (~796 lines)
+│   │   ├── DashboardLayout.tsx    # Dashboard home + navigation + tab routing (~813 lines)
+│   │   ├── LandingPagePage.tsx    # Landing page settings — per-type (umroh/haji) OG title/description/image, char counters, live preview (~775 lines)
 │   │   ├── SimulasiHajiPlus.tsx   # Haji Plus simulation calculator — package pricing, USD→IDR, inflation projection, export PNG (~676 lines)
 │   │   ├── LoginPage.tsx          # Login + JWT session management (~673 lines)
 │   │   ├── AnalyticsPage.tsx      # Analytics dashboard with event tracking charts (~584 lines)
@@ -152,6 +154,11 @@ alhijaz/
 │       ├── umroh-package.ts    # TypeScript interfaces for package data
 │       └── index.ts            # Re-exports
 │
+├── lib/                    # Backend modules (extracted dari server.js)
+│   ├── analytics-maintenance.js  # Daily aggregation `analytics_events` → `analytics_events_daily`, retention cleanup (analytics 14d / capi_event_logs 30d)
+│   ├── og-generator.mjs          # OG image generation per agent
+│   └── sync-cleanup.js           # Safe deletions guard untuk sync (computeSafeDeletions)
+│
 ├── functions/              # SSR functions
 │   ├── [slug]/umroh.ts     # SSR landing page template (Cloudflare-compatible)
 │   ├── [slug]/haji.ts      # SSR Haji Plus landing page
@@ -190,7 +197,11 @@ alhijaz/
 │   ├── migrate-capi-purchase-status.js # Add capi_purchase_status to jamaah tables
 │   ├── migrate-umroh-schedules-table.js # Create umroh_schedules table
 │   ├── migrate-ai-credits.js        # Create ai_credits table
-│   └── check-ai-credits.js          # Debug script for AI credit status
+│   ├── check-ai-credits.js          # Debug script for AI credit status
+│   ├── migrate-analytics-daily.js   # Create analytics_events_daily aggregate table
+│   ├── backfill-analytics-daily.js  # One-shot backfill historical aggregation ke analytics_events_daily
+│   ├── migrate-landing-config.js    # Add landing_config JSONB column to agents
+│   └── test-cleanup-guard.mjs       # Ad-hoc test for lib/sync-cleanup.js
 │
 ├── public/                 # Static assets
 │   ├── og/                 # OG images per agent (slug.png)
@@ -222,7 +233,8 @@ alhijaz/
 ## 5. Fitur Utama
 
 ### Fitur Public (Calon Jamaah)
-- Daftar paket umroh dengan filter (maskapai, hotel, harga, tanggal, waktu penerbangan)
+- Daftar paket umroh dengan filter (maskapai, hotel, harga, tanggal, waktu penerbangan, kategori paket: UMROH BINTANG 5 / UMROH CUTI 5 HARI / dll.)
+  - **UMROH CUTI 5 HARI**: filter khusus paket weekend yang berangkat Jumat malam/Sabtu dan pulang Sabtu/Minggu/Senin dini hari (cocok untuk pekerja kantoran)
 - View card detail paket (harga per room type, info hotel, seat tersisa)
 - Compact view mode (toggle antara card lengkap dan card ringkas)
 - Download/share brosur (image) dan itinerary (PDF/image)
@@ -317,6 +329,15 @@ alhijaz/
   - **Haji Plus** (`/dashboard/ai-tools/haji-plus`): Visualisasi data jamaah Haji Plus per tahun, grafik Recharts (multi-color bar chart), stat cards ber-icon, dan fitur export infografis PNG.
   - **Simulasi Haji Plus** (`/dashboard/ai-tools/haji-plus/simulasi`): Kalkulator harga Haji Plus — pilih paket RAHMAH ($15,700/5-star) atau UHUD ($12,500/4-star), DP $4,500/orang, pelunasan 6 bulan sebelum berangkat, proyeksi inflasi 1.5%/tahun, export PNG + share via native share.
   - **Brosur Generator** (`/dashboard/ai-tools/brosur`): Segera hadir (disabled) untuk fitur mendatang.
+  - **Landing Page Settings** (`/dashboard/ai-tools/landing-page`): Atur OG title, description, dan custom OG image per tipe landing (Umroh / Haji). Type tabs, char counter (gray→amber→red saat melebihi limit Yoast 60/160), live preview, upload via PhotoCropModal, fallback ke default agent description.
+- **Pendaftaran Jamaah Umroh** (`/dashboard/jamaah/daftar`, **Admin only**) — form pendaftaran multi-section yang nge-proxy langsung ke sistem PHP legacy:
+  - Sectioned form (Pendaftaran, Data Jamaah, Alamat, Paket & Marketing, Pendaftar, Lainnya) dengan urutan field deterministik via FIELD_CONFIG mapping
+  - **KTP OCR** auto-fill: upload foto KTP → OCR backend (`/api/umrah/ocr-ktp`) → parsed fields (NIK, nama, tempat/tgl lahir, alamat, jenis kelamin, dll.) auto-fill ke form
+  - Hidden fields auto-filled (mahram="X", kondisi_jamaah="X", tgl_daftar=hari ini)
+  - Default selects: Jenis Daftar="Jamaah Baru", Jenis Kelamin="Laki-laki", Pendamping="Berangkat Sendiri", Pengalaman Umrah="Belum Pernah"
+  - Searchable select untuk jadwal keberangkatan (banyak opsi)
+  - **Dependent dropdown**: setelah pilih jadwal → fetch paket/marketing/koordinator + extra fields via `_otb.php` AJAX endpoint legacy. Marketing & Koordinator otomatis pilih option pertama; Paket dikosongkan untuk dipilih manual
+  - Submit: multipart POST ke legacy PHP via Express proxy (file KTP optional)
 ### Fitur Infrastruktur
 - AI Copywriting (OpenAI proxy — generate caption WhatsApp)
 - Telegram Notifier (node-cron based, runs inside Express process):
@@ -330,6 +351,12 @@ alhijaz/
   - Deep link connect: agent klik tombol di dashboard → Telegram bot auto-link chat_id
   - Concurrency protection: `isCheckRunning` flag prevents overlapping `checkAndNotify` cycles
 - Background sync jamaah (semua agent, setiap 1 jam, per kantor agent masing-masing)
+- **Analytics maintenance cron** (`runAnalyticsMaintenance` di [lib/analytics-maintenance.js](../lib/analytics-maintenance.js)) — cron harian **02:00 WIB**:
+  - Aggregate raw `analytics_events` (per `date + agent_id + event_type + event_name`) → upsert ke `analytics_events_daily` (idempotent — re-run aman)
+  - Cleanup raw `analytics_events` rows yang umurnya >14 hari (data harian sudah aman di aggregate table)
+  - Cleanup `capi_event_logs` rows yang umurnya >30 hari (retention)
+  - Read-path summary (`/api/analytics/summary`) split: range >14 hari pakai `analytics_events_daily`, range terbaru pakai raw `analytics_events`
+- Kurs Mandiri cron harian (01:00 WIB) — refresh USD/SAR sell rates ke `kurs_cache`
 - Calendar sync (scrape FullCalendar dari internal system, setiap 12 jam via `setInterval`)
   - Login ke internal system → fetch halaman Beranda → parse FullCalendar events JSON
   - Fetch detail popup via `_jmodal.php` per event → parse HTML table (group, pesawat, jam, paket, PAX, staff, TL)
@@ -351,7 +378,8 @@ alhijaz/
 
 ### Tabel `agents`
 ```
-slug              TEXT PRIMARY KEY    -- "nikita", "andra", dll (lowercase)
+id                UUID PRIMARY KEY    -- migrated from slug; FK target untuk semua tabel turunan
+slug              TEXT UNIQUE NOT NULL -- "nikita", "andra", dll (lowercase) — public URL, masih dipakai untuk routing
 name              TEXT NOT NULL       -- "Nikita"
 website           TEXT                -- "alhijazindonesia.com"
 phone             TEXT                -- "62822900020"
@@ -366,10 +394,23 @@ telegram_chat_id  TEXT                -- Telegram chat ID (diisi otomatis via de
 telegram_link_token TEXT              -- Token sementara untuk deep link connect
 notification_prefs JSONB              -- Per-agent notification preferences (10 toggles, default semua true)
 pin_hash          TEXT                -- bcrypt-hashed 6-digit PIN (optional, untuk gate Statistik/komisi)
+landing_config    JSONB DEFAULT '{}'  -- Per-type (umroh/haji) OG title, description, og_image_url
 status            TEXT DEFAULT 'active' -- "pending" | "active" | "rejected" (CHECK constraint)
 registered_at     TIMESTAMPTZ        -- timestamp pendaftaran (self-registration)
 -- UNIQUE INDEX on email (WHERE email IS NOT NULL AND email != '')
 ```
+
+> **Migration note (2026-04-16)**: PK agents berubah dari `slug TEXT` → `id UUID`. Semua tabel turunan (`jamaah`, `jamaah_haji`, `calendar_events`, `flight_status`, `flight_shares`, `analytics_events*`, `ai_credits`, `capi_event_logs`) sekarang menggunakan `agent_id UUID` sebagai FK (bukan `agent_slug`). JWT payload sekarang berisi `{ id, slug, name, role }`. Slug masih dipakai sebagai URL publik & lookup, tapi mutasi data tidak lagi destructive saat agent ganti slug.
+
+### Tabel `agent_slug_history`
+```
+agent_id      UUID NOT NULL        -- FK to agents.id
+old_slug      TEXT NOT NULL        -- slug lama yang ditinggalkan
+changed_at    TIMESTAMPTZ DEFAULT NOW() -- timestamp perubahan
+-- Index: idx_agent_slug_history_old_slug (untuk lookup redirect)
+```
+
+Dipakai untuk **301 redirect** dari URL slug lama ke slug baru saat agent mengubah `slug`. Juga dipakai untuk validasi cooldown ganti slug (`/api/auth/slug-cooldown`).
 
 ### Tabel `capi_configs`
 ```
@@ -384,7 +425,7 @@ updated_at        TIMESTAMPTZ
 
 ### Tabel `jamaah`
 ```
-agent_slug    TEXT               -- FK to agents.slug (composite PK part)
+agent_id      UUID               -- FK to agents.id (composite PK part) — migrated from agent_slug
 id_umroh      TEXT               -- e.g. "AIW0025094" (composite PK part)
 nama          TEXT               -- nama jamaah (composite PK part)
 jk            TEXT               -- "L" / "P"
@@ -402,8 +443,9 @@ no_paspor     TEXT               -- nomor paspor
 paspor_expired TEXT              -- tanggal expired paspor
 raw_data      JSONB              -- metadata parsing (jm_id, cols_count)
 capi_purchase_status TEXT         -- "dp" | "lunas" (CAPI Purchase event dedup)
+note          TEXT               -- catatan internal agent per jamaah (free-form, optional)
 synced_at     TIMESTAMPTZ        -- kapan terakhir di-sync
--- UNIQUE(agent_slug, id_umroh, nama)
+-- UNIQUE(agent_id, id_umroh, nama)
 ```
 
 ### Tabel `calendar_events`
@@ -427,7 +469,7 @@ synced_at     TIMESTAMPTZ          -- terakhir sync
 
 ### Tabel `jamaah_haji`
 ```
-agent_slug           TEXT NOT NULL     -- FK to agents.slug
+agent_id             UUID NOT NULL     -- FK to agents.id — migrated from agent_slug
 id_haji              TEXT              -- ID haji dari legacy system
 id_jamaah            TEXT              -- ID jamaah
 nama                 TEXT              -- nama jamaah
@@ -446,8 +488,9 @@ status_berangkat     TEXT              -- status keberangkatan
 bpih_url             TEXT              -- URL dokumen BPIH
 surat_pernyataan_url TEXT              -- URL surat pernyataan
 capi_purchase_status TEXT              -- "dp" | "lunas" (CAPI Purchase event dedup)
+note                 TEXT              -- catatan internal agent per jamaah (free-form, optional)
 synced_at            TIMESTAMPTZ DEFAULT NOW()
--- UNIQUE(agent_slug, id_haji, id_jamaah)
+-- UNIQUE(agent_id, id_haji, id_jamaah)
 ```
 
 ### Tabel `flight_status`
@@ -502,11 +545,12 @@ created_at    TIMESTAMPTZ          -- waktu di-parse
 ### Tabel `analytics_events`
 ```
 id            SERIAL PRIMARY KEY
-agent_slug    TEXT                 -- FK to agents.slug
+agent_id      UUID                 -- FK to agents.id — migrated from agent_slug
 event_type    TEXT                 -- "pageview" | "action" | "conversion"
 event_name    TEXT                 -- nama event
 event_data    JSONB                -- metadata event
 created_at    TIMESTAMPTZ          -- waktu event
+-- Retention: rows >14 days di-delete oleh runAnalyticsMaintenance (02:00 WIB) setelah ke-aggregate ke analytics_events_daily
 ```
 
 ### Tabel `analytics_events_daily`
@@ -549,7 +593,7 @@ error_message TEXT                 -- pesan error jika gagal
 source        TEXT NOT NULL DEFAULT 'browser' -- "browser" | "sync"
 created_at    TIMESTAMPTZ DEFAULT now()
 -- Index: idx_capi_event_logs_agent ON (agent_id, created_at DESC)
--- Auto-cleanup: 30-day retention via API
+-- Retention: rows >30 days di-delete oleh runAnalyticsMaintenance cron (02:00 WIB). Endpoint /api/capi/:slug/logs tidak lagi melakukan lazy cleanup.
 ```
 
 ### Tabel `umroh_schedules`
@@ -610,6 +654,7 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | POST | `/api/auth/pin-reset-request` | Bearer | Request PIN reset via email OTP |
 | POST | `/api/auth/pin-reset-verify` | Bearer | Verify OTP and reset PIN to null |
 | POST | `/api/auth/register` | — | Self-register new agent (rate limited, status=pending, Telegram notify admin) |
+| GET | `/api/auth/slug-cooldown` | Bearer | Check eligibility & remaining cooldown sebelum agent boleh ganti slug |
 
 ### Admin
 | Method | Path | Auth | Deskripsi |
@@ -620,6 +665,36 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | POST | `/api/admin/agents` | Bearer+Admin | Create agent |
 | PUT | `/api/admin/agents/:slug` | Bearer+Admin | Update agent |
 | DELETE | `/api/admin/agents/:slug` | Bearer+Admin | Delete agent |
+| PUT | `/api/admin/agents/:slug/approve` | Bearer+Admin | Approve pending agent (status → active) |
+| PUT | `/api/admin/agents/:slug/reject` | Bearer+Admin | Reject pending agent (status → rejected) |
+
+### Landing Page Config
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| GET | `/api/landing-config` | Bearer | Get raw landing config + defaults + live fallback description |
+| PUT | `/api/landing-config` | Bearer | Save title & description per type (umroh/haji), partial update |
+| POST | `/api/landing-config/og-image` | Bearer | Upload custom OG image ke Supabase Storage (per type, max 5MB) |
+| DELETE | `/api/landing-config/og-image` | Bearer | Reset OG image ke default (delete dari storage + null kolom) |
+
+### Umrah Jamaah Registration (Admin)
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| GET | `/api/umrah/form-options` | Bearer+Admin | Scrape form pendaftaran legacy → return selects/inputs/textareas + hidden fields |
+| GET | `/api/umrah/dependent-options` | Bearer+Admin | Setelah jadwal dipilih, ambil paket/marketing/koordinator + extra fields via `_otb.php` |
+| GET | `/api/umrah/paket-options` | Bearer+Admin | Get list paket per jadwal |
+| POST | `/api/umrah/register` | Bearer+Admin | Submit form pendaftaran jamaah ke legacy PHP (multipart proxy, KTP file optional) |
+| POST | `/api/umrah/ocr-ktp` | Bearer+Admin | OCR KTP image → return parsed fields (NIK, nama, tempat/tgl lahir, alamat, dll) untuk auto-fill |
+| GET | `/api/umrah/form-debug` | Bearer+Admin | Debug helper untuk inspeksi struktur form legacy |
+
+### Haji Jamaah (Dipisah dari Laporan)
+| Method | Path | Auth | Deskripsi |
+|--------|------|------|-----------|
+| POST | `/api/haji/sync` | Bearer | Sync data jamaah haji dari legacy ke `jamaah_haji` |
+| GET | `/api/haji/sync-status` | Bearer | Check apakah sync haji sedang berjalan |
+| GET | `/api/haji/jamaah` | Bearer | List jamaah haji (filter, sort, pagination) |
+| POST | `/api/haji/jamaah/note` | Bearer | Update note untuk satu jamaah haji |
+| GET | `/api/haji/stats` | Bearer | Statistik jamaah haji |
+| GET | `/api/haji/doc-proxy` | Bearer | Proxy dokumen BPIH / Surat Pernyataan dari legacy (atasi CORS) |
 
 ### CAPI (Meta Conversion API)
 | Method | Path | Auth | Deskripsi |
@@ -640,6 +715,7 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | POST | `/api/laporan/sync` | Bearer | Fetch → parse → progressive upsert to Supabase |
 | GET | `/api/laporan/sync-status` | Bearer | Check if background sync is in progress |
 | GET | `/api/laporan/jamaah` | Bearer | List jamaah (filter, search, sort, pagination) |
+| POST | `/api/laporan/jamaah/note` | Bearer | Update note untuk satu jamaah umroh |
 | GET | `/api/laporan/stats` | Bearer | Statistik jamaah: total, lunas, komisi, tren, berangkat, outstanding |
 | POST | `/api/laporan/disconnect` | Bearer | Clear in-memory session |
 | DELETE | `/api/laporan/credentials` | Bearer | Delete saved credentials from Supabase |
@@ -703,6 +779,7 @@ Data paket **tidak disimpan di database** — di-fetch dari `https://jadwal.alhi
 | GET | `/api/calendar/events` | Bearer | Get calendar events (query: `month`, `year`) — grouped by date+type |
 | POST | `/api/calendar/enrich-kumpul` | Bearer | Enrich calendar keberangkatan events with jam_kumpul & titik_kumpul from PDF itineraries |
 | GET | `/api/calendar/insight` | Bearer | Get AI-generated insight (in-memory cache → Supabase fallback) |
+| POST | `/api/calendar/insight/refresh` | Bearer | Force refresh AI insight (regenerate via OpenAI dan update cache) |
 | GET | `/api/calendar/insight-jamaah` | Bearer | Jamaah-specific insights: belum lunas, paspor status, 7-day departures |
 
 ### Itinerary
@@ -857,6 +934,15 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 - Kurs cache table (kurs_cache — Bank Mandiri rates, daily update)
 - Telegram notifier concurrency protection (isCheckRunning flag)
 - BrochureModal enhanced (CDN URL detection, pinch-to-zoom for touch devices)
+- **Migrate agents PK from slug → UUID id** (2026-04-16) — non-destructive slug change, FK ke semua tabel turunan diganti ke `agent_id`, JWT payload include UUID, `agent_slug_history` table untuk 301 redirect URL lama
+- **Landing Page Settings** (`LandingPagePage.tsx` + `/api/landing-config`) — per-type (umroh/haji) custom OG title/description/image, simpan di `agents.landing_config` JSONB, OG image upload ke Supabase Storage
+- **Pendaftaran Jamaah Umroh** (`UmrahRegisterPage.tsx`, admin only) — form proxy ke legacy PHP, KTP OCR auto-fill, dependent paket dropdown via `_otb.php`, sectioned UI dengan urutan field deterministik
+- **UMROH CUTI 5 HARI** filter (paket weekend Jumat malam → Sabtu/Minggu/Senin dini hari)
+- **Filter rename**: BINTANG 5 → UMROH BINTANG 5 (lebih spesifik)
+- **Analytics retention & aggregation** — table `analytics_events_daily`, cron harian 02:00 WIB (`runAnalyticsMaintenance`) untuk aggregate + cleanup, raw analytics retention 14 hari, capi_event_logs retention 30 hari (cleanup dipindah dari endpoint ke cron)
+- **Backfill script** (`scripts/backfill-analytics-daily.js`) — one-shot historical aggregation untuk populate `analytics_events_daily` dari data lama
+- **Per-jamaah note** (umroh & haji) — endpoint `POST /api/laporan/jamaah/note` & `POST /api/haji/jamaah/note` + kolom `note` di tabel jamaah/jamaah_haji
+- **Slug change cooldown** — `/api/auth/slug-cooldown` cek eligibility, tracked di `agent_slug_history`
 
 ### Rencana / Backlog
 - [TODO] Testing suite
@@ -881,12 +967,15 @@ npm run start           # Express server (port 3000) — di terminal terpisah
 | **node-cron in-process** | Tidak perlu external cron/scheduler — cron jobs jalan di dalam Express process yang sama |
 | **Single-kantor sync** | Fetch hanya dari kantor agent yang terdaftar (jamaah_kantor), tidak fetch kantor lain |
 | **Widened fetch range** | `HIJRIAH_YEARS.tglAwal` dimundurkan 6 bulan dari awal tahun Hijriah untuk capture jamaah yang didaftarkan lebih awal tapi berangkat di tahun Hijriah tersebut. `HIJRIAH_RANGES` (penentuan hijriah_year berdasarkan tgl_berangkat) tetap akurat |
+| **Agents PK = UUID** (bukan slug) | Slug bersifat user-mutable (agent boleh ganti URL public). Sebelumnya, ganti slug = destructive cascade ke semua tabel turunan (jamaah/CAPI di-delete + reinsert). Migrasi ke `id UUID` membuat slug change cuma update 1 row di `agents`. Slug lama disimpan di `agent_slug_history` untuk 301 redirect URL publik agar tidak broken |
+| **Analytics aggregate + retention** | Raw `analytics_events` tumbuh cepat (puluhan ribu/hari). Daily aggregate ke `analytics_events_daily` mengurangi ukuran query summary 100x. Cron 02:00 WIB jalan setelah kurs cron 01:00 WIB. Cleanup CAPI logs juga dipindah ke cron (sebelumnya lazy di endpoint, ada beban request) |
 
 ### Known Issues / Technical Debt
 - **PackageCard.tsx terlalu besar** (~2452 baris) — perlu di-split ke sub-components
 - **DashboardProfile.tsx terlalu besar** (~2334 baris) — profile + telegram + PIN management, bisa di-split
 - **CapiPage.tsx terlalu besar** (~1876 baris) — bisa di-modularisasi
-- **server.js monolith** (~8090 baris) — perlu di-split ke route modules
+- **server.js monolith** (~9050 baris) — perlu di-split ke route modules. Sebagian sudah diekstrak ke `lib/` (analytics-maintenance, sync-cleanup, og-generator)
+- **UmrahRegisterPage.tsx besar** (~1291 baris) — sectioned form + KTP OCR + dependent dropdown, bisa di-split per section
 - **Tidak ada test suite** — risiko regresi saat refactor
 - **No error boundary** — React errors bisa crash seluruh app
 - **modern-screenshot alignment** — Export image (ComparePage, Haji Plus Export) rawan mengalami vertical overlap jika grid dicampur dengan flexbox; gunakan block layout standar untuk export elements.

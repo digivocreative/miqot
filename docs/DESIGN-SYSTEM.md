@@ -1063,6 +1063,14 @@ Gradient overlay: `linear-gradient(to bottom, transparent, white)` / `linear-gra
 | `Info` | Simulasi Haji Plus info |
 | `FileText` | PDF preview (Simulasi) |
 | `Share2` | Share button (export/share features) |
+| `Camera` | KTP upload (Pendaftaran Jamaah) |
+| `Mars` / `Venus` | Visual gender indicator (Pendaftaran Jamaah) |
+| `Compass` | Landing page – Haji tab indicator |
+| `Plane` | Landing page – Umroh tab indicator |
+| `Save` | Save button (Landing Page Settings, sticky bar) |
+| `Copy` | Copy URL (Landing Page Settings) |
+| `RotateCcw` | Reset to default (Landing Page Settings) |
+| `XCircle` | Inline field validation error (Pendaftaran) |
 
 ### WhatsApp Icon (Custom SVG)
 
@@ -1364,6 +1372,151 @@ rounded-2xl overflow-hidden
 ```
 
 Agent photo + name + WhatsApp CTA button with WhatsApp SVG icon
+
+---
+
+## Landing Page Settings (`LandingPagePage.tsx`)
+
+Halaman pengaturan OG meta per tipe landing (Umroh / Haji) yang dipakai untuk preview link saat dishare ke WhatsApp/social.
+
+### Type Tabs (Segmented dengan Accent Dot)
+
+iOS-style segmented control dengan accent berbeda per type:
+
+```
+container: bg-gray-100 dark:bg-slate-800 rounded-xl p-1 flex gap-1 w-full
+tab (active): flex-1 py-2 rounded-lg bg-white dark:bg-slate-700 shadow-sm font-semibold
+              text-emerald-500 (umroh) / text-amber-500 (haji)
+tab (inactive): bg-transparent text-gray-400 dark:text-slate-500 font-medium
+```
+
+- Icon size: `14`, strokeWidth `2.4` (active) / `2` (inactive)
+- Label: `text-[13px]`
+- "Has custom" indicator dot: `w-1.5 h-1.5 rounded-full bg-{accent}-500` (active) / `bg-gray-300` (inactive)
+
+### Accent Map
+
+| Type | Dot/Border | Hero Gradient |
+|------|-----------|---------------|
+| Umroh | `emerald-500` | `bg-gradient-to-br from-emerald-700 via-emerald-600 to-teal-800` |
+| Haji | `amber-500` | `bg-gradient-to-br from-amber-600 via-orange-600 to-rose-700` |
+
+### URL Bar
+
+```
+flex items-center gap-1 rounded-xl border border-gray-100 dark:border-slate-700/70
+bg-gray-50/70 dark:bg-slate-900/40 pl-3 pr-1 py-1
+text-[12px] font-mono text-gray-600 dark:text-slate-300
+```
+
+Trailing icon buttons (Copy, ExternalLink): `w-7 h-7 rounded-lg`
+
+### Char Counter (Yoast-style)
+
+| State | Color |
+|-------|-------|
+| Below 90% limit | `text-gray-400 dark:text-slate-500` |
+| 90–100% limit | `text-amber-500 dark:text-amber-400` |
+| Over limit | `text-red-500` |
+
+Title limit: 60, Description limit: 160 (mengikuti rekomendasi Yoast).
+
+### OG Image Upload
+
+- Aspect ratio: `1200 / 630` (Open Graph standard)
+- Reuse `PhotoCropModal` (react-easy-crop), `outputWidth=1200, outputHeight=630, quality=0.9`
+- Max file: 5MB, format JPG/PNG
+- Reset button: kembalikan ke default OG agent
+
+### Sticky Save Bar
+
+```
+fixed inset-x-0 bottom-0 z-40 pointer-events-none
+inner: max-w-lg mx-auto px-4 pb-4 pointer-events-auto
+panel: backdrop-blur-md bg-white/80 dark:bg-slate-900/80
+       border border-gray-100 dark:border-slate-700 rounded-2xl shadow-lg p-2
+button: w-full py-3 rounded-xl font-bold text-sm
+        bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20
+disabled: bg-gray-200 dark:bg-slate-700 text-gray-400 cursor-not-allowed
+```
+
+### Toast (Inline)
+
+```
+fixed left-1/2 -translate-x-1/2 bottom-24 z-50
+flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-md
+text-[11.5px] font-medium max-w-[90vw] whitespace-nowrap
+animate-[fadeIn_150ms_ease-out]
+// success: bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 text-emerald-800
+// error:   bg-red-50     dark:bg-red-900/30     border border-red-200     text-red-700
+```
+
+Auto-dismiss: 3500ms
+
+---
+
+## Pendaftaran Jamaah Umroh (`UmrahRegisterPage.tsx`, Admin Only)
+
+Form multi-section yang nge-proxy langsung ke sistem PHP legacy via Express. Punya KTP OCR auto-fill dan dependent paket dropdown.
+
+### Sectioned Form Layout
+
+Field di-group dan di-urutkan deterministik via `FIELD_CONFIG` mapping (key = legacy HTML field name → label, section, order, required, placeholder, hidden, defaultValue):
+
+| Section | Header Color | Contoh Field |
+|---------|-------------|--------------|
+| Pendaftaran | emerald | Jenis Daftar, Tgl Daftar (hidden), Tgl Berangkat |
+| Data Jamaah | blue | Nama, JK, KTP, HP, Tempat/Tgl Lahir, Status Nikah, Pekerjaan, Alamat |
+| Alamat | amber | Provinsi, Kab/Kota, Kecamatan, Desa/Kelurahan |
+| Paket & Marketing | violet | Paket (manual pick), Marketing (auto-pick first), Koordinator (auto-pick first) |
+| Pendaftar | gray | Data referrer / koordinator |
+| Lainnya | gray | Field yang tidak di-config (raw name sebagai label) |
+
+Section header style: `text-xs font-bold uppercase tracking-wide` (mengikuti pattern Settings).
+
+### KTP Upload + Inline OCR
+
+Inline upload area di top form:
+
+```
+border-2 border-dashed rounded-xl p-4
+text-center cursor-pointer
+border-gray-300 dark:border-slate-600 hover:border-emerald-400
+```
+
+- Icon: `Camera` (size 24, gray)
+- File input: `accept="image/*"`, `capture="environment"` (mobile camera)
+- Setelah upload → preview thumbnail + auto-trigger `POST /api/umrah/ocr-ktp`
+- Loading: `Loader2` spinner + "Membaca KTP…"
+- Hasil parsed (NIK, nama, tempat/tgl lahir, alamat, JK, dll) auto-fill ke field form
+- Sparkles icon (`Sparkles size={14}`) di field yang berhasil di-auto-fill (visual indicator)
+
+### Searchable Select (Tgl Berangkat)
+
+Untuk select dengan banyak opsi (jadwal keberangkatan), pakai pattern combobox:
+
+```
+button trigger: w-full px-3 py-2.5 rounded-xl border bg-white dark:bg-slate-900 text-left flex items-center justify-between
+dropdown: absolute top-full left-0 right-0 mt-1 max-h-60 overflow-y-auto
+          rounded-xl border bg-white dark:bg-slate-800 shadow-lg z-20
+search input: sticky top-0 bg-white dark:bg-slate-800 px-3 py-2 border-b
+              w-full bg-gray-50 dark:bg-slate-900 rounded-lg px-2 py-1 text-sm
+option: w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-slate-700/50
+selected option: bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600
+```
+
+Search filter: case-insensitive substring di label.
+
+### Dependent Loading State
+
+Saat pilih jadwal → fetch dependent options via `_otb.php`:
+- Loader: small inline `Loader2` di samping label "Memuat paket…"
+- Warna emerald (consistent dengan primary)
+
+### Submit & Success
+
+- Submit button: standard primary CTA emerald (lihat Buttons section)
+- Success state: full-screen inline card dengan `CheckCircle2` size 28, color `#10b981`, "Pendaftaran berhasil!" + tombol "Daftarkan Lagi" (reset form)
 
 ---
 

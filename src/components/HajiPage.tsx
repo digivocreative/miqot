@@ -655,7 +655,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
               onChange={e => { setThnMasehi(e.target.value); setPage(1); }}
               className="h-9 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0 rounded-lg border border-emerald-200 dark:border-emerald-800/40 outline-none cursor-pointer shrink-0"
             >
-              <option value="">Tahun</option>
+              <option value="">Semua</option>
               {tahunOptions.map(y => (
                 <option key={y} value={y}>{y}</option>
               ))}
