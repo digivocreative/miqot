@@ -12,6 +12,7 @@ data/kurs-share-cache/
 data/backups/
 exports/
 .superpowers/
+.claude/worktrees/
 
 # pre-cutover env backup (old secrets) — keep local, never commit
 .env.cutover-bak
