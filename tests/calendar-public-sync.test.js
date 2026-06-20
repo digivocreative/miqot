@@ -2,6 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ReadableStream, TransformStream } from 'node:stream/web';
 
+// Tes ini menguji orkestrasi & parsing sync, bukan transport origin-rewrite.
+// Nonaktifkan rewrite IP supaya request tetap menuju domain publik yang di-stub.
+// (Rewrite IP punya unit test sendiri di calendar-public-source.test.js.)
+process.env.CALENDAR_PUBLIC_ORIGIN_IP = '';
+
 function isoDateMonthsAhead(monthsAhead) {
   const d = new Date();
   d.setUTCDate(5);

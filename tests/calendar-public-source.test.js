@@ -1,10 +1,29 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  applyOriginRewrite,
   buildPublicModalUrl,
   parsePublicCalendarEventsFromHtml,
   parsePublicEventDetailHTML,
+  CALENDAR_PUBLIC_ORIGIN_IP,
 } from '../lib/calendar-public-source.js';
+
+test('applyOriginRewrite mengarahkan ke origin IP via http + Host header', () => {
+  // Default origin IP aktif (env tidak di-set kosong di file ini).
+  assert.equal(CALENDAR_PUBLIC_ORIGIN_IP, '115.124.86.220');
+
+  const { url, headers } = applyOriginRewrite(
+    'https://alhijazindowisata.com/jadwal/_kmodal.php?.m=B1&.g=G1',
+    { 'User-Agent': 'x' },
+  );
+  const parsed = new URL(url);
+  assert.equal(parsed.protocol, 'http:');
+  assert.equal(parsed.host, '115.124.86.220');
+  assert.equal(parsed.pathname, '/jadwal/_kmodal.php');
+  assert.equal(parsed.searchParams.get('.m'), 'B1');
+  assert.equal(headers.Host, 'alhijazindowisata.com');
+  assert.equal(headers['User-Agent'], 'x');
+});
 
 const PAGE_HTML = `
 <html>
