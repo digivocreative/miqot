@@ -110,6 +110,18 @@ test('parsePublicEventDetailHTML preserves manasik departure prefix as DD/MM/YYY
   assert.equal(rows[0].tour_leader, '• SUSTEN MARYANI MASCIK');
 });
 
+test('parsePublicEventDetailHTML rejects tables without required public modal headers', () => {
+  assert.throws(
+    () => parsePublicEventDetailHTML(`
+      <table>
+        <thead><tr><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr></thead>
+        <tbody><tr><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td></tr></tbody>
+      </table>
+    `),
+    /format tabel detail tidak dikenali/,
+  );
+});
+
 test('buildPublicModalUrl encodes public modal query parameters', () => {
   const href = buildPublicModalUrl({ aid: 'M1532', apalah: 'JBU1532,JBU1538,JBU1496' });
   const url = new URL(href);

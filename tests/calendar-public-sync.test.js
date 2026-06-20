@@ -10,6 +10,7 @@ function isoDateMonthsAhead(monthsAhead) {
 }
 
 const SYNC_EVENT_DATE = isoDateMonthsAhead(1);
+const FAILED_EVENT_DATE = isoDateMonthsAhead(2);
 
 const PUBLIC_PAGE_HTML = `
 <script>
@@ -107,7 +108,7 @@ function makeResult(table, builder, state) {
   if (table === 'jamaah_network_pax') return { data: [{ jadwal_id: 'JBU1532', pax: 3 }], error: null };
 
   if (table === 'calendar_events') {
-    if (builder.columns === 'id') return { data: [], error: null };
+    if (builder.columns === 'id') return { data: state.existingCalendarIds.map(id => ({ id })), error: null };
     if (builder.columns === 'id, event_date, paket, jam') return { data: [], error: null };
     return { data: state.upserted, error: null };
   }
@@ -115,8 +116,8 @@ function makeResult(table, builder, state) {
   return { data: [], error: null };
 }
 
-function createFakeSupabase() {
-  const state = { upserted: [], deletedIds: [], updates: [] };
+function createFakeSupabase({ existingCalendarIds = [] } = {}) {
+  const state = { upserted: [], deletedIds: [], updates: [], existingCalendarIds };
 
   return {
     state,
@@ -267,6 +268,85 @@ test('syncCalendar fetches public modal details with bounded concurrency', async
     assert.equal(result.count, 4);
     assert.equal(supabase.state.upserted.length, 4);
     assert.equal(maxActiveModalFetches > 1, true);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('syncCalendar preserves stale rows for malformed detail tables even when schedule fallback exists', async () => {
+  const originalFetch = global.fetch;
+  const existingFailedId = `${FAILED_EVENT_DATE}_keberangkatan_legacy`;
+  const unrelatedStaleId = `${isoDateMonthsAhead(4)}_keberangkatan_legacy`;
+  const events = [
+    {
+      title: 'Keberangkatan UMROH',
+      start: SYNC_EVENT_DATE,
+      color: '#7bc86c',
+      extendedProps: {
+        mjudul: 'KEBERANGKATAN UMROH',
+        aid: 'B1532',
+        icon: 'plane-departure',
+        apalah: 'JBU1532',
+      },
+    },
+    {
+      title: 'Keberangkatan UMROH',
+      start: FAILED_EVENT_DATE,
+      color: '#7bc86c',
+      extendedProps: {
+        mjudul: 'KEBERANGKATAN UMROH',
+        aid: 'B9999',
+        icon: 'plane-departure',
+        apalah: 'JBU1532',
+      },
+    },
+  ];
+
+  try {
+    global.fetch = async (url) => {
+      const href = String(url);
+      const parsed = new URL(href);
+
+      if (
+        parsed.origin === 'https://alhijazindowisata.com' &&
+        parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata'
+      ) {
+        return htmlResponse(publicPageHtmlForEvents(events));
+      }
+
+      if (
+        parsed.origin === 'https://alhijazindowisata.com' &&
+        parsed.pathname === '/jadwal/_kmodal.php' &&
+        parsed.searchParams.get('.m') === 'B1532'
+      ) {
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+
+      if (
+        parsed.origin === 'https://alhijazindowisata.com' &&
+        parsed.pathname === '/jadwal/_kmodal.php' &&
+        parsed.searchParams.get('.m') === 'B9999'
+      ) {
+        return htmlResponse(`
+          <table>
+            <thead><tr><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr></thead>
+            <tbody><tr><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td></tr></tbody>
+          </table>
+        `);
+      }
+
+      throw new Error(`unexpected fetch: ${href}`);
+    };
+
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({ existingCalendarIds: [existingFailedId, unrelatedStaleId] });
+    const result = await syncCalendar(supabase);
+
+    assert.equal(result.success, true);
+    assert.equal(result.count, 1);
+    assert.equal(result.failedEvents, 1);
+    assert.equal(supabase.state.deletedIds.includes(existingFailedId), false);
+    assert.equal(supabase.state.deletedIds.includes(unrelatedStaleId), true);
   } finally {
     global.fetch = originalFetch;
   }
