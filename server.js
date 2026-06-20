@@ -16735,9 +16735,9 @@ if (shouldRunBackgroundJobs()) scheduleBunnyCleanup();
 
 // ── Calendar sync: every 12 hours (shared data, doesn't change often) ──
 // Resiliensi (insiden 12 Jun 2026 — sync gagal diam-diam 18 jam, grup basi):
-// gagal → retry +10m lalu +30m (login baru tiap attempt); 3x gagal → ops alert
-// sekali per insiden + notifikasi saat pulih; last_success_at/last_error
-// dicatat di calendar_insights utk observability.
+// gagal → retry +10m lalu +30m (fetch publik ulang tiap attempt); 3x gagal
+// → ops alert sekali per insiden + notifikasi saat pulih; last_success_at/
+// last_error dicatat di calendar_insights utk observability.
 const CALENDAR_RETRY_DELAYS_MIN = [10, 30];
 let calendarSyncRetryTimer = null;
 let calendarSyncAlerted = false;
@@ -16816,7 +16816,7 @@ async function runCalendarSync(attempt = 0) {
       `🗓️⚠️ <b>Sync kalender gagal ${totalAttempts}x berturut-turut</b>\n\n` +
       `${escapeHtml(failReason)}${sejak}\n\n` +
       `Data kalender (event, grup, jam) membeku sampai sync pulih — card penerbangan ikut terdampak. ` +
-      `Cek: login legacy (kredensial kalender), layout halaman, atau server legacy down.`
+      `Cek: halaman publik kegiatan, endpoint _kmodal.php, layout halaman, atau koneksi ke server publik.`
     ).catch(() => {});
   }
 }
