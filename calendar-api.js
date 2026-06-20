@@ -19,9 +19,14 @@ function parsePositiveInt(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+// Origin publik me-rate-limit (HTTP 403) bila volume modal terlalu tinggi dalam
+// satu jendela — sync penuh (~122 modal) di concurrency 6 menolak ~37 modal,
+// nyaris semua kepulangan (tab "Pulang" jadi tanpa TL). Concurrency 2 = 0 ditolak
+// (terverifikasi 20 Jun 2026 atas 45 modal kepulangan). Naikkan via env hanya
+// kalau origin sudah melonggarkan limit.
 const CALENDAR_PUBLIC_DETAIL_CONCURRENCY = parsePositiveInt(
   process.env.CALENDAR_PUBLIC_DETAIL_CONCURRENCY,
-  6
+  2
 );
 
 async function mapWithConcurrency(items, concurrency, mapper) {
