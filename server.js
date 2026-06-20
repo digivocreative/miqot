@@ -969,6 +969,23 @@ async function getScheduleMap() {
   return map;
 }
 
+let scheduleDetailMapCache = { map: null, expiresAt: 0 };
+async function getScheduleDetailMap() {
+  if (scheduleDetailMapCache.map && Date.now() < scheduleDetailMapCache.expiresAt) {
+    return scheduleDetailMapCache.map;
+  }
+  const { data: schedules, error } = await supabase
+    .from('umroh_schedules')
+    .select('jadwal_id, jadwal_nama, manasik_tgl, manasik_jam, berangkat_tgl, berangkat_kode_penerbangan');
+  if (error) {
+    console.warn('[scheduleDetailMap] fetch failed, returning empty map:', error.message);
+    return new Map();
+  }
+  const map = new Map((schedules || []).map(s => [s.jadwal_id, s]));
+  scheduleDetailMapCache = { map, expiresAt: Date.now() + SCHEDULE_CACHE_TTL_MS };
+  return map;
+}
+
 // ── Landing config helpers ──
 // Raw description from /public/{umroh,haji-plus}.html — read once at boot.
 // Shown to agents as placeholder text so they see the literal fallback the public page serves.
@@ -10313,7 +10330,7 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
     const belumLunasQ = supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch).gt('sisa', 0).gt('bayar', 0);
 
     let bebQ = supabase.from('jamaah')
-      .select('nama, paket, jk, tgl_berangkat, sisa, bayar, wa')
+      .select('nama, paket, jk, tgl_berangkat, sisa, bayar, wa, id_jadwal:raw_data->>id_jadwal')
       .eq('agent_id', agentId)
       .gte('tgl_berangkat', todayStr)
       .order('tgl_berangkat', { ascending: true })
@@ -10352,6 +10369,7 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
       olRows,
       komisiRows,
       syncResult,
+      scheduleDetailMap,
     ] = await Promise.all([
       totalQ,
       lunasQ,
@@ -10364,6 +10382,7 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
       fetchAllRows(olQ),
       fetchAllRows(komisiQ),
       supabase.from('agents').select('last_jamaah_sync_at').eq('id', agentId).maybeSingle(),
+      getScheduleDetailMap(),
     ]);
 
     const totalJamaah = totalRes.count;
@@ -10384,7 +10403,36 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
 
     // Berangkat Mendatang is an operational upcoming list, so it must cross
     // Hijriah-year boundaries (e.g. 13 Jun 2026 = 1447H, 18 Jun 2026 = 1448H).
-    const { berangkatBulanIni, berangkatSegera, berangkatBulan } = buildBerangkatMendatang(bebRows, todayStr);
+    const bebJadwalIds = [...new Set((bebRows || []).map(r => r.id_jadwal).filter(Boolean))];
+    let calendarByJadwalId = new Map();
+    if (bebJadwalIds.length > 0) {
+      const { data: calRows, error: calErr } = await supabase
+        .from('calendar_events')
+        .select('jadwal_id, event_date, jam, tour_leader, pesawat')
+        .eq('event_type', 'keberangkatan')
+        .in('jadwal_id', bebJadwalIds);
+      if (calErr) {
+        console.warn('[Stats] upcoming calendar metadata fetch failed:', calErr.message);
+      } else {
+        for (const row of (calRows || [])) {
+          if (!row.jadwal_id) continue;
+          const current = calendarByJadwalId.get(row.jadwal_id);
+          if (!current || String(row.event_date || '').localeCompare(String(current.event_date || '')) < 0) {
+            calendarByJadwalId.set(row.jadwal_id, row);
+          }
+        }
+      }
+    }
+    const enrichedBebRows = (bebRows || []).map(r => ({
+      ...r,
+      jadwal_id: r.id_jadwal || null,
+      jadwal_nama: scheduleDetailMap.get(r.id_jadwal)?.jadwal_nama || null,
+      manasik_tgl: scheduleDetailMap.get(r.id_jadwal)?.manasik_tgl || null,
+      manasik_jam: scheduleDetailMap.get(r.id_jadwal)?.manasik_jam || null,
+      berangkat_kode_penerbangan: scheduleDetailMap.get(r.id_jadwal)?.berangkat_kode_penerbangan || null,
+      tour_leader: calendarByJadwalId.get(r.id_jadwal)?.tour_leader || null,
+    }));
+    const { berangkatBulanIni, berangkatSegera, berangkatBulan } = buildBerangkatMendatang(enrichedBebRows, todayStr);
     const todayDate = new Date(todayStr);
 
     // ── lunasPercent ──

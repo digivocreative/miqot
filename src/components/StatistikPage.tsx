@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   Loader2, Users, Plane, UserPlus, Wallet,
-  Check, ChevronDown, X, RefreshCw, BarChart3, TrendingUp, Lock, ArrowLeft,
+  Check, ChevronDown, ChevronRight, X, RefreshCw, BarChart3, TrendingUp, Lock, ArrowLeft, CalendarDays,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PinInput from './PinInput';
@@ -19,12 +19,29 @@ const StatistikHajiSection = lazy(() => import('./StatistikHajiSection'));
 interface BerangkatItem {
   nama: string;
   paket: string | null;
+  jadwal_id?: string | null;
+  tour_leader?: string | null;
+  manasik_tgl?: string | null;
+  manasik_jam?: string | null;
+  berangkat_kode_penerbangan?: string | null;
   jk: string | null;
   tgl_berangkat: string;
   hari_lagi: number;
   lunas: boolean;
   sisa: number;
   wa: string | null;
+}
+
+interface BerangkatGroup {
+  key: string;
+  paket: string;
+  count: number;
+  tour_leader: string | null;
+  manasik_tgl: string | null;
+  manasik_jam: string | null;
+  tgl_berangkat: string;
+  berangkat_kode_penerbangan: string | null;
+  items: BerangkatItem[];
 }
 
 interface OutstandingItem {
@@ -80,6 +97,13 @@ interface StatsData {
   lastSync: string | null;
 }
 
+interface DestinationFlag {
+  code: string;
+  label: string;
+  src: string;
+  fallback: string;
+}
+
 // ── Helpers ──
 const BULAN_LABEL: Record<string, string> = {
   '01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr',
@@ -114,6 +138,22 @@ function fmtTgl(d: string): string {
   } catch { return d; }
 }
 
+function fmtTglLong(d: string | null | undefined): string {
+  if (!d) return '-';
+  try {
+    return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+  } catch { return d; }
+}
+
+function toWaTitleCase(value: string | null | undefined): string {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return '-';
+  return normalized
+    .toLocaleLowerCase('id-ID')
+    .replace(/(^|[\s([/+.-])([a-z])/g, (_match, prefix, char) => `${prefix}${char.toLocaleUpperCase('id-ID')}`)
+    .replace(/\b(\d+)\s*hr\b/gi, '$1HR');
+}
+
 export function pickNearestMasehiYear(years: string[], currentYear = new Date().getFullYear()): string {
   const validYears = (years || []).filter(y => /^\d{4}$/.test(String(y)));
   if (validYears.length === 0) return '';
@@ -145,6 +185,94 @@ function fmtHariLagi(n: number | null): string {
 
 function getInitials(name: string): string {
   return (name || '?').split(' ').slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
+}
+
+function cleanTourLeader(value: string | null | undefined): string | null {
+  const cleaned = String(value || '')
+    .replace(/•/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || null;
+}
+
+const SAUDI_DESTINATION_FLAG: DestinationFlag = {
+  code: 'sa',
+  label: 'Arab Saudi',
+  src: '/flags/saudi.png',
+  fallback: 'SA',
+};
+
+const EXTRA_DESTINATION_FLAGS: Array<DestinationFlag & { pattern: RegExp }> = [
+  {
+    code: 'ae',
+    label: 'Uni Emirat Arab',
+    src: '/flags/uae.png',
+    fallback: 'AE',
+    pattern: /\b(DUBAI|UAE|UNI EMIRAT|ABU DHABI|DESERT SAFARI|DXB)\b/i,
+  },
+  {
+    code: 'tr',
+    label: 'Turki',
+    src: '/flags/turki.png',
+    fallback: 'TR',
+    pattern: /\b(TURKI|TURKEY|ISTANBUL|BURSA|ANKARA|CAPPADOCIA)\b/i,
+  },
+  {
+    code: 'eg',
+    label: 'Mesir',
+    src: '/flags/mesir.png',
+    fallback: 'EG',
+    pattern: /\b(MESIR|EGYPT|CAIRO|KAIRO|ALEXANDRIA|ISKANDARIYAH)\b/i,
+  },
+  {
+    code: 'cn',
+    label: 'China',
+    src: '/flags/china.png',
+    fallback: 'CN',
+    pattern: /\b(CHINA|TIONGKOK|HAIKOU|BEIJING|SHANGHAI|GUANGZHOU)\b/i,
+  },
+  {
+    code: 'ps',
+    label: 'Palestine',
+    src: '/flags/palestine.svg',
+    fallback: 'PS',
+    pattern: /\b(AQSA|AQSHA|AL AQSA|AL AQSHA|PALESTIN|PALESTINE|JORDAN|AMMAN|PETRA|JERUSALEM|BAITUL MAQDIS)\b/i,
+  },
+];
+
+function getDestinationFlags(paket: string | null | undefined): DestinationFlag[] {
+  const packageName = String(paket || '').toUpperCase();
+  const matchedDestinationFlags = EXTRA_DESTINATION_FLAGS
+    .filter(flag => flag.pattern.test(packageName))
+    .map(({ pattern: _pattern, ...flag }) => flag);
+  return matchedDestinationFlags.length > 0 ? matchedDestinationFlags : [SAUDI_DESTINATION_FLAG];
+}
+
+function buildBerangkatGroups(items: BerangkatItem[]): BerangkatGroup[] {
+  const map = new Map<string, BerangkatGroup>();
+  for (const item of items || []) {
+    const key = item.jadwal_id || `${item.paket || '-'}|${item.tgl_berangkat}|${item.berangkat_kode_penerbangan || ''}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        paket: item.paket || 'Paket Umroh',
+        count: 0,
+        tour_leader: cleanTourLeader(item.tour_leader),
+        manasik_tgl: item.manasik_tgl || null,
+        manasik_jam: item.manasik_jam || null,
+        tgl_berangkat: item.tgl_berangkat,
+        berangkat_kode_penerbangan: item.berangkat_kode_penerbangan || null,
+        items: [],
+      });
+    }
+    const group = map.get(key)!;
+    group.items.push(item);
+    group.count++;
+  }
+  return Array.from(map.values()).sort((a, b) =>
+    String(a.tgl_berangkat || '').localeCompare(String(b.tgl_berangkat || ''))
+    || a.paket.localeCompare(b.paket)
+  );
 }
 
 function bulanLabel(ym: string): string {
@@ -187,7 +315,7 @@ function StatListModal({ isOpen, onClose, title, subtitle, children }: {
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm animate-[fadeIn_150ms_ease-out]" onClick={onClose} />
-      <div className="fixed inset-x-4 top-8 bottom-8 z-50 max-w-lg mx-auto bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl flex flex-col overflow-hidden animate-[slideUp_200ms_ease-out]">
+      <div className="fixed inset-x-4 top-1/2 z-50 max-w-lg mx-auto max-h-[calc(100dvh-4rem)] -translate-y-1/2 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl flex flex-col overflow-hidden animate-[slideUp_200ms_ease-out]">
         <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-700/50 flex items-center justify-between flex-shrink-0">
           <div>
             <p className="text-sm font-bold text-gray-800 dark:text-white">{title}</p>
@@ -197,9 +325,9 @@ function StatListModal({ isOpen, onClose, title, subtitle, children }: {
             <X size={16} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto">{children}</div>
+        <div className="min-h-0 overflow-y-auto">{children}</div>
       </div>
-      <style>{`@keyframes fadeIn{from{opacity:0}to{opacity:1}}@keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}`}</style>
+      <style>{`@keyframes fadeIn{from{opacity:0}to{opacity:1}}@keyframes slideUp{from{opacity:0;transform:translateY(calc(-50% + 24px))}to{opacity:1;transform:translateY(-50%)}}`}</style>
     </>
   );
 }
@@ -227,10 +355,43 @@ function KomisiTooltip({ active, payload }: any) {
   );
 }
 
+function HeadlineValueRow({ icon, iconWrapClassName, valueClassName, children }: {
+  icon: React.ReactNode;
+  iconWrapClassName: string;
+  valueClassName: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 mb-2">
+      <p className={`text-[22px] font-bold leading-none ${valueClassName}`}>{children}</p>
+      <div className={`w-7 h-7 rounded-lg flex items-center justify-center border ${iconWrapClassName}`}>
+        {icon}
+      </div>
+    </div>
+  );
+}
+
 // ── Row renderers ──
-function BerangkatRow({ item }: { item: BerangkatItem }) {
+function buildBerangkatWaText(item: BerangkatItem): string {
+  const honorific = item.jk === 'P' ? 'Ibu' : 'Bapak';
+  const jamaahName = toWaTitleCase(item.nama);
+  const packageName = toWaTitleCase(item.paket || 'Umroh');
+  const departureDate = fmtTglLong(item.tgl_berangkat);
+  const lines = [
+    `Assalamualaikum ${honorific} *${jamaahName}*, mau mengingatkan bahwa keberangkatan Umroh ${packageName} dijadwalkan pada ${departureDate}.`,
+    '',
+    `Dimohon ${honorific} untuk mempersiapkan diri sebelum hari keberangkatan.`,
+  ];
+  return lines.join('\n');
+}
+
+function BerangkatRow({ item, showPackage = true }: { item: BerangkatItem; showPackage?: boolean }) {
   const initials = getInitials(item.nama);
   const isFemale = item.jk === 'P';
+  const waNumber = normalizeWaNumber(item.wa);
+  const waUrl = waNumber
+    ? `https://wa.me/${waNumber}?text=${encodeURIComponent(buildBerangkatWaText(item))}`
+    : null;
   return (
     <div className="px-4 py-3 flex items-center gap-3">
       <div className="relative shrink-0">
@@ -246,14 +407,137 @@ function BerangkatRow({ item }: { item: BerangkatItem }) {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-xs font-bold text-gray-800 dark:text-white truncate">{item.nama}</p>
-        <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{item.paket || '-'}</p>
+        {showPackage && (
+          <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{item.paket || '-'}</p>
+        )}
       </div>
-      <div className="flex flex-col items-end gap-0.5 shrink-0">
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
-          item.hari_lagi <= 15 ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
-                               : 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
-        }`}>✈ {item.hari_lagi} hari</span>
-        <span className="text-[10px] text-gray-400 dark:text-slate-500">{fmtTgl(item.tgl_berangkat)}</span>
+      {showPackage ? (
+        <div className="flex flex-col items-end gap-0.5 shrink-0">
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
+            item.hari_lagi <= 15 ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+                                 : 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
+          }`}>✈ {item.hari_lagi} hari</span>
+          <span className="text-[10px] text-gray-400 dark:text-slate-500">{fmtTgl(item.tgl_berangkat)}</span>
+        </div>
+      ) : (
+        waUrl ? (
+          <a
+            href={waUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Chat WhatsApp ${item.nama}`}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 text-[10px] font-bold text-emerald-600 transition-colors hover:bg-emerald-500/15 active:scale-95 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300"
+          >
+            <WaIcon size={13} />
+            <span>Chat</span>
+          </a>
+        ) : (
+          <span className="shrink-0 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-1.5 text-[10px] font-semibold text-gray-400 dark:border-slate-700 dark:bg-slate-700/40 dark:text-slate-500">
+            WA kosong
+          </span>
+        )
+      )}
+    </div>
+  );
+}
+
+function GroupMeta({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">{label}</p>
+      <p className="mt-0.5 truncate text-[11px] font-semibold text-gray-700 dark:text-slate-100">{value || '-'}</p>
+    </div>
+  );
+}
+
+function DestinationFlags({ paket }: { paket: string }) {
+  const flags = getDestinationFlags(paket);
+  const visibleFlags = flags.slice(0, 3);
+  const overflowCount = flags.length - visibleFlags.length;
+  const title = flags.map(flag => flag.label).join(' + ');
+  const flagSizeClass = visibleFlags.length > 1 ? 'h-4 w-6' : 'h-5 w-7';
+
+  return (
+    <div
+      className="w-9 h-9 flex items-center justify-center shrink-0"
+      title={title}
+      aria-label={title}
+    >
+      <div className="flex items-center justify-center gap-0.5">
+        {visibleFlags.map(flag => (
+          <span
+            key={flag.code}
+            className={`relative flex ${flagSizeClass} items-center justify-center overflow-hidden bg-gray-100 text-[7px] font-bold text-gray-500 shadow-sm dark:bg-slate-700 dark:text-slate-300`}
+          >
+            <span>{flag.fallback}</span>
+            <img
+              src={flag.src}
+              alt={flag.label}
+              className="absolute inset-0 h-full w-full object-cover shadow-sm"
+              onError={(event) => { event.currentTarget.style.display = 'none'; }}
+            />
+          </span>
+        ))}
+        {overflowCount > 0 && (
+          <span className="ml-0.5 text-[9px] font-bold text-emerald-600 dark:text-emerald-300">+{overflowCount}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BerangkatGroupSummaryRow({ group, onSelect }: { group: BerangkatGroup; onSelect: (key: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(group.key)}
+      className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-gray-50/80 dark:hover:bg-slate-700/30 active:scale-[0.99] transition-all"
+    >
+      <DestinationFlags paket={group.paket} />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-bold text-gray-800 dark:text-white truncate">
+          {group.paket}
+        </p>
+        <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[10px] font-medium">
+          <span className="inline-flex min-w-0 items-center gap-1 text-blue-600 dark:text-blue-400">
+            <CalendarDays size={11} strokeWidth={2.2} className="shrink-0" />
+            <span className="truncate">{fmtTglLong(group.tgl_berangkat)}</span>
+          </span>
+          <span className="text-gray-300 dark:text-slate-600">·</span>
+          <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+            <Users size={11} strokeWidth={2.2} className="shrink-0" />
+            <span>{group.count} Jamaah</span>
+          </span>
+        </div>
+      </div>
+      <ChevronRight size={15} className="shrink-0 text-gray-300 dark:text-slate-600" />
+    </button>
+  );
+}
+
+function BerangkatGroupDetail({ group }: { group: BerangkatGroup }) {
+  const manasikLabel = group.manasik_tgl
+    ? fmtTglLong(group.manasik_tgl)
+    : null;
+
+  return (
+    <div>
+      <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-700/50 bg-white/40 dark:bg-slate-800/40">
+        <div className="flex items-center gap-2">
+          <DestinationFlags paket={group.paket} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-bold text-gray-800 dark:text-white">{group.paket}</p>
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
+          <GroupMeta label="Berangkat" value={fmtTglLong(group.tgl_berangkat)} />
+          <GroupMeta label="Penerbangan" value={group.berangkat_kode_penerbangan} />
+          <GroupMeta label="Tour Leader" value={group.tour_leader} />
+          <GroupMeta label="Manasik" value={manasikLabel} />
+        </div>
+      </div>
+      <div className="divide-y divide-gray-50 dark:divide-slate-700/40">
+        {group.items.map((item, i) => <BerangkatRow key={`${group.key}-${item.nama}-${i}`} item={item} showPackage={false} />)}
       </div>
     </div>
   );
@@ -418,7 +702,9 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
-  const [showBerangkatModal, setShowBerangkatModal] = useState(false);
+  const [selectedBerangkatGroupKey, setSelectedBerangkatGroupKey] = useState<string | null>(null);
+  const [showBerangkatGroupsModal, setShowBerangkatGroupsModal] = useState(false);
+  const [komisiExpanded, setKomisiExpanded] = useState(false);
   const [showOutstandingModal, setShowOutstandingModal] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [backgroundSyncing, setBackgroundSyncing] = useState(false);
@@ -738,10 +1024,17 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   const gridStroke = isDark ? '#1e293b' : '#f1f5f9';
   const chartData = data ? data.trend.map(t => ({ bulan: t.bulan, label: bulanLabel(t.bulan), count: t.count })) : [];
   const komisiChartData = data ? data.komisi.chartBulanan.map(t => ({ ...t, label: bulanLabel(t.bulan) })) : [];
-  const depMonth = data && data.berangkatBulanIni.length > 0
-    ? new Date(data.berangkatBulanIni[0].tgl_berangkat).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
-    : '';
-  const berangkatPreview = data ? data.berangkatBulanIni.slice(0, 3) : [];
+  const berangkatGroups = useMemo(() => buildBerangkatGroups(data?.berangkatBulanIni || []), [data?.berangkatBulanIni]);
+  const berangkatRangeLabel = data?.berangkatBulan || '60 hari ke depan';
+  const berangkatGroupPreview = berangkatGroups.slice(0, 4);
+  const selectedBerangkatGroup = useMemo(
+    () => berangkatGroups.find(group => group.key === selectedBerangkatGroupKey) || null,
+    [berangkatGroups, selectedBerangkatGroupKey],
+  );
+  const handleSelectBerangkatGroup = useCallback((key: string) => {
+    setShowBerangkatGroupsModal(false);
+    setSelectedBerangkatGroupKey(key);
+  }, []);
   const outstandingPreview = data ? data.outstandingList.slice(0, 3) : [];
 
   const pinGateActive = pinRequired && !pinUnlocked && !pinChecking;
@@ -856,29 +1149,38 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
       <div className="grid grid-cols-2 gap-2.5">
         {/* Total Jamaah */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
-          <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center border border-emerald-100 dark:border-emerald-800/40 mb-2">
-            <Users size={16} className="text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <p className="text-2xl font-bold text-gray-800 dark:text-white">{data.totalJamaah}</p>
+          <HeadlineValueRow
+            icon={<Users size={14} className="text-emerald-600 dark:text-emerald-400" />}
+            iconWrapClassName="bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/40"
+            valueClassName="text-gray-800 dark:text-white"
+          >
+            {data.totalJamaah}
+          </HeadlineValueRow>
           <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Total Jamaah</p>
           <DiffBadge diff={data.comparison.totalJamaah.diff} />
         </div>
 
         {/* Komisi Cair */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
-          <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center border border-emerald-100 dark:border-emerald-800/40 mb-2">
-            <Wallet size={16} className="text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtRpShort(data.komisi.sudahCair)}</p>
+          <HeadlineValueRow
+            icon={<Wallet size={14} className="text-emerald-600 dark:text-emerald-400" />}
+            iconWrapClassName="bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/40"
+            valueClassName="text-emerald-600 dark:text-emerald-400"
+          >
+            {fmtRpShort(data.komisi.sudahCair)}
+          </HeadlineValueRow>
           <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Komisi Cair</p>
         </div>
 
         {/* Berangkat Segera */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center border border-blue-100 dark:border-blue-800/40 mb-2">
-            <Plane size={16} className="text-blue-600 dark:text-blue-400" />
-          </div>
-          <p className="text-2xl font-bold text-gray-800 dark:text-white">{data.berangkatSegera}</p>
+          <HeadlineValueRow
+            icon={<Plane size={14} className="text-blue-600 dark:text-blue-400" />}
+            iconWrapClassName="bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800/40"
+            valueClassName="text-gray-800 dark:text-white"
+          >
+            {data.berangkatSegera}
+          </HeadlineValueRow>
           <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Berangkat Segera</p>
           {data.berangkatBulan && (
             <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">{data.berangkatBulan}</p>
@@ -887,10 +1189,13 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
 
         {/* Jamaah Baru */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
-          <div className="w-8 h-8 rounded-lg bg-violet-50 dark:bg-violet-900/20 flex items-center justify-center border border-violet-100 dark:border-violet-800/40 mb-2">
-            <UserPlus size={16} className="text-violet-600 dark:text-violet-400" />
-          </div>
-          <p className="text-2xl font-bold text-violet-600 dark:text-violet-400">+{data.jamaahBaru}</p>
+          <HeadlineValueRow
+            icon={<UserPlus size={14} className="text-violet-600 dark:text-violet-400" />}
+            iconWrapClassName="bg-violet-50 dark:bg-violet-900/20 border-violet-100 dark:border-violet-800/40"
+            valueClassName="text-violet-600 dark:text-violet-400"
+          >
+            +{data.jamaahBaru}
+          </HeadlineValueRow>
           <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Jamaah Baru · bulan ini</p>
           <DiffBadge diff={data.comparison.jamaahBaru.diff} />
         </div>
@@ -898,85 +1203,128 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
 
       {/* ── 2. Estimasi Komisi ── */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="px-4 pt-4 pb-2 flex items-center justify-between">
-          <span className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Estimasi Komisi</span>
-          <span className="text-[10px] text-gray-400 dark:text-slate-400">{data.totalJamaah} jamaah</span>
+        <div className="px-4 pt-4 pb-2 flex items-start justify-between gap-3">
+          <div>
+            <span className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Estimasi Komisi</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setKomisiExpanded(expanded => !expanded)}
+            aria-expanded={komisiExpanded}
+            aria-controls="estimasi-komisi-detail"
+            className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 px-2 py-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 active:scale-95 transition-all"
+          >
+            <span>{komisiExpanded ? 'Ringkas' : 'Detail'}</span>
+            <ChevronDown size={12} className={`transition-transform ${komisiExpanded ? 'rotate-180' : ''}`} strokeWidth={2.4} />
+          </button>
         </div>
         <div className="px-4 pb-3">
           <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtRp(data.komisi.totalKomisi)}</p>
           <p className="text-[10px] text-gray-400 dark:text-slate-400 mt-0.5">Total estimasi komisi</p>
         </div>
-        {/* 3-segment bar */}
-        <div className="px-4 pb-2">
-          <div className="h-3 rounded-full bg-gray-100 dark:bg-slate-700 overflow-hidden flex">
-            {data.komisi.totalKomisi > 0 && (
-              <>
-                <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.round(data.komisi.sudahCair / data.komisi.totalKomisi * 100)}%` }} />
-                <div className="h-full bg-blue-400 transition-all duration-500" style={{ width: `${Math.round(data.komisi.belumCair / data.komisi.totalKomisi * 100)}%` }} />
-              </>
+        <div id="estimasi-komisi-detail" className={komisiExpanded ? 'block' : 'hidden'}>
+          {/* 3-segment bar */}
+          <div className="px-4 pb-2">
+            <div className="h-3 rounded-full bg-gray-100 dark:bg-slate-700 overflow-hidden flex">
+              {data.komisi.totalKomisi > 0 && (
+                <>
+                  <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.round(data.komisi.sudahCair / data.komisi.totalKomisi * 100)}%` }} />
+                  <div className="h-full bg-blue-400 transition-all duration-500" style={{ width: `${Math.round(data.komisi.belumCair / data.komisi.totalKomisi * 100)}%` }} />
+                </>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
+              <span className="flex items-center gap-1.5 text-[10px]"><span className="w-2 h-2 rounded-full bg-emerald-500" /><span className="font-medium text-gray-600 dark:text-slate-300">Sudah Cair</span></span>
+              <span className="flex items-center gap-1.5 text-[10px]"><span className="w-2 h-2 rounded-full bg-blue-400" /><span className="font-medium text-gray-600 dark:text-slate-300">Belum Cair</span></span>
+              <span className="flex items-center gap-1.5 text-[10px]"><span className="w-2 h-2 rounded-full bg-gray-200 dark:bg-slate-600" /><span className="font-medium text-gray-600 dark:text-slate-300">Potensi</span></span>
+            </div>
+          </div>
+          {/* Detail rows */}
+          <div className="px-4 pb-3 space-y-2">
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/40 px-3 py-2.5 flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                Sudah Cair <span className="text-[10px] font-normal text-emerald-600/70 dark:text-emerald-400/60 ml-1">({data.komisi.sudahCairCount} jamaah)</span>
+              </span>
+              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtRp(data.komisi.sudahCair)}</span>
+            </div>
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/40 px-3 py-2.5 flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">
+                  Belum Cair <span className="text-[10px] font-normal text-blue-600/70 dark:text-blue-400/60 ml-1">({data.komisi.belumCairCount} jamaah)</span>
+                </span>
+                <p className="text-[9px] text-blue-500/70 dark:text-blue-400/50">Lunas, menunggu keberangkatan</p>
+              </div>
+              <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{fmtRp(data.komisi.belumCair)}</span>
+            </div>
+            <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/40 px-3 py-2.5 flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                  Potensi <span className="text-[10px] font-normal text-amber-600/70 dark:text-amber-400/60 ml-1">({data.komisi.potensiCount} jamaah)</span>
+                </span>
+                <p className="text-[9px] text-amber-500/70 dark:text-amber-400/50">Jika jamaah melunasi pembayaran</p>
+              </div>
+              <span className="text-sm font-bold text-amber-600 dark:text-amber-400">{fmtRp(data.komisi.potensi)}</span>
+            </div>
+          </div>
+          {/* Komisi Cair per Bulan chart */}
+          <div className="border-t border-gray-50 dark:border-slate-700/50">
+            <div className="px-4 pt-3 pb-1">
+              <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide">Komisi Cair Per Bulan</p>
+              <p className="text-[10px] text-gray-400 dark:text-slate-500">Berdasarkan tanggal keberangkatan, 7 bulan terakhir</p>
+            </div>
+            {komisiChartData.every(c => c.total === 0) ? (
+              <div className="px-4 py-8 text-center">
+                <p className="text-[11px] text-gray-400 dark:text-slate-500">Belum ada data keberangkatan</p>
+              </div>
+            ) : (
+              <div className="px-2 pb-3">
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={komisiChartData} margin={{ top: 10, right: 10, bottom: 0, left: -10 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false}
+                      tickFormatter={(v: number) => v >= 1000000 ? `${v / 1000000}jt` : String(v)} />
+                    <Tooltip content={<KomisiTooltip />} />
+                    <Bar dataKey="total" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             )}
           </div>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
-            <span className="flex items-center gap-1.5 text-[10px]"><span className="w-2 h-2 rounded-full bg-emerald-500" /><span className="font-medium text-gray-600 dark:text-slate-300">Sudah Cair</span></span>
-            <span className="flex items-center gap-1.5 text-[10px]"><span className="w-2 h-2 rounded-full bg-blue-400" /><span className="font-medium text-gray-600 dark:text-slate-300">Belum Cair</span></span>
-            <span className="flex items-center gap-1.5 text-[10px]"><span className="w-2 h-2 rounded-full bg-gray-200 dark:bg-slate-600" /><span className="font-medium text-gray-600 dark:text-slate-300">Potensi</span></span>
-          </div>
-        </div>
-        {/* Detail rows */}
-        <div className="px-4 pb-3 space-y-2">
-          <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/40 px-3 py-2.5 flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-              Sudah Cair <span className="text-[10px] font-normal text-emerald-600/70 dark:text-emerald-400/60 ml-1">({data.komisi.sudahCairCount} jamaah)</span>
-            </span>
-            <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtRp(data.komisi.sudahCair)}</span>
-          </div>
-          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/40 px-3 py-2.5 flex items-center justify-between">
-            <div>
-              <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">
-                Belum Cair <span className="text-[10px] font-normal text-blue-600/70 dark:text-blue-400/60 ml-1">({data.komisi.belumCairCount} jamaah)</span>
-              </span>
-              <p className="text-[9px] text-blue-500/70 dark:text-blue-400/50">Lunas, menunggu keberangkatan</p>
-            </div>
-            <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{fmtRp(data.komisi.belumCair)}</span>
-          </div>
-          <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/40 px-3 py-2.5 flex items-center justify-between">
-            <div>
-              <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                Potensi <span className="text-[10px] font-normal text-amber-600/70 dark:text-amber-400/60 ml-1">({data.komisi.potensiCount} jamaah)</span>
-              </span>
-              <p className="text-[9px] text-amber-500/70 dark:text-amber-400/50">Jika jamaah melunasi pembayaran</p>
-            </div>
-            <span className="text-sm font-bold text-amber-600 dark:text-amber-400">{fmtRp(data.komisi.potensi)}</span>
-          </div>
-        </div>
-        {/* Komisi Cair per Bulan chart */}
-        <div className="border-t border-gray-50 dark:border-slate-700/50">
-          <div className="px-4 pt-3 pb-1">
-            <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide">Komisi Cair Per Bulan</p>
-            <p className="text-[10px] text-gray-400 dark:text-slate-500">Berdasarkan tanggal keberangkatan, 7 bulan terakhir</p>
-          </div>
-          {komisiChartData.every(c => c.total === 0) ? (
-            <div className="px-4 py-8 text-center">
-              <p className="text-[11px] text-gray-400 dark:text-slate-500">Belum ada data keberangkatan</p>
-            </div>
-          ) : (
-            <div className="px-2 pb-3">
-              <ResponsiveContainer width="100%" height={160}>
-                <BarChart data={komisiChartData} margin={{ top: 10, right: 10, bottom: 0, left: -10 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false}
-                    tickFormatter={(v: number) => v >= 1000000 ? `${v / 1000000}jt` : String(v)} />
-                  <Tooltip content={<KomisiTooltip />} />
-                  <Bar dataKey="total" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={32} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* ── 3. Tren Jamaah Baru ── */}
+      {/* ── 3. Berangkat Mendatang ── */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Berangkat Mendatang</p>
+            {data.berangkatBulanIni.length > 0 && (
+              <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">{data.berangkatBulanIni.length} jamaah · {berangkatGroups.length} paket · {berangkatRangeLabel}</p>
+            )}
+          </div>
+          <Plane size={16} className="text-blue-500 dark:text-blue-400" />
+        </div>
+        {data.berangkatBulanIni.length === 0 ? (
+          <div className="px-4 py-6 text-center"><p className="text-sm text-gray-400 dark:text-slate-500">Tidak ada keberangkatan mendatang</p></div>
+        ) : (
+          <>
+            <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
+              {berangkatGroupPreview.map(group => (
+                <BerangkatGroupSummaryRow key={group.key} group={group} onSelect={handleSelectBerangkatGroup} />
+              ))}
+            </div>
+            {berangkatGroups.length > berangkatGroupPreview.length && (
+              <button onClick={() => setShowBerangkatGroupsModal(true)}
+                className="w-full py-2.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20 transition-colors border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-center gap-1">
+                Lihat lainnya <ChevronDown size={12} />
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── 4. Tren Jamaah Baru ── */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-50 dark:border-slate-700/50">
           <p className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Tren Jamaah Baru</p>
@@ -1004,34 +1352,6 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
               </AreaChart>
             </ResponsiveContainer>
           </div>
-        )}
-      </div>
-
-      {/* ── 4. Berangkat Mendatang ── */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Berangkat Mendatang</p>
-            {data.berangkatBulanIni.length > 0 && (
-              <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">{data.berangkatBulanIni.length} jamaah · {depMonth}</p>
-            )}
-          </div>
-          <Plane size={16} className="text-blue-500 dark:text-blue-400" />
-        </div>
-        {data.berangkatBulanIni.length === 0 ? (
-          <div className="px-4 py-6 text-center"><p className="text-sm text-gray-400 dark:text-slate-500">Tidak ada keberangkatan mendatang</p></div>
-        ) : (
-          <>
-            <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
-              {berangkatPreview.map((item, i) => <BerangkatRow key={i} item={item} />)}
-            </div>
-            {data.berangkatBulanIni.length > 3 && (
-              <button onClick={() => setShowBerangkatModal(true)}
-                className="w-full py-2.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20 transition-colors border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-center gap-1">
-                Lihat semua {data.berangkatBulanIni.length} jamaah <ChevronDown size={12} />
-              </button>
-            )}
-          </>
         )}
       </div>
 
@@ -1097,12 +1417,25 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
       </div>
 
       {/* ── Modals ── */}
-      <StatListModal isOpen={showBerangkatModal} onClose={() => setShowBerangkatModal(false)}
-        title="Berangkat Mendatang" subtitle={`${data.berangkatBulanIni.length} jamaah · ${depMonth}`}>
+      <StatListModal isOpen={showBerangkatGroupsModal} onClose={() => setShowBerangkatGroupsModal(false)}
+        title="Berangkat Mendatang" subtitle={`${berangkatGroups.length} paket · ${berangkatRangeLabel}`}>
         <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
-          {data.berangkatBulanIni.map((item, i) => <BerangkatRow key={i} item={item} />)}
+          {berangkatGroups.map(group => (
+            <BerangkatGroupSummaryRow key={group.key} group={group} onSelect={handleSelectBerangkatGroup} />
+          ))}
         </div>
       </StatListModal>
+
+      {selectedBerangkatGroup && (
+        <StatListModal
+          isOpen={!!selectedBerangkatGroup}
+          onClose={() => setSelectedBerangkatGroupKey(null)}
+          title="Detail Keberangkatan"
+          subtitle={`${selectedBerangkatGroup.count} jamaah · ${fmtTglLong(selectedBerangkatGroup.tgl_berangkat)}`}
+        >
+          <BerangkatGroupDetail group={selectedBerangkatGroup} />
+        </StatListModal>
+      )}
 
       <StatListModal isOpen={showOutstandingModal} onClose={() => setShowOutstandingModal(false)}
         title="Jamaah Belum Lunas" subtitle={`${data.outstandingList.length} booking · ${fmtRpShort(data.totalOutstanding)}`}>
