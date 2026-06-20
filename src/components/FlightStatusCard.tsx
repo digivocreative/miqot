@@ -4,6 +4,7 @@ import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, B
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber } from '../utils/phone';
+import { flightCardDateKey, flightCardDisplayDateValue, flightCardGroupKey } from '../lib/flightCardDate';
 
 const FlightMap = lazy(() => import('./FlightMap'));
 
@@ -30,6 +31,7 @@ interface FlightData {
   arrEstimated?: string;
   pax: number;
   tourLeader: string;
+  eventDate?: string;
   depDate?: string;  // full ISO for date display (airport local time)
   lat?: number;
   lng?: number;
@@ -231,17 +233,15 @@ function RouteLine({ flight }: { flight: FlightData }) {
 function groupFlights(flights: FlightData[]): FlightData[][] {
   const map = new Map<string, FlightData[]>();
   for (const f of flights) {
-    // Use depDate (airport-local ISO) or fall back to depScheduled for grouping key
-    const dateKey = (f.depDate || f.depScheduled || '').slice(0, 10); // YYYY-MM-DD
-    const key = `${f.flightNumber}__${dateKey}`;
+    const key = flightCardGroupKey(f);
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(f);
   }
   const grouped = Array.from(map.values());
   // Sort groups by departure date then time ascending
   grouped.sort((a, b) => {
-    const dateA = `${(a[0].depDate || a[0].depScheduled || '').slice(0, 10)} ${formatTime(a[0].depActual || a[0].depScheduled)}`;
-    const dateB = `${(b[0].depDate || b[0].depScheduled || '').slice(0, 10)} ${formatTime(b[0].depActual || b[0].depScheduled)}`;
+    const dateA = `${flightCardDateKey(a[0])} ${formatTime(a[0].depActual || a[0].depScheduled)}`;
+    const dateB = `${flightCardDateKey(b[0])} ${formatTime(b[0].depActual || b[0].depScheduled)}`;
     return dateA.localeCompare(dateB);
   });
   return grouped;
@@ -490,7 +490,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
 
   // Pre-generate share link when a flight card is expanded
   const preGenerateShare = useCallback(async (flight: FlightData, group: FlightData[]) => {
-    const flightKey = `${flight.flightNumber}_${(flight.depDate || flight.depScheduled || '').slice(0, 10)}`;
+    const flightKey = `${flight.flightNumber}_${flightCardDateKey(flight)}`;
     if (shareCache.current[flightKey]) {
       setShareReady(prev => ({ ...prev, [flightKey]: true }));
       return; // Already cached
@@ -503,6 +503,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
       const depDateStr = !isNaN(depParsed.getTime())
         ? `${depParsed.getFullYear()}-${String(depParsed.getMonth() + 1).padStart(2, '0')}-${String(depParsed.getDate()).padStart(2, '0')}`
         : depDateRaw.slice(0, 10);
+      const flightDateStr = flightCardDateKey(flight) || depDateStr;
       const airlineCode = flight.airline ? flight.airline.split(' ')[0]?.slice(0, 2) : (flight.flightNumber?.split(' ')[0]?.slice(0, 2) || null);
       const durationStr = flight.duration ? formatDuration(flight.duration) : null;
       const res = await fetch('/api/flight-share', {
@@ -510,7 +511,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           flight_number: flight.flightNumber,
-          flight_date: depDateStr,
+          flight_date: flightDateStr,
           dep_iata: flight.depCode,
           arr_iata: flight.arrCode,
           dep_city: flight.depCity || null,
@@ -541,7 +542,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
 
   // Instant copy from cache
   const handleShareCopy = useCallback(async (flight: FlightData) => {
-    const flightKey = `${flight.flightNumber}_${(flight.depDate || flight.depScheduled || '').slice(0, 10)}`;
+    const flightKey = `${flight.flightNumber}_${flightCardDateKey(flight)}`;
     const url = shareCache.current[flightKey];
     if (!url) return;
     try {
@@ -744,8 +745,8 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
             const totalPax = group.reduce((sum, f) => sum + (f.pax ?? 0), 0);
             const depTime = formatTime(first.depActual || first.depScheduled);
             const arrTime = formatTime(first.arrEstimated || first.arrScheduled);
-            const groupKey = `${first.flightNumber}-${(first.depDate || first.depScheduled || '').slice(0, 10)}`;
-            const flightKey = `${first.flightNumber}_${(first.depDate || first.depScheduled || '').slice(0, 10)}`;
+            const groupKey = `${first.flightNumber}-${flightCardDateKey(first)}`;
+            const flightKey = `${first.flightNumber}_${flightCardDateKey(first)}`;
             const isExpanded = expandedFlight === groupKey;
 
             return (
@@ -804,7 +805,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                   {/* Right info — date + chevron */}
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <span className="text-[9px] font-semibold text-gray-400 dark:text-slate-500">
-                      {formatDate(first.depDate || first.depScheduled)}
+                      {formatDate(flightCardDisplayDateValue(first))}
                     </span>
                     {(first.depTerminal || first.depGate) && (
                       <div className="flex items-center gap-1">
@@ -1061,7 +1062,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
       {jamaahPopup && (() => {
         const popupGroup = grouped.find(g => {
           const f = g[0];
-          return `${f.flightNumber}-${(f.depDate || f.depScheduled || '').slice(0, 10)}` === jamaahPopup;
+          return `${f.flightNumber}-${flightCardDateKey(f)}` === jamaahPopup;
         });
         const popupFlight = popupGroup?.[0];
         const jamaahList = popupFlight?.jamaah || [];

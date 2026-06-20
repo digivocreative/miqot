@@ -32,6 +32,8 @@ export interface FilterDropdownProps {
   /** Tailwind z-index class for the portaled panel (default `z-50`). Raise it (e.g. `z-[10000]`)
    *  when the dropdown lives inside a high-z modal so the panel renders above it. */
   portalZClass?: string;
+  /** Remove the option-list height cap so every option is visible without inner scrolling. */
+  showAllOptions?: boolean;
 }
 
 /**
@@ -57,16 +59,19 @@ export default function FilterDropdown({
   portal = false,
   accent = false,
   portalZClass = 'z-50',
+  showAllOptions = false,
 }: FilterDropdownProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const lastTouchYRef = useRef<number | null>(null);
   const [coords, setCoords] = useState({ top: 0, left: 0, right: 0, width: 0, alignRight: false });
 
   const selectedLabel = options.find(o => o.value === value)?.label ?? '';
-  const showSearch = options.length >= 8;
+  const showSearch = !showAllOptions && options.length >= 8;
   const filtered = showSearch && query.trim()
     ? options.filter(o => o.label.toLowerCase().includes(query.trim().toLowerCase()))
     : options;
@@ -77,6 +82,7 @@ export default function FilterDropdown({
   useEffect(() => {
     if (!open) {
       setQuery('');
+      lastTouchYRef.current = null;
       panelRef.current?.setAttribute('inert', '');
       return;
     }
@@ -126,6 +132,54 @@ export default function FilterDropdown({
     };
   }, [portal, open, measure]);
 
+  const handleScrollableTouchStart = useCallback((e: TouchEvent) => {
+    lastTouchYRef.current = e.touches[0]?.clientY ?? null;
+  }, []);
+
+  const handleScrollableTouchMove = useCallback((e: TouchEvent) => {
+    const scroller = scrollAreaRef.current;
+    const currentY = e.touches[0]?.clientY;
+    const lastY = lastTouchYRef.current;
+    if (!scroller || currentY == null || lastY == null) return;
+
+    const deltaY = currentY - lastY;
+    lastTouchYRef.current = currentY;
+    e.stopPropagation();
+
+    if (scroller.scrollHeight <= scroller.clientHeight) {
+      e.preventDefault();
+      return;
+    }
+
+    const atTop = scroller.scrollTop <= 0;
+    const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1;
+    if ((atTop && deltaY > 0) || (atBottom && deltaY < 0)) {
+      e.preventDefault();
+    }
+  }, []);
+
+  const resetScrollableTouch = useCallback(() => {
+    lastTouchYRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const scroller = scrollAreaRef.current;
+    if (!scroller) return;
+
+    scroller.addEventListener('touchstart', handleScrollableTouchStart, { passive: true });
+    scroller.addEventListener('touchmove', handleScrollableTouchMove, { passive: false });
+    scroller.addEventListener('touchend', resetScrollableTouch);
+    scroller.addEventListener('touchcancel', resetScrollableTouch);
+
+    return () => {
+      scroller.removeEventListener('touchstart', handleScrollableTouchStart);
+      scroller.removeEventListener('touchmove', handleScrollableTouchMove);
+      scroller.removeEventListener('touchend', resetScrollableTouch);
+      scroller.removeEventListener('touchcancel', resetScrollableTouch);
+    };
+  }, [open, handleScrollableTouchStart, handleScrollableTouchMove, resetScrollableTouch]);
+
   // Size (geometry) is per-variant; skin (colors) is gray by default or emerald when
   // `accent` is set. Kept separate so accent can swap colors without conflicting
   // Tailwind utilities (you can't reliably override a class by appending another).
@@ -163,6 +217,9 @@ export default function FilterDropdown({
           : { left: coords.left, maxWidth: `calc(100vw - ${coords.left + 8}px)` }),
       }
     : undefined;
+  const optionsListClass = showAllOptions
+    ? 'overflow-visible'
+    : 'max-h-60 overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch]';
 
   // Always mounted so both open AND close animate. Core transition utilities only —
   // tailwindcss-animate isn't installed here.
@@ -203,7 +260,11 @@ export default function FilterDropdown({
             </div>
           </div>
         )}
-        <div className="max-h-60 overflow-y-auto">
+        <div
+          ref={scrollAreaRef}
+          data-filter-dropdown-scroll="true"
+          className={optionsListClass}
+        >
           {filtered.length === 0 ? (
             <div className="px-3 py-4 text-center text-[11px] text-gray-400 dark:text-slate-500">Tidak ada hasil</div>
           ) : (
