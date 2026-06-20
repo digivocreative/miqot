@@ -75,6 +75,14 @@ import { shouldRunBackgroundJobs, shouldRunJamaahBackgroundSync, shouldRunLegacy
 import { buildAiCopyPrompts, buildAiCopyChatBody, parseAiCopyVersions } from './lib/ai-copy-prompt.js';
 import { parseSyncCooldownMinutes, parseSyncCooldownMs, computeFirstCycleDelayMs } from './lib/sync-schedule.js';
 import { isWeatherRefreshDue, mergeWeatherResults } from './lib/weather-cache.js';
+import {
+  TOP_PARTNER_ENDPOINT,
+  TOP_PARTNER_META_DESCRIPTION,
+  TOP_PARTNER_META_TITLE,
+  TOP_PARTNER_OG_IMAGE_PATH,
+  sanitizePartnerRows,
+} from './lib/top-partner.js';
+import { mirrorTopPartnerPhotos, normalizeBunnyDownloadUrl } from './lib/top-partner-bunny.js';
 import { evaluateDbProbe, freshDbHealthState, DEFAULT_DB_HEALTH_CONFIG } from './lib/db-health.js';
 import { freshCircuitState, recordDbOutcome, isCircuitOpen, nextBackoffMs, isDbConnectivityError, DEFAULT_CIRCUIT_CONFIG } from './lib/db-circuit.js';
 import { resolveJamaahUpsertBatch, jamaahUpsertKey, partitionChangedJamaahRows } from './lib/jamaah-upsert.js';
@@ -122,7 +130,7 @@ const JAMAAH_UPSERT_BATCH = resolveJamaahUpsertBatch(process.env);
 const JAMAAH_DIFF_COLUMNS = 'id, id_umroh, nama, jk, wa, tgl_lahir, paket, bayar, sisa, tgl_berangkat, tgl_daftar, hijriah_year, synced_at, perlengkapan, dokumen, no_paspor, paspor_expired, capi_last_bayar, notes, notes_updated_at, agent_id, capi_purchase_status, jm_id, diskon_kantor, diskon_marketing';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
-const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f']);
+const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'top-partner']);
 const JAMAAH_BACKGROUND_SYNC_ENABLED = shouldRunJamaahBackgroundSync();
 const LEGACY_BACKGROUND_SYNC_ENABLED = shouldRunLegacyBackgroundSync();
 
@@ -14013,7 +14021,7 @@ async function bunnyDelete(path) {
 }
 
 async function downloadFile(url) {
-  const normalizedUrl = url.replace('http://', 'https://');
+  const normalizedUrl = normalizeBunnyDownloadUrl(url);
   const res = await fetch(normalizedUrl, {
     headers: { 'User-Agent': 'Mozilla/5.0' },
     signal: AbortSignal.timeout(120000),
@@ -14038,6 +14046,163 @@ async function downloadFile(url) {
   const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
   return { buffer, contentType, ext, bytes: buffer.length, sha256 };
 }
+
+// ──────────────────────────────────────────────
+// Top Partner public cache
+// ──────────────────────────────────────────────
+const TOP_PARTNER_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const TOP_PARTNER_DB_READ_TTL_MS = 10 * 60 * 1000;
+let topPartnerMemory = null; // { partners: [...], syncedAt: string }
+let topPartnerDbReadAt = 0;
+let topPartnerFetchInFlight = null;
+
+async function topPartnerBunnyFileExists(path) {
+  try {
+    const res = await fetch(`https://${BUNNY_CDN_HOSTNAME}/${path}`, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return false;
+    const bytes = Number(res.headers.get('content-length') || '0');
+    return !bytes || bytes > 512;
+  } catch {
+    return false;
+  }
+}
+
+async function loadTopPartnersFromSupabase() {
+  try {
+    const { data, error } = await supabase
+      .from('top_partners_cache')
+      .select('data, synced_at')
+      .eq('id', 'partners')
+      .maybeSingle();
+    if (error || !data) return false;
+    topPartnerMemory = { partners: Array.isArray(data.data) ? data.data : [], syncedAt: data.synced_at };
+    return topPartnerMemory.partners.length > 0;
+  } catch (err) {
+    console.error('[TopPartner] Supabase load error:', err.message);
+    return false;
+  }
+}
+
+function topPartnerBunnyDeps() {
+  return {
+    enabled: getBunnyEnabled(),
+    cdnHostname: BUNNY_CDN_HOSTNAME,
+    fileExists: topPartnerBunnyFileExists,
+    downloadFile,
+    uploadFile: bunnyUpload,
+    logger: console,
+  };
+}
+
+async function fetchTopPartnersOnce() {
+  const res = await fetch(TOP_PARTNER_ENDPOINT, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; AlhijazTopPartner/1.0)',
+      'Referer': 'https://alhijazindowisata.com/jadwal/',
+      'Accept': 'application/json,text/plain,*/*',
+    },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`dataagen.php ${res.status}`);
+
+  const raw = await res.json();
+  const rows = Array.isArray(raw?.aaData) ? raw.aaData : Array.isArray(raw?.data) ? raw.data : [];
+  const sanitized = sanitizePartnerRows(rows).slice(0, 20);
+  if (sanitized.length === 0) {
+    console.warn('[TopPartner] Endpoint tidak mengembalikan partner valid — DB & memory tidak diubah');
+    return false;
+  }
+
+  const partners = await mirrorTopPartnerPhotos(sanitized, topPartnerBunnyDeps());
+
+  const syncedAt = new Date().toISOString();
+  topPartnerMemory = { partners, syncedAt };
+
+  try {
+    const { error } = await supabase.from('top_partners_cache').upsert(
+      { id: 'partners', data: partners, synced_at: syncedAt },
+      { onConflict: 'id' }
+    );
+    if (error) throw new Error(error.message);
+    console.log(`[TopPartner] ${partners.length} partner dipersist ke Supabase`);
+  } catch (err) {
+    console.error('[TopPartner] Supabase persist error:', err.message);
+  }
+  return true;
+}
+
+function fetchTopPartners() {
+  if (!topPartnerFetchInFlight) {
+    topPartnerFetchInFlight = fetchTopPartnersOnce().finally(() => {
+      topPartnerFetchInFlight = null;
+    });
+  }
+  return topPartnerFetchInFlight;
+}
+
+if (shouldRunBackgroundJobs()) {
+  (async () => {
+    try {
+      await loadTopPartnersFromSupabase();
+      if (isWeatherRefreshDue(topPartnerMemory?.syncedAt, Date.now(), TOP_PARTNER_REFRESH_INTERVAL_MS)) {
+        console.log('[TopPartner] Cache kosong/basi saat startup, fetch sekali...');
+        await fetchTopPartners();
+      } else {
+        console.log(`[TopPartner] Cache masih segar (synced ${topPartnerMemory.syncedAt}), skip fetch startup`);
+      }
+    } catch (err) {
+      console.error('[TopPartner] Startup init error:', err.message);
+    }
+  })();
+
+  cron.schedule('0 4 * * *', async () => {
+    try {
+      await fetchTopPartners();
+    } catch (err) {
+      console.error('[TopPartner] Cron fetch error:', err.message);
+    }
+  }, { timezone: 'Asia/Jakarta' });
+}
+
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/api/dev/trigger-top-partner-refresh', authMiddleware, async (req, res) => {
+    try {
+      const ok = await fetchTopPartners();
+      res.json({
+        success: ok,
+        syncedAt: topPartnerMemory?.syncedAt ?? null,
+        partners: topPartnerMemory?.partners?.length ?? 0,
+      });
+    } catch (err) {
+      console.error('[TopPartner/dev-trigger] error:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+}
+
+app.get('/api/top-partner', async (req, res) => {
+  try {
+    const now = Date.now();
+    if (!topPartnerMemory || now - topPartnerDbReadAt >= TOP_PARTNER_DB_READ_TTL_MS) {
+      await loadTopPartnersFromSupabase();
+      topPartnerDbReadAt = now;
+    }
+    if (!topPartnerMemory?.partners?.length) {
+      return res.status(503).json({ error: 'Data partner belum tersedia' });
+    }
+    res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=3600');
+    res.json({ success: true, partners: topPartnerMemory.partners, syncedAt: topPartnerMemory.syncedAt });
+  } catch (err) {
+    console.error('[TopPartner] read error:', err.message);
+    if (topPartnerMemory?.partners?.length) {
+      return res.json({ success: true, partners: topPartnerMemory.partners, stale: true, syncedAt: topPartnerMemory.syncedAt });
+    }
+    res.status(500).json({ error: 'Gagal mengambil data partner' });
+  }
+});
 
 async function syncFilesToBunny() {
   if (!getBunnyEnabled()) {
@@ -14896,6 +15061,49 @@ const forceRevalidate = (res, filePath) => {
 };
 app.use(express.static(distPath, { index: false, maxAge: '30d', immutable: true, setHeaders: forceRevalidate }));
 app.use(express.static(publicPath, { index: false, maxAge: '30d', immutable: true, setHeaders: forceRevalidate }));
+
+function injectTopPartnerMeta(html, origin) {
+  const title = escapeHtmlAttr(TOP_PARTNER_META_TITLE);
+  const description = escapeHtmlAttr(TOP_PARTNER_META_DESCRIPTION);
+  const pageUrl = escapeHtmlAttr(`${origin}/top-partner`);
+  const ogImageUrl = escapeHtmlAttr(`${origin}${TOP_PARTNER_OG_IMAGE_PATH}`);
+
+  html = html.replace(/<title>[^<]*<\/title>/i, `<title>${title}</title>`);
+  html = html.replace(
+    /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i,
+    `<meta name="description" content="${description}" />`
+  );
+  html = html.replace(/<meta\s+property="og:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+  html = html.replace(/<meta\s+name="twitter:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+  html = html.replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '');
+
+  const metaTags = `
+    <link rel="canonical" href="${pageUrl}" />
+    <meta property="og:title" content="${title}" />
+    <meta property="og:description" content="${description}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="${pageUrl}" />
+    <meta property="og:site_name" content="Alhijaz Indowisata" />
+    <meta property="og:image" content="${ogImageUrl}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${title}" />
+    <meta name="twitter:description" content="${description}" />
+    <meta name="twitter:image" content="${ogImageUrl}" />
+  `;
+
+  return html.replace('</head>', `${metaTags}\n</head>`);
+}
+
+app.get('/top-partner', (req, res) => {
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const html = injectTopPartnerMeta(getIndexHtml(), origin);
+  res.set('Content-Type', 'text/html');
+  res.set('Cache-Control', 'no-cache');
+  res.send(html);
+});
 
 // Airline code → name mapping untuk OG meta
 const AIRLINE_NAMES_SERVER = {

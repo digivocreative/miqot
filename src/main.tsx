@@ -38,6 +38,7 @@ const KalkulasiPage = lazy(() => import('./components/KalkulasiPage.tsx'))
 const ComparePage = lazy(() => import('./components/ComparePage.tsx'))
 const FlightSharePage = lazy(() => import('./components/FlightSharePage.tsx'))
 const BioPage = lazy(() => import('./components/bio/BioPage.tsx'))
+const TopPartnerPage = lazy(() => import('./components/TopPartnerPage.tsx'))
 import { AGENTS_DATA, loadAgentsFromSupabase } from '@/data/agents'
 
 // PWA scope is alhijaz.co only. On a custom domain the HTML is server-rendered
@@ -142,10 +143,11 @@ const isCompare = (segments.length >= 2 && segments[1] === 'compare') || (segmen
 const isCapi = segments.length >= 2 && segments[1] === 'capi'
 const isBio = segments.length >= 2 && segments[1] === 'bio'
 const bioSlug = isBio ? segments[0]?.toLowerCase() : null
+const isTopPartner = segments.length === 1 && segments[0] === 'top-partner'
 
 // Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
 import { getFilterModeFromSlug } from '@/utils'
-const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f']
+const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f', 'top-partner']
 const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'bio', 'jamaah']
 
 // ── Auto-redirect: logged-in agents go straight to dashboard ──
@@ -311,6 +313,7 @@ if (!shouldAutoRedirect) {
       if (isKalkulasi) return <KalkulasiPage agent={agentSlugForKalkulasi} hideDiscount />
       if (isCompare) return <ComparePage agent={agentSlugForCompare} />
       if (isBio && bioSlug) return <BioPage slug={bioSlug} />
+      if (isTopPartner) return <TopPartnerPage />
       return <App singlePackageId={singlePackageId} />
     })()
 

@@ -5,10 +5,22 @@ import { fileURLToPath } from 'url'
 import { execSync } from 'child_process'
 import { VitePWA } from 'vite-plugin-pwa'
 import dotenv from 'dotenv'
+import { createClient } from '@supabase/supabase-js'
 // @ts-expect-error — shared JS module (no types); same prompts as server.js
 import { buildAiCopyPrompts, buildAiCopyChatBody, parseAiCopyVersions } from './lib/ai-copy-prompt.js'
+// @ts-expect-error — shared JS module used by the production server too
+import { TOP_PARTNER_ENDPOINT, sanitizePartnerRows } from './lib/top-partner.js'
+// @ts-expect-error — shared JS module used by the production server too
+import { mirrorTopPartnerPhotos, normalizeBunnyDownloadUrl } from './lib/top-partner-bunny.js'
 
 dotenv.config()
+
+const topPartnerSupabase = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+  : null
+
+const TOP_PARTNER_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let topPartnerDevMemory: { partners: unknown[]; syncedAt: string | null } | null = null;
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
@@ -252,6 +264,143 @@ function analyticsDevPlugin() {
   };
 }
 
+async function topPartnerBunnyFileExists(path: string, cdnHostname: string) {
+  try {
+    const res = await fetch(`https://${cdnHostname}/${path}`, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return false;
+    const bytes = Number(res.headers.get('content-length') || '0');
+    return !bytes || bytes > 512;
+  } catch {
+    return false;
+  }
+}
+
+function topPartnerBunnyDeps() {
+  const apiKey = process.env.BUNNY_STORAGE_API_KEY || '';
+  const zone = process.env.BUNNY_STORAGE_ZONE || '';
+  const storageHostname = process.env.BUNNY_STORAGE_HOSTNAME || 'storage.bunnycdn.com';
+  const cdnHostname = process.env.BUNNY_CDN_HOSTNAME || '';
+
+  return {
+    enabled: !!(apiKey && zone && cdnHostname),
+    cdnHostname,
+    async fileExists(path: string) {
+      return topPartnerBunnyFileExists(path, cdnHostname);
+    },
+    async downloadFile(url: string) {
+      const normalizedUrl = normalizeBunnyDownloadUrl(url);
+      const res = await fetch(normalizedUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(120000),
+      });
+      if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+      return {
+        buffer: Buffer.from(await res.arrayBuffer()),
+        contentType: res.headers.get('content-type') || 'application/octet-stream',
+      };
+    },
+    async uploadFile(path: string, buffer: Buffer, contentType?: string) {
+      const res = await fetch(`https://${storageHostname}/${zone}/${path}`, {
+        method: 'PUT',
+        headers: {
+          'AccessKey': apiKey,
+          'Content-Type': contentType || 'application/octet-stream',
+        },
+        body: buffer,
+        signal: AbortSignal.timeout(120000),
+      });
+      if (!res.ok) throw new Error(`Bunny upload failed: ${res.status} ${res.statusText}`);
+    },
+    logger: console,
+  };
+}
+
+function isTopPartnerCacheFresh(syncedAt: string | null | undefined) {
+  const ts = Date.parse(syncedAt || '');
+  return Number.isFinite(ts) && Date.now() - ts < TOP_PARTNER_REFRESH_INTERVAL_MS;
+}
+
+async function loadTopPartnerDevCache() {
+  if (topPartnerDevMemory?.partners?.length) return topPartnerDevMemory;
+  if (!topPartnerSupabase) return null;
+
+  const { data, error } = await topPartnerSupabase
+    .from('top_partners_cache')
+    .select('data, synced_at')
+    .eq('id', 'partners')
+    .maybeSingle();
+
+  if (error || !data || !Array.isArray(data.data) || data.data.length === 0) return null;
+  topPartnerDevMemory = { partners: data.data, syncedAt: data.synced_at || null };
+  return topPartnerDevMemory;
+}
+
+function sendTopPartnerDevResponse(
+  res: any,
+  payload: { partners: unknown[]; syncedAt: string | null; cached?: boolean },
+) {
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+  res.end(JSON.stringify({
+    success: true,
+    partners: payload.partners,
+    syncedAt: payload.syncedAt,
+    cached: payload.cached === true,
+    dev: true,
+  }));
+}
+
+async function persistTopPartnerDevCache(partners: unknown[], syncedAt: string) {
+  topPartnerDevMemory = { partners, syncedAt };
+  if (!topPartnerSupabase) return;
+  const { error } = await topPartnerSupabase.from('top_partners_cache').upsert(
+    { id: 'partners', data: partners, synced_at: syncedAt },
+    { onConflict: 'id' }
+  );
+  if (error) console.warn('[TopPartner/dev] Supabase cache upsert failed:', error.message);
+}
+
+function topPartnerDevPlugin() {
+  return {
+    name: 'top-partner-dev',
+    configureServer(server: any) {
+      server.middlewares.use('/api/top-partner', async (req: any, res: any) => {
+        if (req.method !== 'GET') {
+          res.writeHead(405, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Method not allowed' }));
+        }
+
+        try {
+          const cached = await loadTopPartnerDevCache();
+          if (cached?.partners?.length && isTopPartnerCacheFresh(cached.syncedAt)) {
+            return sendTopPartnerDevResponse(res, { ...cached, cached: true });
+          }
+
+          const upstream = await fetch(TOP_PARTNER_ENDPOINT, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; AlhijazTopPartnerDev/1.0)',
+              'Referer': 'https://alhijazindowisata.com/jadwal/',
+            },
+          });
+          if (!upstream.ok) throw new Error(`dataagen.php ${upstream.status}`);
+          const raw = await upstream.json();
+          const rows = Array.isArray(raw?.aaData) ? raw.aaData : Array.isArray(raw?.data) ? raw.data : [];
+          const sanitized = sanitizePartnerRows(rows).slice(0, 20);
+          const partners = await mirrorTopPartnerPhotos(sanitized, topPartnerBunnyDeps());
+          const syncedAt = new Date().toISOString();
+          await persistTopPartnerDevCache(partners, syncedAt);
+          return sendTopPartnerDevResponse(res, { partners, syncedAt, cached: false });
+        } catch (err: any) {
+          res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'Gagal mengambil data partner', message: err.message }));
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(commitHash),
@@ -262,6 +411,7 @@ export default defineConfig({
     hajiLandingDevPlugin(),
     aiCopyDevPlugin(),
     analyticsDevPlugin(),
+    topPartnerDevPlugin(),
     capiDevPlugin(),
     react(),
     VitePWA({

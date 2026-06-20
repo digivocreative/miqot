@@ -12,6 +12,7 @@
     "start": "node server.js",
     "lint": "eslint .",
     "preview": "vite preview",
+    "generate:top-partner-og": "node scripts/generate-top-partner-og.mjs",
     "postinstall": "playwright install chromium"
   },
   "dependencies": {
