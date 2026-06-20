@@ -20,7 +20,7 @@ import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration, fetchAwapiCredentials } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
-import { buildBerangkatMendatang } from './lib/laporan-stats.js';
+import { buildBerangkatMendatang, computeUmrohKomisi } from './lib/laporan-stats.js';
 import { collapseBookingOutstanding } from './lib/booking-outstanding.js';
 import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate, sendOpsAlert } from './telegram-notifier.js';
 import { getBirthdaysForAgent } from './lib/birthdays.js';
@@ -7784,11 +7784,11 @@ app.get('/api/calendar/insight-jamaah', authMiddleware, async (req, res) => {
 const KNOWN_ROUTES = {
   'SV821':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'MED', arrCity: 'Madinah',  durationMin: 570, depTerminal: '3' },
   'SV822':  { dep: 'MED', depCity: 'Madinah',  arr: 'CGK', arrCity: 'Jakarta',  durationMin: 570 },
-  'SV827':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'JED', arrCity: 'Jeddah',   durationMin: 600, depTerminal: '3' },
+  'SV827':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'JED', arrCity: 'Jeddah',   durationMin: 570, depTerminal: '3' },
   'SV828':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
   'SV816':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 600, depTerminal: '1' },
   'SV817':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
-  'SV818':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
+  'SV818':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 605 },
   'SV820':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
   'GA980':  { dep: 'CGK', depCity: 'Jakarta',  arr: 'JED', arrCity: 'Jeddah',   durationMin: 540, depTerminal: '2' },
   'GA981':  { dep: 'JED', depCity: 'Jeddah',   arr: 'CGK', arrCity: 'Jakarta',  durationMin: 540 },
@@ -8404,7 +8404,11 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
 
       const flightId = `${event.event_date}_${parsed.flightIata}`;
       // Unique ID per group (so multiple groups on same flight get distinct entries)
-      const entryId = event.group_number ? `${flightId}_g${event.group_number}` : flightId;
+      const entryId = event.group_number
+        ? `${flightId}_g${event.group_number}`
+        : event.jadwal_id
+          ? `${flightId}_j${event.jadwal_id}`
+          : flightId;
 
       // Try to get shared flight data (from cache or DB), but only query once per flightId
       let flightBase = flightDataCache.get(flightId);
@@ -8450,6 +8454,7 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
         const entry = {
           ...flightBase,
           id: entryId,
+          eventDate: event.event_date,
           group: event.group_number || '',
           pax: event.pax_terisi ?? event.pax ?? 0,
           tourLeader: event.tour_leader || '',
@@ -8545,6 +8550,7 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
           flightNumber: `${parsed.airlineCode} ${parsed.flightNumber}`,
           airline: parsed.airline,
           airlineLogo: null,
+          eventDate: event.event_date,
           group: event.group_number || '',
           status: fallbackStatus,
           depCity: route?.depCity || '',
@@ -10277,7 +10283,7 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
     // Equivalent SQL: NOT (bayar = 0 AND sisa > 0) = bayar>0 OR sisa=0 OR sisa IS NULL.
     const excludeBelumDP = (q) => q.or('bayar.gt.0,sisa.eq.0,sisa.is.null');
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getWIBDateStr();
     const now = new Date();
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -10321,7 +10327,7 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
     let olQ = supabase.from('jamaah').select('id_umroh, nama, paket, jk, bayar, sisa, tgl_berangkat, wa, awapi_bayar_sisa:raw_data->>bayar_sisa, awapi_paket_harga:raw_data->>paket_harga, awapi_bayar:raw_data->>bayar').eq('agent_id', agentId).order('sisa', { ascending: false }).order('tgl_berangkat', { ascending: true });
     if (year) olQ = olQ.eq('hijriah_year', year);
 
-    let komisiQ = supabase.from('jamaah').select('paket, sisa, tgl_berangkat, diskon_marketing').eq('agent_id', agentId);
+    let komisiQ = supabase.from('jamaah').select('paket, bayar, sisa, tgl_berangkat, diskon_marketing').eq('agent_id', agentId);
     if (year) komisiQ = komisiQ.eq('hijriah_year', year);
 
     // Fire ALL independent queries in parallel
@@ -10420,66 +10426,10 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
         || String(a.tgl_berangkat || '').localeCompare(String(b.tgl_berangkat || '')));
 
     // ── komisi ──
-    const KOMISI_HEMAT = 1300000;
-    const KOMISI_REGULER = 1800000;
-    const getRate = (p) => (p && p.toLowerCase().includes('hemat') ? KOMISI_HEMAT : KOMISI_REGULER);
-
     // Net komisi per jamaah = rate - diskon_marketing, floored at 0.
-    // Hanya diskon_marketing yang dipotong dari komisi agen. diskon_kantor
-    // adalah potongan harga paket yang ditanggung kantor (tidak mengurangi
-    // komisi agen).
-    const getNetKomisi = (r) => Math.max(0, getRate(r.paket) - (r.diskon_marketing || 0));
-
-    let sudahCair = 0, sudahCairCount = 0;
-    let belumCair = 0, belumCairCount = 0;
-    let potensi = 0, potensiCount = 0;
-    let hematCount = 0, hematTotal = 0, regulerCount = 0, regulerTotal = 0;
-    for (const r of komisiRows) {
-      const net = getNetKomisi(r);
-      // sisa <= 0 = lunas (incl. lebih bayar / sisa negatif). NULL = lunas juga.
-      const isLunas = r.sisa == null || r.sisa <= 0;
-      const departed = r.tgl_berangkat && r.tgl_berangkat < todayStr;
-      // Komisi umroh cair saat jamaah sudah berangkat (regardless of sisa).
-      // Belum cair = lunas tapi belum berangkat (akan cair saat keberangkatan).
-      // Potensi = belum lunas + belum berangkat (perlu pelunasan dulu).
-      if (departed) { sudahCair += net; sudahCairCount++; }
-      else if (isLunas) { belumCair += net; belumCairCount++; }
-      else { potensi += net; potensiCount++; }
-      if (r.paket && r.paket.toLowerCase().includes('hemat')) { hematCount++; hematTotal += net; }
-      else { regulerCount++; regulerTotal += net; }
-    }
-    // chartBulanan: komisi cair grouped by departure month (7 months)
-    const chartMap = new Map();
-    // Build 7-month skeleton
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setMonth(d.getMonth() - i);
-      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      chartMap.set(ym, { bulan: ym, total: 0, count: 0 });
-    }
-    for (const r of komisiRows) {
-      if (!r.tgl_berangkat || r.tgl_berangkat >= todayStr) continue;
-      // Sudah berangkat → komisi cair (regardless of sisa).
-      const ym = r.tgl_berangkat.substring(0, 7);
-      if (chartMap.has(ym)) {
-        const entry = chartMap.get(ym);
-        entry.total += getNetKomisi(r);
-        entry.count++;
-      }
-    }
-    const chartBulanan = Array.from(chartMap.values());
-
-    const komisi = {
-      totalKomisi: sudahCair + belumCair + potensi,
-      sudahCair, sudahCairCount,
-      belumCair, belumCairCount,
-      potensi, potensiCount,
-      breakdown: {
-        hemat: { count: hematCount, rate: KOMISI_HEMAT, total: hematTotal },
-        reguler: { count: regulerCount, rate: KOMISI_REGULER, total: regulerTotal },
-      },
-      chartBulanan,
-    };
+    // Belum DP tidak masuk estimasi Statistik; sudah cair hanya jika lunas dan
+    // sudah berangkat. Sudah DP yang belum lunas tetap potensi sampai pelunasan.
+    const komisi = computeUmrohKomisi(komisiRows, todayStr);
 
     const responseData = {
       totalJamaah: totalJamaah || 0,
