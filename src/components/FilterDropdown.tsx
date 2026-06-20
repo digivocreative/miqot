@@ -71,7 +71,7 @@ export default function FilterDropdown({
   const [coords, setCoords] = useState({ top: 0, left: 0, right: 0, width: 0, alignRight: false });
 
   const selectedLabel = options.find(o => o.value === value)?.label ?? '';
-  const showSearch = options.length >= 8;
+  const showSearch = !showAllOptions && options.length >= 8;
   const filtered = showSearch && query.trim()
     ? options.filter(o => o.label.toLowerCase().includes(query.trim().toLowerCase()))
     : options;

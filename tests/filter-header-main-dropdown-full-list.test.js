@@ -10,6 +10,7 @@ const filterHeader = readFileSync(join(root.pathname, 'src/components/FilterHead
 test('FilterDropdown supports rendering all options without a scroll cap', () => {
   assert.match(filterDropdown, /showAllOptions\?: boolean/);
   assert.match(filterDropdown, /showAllOptions = false/);
+  assert.match(filterDropdown, /const showSearch = !showAllOptions && options\.length >= 8/);
   assert.match(filterDropdown, /showAllOptions\s+\?\s+'overflow-visible'/);
   assert.match(filterDropdown, /:\s+'max-h-60 overflow-y-auto overscroll-contain touch-pan-y \[-webkit-overflow-scrolling:touch\]'/);
 });
