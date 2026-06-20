@@ -39,6 +39,35 @@ const PUBLIC_MODAL_HTML = `
   </tbody>
 </table>`;
 
+function publicPageHtmlForEvents(events) {
+  return `
+<script>
+  var calendar = new FullCalendar.Calendar(calendarEl, {
+    events: ${JSON.stringify(events)}
+  });
+</script>`;
+}
+
+function publicModalHtmlForGroup(groupNumber) {
+  return `
+<table>
+  <thead>
+    <tr><th>GROUP</th><th>PESAWAT</th><th>WAKTU</th><th>PAKET</th><th>PAX</th><th>STAFF</th><th>TL</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>${groupNumber}</td>
+      <td>SAUDIA ~ SV 827</td>
+      <td>00.40</td>
+      <td>PROMO JUM'ATAIN PLUS TAIF +BADAR 15HR (KERETA CEPAT)</td>
+      <td>47</td>
+      <td>-</td>
+      <td>-</td>
+    </tr>
+  </tbody>
+</table>`;
+}
+
 function htmlResponse(body, status = 200) {
   return {
     ok: status >= 200 && status < 300,
@@ -183,6 +212,61 @@ test('syncCalendar scrapes public kegiatan page and public modal without legacy 
     assert.equal(urls.some(href => href.includes('/jadwal/_kmodal.php')), true);
     assert.equal(urls.some(href => href.includes('cek_login.php')), false);
     assert.equal(urls.some(href => href.includes('115.124.86.220')), false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('syncCalendar fetches public modal details with bounded concurrency', async () => {
+  const originalFetch = global.fetch;
+  const modalEvents = [1, 2, 3, 4].map((n) => ({
+    title: 'Keberangkatan UMROH',
+    start: isoDateMonthsAhead(n),
+    color: '#7bc86c',
+    extendedProps: {
+      mjudul: 'KEBERANGKATAN UMROH',
+      aid: `B15${n}`,
+      icon: 'plane-departure',
+      apalah: `JBU15${n}`,
+    },
+  }));
+  let activeModalFetches = 0;
+  let maxActiveModalFetches = 0;
+
+  try {
+    global.fetch = async (url) => {
+      const href = String(url);
+      const parsed = new URL(href);
+
+      if (
+        parsed.origin === 'https://alhijazindowisata.com' &&
+        parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata'
+      ) {
+        return htmlResponse(publicPageHtmlForEvents(modalEvents));
+      }
+
+      if (
+        parsed.origin === 'https://alhijazindowisata.com' &&
+        parsed.pathname === '/jadwal/_kmodal.php'
+      ) {
+        activeModalFetches++;
+        maxActiveModalFetches = Math.max(maxActiveModalFetches, activeModalFetches);
+        await new Promise(resolve => setTimeout(resolve, 25));
+        activeModalFetches--;
+        return htmlResponse(publicModalHtmlForGroup(parsed.searchParams.get('.m')));
+      }
+
+      throw new Error(`unexpected fetch: ${href}`);
+    };
+
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase();
+    const result = await syncCalendar(supabase);
+
+    assert.equal(result.success, true);
+    assert.equal(result.count, 4);
+    assert.equal(supabase.state.upserted.length, 4);
+    assert.equal(maxActiveModalFetches > 1, true);
   } finally {
     global.fetch = originalFetch;
   }

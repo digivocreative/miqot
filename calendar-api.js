@@ -14,6 +14,33 @@ import { matchEventToSchedule, findSiblingKeberangkatan, tokenizeName, overlapSc
 import { buildScheduleFallbackDetails, parseCalendarJadwalIds } from './lib/calendar-schedule-fallback.js';
 import { fetchPublicCalendarEvents, fetchPublicEventDetail } from './lib/calendar-public-source.js';
 
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const CALENDAR_PUBLIC_DETAIL_CONCURRENCY = parsePositiveInt(
+  process.env.CALENDAR_PUBLIC_DETAIL_CONCURRENCY,
+  6
+);
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
+}
+
 async function loadScheduleFallbackMap(supabase, events) {
   const ids = [...new Set(events.flatMap(ev => parseCalendarJadwalIds(ev.apalah)))];
   if (ids.length === 0) return new Map();
@@ -45,6 +72,49 @@ async function loadScheduleFallbackMap(supabase, events) {
   }
 
   return new Map((data || []).map(row => [row.jadwal_id, row]));
+}
+
+async function resolvePublicEventRows(event, scheduleFallbackById) {
+  const failedKey = `${event.date}_${event.type}`;
+  let details;
+
+  try {
+    details = await fetchPublicEventDetail(event);
+  } catch (err) {
+    console.warn(`[Calendar] ${err.message} — baris lama event ini dipertahankan`);
+    return { rows: [], failedKey, fallbackUsed: 0, emptyDetails: 0 };
+  }
+
+  let fallbackUsed = 0;
+  let emptyDetails = 0;
+  if (details.length === 0) {
+    const fallback = buildScheduleFallbackDetails(event, scheduleFallbackById);
+    if (fallback.length > 0) {
+      details = fallback;
+      fallbackUsed = 1;
+    } else {
+      // Detail kosong dari modal publik berarti detail tidak bisa dipercaya.
+      // Jangan tulis placeholder _0 karena itu akan menghapus baris detail lama.
+      emptyDetails = 1;
+      console.warn(`[Calendar] Detail kosong utk ${event.date}/${event.type} dan fallback jadwal tidak lengkap — baris lama dipertahankan`);
+      return { rows: [], failedKey, fallbackUsed, emptyDetails };
+    }
+  }
+
+  const rows = details.map((detail, idx) => {
+    const rowKey = detail.jadwal_id || detail.group_number || `row${idx + 1}`;
+    const id = `${event.date}_${event.type}_${rowKey}`;
+    return {
+      id,
+      event_date: event.date,
+      event_type: event.type,
+      ...detail,
+      raw_data: detail,
+      synced_at: new Date().toISOString(),
+    };
+  });
+
+  return { rows, failedKey: null, fallbackUsed, emptyDetails };
 }
 
 // ── Main sync function ──
@@ -90,58 +160,26 @@ export async function syncCalendar(supabase) {
   let fallbackUsed = 0;
   let emptyDetails = 0;
 
-  for (const event of filtered) {
-    let details;
-    try {
-      details = await fetchPublicEventDetail(event);
-    } catch (err) {
-      failedEventKeys.add(`${event.date}_${event.type}`);
-      console.warn(`[Calendar] ${err.message} — baris lama event ini dipertahankan`);
+  const detailResults = await mapWithConcurrency(
+    filtered,
+    CALENDAR_PUBLIC_DETAIL_CONCURRENCY,
+    async (event) => {
+      const result = await resolvePublicEventRows(event, scheduleFallbackById);
       detailsFetched++;
-      continue;
-    }
-    detailsFetched++;
-
-    if (details.length === 0) {
-      const fallback = buildScheduleFallbackDetails(event, scheduleFallbackById);
-      if (fallback.length > 0) {
-        details = fallback;
-        fallbackUsed++;
-      } else {
-        // Detail kosong dari modal publik berarti detail tidak bisa dipercaya.
-        // Jangan tulis placeholder _0 karena itu akan menghapus baris detail lama.
-        failedEventKeys.add(`${event.date}_${event.type}`);
-        emptyDetails++;
-        console.warn(`[Calendar] Detail kosong utk ${event.date}/${event.type} dan fallback jadwal tidak lengkap — baris lama dipertahankan`);
-        continue;
+      if (detailsFetched % 10 === 0 || detailsFetched === filtered.length) {
+        console.log(`[Calendar] Fetched details for ${detailsFetched}/${filtered.length} events...`);
       }
+      return result;
     }
+  );
 
-    if (details.length > 0) {
-      details.forEach((detail, idx) => {
-        const rowKey = detail.jadwal_id || detail.group_number || `row${idx + 1}`;
-        const id = `${event.date}_${event.type}_${rowKey}`;
-        allRows.push({
-          id,
-          event_date: event.date,
-          event_type: event.type,
-          ...detail,
-          raw_data: detail,
-          synced_at: new Date().toISOString(),
-        });
-      });
-    } else {
-      failedEventKeys.add(`${event.date}_${event.type}`);
-      emptyDetails++;
-      console.warn(`[Calendar] Detail kosong utk ${event.date}/${event.type} — baris lama dipertahankan`);
-      continue;
+  for (const result of detailResults) {
+    if (result.failedKey) failedEventKeys.add(result.failedKey);
+    fallbackUsed += result.fallbackUsed;
+    emptyDetails += result.emptyDetails;
+    if (result.rows.length > 0) {
+      allRows.push(...result.rows);
     }
-
-    // Throttle: 500ms between detail requests
-    if (detailsFetched % 10 === 0) {
-      console.log(`[Calendar] Fetched details for ${detailsFetched}/${filtered.length} events...`);
-    }
-    await new Promise(r => setTimeout(r, 500));
   }
 
   if (allRows.length === 0) {
