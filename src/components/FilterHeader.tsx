@@ -256,6 +256,7 @@ export function FilterHeader({
             options={FILTER_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
             ariaLabel="Filter paket"
             widthClass="flex-1"
+            showAllOptions
           />
 
           {/* Secondary Dropdown: Sort Order (for AVAILABLE & PROMO) */}
