@@ -48,6 +48,7 @@ import {
   normalizeAwapiHajiRow,
   normalizeAwapiRow,
   hasSuspiciousAwapiPayment,
+  guardNewSuspiciousAwapiPaymentRow,
   preserveExistingPaymentForSuspiciousAwapiRow,
   preserveLegacyUmrohRawData,
   resolveAggregateBookingLunasRow,
@@ -5800,6 +5801,13 @@ function jamaahRowKey(row) {
   return `${String(row.id_umroh).trim().toLowerCase()}|${String(row.jm_id).trim().toLowerCase()}`;
 }
 
+function jamaahCleanupIdentityKey(row) {
+  const jmId = String(row?.jm_id || row?.id_jamaah || '').trim().toLowerCase();
+  if (jmId && /^jm/i.test(jmId)) return `jm:${jmId}`;
+  const nama = String(row?.nama || '').trim().toLowerCase();
+  return nama ? `nm:${nama}` : '';
+}
+
 function toMoney(value) {
   const n = Number(value ?? 0);
   return Number.isFinite(n) ? n : 0;
@@ -5831,7 +5839,7 @@ async function preserveSuspiciousAwapiPayments(agentId, rows) {
 
   const suspiciousIncoming = incomingRows.filter(hasSuspiciousAwapiPayment);
   if (suspiciousIncoming.length === 0) {
-    return { rows: incomingRows, guardedCount: 0, normalizedLunasCount: 0, unresolved: [] };
+    return { rows: incomingRows, guardedCount: 0, neutralizedCount: 0, normalizedLunasCount: 0, unresolved: [] };
   }
 
   // Fetch EVERY existing pax of the suspicious bookings (not just the suspicious
@@ -5869,7 +5877,7 @@ async function preserveSuspiciousAwapiPayments(agentId, rows) {
 
   const suspiciousRows = preparedRows.filter(hasSuspiciousAwapiPayment);
   if (suspiciousRows.length === 0) {
-    return { rows: preparedRows, guardedCount: 0, normalizedLunasCount, unresolved: [] };
+    return { rows: preparedRows, guardedCount: 0, neutralizedCount: 0, normalizedLunasCount, unresolved: [] };
   }
 
   const existingByKey = new Map();
@@ -5879,19 +5887,19 @@ async function preserveSuspiciousAwapiPayments(agentId, rows) {
   }
 
   let guardedCount = 0;
-  const unresolved = [];
+  let neutralizedCount = 0;
   const guardedRows = preparedRows.map((row) => {
     if (!hasSuspiciousAwapiPayment(row)) return row;
     const guarded = preserveExistingPaymentForSuspiciousAwapiRow(row, existingByKey.get(jamaahRowKey(row)));
     if (!guarded) {
-      unresolved.push(row);
-      return row;
+      neutralizedCount++;
+      return guardNewSuspiciousAwapiPaymentRow(row);
     }
     guardedCount++;
     return guarded;
   });
 
-  return { rows: guardedRows, guardedCount, normalizedLunasCount, unresolved };
+  return { rows: guardedRows, guardedCount, neutralizedCount, normalizedLunasCount, unresolved: [] };
 }
 
 function datePlusDaysKey(date, days) {
@@ -6221,7 +6229,8 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
           fetchedBookingIds.add(norm.id_umroh);
           successfulBookingIds.add(norm.id_umroh);
           const jset = successfulJamaahPerBooking.get(norm.id_umroh) || new Set();
-          jset.add(String(norm.nama || '').trim().toLowerCase());
+          const cleanupKey = jamaahCleanupIdentityKey(norm);
+          if (cleanupKey) jset.add(cleanupKey);
           successfulJamaahPerBooking.set(norm.id_umroh, jset);
         }
         if (plan.source === 'keberangkatan') keberangkatanYearsCompleted++;
@@ -6237,32 +6246,16 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
   const allRows = await preserveLegacyUmrohRawDataForRows(agentId, Array.from(rowsByKey.values()));
   console.log(`[Sync/api/${context}] ${slug}: ${allRows.length} unique rows from ${keberangkatanYearsCompleted}/${yearsToSync.length} keberangkatan years + pendaftaran backfill (${fetchErrors} fetch errors)`);
   const guardedAwapiRows = await preserveSuspiciousAwapiPayments(agentId, allRows);
-  if (guardedAwapiRows.unresolved.length > 0) {
-    // Anomalous payment rows (negative sisa, no valid existing payment to preserve):
-    // skip ONLY these rows — we never write bogus payment data — and keep syncing
-    // the rest of the agent. (Previously this threw and aborted the whole agent;
-    // with the legacy fallback disabled that froze last_jamaah_sync_at forever.)
-    // Deletion stays safe: fetchedBookingIds / successfulJamaahPerBooking are built
-    // from the raw fetch (pre-guard), so the skipped rows' existing DB versions are
-    // never treated as stale by computeSafeDeletions.
-    const sample = guardedAwapiRows.unresolved
-      .slice(0, 3)
-      .map((row) => `${row.id_umroh}/${row.jm_id}:${row.bayar}/${row.sisa}`)
-      .join(', ');
-    console.warn(`[Sync/api/${context}] ${slug}: skipping ${guardedAwapiRows.unresolved.length} anomalous AWAPI row(s) — negative sisa without valid existing payment; syncing the rest (${sample})`);
-  }
   if (guardedAwapiRows.normalizedLunasCount > 0) {
     console.log(`[Sync/api/${context}] ${slug}: normalized ${guardedAwapiRows.normalizedLunasCount} aggregate-booking lunas AWAPI row(s) to per-pax lunas`);
   }
   if (guardedAwapiRows.guardedCount > 0) {
     console.warn(`[Sync/api/${context}] ${slug}: preserved existing payment for ${guardedAwapiRows.guardedCount} suspicious AWAPI row(s)`);
   }
-  // Exclude unresolved anomalous rows by object identity (preserveSuspiciousAwapiPayments
-  // returns the same row references it collects in `unresolved`).
-  const unresolvedRowSet = new Set(guardedAwapiRows.unresolved);
-  const rowsForUpsert = unresolvedRowSet.size > 0
-    ? guardedAwapiRows.rows.filter((row) => !unresolvedRowSet.has(row))
-    : guardedAwapiRows.rows;
+  if (guardedAwapiRows.neutralizedCount > 0) {
+    console.warn(`[Sync/api/${context}] ${slug}: neutralized payment for ${guardedAwapiRows.neutralizedCount} new suspicious AWAPI row(s); jamaah biodata still upserted`);
+  }
+  const rowsForUpsert = guardedAwapiRows.rows;
 
   mergeJamaahSyncEvents(
     syncEvents,
@@ -6319,12 +6312,13 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
   if (outcome.shouldCleanup && !syncingAgents.get(agentId)?.cancelled) {
     const { data: existingDbRows } = await supabase
       .from('jamaah')
-      .select('id_umroh, nama, hijriah_year')
+      .select('id_umroh, jm_id, nama, hijriah_year')
       .eq('agent_id', agentId)
       .in('hijriah_year', yearsToSync);
     const existingForCleanup = (existingDbRows || []).map((r) => ({
       bookingId: r.id_umroh,
-      jamaahKey: String(r.nama || '').trim().toLowerCase(),
+      jamaahKey: jamaahCleanupIdentityKey(r),
+      jmId: r.jm_id,
       nama: r.nama,
     }));
     const plan = computeSafeDeletions({
@@ -6758,7 +6752,8 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
 
           // Build rows from detail items — paket comes from list page
           for (const item of result.items) {
-            if (item.nama) jamaahSet.add(String(item.nama).trim().toLowerCase());
+            const cleanupKey = jamaahCleanupIdentityKey(item);
+            if (cleanupKey) jamaahSet.add(cleanupKey);
             // Determine hijriah year: use actual date, or preserve existing DB value, or default
             const computedYear = getHijriahYear(item.tgl_berangkat);
             const existingYear = existingYearLookup.get(`${item.id_umroh}_${item.nama}`.toLowerCase());
@@ -6874,13 +6869,14 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
       if (!syncingAgents.get(agentId)?.cancelled) {
         let existingRowsQuery = supabase
           .from('jamaah')
-          .select('id_umroh, nama, hijriah_year')
+          .select('id_umroh, jm_id, nama, hijriah_year')
           .eq('agent_id', agentId);
         if (targetedYearSync) existingRowsQuery = existingRowsQuery.in('hijriah_year', yearsToSync);
         const { data: existingDbRows } = await existingRowsQuery;
         const existingForCleanup = (existingDbRows || []).map(r => ({
           bookingId: r.id_umroh,
-          jamaahKey: String(r.nama || '').trim().toLowerCase(),
+          jamaahKey: jamaahCleanupIdentityKey(r),
+          jmId: r.jm_id,
           nama: r.nama,
         }));
         const plan = computeSafeDeletions({
@@ -7212,7 +7208,12 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
       console.error('[CAPI/api] refresh jamaah error:', e.message)
     );
 
-    res.json({ success: true, data: { row: rowForUpsert, source: guardedRefresh.guardedCount > 0 ? 'awapi-payment-preserved' : 'awapi' } });
+    const source = guardedRefresh.guardedCount > 0
+      ? 'awapi-payment-preserved'
+      : guardedRefresh.neutralizedCount > 0
+        ? 'awapi-payment-neutralized'
+        : 'awapi';
+    res.json({ success: true, data: { row: rowForUpsert, source } });
   } catch (err) {
     if (err instanceof AwapiError) {
       return res.status(502).json({ error: `Upstream API: ${err.message}`, status: err.status });
@@ -7286,7 +7287,12 @@ app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) 
       safeRows.map((r) => ({ id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama }))
     ).catch((e) => console.error('[CAPI/api] refresh umrah error:', e.message));
 
-    res.json({ success: true, data: { count: safeRows.length, rows: safeRows, source: guardedRefresh.guardedCount > 0 ? 'awapi-payment-preserved' : 'awapi' } });
+    const source = guardedRefresh.guardedCount > 0
+      ? 'awapi-payment-preserved'
+      : guardedRefresh.neutralizedCount > 0
+        ? 'awapi-payment-neutralized'
+        : 'awapi';
+    res.json({ success: true, data: { count: safeRows.length, rows: safeRows, source } });
   } catch (err) {
     if (err instanceof AwapiError) {
       return res.status(502).json({ error: `Upstream API: ${err.message}`, status: err.status });
@@ -9200,6 +9206,10 @@ function filterUmrohRowsInMemory(rows, {
   });
 }
 
+function hasNeutralizedNewAwapiPayment(row) {
+  return row?.raw_data?.payment_guard === 'neutralized_new_after_awapi_anomaly';
+}
+
 async function getCachedUmrohPernyataanJmIds(agentId, rows) {
   const jmIds = [...new Set((rows || []).map(r => r?.jm_id).filter(Boolean))];
   if (!agentId || jmIds.length === 0) return new Set();
@@ -9327,17 +9337,20 @@ app.get('/api/laporan/jamaah', dbLoadShedGuard, authMiddleware, async (req, res)
   }
 
   const scheduleMap = await getScheduleMap();
-  const filteredRows = filterUmrohRowsInMemory(allRows || [], {
+  let filteredRows = filterUmrohRowsInMemory(allRows || [], {
     documentFilter: document_filter,
     equipmentFilter: equipment_filter,
     notesFilter: notes_filter,
     packageFilter: package_filter,
     scheduleMap,
   });
+  if (payment_status === 'belum_dp') {
+    filteredRows = filteredRows.filter(r => !hasNeutralizedNewAwapiPayment(r));
+  }
 
   // Collapse belum-DP rows with the same id_umroh into a single "unit" for
   // pagination purposes. Other rows remain 1-unit each.
-  const isBelumDP = (r) => (r.sisa || 0) > 0 && (r.bayar || 0) === 0;
+  const isBelumDP = (r) => (r.sisa || 0) > 0 && (r.bayar || 0) === 0 && !hasNeutralizedNewAwapiPayment(r);
   const groupFirstIdx = new Map();
   const groupMembers = new Map();
   const units = []; // each unit = { kind: 'group'|'solo', members: Row[] }
@@ -10925,24 +10938,27 @@ async function backfillHajiPaketDetail(agentId, slug, sessionCookies) {
   }
 }
 
-// Delete umroh rows grouped by id_umroh. toDelete rows carry the original DB `nama`
-// (case preserved) which is what Supabase needs for the DELETE match.
+// Delete umroh rows one-by-one by the canonical row identity. Prefer jm_id so
+// same-name siblings/placeholders in one booking do not cause over-delete or
+// missed stale cleanup; fall back to nama only for old rows without jm_id.
 async function executeUmrohDeletions(slug, agentId, toDelete) {
-  const byBooking = new Map();
+  const rows = [];
   for (const row of toDelete) {
-    if (!byBooking.has(row.bookingId)) byBooking.set(row.bookingId, []);
-    byBooking.get(row.bookingId).push(row.nama);
+    if (!row?.bookingId) continue;
+    if (row.jmId) rows.push({ bookingId: row.bookingId, jmId: row.jmId, nama: row.nama });
+    else if (row.nama) rows.push({ bookingId: row.bookingId, jmId: null, nama: row.nama });
   }
   let count = 0;
-  for (const [idUmroh, namaList] of byBooking) {
-    const { error } = await supabase
+  for (const row of rows) {
+    let query = supabase
       .from('jamaah')
       .delete()
       .eq('agent_id', agentId)
-      .eq('id_umroh', idUmroh)
-      .in('nama', namaList);
-    if (error) console.error(`[Sync] ${slug} delete ${idUmroh} error:`, error.message);
-    else count += namaList.length;
+      .eq('id_umroh', row.bookingId);
+    query = row.jmId ? query.eq('jm_id', row.jmId) : query.eq('nama', row.nama);
+    const { error } = await query;
+    if (error) console.error(`[Sync] ${slug} delete ${row.bookingId}/${row.jmId || row.nama} error:`, error.message);
+    else count++;
   }
   return count;
 }
@@ -15636,7 +15652,8 @@ async function syncOneAgent(agent) {
             const jamaahSet = bgSuccessfulJamaahPerBooking.get(idUmroh) || new Set();
 
             for (const item of result.items) {
-              if (item.nama) jamaahSet.add(String(item.nama).trim().toLowerCase());
+              const cleanupKey = jamaahCleanupIdentityKey(item);
+              if (cleanupKey) jamaahSet.add(cleanupKey);
               // Determine hijriah year: use actual date first, null if unknown
               // (existing DB value is preserved in the merge step below)
               const computedYear = getHijriahYear(item.tgl_berangkat);
@@ -15704,11 +15721,12 @@ async function syncOneAgent(agent) {
         // list response truncated or would-delete exceeds safety threshold.
         const { data: existingDbRows } = await supabase
           .from('jamaah')
-          .select('id_umroh, nama')
+          .select('id_umroh, jm_id, nama')
           .eq('agent_id', agentId);
         const existingForCleanup = (existingDbRows || []).map(r => ({
           bookingId: r.id_umroh,
-          jamaahKey: String(r.nama || '').trim().toLowerCase(),
+          jamaahKey: jamaahCleanupIdentityKey(r),
+          jmId: r.jm_id,
           nama: r.nama,
         }));
         const bgPlan = computeSafeDeletions({

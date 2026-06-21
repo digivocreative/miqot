@@ -444,6 +444,7 @@ const PAYMENT_GUARD_BOOKKEEPING_KEYS = [
   'awapi_refresh_snapshot',
   'payment_guard',
   'payment_normalized',
+  'payment_neutralized',
   'suspicious_awapi_payment_snapshot',
   'preserved_payment_snapshot',
 ];
@@ -516,6 +517,45 @@ export function resolveAggregateBookingLunasRow(row, booking = null) {
   };
 }
 
+function suspiciousAwapiPaymentSnapshot(row) {
+  const rowRaw = safeRawObject(row?.raw_data);
+  return {
+    bayar: safeBigint(row?.bayar) || 0,
+    sisa: safeBigint(row?.sisa ?? rowRaw.bayar_sisa) || 0,
+    diskon_kantor: safeBigint(row?.diskon_kantor ?? rowRaw.diskon_kantor) || 0,
+    diskon_marketing: safeBigint(row?.diskon_marketing ?? rowRaw.diskon_marketing) || 0,
+  };
+}
+
+export function guardNewSuspiciousAwapiPaymentRow(row) {
+  if (!hasSuspiciousAwapiPayment(row)) return row;
+
+  const rowRaw = safeRawObject(row?.raw_data);
+  const paketHarga = safeBigint(rowRaw.paket_harga) || 0;
+  const conservativeSisa = Math.max(0, paketHarga);
+  const neutralizedPayment = {
+    bayar: 0,
+    sisa: conservativeSisa,
+    diskon_kantor: safeBigint(row?.diskon_kantor ?? rowRaw.diskon_kantor) || 0,
+    diskon_marketing: safeBigint(row?.diskon_marketing ?? rowRaw.diskon_marketing) || 0,
+  };
+
+  return {
+    ...row,
+    ...neutralizedPayment,
+    raw_data: {
+      ...stripPaymentGuardBookkeeping(rowRaw),
+      awapi_refresh_snapshot: stripPaymentGuardBookkeeping(rowRaw),
+      payment_guard: 'neutralized_new_after_awapi_anomaly',
+      suspicious_awapi_payment_snapshot: suspiciousAwapiPaymentSnapshot(row),
+      payment_neutralized: {
+        reason: 'new_row_after_awapi_anomaly',
+        ...neutralizedPayment,
+      },
+    },
+  };
+}
+
 /**
  * Build the per-booking price universe resolveAggregateBookingLunasRow needs:
  * Map<id_umroh, { priceTotal, paxCount, priceKnown }>.
@@ -577,9 +617,16 @@ export function buildBookingPriceIndex(payloadRows, existingRows = []) {
   return index;
 }
 
+function hasTrustedManualPaymentGuard(row) {
+  const raw = safeRawObject(row?.raw_data);
+  return raw.payment_guard === 'manual_departure_date_refresh_keep_awapi_payment'
+    || raw.payment_guard === 'manual_confirmed_lunas_after_awapi_anomaly';
+}
+
 export function preserveExistingPaymentForSuspiciousAwapiRow(row, existing) {
   if (!hasSuspiciousAwapiPayment(row)) return row;
-  if (!existing || hasSuspiciousAwapiPayment(existing)) return null;
+  if (!existing) return null;
+  if (hasSuspiciousAwapiPayment(existing) && !hasTrustedManualPaymentGuard(existing)) return null;
 
   const preservedPayment = {
     bayar: safeBigint(existing.bayar) || 0,
@@ -600,12 +647,7 @@ export function preserveExistingPaymentForSuspiciousAwapiRow(row, existing) {
       ...preservedRaw,
       awapi_refresh_snapshot: stripPaymentGuardBookkeeping(rowRaw),
       payment_guard: 'preserved_existing_after_awapi_anomaly',
-      suspicious_awapi_payment_snapshot: {
-        bayar: safeBigint(row?.bayar) || 0,
-        sisa: safeBigint(row?.sisa ?? rowRaw.bayar_sisa) || 0,
-        diskon_kantor: safeBigint(row?.diskon_kantor ?? rowRaw.diskon_kantor) || 0,
-        diskon_marketing: safeBigint(row?.diskon_marketing ?? rowRaw.diskon_marketing) || 0,
-      },
+      suspicious_awapi_payment_snapshot: suspiciousAwapiPaymentSnapshot(row),
       preserved_payment_snapshot: preservedPayment,
     },
   };

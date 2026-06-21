@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  guardNewSuspiciousAwapiPaymentRow,
   hasSuspiciousAwapiPayment,
   normalizeAwapiHajiRow,
   normalizeAwapiRow,
@@ -308,6 +309,62 @@ test('preserveExistingPaymentForSuspiciousAwapiRow keeps verified DB payment dur
   });
   assert.equal(guarded.raw_data.suspicious_awapi_payment_snapshot.bayar, 101700000);
   assert.equal(guarded.raw_data.suspicious_awapi_payment_snapshot.sisa, -64300000);
+});
+
+test('preserveExistingPaymentForSuspiciousAwapiRow can keep manually trusted negative AWAPI payment', () => {
+  const norm = normalizeAwapiRow(rawRow({
+    bayar: '77600000',
+    bayar_sisa: -38800000,
+    bayar_status: 'LEBIH BAYAR',
+    paket_harga: '38800000',
+    tgl_berangkat: '2026-06-30',
+  }), { agentId: 'agent-id' });
+
+  const guarded = preserveExistingPaymentForSuspiciousAwapiRow(norm, {
+    bayar: 77600000,
+    sisa: -38800000,
+    diskon_kantor: 0,
+    diskon_marketing: 0,
+    raw_data: {
+      payment_guard: 'manual_departure_date_refresh_keep_awapi_payment',
+      corrected_reason: 'agent_sari_departure_date_confirmed_2026-06-30',
+    },
+  });
+
+  assert.ok(guarded);
+  assert.equal(guarded.bayar, 77600000);
+  assert.equal(guarded.sisa, -38800000);
+  assert.equal(guarded.tgl_berangkat, '2026-06-30');
+  assert.equal(guarded.raw_data.payment_guard, 'preserved_existing_after_awapi_anomaly');
+  assert.equal(guarded.raw_data.preserved_payment_snapshot.sisa, -38800000);
+});
+
+test('guardNewSuspiciousAwapiPaymentRow keeps new jamaah rows while neutralizing bad AWAPI payment', () => {
+  const norm = normalizeAwapiRow(rawRow({
+    id_umrah: 'AIW0028266',
+    id_jamaah: 'JM999999990000061243',
+    nama: 'ANGELUNA  RAMADHANI',
+    bayar: '131600000',
+    bayar_sisa: -98700000,
+    bayar_status: 'LEBIH BAYAR',
+    paket_harga: '32900000',
+    paspor_nomor: 'X1608463',
+  }), { agentId: 'agent-id' });
+
+  const guarded = guardNewSuspiciousAwapiPaymentRow(norm);
+
+  assert.equal(guarded.id_umroh, 'AIW0028266');
+  assert.equal(guarded.jm_id, 'JM999999990000061243');
+  assert.equal(guarded.nama, 'ANGELUNA  RAMADHANI');
+  assert.equal(guarded.no_paspor, 'X1608463');
+  assert.equal(guarded.bayar, 0);
+  assert.equal(guarded.sisa, 32900000);
+  assert.equal(hasSuspiciousAwapiPayment(guarded), false);
+  assert.equal(guarded.raw_data.payment_guard, 'neutralized_new_after_awapi_anomaly');
+  assert.equal(guarded.raw_data.suspicious_awapi_payment_snapshot.bayar, 131600000);
+  assert.equal(guarded.raw_data.suspicious_awapi_payment_snapshot.sisa, -98700000);
+  assert.equal(guarded.raw_data.payment_neutralized.reason, 'new_row_after_awapi_anomaly');
+  assert.equal(guarded.raw_data.payment_neutralized.sisa, 32900000);
 });
 
 test('preserveExistingPaymentForSuspiciousAwapiRow never nests guard bookkeeping into the refresh snapshot', () => {

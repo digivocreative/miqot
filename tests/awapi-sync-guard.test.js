@@ -16,7 +16,11 @@ test('AWAPI umroh sync preserves existing payment when payment rows are suspicio
   assert.match(server, /hasSuspiciousAwapiPayment/);
   assert.match(server, /preserveSuspiciousAwapiPayments\(agentId,\s*allRows\)/);
   assert.match(server, /guardedAwapiRows\.guardedCount/);
+  assert.match(server, /guardNewSuspiciousAwapiPaymentRow/);
+  assert.match(server, /guardedAwapiRows\.neutralizedCount/);
+  assert.match(server, /const rowsForUpsert = guardedAwapiRows\.rows/);
   assert.doesNotMatch(server, /const suspiciousPaymentRows = allRows\.filter\(hasSuspiciousAwapiPayment\);[\s\S]{0,700}throw new Error\(`AWAPI payment anomaly/);
+  assert.doesNotMatch(server, /skipping \${guardedAwapiRows\.unresolved\.length} anomalous AWAPI row/);
 });
 
 test('single jamaah refresh preserves existing payment when AWAPI payment is suspicious', () => {

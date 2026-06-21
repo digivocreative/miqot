@@ -147,8 +147,18 @@ function mergeRefreshedJamaahItem(current: JamaahItem, fresh: Partial<JamaahItem
   };
 }
 
-function isBelumDPJamaah(item: Pick<JamaahItem, 'sisa' | 'bayar'>) {
-  return item.sisa > 0 && item.bayar === 0;
+function hasNeutralizedAwapiPayment(item: Pick<JamaahItem, 'raw_data'>) {
+  return item.raw_data?.payment_guard === 'neutralized_new_after_awapi_anomaly';
+}
+
+function getPaymentStatus(item: Pick<JamaahItem, 'sisa' | 'bayar' | 'raw_data'>): 'belum' | 'dp' | 'lunas' {
+  if (item.sisa <= 0) return 'lunas';
+  if (item.bayar > 0 || hasNeutralizedAwapiPayment(item)) return 'dp';
+  return 'belum';
+}
+
+function isBelumDPJamaah(item: Pick<JamaahItem, 'sisa' | 'bayar' | 'raw_data'>) {
+  return getPaymentStatus(item) === 'belum';
 }
 
 function normalizeDocumentPath(value: unknown): string {
@@ -1631,7 +1641,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
               const { item, grpSize, memberIndex } = entry;
               const isGrouped = grpSize > 1;
               const isExpanded = expandedId === item.id;
-              const paymentStatus: 'belum' | 'dp' | 'lunas' = item.sisa <= 0 ? 'lunas' : item.bayar > 0 ? 'dp' : 'belum';
+              const paymentStatus = getPaymentStatus(item);
               const initials = (item.nama || '?').split(' ').slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
               const genderRing = item.jk === 'P' ? 'ring-2 ring-pink-300' : 'ring-2 ring-blue-300';
 
