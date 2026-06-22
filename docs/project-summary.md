@@ -1,6 +1,72 @@
 # Alhijaz Indowisata — Project Summary
 
-Terakhir diperbarui: 2026-06-03
+Terakhir diperbarui: 2026-06-22
+
+## Cara Membaca Dokumen Ini
+
+Dokumen ini adalah peta kerja untuk developer yang masuk ke repo `miqot`/Alhijaz. Bagian awal memberi orientasi cepat; bagian tengah memuat detail fitur, schema, dan endpoint; bagian akhir berisi keputusan teknis, debt, serta aturan kerja yang perlu dipatuhi saat membuat perubahan.
+
+Jika hanya punya 10 menit:
+1. Baca **Ringkasan Cepat**, **Command Cepat**, dan **Data Flow Utama** di bawah.
+2. Lihat **Arsitektur & Struktur Folder** untuk mencari file yang relevan.
+3. Baca **Do's and Don'ts** sebelum mengubah auth, sync jamaah, image sharing, atau data agent.
+
+Saat menambah fitur besar, update minimal:
+- daftar fitur di bagian 5,
+- schema atau endpoint terkait di bagian 6/7,
+- environment variable baru di bagian 8,
+- keputusan teknis atau known issue baru di bagian 10.
+
+## Ringkasan Cepat
+
+| Area | Ringkasan |
+|------|-----------|
+| Produk | Public package listing + dashboard operasional agent Alhijaz untuk jamaah, haji, analytics, AI tools, landing page, dan notifikasi. |
+| Arsitektur | Fullstack monolith: React/Vite SPA dilayani oleh Express; backend juga menjalankan API, proxy, SSR public pages, cron, sync, dan MCP endpoint. |
+| Data utama | Supabase PostgreSQL. `agents.id` UUID adalah identitas canonical; `slug` hanya identitas URL dan bisa berubah. |
+| Auth | Custom JWT untuk dashboard agent/admin; Portal Jamaah memakai magic link + cookie session; MCP memakai bearer key terpisah. |
+| Upstream | Jadwal paket dari `jadwal.alhijaz.co`; jamaah umroh/haji dari AWAPI bila aktif, fallback/legacy scrape untuk beberapa flow; flight dari AirLabs; kurs dari Bank Mandiri. |
+| Runtime kritis | `server.js`, `laporan-api.js`, `haji-api.js`, `awapi-client.js`, `calendar-api.js`, `telegram-notifier.js`, `mcp-server.js`. |
+| Frontend kritis | `src/main.tsx`, `src/App.tsx`, `src/components/DashboardLayout.tsx`, `JamaahPage.tsx`, `HajiPage.tsx`, `PackageCard.tsx`, `DashboardProfile.tsx`. |
+| Operasional | Production jalan di VPS via systemd `miqot.service`; deploy otomatis dari push ke `main` melalui webhook. |
+
+## Command Cepat
+
+```bash
+npm install
+npm run dev              # Vite dev server, default port 5173
+npm run start            # Express server, default port 3000
+npm run build            # Build SPA + SSR functions
+node --test tests/*.test.js
+npm run verify:landing
+```
+
+Catatan:
+- Untuk development penuh, jalankan `npm run dev` dan `npm run start` di terminal berbeda.
+- `npm run build` juga meng-compile `functions/[slug]/umroh.ts` dan `functions/[slug]/haji.ts` menjadi bundle `.mjs`.
+- Test suite saat ini fokus ke pure/business logic. Perubahan route/API besar tetap perlu smoke test manual atau test baru.
+
+## Data Flow Utama
+
+| Flow | Entry point | Modul utama | Output utama |
+|------|-------------|-------------|--------------|
+| Public jadwal paket | `/`, `/:slug`, `/:slug/:packageId` | `src/App.tsx`, `src/services/data-service.ts`, proxy `/api/*` | Paket umroh, filter, CTA WhatsApp, analytics public events. |
+| Dashboard agent | `/dashboard` | `DashboardLayout.tsx`, feature components | Tools agent, profile, jamaah, statistik, AI tools, settings. |
+| Sync jamaah umroh | `POST /api/laporan/sync`, background loop | `awapi-client.js`, `laporan-api.js`, `lib/*sync*` | Upsert `jamaah`, payment provenance, notifications, CAPI Purchase. |
+| Sync jamaah haji | `POST /api/haji/sync`, background loop | `haji-api.js`, `awapi-client.js` | Upsert `jamaah_haji`, statistik haji, dokumen haji. |
+| Calendar & flight | cron/calendar endpoints, `/api/flights/*` | `calendar-api.js`, AirLabs helpers | `calendar_events`, `flight_status`, share page `/f/:code`. |
+| Public AI package Q&A | `POST /api/ask-ai/:slug/:jadwalId` | `server.js`, `ask_ai_cache`, package context helpers | Cached answer, attachment trigger, WA nudge, analytics. |
+| Portal Jamaah | `/:slug/jamaah...`, `/api/portal/jamaah/*` | `src/components/portal-jamaah/`, portal API handlers | Magic-link session, itinerary, payment, document/prep checklist. |
+| MCP assistant | `POST /mcp`, `/api/mcp-key` | `mcp-server.js` | Read-only agent-scoped tools for external AI assistants. |
+
+## Change Safety Checklist
+
+- For owned data, use `agent_id` UUID, not `slug`, unless the surface is explicitly URL-facing.
+- Keep sync cleanup guarded: never delete jamaah rows after partial/failed upstream fetch.
+- Do not expose server-only secrets (`SUPABASE_SERVICE_ROLE_KEY`, AWAPI key, Meta token, Google/OpenAI keys) to frontend.
+- When changing profile name/photo/landing metadata, preserve OG regeneration and cache invalidation.
+- For image exports/native share, keep file-only share payloads where documented to avoid duplicate WhatsApp attachments.
+- For analytics/CAPI raw logs, preserve retention behavior: raw 14 days, daily aggregate for older analytics.
 
 ## 1. Identitas & Tujuan Project
 
@@ -1256,40 +1322,56 @@ git clone https://github.com/digivocreative/miqot.git alhijaz
 cd alhijaz
 npm install
 cp .env.example .env   # Isi dengan value yang sesuai
-npm run dev             # Vite dev server (port 5173)
-npm run start           # Express server (port 3000) — di terminal terpisah
+npm run dev             # Terminal 1: Vite dev server (port 5173)
+npm run start           # Terminal 2: Express API/server (port 3000)
+```
+
+Recommended local verification before shipping:
+```bash
+npm run build
+node --test tests/*.test.js
+```
+
+Use targeted tests when touching a narrow area, for example:
+```bash
+node --test tests/analytics-maintenance.test.js
+node --test tests/brochure-schedule.test.js
+node --test tests/haji-stats.test.js
 ```
 
 ### Environment Variables
-| Variable | Deskripsi |
-|----------|-----------|
-| `OPENAI_API_KEY` | OpenAI API key untuk fitur AI Copywriting + Telegram AI insights + AI Tools (script generation) |
-| `GOOGLE_TTS_API_KEY` | Google Cloud TTS API key untuk Voice Over Generator (Chirp3-HD voices) |
-| `AIRLABS_API_KEY` | AirLabs API key untuk real-time flight status (quota counter disimpan di `calendar_insights`) |
-| `CAPI_ENCRYPTION_KEY` | 32-byte base64 key untuk encrypt Meta access token + jamaah password |
-| `JWT_SECRET` | Secret key untuk JWT signing |
-| `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_ANON_KEY` | Supabase anon/public key (frontend) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (backend only) |
-| `VITE_SUPABASE_URL` | Same as SUPABASE_URL (exposed to frontend via Vite) |
-| `VITE_SUPABASE_ANON_KEY` | Same as SUPABASE_ANON_KEY (exposed to frontend) |
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token untuk notifier + deep link bot |
-| `TELEGRAM_BOT_USERNAME` | Username bot Telegram (tanpa @, untuk deep link URL) |
-| `TELEGRAM_WEBHOOK_URL` | Webhook URL untuk Telegram bot (e.g. `https://alhijaz.co/api/telegram/webhook`) |
-| `TELEGRAM_CHAT_ID` | Chat ID production untuk notifikasi group |
-| `TELEGRAM_CHAT_ID_DEV` | Chat ID dev untuk testing notifikasi |
-| `NOTIFIER_YEAR_CODES` | Kode tahun paket yang di-monitor (default: "1448") |
-| `NOTIFIER_BASE_URL` | Base URL API untuk notifier (default: localhost:3000) |
-| `RESEND_API_KEY` | Resend API key untuk transactional emails (password reset) |
-| `SENTRY_DSN` | Sentry DSN untuk error tracking (server-side, loaded in `instrument.mjs`) |
-| `INTERNAL_API_BASE` | Base URL sistem internal legacy (`/aiw/staff`) untuk laporan/calendar/haji scrape |
-| `CALENDAR_USERNAME`, `CALENDAR_PASSWORD`, `CALENDAR_KANTOR` | Credential calendar scraper internal |
-| `AWAPI_SYNC_ENABLED` | Feature flag untuk sync umroh via Alhijaz Official API |
-| `AWAPI_BASE` | Base URL upstream AWAPI (default `http://115.124.86.220`) |
-| `BUNNY_STORAGE_API_KEY`, `BUNNY_STORAGE_ZONE`, `BUNNY_STORAGE_HOSTNAME`, `BUNNY_CDN_HOSTNAME` | Bunny Storage/CDN config untuk mirror brosur/itinerary CDN |
-| `WEBHOOK_SECRET` | Secret untuk GitHub deploy webhook (`deploy-webhook.js`) |
-| `PORT` | Port Express server (default `3000`) |
-| `MASTER_PASSWORD` | Master password optional untuk bypass login internal/debug flow tertentu |
+| Kelompok | Variable | Deskripsi |
+|----------|----------|-----------|
+| Core | `PORT` | Port Express server (default `3000`) |
+| Core | `JWT_SECRET` | Secret key untuk JWT signing |
+| Core | `CAPI_ENCRYPTION_KEY` | 32-byte base64 key untuk encrypt Meta access token + jamaah password |
+| Supabase | `SUPABASE_URL` | Supabase project URL |
+| Supabase | `SUPABASE_ANON_KEY` | Supabase anon/public key |
+| Supabase | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key, backend only |
+| Frontend | `VITE_SUPABASE_URL` | Same as `SUPABASE_URL`, exposed to frontend via Vite |
+| Frontend | `VITE_SUPABASE_ANON_KEY` | Same as `SUPABASE_ANON_KEY`, exposed to frontend |
+| AI | `OPENAI_API_KEY` | OpenAI API key untuk AI Copywriting, Tanya AI, Telegram AI insights, AI Tools script generation, OCR KTP, Bio tagline |
+| AI | `GOOGLE_TTS_API_KEY` | Google Cloud TTS API key untuk Voice Over Generator (Chirp3-HD voices) |
+| Flight | `AIRLABS_API_KEY` | AirLabs API key untuk real-time flight status; quota counter disimpan di `calendar_insights` |
+| Telegram | `TELEGRAM_BOT_TOKEN` | Telegram bot token untuk notifier + deep link bot |
+| Telegram | `TELEGRAM_BOT_USERNAME` | Username bot Telegram tanpa `@`, untuk deep link URL |
+| Telegram | `TELEGRAM_WEBHOOK_URL` | Webhook URL untuk Telegram bot, e.g. `https://alhijaz.co/api/telegram/webhook` |
+| Telegram | `TELEGRAM_CHAT_ID`, `TELEGRAM_CHAT_ID_DEV` | Chat ID production/dev untuk notifikasi group |
+| Notifier | `NOTIFIER_YEAR_CODES` | Kode tahun paket yang di-monitor (default: `1448`) |
+| Notifier | `NOTIFIER_BASE_URL` | Base URL API untuk notifier (default: localhost:3000) |
+| Email | `RESEND_API_KEY` | Resend API key untuk transactional emails (password reset) |
+| Error tracking | `SENTRY_DSN` | Sentry DSN untuk error tracking server-side, loaded in `instrument.mjs` |
+| Legacy/AWAPI | `INTERNAL_API_BASE` | Base URL sistem internal legacy (`/aiw/staff`) untuk laporan/calendar/haji scrape |
+| Legacy/AWAPI | `CALENDAR_USERNAME`, `CALENDAR_PASSWORD`, `CALENDAR_KANTOR` | Credential calendar scraper internal |
+| Legacy/AWAPI | `AWAPI_SYNC_ENABLED` | Feature flag untuk sync umroh/haji via Alhijaz Official API |
+| Legacy/AWAPI | `AWAPI_BASE` | Base URL upstream AWAPI (default `http://115.124.86.220`) |
+| Background jobs | `ENABLE_BACKGROUND_JOBS` | Override agar cron/notifier jalan di non-production |
+| Background jobs | `DISABLE_JAMAAH_BACKGROUND_SYNC` | Kill switch semua loop sync jamaah otomatis |
+| Background jobs | `DISABLE_LEGACY_BACKGROUND_SYNC` | Matikan fallback/enrichment legacy otomatis |
+| Background jobs | `SYNC_COOLDOWN_MINUTES`, `HAJI_AWAPI_SYNC_COOLDOWN_MINUTES` | Cooldown background sync umroh/haji AWAPI; production default 60 menit |
+| CDN | `BUNNY_STORAGE_API_KEY`, `BUNNY_STORAGE_ZONE`, `BUNNY_STORAGE_HOSTNAME`, `BUNNY_CDN_HOSTNAME` | Bunny Storage/CDN config untuk mirror brosur/itinerary CDN |
+| Deploy | `WEBHOOK_SECRET` | Secret untuk GitHub deploy webhook (`deploy-webhook.js`) |
+| Debug | `MASTER_PASSWORD` | Master password optional untuk bypass login internal/debug flow tertentu |
 
 ### Deployment (Production)
 - Server: VPS Ubuntu, systemd service `miqot.service`
