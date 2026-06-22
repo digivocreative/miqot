@@ -3,6 +3,7 @@ import { TrendingUp, Users, Activity, Eye, RefreshCw, ChevronDown, ChevronRight 
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { getAuthHeaders } from './LoginPage';
 import AgentDrillDownModal from './AgentDrillDownModal';
+import { handleAgentPhotoError } from '../lib/agent-photo';
 
 interface AnalyticsData {
   period: string;
@@ -38,6 +39,7 @@ interface AnalyticsData {
 }
 
 type TabId = 'overview' | 'agents' | 'features';
+type AgentActivity = AnalyticsData['agentActivity'][number];
 
 const MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
@@ -80,6 +82,48 @@ function getRelativeTime(dateStr: string) {
 function getInitials(name: string | null | undefined) {
   if (!name) return '?';
   return name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
+}
+
+function AgentActivityAvatar({
+  agent,
+  statusClass,
+}: {
+  agent: Pick<AgentActivity, 'name' | 'photo'>;
+  statusClass: string;
+}) {
+  const [showPhoto, setShowPhoto] = useState(Boolean(agent.photo));
+
+  useEffect(() => {
+    setShowPhoto(Boolean(agent.photo));
+  }, [agent.photo]);
+
+  return (
+    <div className="relative w-8 h-8 shrink-0">
+      <div className="absolute inset-0 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-gray-500 dark:text-slate-400">
+        {getInitials(agent.name)}
+      </div>
+      {showPhoto && agent.photo && (
+        <img
+          key={agent.photo}
+          src={agent.photo}
+          alt={agent.name}
+          width={32}
+          height={32}
+          loading="eager"
+          decoding="async"
+          className="absolute inset-0 w-8 h-8 rounded-full object-cover bg-gray-100 dark:bg-slate-700"
+          onError={(e) => {
+            if (e.currentTarget.dataset.fellBack === '1') {
+              setShowPhoto(false);
+              return;
+            }
+            handleAgentPhotoError(e.currentTarget, agent.name, 64);
+          }}
+        />
+      )}
+      <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-800 ${statusClass}`} />
+    </div>
+  );
 }
 
 // Custom tooltip for bar chart
@@ -453,21 +497,7 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
                     {/* Row 1: Avatar + name + status */}
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2 min-w-0">
-                        <div className="relative shrink-0">
-                          {agent.photo ? (
-                            <img
-                              src={agent.photo}
-                              alt={agent.name}
-                              className="w-8 h-8 rounded-full object-cover"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                            />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-gray-500 dark:text-slate-400">
-                              {getInitials(agent.name)}
-                            </div>
-                          )}
-                          <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-800 ${statusColors[agent.status]}`} />
-                        </div>
+                        <AgentActivityAvatar agent={agent} statusClass={statusColors[agent.status]} />
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <p className="text-[11px] font-bold text-gray-800 dark:text-white truncate">{agent.name}</p>
