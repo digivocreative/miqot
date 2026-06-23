@@ -474,7 +474,10 @@ const AWAPI_LUNAS_STATUSES = new Set(['LUNAS', 'LEBIH BAYAR']);
  * full hits an exact multiple) and false-negatived mixed-price lunas bookings.
  * The only sound proof is booking-level: aggregate bayar >= Σ paket_harga over
  * EVERY pax in the booking — callers must pass that via `booking`
- * ({ priceTotal, paxCount, priceKnown }, see buildBookingPriceIndex).
+ * ({ priceTotal, paxCount, priceKnown }, see buildBookingPriceIndex). Partially
+ * paid multi-pax bookings (0 < aggregate < Σ paket_harga) stay UNPROVEN here and
+ * are handled by allocateAggregatePartialRow (proportional per-pax split) — they
+ * must NOT be normalized to lunas (would false-lunas a booking that still owes).
  *
  * On proof, normalize to the per-pax truth: bayar = paket_harga, sisa = 0.
  * AWAPI records bayar GROSS for lunas rows — diskon is informational and never
@@ -513,6 +516,96 @@ export function resolveAggregateBookingLunasRow(row, booking = null) {
         booking_price_total: bookingPriceTotal,
         booking_pax: booking?.paxCount ?? null,
       },
+    },
+  };
+}
+
+/**
+ * Partially-paid multi-pax aggregate booking allocator.
+ *
+ * When a booking is paid but NOT in full (0 < aggregate < Σ paket_harga), AWAPI
+ * still reports the booking-level lump `bayar` replicated on every pax row, with
+ * per-pax paket_harga → negative bayar_sisa / "LEBIH BAYAR". AWAPI carries NO
+ * per-pax allocation, so we cannot know which individuals paid. The old guard
+ * neutralized these rows to bayar=0 (hiding real payment → paid jamaah shown
+ * belum-bayar, the Yulianti Kusuma report 2026-06-23) OR left stale values
+ * (unpaid jamaah shown lunas). Both are wrong; the only money-conserving,
+ * false-lunas-PROOF representation is to split the aggregate proportionally per
+ * pax, capped at paket:
+ *
+ *   bayar_pax = min(paket_pax, floor(pot * paket_pax / target))
+ *   sisa_pax  = paket_pax - bayar_pax
+ *
+ * where pot = aggregate - Σ(paket of manual-confirmed-lunas siblings) and
+ * target = Σpaket - Σ(paket of those siblings), so an agent's per-pax "this one
+ * is lunas" truth removes its paket from the unknown remainder and the rest stay
+ * conserved. Because pot < target whenever the booking is partial, the floor can
+ * never reach paket → sisa_pax is ALWAYS > 0: proportional NEVER fabricates a
+ * per-pax lunas. Booking outstanding stays exact because we DO NOT touch
+ * raw_data.bayar_sisa (stays negative) — collapseBookingOutstanding still detects
+ * the aggregate shape and prices the booking via Σpaket - aggregate ONCE.
+ *
+ * Eligibility (mirrors provenAggregateOutstanding, lib/booking-outstanding.js):
+ * suspicious shape + AWAPI lunas status + priceKnown + priceTotal>0 + this row's
+ * paket>0 + 0 < aggregate < priceTotal + the booking is a SINGLE uniform aggregate
+ * (distinctAggregateCount === 1). Multi-subgroup (independent sub-bookings sharing
+ * one id_umroh), price-unknown, and paket<=0 companions return null and fall
+ * through to the conservative preserve/neutralize guard.
+ *
+ * Idempotent: always recomputes from the raw aggregate/paket, never from a prior
+ * allocated bayar, so re-syncs don't drift (jamaah-upsert byte-diff churn / the
+ * Disk-IO 522 incident).
+ */
+export function allocateAggregatePartialRow(row, booking = null) {
+  if (!hasSuspiciousAwapiPayment(row)) return null;
+
+  const raw = safeRawObject(row?.raw_data);
+  if (!AWAPI_LUNAS_STATUSES.has(normalizeStatusBayar(raw))) return null;
+
+  const hargaPaket = safeBigint(raw.paket_harga) || 0;
+  if (hargaPaket <= 0) return null;
+  const aggregateBayar = safeBigint(row.bayar) || 0;
+  if (aggregateBayar <= 0) return null;
+
+  const bookingPriceTotal = safeBigint(booking?.priceTotal) || 0;
+  if (!booking?.priceKnown || bookingPriceTotal <= 0) return null;
+  // Full-paid is resolveAggregateBookingLunasRow's job; only PARTIAL bookings here.
+  if (aggregateBayar >= bookingPriceTotal) return null;
+  // Uniform single aggregate only — never proportional across sub-bookings.
+  if (booking?.distinctAggregateCount !== 1) return null;
+
+  const pinnedPaketTotal = safeBigint(booking?.pinnedPaketTotal) || 0;
+  const target = bookingPriceTotal - pinnedPaketTotal;
+  const pot = aggregateBayar - pinnedPaketTotal;
+  // Manual-confirmed siblings consumed the whole pot → nothing left for this pax;
+  // leave it to the guard rather than allocate from a non-positive remainder.
+  if (target <= 0 || pot <= 0) return null;
+
+  const allocated = Math.min(hargaPaket, Math.floor((pot * hargaPaket) / target));
+  const sisa = hargaPaket - allocated;
+  // Defensive: a partial booking must never yield a per-pax lunas (sisa<=0).
+  if (allocated <= 0 || sisa <= 0) return null;
+
+  const payment_normalized = {
+    reason: 'aggregate_booking_partial_allocated',
+    awapi_bayar: aggregateBayar,
+    awapi_sisa: safeBigint(row.sisa ?? raw.bayar_sisa) || 0,
+    paket_harga: hargaPaket,
+    allocated_bayar: allocated,
+    allocated_sisa: sisa,
+    booking_price_total: bookingPriceTotal,
+    booking_pax: booking?.paxCount ?? null,
+  };
+  if (pinnedPaketTotal > 0) payment_normalized.booking_pinned_paket_total = pinnedPaketTotal;
+
+  return {
+    ...row,
+    bayar: allocated,
+    sisa,
+    raw_data: {
+      ...stripPaymentGuardBookkeeping(raw),
+      payment_guard: 'allocated_partial_after_awapi_anomaly',
+      payment_normalized,
     },
   };
 }
@@ -586,11 +679,30 @@ export function buildBookingPriceIndex(payloadRows, existingRows = []) {
 
     let entry = bookings.get(idUmroh);
     if (!entry) {
-      entry = { prices: new Map() };
+      entry = { prices: new Map(), aggregateValues: new Set(), pinnedPaket: new Map() };
       bookings.set(idUmroh, entry);
     }
 
     const raw = safeRawObject(row?.raw_data);
+    // Aggregate fingerprint: the distinct raw `bayar` values seen on the booking's
+    // LEBIH-BAYAR (aggregate-shape) rows. allocateAggregatePartialRow only fires when
+    // exactly ONE distinct value spans the booking (uniform single aggregate); >1
+    // means multiple independent sub-bookings share this id_umroh (group departure)
+    // and proportional-over-all-pax would smear one sub-booking's payment across
+    // unrelated pax — mirror of lib/booking-outstanding.js provenAggregateOutstanding.
+    const rawBayar = safeBigint(raw.bayar);
+    const rawSisa = safeBigint(raw.bayar_sisa);
+    if (rawBayar !== null && rawBayar > 0 && rawSisa !== null && rawSisa < 0) {
+      entry.aggregateValues.add(rawBayar);
+    }
+    // Manual-confirmed-lunas pax remove their paket from the partial-allocation pot
+    // so a re-sync of their siblings stays money-conserving (the agent's per-pax
+    // truth takes that paket out of the unknown remainder). Keyed by pax so a pax
+    // appearing in both payload and DB is counted once.
+    if (hasTrustedManualPaymentGuard(row)) {
+      entry.pinnedPaket.set(key, safeBigint(raw.paket_harga) || 0);
+    }
+
     const price = safeBigint(raw.paket_harga) || 0;
     const known = price > 0;
     const current = entry.prices.get(key);
@@ -612,12 +724,21 @@ export function buildBookingPriceIndex(payloadRows, existingRows = []) {
       if (!known) priceKnown = false;
       priceTotal += price;
     }
-    index.set(idUmroh, { priceTotal, paxCount: entry.prices.size, priceKnown });
+    let pinnedPaketTotal = 0;
+    for (const paket of entry.pinnedPaket.values()) pinnedPaketTotal += paket;
+    const booking = {
+      priceTotal,
+      paxCount: entry.prices.size,
+      priceKnown,
+      distinctAggregateCount: entry.aggregateValues.size,
+    };
+    if (pinnedPaketTotal > 0) booking.pinnedPaketTotal = pinnedPaketTotal;
+    index.set(idUmroh, booking);
   }
   return index;
 }
 
-function hasTrustedManualPaymentGuard(row) {
+export function hasTrustedManualPaymentGuard(row) {
   const raw = safeRawObject(row?.raw_data);
   return raw.payment_guard === 'manual_departure_date_refresh_keep_awapi_payment'
     || raw.payment_guard === 'manual_confirmed_lunas_after_awapi_anomaly';
@@ -640,13 +761,27 @@ export function preserveExistingPaymentForSuspiciousAwapiRow(row, existing) {
   if (existingRaw.payment_source) preservedRaw.payment_source = existingRaw.payment_source;
   if (existingRaw.payment_synced_at) preservedRaw.payment_synced_at = existingRaw.payment_synced_at;
 
+  // A manually-confirmed-LUNAS pax is authoritative: keep its trusted guard marker
+  // (and audit fields) STICKY across syncs, otherwise the next sync would relabel it
+  // 'preserved_existing_after_awapi_anomaly', lose hasTrustedManualPaymentGuard
+  // protection, and stop excluding the pax from sibling partial-allocation. (The
+  // other trusted guard, manual_departure_date_refresh_keep_awapi_payment, is a
+  // one-shot keep-AWAPI-payment marker and intentionally relabels.)
+  const isManualConfirmedLunas = existingRaw.payment_guard === 'manual_confirmed_lunas_after_awapi_anomaly';
+  const manualAudit = {};
+  if (isManualConfirmedLunas) {
+    if (existingRaw.manual_confirmed_by) manualAudit.manual_confirmed_by = existingRaw.manual_confirmed_by;
+    if (existingRaw.manual_confirmed_at) manualAudit.manual_confirmed_at = existingRaw.manual_confirmed_at;
+  }
+
   return {
     ...row,
     ...preservedPayment,
     raw_data: {
       ...preservedRaw,
       awapi_refresh_snapshot: stripPaymentGuardBookkeeping(rowRaw),
-      payment_guard: 'preserved_existing_after_awapi_anomaly',
+      payment_guard: isManualConfirmedLunas ? existingRaw.payment_guard : 'preserved_existing_after_awapi_anomaly',
+      ...manualAudit,
       suspicious_awapi_payment_snapshot: suspiciousAwapiPaymentSnapshot(row),
       preserved_payment_snapshot: preservedPayment,
     },

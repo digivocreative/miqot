@@ -52,6 +52,8 @@ import {
   preserveExistingPaymentForSuspiciousAwapiRow,
   preserveLegacyUmrohRawData,
   resolveAggregateBookingLunasRow,
+  allocateAggregatePartialRow,
+  hasTrustedManualPaymentGuard,
   buildBookingPriceIndex,
   AwapiError,
 } from './awapi-client.js';
@@ -5839,7 +5841,7 @@ async function preserveSuspiciousAwapiPayments(agentId, rows) {
 
   const suspiciousIncoming = incomingRows.filter(hasSuspiciousAwapiPayment);
   if (suspiciousIncoming.length === 0) {
-    return { rows: incomingRows, guardedCount: 0, neutralizedCount: 0, normalizedLunasCount: 0, unresolved: [] };
+    return { rows: incomingRows, guardedCount: 0, neutralizedCount: 0, normalizedLunasCount: 0, allocatedPartialCount: 0, unresolved: [] };
   }
 
   // Fetch EVERY existing pax of the suspicious bookings (not just the suspicious
@@ -5858,32 +5860,51 @@ async function preserveSuspiciousAwapiPayments(agentId, rows) {
     existingRows = data || [];
   }
 
-  // AWAPI reports booking-level aggregate `bayar` on fully-paid multi-pax bookings
-  // (per-pax paket_harga → negative bayar_sisa + "LEBIH BAYAR"). That is a lunas
-  // signal, not an anomaly — normalize those rows to per-pax lunas BEFORE the
-  // suspicious-payment guard, so the guard can no longer freeze stale pre-lunas DP
-  // values forever (false pelunasan-reminder bug, 2026-06-05). Lunas is only
-  // proven booking-wide — aggregate bayar must cover Σ paket_harga of every pax
-  // (A2/B2, 2026-06-06): partially-paid multi-pax bookings produce the same
-  // LEBIH BAYAR shape and must stay with the guard, not get written as lunas.
+  // AWAPI reports booking-level aggregate `bayar` on multi-pax bookings (per-pax
+  // paket_harga → negative bayar_sisa + "LEBIH BAYAR") and carries NO per-pax
+  // allocation. Resolve in three tiers BEFORE the conservative guard:
+  //   1. FULL-paid (aggregate ≥ Σ paket_harga) → per-pax lunas (false pelunasan-
+  //      reminder bug, 2026-06-05; booking-wide proof A2/B2, 2026-06-06).
+  //   2. PARTIALLY paid uniform aggregate (0 < aggregate < Σ paket_harga) →
+  //      money-conserving proportional per-pax split (Yulianti Kusuma false-unpaid
+  //      report, 2026-06-23). Never fabricates a per-pax lunas; booking outstanding
+  //      stays exact (raw bayar_sisa untouched).
+  //   3. Anything unprovable (multi-subgroup, price-unknown) → preserve/neutralize.
+  // A pax the agent manually confirmed lunas is authoritative and is skipped by
+  // both 2 and 3 (its paket is removed from the partial pot so siblings stay
+  // conserved — see buildBookingPriceIndex.pinnedPaketTotal).
   const bookingIndex = buildBookingPriceIndex(incomingRows, existingRows);
-  let normalizedLunasCount = 0;
-  const preparedRows = incomingRows.map((row) => {
-    const resolved = resolveAggregateBookingLunasRow(row, bookingIndex.get(String(row?.id_umroh || '').trim()));
-    if (!resolved) return row;
-    normalizedLunasCount++;
-    return resolved;
-  });
-
-  const suspiciousRows = preparedRows.filter(hasSuspiciousAwapiPayment);
-  if (suspiciousRows.length === 0) {
-    return { rows: preparedRows, guardedCount: 0, neutralizedCount: 0, normalizedLunasCount, unresolved: [] };
-  }
 
   const existingByKey = new Map();
   for (const existing of existingRows || []) {
     const key = jamaahRowKey(existing);
     if (key) existingByKey.set(key, existing);
+  }
+
+  let normalizedLunasCount = 0;
+  let allocatedPartialCount = 0;
+  const preparedRows = incomingRows.map((row) => {
+    const booking = bookingIndex.get(String(row?.id_umroh || '').trim());
+    const resolved = resolveAggregateBookingLunasRow(row, booking);
+    if (resolved) {
+      normalizedLunasCount++;
+      return resolved;
+    }
+    if (!hasSuspiciousAwapiPayment(row)) return row;
+    // Manual-confirmed-lunas pax: skip allocation (would re-spread the agent's
+    // per-pax truth); the preserve guard below keeps its manual bayar/sisa.
+    if (hasTrustedManualPaymentGuard(existingByKey.get(jamaahRowKey(row)))) return row;
+    const allocated = allocateAggregatePartialRow(row, booking);
+    if (allocated) {
+      allocatedPartialCount++;
+      return allocated;
+    }
+    return row;
+  });
+
+  const suspiciousRows = preparedRows.filter(hasSuspiciousAwapiPayment);
+  if (suspiciousRows.length === 0) {
+    return { rows: preparedRows, guardedCount: 0, neutralizedCount: 0, normalizedLunasCount, allocatedPartialCount, unresolved: [] };
   }
 
   let guardedCount = 0;
@@ -5899,7 +5920,7 @@ async function preserveSuspiciousAwapiPayments(agentId, rows) {
     return guarded;
   });
 
-  return { rows: guardedRows, guardedCount, neutralizedCount, normalizedLunasCount, unresolved: [] };
+  return { rows: guardedRows, guardedCount, neutralizedCount, normalizedLunasCount, allocatedPartialCount, unresolved: [] };
 }
 
 function datePlusDaysKey(date, days) {
@@ -6248,6 +6269,9 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
   const guardedAwapiRows = await preserveSuspiciousAwapiPayments(agentId, allRows);
   if (guardedAwapiRows.normalizedLunasCount > 0) {
     console.log(`[Sync/api/${context}] ${slug}: normalized ${guardedAwapiRows.normalizedLunasCount} aggregate-booking lunas AWAPI row(s) to per-pax lunas`);
+  }
+  if (guardedAwapiRows.allocatedPartialCount > 0) {
+    console.log(`[Sync/api/${context}] ${slug}: allocated proportional per-pax payment for ${guardedAwapiRows.allocatedPartialCount} partially-paid aggregate-booking row(s)`);
   }
   if (guardedAwapiRows.guardedCount > 0) {
     console.warn(`[Sync/api/${context}] ${slug}: preserved existing payment for ${guardedAwapiRows.guardedCount} suspicious AWAPI row(s)`);
@@ -9455,6 +9479,122 @@ app.post('/api/laporan/jamaah/note', authMiddleware, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('[jamaah-note] Error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Manually confirm (or un-confirm) a SPECIFIC pax as lunas. AWAPI reports
+// multi-pax payment only at the booking level, so on a partially-paid rombongan
+// it cannot say which individuals paid — the proportional allocator shows every
+// pax as cicilan. This endpoint lets the agent (who knows their jamaah) assert
+// "THIS pax is paid off": the row is pinned lunas with a trusted guard that the
+// sync preserves, and its paket is removed from the pot so siblings re-allocate
+// conservatively. The booking total stays exact. (Per-pax, never whole-booking —
+// the hand-SQL whole-booking override on AIW0028266 is the anti-pattern.)
+app.post('/api/laporan/jamaah/confirm-lunas', authMiddleware, async (req, res) => {
+  try {
+    const agentId = req.user.id;
+    const { id_umroh, jm_id, confirm = true } = req.body || {};
+    if (!id_umroh || !jm_id) {
+      return res.status(400).json({ error: 'id_umroh and jm_id are required' });
+    }
+
+    const { data: paxRows, error: fetchErr } = await supabase
+      .from('jamaah')
+      .select('id, agent_id, id_umroh, jm_id, nama, bayar, sisa, diskon_kantor, diskon_marketing, raw_data')
+      .eq('agent_id', agentId)
+      .eq('id_umroh', id_umroh);
+    if (fetchErr) {
+      console.error('[confirm-lunas] fetch error:', fetchErr.message);
+      return res.status(500).json({ error: 'Failed to load booking' });
+    }
+    const target = (paxRows || []).find(r => String(r.jm_id) === String(jm_id));
+    if (!target) return res.status(404).json({ error: 'Jamaah not found in this booking' });
+
+    const toNum = (v) => {
+      if (v === null || v === undefined || v === '') return null;
+      const n = typeof v === 'number' ? v : Number(String(v).replace(/[^\d-]/g, ''));
+      return Number.isFinite(n) ? n : null;
+    };
+    const GUARD_KEYS = ['awapi_refresh_snapshot', 'payment_guard', 'payment_normalized', 'payment_neutralized', 'suspicious_awapi_payment_snapshot', 'preserved_payment_snapshot', 'manual_confirmed_by', 'manual_confirmed_at'];
+    const stripGuard = (raw) => {
+      const o = { ...(raw && typeof raw === 'object' ? raw : {}) };
+      for (const k of GUARD_KEYS) delete o[k];
+      return o;
+    };
+
+    const targetPaket = toNum(target.raw_data?.paket_harga);
+    if (confirm && !(targetPaket > 0)) {
+      return res.status(400).json({ error: 'Tidak bisa konfirmasi lunas: harga paket jamaah ini tidak diketahui' });
+    }
+
+    const agent = await getAgentById(agentId);
+    const slug = agent?.slug || String(agentId);
+    const now = new Date().toISOString();
+
+    // Reconstruct every pax to its raw AWAPI shape, marking the target's pin state,
+    // then run the production index+allocator so siblings stay money-conserving.
+    const reconstructed = (paxRows || []).map(r => {
+      const cleanRaw = stripGuard(r.raw_data);
+      const isTarget = String(r.jm_id) === String(jm_id);
+      const raw_data = (isTarget && confirm)
+        ? { ...cleanRaw, payment_guard: 'manual_confirmed_lunas_after_awapi_anomaly' }
+        : cleanRaw;
+      return {
+        _id: r.id, _orig: r, _isTarget: isTarget,
+        agent_id: r.agent_id, id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama,
+        bayar: toNum(cleanRaw.bayar), sisa: toNum(cleanRaw.bayar_sisa),
+        diskon_kantor: toNum(r.diskon_kantor), diskon_marketing: toNum(r.diskon_marketing),
+        raw_data,
+      };
+    });
+    const index = buildBookingPriceIndex(reconstructed, []);
+    const booking = index.get(String(id_umroh));
+
+    const updates = [];
+    for (const row of reconstructed) {
+      if (row._isTarget) {
+        if (confirm) {
+          updates.push({ id: row._id, bayar: targetPaket, sisa: 0, raw_data: {
+            ...stripGuard(row.raw_data),
+            payment_guard: 'manual_confirmed_lunas_after_awapi_anomaly',
+            manual_confirmed_by: slug,
+            manual_confirmed_at: now,
+            payment_normalized: { reason: 'manual_confirmed_lunas', paket_harga: targetPaket },
+          } });
+        } else {
+          // Un-confirm: re-derive from AWAPI (full-paid lunas, partial proportional,
+          // else conservative neutralize).
+          const resolved = resolveAggregateBookingLunasRow(row, booking);
+          const alloc = resolved || (hasSuspiciousAwapiPayment(row) ? allocateAggregatePartialRow(row, booking) : null);
+          const out = alloc || guardNewSuspiciousAwapiPaymentRow(row);
+          updates.push({ id: row._id, bayar: out.bayar, sisa: out.sisa, raw_data: out.raw_data });
+        }
+        continue;
+      }
+      // Siblings: re-allocate with the target pinned (only touch suspicious ones).
+      if (!hasSuspiciousAwapiPayment(row)) continue;
+      if (hasTrustedManualPaymentGuard(row._orig)) continue; // another manual pax — leave it
+      const resolved = resolveAggregateBookingLunasRow(row, booking);
+      const out = resolved || allocateAggregatePartialRow(row, booking);
+      if (!out) continue;
+      if (toNum(row._orig.bayar) === toNum(out.bayar) && toNum(row._orig.sisa) === toNum(out.sisa)) continue;
+      updates.push({ id: row._id, bayar: out.bayar, sisa: out.sisa, raw_data: out.raw_data });
+    }
+
+    for (const u of updates) {
+      const { error } = await supabase.from('jamaah')
+        .update({ bayar: u.bayar, sisa: u.sisa, raw_data: u.raw_data })
+        .eq('id', u.id).eq('agent_id', agentId);
+      if (error) {
+        console.error('[confirm-lunas] update error:', error.message);
+        return res.status(500).json({ error: 'Failed to update payment' });
+      }
+    }
+    console.log(`[confirm-lunas] ${slug}: ${confirm ? 'confirmed' : 'un-confirmed'} ${target.nama} (${id_umroh}/${jm_id}); ${updates.length} row(s) updated`);
+    res.json({ success: true, confirmed: !!confirm, updated: updates.length });
+  } catch (err) {
+    console.error('[confirm-lunas] Error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

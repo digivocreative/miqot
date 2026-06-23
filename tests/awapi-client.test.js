@@ -9,6 +9,8 @@ import {
   preserveExistingPaymentForSuspiciousAwapiRow,
   preserveLegacyUmrohRawData,
   resolveAggregateBookingLunasRow,
+  allocateAggregatePartialRow,
+  hasTrustedManualPaymentGuard,
   buildBookingPriceIndex,
 } from '../awapi-client.js';
 
@@ -586,6 +588,137 @@ test('resolveAggregateBookingLunasRow leaves corrupt and ambiguous payloads to t
   assert.equal(resolveAggregateBookingLunasRow(cicilan, { priceTotal: 33900000, paxCount: 1, priceKnown: true }), null);
 });
 
+// ── allocateAggregatePartialRow (partially-paid uniform aggregate, 2026-06-23) ──
+
+function aggRow(overrides = {}) {
+  return normalizeAwapiRow(rawRow({
+    bayar_status: 'LEBIH BAYAR',
+    ...overrides,
+  }), { agentId: 'agent-id' });
+}
+
+test('allocateAggregatePartialRow splits a partially-paid booking proportionally (AIW0028669/Yulianti)', () => {
+  // 3 pax @ 34.9jt (Σ=104.7jt), aggregate 69.8jt replicated (exactly 2/3 paid).
+  const row = aggRow({ id_umrah: 'AIW0028669', bayar: '69800000', bayar_sisa: -34900000, paket_harga: '34900000' });
+  const booking = { priceTotal: 104700000, paxCount: 3, priceKnown: true, distinctAggregateCount: 1 };
+
+  const out = allocateAggregatePartialRow(row, booking);
+  assert.ok(out, 'partial booking must allocate');
+  assert.equal(out.bayar, 23266666);
+  assert.equal(out.sisa, 11633334);
+  assert.equal(out.bayar + out.sisa, 34900000, 'bayar+sisa must equal paket');
+  // NEVER a per-pax lunas on a partial booking.
+  assert.ok(out.sisa > 0);
+  assert.equal(hasSuspiciousAwapiPayment(out), false, 'allocated row is no longer suspicious');
+  // LOAD-BEARING: raw bayar_sisa must stay negative so booking-outstanding still
+  // detects the aggregate shape and prices the booking via Σpaket-aggregate once.
+  assert.equal(out.raw_data.bayar_sisa, -34900000);
+  assert.equal(out.raw_data.bayar, '69800000');
+  assert.equal(out.raw_data.payment_guard, 'allocated_partial_after_awapi_anomaly');
+  assert.equal(out.raw_data.payment_normalized.reason, 'aggregate_booking_partial_allocated');
+});
+
+test('allocateAggregatePartialRow NEVER fabricates a per-pax lunas (false-lunas regression guard)', () => {
+  // Production partial bookings that wear the LEBIH BAYAR shape but still owe:
+  // AIW0027949 (2 pax @46.9jt, 72.8jt paid) and a 3 pax @54.5jt / 109jt-paid booking.
+  const cases = [
+    { paket: '46900000', bayar: '72800000', sisa: -25900000, priceTotal: 93800000, pax: 2 },
+    { paket: '54500000', bayar: '109000000', sisa: -54500000, priceTotal: 163500000, pax: 3 },
+  ];
+  for (const c of cases) {
+    const row = aggRow({ bayar: c.bayar, bayar_sisa: c.sisa, paket_harga: c.paket });
+    const out = allocateAggregatePartialRow(row, { priceTotal: c.priceTotal, paxCount: c.pax, priceKnown: true, distinctAggregateCount: 1 });
+    assert.ok(out, 'partial booking should allocate');
+    assert.ok(out.sisa > 0, `partial pax must keep sisa>0, got ${out.sisa}`);
+    assert.ok(out.bayar < Number(c.paket), 'allocated bayar must stay below paket (never lunas)');
+  }
+});
+
+test('allocateAggregatePartialRow returns null for full-paid, multisub, price-unknown, and paket<=0', () => {
+  const base = { bayar: '69800000', bayar_sisa: -34900000, paket_harga: '34900000' };
+  // full-paid (aggregate >= Σpaket) → resolver's job, not the allocator.
+  assert.equal(allocateAggregatePartialRow(aggRow(base), { priceTotal: 69800000, paxCount: 2, priceKnown: true, distinctAggregateCount: 1 }), null);
+  // multi-subgroup (distinct aggregate values in one id_umroh) → never proportional.
+  assert.equal(allocateAggregatePartialRow(aggRow(base), { priceTotal: 104700000, paxCount: 3, priceKnown: true, distinctAggregateCount: 2 }), null);
+  // price universe incomplete → cannot allocate on an undercounted total.
+  assert.equal(allocateAggregatePartialRow(aggRow(base), { priceTotal: 104700000, paxCount: 3, priceKnown: false, distinctAggregateCount: 1 }), null);
+  // paket_harga <= 0 companion (infant/0-price) → N/A.
+  assert.equal(allocateAggregatePartialRow(aggRow({ ...base, paket_harga: '0' }), { priceTotal: 104700000, paxCount: 3, priceKnown: true, distinctAggregateCount: 1 }), null);
+  // not suspicious (normal cicilan) → null.
+  assert.equal(allocateAggregatePartialRow(aggRow({ bayar: '4000000', bayar_sisa: 30900000, paket_harga: '34900000' }), { priceTotal: 104700000, paxCount: 3, priceKnown: true, distinctAggregateCount: 1 }), null);
+});
+
+test('allocateAggregatePartialRow conserves the booking total (Σ allocated bayar == aggregate ± rounding)', () => {
+  const booking = { priceTotal: 104700000, paxCount: 3, priceKnown: true, distinctAggregateCount: 1 };
+  let sumBayar = 0;
+  for (let i = 0; i < 3; i++) {
+    const out = allocateAggregatePartialRow(aggRow({ bayar: '69800000', bayar_sisa: -34900000, paket_harga: '34900000' }), booking);
+    sumBayar += out.bayar;
+    assert.ok(out.bayar <= 34900000, 'never exceeds paket');
+  }
+  // floor under-allocates by at most paxCount rupiah — never over (no phantom money).
+  assert.ok(sumBayar <= 69800000 && sumBayar >= 69800000 - 3, `Σbayar ${sumBayar} within rounding of aggregate`);
+});
+
+test('allocateAggregatePartialRow honors a manual-confirmed sibling via pinnedPaketTotal', () => {
+  // AIW0028669 with Yulianti manually confirmed lunas (34.9jt pinned): the remaining
+  // 34.9jt of the 69.8jt aggregate splits across the other two pax → 17.45jt each.
+  const booking = { priceTotal: 104700000, paxCount: 3, priceKnown: true, distinctAggregateCount: 1, pinnedPaketTotal: 34900000 };
+  const out = allocateAggregatePartialRow(aggRow({ bayar: '69800000', bayar_sisa: -34900000, paket_harga: '34900000' }), booking);
+  assert.ok(out);
+  assert.equal(out.bayar, 17450000);
+  assert.equal(out.sisa, 17450000);
+  assert.equal(out.raw_data.payment_normalized.booking_pinned_paket_total, 34900000);
+});
+
+test('buildBookingPriceIndex counts distinct aggregate values and pins manual-confirmed pax', () => {
+  // Uniform single aggregate (one distinct raw bayar across the LEBIH-BAYAR rows).
+  const uniform = buildBookingPriceIndex([
+    { id_umroh: 'AIW1', jm_id: 'JM1', raw_data: { paket_harga: '34900000', bayar: '69800000', bayar_sisa: -34900000 } },
+    { id_umroh: 'AIW1', jm_id: 'JM2', raw_data: { paket_harga: '34900000', bayar: '69800000', bayar_sisa: -34900000 } },
+    { id_umroh: 'AIW1', jm_id: 'JM3', raw_data: { paket_harga: '34900000', bayar: '69800000', bayar_sisa: -34900000 } },
+  ], []);
+  assert.equal(uniform.get('AIW1').distinctAggregateCount, 1);
+  assert.equal(uniform.get('AIW1').priceTotal, 104700000);
+  assert.equal(uniform.get('AIW1').pinnedPaketTotal, undefined);
+
+  // Multi-subgroup: two distinct aggregate values in one id_umroh.
+  const multisub = buildBookingPriceIndex([
+    { id_umroh: 'AIW2', jm_id: 'JM1', raw_data: { paket_harga: '28000000', bayar: '56000000', bayar_sisa: -28000000 } },
+    { id_umroh: 'AIW2', jm_id: 'JM2', raw_data: { paket_harga: '28000000', bayar: '28000000', bayar_sisa: -0 } },
+    { id_umroh: 'AIW2', jm_id: 'JM3', raw_data: { paket_harga: '33800000', bayar: '33800000', bayar_sisa: -33800000 } },
+  ], []);
+  assert.equal(multisub.get('AIW2').distinctAggregateCount, 2); // 56jt and 33.8jt (the 28jt row has sisa 0, not <0)
+
+  // Manual-confirmed existing pax removes its paket from the partial pot.
+  const pinned = buildBookingPriceIndex(
+    [{ id_umroh: 'AIW3', jm_id: 'JM1', raw_data: { paket_harga: '34900000', bayar: '69800000', bayar_sisa: -34900000 } }],
+    [{ id_umroh: 'AIW3', jm_id: 'JM2', raw_data: { paket_harga: '34900000', payment_guard: 'manual_confirmed_lunas_after_awapi_anomaly' } }],
+  );
+  assert.equal(pinned.get('AIW3').pinnedPaketTotal, 34900000);
+});
+
+test('preserveExistingPaymentForSuspiciousAwapiRow keeps a manual-confirmed guard sticky', () => {
+  const incoming = aggRow({ id_umrah: 'AIW0028669', bayar: '69800000', bayar_sisa: -34900000, paket_harga: '34900000' });
+  const existing = {
+    bayar: 34900000,
+    sisa: 0,
+    raw_data: {
+      payment_guard: 'manual_confirmed_lunas_after_awapi_anomaly',
+      manual_confirmed_by: 'windy',
+      manual_confirmed_at: '2026-06-23T00:00:00.000Z',
+      paket_harga: '34900000',
+    },
+  };
+  assert.equal(hasTrustedManualPaymentGuard(existing), true);
+  const out = preserveExistingPaymentForSuspiciousAwapiRow(incoming, existing);
+  assert.ok(out);
+  assert.equal(out.bayar, 34900000);
+  assert.equal(out.sisa, 0);
+  assert.equal(out.raw_data.payment_guard, 'manual_confirmed_lunas_after_awapi_anomaly');
+  assert.equal(out.raw_data.manual_confirmed_by, 'windy');
+});
+
 test('buildBookingPriceIndex unions payload and DB pax with payload prices winning', () => {
   const payload = [
     { id_umroh: 'AIW1', jm_id: 'JM1', raw_data: { paket_harga: '34900000' } },
@@ -603,8 +736,8 @@ test('buildBookingPriceIndex unions payload and DB pax with payload prices winni
 
   const index = buildBookingPriceIndex(payload, existing);
 
-  assert.deepEqual(index.get('AIW1'), { priceTotal: 106700000, paxCount: 3, priceKnown: true });
-  assert.deepEqual(index.get('AIW2'), { priceTotal: 46900000, paxCount: 1, priceKnown: true });
+  assert.deepEqual(index.get('AIW1'), { priceTotal: 106700000, paxCount: 3, priceKnown: true, distinctAggregateCount: 0 });
+  assert.deepEqual(index.get('AIW2'), { priceTotal: 46900000, paxCount: 1, priceKnown: true, distinctAggregateCount: 0 });
 });
 
 test('buildBookingPriceIndex marks bookings with unresolvable pax prices as not priceKnown', () => {
@@ -623,5 +756,5 @@ test('buildBookingPriceIndex marks bookings with unresolvable pax prices as not 
     { id_umroh: 'AIW3', jm_id: '', nama: 'FULAN', raw_data: { paket_harga: '34900000' } },
     { id_umroh: 'AIW3', jm_id: 'JM5', raw_data: { paket_harga: '34900000' } },
   ], []);
-  assert.deepEqual(ghost.get('AIW3'), { priceTotal: 69800000, paxCount: 2, priceKnown: true });
+  assert.deepEqual(ghost.get('AIW3'), { priceTotal: 69800000, paxCount: 2, priceKnown: true, distinctAggregateCount: 0 });
 });
