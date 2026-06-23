@@ -161,6 +161,22 @@ function isBelumDPJamaah(item: Pick<JamaahItem, 'sisa' | 'bayar' | 'raw_data'>) 
   return getPaymentStatus(item) === 'belum';
 }
 
+// AWAPI reports rombongan payment only at the booking level, so on a partially-paid
+// booking it can't say which individuals paid — these jamaah are guarded/allocated.
+// The agent (who knows their jamaah) can assert a specific pax is paid off.
+const AGGREGATE_MANAGED_GUARDS = [
+  'allocated_partial_after_awapi_anomaly',
+  'neutralized_new_after_awapi_anomaly',
+  'preserved_existing_after_awapi_anomaly',
+];
+function isManualConfirmedLunas(item: Pick<JamaahItem, 'raw_data'>) {
+  return item.raw_data?.payment_guard === 'manual_confirmed_lunas_after_awapi_anomaly';
+}
+function canConfirmLunas(item: Pick<JamaahItem, 'sisa' | 'bayar' | 'raw_data'>) {
+  const g = item.raw_data?.payment_guard;
+  return getPaymentStatus(item) !== 'lunas' && typeof g === 'string' && AGGREGATE_MANAGED_GUARDS.includes(g);
+}
+
 function normalizeDocumentPath(value: unknown): string {
   if (typeof value !== 'string') return '';
   const text = value.trim();
@@ -498,6 +514,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
 
   // Notes
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [confirmingLunasId, setConfirmingLunasId] = useState<number | null>(null);
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
   const typingPlaceholder = useTypingPlaceholder(editingNoteId !== null);
@@ -665,6 +682,33 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
       console.error('Failed to save note:', err);
     } finally {
       setSavingNote(false);
+    }
+  };
+
+  const handleConfirmLunas = async (item: JamaahItem, confirm: boolean) => {
+    const msg = confirm
+      ? `Tandai ${item.nama} sebagai LUNAS? Pakai ini kalau Anda yakin jamaah ini sudah melunasi — sistem hanya tahu total bayar rombongan, bukan per orang. Sisa pembayaran akan dibagi ke anggota rombongan lain.`
+      : `Batalkan tanda lunas manual untuk ${item.nama}? Pembayaran akan dihitung ulang dari data AWAPI.`;
+    if (!window.confirm(msg)) return;
+    setConfirmingLunasId(item.id);
+    try {
+      const res = await fetch('/api/laporan/jamaah/confirm-lunas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ id_umroh: item.id_umroh, jm_id: item.jm_id, confirm }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        // Confirm re-allocates siblings too — refetch the page for the full truth.
+        await fetchJamaah();
+      } else {
+        window.alert(result.error || 'Gagal menyimpan status lunas');
+      }
+    } catch (err) {
+      console.error('Failed to confirm lunas:', err);
+      window.alert('Gagal menghubungi server');
+    } finally {
+      setConfirmingLunasId(null);
     }
   };
 
@@ -1928,6 +1972,32 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                             >
                               <PenLine size={11} strokeWidth={2.2} />
                               Catatan
+                            </button>
+                          </div>
+                        )}
+                        {canConfirmLunas(item) && (
+                          <div className="flex items-end">
+                            <button
+                              disabled={confirmingLunasId === item.id}
+                              onClick={() => handleConfirmLunas(item, true)}
+                              title="Tandai jamaah ini sudah lunas (AWAPI hanya tahu total bayar rombongan, bukan per orang)"
+                              className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors active:scale-95 disabled:opacity-50"
+                            >
+                              <Check size={11} strokeWidth={2.6} />
+                              {confirmingLunasId === item.id ? 'Menyimpan…' : 'Tandai Lunas'}
+                            </button>
+                          </div>
+                        )}
+                        {isManualConfirmedLunas(item) && (
+                          <div className="flex items-end">
+                            <button
+                              disabled={confirmingLunasId === item.id}
+                              onClick={() => handleConfirmLunas(item, false)}
+                              title="Lunas ini ditandai manual oleh agen. Batalkan untuk hitung ulang dari AWAPI."
+                              className="flex items-center gap-1 text-[10px] font-bold text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-slate-700 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors active:scale-95 disabled:opacity-50"
+                            >
+                              <Check size={11} strokeWidth={2.2} />
+                              {confirmingLunasId === item.id ? '…' : 'Lunas (manual) · batalkan'}
                             </button>
                           </div>
                         )}
