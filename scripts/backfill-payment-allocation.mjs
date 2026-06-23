@@ -75,10 +75,12 @@ async function main() {
     if (ONLY_BOOKING || data.length < PAGE) break;
   }
 
-  // 2. Group by booking; classify each.
+  // 2. Group by (agent_id, id_umroh) — the sync reconciles per-agent, so two
+  //    agents that both synced the same booking must NOT be merged (it would
+  //    inflate Σpaket / trip the pure-uniform gate and skip a clean booking).
   const byBooking = new Map();
   for (const r of all) {
-    const k = r.id_umroh;
+    const k = `${r.agent_id}|${r.id_umroh}`;
     if (!byBooking.has(k)) byBooking.set(k, []);
     byBooking.get(k).push(r);
   }
@@ -86,7 +88,8 @@ async function main() {
   let pureUniformBk = 0, fullBk = 0, partialBk = 0, skippedBk = 0;
   const changes = [];
 
-  for (const [idUmroh, rows] of byBooking) {
+  for (const [, rows] of byBooking) {
+    const idUmroh = rows[0].id_umroh;
     // Pure-uniform gate: every row aggregate-shape (raw bayar_sisa<0), one aggregate
     // value, all paket>0, no manual-confirmed pax.
     const aggVals = new Set();

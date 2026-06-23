@@ -62,6 +62,21 @@ test('aggregate shape terbukti: price-proof Σ harga − aggregate (AIW0027949 d
   assert.equal(bookings[0].aggregateShape, true);
 });
 
+test('aggregate shape dengan pax manual-confirmed lunas: outstanding lawan SEMUA pax', () => {
+  // AIW0028669 (Yulianti): 3 pax @34,9jt (Σ=104,7jt), aggregate 69,8jt (2/3 dibayar).
+  // Yulianti dikonfirmasi LUNAS (sisa=0, keluar dari owing); 2 saudara dialokasi
+  // proporsional (17,45jt sisa). Outstanding HARUS 104,7−69,8 = 34,9jt — bukan
+  // proof owing-only (69,8−69,8=0 → fallback max 17,45jt yang under-report).
+  const bookings = collapseBookingOutstanding([
+    { id_umroh: 'AIW0028669', bayar: 34900000, sisa: 0,        awapi_bayar_sisa: -34900000, awapi_paket_harga: '34900000', awapi_bayar: '69800000' },
+    { id_umroh: 'AIW0028669', bayar: 17450000, sisa: 17450000, awapi_bayar_sisa: -34900000, awapi_paket_harga: '34900000', awapi_bayar: '69800000' },
+    { id_umroh: 'AIW0028669', bayar: 17450000, sisa: 17450000, awapi_bayar_sisa: -34900000, awapi_paket_harga: '34900000', awapi_bayar: '69800000' },
+  ]);
+  assert.equal(bookings.length, 1);
+  assert.equal(bookings[0].outstanding, 34900000);
+  assert.equal(bookings[0].memberCount, 2); // 2 pax owing (Yulianti lunas)
+});
+
 test('aggregate shape TAK terbukti: fallback max sisa (harga hilang / bayar tak seragam)', () => {
   // Tanpa paket_harga → proof null → max(sisa), persis fallback notifier.
   const [noPrice] = collapseBookingOutstanding([
