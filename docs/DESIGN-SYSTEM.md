@@ -2,7 +2,7 @@
 
 Panduan komponen, warna, layout, dan pattern yang konsisten di seluruh project.
 
-Terakhir diperbarui: 2026-06-14
+Terakhir diperbarui: 2026-06-23
 
 ---
 
@@ -204,6 +204,21 @@ transition-all duration-200
 | 3 | CAPI | `Code` | 13 | 2.2 |
 
 Label: `text-[11px]`
+
+### Variant — Tier Picker (PackageCard "Rincian Biaya Paket")
+
+Tab pemilih tipe paket (mis. HEMAT / UHUD / RAHMAH) di atas tabel harga `PackageCard`. Hanya dirender saat `tiers.length > 1`; "Hemat" selalu di-hoist ke kiri (sort stabil), tier lain mempertahankan urutan asli. Tab aktif menyetir **hotel block DAN tabel harga** sekaligus (`activeTier` → fallback ke tier termurah saat belum ada pilihan). Mengikuti pola Segmented Control, dengan track gelap `slate-900` (bukan `slate-800`) di dark mode dan shadow aktif via inline style:
+
+```
+Container (role="tablist", data-screenshot-ignore):
+  flex w-full gap-1 mb-3 p-1 rounded-xl bg-gray-100 dark:bg-slate-900
+Tab (role="tab", aria-selected):
+  flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 active:opacity-70
+  active:   bg-white dark:bg-slate-700 shadow-sm text-emerald-500 dark:text-emerald-400 font-semibold
+            + style boxShadow: 0 1px 3px rgba(0,0,0,0.08)
+  inactive: bg-transparent text-gray-400 dark:text-slate-500 font-medium
+  Label: text-[11px] truncate
+```
 
 ---
 
@@ -454,6 +469,26 @@ Modal fullscreen yang merender HTML surat pernyataan dari cache via proxy ter-au
 ```
 text-[10px] text-gray-400  // "Sync: Baru saja"
 text-[10px] font-semibold text-emerald-600 animate-pulse  // syncing
+```
+
+#### Tombol "Tandai Lunas" (override per-pax)
+
+Di grid info expanded detail. AWAPI hanya tahu total bayar **rombongan**, bukan per orang → agen bisa override status satu pax. `POST /api/laporan/jamaah/confirm-lunas` (`{ id_umroh, jm_id, confirm }`); konfirmasi via `window.confirm` (sisa dialokasi ulang ke anggota rombongan lain), lalu refetch halaman. Dua state, mutually exclusive:
+
+```
+Tandai Lunas (canConfirmLunas → belum lunas, aksen emerald):
+  flex items-center gap-1 text-[10px] font-bold
+  text-emerald-700 dark:text-emerald-300
+  bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1 rounded-lg
+  border border-emerald-200 dark:border-emerald-800
+  hover:bg-emerald-100 dark:hover:bg-emerald-900/50 active:scale-95 disabled:opacity-50
+  Icon: Check 11 strokeWidth=2.6 ; label "Tandai Lunas" / "Menyimpan…" saat confirmingLunasId === item.id
+
+Lunas (manual) · batalkan (isManualConfirmedLunas → sudah ditandai manual, aksen netral):
+  ...sama geometri, skin gray: text-gray-500 dark:text-slate-400
+  bg-gray-100 dark:bg-slate-800 border-gray-200 dark:border-slate-700
+  hover:bg-gray-200 dark:hover:bg-slate-700
+  Icon: Check 11 strokeWidth=2.2 ; label "Lunas (manual) · batalkan" / "…" saat menyimpan (confirm=false → hitung ulang dari AWAPI)
 ```
 
 ---
@@ -866,6 +901,50 @@ BrochureModal footer:  flex-1 py-3 rounded-xl text-sm font-bold text-indigo-700 
 
 Visibilitas: hanya dirender saat `isSessionValid()` (tool agent, bukan untuk jamaah yang membuka halaman publik `/{slug}`).
 
+### AI Tools Dropdown (BrochureModal footer)
+
+Di footer `BrochureModal`, **Caption AI** + **Buat Ulang Brosur** digabung jadi satu tombol dropdown "AI Tools" (agen-only; item muncul kondisional via prop `onCaption` / `onPrompt`). Menu **membuka ke atas** (footer dipatok di dasar modal) dan **selalu ter-mount** agar buka & tutup sama-sama beranimasi.
+
+Trigger (sibling kiri dari tombol Bagikan/Download, `flex-1`):
+```
+w-full flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold
+text-emerald-700 dark:text-emerald-300
+bg-emerald-50 dark:bg-slate-800
+border border-emerald-200 dark:border-emerald-700/70
+transition-all duration-200 active:scale-95
+→ Sparkles 17 + "AI Tools" + ChevronDown 15 (rotate-180 saat open)
+```
+
+Menu (`role="menu"`, membuka ke atas):
+```
+absolute bottom-full left-0 w-max max-w-[calc(100vw-2rem)] mb-2 z-20 origin-bottom-left
+rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl overflow-hidden
+transition-all duration-150
+open:   opacity-100 scale-100 translate-y-0
+closed: opacity-0 scale-95 translate-y-1 pointer-events-none
+Item: w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-slate-700/60
+  Icon shell: w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 → Icon 16 emerald-600/400
+  (Caption AI · Sparkles · "Caption promosi WhatsApp"; Buat Ulang Brosur · Wand2 · "Prompt ChatGPT untuk re-create brosur")
+```
+Tutup saat klik-luar (`aiMenuRef`) / Escape tanpa menutup modal. Zoom controls disembunyikan (`opacity-0 pointer-events-none`) selama menu terbuka.
+
+### Prompt Generator Modal (`BrochurePromptModal.tsx`)
+
+Dibuka dari "Buat Ulang Brosur". Centered dialog (portal, `z-[10001]`) yang **merakit prompt ChatGPT secara live di client** (tanpa API) untuk membuat ulang brosur/banner; agen menyalin prompt → buka ChatGPT → lampirkan brosur → tempel. Aksen fitur: **emerald**.
+
+```
+Container: relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[88vh] flex flex-col overflow-hidden
+Backdrop: absolute inset-0 bg-black/50 backdrop-blur-sm
+Animation: Framer Motion scale 0.9→1 spring (damping 25, stiffness 300)
+Header: px-4 py-3 border-b — Wand2 16 emerald-500 + title ("Buat Ulang Brosur (AI)" / "Buat Banner Ads (AI)" mengikuti tab) + close w-8 h-8 rounded-lg
+```
+
+- **Tab jenis materi** (Segmented Control, track `bg-gray-100 dark:bg-slate-900/60 rounded-xl p-1`): **Brosur** (`FileImage`) / **Banner Ads** (`Megaphone`); tab aktif `bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-300 font-semibold shadow-sm`, inaktif `text-gray-400 dark:text-slate-500`.
+- **Gaya desain + Rasio**: dua `FilterDropdown` (`variant="compact"`, `portal`, `portalZClass="z-[10002]"`) dalam `grid grid-cols-2 gap-3`.
+- **Info kontak** (disclosure, di-prefill dari profil & di-reset tiap modal dibuka): Nama/WhatsApp/Website + Instagram/Alamat/Instruksi opsional.
+- **Preview prompt**: `<textarea readOnly>` `h-40 font-mono text-xs` (select-on-focus).
+- **Footer**: tombol "Salin Prompt" (Primary emerald, `Copy`/`ClipboardCheck` 17, label "Tersalin" 2 dtk) + "Buka ChatGPT" (secondary emerald, `ExternalLink` 16; auto-copy prompt lalu `window.open('https://chatgpt.com/')`).
+
 ### Calendar Widget (`UpcomingSchedule.tsx`)
 
 Mini calendar grid on Dashboard home:
@@ -1085,6 +1164,36 @@ Export uses `modern-screenshot` (`domToCanvas`) with:
 - `timeout: 15000`, `fetch.requestInit.cache='force-cache'`, and SVG/control-character cleanup features.
 - Two capture attempts with `waitForFonts()`, `waitForImages(target)`, double `requestAnimationFrame`, and blank-canvas detection before blob export.
 - Per-page blob cache so the second Share tap on iOS can call `navigator.share()` inside the user-activation window.
+
+#### Tombol "Unduh Katalog (PDF)"
+
+Full-width Primary CTA tepat di bawah filter row (`px-4 pt-3`). Selalu memakai **Bulan + tersedia saja**, terlepas dari filter on-screen; di-disable saat tak ada paket tersedia / sedang membuat katalog / export per-image sedang jalan.
+
+```
+w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold
+bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20
+transition-all duration-200 active:scale-95 disabled:opacity-70
+idle: FileDown 17 + "Unduh Katalog (PDF)" ; busy: Loader2 17 animate-spin + "Membuat katalog…"
+```
+
+Builder merangkai PDF: halaman sampul (`BrochureCatalogCover`) + tiap bulan (paket tersedia saja, 10/halaman) yang di-capture dari off-screen stage lalu di-`pdf.save(catalogFilename(agent))`.
+
+#### CatalogLoadingModal (`CatalogLoadingModal.tsx`)
+
+Portal overlay live (BUKAN bagian PDF) untuk progres per-halaman katalog — konsep "Dokumen terisi": ikon halaman PDF yang terisi dari bawah seiring progres. Palet **gold/maroon gelap** (bukan emerald) menyamai brosur klasik.
+
+```
+Overlay: fixed inset-0 z-9999 flex center, padding 24
+  background rgba(8,2,5,0.62) + backdropFilter blur(4px)
+Card: maxWidth 320, borderRadius 22, padding 30/26/26
+  background linear-gradient(180deg, #2a0510, #16040a), border GOLD_DEEP(#C98A2C)55, color #fff, textAlign center
+GOLD = #E8C36B, GOLD_DEEP = #C98A2C
+```
+
+Tiga status:
+- **loading** — ikon halaman PDF 76×96 (border GOLD 2.5px) yang fill `height:{pct}%` (gradient GOLD→GOLD_DEEP) + shimmer (`@keyframes catShimmer`); float halus (`catFloat`). Title "Membuat Katalog" + step label (`stageLabel`: "Menyusun sampul…" / "Menyiapkan {bulan}…"). Bar progres GOLD + caption "{done}/{total} halaman · {pct}%".
+- **success** — disk gold (`catPop`) + `Check` 44; "Katalog Siap!" / "PDF berhasil diunduh" (auto-close).
+- **error** — lingkaran merah (`X` 44 `#fca5a5`, border `#ef4444`); "Gagal Membuat Katalog" + pesan + tombol "Tutup" gold. Klik backdrop menutup hanya pada state error.
 
 ### Voice Over Generator (`VoiceOverPage.tsx`)
 
@@ -1595,7 +1704,11 @@ Options list:
 Dropdown filter custom (**BUKAN `<select>` bawaan browser**) — standar untuk semua
 filter/pemilihan di dashboard. Trigger kompak + panel popover **beranimasi**, baris
 opsi ter-highlight emerald + Check, dan search pill otomatis saat opsi ≥ 8.
-Komponen bersama: `src/components/FilterDropdown.tsx` (default export, prop `variant: 'compact' | 'default'`). Dipakai di jadwal-paket header (`FilterHeader.tsx`, variant `default`) & brosur-jadwal (`BrochureSchedulePage.tsx`, variant `compact`). Tambah pemakaian baru lewat komponen ini, jangan copy-paste.
+Komponen bersama: `src/components/FilterDropdown.tsx` (default export, prop `variant: 'mini' | 'compact' | 'default'`). Dipakai di jadwal-paket header (`FilterHeader.tsx`, variant `default`) & brosur-jadwal (`BrochureSchedulePage.tsx`, variant `compact`). Tambah pemakaian baru lewat komponen ini, jangan copy-paste.
+
+**Prop `accent` (opsional, default `false`):** skin trigger ber-aksen **emerald** (mis. filter tahun di header Jamaah/Haji), menggantikan skin gray default — `bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/30`, ChevronDown ikut emerald. Skin dipisah dari ukuran agar accent bisa tukar warna tanpa konflik kelas Tailwind.
+
+**Prop `showAllOptions` (opsional, default `false`):** buang cap tinggi list (`max-h-60 overflow-y-auto` → `overflow-visible`) dan matikan search pill, supaya semua opsi tampil tanpa scroll internal.
 
 > **Aturan pasangan tetap:** trigger + panel + **animasi buka/tutup** adalah satu
 > paket. Kalau diminta "sesuaikan dropdown", animasi di bawah ikut otomatis — bukan
@@ -1883,6 +1996,50 @@ Common structure:
 - Message block from editable WhatsApp text.
 - Footer contains agent photo, name, verified badge, and Alhijaz logo.
 - Use solid backgrounds and embedded SVG decoration so JPEG export has no transparency dependency.
+
+---
+
+## Top Partner Page (`TopPartnerPage.tsx`)
+
+Landing publik di `/top-partner` — daftar "Partner Pilihan Alhijaz" (TOP 20, di-shuffle dari `GET /api/top-partner`, set meta/OG sendiri). Mobile-first `max-w-lg`, aksen **maroon/gold** (bukan emerald page-gradient default).
+
+```
+main: min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 font-sans
+Inner: mx-auto min-h-screen w-full max-w-lg ; list wrapper px-2.5 pb-7 pt-3 space-y-2.5
+```
+
+#### Hero
+
+```
+section: relative overflow-hidden rounded-b-[20px] px-5 pb-6 pt-5 text-white
+  shadow-[0_18px_45px_rgba(69,10,10,0.28)]
+  background linear-gradient(122deg, #150207, #26050A 40%, #5B1018 72%, #8A1E22)
+  + SVG bintang/kubah pattern (HERO_PATTERN, opacity ~0.13) + amber blur orbs
+Logo: logo-alhijaz-white.png w-[88px]
+Badge "TOP 20": rounded-full border-amber-200/80 bg-[#22050A]/75 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-amber-200 + Sparkles 3
+Title: mt-8 text-2xl font-bold "Partner Pilihan Alhijaz"
+Subtitle: text-[13px] text-rose-100 "Resmi. Responsif. Mudah dihubungi."
+Trust row: text-[11px] font-bold — Zap (fill) "Fast Response" + ShieldCheck "Verified Partner" (icon text-amber-200)
+```
+
+#### Partner Card
+
+```
+article: flex min-h-[112px] w-full gap-2.5 rounded-2xl border border-gray-100 dark:border-slate-700
+  bg-white dark:bg-slate-800 p-2 shadow-[0_8px_22px_rgba(15,23,42,0.06)]
+  animate-[topPartnerCardIn_520ms_cubic-bezier(0.22,1,0.36,1)_both] (stagger 70ms × index%2)
+Foto: h-24 w-24 rounded-[13px] border border-rose-100 object-cover
+  (fallback: gradient from-rose-50 to-amber-50 + inisial text-rose-800)
+Nama: line-clamp-2 text-sm font-bold text-gray-950 dark:text-white
+CTA WhatsApp (pill): inline-flex rounded-full border-emerald-100 bg-emerald-50 px-3 py-2 text-[11px] font-bold
+  text-emerald-700 shadow-[0_8px_18px_rgba(5,150,105,0.12)] active:bg-emerald-100
+  (dark: border-emerald-800/40 bg-emerald-900/20 text-emerald-300) + WhatsAppIcon 14
+Verified badge: BadgeCheck 20 fill="#1D9BF0" stroke="white" (Twitter-style)
+```
+
+- **Reveal**: 6 partner awal (`INITIAL_VISIBLE_PARTNERS`), lalu `IntersectionObserver` menambah 2 (`REVEAL_PARTNER_STEP`) tiap sentinel masuk viewport — hanya setelah user scroll (`scrollY > 24`).
+- **Skeleton**: 8 baris `min-h-[112px]` dengan foto/teks/pill `animate-pulse`.
+- **Error**: kartu rose + tombol "Coba lagi" (`RefreshCw`, skin emerald-50).
 
 ---
 
