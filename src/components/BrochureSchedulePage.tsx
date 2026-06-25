@@ -978,32 +978,12 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         </div>
       </div>
 
-      {/* Cover picker trigger — chosen cover is remembered per-device */}
+      {/* Unduh Katalog — opens the cover picker; the actual download fires from
+          inside the picker. Always Bulan + tersedia saja, terlepas filter aktif. */}
       <div className="px-4 pt-3">
         <button
           type="button"
           onClick={() => setCoverPickerOpen(true)}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 text-left active:scale-[0.99] transition-all"
-        >
-          <img
-            src={getCatalogCover(coverId).image}
-            alt=""
-            className="h-10 w-[26px] rounded object-cover border border-gray-200 dark:border-slate-700 shrink-0"
-          />
-          <span className="flex-1 min-w-0">
-            <span className="block text-[11px] text-gray-500 dark:text-slate-400">Cover katalog</span>
-            <span className="block text-sm font-semibold text-gray-900 dark:text-white truncate">{getCatalogCover(coverId).label}</span>
-          </span>
-          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 shrink-0">Ganti</span>
-        </button>
-      </div>
-
-      {/* Unduh Katalog — full-width. Always Bulan + tersedia saja, terlepas dari
-          filter yang sedang aktif. */}
-      <div className="px-4 pt-3">
-        <button
-          type="button"
-          onClick={handleDownloadCatalog}
           disabled={!catalogAllowed || !hasAnyAvailable || catalogBusy || busy !== null}
           className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95 disabled:opacity-70"
         >
@@ -1033,6 +1013,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         selectedId={coverId}
         onSelect={selectCover}
         onClose={() => setCoverPickerOpen(false)}
+        onDownload={() => { setCoverPickerOpen(false); handleDownloadCatalog(); }}
       />
 
       {/* Brochure previews + per-image actions */}

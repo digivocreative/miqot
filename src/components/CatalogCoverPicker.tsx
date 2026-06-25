@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import { Check, X } from 'lucide-react';
+import { Check, FileDown, X } from 'lucide-react';
 import { CATALOG_COVERS } from '@/lib/catalogCovers';
 
 export interface CatalogCoverPickerProps {
@@ -7,6 +7,8 @@ export interface CatalogCoverPickerProps {
   selectedId: string;
   onSelect: (id: string) => void;
   onClose: () => void;
+  /** Confirm the chosen cover and start the catalog PDF download. */
+  onDownload: () => void;
 }
 
 /**
@@ -15,7 +17,7 @@ export interface CatalogCoverPickerProps {
  * returns null when closed, so the cover artwork is only fetched once the agent
  * opens the picker. Selection is persisted by the parent (localStorage).
  */
-export function CatalogCoverPicker({ open, selectedId, onSelect, onClose }: CatalogCoverPickerProps) {
+export function CatalogCoverPicker({ open, selectedId, onSelect, onClose, onDownload }: CatalogCoverPickerProps) {
   if (!open) return null;
 
   return createPortal(
@@ -88,10 +90,11 @@ export function CatalogCoverPicker({ open, selectedId, onSelect, onClose }: Cata
         <div className="px-5 py-3 border-t border-gray-100 dark:border-slate-800">
           <button
             type="button"
-            onClick={onClose}
-            className="w-full py-2.5 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white transition-colors"
+            onClick={onDownload}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95"
           >
-            Selesai
+            <FileDown size={17} />
+            <span>Unduh Katalog (PDF)</span>
           </button>
         </div>
       </div>
