@@ -45,15 +45,18 @@ Tujuan: tambah 6 cover sehingga agent bisa memilih yang disukai.
 
 ## Inventaris cover
 
-| id        | file                   | karakter                                   | scrim         |
-|-----------|------------------------|--------------------------------------------|---------------|
-| `classic` | `cover-katalog.png`    | langit merah, foto grup + landmark         | reddish (def) |
-| `cover-2` | `cover-katalog-2.png`  | langit biru siang, foto grup + Kabah+tower | bright        |
-| `cover-3` | `cover-katalog-3.png`  | langit biru, 1 jamaah ihram (minimalis)    | bright        |
-| `cover-4` | `cover-katalog-4.png`  | langit biru, 1 jamaah ihram (lantai kayu)  | bright        |
-| `cover-5` | `cover-katalog-5.png`  | sunset hangat, foto grup + landmark        | bright        |
-| `cover-6` | `cover-katalog-6.png`  | langit biru+awan, tangan berdoa di bawah   | bright        |
-| `cover-7` | `cover-katalog-7.png`  | langit biru, jamaah + koper Alhijaz        | bright        |
+> Id final = deskriptif (bukan `cover-N`). Label & id boleh disesuaikan; registry
+> (`src/lib/catalogCovers.js`) adalah sumber kebenaran.
+
+| id          | label         | file                   | karakter                                   | scrim         |
+|-------------|---------------|------------------------|--------------------------------------------|---------------|
+| `classic`   | Classic       | `cover-katalog.png`    | langit merah, foto grup + landmark         | reddish (def) |
+| `siang`     | Siang         | `cover-katalog-2.png`  | langit biru siang, foto grup + Kabah+tower | bright        |
+| `ihram-1`   | Ihram I       | `cover-katalog-3.png`  | langit biru, 1 jamaah ihram (minimalis)    | bright        |
+| `ihram-2`   | Ihram II      | `cover-katalog-4.png`  | langit biru, 1 jamaah ihram (lantai kayu)  | bright        |
+| `sunset`    | Sunset        | `cover-katalog-5.png`  | sunset hangat, foto grup + landmark        | bright        |
+| `doa`       | Doa           | `cover-katalog-6.png`  | langit biru+awan, tangan berdoa di bawah   | bright        |
+| `berangkat` | Keberangkatan | `cover-katalog-7.png`  | langit biru, jamaah + koper Alhijaz        | bright        |
 
 - **scrim `reddish` (default/classic):**
   `radial-gradient(58% 64% at 50% 30%, rgba(90,0,16,0.45) 0%, rgba(90,0,16,0) 72%)` (existing).
