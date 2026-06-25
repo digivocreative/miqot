@@ -319,7 +319,7 @@ export default function BrochureSchedulePage({ agent: agentProp, onHeaderRight }
       try { localStorage.setItem('brosurDisplayMode', mode); } catch { /* private mode: ignore */ }
     };
     onHeaderRight(
-      <div className="flex items-center rounded-lg bg-gray-100 dark:bg-slate-800 p-0.5 shrink-0">
+      <div className="flex items-center h-9 rounded-lg bg-gray-100 dark:bg-slate-800 p-0.5 shrink-0">
         {(['hari', 'seat'] as const).map(mode => (
           <button
             key={mode}
