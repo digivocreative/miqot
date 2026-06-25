@@ -1219,10 +1219,10 @@ export function BrochureCatalogCover({ agent, months, cover }: BrochureCatalogCo
         ...(hb?.width != null ? { width: hb.width } : { right: hb?.right ?? 90 }),
         zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: hItems, textAlign: hAlign,
       }}>
-        <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: 13, color: kickerColor }}>KATALOG UMROH</div>
-        <div style={{ marginTop: 10, fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: 112, lineHeight: 0.95, color: titleColor }}>Paket<br />Umroh</div>
+        <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: 13, color: kickerColor, whiteSpace: 'nowrap' }}>KATALOG UMROH</div>
+        <div style={{ marginTop: 10, fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: 112, lineHeight: 0.95, color: titleColor, whiteSpace: 'nowrap' }}>Paket<br />Umroh</div>
         <div style={{ width: 96, height: 3, borderRadius: 2, background: kickerColor, margin: '22px 0 14px' }} />
-        {rangeLabel && <div style={{ fontSize: 30, fontWeight: 600, letterSpacing: 4, color: rangeColor }}>{rangeLabel}</div>}
+        {rangeLabel && <div style={{ fontSize: 30, fontWeight: 600, letterSpacing: 4, color: rangeColor, whiteSpace: 'nowrap' }}>{rangeLabel}</div>}
       </div>
 
       {/* Agent contact ribbon at the very bottom */}
