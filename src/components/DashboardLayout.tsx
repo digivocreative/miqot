@@ -279,7 +279,17 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // Statistik header slot for year dropdown
   const [statistikHeaderRight, setStatistikHeaderRight] = useState<React.ReactNode>(null);
   const [jamaahHeaderRight, setJamaahHeaderRight] = useState<React.ReactNode>(null);
-  const [brosurHeaderRight, setBrosurHeaderRight] = useState<React.ReactNode>(null);
+  // Brosur "kolom ke-3" mode lives here (next to isDarkMode) so the header toggle
+  // reads live state — guarantees the active highlight updates on click. Passed
+  // down to BrochureSchedulePage as a prop. Persisted like the dark-mode pref.
+  const [brosurDisplayMode, setBrosurDisplayMode] = useState<'hari' | 'seat'>(() => {
+    try { return localStorage.getItem('brosurDisplayMode') === 'seat' ? 'seat' : 'hari'; }
+    catch { return 'hari'; }
+  });
+  const chooseBrosurDisplayMode = (mode: 'hari' | 'seat') => {
+    setBrosurDisplayMode(mode);
+    try { localStorage.setItem('brosurDisplayMode', mode); } catch { /* private mode: ignore */ }
+  };
   // Jamaah status: lazy check on Statistik click
   const [checkingStatistik, setCheckingStatistik] = useState(false);
   const [showStatAlert, setShowStatAlert] = useState(false);
@@ -551,7 +561,25 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             {activeTab === 'statistik' && statistikHeaderRight}
             {activeTab === 'analytics' && analyticsHeaderRight}
             {activeTab === 'jamaah' && jamaahHeaderRight}
-            {activeTab === 'brosur' && brosurHeaderRight}
+            {activeTab === 'brosur' && (
+              <div className="flex items-center h-9 rounded-lg bg-gray-100 dark:bg-slate-800 p-0.5 shrink-0">
+                {(['hari', 'seat'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => chooseBrosurDisplayMode(mode)}
+                    aria-pressed={brosurDisplayMode === mode}
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide transition-colors ${
+                      brosurDisplayMode === mode
+                        ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                        : 'text-gray-400 dark:text-slate-500'
+                    }`}
+                  >
+                    {mode === 'hari' ? 'HARI' : 'SEAT'}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Dark mode toggle */}
             <button
@@ -631,7 +659,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               phone: agentData.phone,
               photo: agentData.photo || '',
               website: agentData.website || '',
-            }} onHeaderRight={setBrosurHeaderRight} />
+            }} displayMode={brosurDisplayMode} />
           )}
           {activeTab === 'agents' && isAdmin && (
             <div className="px-4 pt-4">
