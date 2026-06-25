@@ -44,6 +44,21 @@ test('every cover image file exists in public/', () => {
   }
 });
 
+test('classic cover carries no overrides (uses component defaults → zero regression)', () => {
+  const classic = getCatalogCover('classic');
+  for (const k of ['scrim', 'kickerColor', 'titleColor', 'rangeColor', 'ribbonGradient']) {
+    assert.equal(classic[k], undefined, `classic must not override ${k}`);
+  }
+});
+
+test('every non-classic cover defines scrim + headline colors for legibility', () => {
+  for (const c of CATALOG_COVERS.filter((c) => c.id !== 'classic')) {
+    for (const k of ['scrim', 'kickerColor', 'titleColor', 'rangeColor']) {
+      assert.ok(c[k] && typeof c[k] === 'string', `${c.id} missing ${k}`);
+    }
+  }
+});
+
 test('BrochureSchedulePage wires the cover picker + persistence', () => {
   const src = readFileSync(join(root, 'src/components/BrochureSchedulePage.tsx'), 'utf8');
   assert.match(src, /'catalogCoverId'/, 'uses localStorage key catalogCoverId');

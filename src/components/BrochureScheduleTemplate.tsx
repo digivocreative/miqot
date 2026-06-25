@@ -1179,7 +1179,11 @@ export function BrochureCatalogCover({ agent, months, cover }: BrochureCatalogCo
   const coverImage = resolvedCover.image;
   const coverScrim = resolvedCover.scrim ?? CLASSIC_COVER_SCRIM;
   const coverRibbon = resolvedCover.ribbonGradient ?? CLASSIC_COVER_RIBBON;
-  const headlineGold = resolvedCover.headlineColor ?? GOLD;
+  // Per-cover headline colors (default = classic). Tuned per artwork for legibility
+  // + harmony with the background; see src/lib/catalogCovers.
+  const kickerColor = resolvedCover.kickerColor ?? GOLD;
+  const titleColor = resolvedCover.titleColor ?? '#fff';
+  const rangeColor = resolvedCover.rangeColor ?? '#FBF3DF';
 
   return (
     <div style={{
@@ -1205,10 +1209,10 @@ export function BrochureCatalogCover({ agent, months, cover }: BrochureCatalogCo
 
       {/* Headline over the red sky */}
       <div style={{ position: 'absolute', top: 150, left: 90, right: 90, zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-        <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: 13, color: headlineGold }}>KATALOG UMROH</div>
-        <div style={{ marginTop: 10, fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: 112, lineHeight: 0.95, color: '#fff' }}>Paket<br />Umroh</div>
-        <div style={{ width: 96, height: 3, borderRadius: 2, background: headlineGold, margin: '22px 0 14px' }} />
-        {rangeLabel && <div style={{ fontSize: 30, fontWeight: 600, letterSpacing: 4, color: '#FBF3DF' }}>{rangeLabel}</div>}
+        <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: 13, color: kickerColor }}>KATALOG UMROH</div>
+        <div style={{ marginTop: 10, fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: 112, lineHeight: 0.95, color: titleColor }}>Paket<br />Umroh</div>
+        <div style={{ width: 96, height: 3, borderRadius: 2, background: kickerColor, margin: '22px 0 14px' }} />
+        {rangeLabel && <div style={{ fontSize: 30, fontWeight: 600, letterSpacing: 4, color: rangeColor }}>{rangeLabel}</div>}
       </div>
 
       {/* Agent contact ribbon at the very bottom */}

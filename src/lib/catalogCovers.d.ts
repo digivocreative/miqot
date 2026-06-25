@@ -7,8 +7,12 @@ export interface CatalogCover {
   scrim?: string;
   /** CSS background for the agent ribbon; falls back to the classic maroon. */
   ribbonGradient?: string;
-  /** Override for the headline accent color; falls back to classic gold. */
-  headlineColor?: string;
+  /** "KATALOG UMROH" kicker + divider color; falls back to classic gold (#E8C36B). */
+  kickerColor?: string;
+  /** "Paket Umroh" title color; falls back to classic white (#fff). */
+  titleColor?: string;
+  /** Date-range label color; falls back to classic cream (#FBF3DF). */
+  rangeColor?: string;
 }
 
 export const CATALOG_COVERS: CatalogCover[];
