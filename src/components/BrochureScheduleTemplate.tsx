@@ -156,7 +156,7 @@ const CATALOG_HERO_IMAGE = '/img-brosur/cover-katalog.png';
 
 // Classic overlay defaults — used when a cover doesn't override them. Raster-safe.
 const CLASSIC_COVER_SCRIM =
-  'radial-gradient(58% 64% at 50% 30%, rgba(90,0,16,0.45) 0%, rgba(90,0,16,0) 72%)';
+  'radial-gradient(74% 34% at 50% 13%, rgba(90,0,16,0.52) 0%, rgba(90,0,16,0) 72%)';
 const CLASSIC_COVER_RIBBON =
   'linear-gradient(180deg, rgba(74,0,11,0) 0%, rgba(74,0,11,0.92) 28%, #3c0008 100%)';
 
@@ -1184,6 +1184,11 @@ export function BrochureCatalogCover({ agent, months, cover }: BrochureCatalogCo
   const kickerColor = resolvedCover.kickerColor ?? GOLD;
   const titleColor = resolvedCover.titleColor ?? '#fff';
   const rangeColor = resolvedCover.rangeColor ?? '#FBF3DF';
+  // Per-cover headline composition (default = centered top). Moves the headline
+  // into each cover's negative space so it doesn't fight the subject.
+  const hb = resolvedCover.headline;
+  const hAlign = hb?.align ?? 'center';
+  const hItems = hAlign === 'left' ? 'flex-start' : hAlign === 'right' ? 'flex-end' : 'center';
 
   return (
     <div style={{
@@ -1201,14 +1206,19 @@ export function BrochureCatalogCover({ agent, months, cover }: BrochureCatalogCo
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }}
       />
 
-      {/* Soft scrim behind the headline for legibility on the red sky (raster-safe gradient) */}
+      {/* Full-bleed scrim; each cover's gradient shapes the darkened region that
+          backs its headline (top band, side wedge, …). Raster-safe gradient. */}
       <div aria-hidden="true" style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: 600, zIndex: 1,
+        position: 'absolute', inset: 0, zIndex: 1,
         background: coverScrim,
       }} />
 
-      {/* Headline over the red sky */}
-      <div style={{ position: 'absolute', top: 150, left: 90, right: 90, zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+      {/* Headline — positioned per cover (default centered top) */}
+      <div style={{
+        position: 'absolute', top: hb?.top ?? 150, left: hb?.left ?? 90,
+        ...(hb?.width != null ? { width: hb.width } : { right: hb?.right ?? 90 }),
+        zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: hItems, textAlign: hAlign,
+      }}>
         <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: 13, color: kickerColor }}>KATALOG UMROH</div>
         <div style={{ marginTop: 10, fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: 112, lineHeight: 0.95, color: titleColor }}>Paket<br />Umroh</div>
         <div style={{ width: 96, height: 3, borderRadius: 2, background: kickerColor, margin: '22px 0 14px' }} />

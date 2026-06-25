@@ -10,8 +10,8 @@ import {
 
 const root = new URL('..', import.meta.url).pathname;
 
-test('registry has 7 covers with unique non-empty ids/labels/images', () => {
-  assert.equal(CATALOG_COVERS.length, 7);
+test('registry has 9 covers with unique non-empty ids/labels/images', () => {
+  assert.equal(CATALOG_COVERS.length, 9);
   const ids = CATALOG_COVERS.map((c) => c.id);
   assert.equal(new Set(ids).size, ids.length, 'ids must be unique');
   for (const c of CATALOG_COVERS) {
@@ -46,7 +46,7 @@ test('every cover image file exists in public/', () => {
 
 test('classic cover carries no overrides (uses component defaults → zero regression)', () => {
   const classic = getCatalogCover('classic');
-  for (const k of ['scrim', 'kickerColor', 'titleColor', 'rangeColor', 'ribbonGradient']) {
+  for (const k of ['scrim', 'kickerColor', 'titleColor', 'rangeColor', 'ribbonGradient', 'headline']) {
     assert.equal(classic[k], undefined, `classic must not override ${k}`);
   }
 });
@@ -56,6 +56,12 @@ test('every non-classic cover defines scrim + headline colors for legibility', (
     for (const k of ['scrim', 'kickerColor', 'titleColor', 'rangeColor']) {
       assert.ok(c[k] && typeof c[k] === 'string', `${c.id} missing ${k}`);
     }
+  }
+});
+
+test('subject-on-side covers shift the headline left (composition)', () => {
+  for (const id of ['ihram-1', 'ihram-2', 'menara']) {
+    assert.equal(getCatalogCover(id).headline?.align, 'left', `${id} headline should be left-aligned`);
   }
 });
 
