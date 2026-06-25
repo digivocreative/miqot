@@ -569,7 +569,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     type="button"
                     onClick={() => chooseBrosurDisplayMode(mode)}
                     aria-pressed={brosurDisplayMode === mode}
-                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide transition-colors ${
+                    className={`h-7 m-0.5 px-2.5 inline-flex items-center justify-center rounded-md text-[10px] font-bold leading-none tracking-wide transition-colors ${
                       brosurDisplayMode === mode
                         ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
                         : 'text-gray-400 dark:text-slate-500'
