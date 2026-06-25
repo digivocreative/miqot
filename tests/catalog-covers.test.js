@@ -43,3 +43,11 @@ test('every cover image file exists in public/', () => {
     assert.ok(existsSync(p), `missing asset: ${c.image}`);
   }
 });
+
+test('BrochureSchedulePage wires the cover picker + persistence', () => {
+  const src = readFileSync(join(root, 'src/components/BrochureSchedulePage.tsx'), 'utf8');
+  assert.match(src, /'catalogCoverId'/, 'uses localStorage key catalogCoverId');
+  assert.match(src, /getCatalogCover/, 'imports/uses getCatalogCover');
+  assert.match(src, /<CatalogCoverPicker/, 'renders CatalogCoverPicker');
+  assert.match(src, /cover=\{getCatalogCover\(coverId\)\}/, 'passes selected cover to BrochureCatalogCover');
+});

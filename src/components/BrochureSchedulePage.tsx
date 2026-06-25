@@ -25,6 +25,8 @@ import {
 import { getAuthHeaders } from './LoginPage';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { CatalogLoadingModal } from './CatalogLoadingModal';
+import { CatalogCoverPicker } from './CatalogCoverPicker';
+import { getCatalogCover, DEFAULT_COVER_ID } from '@/lib/catalogCovers';
 
 const EXPORT_MIME = 'image/jpeg';
 const EXPORT_EXT = 'jpg';
@@ -262,6 +264,15 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogProgress, setCatalogProgress] = useState<{ done: number; total: number } | null>(null);
   const [catalogStage, setCatalogStage] = useState<{ kind: 'cover' } | { kind: 'page'; page: BrochureMonth } | null>(null);
+  const [coverId, setCoverId] = useState<string>(() => {
+    try { return getCatalogCover(localStorage.getItem('catalogCoverId')).id; }
+    catch { return DEFAULT_COVER_ID; }
+  });
+  const [coverPickerOpen, setCoverPickerOpen] = useState(false);
+  const selectCover = (id: string) => {
+    setCoverId(id);
+    try { localStorage.setItem('catalogCoverId', id); } catch { /* private mode: ignore */ }
+  };
   const [catalogMeta, setCatalogMeta] = useState<{ summary: Array<{ label: string; count: number }>; dateLabel: string }>({ summary: [], dateLabel: '' });
   // Loading-modal result (success/error) shown after the busy phase ends.
   const [catalogResult, setCatalogResult] = useState<{ status: 'success' | 'error'; message?: string } | null>(null);
@@ -967,6 +978,26 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         </div>
       </div>
 
+      {/* Cover picker trigger — chosen cover is remembered per-device */}
+      <div className="px-4 pt-3">
+        <button
+          type="button"
+          onClick={() => setCoverPickerOpen(true)}
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 text-left active:scale-[0.99] transition-all"
+        >
+          <img
+            src={getCatalogCover(coverId).image}
+            alt=""
+            className="h-10 w-[26px] rounded object-cover border border-gray-200 dark:border-slate-700 shrink-0"
+          />
+          <span className="flex-1 min-w-0">
+            <span className="block text-[11px] text-gray-500 dark:text-slate-400">Cover katalog</span>
+            <span className="block text-sm font-semibold text-gray-900 dark:text-white truncate">{getCatalogCover(coverId).label}</span>
+          </span>
+          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 shrink-0">Ganti</span>
+        </button>
+      </div>
+
       {/* Unduh Katalog — full-width. Always Bulan + tersedia saja, terlepas dari
           filter yang sedang aktif. */}
       <div className="px-4 pt-3">
@@ -996,6 +1027,12 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
         total={catalogProgress?.total ?? 0}
         message={catalogResult?.message}
         onClose={() => setCatalogResult(null)}
+      />
+      <CatalogCoverPicker
+        open={coverPickerOpen}
+        selectedId={coverId}
+        onSelect={selectCover}
+        onClose={() => setCoverPickerOpen(false)}
       />
 
       {/* Brochure previews + per-image actions */}
@@ -1138,7 +1175,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       >
         <div ref={catalogStageRef} style={{ width: BROCHURE_W, height: BROCHURE_H }}>
           {catalogStage?.kind === 'cover' && (
-            <BrochureCatalogCover agent={agent} months={catalogMeta.summary} />
+            <BrochureCatalogCover agent={agent} months={catalogMeta.summary} cover={getCatalogCover(coverId)} />
           )}
           {catalogStage?.kind === 'page' && (
             <BrochureScheduleTemplate month={catalogStage.page} agent={agent} showFullDate={false} variant="default" rasterSafe />
