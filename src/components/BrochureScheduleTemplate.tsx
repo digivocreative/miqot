@@ -1,6 +1,7 @@
 import { Check } from 'lucide-react';
 import { normalizeWaNumber } from '../utils/phone';
 import WhatsAppIcon from './bio/WhatsAppIcon';
+import { getCatalogCover, DEFAULT_COVER_ID, type CatalogCover } from '@/lib/catalogCovers';
 
 export interface BrochurePackage {
   id: string;
@@ -148,9 +149,16 @@ const KABAH_IMAGE = '/img-brosur/kabah.png';
 const NABAWI_WIDE_IMAGE = '/img-brosur/nabawi-wide.png';
 // Full-bleed designed cover artwork (Alhijaz logo, landmarks & jamaah photo baked
 // in) synced from the agency CDN into public/. A real PNG → renders identically
-// across capture engines. Re-sync from https://alhijaz.b-cdn.net/png/cover-katalog.png
-// if the agency updates it.
+// across capture engines. The default/classic cover; alternatives live in
+// src/lib/catalogCovers. Re-sync from https://alhijaz.b-cdn.net/png/cover-katalog-N.png
+// (N omitted for classic) if the agency updates them.
 const CATALOG_HERO_IMAGE = '/img-brosur/cover-katalog.png';
+
+// Classic overlay defaults — used when a cover doesn't override them. Raster-safe.
+const CLASSIC_COVER_SCRIM =
+  'radial-gradient(58% 64% at 50% 30%, rgba(90,0,16,0.45) 0%, rgba(90,0,16,0) 72%)';
+const CLASSIC_COVER_RIBBON =
+  'linear-gradient(180deg, rgba(74,0,11,0) 0%, rgba(74,0,11,0.92) 28%, #3c0008 100%)';
 
 // Winter palette (Direction B — "Winter Wonderland"). Tunable; values mirror the
 // approved visual-companion mockup.
@@ -1138,6 +1146,8 @@ export interface BrochureCatalogCoverProps {
   agent: BrochureAgent;
   /** One entry per included month, in catalog (departure) order. */
   months: ReadonlyArray<{ label: string; count: number }>;
+  /** Selected cover; defaults to the classic cover. */
+  cover?: CatalogCover;
 }
 
 // "Juni 2026 – Desember 2026" → "Juni – Desember 2026" when years match.
@@ -1158,13 +1168,18 @@ function catalogRangeLabel(months: ReadonlyArray<{ label: string }>): string {
 // agent contact ribbon (bottom). Raster-safe by construction: real <img>, CSS
 // gradients, flat fills, solid borders — no box-shadow blur / drop-shadow /
 // background-clip:text / mask-image / filter.
-export function BrochureCatalogCover({ agent, months }: BrochureCatalogCoverProps) {
+export function BrochureCatalogCover({ agent, months, cover }: BrochureCatalogCoverProps) {
   const photo = agent.photo || avatarFallback(agent.name);
   const phone = formatPhoneDisplay(agent.phone);
   const agentName = agent.name || 'Alhijaz';
   const agentNameFontSize = agentName.length > 26 ? 30 : agentName.length > 20 ? 34 : 38;
   const rangeLabel = catalogRangeLabel(months);
   const GOLD = '#E8C36B';
+  const resolvedCover = cover ?? getCatalogCover(DEFAULT_COVER_ID);
+  const coverImage = resolvedCover.image;
+  const coverScrim = resolvedCover.scrim ?? CLASSIC_COVER_SCRIM;
+  const coverRibbon = resolvedCover.ribbonGradient ?? CLASSIC_COVER_RIBBON;
+  const headlineGold = resolvedCover.headlineColor ?? GOLD;
 
   return (
     <div style={{
@@ -1174,21 +1189,25 @@ export function BrochureCatalogCover({ agent, months }: BrochureCatalogCoverProp
       <style>{BROCHURE_FONT_FACE_CSS}</style>
 
       {/* Full-bleed designed cover artwork */}
-      <img src={CATALOG_HERO_IMAGE} alt="" aria-hidden="true" style={{
-        position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0,
-      }} />
+      <img
+        src={coverImage}
+        alt=""
+        aria-hidden="true"
+        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = CATALOG_HERO_IMAGE; }}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }}
+      />
 
       {/* Soft scrim behind the headline for legibility on the red sky (raster-safe gradient) */}
       <div aria-hidden="true" style={{
         position: 'absolute', top: 0, left: 0, right: 0, height: 600, zIndex: 1,
-        background: 'radial-gradient(58% 64% at 50% 30%, rgba(90,0,16,0.45) 0%, rgba(90,0,16,0) 72%)',
+        background: coverScrim,
       }} />
 
       {/* Headline over the red sky */}
       <div style={{ position: 'absolute', top: 150, left: 90, right: 90, zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-        <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: 13, color: GOLD }}>KATALOG UMROH</div>
+        <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: 13, color: headlineGold }}>KATALOG UMROH</div>
         <div style={{ marginTop: 10, fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800, fontSize: 112, lineHeight: 0.95, color: '#fff' }}>Paket<br />Umroh</div>
-        <div style={{ width: 96, height: 3, borderRadius: 2, background: GOLD, margin: '22px 0 14px' }} />
+        <div style={{ width: 96, height: 3, borderRadius: 2, background: headlineGold, margin: '22px 0 14px' }} />
         {rangeLabel && <div style={{ fontSize: 30, fontWeight: 600, letterSpacing: 4, color: '#FBF3DF' }}>{rangeLabel}</div>}
       </div>
 
@@ -1196,7 +1215,7 @@ export function BrochureCatalogCover({ agent, months }: BrochureCatalogCoverProp
       <div style={{
         position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 2, height: 158, padding: '0 50px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 28,
-        background: 'linear-gradient(180deg, rgba(74,0,11,0) 0%, rgba(74,0,11,0.92) 28%, #3c0008 100%)',
+        background: coverRibbon,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, flex: 1, minWidth: 0 }}>
           <img
