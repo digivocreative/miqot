@@ -10,6 +10,8 @@ export interface BrochurePackage {
   berangkat_tgl: string; // YYYY-MM-DD
   pulang_tgl: string;
   hari?: number | null;
+  /** Sisa seat (kuota tersisa) — dipakai saat brosur menampilkan mode SEAT. */
+  seatSisa?: number | null;
   hotel?: BrochureHotel[];
   harga: number | null;
   soldOut?: boolean;
@@ -65,6 +67,12 @@ export interface BrochureScheduleTemplateProps {
    * its richer styling (default false).
    */
   rasterSafe?: boolean;
+  /**
+   * Kolom ke-3 brosur: 'hari' (default) menampilkan jumlah HARI; 'seat' mengubah
+   * header jadi "SISA" dan isinya jadi sisa seat ("25 SEAT"). Dikontrol via toggle
+   * di header dashboard brosur (BrochureSchedulePage).
+   */
+  displayMode?: 'hari' | 'seat';
 }
 
 // Order matters: the first matching pattern wins. Foreign extensions are
@@ -490,7 +498,7 @@ function formatDepartureMonthName(iso: string): string {
   return MONTH_FULL_ID[d.getUTCMonth()];
 }
 
-export function BrochureScheduleTemplate({ month, agent, showFullDate = false, variant = 'default', rasterSafe = false }: BrochureScheduleTemplateProps) {
+export function BrochureScheduleTemplate({ month, agent, showFullDate = false, variant = 'default', rasterSafe = false, displayMode = 'hari' }: BrochureScheduleTemplateProps) {
   const theme = getTheme(variant);
   const photo = agent.photo || avatarFallback(agent.name);
   const phone = formatPhoneDisplay(agent.phone);
@@ -755,7 +763,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
         }}>
           <span style={{ textAlign: 'center' }}>TANGGAL</span>
           <span style={{ textAlign: 'center' }}>PAKET</span>
-          <span style={{ textAlign: 'center' }}>HARI</span>
+          <span style={{ textAlign: 'center' }}>{displayMode === 'seat' ? 'SISA' : 'HARI'}</span>
           <span style={{ textAlign: 'center' }}>MASKAPAI</span>
           <span style={{ textAlign: 'center' }}>HARGA</span>
         </div>
@@ -765,6 +773,11 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
           const packageName = cleanPackageDisplayName(p.nama);
           const packagePills = detectPackagePills(p.nama, p.umrohDulu);
           const tripDays = p.hari ?? countTripDays(p.berangkat_tgl, p.pulang_tgl);
+          // Kolom ke-3: default jumlah HARI; mode SEAT menampilkan sisa seat.
+          const dayCellValue = displayMode === 'seat'
+            ? (p.seatSisa == null ? '-' : p.seatSisa)
+            : (tripDays || '-');
+          const dayCellLabel = displayMode === 'seat' ? 'SEAT' : 'HARI';
           const departureDay = formatDepartureDay(p.berangkat_tgl);
           const departureMonthName = showFullDate ? formatDepartureMonthName(p.berangkat_tgl) : '';
           const isSoldOut = !!p.soldOut;
@@ -903,7 +916,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
                   fontSynthesis: 'none',
                   lineHeight: 0.9,
                   letterSpacing: 0,
-                }}>{tripDays || '-'}</span>
+                }}>{dayCellValue}</span>
                 <span style={{
                   display: 'block',
                   fontFamily: BROCHURE_OSWALD_FONT_STACK,
@@ -912,7 +925,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
                   fontSynthesis: 'none',
                   lineHeight: 0.9,
                   letterSpacing: 0.8,
-                }}>HARI</span>
+                }}>{dayCellLabel}</span>
               </span>
               <span style={{
                 display: '-webkit-box',

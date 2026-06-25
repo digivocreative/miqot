@@ -12437,6 +12437,7 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
         berangkat_tgl: r.berangkat_tgl,
         pulang_tgl: r.pulang_tgl,
         hari,
+        seatSisa,
         hotel: details?.hotel || [],
         harga: details?.harga ?? null,
         soldOut,

@@ -279,6 +279,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // Statistik header slot for year dropdown
   const [statistikHeaderRight, setStatistikHeaderRight] = useState<React.ReactNode>(null);
   const [jamaahHeaderRight, setJamaahHeaderRight] = useState<React.ReactNode>(null);
+  const [brosurHeaderRight, setBrosurHeaderRight] = useState<React.ReactNode>(null);
   // Jamaah status: lazy check on Statistik click
   const [checkingStatistik, setCheckingStatistik] = useState(false);
   const [showStatAlert, setShowStatAlert] = useState(false);
@@ -550,6 +551,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             {activeTab === 'statistik' && statistikHeaderRight}
             {activeTab === 'analytics' && analyticsHeaderRight}
             {activeTab === 'jamaah' && jamaahHeaderRight}
+            {activeTab === 'brosur' && brosurHeaderRight}
 
             {/* Dark mode toggle */}
             <button
@@ -629,7 +631,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               phone: agentData.phone,
               photo: agentData.photo || '',
               website: agentData.website || '',
-            }} />
+            }} onHeaderRight={setBrosurHeaderRight} />
           )}
           {activeTab === 'agents' && isAdmin && (
             <div className="px-4 pt-4">

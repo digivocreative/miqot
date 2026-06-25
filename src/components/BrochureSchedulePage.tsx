@@ -1,5 +1,5 @@
 // src/components/BrochureSchedulePage.tsx
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import type { Options as ModernScreenshotOptions } from 'modern-screenshot';
 import { Download, Share2, Loader2, CircleCheck, FileDown } from 'lucide-react';
@@ -76,6 +76,9 @@ interface ExportedImage {
 
 interface BrochureSchedulePageProps {
   agent: BrochureAgent;
+  /** Inject controls (SEAT/HARI toggle) into the dashboard header next to the
+   *  dark-mode toggle. Mirrors StatistikPage/AnalyticsPage onHeaderRight. */
+  onHeaderRight?: (node: ReactNode) => void;
 }
 
 interface ApiResponse {
@@ -239,7 +242,7 @@ function compareAirlineOptions(a: string, b: string): number {
 // FilterDropdown (custom, animated) now lives in ./FilterDropdown and is shared
 // with the public jadwal-paket header. See docs/DESIGN-SYSTEM.md.
 
-export default function BrochureSchedulePage({ agent: agentProp }: BrochureSchedulePageProps) {
+export default function BrochureSchedulePage({ agent: agentProp, onHeaderRight }: BrochureSchedulePageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [months, setMonths] = useState<BrochureMonth[]>([]);
@@ -247,6 +250,11 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
   const [filterDim, setFilterDim] = useState<FilterDim>('bulan');
   const [filterValue, setFilterValue] = useState<string | null>(null);
   const [availableOnly, setAvailableOnly] = useState(false);
+  // Kolom ke-3 brosur: 'hari' (default) atau 'seat' (sisa seat). Persist seperti coverId.
+  const [displayMode, setDisplayMode] = useState<'hari' | 'seat'>(() => {
+    try { return localStorage.getItem('brosurDisplayMode') === 'seat' ? 'seat' : 'hari'; }
+    catch { return 'hari'; }
+  });
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const [previewScale, setPreviewScale] = useState(0);
   const exportPageRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -301,6 +309,36 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
       window.removeEventListener('resize', measure);
     };
   }, []);
+
+  // SEAT/HARI segmented toggle injected into the dashboard header, next to the
+  // dark-mode toggle (same onHeaderRight slot pattern as Statistik/Analytics).
+  useEffect(() => {
+    if (!onHeaderRight) return;
+    const choose = (mode: 'hari' | 'seat') => {
+      setDisplayMode(mode);
+      try { localStorage.setItem('brosurDisplayMode', mode); } catch { /* private mode: ignore */ }
+    };
+    onHeaderRight(
+      <div className="flex items-center rounded-lg bg-gray-100 dark:bg-slate-800 p-0.5 shrink-0">
+        {(['hari', 'seat'] as const).map(mode => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => choose(mode)}
+            aria-pressed={displayMode === mode}
+            className={`px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide transition-colors ${
+              displayMode === mode
+                ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                : 'text-gray-400 dark:text-slate-500'
+            }`}
+          >
+            {mode === 'hari' ? 'HARI' : 'SEAT'}
+          </button>
+        ))}
+      </div>
+    );
+    return () => onHeaderRight(null);
+  }, [onHeaderRight, displayMode]);
 
   // Flatten all months into a single list — used for tipe/maskapai filtering.
   const allPackages = useMemo<BrochurePackage[]>(
@@ -767,6 +805,13 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
     exportPageRefs.current = exportPageRefs.current.slice(0, activeImagePages.length);
   }, [pageKeys, activeImagePages]);
 
+  // HARI/SEAT switch changes the rendered brochure, so cached export blobs (keyed
+  // by page.key only) are stale — drop them so the next download/share re-captures
+  // in the current mode.
+  useEffect(() => {
+    exportCacheRef.current.clear();
+  }, [displayMode]);
+
   // Surface the underlying error in the toast so iPhone users — who can't open
   // a console — still have a starting point for diagnosis. Truncate to keep
   // the toast bubble from overflowing.
@@ -1070,7 +1115,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
                         transformOrigin: 'top left',
                       }}
                     >
-                      <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} />
+                      <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} displayMode={displayMode} />
                     </div>
                   </div>
 
@@ -1137,7 +1182,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
             ref={(node) => { exportPageRefs.current[index] = node; }}
             style={{ width: BROCHURE_W, height: BROCHURE_H }}
           >
-            <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} />
+            <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} displayMode={displayMode} />
           </div>
         ))}
       </div>
@@ -1159,7 +1204,7 @@ export default function BrochureSchedulePage({ agent: agentProp }: BrochureSched
             <BrochureCatalogCover agent={agent} months={catalogMeta.summary} cover={getCatalogCover(coverId)} />
           )}
           {catalogStage?.kind === 'page' && (
-            <BrochureScheduleTemplate month={catalogStage.page} agent={agent} showFullDate={false} variant="default" rasterSafe />
+            <BrochureScheduleTemplate month={catalogStage.page} agent={agent} showFullDate={false} variant="default" rasterSafe displayMode={displayMode} />
           )}
         </div>
       </div>
