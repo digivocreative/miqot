@@ -5588,9 +5588,46 @@ function getActiveHijriahYears() {
   return Object.keys(HIJRIAH_YEARS).sort((a, b) => Number(b) - Number(a));
 }
 
+// How long a Hijri year keeps being synced after its departure window ends, to
+// catch late corrections/refunds before freezing it. Env-tunable.
+const JAMAAH_SYNC_GRACE_DAYS = Number(process.env.JAMAAH_SYNC_GRACE_DAYS) || 45;
+
+// Years the AUTOMATIC umrah jamaah sync should fetch: ongoing + upcoming, plus
+// any just-ended year still inside the grace window. Past years beyond grace are
+// skipped — their DB rows are left untouched (cleanup is scoped to the year list,
+// so no reaper deletes them). Date-driven so it auto-rolls each Hijri new year
+// without a manual edit (unlike SCHEDULE_YEAR_CODES, which must be hand-updated —
+// the very lag that left jamaah still syncing 1447 after schedules dropped it).
+// NOTE: deliberately NOT used by haji sync (syncHajiViaApiCore keeps all years).
+function getAutoSyncHijriahYears(now = new Date()) {
+  const graceMs = JAMAAH_SYNC_GRACE_DAYS * 24 * 60 * 60 * 1000;
+  const cutoff = new Date(now.getTime() - graceMs).toISOString().slice(0, 10);
+  return getActiveHijriahYears().filter((y) => {
+    const range = getHijriahDateRange(y);
+    if (!range || !range.end) return true; // unknown range → keep (defensive)
+    return range.end >= cutoff;            // keep ongoing/upcoming/in-grace years
+  });
+}
+
+// Year set for an agent's AUTOMATIC umrah sync. A brand-new agent that has never
+// completed a sync (last_jamaah_sync_at is null) gets a ONE-TIME full-year
+// backfill — so an agent who just logged in still pulls past-year data like 1447
+// once. Every later cycle (timestamp set) uses the date-scoped ongoing+upcoming
+// (+grace) set. Only an explicitly-loaded falsy timestamp triggers the backfill;
+// an absent field falls through to the scoped set, so a partially-loaded agent
+// object can never cause a fleet-wide re-backfill. The bump happens on full|partial
+// outcomes, so a totally-failed first sync keeps retrying the backfill until it
+// lands at least once — exactly "tarik 1447 sekali, lalu fokus tahun berjalan".
+function resolveAgentSyncHijriahYears(agent, now = new Date()) {
+  if (agent && ('last_jamaah_sync_at' in agent) && !agent.last_jamaah_sync_at) {
+    return getActiveHijriahYears();
+  }
+  return getAutoSyncHijriahYears(now);
+}
+
 function getRequestedSyncHijriahYears(rawYear) {
   const year = rawYear == null ? '' : String(rawYear).trim();
-  if (!year) return { years: getActiveHijriahYears(), targeted: false };
+  if (!year) return { years: getAutoSyncHijriahYears(), targeted: false };
   if (!HIJRIAH_YEARS[year]) return { years: null, targeted: true, invalidYear: year };
   return { years: [year], targeted: true };
 }
@@ -6184,10 +6221,14 @@ async function ensureAwapiCredentials(agent) {
 // paths. Returns { ok, count, error?, yearsCompleted, yearsAttempted }.
 // Caller is responsible for the syncingAgents lifecycle and analytics logging
 // (so the manual path can attribute the action to a user role).
-async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', yearsToSync = getActiveHijriahYears() } = {}) {
+async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', yearsToSync = resolveAgentSyncHijriahYears(agent) } = {}) {
   const apiKey = agent.awapi_key;
   const code = agent.awapi_code || apiKey.split('-')[0];
   const now = new Date().toISOString();
+  const autoYears = getAutoSyncHijriahYears();
+  const backfillYears = yearsToSync.filter((y) => !autoYears.includes(y));   // past years pulled this run (new-agent backfill)
+  const skippedYears = getActiveHijriahYears().filter((y) => !yearsToSync.includes(y));
+  console.log(`[awapi] ${slug}: sync years ${yearsToSync.join(',')}${backfillYears.length ? ` (one-time backfill: ${backfillYears.join(',')})` : ''}${skippedYears.length ? ` (skip past: ${skippedYears.join(',')}, grace=${JAMAAH_SYNC_GRACE_DAYS}d)` : ''} [${context}]`);
   const MIN_HIJRIAH_YEAR = 1447;
   const syncYearSet = new Set(yearsToSync);
 
@@ -6421,6 +6462,8 @@ function getHajiApiDepartureMasehiYears(now = new Date()) {
 async function syncHajiViaApiCore(agentId, slug, agent, {
   context = 'manual',
   departureYears = getHajiApiDepartureMasehiYears(),
+  // Haji intentionally syncs ALL defined Hijri years (its own list, not the
+  // grace-windowed umrah set) — haji registration cycles run years ahead.
   registrationHijriahYears = getActiveHijriahYears(),
 } = {}) {
   const apiKey = agent.awapi_key;
@@ -6571,7 +6614,7 @@ async function syncHajiViaApiCore(agentId, slug, agent, {
 }
 
 // HTTP wrapper for manual sync — called from /api/laporan/sync when env+key.
-async function syncUmrahViaApi(req, res, agent, { yearsToSync = getActiveHijriahYears() } = {}) {
+async function syncUmrahViaApi(req, res, agent, { yearsToSync = resolveAgentSyncHijriahYears(agent) } = {}) {
   const agentId = req.user.id;
   const slug = req.user.slug;
 
@@ -6609,7 +6652,8 @@ async function syncUmrahViaApi(req, res, agent, { yearsToSync = getActiveHijriah
 
 
 // Sync: fetch from legacy → parse → progressive upsert to Supabase
-// If hijriahYear is provided, sync only that year. Otherwise sync all years.
+// If hijriahYear is provided, sync only that year. Otherwise the per-agent auto
+// set (brand-new agents backfill past years like 1447 once, then ongoing+upcoming).
 app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   const agentId = req.user.id;
   const slug = req.user.slug;
@@ -6617,14 +6661,17 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   if (!requestedSync.years) {
     return res.status(400).json({ error: `Tahun Hijriah ${requestedSync.invalidYear} belum didukung untuk sync` });
   }
-  const yearsToSync = requestedSync.years;
   const targetedYearSync = requestedSync.targeted;
-  const syncYearSet = new Set(yearsToSync);
 
   let agent = await getAgentById(agentId);
   if (!agent?.jamaah_username || !agent?.jamaah_password) {
     return res.status(400).json({ error: 'Belum ada credentials tersimpan' });
   }
+
+  // Explicit ?hijriahYear → that exact year (escape hatch, incl. past years).
+  // Otherwise the per-agent auto set (resolves a one-time backfill for new agents).
+  const yearsToSync = targetedYearSync ? requestedSync.years : resolveAgentSyncHijriahYears(agent);
+  const syncYearSet = new Set(yearsToSync);
 
   // Prevent concurrent sync
   const state = syncingAgents.get(agentId);
@@ -15900,7 +15947,7 @@ async function syncOneAgent(agent) {
     } else {
       // ── PHASE 2: Enrichment via laporan (adds wa, tgl_lahir, perlengkapan, etc.) ──
       // Merge year ranges + split into monthly chunks (same as manual sync)
-      const yearsToSync = getActiveHijriahYears();
+      const yearsToSync = getAutoSyncHijriahYears();
       const allRanges = yearsToSync.map(y => HIJRIAH_YEARS[y]).filter(Boolean)
         .sort((a, b) => a.tglAwal.localeCompare(b.tglAwal));
       const merged = [];
@@ -16218,7 +16265,7 @@ async function syncOneAgent(agent) {
   }
 }
 
-function buildUmrohPhase2FetchJobs(yearsToSync = getActiveHijriahYears(), now = new Date()) {
+function buildUmrohPhase2FetchJobs(yearsToSync = getAutoSyncHijriahYears(), now = new Date()) {
   const splitRange = (tglAwal, tglAkhir, chunkDays = 7) => {
     const chunks = [];
     let start = new Date(tglAwal);
@@ -16295,7 +16342,7 @@ async function runScheduledUmrohPhase2ForAgent(agent) {
       return { loginFailed: true, rateLimited };
     }
 
-    const { jobs, futureCap } = buildUmrohPhase2FetchJobs(getActiveHijriahYears());
+    const { jobs, futureCap } = buildUmrohPhase2FetchJobs(getAutoSyncHijriahYears());
     console.log(`[SYNC/P2] ${slug}: scheduled enrichment starting — ${jobs.length} chunks, capped at ${futureCap}`);
 
     const PARALLEL = 2;
