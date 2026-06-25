@@ -10,48 +10,18 @@
  */
 
 import type { UmrohPackage } from '../types/umroh-package';
+import { HOTEL_METADATA, lookupHotelMetadata, normalizeHotelName } from './hotelMetadata';
 
 // ─── Config ───
 const CACHE_KEY = 'hotel_distances_cache';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 jam
 
 // ─── Fallback (dipakai jika belum ada data dari API) ───
-const FALLBACK_DISTANCES: Record<string, string> = {
-  // ── Mekkah ──
-  'PULLMAN ZAMZAM':               '±50m',
-  'MOVENPICK':                    '±100m',
-  'PRESTIGE EX ELAF AL MASHAER':  '±300m',
-  'AL MASSA GRAND':               '±400m',
-  'AL MASSA DAR AL FAYZEEN':      '±420m',
-  'ROYAL MAJESTIC':               '±300m',
-  'RAYYANA AJYAD':                '±300m',
-  'SOFWAH ROYAL ORCHID':          '±50m',
-  'SAJA MAKKAH EX LE MERIDIEN TOWERS MAKKAH': '±2.5km',
-  'ANJUM':                        '±450m',
-  // ── Madinah ──
-  'AL HARAM':                     '±50m',
-  'DEYAR AL EIMAN':               '±50m',
-  'AL RITZ AL MADINAH':           '±150m',
-  'GRAND PLAZA':                  '±150m',
-  'ODST ALMADINAH':               '±200m',
-  'ARTAL INTERNATIONAL':          '±700m',
-  'ANWAR ALMADINAH MOVENPICK':    '±200m',
-  'PROVINCE ALSHAM':              '±350m',
-  'TRIPLE ONE':                   '±600m',
-  // ── Cairo ──
-  'TIBA PYRAMID':                         '',
-  // ── Dubai ──
-  'IBIS DUBAI ALBARSHA':                  '',
-  // ── Bursa ──
-  'ANATOLIA':                             '',
-  // ── Istanbul ──
-  'CENTRO WESTSIDE BY ROTANA':            '',
-  // ── Cappadocia ──
-  'KAYSERI LOFT HOTEL':                   '',
-  'DOUBLE TREE BY HILTON HOTEL AVANOS':   '',
-  // ── Ankara ──
-  'TURIST HOTEL':                         '',
-};
+const FALLBACK_DISTANCES: Record<string, string> = Object.fromEntries(
+  Object.entries(HOTEL_METADATA)
+    .filter(([, meta]) => Boolean(meta.distance))
+    .map(([name, meta]) => [name, meta.distance || ''])
+);
 
 // ─── In-memory database (populated from cache or API) ───
 let DATABASE_HOTEL: Record<string, string> = { ...FALLBACK_DISTANCES };
@@ -112,11 +82,7 @@ export function isCacheValid(): boolean {
 // ─── Normalisasi ───
 
 function normalize(name: string): string {
-  return name
-    .toUpperCase()
-    .replace(/\/SETARAF$/i, '')   // Strip "/SETARAF" suffix from API names
-    .replace(/\s+/g, ' ')
-    .trim();
+  return normalizeHotelName(name);
 }
 
 // ─── Core Functions ───
@@ -131,18 +97,20 @@ export function buildDatabaseFromPackages(packages: UmrohPackage[]): void {
   for (const pkg of packages) {
     for (const hotelInfo of Object.values(pkg.hotel)) {
       // Mekkah hotel
-      if (hotelInfo.mekkah_hotel && hotelInfo.mekkah_jarak) {
+      if (hotelInfo.mekkah_hotel) {
         const key = normalize(hotelInfo.mekkah_hotel);
-        if (key && hotelInfo.mekkah_jarak.trim()) {
-          distances[key] = hotelInfo.mekkah_jarak.trim();
+        const distance = hotelInfo.mekkah_jarak?.trim() || lookupHotelMetadata(hotelInfo.mekkah_hotel).distance || '';
+        if (key && distance) {
+          distances[key] = distance;
         }
       }
 
       // Madinah hotel
-      if (hotelInfo.madinah_hotel && hotelInfo.madinah_jarak) {
+      if (hotelInfo.madinah_hotel) {
         const key = normalize(hotelInfo.madinah_hotel);
-        if (key && hotelInfo.madinah_jarak.trim()) {
-          distances[key] = hotelInfo.madinah_jarak.trim();
+        const distance = hotelInfo.madinah_jarak?.trim() || lookupHotelMetadata(hotelInfo.madinah_hotel).distance || '';
+        if (key && distance) {
+          distances[key] = distance;
         }
       }
     }

@@ -16,6 +16,7 @@ import AgentProfile from './AgentProfile';
 import { SplitLayout, SpotlightLayout, TicketLayout, TiledLayout, MagazineLayout } from './CardVariants';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { getDistance } from '@/data/hotelService';
+import { lookupHotelMetadata } from '@/data/hotelMetadata';
 import { getTemperature } from '@/data/temperatureData';
 import { sendCapiEvent } from '@/lib/capi';
 import { trackEvent, trackPublicEvent } from '@/utils/analytics';
@@ -31,6 +32,16 @@ let cachedInterFontCSS: string | null = null;
 const LINK_COPY_LOADING_MS = 500;
 const LINK_COPY_CHECK_MS = 1200;
 const LINK_COPY_TOAST_MS = 2200;
+
+function hotelStars(name?: string, stars?: string): string {
+  const raw = String(stars || '').trim();
+  if (raw && raw !== '0') return raw;
+  return lookupHotelMetadata(name || '').stars || '';
+}
+
+function hotelDistance(name?: string, distance?: string): string {
+  return String(distance || '').trim() || lookupHotelMetadata(name || '').distance || getDistance(name || '');
+}
 
 interface PackageCardProps {
   package: UmrohPackage;
@@ -1714,19 +1725,20 @@ _________________________
               >
                 {hotelInfo?.mekkah_hotel || '-'}
               </p>
-              {hotelInfo?.mekkah_bintang && (
+              {(() => {
+                const stars = hotelStars(hotelInfo?.mekkah_hotel, hotelInfo?.mekkah_bintang);
+                const dist = hotelDistance(hotelInfo?.mekkah_hotel, hotelInfo?.mekkah_jarak);
+                return stars || dist ? (
                   <div className="flex items-center gap-0.5" data-stars-row>
-                    <span className="text-[11px] text-amber-400 tracking-[-1px]">{'★'.repeat(parseInt(hotelInfo.mekkah_bintang))}</span>
-                    {(() => {
-                      const dist = hotelInfo.mekkah_jarak || getDistance(hotelInfo.mekkah_hotel || '');
-                      return dist ? (
-                        <span className="text-[11px] font-semibold ml-2 text-emerald-600">
-                          {dist}
-                        </span>
-                      ) : null;
-                    })()}
+                    {stars && <span className="text-[11px] text-amber-400 tracking-[-1px]">{'★'.repeat(parseInt(stars))}</span>}
+                    {dist && (
+                      <span className="text-[11px] font-semibold ml-2 text-emerald-600">
+                        {dist}
+                      </span>
+                    )}
                   </div>
-              )}
+                ) : null;
+              })()}
             </div>
           </div>
 
@@ -1746,19 +1758,20 @@ _________________________
               >
                 {hotelInfo?.madinah_hotel || '-'}
               </p>
-              {hotelInfo?.madinah_bintang && (
+              {(() => {
+                const stars = hotelStars(hotelInfo?.madinah_hotel, hotelInfo?.madinah_bintang);
+                const dist = hotelDistance(hotelInfo?.madinah_hotel, hotelInfo?.madinah_jarak);
+                return stars || dist ? (
                   <div className="flex items-center gap-0.5" data-stars-row>
-                    <span className="text-[11px] text-amber-400 tracking-[-1px]">{'★'.repeat(parseInt(hotelInfo.madinah_bintang))}</span>
-                    {(() => {
-                      const dist = hotelInfo.madinah_jarak || getDistance(hotelInfo.madinah_hotel || '');
-                      return dist ? (
-                        <span className="text-[11px] font-semibold ml-2 text-emerald-600">
-                          {dist}
-                        </span>
-                      ) : null;
-                    })()}
+                    {stars && <span className="text-[11px] text-amber-400 tracking-[-1px]">{'★'.repeat(parseInt(stars))}</span>}
+                    {dist && (
+                      <span className="text-[11px] font-semibold ml-2 text-emerald-600">
+                        {dist}
+                      </span>
+                    )}
                   </div>
-              )}
+                ) : null;
+              })()}
             </div>
           </div>
         </div>

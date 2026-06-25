@@ -23,10 +23,21 @@ import {
 import { getPackages } from '@/services';
 import type { UmrohPackage, HotelInfo } from '@/types';
 import { getDistance } from '@/data/hotelService';
+import { lookupHotelMetadata } from '@/data/hotelMetadata';
 import { getTemperature } from '@/data/temperatureData';
 
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
+
+function hotelStars(name: string, stars?: string): number {
+  const raw = String(stars || '').trim();
+  const value = raw && raw !== '0' ? raw : (lookupHotelMetadata(name).stars || '0');
+  return parseInt(value) || 0;
+}
+
+function hotelDistance(name: string, distance?: string): string {
+  return String(distance || '').trim() || lookupHotelMetadata(name).distance || getDistance(name);
+}
 
 // ============================================
 // Types
@@ -423,10 +434,10 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
       // Hotel Mekkah (with stars + distance)
       const mekA = hA?.mekkah_hotel || '—';
       const mekB = hB?.mekkah_hotel || '—';
-      const jMekA = mekA !== '—' ? getDistance(mekA) : '';
-      const jMekB = mekB !== '—' ? getDistance(mekB) : '';
-      const sMekA = parseInt(hA?.mekkah_bintang || '0');
-      const sMekB = parseInt(hB?.mekkah_bintang || '0');
+      const jMekA = mekA !== '—' ? hotelDistance(mekA, hA?.mekkah_jarak) : '';
+      const jMekB = mekB !== '—' ? hotelDistance(mekB, hB?.mekkah_jarak) : '';
+      const sMekA = mekA !== '—' ? hotelStars(mekA, hA?.mekkah_bintang) : 0;
+      const sMekB = mekB !== '—' ? hotelStars(mekB, hB?.mekkah_bintang) : 0;
       const hotelCell = (name: string, stars: number, dist: string) => {
         const starStr = stars > 0 ? `<span style="color:#F59E0B">${'★'.repeat(stars)}</span>` : '';
         const distStr = dist ? `<span style="color:#6B7280">${dist}</span>` : '';
@@ -442,10 +453,10 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
       // Hotel Madinah (with stars + distance)
       const madA = hA?.madinah_hotel || '—';
       const madB = hB?.madinah_hotel || '—';
-      const jMadA = madA !== '—' ? getDistance(madA) : '';
-      const jMadB = madB !== '—' ? getDistance(madB) : '';
-      const sMadA = parseInt(hA?.madinah_bintang || '0');
-      const sMadB = parseInt(hB?.madinah_bintang || '0');
+      const jMadA = madA !== '—' ? hotelDistance(madA, hA?.madinah_jarak) : '';
+      const jMadB = madB !== '—' ? hotelDistance(madB, hB?.madinah_jarak) : '';
+      const sMadA = madA !== '—' ? hotelStars(madA, hA?.madinah_bintang) : 0;
+      const sMadB = madB !== '—' ? hotelStars(madB, hB?.madinah_bintang) : 0;
       rows.push({
         label: 'HOTEL<br/>MADINAH',
         a: hotelCell(madA, sMadA, jMadA),
@@ -899,8 +910,8 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
                             <div className="grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-700/50">
                               {[hA, hB].map((h, idx) => {
                                 const name = h?.[hk.key] || '';
-                                const stars = parseInt(h?.[hk.starKey] || '0');
-                                const jarak = name ? getDistance(name) : '';
+                                const stars = name ? hotelStars(name, h?.[hk.starKey]) : 0;
+                                const jarak = name ? hotelDistance(name, h?.[`${hk.key.replace(/_hotel$/, '')}_jarak`]) : '';
                                 return (
                                   <div key={idx} className="px-4 py-2.5">
                                     {name ? (

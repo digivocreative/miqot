@@ -1,6 +1,7 @@
 import { PlaneTakeoff, PlaneLanding } from 'lucide-react';
 import type { UmrohPackage, HotelInfo } from '@/types';
 import { getDistance } from '@/data/hotelService';
+import { lookupHotelMetadata } from '@/data/hotelMetadata';
 
 // ── Shared types ──
 export interface VariantProps {
@@ -99,13 +100,15 @@ function getFlightData(pkg: UmrohPackage) {
 }
 
 function getHotelData(hotelInfo: HotelInfo | undefined) {
+  const mekkahMeta = lookupHotelMetadata(hotelInfo?.mekkah_hotel || '');
+  const madinahMeta = lookupHotelMetadata(hotelInfo?.madinah_hotel || '');
   return {
     mekkahName: hotelInfo?.mekkah_hotel || '-',
-    mekkahStars: hotelInfo?.mekkah_bintang || '',
-    mekkahDist: hotelInfo?.mekkah_jarak || getDistance(hotelInfo?.mekkah_hotel || ''),
+    mekkahStars: (hotelInfo?.mekkah_bintang && hotelInfo.mekkah_bintang !== '0') ? hotelInfo.mekkah_bintang : (mekkahMeta.stars || ''),
+    mekkahDist: hotelInfo?.mekkah_jarak || mekkahMeta.distance || getDistance(hotelInfo?.mekkah_hotel || ''),
     madinahName: hotelInfo?.madinah_hotel || '-',
-    madinahStars: hotelInfo?.madinah_bintang || '',
-    madinahDist: hotelInfo?.madinah_jarak || getDistance(hotelInfo?.madinah_hotel || ''),
+    madinahStars: (hotelInfo?.madinah_bintang && hotelInfo.madinah_bintang !== '0') ? hotelInfo.madinah_bintang : (madinahMeta.stars || ''),
+    madinahDist: hotelInfo?.madinah_jarak || madinahMeta.distance || getDistance(hotelInfo?.madinah_hotel || ''),
   };
 }
 
