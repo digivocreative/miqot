@@ -719,6 +719,51 @@ test('preserveExistingPaymentForSuspiciousAwapiRow keeps a manual-confirmed guar
   assert.equal(out.raw_data.manual_confirmed_by, 'windy');
 });
 
+// ── AWAPI per-pax payment format (upstream fix, ~2026-06-25) ──
+// Alhijaz fixed AWAPI to report payment PER-PAX (each jamaah's own bayar/sisa/
+// status) instead of the booking-level aggregate replicated on every row. The
+// per-pax format must flow through UNTOUCHED by the aggregate machinery: it is
+// never "suspicious", never allocated, never normalized — stored exactly as sent.
+// This locks that in so a future refactor can't accidentally re-apply the
+// aggregate guard/allocator to correct per-pax data.
+
+test('per-pax AWAPI rows (upstream fix) are stored verbatim, never aggregate-handled', () => {
+  // A fully-paid pax: bayar == paket, sisa == 0, LUNAS.
+  const lunas = normalizeAwapiRow(rawRow({ bayar: '34900000', bayar_sisa: 0, paket_harga: '34900000', bayar_status: 'LUNAS' }), { agentId: 'a' });
+  assert.equal(lunas.bayar, 34900000);
+  assert.equal(lunas.sisa, 0);
+  assert.equal(hasSuspiciousAwapiPayment(lunas), false);
+  assert.equal(allocateAggregatePartialRow(lunas, { priceTotal: 104700000, paxCount: 3, priceKnown: true, distinctAggregateCount: 1 }), null);
+  assert.equal(resolveAggregateBookingLunasRow(lunas, { priceTotal: 34900000, paxCount: 1, priceKnown: true }), null);
+
+  // A partially-paid pax: bayar < paket, sisa > 0, CICILAN (positive sisa = not suspicious).
+  const cicilan = normalizeAwapiRow(rawRow({ bayar: '28500000', bayar_sisa: 900000, paket_harga: '29400000', bayar_status: 'CICILAN' }), { agentId: 'a' });
+  assert.equal(cicilan.bayar, 28500000);
+  assert.equal(cicilan.sisa, 900000);
+  assert.equal(hasSuspiciousAwapiPayment(cicilan), false);
+  assert.equal(allocateAggregatePartialRow(cicilan, { priceTotal: 88200000, paxCount: 3, priceKnown: true, distinctAggregateCount: 1 }), null);
+
+  // An unpaid pax: bayar 0, sisa == paket, BELUM BAYAR.
+  const belum = normalizeAwapiRow(rawRow({ bayar: '0', bayar_sisa: 29400000, paket_harga: '29400000', bayar_status: 'BELUM BAYAR' }), { agentId: 'a' });
+  assert.equal(belum.bayar, 0);
+  assert.equal(belum.sisa, 29400000);
+  assert.equal(hasSuspiciousAwapiPayment(belum), false);
+});
+
+test('a MIXED per-pax booking carries no aggregate fingerprint', () => {
+  // AIW0024477 shape: 5 LUNAS + 1 CICILAN, each row its own per-pax bayar — the
+  // proof AWAPI now reports per-pax. No row is aggregate-shape (bayar_sisa>=0),
+  // so the booking index records distinctAggregateCount 0 and nothing allocates.
+  const rows = [
+    { id_umroh: 'AIW0024477', jm_id: 'JM1', raw_data: { paket_harga: '32900000', bayar: '32900000', bayar_sisa: 0 } },
+    { id_umroh: 'AIW0024477', jm_id: 'JM2', raw_data: { paket_harga: '32900000', bayar: '32900000', bayar_sisa: 0 } },
+    { id_umroh: 'AIW0024477', jm_id: 'JM6', raw_data: { paket_harga: '29400000', bayar: '28500000', bayar_sisa: 900000 } },
+  ];
+  const idx = buildBookingPriceIndex(rows, []).get('AIW0024477');
+  assert.equal(idx.distinctAggregateCount, 0);
+  assert.equal(idx.priceTotal, 95200000);
+});
+
 test('buildBookingPriceIndex unions payload and DB pax with payload prices winning', () => {
   const payload = [
     { id_umroh: 'AIW1', jm_id: 'JM1', raw_data: { paket_harga: '34900000' } },
