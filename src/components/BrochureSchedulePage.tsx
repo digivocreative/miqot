@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { Options as ModernScreenshotOptions } from 'modern-screenshot';
-import { Download, Share2, Loader2, CircleCheck, FileDown } from 'lucide-react';
+import { Download, Share2, Loader2, FileDown } from 'lucide-react';
 import FilterDropdown from './FilterDropdown';
 import {
   BrochureScheduleTemplate,
@@ -977,13 +977,12 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
             aria-label={availableOnly ? 'Tampilkan semua paket' : 'Tampilkan paket tersedia saja'}
             aria-pressed={availableOnly}
             title={availableOnly ? 'Tampilkan semua paket' : 'Tampilkan paket tersedia saja'}
-            className={`h-9 shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition-all duration-200 active:scale-[0.98] ${
+            className={`h-9 shrink-0 inline-flex items-center justify-center rounded-lg border px-3.5 text-sm font-semibold transition-all duration-200 active:scale-[0.98] ${
               availableOnly
-                ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-500/20'
+                ? 'bg-indigo-50 dark:bg-indigo-500/15 border-indigo-300 dark:border-indigo-500/40 text-indigo-600 dark:text-indigo-300'
                 : 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400'
             }`}
           >
-            <CircleCheck size={15} strokeWidth={2.5} />
             Ready
           </button>
         </div>
