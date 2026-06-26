@@ -35,6 +35,7 @@ import { buildScheduleFlightMap, buildJamaahFlightIndex, jamaahForFlightCard } f
 import { buildDepartureDateLookup, departureDateForCalendarEvent } from './lib/calendar-return-departure.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
+import { RAHMAH_JULI_JAMAAH } from './src/lib/rahmahJuliLanding.js';
 import {
   prepareLegacyPaymentRowForUpsert,
 } from './lib/jamaah-payment-provenance.js';
@@ -135,7 +136,14 @@ const JAMAAH_UPSERT_BATCH = resolveJamaahUpsertBatch(process.env);
 const JAMAAH_DIFF_COLUMNS = 'id, id_umroh, nama, jk, wa, tgl_lahir, paket, bayar, sisa, tgl_berangkat, tgl_daftar, hijriah_year, synced_at, perlengkapan, dokumen, no_paspor, paspor_expired, capi_last_bayar, notes, notes_updated_at, agent_id, capi_purchase_status, jm_id, diskon_kantor, diskon_marketing';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
-const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'top-partner']);
+const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'top-partner', 'rahmah-1-juli-2026']);
+const TOUR_LEADER_PREP_TABLE = 'booking_persiapan';
+const RAHMAH_JULI_PUBLIC_SLUG = 'rahmah-1-juli-2026';
+const RAHMAH_JULI_META_TITLE = 'Kloter 9 | Rahmah 1-9 Juli 2026 | Alhijaz Indowisata';
+const RAHMAH_JULI_META_DESCRIPTION = 'Persiapan jamaah Rahmah Reguler (Kereta Cepat) 1 Juli - 9 Juli 2026 bersama Tour Leader Bagas Pramudita & Muthowif Ust. Hanafi Fauzan.';
+const RAHMAH_JULI_OG_IMAGE_URL = 'https://alhijaz.b-cdn.net/og-image.png';
+const RAHMAH_JULI_MEMBER_BY_NO = new Map(RAHMAH_JULI_JAMAAH.map((member) => [member.no, member]));
+const RAHMAH_JULI_ID_UMRAH = [...new Set(RAHMAH_JULI_JAMAAH.map((member) => member.idUmrah))];
 const JAMAAH_BACKGROUND_SYNC_ENABLED = shouldRunJamaahBackgroundSync();
 const LEGACY_BACKGROUND_SYNC_ENABLED = shouldRunLegacyBackgroundSync();
 
@@ -203,6 +211,62 @@ function withTimeout(promise, ms, message) {
     }, ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function sanitizeTourLeaderPrepRoomNumber(value) {
+  if (typeof value !== 'string') return null;
+  const digits = value.replace(/\D/g, '').slice(0, 4);
+  return /^\d{1,4}$/.test(digits) ? digits : null;
+}
+
+function tourLeaderPrepEntryFromPayload(payload = {}) {
+  return {
+    phone: typeof payload.phone === 'string' ? payload.phone.trim().slice(0, 32) : null,
+    wa_confirmed: payload.wa_confirmed === true,
+    nusuk_installed: payload.nusuk_installed === true,
+    raudhah_reserved: payload.raudhah_reserved === true,
+    room_mekkah: sanitizeTourLeaderPrepRoomNumber(payload.room_mekkah),
+    room_madinah: sanitizeTourLeaderPrepRoomNumber(payload.room_madinah),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function tourLeaderPrepRowToItems(row) {
+  const tahapan = plainObjectOrEmpty(row?.tahapan);
+  const tripPrep = plainObjectOrEmpty(tahapan[RAHMAH_JULI_PUBLIC_SLUG]);
+  const jamaahPrep = plainObjectOrEmpty(tripPrep.jamaah);
+
+  return Object.entries(jamaahPrep)
+    .map(([jamaahNo, entry]) => {
+      const member = RAHMAH_JULI_MEMBER_BY_NO.get(Number(jamaahNo));
+      const saved = plainObjectOrEmpty(entry);
+      if (!member || member.idUmrah !== row.id_umroh) return null;
+      return {
+        jamaah_no: member.no,
+        phone: typeof saved.phone === 'string' ? saved.phone : null,
+        wa_confirmed: saved.wa_confirmed === true,
+        nusuk_installed: saved.nusuk_installed === true,
+        raudhah_reserved: saved.raudhah_reserved === true,
+        room_mekkah: typeof saved.room_mekkah === 'string' ? saved.room_mekkah : null,
+        room_madinah: typeof saved.room_madinah === 'string' ? saved.room_madinah : null,
+      };
+    })
+    .filter(Boolean);
+}
+
+function validateTourLeaderPrepPayload(tripSlug, jamaahNo, payload = {}) {
+  if (tripSlug !== RAHMAH_JULI_PUBLIC_SLUG) {
+    return { error: 'Paket tidak ditemukan' };
+  }
+  const member = RAHMAH_JULI_MEMBER_BY_NO.get(jamaahNo);
+  if (!Number.isInteger(jamaahNo) || !member) {
+    return { error: 'Nomor jamaah tidak valid' };
+  }
+
+  return {
+    member,
+    entry: tourLeaderPrepEntryFromPayload(payload),
+  };
 }
 
 // ── Helper: fetch all rows from a Supabase query (bypasses 1000-row PostgREST limit) ──
@@ -685,6 +749,91 @@ app.get('/api/kurs', async (req, res) => {
       stale: Date.now() - kursCache.fetchedAt > KURS_CACHE_TTL * 2,
     },
   });
+});
+
+app.get('/api/tour-leader-prep/:tripSlug', async (req, res) => {
+  const { tripSlug } = req.params;
+  if (tripSlug !== RAHMAH_JULI_PUBLIC_SLUG) {
+    return res.status(404).json({ success: false, error: 'Paket tidak ditemukan' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from(TOUR_LEADER_PREP_TABLE)
+      .select('id_umroh,tahapan')
+      .in('id_umroh', RAHMAH_JULI_ID_UMRAH);
+    if (error) throw error;
+    const rows = (data || [])
+      .flatMap((row) => tourLeaderPrepRowToItems(row))
+      .sort((left, right) => left.jamaah_no - right.jamaah_no);
+    return res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('GET /api/tour-leader-prep error:', err?.message || err);
+    return res.status(500).json({ success: false, error: 'Gagal memuat data jamaah' });
+  }
+});
+
+app.put('/api/tour-leader-prep/:tripSlug/:jamaahNo', async (req, res) => {
+  const jamaahNo = Number(req.params.jamaahNo);
+  const validation = validateTourLeaderPrepPayload(req.params.tripSlug, jamaahNo, req.body);
+  if (validation.error) {
+    return res.status(400).json({ success: false, error: validation.error });
+  }
+
+  try {
+    const { member, entry } = validation;
+    const { data: existing, error: readError } = await supabase
+      .from(TOUR_LEADER_PREP_TABLE)
+      .select('agent_id,tahapan,spiritual')
+      .eq('id_umroh', member.idUmrah)
+      .maybeSingle();
+    if (readError) throw readError;
+
+    let agentId = existing?.agent_id || null;
+    if (!agentId) {
+      const { data: jamaahRow, error: jamaahError } = await supabase
+        .from('jamaah')
+        .select('agent_id')
+        .eq('id_umroh', member.idUmrah)
+        .not('agent_id', 'is', null)
+        .limit(1)
+        .maybeSingle();
+      if (jamaahError) throw jamaahError;
+      agentId = jamaahRow?.agent_id || null;
+    }
+
+    if (!agentId) {
+      return res.status(404).json({ success: false, error: 'Data booking jamaah belum ditemukan' });
+    }
+
+    const tahapan = plainObjectOrEmpty(existing?.tahapan);
+    const tripPrep = plainObjectOrEmpty(tahapan[RAHMAH_JULI_PUBLIC_SLUG]);
+    const jamaahPrep = plainObjectOrEmpty(tripPrep.jamaah);
+    const now = new Date().toISOString();
+    const nextTahapan = {
+      ...tahapan,
+      [RAHMAH_JULI_PUBLIC_SLUG]: {
+        ...tripPrep,
+        jamaah: {
+          ...jamaahPrep,
+          [String(member.no)]: entry,
+        },
+      },
+    };
+
+    const { error: upsertError } = await supabase.from('booking_persiapan').upsert({
+      id_umroh: member.idUmrah,
+      agent_id: agentId,
+      tahapan: nextTahapan,
+      spiritual: plainObjectOrEmpty(existing?.spiritual),
+      updated_at: now,
+    }, { onConflict: 'id_umroh' });
+    if (upsertError) throw upsertError;
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('PUT /api/tour-leader-prep error:', err?.message || err);
+    return res.status(500).json({ success: false, error: 'Gagal menyimpan data jamaah' });
+  }
 });
 
 // GET /api/kurs/share-image — per-agent kurs image, generated on demand and cached on disk.
@@ -15561,6 +15710,49 @@ function injectTopPartnerMeta(html, origin) {
 app.get('/top-partner', (req, res) => {
   const origin = `${req.protocol}://${req.get('host')}`;
   const html = injectTopPartnerMeta(getIndexHtml(), origin);
+  res.set('Content-Type', 'text/html');
+  res.set('Cache-Control', 'no-cache');
+  res.send(html);
+});
+
+function injectRahmahJuliMeta(html, origin) {
+  const title = escapeHtmlAttr(RAHMAH_JULI_META_TITLE);
+  const description = escapeHtmlAttr(RAHMAH_JULI_META_DESCRIPTION);
+  const pageUrl = escapeHtmlAttr(`${origin}/${RAHMAH_JULI_PUBLIC_SLUG}`);
+  const ogImageUrl = escapeHtmlAttr(RAHMAH_JULI_OG_IMAGE_URL);
+
+  html = html.replace(/<title>[^<]*<\/title>/i, `<title>${title}</title>`);
+  html = html.replace(
+    /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i,
+    `<meta name="description" content="${description}" />`
+  );
+  html = html.replace(/<meta\s+property="og:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+  html = html.replace(/<meta\s+name="twitter:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+  html = html.replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '');
+
+  const metaTags = `
+    <link rel="canonical" href="${pageUrl}" />
+    <meta property="og:title" content="${title}" />
+    <meta property="og:description" content="${description}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="${pageUrl}" />
+    <meta property="og:site_name" content="Alhijaz Indowisata" />
+    <meta property="og:image" content="${ogImageUrl}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${title}" />
+    <meta name="twitter:description" content="${description}" />
+    <meta name="twitter:image" content="${ogImageUrl}" />
+  `;
+
+  return html.replace('</head>', `${metaTags}\n</head>`);
+}
+
+app.get(['/rahmah-1-juli-2026', '/rahmah-1-juli-2026/'], (req, res) => {
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const html = injectRahmahJuliMeta(getIndexHtml(), origin);
   res.set('Content-Type', 'text/html');
   res.set('Cache-Control', 'no-cache');
   res.send(html);
