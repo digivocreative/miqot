@@ -586,6 +586,10 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
+      '/api/tour-leader-prep': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
       '/api/weather': {
         target: 'http://localhost:3000',
         changeOrigin: true,
