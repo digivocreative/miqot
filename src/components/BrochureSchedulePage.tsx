@@ -249,7 +249,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   const [agent, setAgent] = useState<BrochureAgent>(agentProp);
   const [filterDim, setFilterDim] = useState<FilterDim>('bulan');
   const [filterValue, setFilterValue] = useState<string | null>(null);
-  const [availableOnly, setAvailableOnly] = useState(false);
+  const [availableOnly, setAvailableOnly] = useState(true);
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const [previewScale, setPreviewScale] = useState(0);
   const exportPageRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -976,14 +976,15 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
             onClick={() => setAvailableOnly(v => !v)}
             aria-label={availableOnly ? 'Tampilkan semua paket' : 'Tampilkan paket tersedia saja'}
             aria-pressed={availableOnly}
-            title={availableOnly ? 'Semua paket' : 'Tersedia saja'}
-            className={`h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg border transition-all duration-200 active:scale-[0.98] ${
+            title={availableOnly ? 'Tampilkan semua paket' : 'Tampilkan paket tersedia saja'}
+            className={`h-9 shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition-all duration-200 active:scale-[0.98] ${
               availableOnly
                 ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-500/20'
                 : 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400'
             }`}
           >
-            <CircleCheck size={17} strokeWidth={2.5} />
+            <CircleCheck size={15} strokeWidth={2.5} />
+            Ready
           </button>
         </div>
       </div>
