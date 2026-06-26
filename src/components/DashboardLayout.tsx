@@ -5,7 +5,7 @@ import {
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
   BarChart3, Loader2, Sparkles,
   CalendarRange, TrendingUp, Mic, CreditCard,
-  DollarSign, ChevronRight, Globe, Share2, FileImage, Bot,
+  DollarSign, ChevronRight, Globe, Share2, FileImage, Bot, BedDouble,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
@@ -33,6 +33,7 @@ const KursPage = lazy(() => import('./KursPage'));
 const BrochureSchedulePage = lazy(() => import('./BrochureSchedulePage'));
 const McpIntegrationPage = lazy(() => import('./McpIntegrationPage'));
 const UmrahRegisterPage = lazy(() => import('./UmrahRegisterPage'));
+const HotelPage = lazy(() => import('./HotelPage'));
 // Home widgets — only mounted on the home tab; split out of the initial chunk
 // so a deep-link to a non-home dashboard route doesn't pay for them.
 const UpcomingSchedule = lazy(() => import('./UpcomingSchedule'));
@@ -45,7 +46,7 @@ const BirthdayWidget = lazy(() => import('./BirthdayWidget'));
 const ShareKursModal = lazy(() => import('./ShareKursModal'));
 const BirthdayDetailSheet = lazy(() => import('./BirthdayDetailSheet'));
 
-type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools';
+type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'hotel';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
@@ -56,6 +57,7 @@ const SLUG_TO_TAB: Record<string, TabId> = {
   settings: 'settings',
   analytics: 'analytics',
   'ai-tools': 'ai-tools',
+  hotel: 'hotel',
 };
 
 const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
@@ -66,6 +68,7 @@ const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
   settings: 'settings',
   analytics: 'analytics',
   'ai-tools': 'ai-tools',
+  hotel: 'hotel',
 };
 
 function getTabFromPath(): TabId {
@@ -133,6 +136,7 @@ const TAB_TITLES: Record<TabId, string> = {
   statistik: 'Statistik',
   analytics: 'Analytics',
   'ai-tools': 'Tools',
+  hotel: 'Hotel',
 };
 
 interface MenuCard {
@@ -153,6 +157,7 @@ interface MenuCard {
   hoverShadow: string;
   iconAnim: string;
   adminOnly?: boolean;
+  nikitaOnly?: boolean;
   hidden?: boolean;
   openExternal?: boolean;
   comingSoon?: boolean;
@@ -219,6 +224,19 @@ const MENU_CARDS: MenuCard[] = [
     iconShadow: 'shadow-lg shadow-purple-500/30 dark:shadow-purple-900/40',
     hoverShadow: 'hover:shadow-fuchsia-300/40 dark:hover:shadow-purple-900/30',
     iconAnim: 'animate-icon-twinkle',
+  },
+  {
+    id: 'hotel', label: 'Hotel', desc: 'Hotel & paket yang memakainya',
+    icon: BedDouble, color: 'text-indigo-600 dark:text-indigo-400',
+    bgLight: 'bg-indigo-50', bgDark: 'dark:bg-indigo-900/20',
+    borderLight: 'border-indigo-100', borderDark: 'dark:border-indigo-800/40',
+    cardBg: 'bg-gradient-to-br from-indigo-50 via-white to-blue-100/70 dark:from-indigo-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-indigo-200/70 dark:border-indigo-800/40',
+    iconBg: 'bg-gradient-to-br from-indigo-400 to-blue-600 dark:from-indigo-500 dark:to-blue-700',
+    iconShadow: 'shadow-lg shadow-indigo-500/30 dark:shadow-indigo-900/40',
+    hoverShadow: 'hover:shadow-indigo-300/40 dark:hover:shadow-indigo-900/30',
+    iconAnim: 'animate-icon-breathe',
+    nikitaOnly: true,
   },
   {
     id: 'settings', label: 'Settings', desc: 'Profil, Telegram & CAPI',
@@ -466,7 +484,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   };
 
   const isAdmin = agentData.role === 'admin';
-  const visibleCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly);
+  const isNikita = String(agentData.slug || '').toLowerCase() === 'nikita';
+  const visibleCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly && (!c.nikitaOnly || isNikita));
   const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly) : [];
 
   // ── Sub-page view with dashboard header ──
@@ -664,6 +683,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           {activeTab === 'agents' && isAdmin && (
             <div className="px-4 pt-4">
               <AgentManagementPage />
+            </div>
+          )}
+          {activeTab === 'hotel' && isNikita && (
+            <div className="px-4 pt-4">
+              <HotelPage />
             </div>
           )}
           {activeTab === 'statistik' && (
