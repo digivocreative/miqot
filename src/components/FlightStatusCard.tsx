@@ -862,9 +862,11 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                     {/* Row 2: route visualization */}
                     <div className="flex items-center gap-1.5 mt-1">
                       {hasSegmentRows ? (
-                        <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400 truncate">
-                          {first.depCode || '—'} → {first.arrCode || '—'}
-                        </span>
+                        <>
+                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{first.depCode || '—'}</span>
+                          <RouteLine flight={first} />
+                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{first.arrCode || '—'}</span>
+                        </>
                       ) : first.routeLabel ? (
                         <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400 truncate">
                           {first.routeLabel}
