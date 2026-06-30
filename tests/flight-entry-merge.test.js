@@ -193,3 +193,103 @@ test('same transit journey and same TL can merge across source rows without losi
   assert.deepEqual(merged[0].segments.map(s => s.flightNumber), ['EK 802', 'EK 358']);
   assert.deepEqual(merged[0].jamaah.map(j => j.nama), ['PAX A', 'PAX B']);
 });
+
+test('tour stopover segments are labeled as tour, not short transit', () => {
+  const merged = mergeFlightEntriesByTourLeader([
+    {
+      id: 'nikita_EK357',
+      flightNumber: 'EK 357',
+      eventDate: '2026-06-30',
+      group: '8',
+      tourLeader: 'NIKITA SARI',
+      pax: 46,
+      status: 'scheduled',
+      depCode: 'CGK',
+      depCity: 'Jakarta',
+      arrCode: 'DXB',
+      arrCity: 'Dubai',
+      jamaah: [{ nama: 'PAX A', jk: 'P', wa: '6281' }],
+      _mergeSourceKey: 'calendar-row-nikita',
+      _mergeCardKey: '2026-06-30__keberangkatan__NIKITA SARI__EK357_EK809',
+      _segmentIndex: 0,
+      _segmentCount: 2,
+      _depUTC: Date.parse('2026-06-30T10:40:00Z'),
+      _arrUTC: Date.parse('2026-06-30T18:30:00Z'),
+      _stopoverCity: 'DXB',
+      _stopoverCityName: 'Dubai',
+    },
+    {
+      id: 'nikita_EK809',
+      flightNumber: 'EK 809',
+      eventDate: '2026-06-30',
+      group: '8',
+      tourLeader: 'NIKITA SARI',
+      pax: 46,
+      status: 'scheduled',
+      depCode: 'DXB',
+      depCity: 'Dubai',
+      arrCode: 'MED',
+      arrCity: 'Madinah',
+      jamaah: [{ nama: 'PAX A', jk: 'P', wa: '6281' }],
+      _mergeSourceKey: 'calendar-row-nikita',
+      _mergeCardKey: '2026-06-30__keberangkatan__NIKITA SARI__EK357_EK809',
+      _segmentIndex: 1,
+      _segmentCount: 2,
+      _depUTC: Date.parse('2026-06-30T18:30:00Z'),
+      _arrUTC: Date.parse('2026-06-30T21:25:00Z'),
+    },
+  ]);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].transitLabel, 'Tour di Dubai');
+});
+
+test('tour stopover label includes days when actual segment gap is available', () => {
+  const merged = mergeFlightEntriesByTourLeader([
+    {
+      id: 'tour_EK357',
+      flightNumber: 'EK 357',
+      eventDate: '2026-06-30',
+      group: '8',
+      tourLeader: 'NIKITA SARI',
+      pax: 46,
+      status: 'scheduled',
+      depCode: 'CGK',
+      depCity: 'Jakarta',
+      arrCode: 'DXB',
+      arrCity: 'Dubai',
+      jamaah: [{ nama: 'PAX A', jk: 'P', wa: '6281' }],
+      _mergeSourceKey: 'calendar-row-tour',
+      _mergeCardKey: '2026-06-30__keberangkatan__NIKITA SARI__EK357_EK809',
+      _segmentIndex: 0,
+      _segmentCount: 2,
+      _depUTC: Date.parse('2026-06-30T10:40:00Z'),
+      _arrUTC: Date.parse('2026-06-30T18:30:00Z'),
+      _stopoverCity: 'DXB',
+      _stopoverCityName: 'Dubai',
+    },
+    {
+      id: 'tour_EK809',
+      flightNumber: 'EK 809',
+      eventDate: '2026-06-30',
+      group: '8',
+      tourLeader: 'NIKITA SARI',
+      pax: 46,
+      status: 'scheduled',
+      depCode: 'DXB',
+      depCity: 'Dubai',
+      arrCode: 'MED',
+      arrCity: 'Madinah',
+      jamaah: [{ nama: 'PAX A', jk: 'P', wa: '6281' }],
+      _mergeSourceKey: 'calendar-row-tour',
+      _mergeCardKey: '2026-06-30__keberangkatan__NIKITA SARI__EK357_EK809',
+      _segmentIndex: 1,
+      _segmentCount: 2,
+      _depUTC: Date.parse('2026-07-02T18:30:00Z'),
+      _arrUTC: Date.parse('2026-07-02T21:25:00Z'),
+    },
+  ]);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].transitLabel, 'Tour 2 hari di Dubai');
+});

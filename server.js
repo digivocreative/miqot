@@ -8184,6 +8184,59 @@ function airportCity(code) {
   return AIRPORT_CITIES[code] || code || '';
 }
 
+const FLIGHT_TOUR_STOPS = {
+  DXB: { key: 'dubai', pattern: /\b(DUBAI|DXB)\b/i },
+  CAI: { key: 'cairo', pattern: /\b(CAIRO|KAIRO|CAI)\b/i },
+  IST: { key: 'istanbul', pattern: /\b(ISTANBUL|IST|SAW)\b/i },
+  SAW: { key: 'istanbul', pattern: /\b(ISTANBUL|IST|SAW)\b/i },
+  HAK: { key: 'haikou', pattern: /\b(HAIKOU|HAK)\b/i },
+  ALY: { key: 'alexandria', pattern: /\b(ALEXANDRIA|ISKANDARIA|ALY)\b/i },
+  BTS: { key: 'bursa', pattern: /\b(BURSA|BTS)\b/i },
+  NAV: { key: 'cappadocia', pattern: /\b(CAPPADOCIA|KAPADOKYA|NAV|KAY)\b/i },
+  KAY: { key: 'cappadocia', pattern: /\b(CAPPADOCIA|KAPADOKYA|NAV|KAY)\b/i },
+  ANK: { key: 'ankara', pattern: /\b(ANKARA|ANK)\b/i },
+};
+
+function scheduleHotelMentionsCity(paketHotel, cityKey, cityCode) {
+  if (!paketHotel || typeof paketHotel !== 'object') return false;
+  const codePattern = cityCode ? new RegExp(`\\b${cityCode}\\b`, 'i') : null;
+  for (const tierHotel of Object.values(paketHotel)) {
+    if (!tierHotel || typeof tierHotel !== 'object') continue;
+    for (const [key, value] of Object.entries(tierHotel)) {
+      if (String(key || '').toLowerCase() === cityKey) return true;
+      const hotelText = String(value || '');
+      if (codePattern?.test(hotelText)) return true;
+    }
+  }
+  return false;
+}
+
+function packageMentionsTourCity(event, schedule, cityCode) {
+  const cfg = FLIGHT_TOUR_STOPS[cityCode];
+  if (!cfg) return false;
+  const text = [
+    event?.paket,
+    event?.raw_data?.paket,
+    schedule?.jadwal_nama,
+  ].filter(Boolean).join(' ');
+
+  return cfg.pattern.test(text) || scheduleHotelMentionsCity(schedule?.paket_hotel, cfg.key, cityCode);
+}
+
+function tourStopoverCodesForEvent(event, schedule, routes) {
+  if (event?.event_type !== 'keberangkatan') return new Set();
+  if (!routes || routes.length <= 1) return new Set();
+
+  const lastArrival = routes[routes.length - 1]?.arr;
+  const codes = new Set();
+  for (let i = 0; i < routes.length - 1; i += 1) {
+    const stopCode = routes[i]?.arr;
+    if (!stopCode || stopCode === lastArrival) continue;
+    if (packageMentionsTourCity(event, schedule, stopCode)) codes.add(stopCode);
+  }
+  return codes;
+}
+
 function routeForFlightSegment(segment, event, schedule, segmentIndex) {
   const known = lookupKnownRoute(segment.flightIata);
   const fallback = lookupRoute(segment.flightIata, event.event_type);
@@ -8221,11 +8274,13 @@ function buildFlightSegmentsForEvent(event, scheduleById = new Map()) {
 
   const routes = segments.map((segment, idx) => routeForFlightSegment(segment, event, schedule, idx));
   const times = deriveCalendarFlightSegmentTimes(event, routes);
+  const tourStopoverCodes = tourStopoverCodesForEvent(event, schedule, routes);
   return segments.map((segment, idx) => ({
     ...segment,
     route: routes[idx],
     times: times[idx] || null,
     segmentCount: segments.length,
+    tourStopover: Boolean(routes[idx]?.arr && tourStopoverCodes.has(routes[idx].arr)),
   }));
 }
 
@@ -8659,11 +8714,13 @@ function setCachedFlight(flightId, data) {
 const FLIGHT_SCHEDULE_SELECT = [
   'jadwal_id',
   'year_code',
+  'jadwal_nama',
   'maskapai',
   'berangkat_rute',
   'berangkat_kode_penerbangan',
   'pulang_rute',
   'pulang_kode_penerbangan',
+  'paket_hotel',
 ].join(', ');
 
 async function loadFlightScheduleMap(events) {
@@ -8894,6 +8951,8 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
             _segmentCount: segment.segmentCount,
             _depUTC: segment.times?.depUTC || null,
             _arrUTC: segment.times?.arrUTC || null,
+            _stopoverCity: segment.tourStopover ? segment.route?.arr || null : null,
+            _stopoverCityName: segment.tourStopover ? segment.route?.arrCity || airportCity(segment.route?.arr) : null,
           };
 
           // Override stale status if departure time has clearly passed.
@@ -9010,6 +9069,8 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
             _segmentCount: segment.segmentCount,
             _depUTC: depUTC,
             _arrUTC: arrUTC,
+            _stopoverCity: segment.tourStopover ? route?.arr || null : null,
+            _stopoverCityName: segment.tourStopover ? route?.arrCity || airportCity(route?.arr) : null,
           });
         }
       }
