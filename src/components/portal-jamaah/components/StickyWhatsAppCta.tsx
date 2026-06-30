@@ -3,6 +3,8 @@ import { handleAgentPhotoError } from '@/lib/agent-photo';
 import { normalizeWaNumber } from '@/utils/phone';
 import type { PortalAgentInfo, PortalBooking, PortalJamaah } from '../hooks/usePortalMe';
 
+const SHOW_AFTER_SCROLL_Y = 160;
+
 function initials(name?: string | null) {
   return (name || 'A')
     .split(/\s+/)
@@ -21,13 +23,13 @@ export default function StickyWhatsAppCta({
   booking: PortalBooking;
   initiator: PortalJamaah | undefined;
 }) {
-  const [isVisible, setIsVisible] = useState(true);
+  const [isVisible, setIsVisible] = useState(false);
   const [lastScrollY, setLastScrollY] = useState(0);
 
   const handleScroll = useCallback(() => {
     const currentScrollY = window.scrollY;
-    if (currentScrollY <= 50) {
-      setIsVisible(true);
+    if (currentScrollY <= SHOW_AFTER_SCROLL_Y) {
+      setIsVisible(false);
     } else if (currentScrollY > lastScrollY) {
       setIsVisible(false);
     } else {
@@ -61,7 +63,7 @@ export default function StickyWhatsAppCta({
         flex items-center justify-between
         p-2 pl-3
         transition-all duration-300 ease-in-out
-        ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-[200%] opacity-0'}
+        ${isVisible ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-24 opacity-0'}
       `}
     >
       <div className="flex items-center gap-2.5 overflow-hidden flex-1 min-w-0">
@@ -74,13 +76,13 @@ export default function StickyWhatsAppCta({
               onError={(e) => handleAgentPhotoError(e.currentTarget, agent.name || 'Agent')}
             />
           ) : (
-            <div className="w-full h-full rounded-full border-2 border-white dark:border-slate-700 shadow-sm bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-xs font-bold text-white">
+            <div className="w-full h-full rounded-full border-2 border-white bg-emerald-500 shadow-sm dark:border-slate-700 flex items-center justify-center text-xs font-bold text-white">
               {initials(agent?.name)}
             </div>
           )}
         </div>
         <div className="flex flex-col min-w-0">
-          <span className="text-[13px] font-bold text-gray-900 dark:text-white leading-tight flex items-center gap-1">
+          <span className="text-sm font-bold text-gray-900 dark:text-white leading-tight flex items-center gap-1">
             <span className="truncate">{agent?.name || 'Agent'}</span>
             <svg className="w-[15px] h-[15px] flex-shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <circle cx="12" cy="12" r="10" fill="#1DA1F2"/>

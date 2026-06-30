@@ -22,8 +22,8 @@ export default function HotelCard({
           <Building2 className="h-5 w-5" strokeWidth={2} />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">{city}</p>
-          <p className="mt-2 text-base font-bold text-gray-900 dark:text-white">{name}</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{city}</p>
+          <p className="mt-2 text-sm font-bold leading-snug text-gray-900 dark:text-white">{name}</p>
           <div className="mt-2 flex items-center gap-1.5 text-xs text-gray-500 dark:text-slate-400">
             <MapPin className="h-3.5 w-3.5" strokeWidth={2} />
             <span>{location}</span>

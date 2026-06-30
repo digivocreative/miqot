@@ -13,7 +13,7 @@ export const PORTAL_FAQ: FaqEntry[] = [
   {
     id: 'dokumen-wajib',
     question: 'Apa saja dokumen yang perlu disiapkan?',
-    answer: 'Paspor (masa berlaku minimal 7 bulan dari tanggal berangkat), Visa Umroh, Sertifikat Vaksin Meningitis, KTP, Kartu Keluarga (KK), dan foto 4x6 latar putih. Detail status tiap dokumen bisa dilihat di menu Dokumen.',
+    answer: 'Dokumen utama yang dipantau di portal adalah Paspor (masa berlaku minimal 7 bulan dari tanggal berangkat), KTP, Sertifikat Vaksin Meningitis, foto 4x6 latar putih, dan Buku Nikah jika diperlukan. Detail status tiap dokumen bisa dilihat di menu Dokumen.',
   },
   {
     id: 'deadline-pelunasan',

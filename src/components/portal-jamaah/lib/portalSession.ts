@@ -16,14 +16,14 @@ function hasExpired(expiresAt: string): boolean {
 }
 
 export function savePortalSession(session: PortalSession) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
   const secure = window.location.protocol === 'https:' ? '; Secure' : '';
   document.cookie = `${COOKIE_NAME}=${encodeURIComponent(session.session_token)}; path=/; max-age=${NINETY_DAYS_SECONDS}; SameSite=Lax${secure}`;
 }
 
 export function getPortalSession(): PortalSession | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const session = JSON.parse(raw) as Partial<PortalSession>;
     if (!session.session_token || !session.id_umroh || !session.slug || !session.expires_at) {
@@ -42,6 +42,6 @@ export function getPortalSession(): PortalSession | null {
 }
 
 export function clearPortalSession() {
-  localStorage.removeItem(STORAGE_KEY);
+  sessionStorage.removeItem(STORAGE_KEY);
   document.cookie = `${COOKIE_NAME}=; path=/; max-age=0`;
 }

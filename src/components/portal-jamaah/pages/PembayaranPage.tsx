@@ -53,7 +53,7 @@ Mohon dicek ya. Terima kasih 🙏`,
       <PortalBackBar title="Pembayaran" onBack={onBack} />
       <main className="mx-auto w-full max-w-lg space-y-5 px-4 pb-24 pt-5">
         <section
-          className="rounded-2xl p-6 text-white shadow-sm"
+          className="rounded-2xl p-5 text-white shadow-sm"
           style={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #2563eb 50%, #312e81 100%)' }}
         >
           <p className="text-[11px] font-bold uppercase tracking-wider text-blue-100">Total Booking</p>
@@ -82,8 +82,8 @@ Mohon dicek ya. Terima kasih 🙏`,
           </div>
         </section>
 
-        <section className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/40 dark:bg-amber-900/20">
-          <div className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-amber-100 dark:bg-amber-900/40">
+        <section className="flex items-start gap-3 rounded-2xl border border-amber-100 bg-amber-50 p-4 dark:border-amber-800/40 dark:bg-amber-900/20">
+          <div className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/40">
             <CreditCard className="h-5 w-5 text-amber-600 dark:text-amber-400" strokeWidth={2} />
           </div>
           <div>
@@ -95,7 +95,7 @@ Mohon dicek ya. Terima kasih 🙏`,
         </section>
 
         <section className="space-y-3">
-          <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Per Jamaah</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Per Jamaah</p>
           <div className="space-y-3">
             {data.jamaah.map((item) => (
               <JamaahPaymentCard key={item.id} jamaah={item} />

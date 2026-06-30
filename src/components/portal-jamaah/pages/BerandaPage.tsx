@@ -72,7 +72,7 @@ export default function BerandaPage({
           </>
         }
       />
-      <main className="mx-auto w-full max-w-lg space-y-6 px-4 pb-24 pt-5">
+      <main className="mx-auto w-full max-w-lg space-y-5 px-4 pb-24 pt-5">
         <HeroCountdown booking={data.booking} flightCode={flightCode} greetingName={`${greetingPrefix} ${compactName}`} />
 
         <SmartAlertsStrip data={data} onNavigate={onNavigate} />
@@ -83,7 +83,7 @@ export default function BerandaPage({
 
         <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-[13px] font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+            <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">
               ANGGOTA BOOKING
             </h2>
             <span className="text-xs font-bold text-gray-500 dark:text-slate-400">{data.jamaah.length} jamaah</span>

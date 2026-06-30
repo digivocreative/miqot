@@ -22,15 +22,15 @@ export default function TaskListWidget({
 
   return (
     <section className="space-y-3">
-      <h2 className="text-[13px] font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+      <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">
         YANG PERLU ANDA LAKUKAN
       </h2>
       {tasks.length === 0 ? (
-        <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800/40 dark:bg-emerald-900/20">
-          <div className="flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/40">
+        <div className="flex items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50 p-4 dark:border-emerald-800/40 dark:bg-emerald-900/20">
+          <div className="flex h-10 w-10 flex-none items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-900/40">
             <CheckCircle className="h-5 w-5 text-emerald-600 dark:text-emerald-400" strokeWidth={2} />
           </div>
-          <p className="text-sm font-bold text-emerald-800 dark:text-emerald-200">Semua persiapan up-to-date</p>
+          <p className="text-sm font-bold text-emerald-800 dark:text-emerald-200">Semua tugas tuntas, semoga lancar ya</p>
         </div>
       ) : (
         <div className="space-y-2.5">
@@ -44,14 +44,14 @@ export default function TaskListWidget({
                 onClick={() => onNavigate(task.navigateTo)}
                 className="flex w-full items-center gap-3 rounded-xl border border-gray-100 bg-white p-4 text-left shadow-sm transition active:scale-[0.98] hover:border-emerald-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-emerald-700"
               >
-                <div className={`flex h-10 w-10 flex-none items-center justify-center rounded-lg ${styles.bg}`}>
+                <div className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${styles.bg}`}>
                   <Icon className={`h-5 w-5 ${styles.color}`} strokeWidth={2} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold text-gray-900 dark:text-white">{task.title}</p>
                   <p className="truncate text-xs text-gray-500 dark:text-slate-400">{task.subtitle}</p>
                 </div>
-                <ChevronRight className="h-5 w-5 flex-none text-gray-400 dark:text-slate-500" strokeWidth={2} />
+                <ChevronRight className="h-[18px] w-[18px] flex-none text-gray-400 dark:text-slate-500" strokeWidth={2} />
               </button>
             );
           })}

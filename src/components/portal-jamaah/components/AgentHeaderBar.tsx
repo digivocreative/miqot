@@ -12,7 +12,7 @@ function initials(name?: string) {
 export default function AgentHeaderBar({ agent }: { agent: PortalAgent | null }) {
   return (
     <header className="border-b border-slate-100 bg-white">
-      <div className="mx-auto flex w-full max-w-md items-center justify-between px-4 py-3">
+      <div className="mx-auto flex w-full max-w-lg items-center justify-between px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
           {agent?.photo ? (
             <img

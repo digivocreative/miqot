@@ -44,7 +44,7 @@ function appendDashboardRoute(path: string, route: PortalRoute) {
 function NotFoundPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8 font-sans">
-      <section className="w-full max-w-md rounded-2xl border border-slate-100 bg-white p-6 text-center shadow-sm">
+      <section className="w-full max-w-lg rounded-2xl border border-slate-100 bg-white p-6 text-center shadow-sm">
         <h1 className="text-xl font-bold text-slate-950">Halaman tidak ditemukan</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">Pastikan alamat portal yang Anda buka sudah benar.</p>
       </section>

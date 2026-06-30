@@ -15,7 +15,12 @@ export interface PortalAlert {
   navigateTo: PortalRoute;
 }
 
-const CRITICAL_DOC_KEYS = ['paspor', 'visa', 'vaksin'];
+const CRITICAL_DOC_GROUPS = [
+  { keys: ['paspor'], hasValue: (jamaah: PortalJamaah) => Boolean(jamaah.no_paspor) },
+  { keys: ['ktp'] },
+  { keys: ['vaksin', 'meningitis'] },
+  { keys: ['foto_46', 'foto', 'pas_foto'] },
+];
 
 function totalSisa(jamaah: PortalJamaah[]) {
   return jamaah.reduce((sum, item) => sum + Number(item.sisa || 0), 0);
@@ -24,7 +29,11 @@ function totalSisa(jamaah: PortalJamaah[]) {
 function hasMissingCriticalDoc(jamaah: PortalJamaah[]): boolean {
   return jamaah.some((j) => {
     const text = JSON.stringify(j.dokumen || {}).toLowerCase();
-    return CRITICAL_DOC_KEYS.some((key) => !text.includes(key) || text.includes(`${key}_belum_siap`));
+    return CRITICAL_DOC_GROUPS.some((group) => {
+      const markedPending = group.keys.some((key) => text.includes(`${key}_belum_siap`));
+      const hasDocument = group.hasValue?.(j) || group.keys.some((key) => text.includes(key));
+      return markedPending || !hasDocument;
+    });
   });
 }
 
@@ -52,7 +61,7 @@ export function deriveAlerts(data: PortalMeData): PortalAlert[] {
     alerts.push({
       id: 'doc-incomplete',
       title: 'Dokumen belum lengkap',
-      subtitle: 'Lengkapi paspor, visa, atau vaksin meningitis',
+      subtitle: 'Lengkapi paspor, KTP, vaksin, atau foto',
       tone: 'amber',
       icon: FileText,
       navigateTo: 'dokumen',

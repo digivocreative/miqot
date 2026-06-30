@@ -182,10 +182,10 @@ export default function PerjalananPage({
         </section>
 
         <section>
-          <p className="mb-3 text-[13px] font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Penerbangan</p>
+          <p className="mb-3 text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Penerbangan</p>
           <div className="space-y-3">
             <FlightCard
-              label="Pergi"
+              label="Keberangkatan"
               route={normalizeRoute(schedule?.berangkat_rute)}
               code={departureCode}
               time={formatPortalTime(schedule?.berangkat_jam)}
@@ -204,7 +204,7 @@ export default function PerjalananPage({
         </section>
 
         <section>
-          <p className="mb-3 text-[13px] font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Hotel</p>
+          <p className="mb-3 text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Hotel</p>
           {hotels.length ? (
             <div className="space-y-3">
               {hotels.map((hotel) => (
@@ -220,7 +220,7 @@ export default function PerjalananPage({
 
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Itinerary Harian</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Itinerary Harian</p>
             <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-700 dark:bg-violet-900/20 dark:text-violet-300">
               Rencana perjalanan
             </span>

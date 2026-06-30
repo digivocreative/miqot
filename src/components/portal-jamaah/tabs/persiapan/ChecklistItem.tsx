@@ -24,19 +24,19 @@ export default function ChecklistItem({
 }) {
   const disabled = Boolean(item.auto_synced);
   const checkboxClass = item.checked
-    ? 'border-emerald-700 bg-emerald-700 text-white'
+    ? 'border-emerald-700 bg-emerald-700 text-white dark:border-emerald-500 dark:bg-emerald-500'
     : pending
-      ? 'border-amber-400 bg-amber-100 text-amber-700 border-dashed'
-      : 'border-slate-300 bg-white text-transparent';
+      ? 'border-amber-400 bg-amber-100 text-amber-700 border-dashed dark:bg-amber-900/30 dark:text-amber-300'
+      : 'border-slate-300 bg-white text-transparent dark:border-slate-600 dark:bg-slate-900';
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+    <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="flex items-start gap-3">
         <button
           type="button"
           disabled={disabled}
           onClick={() => onToggle(kind, item.id, !item.checked)}
-          className={`doc-check mt-0.5 flex h-[22px] w-[22px] flex-none items-center justify-center rounded-[7px] border-[1.5px] ${checkboxClass} ${
+          className={`doc-check mt-0.5 flex h-[22px] w-[22px] flex-none items-center justify-center rounded-lg border-[1.5px] ${checkboxClass} ${
             disabled ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'
           }`}
           title={disabled ? 'Otomatis dari data pembayaran/dokumen' : undefined}
@@ -47,22 +47,22 @@ export default function ChecklistItem({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-semibold leading-5 text-slate-950">{item.title}</p>
+            <p className="text-sm font-semibold leading-5 text-slate-950 dark:text-white">{item.title}</p>
             {disabled && (
-              <span className="inline-flex flex-none items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+              <span className="inline-flex flex-none items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-300">
                 <LockKeyhole className="h-3 w-3" strokeWidth={2} />
                 auto
               </span>
             )}
           </div>
-          <p className={`mt-1 text-xs leading-5 text-slate-500 ${descriptionItalic ? 'italic' : ''}`}>
+          <p className={`mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 ${descriptionItalic ? 'italic' : ''}`}>
             {item.description}
           </p>
           {item.crossLink && onCrossLink && (
             <button
               type="button"
               onClick={() => onCrossLink(item.crossLink!)}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-700"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
             >
               {CROSS_LINK_LABELS[item.crossLink] || 'Buka detail'}
               <ExternalLink className="h-3 w-3" strokeWidth={2} />

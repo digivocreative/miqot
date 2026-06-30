@@ -87,24 +87,24 @@ export default function HeroCountdown({
 
       <div className="relative z-10">
         {greetingName && (
-          <div className="mb-4 border-b border-white/20 pb-4">
+          <div className="mb-4 border-b border-white/20 pb-3">
             <p className="text-[12px] font-semibold text-emerald-50">Assalamualaikum,</p>
-            <h1 className="mt-0.5 truncate text-xl font-bold tracking-tight text-white">{greetingName}</h1>
+            <h1 className="mt-0.5 truncate text-lg font-bold tracking-normal text-white">{greetingName}</h1>
           </div>
         )}
 
         <div className="flex items-start justify-between gap-3">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-50">Menuju Tanah Suci</p>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-50">Berangkat dalam</p>
           <span className="flex-none rounded-full border border-white/10 bg-white/20 px-3 py-1 text-[11px] font-bold tracking-wide text-white shadow-sm backdrop-blur-sm">
             {booking.id_umroh}
           </span>
         </div>
 
-        <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
+        <div className="mt-3">
           <div className="min-w-0">
-            <div className="flex items-baseline gap-2">
-              <span className="text-6xl font-bold leading-none tracking-tight">{safeDays}</span>
-              <span className="text-base font-semibold text-emerald-50">
+            <div className="flex items-end gap-2 rounded-2xl border border-white/10 bg-white/10 px-3 py-2 backdrop-blur-sm">
+              <span className="text-3xl font-bold leading-none tracking-normal">{safeDays}</span>
+              <span className="pb-0.5 text-sm font-semibold text-emerald-50">
                 {safeDays === 0 ? 'hari keberangkatan' : 'hari lagi'}
               </span>
             </div>
@@ -112,10 +112,18 @@ export default function HeroCountdown({
               {formatLongDate(booking.tgl_berangkat)}
             </p>
           </div>
+        </div>
 
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/10 px-3 py-2.5 backdrop-blur-sm">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-100">Penerbangan</p>
+            <p className="mt-0.5 truncate text-xs font-semibold text-white">
+              {airline?.name || 'Maskapai menyusul'}
+            </p>
+          </div>
           {flightCodeText && airline ? (
-            <div className="flex min-w-0 flex-col items-end text-right">
-              <span className="relative mb-1 flex h-7 w-7 flex-none items-center justify-center overflow-hidden rounded-full bg-white p-1 text-[8px] font-bold text-emerald-700 shadow-sm">
+            <div className="flex min-w-0 flex-none items-center gap-2 text-right">
+              <span className="relative flex h-7 w-7 flex-none items-center justify-center overflow-hidden rounded-full bg-white p-1 text-[8px] font-bold text-emerald-700 shadow-sm">
                 <span className="absolute inset-0 flex items-center justify-center">{airline.code}</span>
                 <img
                   src={airline.logoUrl}
@@ -127,11 +135,10 @@ export default function HeroCountdown({
                   }}
                 />
               </span>
-              <p className="max-w-[120px] truncate text-[10px] font-semibold leading-tight text-emerald-50">{airline.name}</p>
-              <p className="mt-1 whitespace-nowrap text-sm font-bold leading-tight text-white">{flightCodeText}</p>
+              <p className="whitespace-nowrap text-sm font-bold leading-tight text-white">{flightCodeText}</p>
             </div>
           ) : (
-            <p className="flex-none text-sm font-bold italic text-emerald-100/80">Belum dijadwalkan</p>
+            <p className="flex-none text-xs font-bold italic text-emerald-100/80">Belum dijadwalkan</p>
           )}
         </div>
 

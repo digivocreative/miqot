@@ -14,11 +14,10 @@ interface DocSpec {
 
 const DOCS: DocSpec[] = [
   { key: 'paspor', label: 'Paspor', matchKeys: ['paspor'] },
-  { key: 'visa', label: 'Visa Umroh', matchKeys: ['visa', 'visa_umroh'] },
-  { key: 'vaksin', label: 'Vaksin Meningitis', matchKeys: ['vaksin', 'meningitis'] },
   { key: 'ktp', label: 'KTP', matchKeys: ['ktp'] },
-  { key: 'kk', label: 'Kartu Keluarga (KK)', matchKeys: ['kk', 'kartu_keluarga'] },
-  { key: 'foto', label: 'Foto 4x6 latar putih', matchKeys: ['foto'] },
+  { key: 'vaksin', label: 'Vaksin Meningitis', matchKeys: ['vaksin', 'meningitis', 'icv'] },
+  { key: 'foto_46', label: 'Foto 4x6 latar putih', matchKeys: ['foto_46', 'foto', 'pas_foto'] },
+  { key: 'buku_nikah', label: 'Buku Nikah', matchKeys: ['buku_nikah', 'nikah', 'buku nikah'] },
 ];
 
 function docStatus(jamaah: PortalJamaah | undefined, spec: DocSpec): DocStatus {
@@ -72,7 +71,7 @@ export default function DokumenPage({
         )}
 
         <section className="space-y-3">
-          <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Dokumen Wajib</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Dokumen Wajib</p>
           <div className="space-y-2.5">
             {DOCS.map((doc) => {
               const status = docStatus(selected, doc);
@@ -93,10 +92,10 @@ export default function DokumenPage({
           </div>
         </section>
 
-        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/40 dark:bg-amber-900/20">
+        <section className="rounded-2xl border border-amber-100 bg-amber-50 p-4 dark:border-amber-800/40 dark:bg-amber-900/20">
           <p className="text-sm font-bold text-amber-800 dark:text-amber-200">Belum punya dokumen tertentu?</p>
           <p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">
-            Hubungi {data.agent?.name || 'agent'} untuk panduan &amp; upload via chat WhatsApp.
+            Hubungi {data.agent?.name || 'agent'} untuk panduan &amp; kirim dokumen lewat WhatsApp.
           </p>
         </section>
       </main>

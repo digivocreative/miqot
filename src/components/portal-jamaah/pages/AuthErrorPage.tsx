@@ -22,7 +22,7 @@ export default function AuthErrorPage({
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8 font-sans">
-      <main className="w-full max-w-md">
+      <main className="w-full max-w-lg">
         <section className="rounded-2xl border border-slate-100 bg-white p-6 text-center shadow-sm">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-red-100 bg-red-50 text-red-600">
             <AlertCircle size={28} strokeWidth={2} />

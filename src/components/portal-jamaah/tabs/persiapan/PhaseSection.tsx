@@ -21,15 +21,15 @@ export default function PhaseSection({
         <div className="flex min-w-0 items-center gap-2">
           <span
             className={`h-2.5 w-2.5 flex-none rounded-full ${
-              active ? 'animate-pulse bg-emerald-600' : 'bg-slate-300'
+              active ? 'animate-pulse bg-emerald-600 dark:bg-emerald-400' : 'bg-slate-300 dark:bg-slate-600'
             }`}
           />
           <div className="min-w-0">
-            <p className={`truncate text-sm font-bold ${active ? 'text-emerald-700' : 'text-slate-700'}`}>{label}</p>
-            <p className="text-xs text-slate-500">{dateLabel}</p>
+            <p className={`truncate text-sm font-bold ${active ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-700 dark:text-slate-200'}`}>{label}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{dateLabel}</p>
           </div>
         </div>
-        <span className="flex-none rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+        <span className="flex-none rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
           {done}/{total}
         </span>
       </div>

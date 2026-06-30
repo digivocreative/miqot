@@ -41,7 +41,7 @@ export default function ManasikSpiritualPage({
         </section>
 
         <section className="space-y-3">
-          <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Persiapan Spiritual</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Persiapan Spiritual</p>
           {spiritual.length === 0 ? (
             <div className="rounded-2xl border border-gray-100 bg-white p-5 text-sm text-gray-500 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
               Checklist spiritual belum tersedia.

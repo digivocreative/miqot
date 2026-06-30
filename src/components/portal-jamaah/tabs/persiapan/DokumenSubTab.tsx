@@ -19,7 +19,7 @@ function docEntry(jamaah: PortalJamaah, id: string) {
     ktp: ['ktp', 'KTP'],
     vaksin: ['vaksin', 'vaksin_meningitis', 'meningitis', 'icv'],
     foto_46: ['foto_46', 'foto', 'pas_foto'],
-    buku_nikah: ['buku_nikah', 'nikah'],
+    buku_nikah: ['buku_nikah', 'nikah', 'buku nikah'],
   };
   for (const key of aliases[id] || [id]) {
     if (Object.prototype.hasOwnProperty.call(docs, key)) return docs[key] as Record<string, unknown> | boolean;
@@ -60,46 +60,46 @@ Mohon dicek ya.`;
   const waLink = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(waText)}` : null;
 
   return (
-    <main className="mx-auto w-full max-w-md pb-28">
+    <main className="mx-auto w-full max-w-lg px-4 pb-28 pt-5">
       <JamaahSelector jamaah={data.jamaah} selectedId={active.id} onChange={onSelectJamaah} />
 
-      <div className="space-y-4 px-4 pt-4">
-        <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+      <div className="mt-5 space-y-4">
+        <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Sedang dilihat</p>
-              <p className="mt-1 truncate text-lg font-bold text-slate-950">{active.nama}</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Sedang dilihat</p>
+              <p className="mt-1 truncate text-lg font-bold text-slate-950 dark:text-white">{active.nama}</p>
               {active.no_paspor && (
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   Paspor {active.no_paspor} · exp {formatLongDate(active.paspor_expired)}
                 </p>
               )}
             </div>
-            <span className="flex-none rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+            <span className="flex-none rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
               {done}/{DOCUMENT_ITEMS.length} Lengkap
             </span>
           </div>
         </section>
 
         <section>
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Checklist Dokumen</p>
+          <p className="mb-3 text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Checklist Dokumen</p>
           <div className="space-y-3">
             {DOCUMENT_ITEMS.map((item) => {
               const verified = isVerified(active, item.id);
               return (
-                <div key={item.id} className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+                <div key={item.id} className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
                   <div className="flex items-start gap-3">
-                    <div className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${verified ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                    <div className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${verified ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-300'}`}>
                       {verified ? <CheckCircle2 className="h-5 w-5" strokeWidth={2} /> : <FileText className="h-5 w-5" strokeWidth={2} />}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-sm font-semibold text-slate-950">{item.title}</p>
-                        <span className={`flex-none rounded-full px-2.5 py-1 text-[11px] font-semibold ${verified ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                        <p className="text-sm font-semibold text-slate-950 dark:text-white">{item.title}</p>
+                        <span className={`flex-none rounded-full px-2.5 py-1 text-[11px] font-semibold ${verified ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300'}`}>
                           {verified ? 'Diterima' : 'Belum'}
                         </span>
                       </div>
-                      <p className="mt-1 text-xs leading-5 text-slate-500">{item.description}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{item.description}</p>
                     </div>
                   </div>
                 </div>
@@ -113,7 +113,7 @@ Mohon dicek ya.`;
             href={waLink}
             target="_blank"
             rel="noreferrer"
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-800 active:scale-[0.98] dark:bg-emerald-600 dark:hover:bg-emerald-500"
           >
             <MessageCircle className="h-4 w-4" strokeWidth={2} />
             Upload Dokumen Baru

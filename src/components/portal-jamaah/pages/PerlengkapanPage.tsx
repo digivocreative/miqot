@@ -32,7 +32,7 @@ export default function PerlengkapanPage({
         )}
 
         <section className="space-y-3">
-          <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Perlengkapan Umroh</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Perlengkapan Umroh</p>
           {items.length === 0 ? (
             <div className="rounded-2xl border border-gray-100 bg-white p-5 text-sm text-gray-500 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
               Daftar perlengkapan belum tersedia. Hubungi agent untuk info ambil.

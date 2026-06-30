@@ -15,7 +15,7 @@ export default function ItineraryList({ items, itineraryUrl }: { items: Itinerar
 
   if (!items.length) {
     return (
-      <section className="rounded-2xl border border-gray-100 bg-white p-5 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <section className="rounded-2xl border border-gray-100 bg-white p-4 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <CalendarDays className="mx-auto h-8 w-8 text-slate-300 dark:text-slate-600" strokeWidth={2} />
         <p className="mt-3 text-sm font-semibold text-gray-900 dark:text-white">Itinerary belum tersedia</p>
         <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-slate-400">Agent akan membagikan detail perjalanan saat jadwal final.</p>
@@ -39,7 +39,7 @@ export default function ItineraryList({ items, itineraryUrl }: { items: Itinerar
       <div className="space-y-3">
         {visibleItems.map((item, index) => (
           <div key={`${item.dayNumber}-${index}`} className="flex gap-3">
-            <div className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-emerald-50 text-xs font-bold text-emerald-700">
+            <div className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-emerald-50 text-xs font-bold text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
               {item.dayNumber.replace(/^Hari\s*/i, 'D')}
             </div>
             <div className="min-w-0 flex-1 border-b border-gray-100 pb-3 last:border-0 last:pb-0 dark:border-slate-700">
@@ -58,7 +58,7 @@ export default function ItineraryList({ items, itineraryUrl }: { items: Itinerar
           onClick={() => setExpanded(true)}
           className="mt-4 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 dark:border-slate-700 dark:text-slate-200"
         >
-          Lihat {remaining} hari lainnya
+          Lihat semua hari
         </button>
       )}
 

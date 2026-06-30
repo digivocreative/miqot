@@ -4,7 +4,7 @@ const STORAGE_KEY = 'portalDarkMode';
 
 function readInitial(): boolean {
   if (typeof window === 'undefined') return false;
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  const stored = window.sessionStorage.getItem(STORAGE_KEY);
   if (stored === 'true') return true;
   if (stored === 'false') return false;
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
@@ -21,7 +21,7 @@ export function usePortalTheme() {
   useEffect(() => {
     applyDarkClass(isDark);
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(STORAGE_KEY, String(isDark));
+      window.sessionStorage.setItem(STORAGE_KEY, String(isDark));
     }
   }, [isDark]);
 

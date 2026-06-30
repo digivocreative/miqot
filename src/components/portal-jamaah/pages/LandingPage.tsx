@@ -68,7 +68,7 @@ export default function LandingPage({ slug }: { slug: string }) {
   if (!loadingAgent && !agent) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8 font-sans">
-        <section className="w-full max-w-md rounded-2xl border border-slate-100 bg-white p-6 text-center shadow-sm">
+        <section className="w-full max-w-lg rounded-2xl border border-slate-100 bg-white p-6 text-center shadow-sm">
           <h1 className="text-xl font-bold text-slate-950">Agent tidak ditemukan</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">Pastikan alamat portal yang Anda buka sudah benar.</p>
         </section>
@@ -79,7 +79,7 @@ export default function LandingPage({ slug }: { slug: string }) {
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 font-sans text-slate-900">
       <AgentHeaderBar agent={agent} />
-      <main className="mx-auto w-full max-w-md px-4 pb-10 pt-8">
+      <main className="mx-auto w-full max-w-lg px-4 pb-10 pt-8">
         <section className="text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-700 text-white shadow-sm">
             <Moon size={30} strokeWidth={2} />

@@ -64,7 +64,7 @@ export default function AuthConsumePage({ slug, token }: { slug: string; token: 
   if (state === 'success' && result) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8 font-sans">
-        <main className="w-full max-w-md">
+        <main className="w-full max-w-lg">
           <section className="rounded-2xl border border-slate-100 bg-white p-6 text-center shadow-sm">
             <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border-2 border-emerald-700 bg-white text-emerald-700">
               <Check size={36} strokeWidth={2} />
