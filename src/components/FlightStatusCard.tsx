@@ -41,6 +41,7 @@ interface FlightSegmentData {
 
 interface FlightData extends FlightSegmentData {
   cardKey?: string | null;
+  transitLabel?: string | null;
   group: string;
   pax: number;
   tourLeader: string;
@@ -845,9 +846,9 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                   {/* Flight info */}
                   <div className="flex-1 min-w-0">
                     {/* Row 1: flight number + status badge + total pax */}
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[13px] font-bold text-gray-800 dark:text-white">
-                        {hasSegmentRows ? `${segments.length} penerbangan` : first.flightNumber}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="min-w-0 truncate text-[13px] font-bold text-gray-800 dark:text-white">
+                        {hasSegmentRows ? (first.transitLabel || 'Transit') : first.flightNumber}
                       </span>
                       {!hasSegmentRows && (
                         <span className={`text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide ${sc.bg}`}>

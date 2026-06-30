@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import { mergeFlightEntriesByTourLeader } from '../lib/flight-entry-merge.js';
 
 test('transit segments from the same TL/event merge into one card without double pax or jamaah', () => {
+  const firstDepUTC = Date.parse('2026-07-01T17:40:00Z');
+  const firstArrUTC = Date.parse('2026-07-01T20:30:00Z');
+  const secondDepUTC = Date.parse('2026-07-01T23:00:00Z');
+  const secondArrUTC = Date.parse('2026-07-02T07:35:00Z');
+
   const merged = mergeFlightEntriesByTourLeader([
     {
       id: '2026-07-02_EK802_g5',
@@ -25,8 +30,8 @@ test('transit segments from the same TL/event merge into one card without double
       _mergeSourceKey: 'calendar-row-1',
       _segmentIndex: 0,
       _segmentCount: 2,
-      _depUTC: 1000,
-      _arrUTC: 2000,
+      _depUTC: firstDepUTC,
+      _arrUTC: firstArrUTC,
     },
     {
       id: '2026-07-02_EK358_g5',
@@ -49,8 +54,8 @@ test('transit segments from the same TL/event merge into one card without double
       _mergeSourceKey: 'calendar-row-1',
       _segmentIndex: 1,
       _segmentCount: 2,
-      _depUTC: 2000,
-      _arrUTC: 3000,
+      _depUTC: secondDepUTC,
+      _arrUTC: secondArrUTC,
     },
   ]);
 
@@ -61,6 +66,7 @@ test('transit segments from the same TL/event merge into one card without double
   assert.equal(merged[0].arrCode, 'CGK');
   assert.equal(merged[0].pax, 28);
   assert.equal(merged[0].jamaah.length, 1);
+  assert.equal(merged[0].transitLabel, 'Transit 2 jam 30 menit di Dubai');
   assert.equal(merged[0].segments.length, 2);
   assert.deepEqual(
     merged[0].segments.map(s => ({
