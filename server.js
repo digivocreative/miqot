@@ -32,6 +32,7 @@ import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
 import { buildScheduleFlightMap, buildJamaahFlightIndex, jamaahForFlightCard } from './lib/flight-jamaah.js';
+import { mergeFlightEntriesByTourLeader } from './lib/flight-entry-merge.js';
 import { parseFlightSegmentsFromCalendar, parseRouteLegs, routeStringForEventType } from './lib/flight-segments.js';
 import { buildDepartureDateLookup, departureDateForCalendarEvent } from './lib/calendar-return-departure.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
@@ -8819,6 +8820,11 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
           : event.jadwal_id
             ? `${flightId}_j${event.jadwal_id}`
             : flightId;
+        const sourceEventKey = event.id
+          || `${event.event_date}_${event.event_type}_${event.jadwal_id || event.group_number || event.tour_leader || ''}`;
+        const segmentRouteLabel = segment.route?.dep && segment.route?.arr
+          ? `${segment.route.dep}-${segment.route.arr}`
+          : null;
 
         // Try to get shared flight data (from cache or DB), but only query once per flightId
         let flightBase = flightDataCache.get(flightId);
@@ -8875,6 +8881,12 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
               flightIata: segment.flightIata,
               depDate: departureDateForCalendarEvent(event, depDateLookup),
             }),
+            routeLabel: segment.segmentCount > 1 ? segmentRouteLabel : null,
+            _mergeSourceKey: sourceEventKey,
+            _segmentIndex: segment.segmentIndex,
+            _segmentCount: segment.segmentCount,
+            _depUTC: segment.times?.depUTC || null,
+            _arrUTC: segment.times?.arrUTC || null,
           };
 
           // Override stale status if departure time has clearly passed.
@@ -8984,15 +8996,23 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
             aircraftType: null, aircraftReg: null,
             duration: durationMin,
             depDelayed: 0, arrDelayed: 0, arrBaggage: null,
+            routeLabel: segment.segmentCount > 1 ? segmentRouteLabel : null,
+            _mergeSourceKey: sourceEventKey,
+            _segmentIndex: segment.segmentIndex,
+            _segmentCount: segment.segmentCount,
+            _depUTC: depUTC,
+            _arrUTC: arrUTC,
           });
         }
       }
     }
 
+    const mergedFlights = mergeFlightEntriesByTourLeader(flights);
+
     // Sort: en-route first, then delayed, scheduled, landed, cancelled
     // Sort: newest date first, then by status priority within same date
     const statusOrder = { 'en-route': 0, 'delayed': 1, 'scheduled': 2, 'landed': 3, 'cancelled': 4 };
-    flights.sort((a, b) => {
+    mergedFlights.sort((a, b) => {
       const dateA = a.depScheduled || a.id;
       const dateB = b.depScheduled || b.id;
       // Compare dates descending (newest first)
@@ -9007,7 +9027,7 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
 
     // Filter out landed/cancelled flights older than 6 hours
     const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
-    const filtered = flights.filter(f => {
+    const filtered = mergedFlights.filter(f => {
       if (f.status !== 'landed' && f.status !== 'cancelled') return true;
       // Calculate arrival time in UTC to determine how long ago the flight ended
       const flightDate = f.id?.substring(0, 10);

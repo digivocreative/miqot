@@ -49,6 +49,7 @@ interface FlightData {
   jamaah?: { nama: string; jk: string | null; wa: string | null }[];
   calendarDepTime?: string;  // calendar-derived dep time (if differs from airline schedule)
   calendarArrTime?: string;  // calendar-derived arr time (if differs from airline schedule)
+  routeLabel?: string | null; // multi-leg route label, e.g. JED-DXB / DXB-CGK
 }
 
 // ── Status Config ──
@@ -798,9 +799,17 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
 
                     {/* Row 2: route visualization */}
                     <div className="flex items-center gap-1.5 mt-1">
-                      <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{first.depCode || '—'}</span>
-                      <RouteLine flight={first} />
-                      <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{first.arrCode || '—'}</span>
+                      {first.routeLabel ? (
+                        <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400 truncate">
+                          {first.routeLabel}
+                        </span>
+                      ) : (
+                        <>
+                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{first.depCode || '—'}</span>
+                          <RouteLine flight={first} />
+                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{first.arrCode || '—'}</span>
+                        </>
+                      )}
                     </div>
                   </div>
 
