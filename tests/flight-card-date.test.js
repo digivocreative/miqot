@@ -46,3 +46,16 @@ test('flight card grouping keeps adjacent same-number flights on separate calend
   assert.equal(flightCardGroupKey(sv827June21), 'SV 827__2026-06-21');
   assert.notEqual(flightCardGroupKey(sv827June20), flightCardGroupKey(sv827June21));
 });
+
+test('flight card grouping can use backend cardKey for multi-segment journey cards', async () => {
+  const { flightCardGroupKey } = await importTsModule('src/lib/flightCardDate.ts');
+
+  assert.equal(
+    flightCardGroupKey({
+      cardKey: 'journey:2026-07-02_kepulangan_JBU1999',
+      flightNumber: '2 penerbangan',
+      eventDate: '2026-07-02',
+    }),
+    'journey:2026-07-02_kepulangan_JBU1999__2026-07-02'
+  );
+});

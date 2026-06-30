@@ -1,4 +1,5 @@
 type FlightDateLike = {
+  cardKey?: string | null;
   flightNumber?: string | null;
   eventDate?: string | null;
   depDate?: string | null;
@@ -23,5 +24,6 @@ export function flightCardDisplayDateValue(flight: FlightDateLike): string {
 }
 
 export function flightCardGroupKey(flight: FlightDateLike): string {
+  if (flight.cardKey) return `${flight.cardKey}__${flightCardDateKey(flight)}`;
   return `${flight.flightNumber || ''}__${flightCardDateKey(flight)}`;
 }

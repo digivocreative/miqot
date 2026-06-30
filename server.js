@@ -8822,6 +8822,12 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
             : flightId;
         const sourceEventKey = event.id
           || `${event.event_date}_${event.event_type}_${event.jadwal_id || event.group_number || event.tour_leader || ''}`;
+        const cardJourneyKey = [
+          event.event_date,
+          event.event_type,
+          String(event.tour_leader || '').replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase(),
+          segments.map(s => s.flightIata).join('_'),
+        ].join('__');
         const segmentRouteLabel = segment.route?.dep && segment.route?.arr
           ? `${segment.route.dep}-${segment.route.arr}`
           : null;
@@ -8883,6 +8889,7 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
             }),
             routeLabel: segment.segmentCount > 1 ? segmentRouteLabel : null,
             _mergeSourceKey: sourceEventKey,
+            _mergeCardKey: segment.segmentCount > 1 ? cardJourneyKey : null,
             _segmentIndex: segment.segmentIndex,
             _segmentCount: segment.segmentCount,
             _depUTC: segment.times?.depUTC || null,
@@ -8998,6 +9005,7 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
             depDelayed: 0, arrDelayed: 0, arrBaggage: null,
             routeLabel: segment.segmentCount > 1 ? segmentRouteLabel : null,
             _mergeSourceKey: sourceEventKey,
+            _mergeCardKey: segment.segmentCount > 1 ? cardJourneyKey : null,
             _segmentIndex: segment.segmentIndex,
             _segmentCount: segment.segmentCount,
             _depUTC: depUTC,

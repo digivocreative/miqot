@@ -55,12 +55,26 @@ test('transit segments from the same TL/event merge into one card without double
   ]);
 
   assert.equal(merged.length, 1);
-  assert.equal(merged[0].flightNumber, 'EK 802 / EK 358');
-  assert.equal(merged[0].routeLabel, 'JED-DXB / DXB-CGK');
+  assert.equal(merged[0].flightNumber, 'EK 802');
+  assert.equal(merged[0].routeLabel, null);
   assert.equal(merged[0].depCode, 'JED');
   assert.equal(merged[0].arrCode, 'CGK');
   assert.equal(merged[0].pax, 28);
   assert.equal(merged[0].jamaah.length, 1);
+  assert.equal(merged[0].segments.length, 2);
+  assert.deepEqual(
+    merged[0].segments.map(s => ({
+      flightNumber: s.flightNumber,
+      routeLabel: s.routeLabel,
+      status: s.status,
+      depCode: s.depCode,
+      arrCode: s.arrCode,
+    })),
+    [
+      { flightNumber: 'EK 802', routeLabel: 'JED-DXB', status: 'scheduled', depCode: 'JED', arrCode: 'DXB' },
+      { flightNumber: 'EK 358', routeLabel: 'DXB-CGK', status: 'scheduled', depCode: 'DXB', arrCode: 'CGK' },
+    ]
+  );
   assert.equal(merged[0]._mergeSourceKey, undefined);
 });
 
@@ -104,5 +118,72 @@ test('same flight and same TL rows merge while pax remains per source row', () =
   assert.equal(merged.length, 1);
   assert.equal(merged[0].group, '5, 6');
   assert.equal(merged[0].pax, 35);
+  assert.deepEqual(merged[0].jamaah.map(j => j.nama), ['PAX A', 'PAX B']);
+});
+
+test('same transit journey and same TL can merge across source rows without losing pax', () => {
+  const base = {
+    eventDate: '2026-07-02',
+    tourLeader: 'LENI AULIANINGSIH',
+    status: 'scheduled',
+    _mergeCardKey: '2026-07-02__kepulangan__LENI AULIANINGSIH__EK802_EK358',
+    _segmentCount: 2,
+  };
+  const merged = mergeFlightEntriesByTourLeader([
+    {
+      ...base,
+      id: 'row1_EK802',
+      flightNumber: 'EK 802',
+      group: '5',
+      pax: 20,
+      depCode: 'JED',
+      arrCode: 'DXB',
+      jamaah: [{ nama: 'PAX A', jk: 'P', wa: '6281' }],
+      _mergeSourceKey: 'row1',
+      _segmentIndex: 0,
+    },
+    {
+      ...base,
+      id: 'row1_EK358',
+      flightNumber: 'EK 358',
+      group: '5',
+      pax: 20,
+      depCode: 'DXB',
+      arrCode: 'CGK',
+      jamaah: [{ nama: 'PAX A', jk: 'P', wa: '6281' }],
+      _mergeSourceKey: 'row1',
+      _segmentIndex: 1,
+    },
+    {
+      ...base,
+      id: 'row2_EK802',
+      flightNumber: 'EK 802',
+      group: '6',
+      pax: 15,
+      depCode: 'JED',
+      arrCode: 'DXB',
+      jamaah: [{ nama: 'PAX B', jk: 'L', wa: '6282' }],
+      _mergeSourceKey: 'row2',
+      _segmentIndex: 0,
+    },
+    {
+      ...base,
+      id: 'row2_EK358',
+      flightNumber: 'EK 358',
+      group: '6',
+      pax: 15,
+      depCode: 'DXB',
+      arrCode: 'CGK',
+      jamaah: [{ nama: 'PAX B', jk: 'L', wa: '6282' }],
+      _mergeSourceKey: 'row2',
+      _segmentIndex: 1,
+    },
+  ]);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].group, '5, 6');
+  assert.equal(merged[0].pax, 35);
+  assert.equal(merged[0].segments.length, 2);
+  assert.deepEqual(merged[0].segments.map(s => s.flightNumber), ['EK 802', 'EK 358']);
   assert.deepEqual(merged[0].jamaah.map(j => j.nama), ['PAX A', 'PAX B']);
 });

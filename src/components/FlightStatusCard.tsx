@@ -11,12 +11,11 @@ const FlightMap = lazy(() => import('./FlightMap'));
 
 // ── Types ──
 
-interface FlightData {
+interface FlightSegmentData {
   id: string;
   flightNumber: string;
   airline: string;
   airlineLogo?: string;
-  group: string;
   status: 'en-route' | 'scheduled' | 'landed' | 'delayed' | 'cancelled';
   depCity: string;
   depCode: string;
@@ -30,6 +29,19 @@ interface FlightData {
   arrGate?: string;
   arrScheduled: string;
   arrEstimated?: string;
+  progress: number;
+  delayed: number;
+  duration?: number | null;
+  depDelayed?: number;
+  arrDelayed?: number;
+  calendarDepTime?: string;
+  calendarArrTime?: string;
+  routeLabel?: string | null;
+}
+
+interface FlightData extends FlightSegmentData {
+  cardKey?: string | null;
+  group: string;
   pax: number;
   tourLeader: string;
   eventDate?: string;
@@ -50,6 +62,7 @@ interface FlightData {
   calendarDepTime?: string;  // calendar-derived dep time (if differs from airline schedule)
   calendarArrTime?: string;  // calendar-derived arr time (if differs from airline schedule)
   routeLabel?: string | null; // multi-leg route label, e.g. JED-DXB / DXB-CGK
+  segments?: FlightSegmentData[];
 }
 
 // ── Status Config ──
@@ -247,6 +260,49 @@ function groupFlights(flights: FlightData[]): FlightData[][] {
     return dateA.localeCompare(dateB);
   });
   return grouped;
+}
+
+function FlightSegmentRows({ segments }: { segments: FlightSegmentData[] }) {
+  if (segments.length <= 1) return null;
+
+  return (
+    <div className="border-t border-gray-50 dark:border-slate-700/50 px-2.5 py-2 flex flex-col gap-1.5">
+      {segments.map((segment, idx) => {
+        const sc = STATUS_CFG[segment.status] || STATUS_CFG.scheduled;
+        const route = segment.routeLabel || `${segment.depCode || '—'}-${segment.arrCode || '—'}`;
+        const dep = formatTime(segment.depActual || segment.depScheduled);
+        const arr = formatTime(segment.arrEstimated || segment.arrScheduled);
+
+        return (
+          <div
+            key={segment.id || `${segment.flightNumber}-${idx}`}
+            className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-lg bg-gray-50 dark:bg-slate-900 px-3 py-2"
+          >
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[11px] font-bold text-gray-800 dark:text-white truncate">
+                  {segment.flightNumber}
+                </span>
+                <span className={`text-[7px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide ${sc.bg}`}>
+                  {sc.label}
+                </span>
+                {segment.delayed > 0 && (
+                  <span className="text-[8px] font-bold text-red-500 dark:text-red-400">+{segment.delayed}m</span>
+                )}
+              </div>
+              <div className="mt-0.5 text-[10px] font-semibold text-gray-500 dark:text-slate-400 truncate">
+                {route}
+              </div>
+            </div>
+            <div className="text-right flex flex-col justify-center">
+              <span className="text-[10px] font-bold text-gray-700 dark:text-slate-200">{dep}</span>
+              <span className="text-[9px] font-medium text-gray-400 dark:text-slate-500">{arr}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // ── Expanded detail panel for a single kloter ──
@@ -744,6 +800,8 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
         <div className="p-2.5 space-y-2">
           {grouped.map((group) => {
             const first = group[0];
+            const segments = first.segments?.length ? first.segments : [];
+            const hasSegmentRows = segments.length > 1;
             const sc = STATUS_CFG[first.status] || STATUS_CFG.scheduled;
             const totalPax = group.reduce((sum, f) => sum + (f.pax ?? 0), 0);
             const depTime = formatTime(first.depActual || first.depScheduled);
@@ -788,18 +846,26 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                   <div className="flex-1 min-w-0">
                     {/* Row 1: flight number + status badge + total pax */}
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[13px] font-bold text-gray-800 dark:text-white">{first.flightNumber}</span>
-                      <span className={`text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide ${sc.bg}`}>
-                        {sc.label}
+                      <span className="text-[13px] font-bold text-gray-800 dark:text-white">
+                        {hasSegmentRows ? `${segments.length} penerbangan` : first.flightNumber}
                       </span>
-                      {first.delayed > 0 && (
+                      {!hasSegmentRows && (
+                        <span className={`text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide ${sc.bg}`}>
+                          {sc.label}
+                        </span>
+                      )}
+                      {!hasSegmentRows && first.delayed > 0 && (
                         <span className="text-[9px] font-bold text-red-500 dark:text-red-400">+{first.delayed}m</span>
                       )}
                     </div>
 
                     {/* Row 2: route visualization */}
                     <div className="flex items-center gap-1.5 mt-1">
-                      {first.routeLabel ? (
+                      {hasSegmentRows ? (
+                        <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400 truncate">
+                          {first.depCode || '—'} → {first.arrCode || '—'}
+                        </span>
+                      ) : first.routeLabel ? (
                         <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400 truncate">
                           {first.routeLabel}
                         </span>
@@ -843,6 +909,8 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                     <ChevronDown size={13} />
                   </motion.div>
                 </button>
+
+                <FlightSegmentRows segments={segments} />
 
                 {/* ── Kloter sub-list (always visible, static) ── */}
                 <div className="border-t border-gray-50 dark:border-slate-700/50 px-2.5 pb-2 pt-1.5 flex flex-col gap-1">
