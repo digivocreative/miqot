@@ -8197,6 +8197,8 @@ const FLIGHT_TOUR_STOPS = {
   ANK: { key: 'ankara', pattern: /\b(ANKARA|ANK)\b/i },
 };
 
+const TOUR_CONTINUATION_LOOKAHEAD_MS = 12 * 60 * 60 * 1000;
+
 function scheduleHotelMentionsCity(paketHotel, cityKey, cityCode) {
   if (!paketHotel || typeof paketHotel !== 'object') return false;
   const codePattern = cityCode ? new RegExp(`\\b${cityCode}\\b`, 'i') : null;
@@ -8266,15 +8268,54 @@ function routeForFlightSegment(segment, event, schedule, segmentIndex) {
 
 function buildFlightSegmentsForEvent(event, scheduleById = new Map()) {
   const schedule = event.jadwal_id ? scheduleById.get(String(event.jadwal_id)) : null;
-  const segments = parseFlightSegmentsFromCalendar(event.pesawat, {
+  const scheduleSegments = parseFlightSegmentsFromCalendar(event.pesawat, {
     eventType: event.event_type,
     schedule,
   });
-  if (segments.length === 0) return [];
+  if (scheduleSegments.length === 0) return [];
 
-  const routes = segments.map((segment, idx) => routeForFlightSegment(segment, event, schedule, idx));
+  const fullRoutes = scheduleSegments.map((segment, idx) => routeForFlightSegment(segment, event, schedule, idx));
+  const tourStopoverCodes = tourStopoverCodesForEvent(event, schedule, fullRoutes);
+  let segments = scheduleSegments;
+
+  if (tourStopoverCodes.size > 0) {
+    const calendarSegments = parseFlightSegmentsFromCalendar(event.pesawat, {
+      eventType: event.event_type,
+      schedule: null,
+    });
+    const scheduleIndexByFlight = new Map(scheduleSegments.map((segment, idx) => [segment.flightIata, idx]));
+    if (calendarSegments.length > 0) {
+      const mappedCalendarSegments = calendarSegments.map((segment) => ({
+        ...segment,
+        segmentIndex: scheduleIndexByFlight.get(segment.flightIata) ?? segment.segmentIndex,
+      }));
+      if (mappedCalendarSegments.length > 1) {
+        const firstStopIndex = mappedCalendarSegments.findIndex((segment) => {
+          const route = routeForFlightSegment(segment, event, schedule, segment.segmentIndex);
+          return route?.arr && tourStopoverCodes.has(route.arr);
+        });
+        segments = mappedCalendarSegments.slice(0, firstStopIndex >= 0 ? firstStopIndex + 1 : 1);
+      } else {
+        segments = mappedCalendarSegments;
+      }
+    } else {
+      const firstStopIndex = fullRoutes.findIndex(route => route?.arr && tourStopoverCodes.has(route.arr));
+      segments = scheduleSegments.slice(0, firstStopIndex >= 0 ? firstStopIndex + 1 : 1);
+    }
+  }
+
+  const routes = segments.map((segment) => routeForFlightSegment(segment, event, schedule, segment.segmentIndex));
   const times = deriveCalendarFlightSegmentTimes(event, routes);
-  const tourStopoverCodes = tourStopoverCodesForEvent(event, schedule, routes);
+  if (tourStopoverCodes.size > 0 && segments.length === 1) {
+    const firstStopIndex = fullRoutes.findIndex(route => route?.arr && tourStopoverCodes.has(route.arr));
+    const segmentIndex = Number(segments[0]?.segmentIndex);
+    const depUTC = Number(times[0]?.depUTC);
+    const isTourContinuation = firstStopIndex >= 0 && Number.isFinite(segmentIndex) && segmentIndex > firstStopIndex;
+    if (isTourContinuation && Number.isFinite(depUTC) && depUTC - Date.now() > TOUR_CONTINUATION_LOOKAHEAD_MS) {
+      return [];
+    }
+  }
+
   return segments.map((segment, idx) => ({
     ...segment,
     route: routes[idx],

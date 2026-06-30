@@ -66,7 +66,7 @@ test('transit segments from the same TL/event merge into one card without double
   assert.equal(merged[0].arrCode, 'CGK');
   assert.equal(merged[0].pax, 28);
   assert.equal(merged[0].jamaah.length, 1);
-  assert.equal(merged[0].transitLabel, 'Transit 2 jam 30 menit di Dubai');
+  assert.equal(merged[0].transitLabel, 'Menuju Dubai');
   assert.equal(merged[0].segments.length, 2);
   assert.deepEqual(
     merged[0].segments.map(s => ({
@@ -203,7 +203,7 @@ test('tour stopover segments are labeled as tour, not short transit', () => {
       group: '8',
       tourLeader: 'NIKITA SARI',
       pax: 46,
-      status: 'scheduled',
+      status: 'landed',
       depCode: 'CGK',
       depCity: 'Jakarta',
       arrCode: 'DXB',
@@ -225,7 +225,7 @@ test('tour stopover segments are labeled as tour, not short transit', () => {
       group: '8',
       tourLeader: 'NIKITA SARI',
       pax: 46,
-      status: 'scheduled',
+      status: 'landed',
       depCode: 'DXB',
       depCity: 'Dubai',
       arrCode: 'MED',
@@ -253,7 +253,7 @@ test('tour stopover label includes days when actual segment gap is available', (
       group: '8',
       tourLeader: 'NIKITA SARI',
       pax: 46,
-      status: 'scheduled',
+      status: 'landed',
       depCode: 'CGK',
       depCity: 'Jakarta',
       arrCode: 'DXB',
@@ -275,7 +275,7 @@ test('tour stopover label includes days when actual segment gap is available', (
       group: '8',
       tourLeader: 'NIKITA SARI',
       pax: 46,
-      status: 'scheduled',
+      status: 'landed',
       depCode: 'DXB',
       depCity: 'Dubai',
       arrCode: 'MED',

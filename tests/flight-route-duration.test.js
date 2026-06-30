@@ -62,3 +62,9 @@ test('EK358 fallback route is Dubai to Jakarta', () => {
     durationMin: 515,
   });
 });
+
+test('tour stopover events keep the calendar flight leg instead of expanding the full schedule', () => {
+  assert.match(serverSource, /tourStopoverCodes\.size > 0/);
+  assert.match(serverSource, /parseFlightSegmentsFromCalendar\(event\.pesawat,\s*\{\s*eventType:\s*event\.event_type,\s*schedule:\s*null,\s*\}\)/s);
+  assert.match(serverSource, /mappedCalendarSegments\.length > 1/);
+});
