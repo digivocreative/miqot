@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizeFlightCode,
+  normalizeFlightCodes,
   flightKey,
   buildScheduleFlightMap,
   buildJamaahFlightIndex,
@@ -16,6 +17,13 @@ test('normalizeFlightCode: strips spaces, uppercases, takes first leg of multi-l
   assert.equal(normalizeFlightCode(''), '');
   assert.equal(normalizeFlightCode(null), '');
   assert.equal(normalizeFlightCode(undefined), '');
+});
+
+test('normalizeFlightCodes: returns every leg of a transit flight', () => {
+  assert.deepEqual(normalizeFlightCodes('EK 802/358'), ['EK802', 'EK358']);
+  assert.deepEqual(normalizeFlightCodes('EK802 / EK 358'), ['EK802', 'EK358']);
+  assert.deepEqual(normalizeFlightCodes('SV 827'), ['SV827']);
+  assert.deepEqual(normalizeFlightCodes(null), []);
 });
 
 test('normalizeFlightCode matches parseFlightFromCalendar output for both separators', () => {
@@ -86,6 +94,32 @@ test('return leg: kepulangan card matches by pulang flight code + return date', 
   });
   assert.equal(svRet.length, 11);
   assert.ok(svRet.every((j) => j.nama.startsWith('SV')));
+});
+
+test('transit return leg: jamaah are attached to both JED-DXB and DXB-CGK cards', () => {
+  const schedules = [{
+    jadwal_id: 'JBU1999',
+    berangkat_tgl: '2026-06-24',
+    berangkat_kode_penerbangan: 'EK 357/809',
+    pulang_tgl: '2026-07-02',
+    pulang_kode_penerbangan: 'EK 802/358',
+  }];
+  const jamaah = [
+    { nama: 'LENI PAX 1', jk: 'P', wa: '6285001', tgl_berangkat: '2026-06-24', id_jadwal: 'JBU1999' },
+    { nama: 'LENI PAX 2', jk: 'L', wa: '6285002', tgl_berangkat: '2026-06-24', id_jadwal: 'JBU1999' },
+  ];
+  const index = buildJamaahFlightIndex(jamaah, buildScheduleFlightMap(schedules));
+
+  const jedDxb = jamaahForFlightCard(index, {
+    eventType: 'kepulangan', eventDate: '2026-07-02', flightIata: 'EK802', depDate: '2026-06-24',
+  });
+  const dxbCgk = jamaahForFlightCard(index, {
+    eventType: 'kepulangan', eventDate: '2026-07-02', flightIata: 'EK358', depDate: '2026-06-24',
+  });
+
+  assert.equal(jedDxb.length, 2);
+  assert.equal(dxbCgk.length, 2);
+  assert.deepEqual(dxbCgk.map(j => j.nama), jedDxb.map(j => j.nama));
 });
 
 test('a flight with none of the agent\'s jamaah shows empty (not the whole date cohort)', () => {
