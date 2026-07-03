@@ -78,6 +78,7 @@ const FIELD_CONFIG: Record<string, FieldDef> = {
   tgl_lahir:     { label: 'Tanggal Lahir', section: 'jamaah', order: 17, placeholder: 'DD/MM/YYYY' },
   tgllahir:      { label: 'Tanggal Lahir', section: 'jamaah', order: 17, placeholder: 'DD/MM/YYYY' },
   nikah:         { label: 'Status Nikah', section: 'jamaah', order: 18, required: true },
+  status:        { label: 'Status Nikah', section: 'jamaah', order: 18, required: true },
   status_nikah:  { label: 'Status Nikah', section: 'jamaah', order: 18, required: true },
   pekerjaan:     { label: 'Pekerjaan', section: 'jamaah', order: 19, required: true },
   kerja:         { label: 'Pekerjaan', section: 'jamaah', order: 19, required: true },
@@ -465,6 +466,15 @@ interface UmrahRegisterPageProps {
   agentSlug?: string;
   onBack: () => void;
   onNavigate?: (path: string) => void;
+}
+
+function summarizeSubmitErrorText(text: string) {
+  const compact = text.replace(/\s+/g, ' ').trim();
+  if (!compact) return '';
+  if (/<!doctype html|<html\b|cloudflare|cf-error|attention required|bad gateway|gateway timeout|origin is unreachable/i.test(compact)) {
+    return 'Server/proxy mengembalikan halaman error Cloudflare. Cek daftar jamaah dulu; kalau belum masuk, coba ulang beberapa saat lagi.';
+  }
+  return compact.slice(0, 180);
 }
 
 export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterPageProps) {
@@ -975,10 +985,17 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
       const sn = findSelectByLabel('Status Nikah');
       if (sn) {
         const ktpStatus = ktp.status_perkawinan.toUpperCase().trim();
+        const isLaki = /^l|laki/i.test(ktp.jenis_kelamin || '');
+        const legacyTargets = new Set([ktpStatus]);
+        if (/BELUM\s*KAWIN|BELUM\s*MENIKAH/.test(ktpStatus)) legacyTargets.add('BELUM MENIKAH');
+        if (/^KAWIN|^MENIKAH/.test(ktpStatus)) legacyTargets.add('MENIKAH');
+        if (/CERAI/.test(ktpStatus)) legacyTargets.add(isLaki ? 'DUDA' : 'JANDA');
         const opts = options.selects[sn] || [];
         const match = opts.find(o => {
           const lbl = o.label.toUpperCase().trim();
-          return lbl === ktpStatus || lbl.includes(ktpStatus) || ktpStatus.includes(lbl);
+          return [...legacyTargets].some(target => (
+            lbl === target || lbl.includes(target) || target.includes(lbl)
+          ));
         });
         if (match) updates[sn] = match.value;
       }
@@ -1097,7 +1114,13 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
           idb: bindIdb || undefined,
         }),
       });
-      const data = await res.json();
+      const responseText = await res.text();
+      let data: { error?: string; success?: boolean } = {};
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        data = { error: summarizeSubmitErrorText(responseText) };
+      }
       if (!res.ok) {
         setError(data.error || 'Gagal mengirim pendaftaran');
         setSubmitting(false);

@@ -10,6 +10,8 @@ export interface CatalogCoverPickerProps {
   onClose: () => void;
   /** Confirm the chosen cover and start the catalog PDF download. */
   onDownload: () => void;
+  description?: string;
+  downloadLabel?: string;
 }
 
 /**
@@ -20,7 +22,15 @@ export interface CatalogCoverPickerProps {
  * artwork is only fetched once the agent opens the picker. Selection is persisted
  * by the parent (localStorage).
  */
-export function CatalogCoverPicker({ open, selectedId, onSelect, onClose, onDownload }: CatalogCoverPickerProps) {
+export function CatalogCoverPicker({
+  open,
+  selectedId,
+  onSelect,
+  onClose,
+  onDownload,
+  description = 'Dipakai untuk PDF & diingat di perangkat ini',
+  downloadLabel = 'Unduh Katalog (PDF)',
+}: CatalogCoverPickerProps) {
   return createPortal(
     <AnimatePresence>
       {open && (
@@ -52,7 +62,7 @@ export function CatalogCoverPicker({ open, selectedId, onSelect, onClose, onDown
             <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-gray-100 dark:border-slate-800">
               <div className="min-w-0">
                 <div className="text-base font-bold text-gray-900 dark:text-white">Pilih Cover Katalog</div>
-                <div className="text-xs text-gray-500 dark:text-slate-400">Dipakai untuk PDF & diingat di perangkat ini</div>
+                <div className="text-xs text-gray-500 dark:text-slate-400">{description}</div>
               </div>
               <button
                 type="button"
@@ -104,7 +114,7 @@ export function CatalogCoverPicker({ open, selectedId, onSelect, onClose, onDown
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95"
               >
                 <FileDown size={17} />
-                <span>Unduh Katalog (PDF)</span>
+                <span>{downloadLabel}</span>
               </button>
             </div>
           </motion.div>

@@ -177,6 +177,16 @@ function canConfirmLunas(item: Pick<JamaahItem, 'sisa' | 'bayar' | 'raw_data'>) 
   return getPaymentStatus(item) !== 'lunas' && typeof g === 'string' && AGGREGATE_MANAGED_GUARDS.includes(g);
 }
 
+function getLegacyAddIdb(item: Pick<JamaahItem, 'id_umroh' | 'raw_data'>) {
+  const idUmroh = String(item.id_umroh || '').trim();
+  if (!idUmroh) return '';
+  const idJadwal = typeof item.raw_data?.id_jadwal === 'string'
+    ? item.raw_data.id_jadwal.trim()
+    : '';
+  if (!idJadwal || idUmroh.includes('.')) return idUmroh;
+  return `${idUmroh}.${idJadwal}`;
+}
+
 function normalizeDocumentPath(value: unknown): string {
   if (typeof value !== 'string') return '';
   const text = value.trim();
@@ -1632,7 +1642,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                       <button
                         type="button"
                         onClick={() => {
-                          const paramsObj: Record<string, string> = { idb: entry.idu, from: first.nama };
+                          const paramsObj: Record<string, string> = { idb: getLegacyAddIdb(first), from: first.nama };
                           if (first.tgl_berangkat) paramsObj.date = first.tgl_berangkat;
                           if (first.paket) paramsObj.paket = first.paket;
                           const params = new URLSearchParams(paramsObj);
@@ -2275,7 +2285,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                           <button
                             type="button"
                             onClick={() => {
-                              const paramsObj: Record<string, string> = { idb: item.id_umroh, from: item.nama };
+                              const paramsObj: Record<string, string> = { idb: getLegacyAddIdb(item), from: item.nama };
                               if (item.tgl_berangkat) paramsObj.date = item.tgl_berangkat;
                               if (item.paket) paramsObj.paket = item.paket;
                               const params = new URLSearchParams(paramsObj);

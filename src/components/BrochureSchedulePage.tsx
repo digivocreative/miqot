@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { Options as ModernScreenshotOptions } from 'modern-screenshot';
-import { Download, Share2, Loader2, FileDown } from 'lucide-react';
+import { Download, Share2, Loader2, FileDown, Check } from 'lucide-react';
 import FilterDropdown from './FilterDropdown';
 import {
   BrochureScheduleTemplate,
@@ -160,6 +160,21 @@ function catalogFilename(agent: BrochureAgent): string {
 }
 
 type FilterDim = 'bulan' | 'tipe' | 'maskapai' | 'landing';
+type CatalogMode = 'active-filter' | 'all-ready';
+type CatalogStage =
+  | { kind: 'cover' }
+  | { kind: 'page'; page: BrochureMonth; showFullDate: boolean; variant: 'default' | 'winter' };
+
+function catalogFilenameWithLabel(agent: BrochureAgent, label?: string | null): string {
+  if (!label) return catalogFilename(agent);
+  const who = (agent.slug || agent.name || 'alhijaz')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'alhijaz';
+  const slug = label
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'filter';
+  const d = new Date();
+  const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return `katalog-umroh-${who}-${slug}-${ym}.pdf`;
+}
 
 const FILTER_DIM_LABELS: Record<FilterDim, string> = {
   bulan: 'Bulan',
@@ -260,13 +275,14 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   // and state updates would re-render every preview card for no UI benefit.
   const exportCacheRef = useRef<Map<string, ExportedImage>>(new Map());
 
-  // ── "Unduh Katalog" (multi-month PDF) state ──
-  // The catalog always uses Bulan + available-only, independent of the on-screen
-  // filter. Pages are rendered one at a time into a dedicated off-screen stage to
-  // cap memory; catalogStage drives what that stage currently shows.
+  // ── "Unduh Katalog" (multi-page PDF) state ──
+  // Catalog export can use either the active on-screen filter or the legacy
+  // "all ready packages" source. Pages are rendered one at a time into a
+  // dedicated off-screen stage to cap memory; catalogStage drives that stage.
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogProgress, setCatalogProgress] = useState<{ done: number; total: number } | null>(null);
-  const [catalogStage, setCatalogStage] = useState<{ kind: 'cover' } | { kind: 'page'; page: BrochureMonth } | null>(null);
+  const [catalogMode, setCatalogMode] = useState<CatalogMode>('all-ready');
+  const [catalogStage, setCatalogStage] = useState<CatalogStage | null>(null);
   const [coverId, setCoverId] = useState<string>(() => {
     try { return getCatalogCover(localStorage.getItem('catalogCoverId')).id; }
     catch { return DEFAULT_COVER_ID; }
@@ -275,6 +291,10 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   const selectCover = (id: string) => {
     setCoverId(id);
     try { localStorage.setItem('catalogCoverId', id); } catch { /* private mode: ignore */ }
+  };
+  const openCatalogPicker = (mode: CatalogMode) => {
+    setCatalogMode(mode);
+    setCoverPickerOpen(true);
   };
   const [catalogMeta, setCatalogMeta] = useState<{ summary: Array<{ label: string; count: number }>; dateLabel: string }>({ summary: [], dateLabel: '' });
   // Loading-modal result (success/error) shown after the busy phase ends.
@@ -498,6 +518,10 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     return `${base}${pageCount > 1 ? `-gambar-${pageIndex}` : ''}.${ext}`;
   };
   const exportLabel = availableOnly && filterLabel ? `${filterLabel} tersedia` : filterLabel;
+  const catalogFilterLabel = filterLabel || 'Filter aktif';
+  // Winter brochure theme: only the Tipe Paket -> Umroh Musim Dingin filter.
+  const brochureVariant: 'default' | 'winter' =
+    filterDim === 'tipe' && filterValue === TYPE_UMROH_MUSIM_DINGIN ? 'winter' : 'default';
 
   function showToast(message: string) {
     setToast(message);
@@ -675,10 +699,27 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     return { blob, ext: EXPORT_EXT, mime: blob.type || EXPORT_MIME };
   }
 
-  // Build the catalog PDF: cover page + every month (available packages only,
-  // 10/page) rendered sequentially off-screen and stitched with jsPDF.
-  async function handleDownloadCatalog() {
-    if (!catalogAllowed || catalogBusy || busy !== null) return;
+  function buildCatalogPlan(mode: CatalogMode): {
+    summary: Array<{ label: string; count: number }>;
+    pages: BrochureMonth[];
+    showFullDate: boolean;
+    variant: 'default' | 'winter';
+    emptyMessage: string;
+    filenameLabel?: string | null;
+  } {
+    if (mode === 'active-filter') {
+      const label = catalogFilterLabel;
+      return {
+        summary: [{ label, count: filteredPackages.length }],
+        pages: activeImagePages,
+        showFullDate,
+        variant: brochureVariant,
+        emptyMessage: availableOnly
+          ? 'Tidak ada paket tersedia untuk filter ini'
+          : 'Tidak ada paket untuk filter ini',
+        filenameLabel: label,
+      };
+    }
 
     const summary: Array<{ label: string; count: number }> = [];
     const pages: BrochureMonth[] = [];
@@ -688,20 +729,36 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
       summary.push({ label: m.label, count: available.length });
       for (const pg of splitPackagesIntoPages(available, `catalog-${m.key}`, m.label)) pages.push(pg);
     }
-    if (pages.length === 0) {
-      showToast('Tidak ada paket tersedia untuk katalog');
+    return {
+      summary,
+      pages,
+      showFullDate: false,
+      variant: 'default',
+      emptyMessage: 'Tidak ada paket tersedia untuk katalog',
+      filenameLabel: null,
+    };
+  }
+
+  // Build the catalog PDF: cover page + selected package pages (10/page)
+  // rendered sequentially off-screen and stitched with jsPDF.
+  async function handleDownloadCatalog(mode: CatalogMode = catalogMode) {
+    if (!catalogAllowed || catalogBusy || busy !== null) return;
+
+    const plan = buildCatalogPlan(mode);
+    if (plan.pages.length === 0) {
+      showToast(plan.emptyMessage);
       return;
     }
 
     const dateLabel = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
-    const total = pages.length + 1; // + cover
+    const total = plan.pages.length + 1; // + cover
     setCatalogBusy(true);
     setCatalogResult(null);
     setCatalogProgress({ done: 0, total });
 
     // Render the current catalogStage into the off-screen node, then capture it.
     // flushSync guarantees the DOM is committed before modern-screenshot reads it.
-    const renderAndCapture = async (stage: { kind: 'cover' } | { kind: 'page'; page: BrochureMonth }): Promise<HTMLCanvasElement> => {
+    const renderAndCapture = async (stage: CatalogStage): Promise<HTMLCanvasElement> => {
       flushSync(() => setCatalogStage(stage));
       const el = catalogStageRef.current;
       if (!el) throw new Error('catalog-stage-missing');
@@ -724,7 +781,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
 
       // Cover first. Set meta + stage together so the cover renders with data.
       try {
-        flushSync(() => { setCatalogMeta({ summary, dateLabel }); setCatalogStage({ kind: 'cover' }); });
+        flushSync(() => { setCatalogMeta({ summary: plan.summary, dateLabel }); setCatalogStage({ kind: 'cover' }); });
         const el = catalogStageRef.current;
         if (!el) throw new Error('catalog-stage-missing');
         addCanvas(await captureCanvasFromElement(el, CATALOG_SCALE));
@@ -734,9 +791,14 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
       }
       setCatalogProgress({ done: 1, total });
 
-      for (let i = 0; i < pages.length; i++) {
+      for (let i = 0; i < plan.pages.length; i++) {
         try {
-          addCanvas(await renderAndCapture({ kind: 'page', page: pages[i] }));
+          addCanvas(await renderAndCapture({
+            kind: 'page',
+            page: plan.pages[i],
+            showFullDate: plan.showFullDate,
+            variant: plan.variant,
+          }));
         } catch (e) {
           failed += 1;
           console.error(`[katalog] page ${i + 1} failed:`, e);
@@ -745,7 +807,9 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
       }
 
       if (added === 0) throw new Error('semua halaman gagal dibuat');
-      pdf.save(catalogFilename(agent));
+      pdf.save(mode === 'active-filter'
+        ? catalogFilenameWithLabel(agent, plan.filenameLabel)
+        : catalogFilename(agent));
       showToast(failed > 0 ? `Katalog selesai — ${failed} halaman dilewati` : 'Katalog PDF berhasil diunduh');
       setCatalogResult({ status: 'success' });
     } catch (e) {
@@ -941,9 +1005,9 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
 
   const previewReady = previewScale > 0;
   const hasResults = filteredPackages.length > 0;
-  // Winter brochure theme: only the Tipe Paket → Umroh Musim Dingin filter.
-  const brochureVariant: 'default' | 'winter' =
-    filterDim === 'tipe' && filterValue === TYPE_UMROH_MUSIM_DINGIN ? 'winter' : 'default';
+  const activeFilterCatalogBusy = catalogBusy && catalogMode === 'active-filter';
+  const allReadyCatalogBusy = catalogBusy && catalogMode === 'all-ready';
+  const canDownloadSelectedCatalog = catalogMode === 'active-filter' ? hasResults : hasAnyAvailable;
 
   return (
     <div style={{ paddingBottom: '2rem' }}>
@@ -977,30 +1041,67 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
             aria-label={availableOnly ? 'Tampilkan semua paket' : 'Tampilkan paket tersedia saja'}
             aria-pressed={availableOnly}
             title={availableOnly ? 'Tampilkan semua paket' : 'Tampilkan paket tersedia saja'}
-            className={`h-9 shrink-0 inline-flex items-center justify-center rounded-lg border px-3.5 text-sm font-semibold transition-all duration-200 active:scale-[0.98] ${
+            className={`h-9 shrink-0 inline-flex items-center justify-center gap-1.5 rounded-xl border pl-2 pr-2.5 text-[11px] font-black leading-none tracking-wide transition-all duration-200 active:scale-[0.98] ${
               availableOnly
-                ? 'bg-indigo-50 dark:bg-indigo-500/15 border-indigo-300 dark:border-indigo-500/40 text-indigo-600 dark:text-indigo-300'
-                : 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 border-emerald-400 text-white shadow-md shadow-emerald-500/20'
+                : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400'
             }`}
           >
-            Ready
+            <span
+              aria-hidden="true"
+              className={`relative inline-flex h-[18px] w-[32px] items-center rounded-full p-[2px] transition-colors duration-200 ${
+                availableOnly ? 'bg-white/25' : 'bg-gray-200 dark:bg-slate-700'
+              }`}
+            >
+              <span
+                className={`inline-flex h-[14px] w-[14px] items-center justify-center rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                  availableOnly ? 'translate-x-[14px] text-emerald-600' : 'translate-x-0 text-transparent'
+                }`}
+              >
+                <Check size={10} strokeWidth={4} />
+              </span>
+            </span>
+            <span>{availableOnly ? 'Ready' : 'Semua'}</span>
           </button>
         </div>
       </div>
 
-      {/* Unduh Katalog — opens the cover picker; the actual download fires from
-          inside the picker. Always Bulan + tersedia saja, terlepas filter aktif. */}
+      {/* Katalog PDF: compact mode switch + one download action. */}
       <div className="px-4 pt-3">
-        <button
-          type="button"
-          onClick={() => setCoverPickerOpen(true)}
-          disabled={!catalogAllowed || !hasAnyAvailable || catalogBusy || busy !== null}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95 disabled:opacity-70"
-        >
-          {catalogBusy
-            ? (<><Loader2 size={17} className="animate-spin" /><span>Membuat katalog…</span></>)
-            : (<><FileDown size={17} /><span>Unduh Katalog (PDF)</span></>)}
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex flex-1 min-w-0 h-10 rounded-xl bg-gray-100 dark:bg-slate-800 p-1">
+            {([
+              ['active-filter', 'Filter Ini'],
+              ['all-ready', 'Semua'],
+            ] as const).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setCatalogMode(mode)}
+                aria-pressed={catalogMode === mode}
+                disabled={catalogBusy || busy !== null}
+                className={`flex-1 min-w-0 inline-flex items-center justify-center rounded-lg px-2 text-[11px] font-bold transition-all duration-200 disabled:opacity-60 ${
+                  catalogMode === mode
+                    ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-sm'
+                    : 'text-gray-500 dark:text-slate-400'
+                }`}
+              >
+                <span className="truncate">{label}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => openCatalogPicker(catalogMode)}
+            disabled={!catalogAllowed || !canDownloadSelectedCatalog || catalogBusy || busy !== null}
+            className="h-10 shrink-0 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 px-4 text-xs font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95 disabled:opacity-70"
+          >
+            {activeFilterCatalogBusy || allReadyCatalogBusy
+              ? <Loader2 size={16} className="animate-spin" />
+              : <FileDown size={16} />}
+            <span>Unduh PDF</span>
+          </button>
+        </div>
       </div>
 
       <CatalogLoadingModal
@@ -1023,7 +1124,13 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         selectedId={coverId}
         onSelect={selectCover}
         onClose={() => setCoverPickerOpen(false)}
-        onDownload={() => { setCoverPickerOpen(false); handleDownloadCatalog(); }}
+        description={
+          catalogMode === 'active-filter'
+            ? `Filter: ${catalogFilterLabel}`
+            : 'Semua paket ready'
+        }
+        downloadLabel="Unduh PDF"
+        onDownload={() => { setCoverPickerOpen(false); handleDownloadCatalog(catalogMode); }}
       />
 
       {/* Brochure previews + per-image actions */}
@@ -1169,7 +1276,14 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
             <BrochureCatalogCover agent={agent} months={catalogMeta.summary} cover={getCatalogCover(coverId)} />
           )}
           {catalogStage?.kind === 'page' && (
-            <BrochureScheduleTemplate month={catalogStage.page} agent={agent} showFullDate={false} variant="default" rasterSafe displayMode={displayMode} />
+            <BrochureScheduleTemplate
+              month={catalogStage.page}
+              agent={agent}
+              showFullDate={catalogStage.showFullDate}
+              variant={catalogStage.variant}
+              rasterSafe
+              displayMode={displayMode}
+            />
           )}
         </div>
       </div>

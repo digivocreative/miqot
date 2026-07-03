@@ -17,7 +17,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
-import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration, fetchAwapiCredentials } from './laporan-api.js';
+import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration, submitUmrahRegistrationWithBrowser, fetchAwapiCredentials } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
 import { buildBerangkatMendatang, computeUmrohKomisi } from './lib/laporan-stats.js';
@@ -10324,9 +10324,10 @@ app.post('/api/umrah/register', authMiddleware, express.json({ limit: '10mb' }),
       enrichedFields.tjamaah = findFieldByPatterns([/^telp$/i, /^hp$/i, /^no[-_]?telp$/i, /^tpendaftar$/i, /^tlp[-_]?pendaftar$/i]);
     }
 
-    // status: legacy PHP expects payment/registration status — default to empty string
-    if (enrichedFields.status === undefined) {
-      enrichedFields.status = '';
+    // status is the legacy marital-status field (belum-menikah/menikah/duda/janda).
+    // Older clients may still send status_nikah, so mirror it instead of blanking it.
+    if (enrichedFields.status === undefined && enrichedFields.status_nikah) {
+      enrichedFields.status = enrichedFields.status_nikah;
     }
 
     // pakets: legacy aksi_umrah.php line 84 does explode('.', $_POST['pakets']) and
@@ -10348,7 +10349,13 @@ app.post('/api/umrah/register', authMiddleware, express.json({ limit: '10mb' }),
       status: enrichedFields.status,
     });
 
-    const result = await submitUmrahRegistration(agent.jamaah_username, {
+    let decryptedLegacyPassword = null;
+    const getDecryptedLegacyPassword = () => {
+      if (decryptedLegacyPassword === null) decryptedLegacyPassword = capiDecrypt(agent.jamaah_password);
+      return decryptedLegacyPassword;
+    };
+
+    let result = await submitUmrahRegistration(agent.jamaah_username, {
       formAction,
       fields: enrichedFields,
       hiddenFields: hiddenFields || {},
@@ -10357,6 +10364,54 @@ app.post('/api/umrah/register', authMiddleware, express.json({ limit: '10mb' }),
       fileFieldName,
       idb,
     });
+
+    if (!result.success && result.reason === 'session_expired_remote' && agent.jamaah_password) {
+      console.log(`[Register] Remote session expired on submit — forcing re-login for ${agent.jamaah_username}`);
+      try {
+        const decrypted = getDecryptedLegacyPassword();
+        const fresh = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
+        if (fresh.success) {
+          let retryFormAction = formAction;
+          let retryHiddenFields = hiddenFields || {};
+          const freshForm = await fetchUmrahFormOptions(agent.jamaah_username, { idb });
+          if (freshForm.success) {
+            retryFormAction = freshForm.formAction || retryFormAction;
+            retryHiddenFields = freshForm.hiddenFields || retryHiddenFields;
+          } else {
+            console.warn('[Register] Re-login succeeded but fresh form fetch failed:', freshForm.error);
+          }
+
+          result = await submitUmrahRegistration(agent.jamaah_username, {
+            formAction: retryFormAction,
+            fields: enrichedFields,
+            hiddenFields: retryHiddenFields,
+            fileBuffer,
+            fileName,
+            fileFieldName,
+            idb,
+          });
+        } else {
+          console.warn('[Register] Re-login after submit session expiry failed:', fresh.error);
+        }
+      } catch (err) {
+        console.error('[Register] Re-login retry after submit session expiry threw:', err.message);
+      }
+    }
+
+    if (!result.success && result.reason === 'session_expired_remote' && agent.jamaah_password) {
+      console.log(`[Register] Manual submit still rejected — using browser fallback for ${agent.jamaah_username}`);
+      result = await submitUmrahRegistrationWithBrowser({
+        username: agent.jamaah_username,
+        password: getDecryptedLegacyPassword(),
+        kantor: agent.jamaah_kantor || '2',
+        fields: enrichedFields,
+        hiddenFields: hiddenFields || {},
+        fileBuffer,
+        fileName,
+        fileFieldName,
+        idb,
+      });
+    }
 
     if (!result.success) {
       return res.status(502).json({ error: result.error, debug: result.debug });
