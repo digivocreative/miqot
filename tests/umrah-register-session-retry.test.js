@@ -22,8 +22,12 @@ test('umrah registration refreshes legacy cookies and retries final submit after
   assert.match(laporanApi, /'Origin': base\.replace\(/);
   assert.match(laporanApi, /reason: 'session_expired_remote', error: 'Session kedaluwarsa di sistem internal'/);
   assert.match(laporanApi, /export async function submitUmrahRegistrationWithBrowser/);
+  assert.match(laporanApi, /async function getLegacyBrowserRecaptchaConfig\(page\)/);
+  assert.match(laporanApi, /grecaptcha\\.execute\\\(\\s\*\['"\]\(\[\^'"\]\+\)\['"\]/);
+  assert.match(laporanApi, /name\\s\*:\\s\*\['"\]\(\[\^'"\]\+\)\['"\]\\s\*,\\s\*value\\s\*:\\s\*isi/);
   assert.match(laporanApi, /window\.grecaptcha\.execute\(siteKey, \{ action: 'submit' \}\)/);
   assert.match(laporanApi, /UMRAH_RECAPTCHA_FIELD_NAME/);
+  assert.match(laporanApi, /recaptchaSource: recaptchaConfig\.source/);
   assert.match(laporanApi, /function findBlockingLegacyDialog/);
   assert.match(laporanApi, /pickLegacyBrowserSelectName\(page, \['vjadwal', 'jadwal', 'berangkat', 'tgl_berangkat'\]\)/);
   assert.match(laporanApi, /Alhijaz menolak jadwal\/paket/);

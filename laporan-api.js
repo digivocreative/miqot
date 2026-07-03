@@ -2358,6 +2358,36 @@ async function waitForLegacyAjax(page, urlPart, timeout = 15_000) {
   return page.waitForResponse(res => res.url().includes(urlPart), { timeout }).catch(() => null);
 }
 
+async function getLegacyBrowserRecaptchaConfig(page) {
+  return page.evaluate(({ fallbackSiteKey, fallbackTokenField }) => {
+    const scripts = Array.from(document.scripts)
+      .map(script => `${script.src || ''}\n${script.textContent || ''}`)
+      .join('\n');
+
+    const executeMatch = scripts.match(/grecaptcha\.execute\(\s*['"]([^'"]+)['"]/i);
+    const renderMatch = scripts.match(/recaptcha\/api\.js\?render=([^'"\s&]+)/i);
+    const siteKey = executeMatch?.[1]
+      || (renderMatch?.[1] ? decodeURIComponent(renderMatch[1]) : '')
+      || fallbackSiteKey;
+
+    const tokenNameMatch =
+      scripts.match(/name\s*:\s*['"]([^'"]+)['"]\s*,\s*value\s*:\s*isi/i) ||
+      scripts.match(/name\s*:\s*['"]([^'"]+)['"][\s\S]{0,240}?value\s*:\s*isi/i);
+    const tokenIdMatch =
+      scripts.match(/id\s*:\s*['"]([^'"]+)['"][\s\S]{0,240}?name\s*:\s*['"][^'"]+['"][\s\S]{0,240}?value\s*:\s*isi/i);
+
+    return {
+      siteKey,
+      tokenField: tokenNameMatch?.[1] || fallbackTokenField,
+      tokenId: tokenIdMatch?.[1] || 'legacy_recaptcha_token',
+      source: tokenNameMatch?.[1] ? 'legacy_script' : 'fallback',
+    };
+  }, {
+    fallbackSiteKey: UMRAH_RECAPTCHA_SITE_KEY,
+    fallbackTokenField: UMRAH_RECAPTCHA_FIELD_NAME,
+  });
+}
+
 // Browser fallback for the final legacy submit. The current Alhijaz form requires
 // a reCAPTCHA v3 token that only exists after the page JavaScript runs; plain
 // multipart POST is therefore kept as the fast path, and this is only used after
@@ -2503,7 +2533,16 @@ export async function submitUmrahRegistrationWithBrowser({
       { timeout: 25_000 },
     ).catch(() => null);
 
-    const tokenInfo = await page.evaluate(async ({ siteKey, tokenField }) => {
+    const recaptchaConfig = await getLegacyBrowserRecaptchaConfig(page);
+    if (!recaptchaConfig.tokenField) {
+      return {
+        success: false,
+        error: 'Field reCAPTCHA legacy tidak ditemukan',
+        debug: { browserFallback: true, dialogs, recaptchaSource: recaptchaConfig.source },
+      };
+    }
+
+    const tokenInfo = await page.evaluate(async ({ siteKey, tokenField, tokenId }) => {
       const started = Date.now();
       while (Date.now() - started < 20_000) {
         if (window.grecaptcha && typeof window.grecaptcha.execute === 'function') break;
@@ -2518,15 +2557,16 @@ export async function submitUmrahRegistrationWithBrowser({
       if (!form) return { ok: false, error: 'form legacy hilang sebelum submit' };
       const input = document.createElement('input');
       input.type = 'hidden';
-      input.id = '8zH34jPeecntx';
+      input.id = tokenId || 'legacy_recaptcha_token';
       input.name = tokenField;
       input.value = token;
       form.appendChild(input);
       HTMLFormElement.prototype.submit.call(form);
       return { ok: true, length: token.length };
     }, {
-      siteKey: UMRAH_RECAPTCHA_SITE_KEY,
-      tokenField: UMRAH_RECAPTCHA_FIELD_NAME,
+      siteKey: recaptchaConfig.siteKey,
+      tokenField: recaptchaConfig.tokenField,
+      tokenId: recaptchaConfig.tokenId,
     });
 
     if (!tokenInfo.ok) {
@@ -2558,6 +2598,7 @@ export async function submitUmrahRegistrationWithBrowser({
       dialogs,
       formStillOpen,
       tokenLength: tokenInfo.length,
+      recaptchaSource: recaptchaConfig.source,
       responsePreview,
     });
 
