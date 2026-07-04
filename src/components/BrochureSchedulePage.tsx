@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { Options as ModernScreenshotOptions } from 'modern-screenshot';
-import { Download, Share2, Loader2, FileDown, Check } from 'lucide-react';
+import { Download, Share2, Loader2, FileDown, Check, Wand2, ChevronDown } from 'lucide-react';
 import FilterDropdown from './FilterDropdown';
 import {
   BrochureScheduleTemplate,
@@ -21,7 +21,10 @@ import {
   type BrochureMonth,
   type BrochurePackage,
   type BrochureAgent,
+  type BrochureHotel,
 } from './BrochureScheduleTemplate';
+import { BrochurePromptModal } from './BrochurePromptModal';
+import type { BrochurePromptSchedule } from './brochure-prompt/buildBrochurePrompt';
 import { getAuthHeaders } from './LoginPage';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { CatalogLoadingModal } from './CatalogLoadingModal';
@@ -254,6 +257,54 @@ function compareAirlineOptions(a: string, b: string): number {
   return a.localeCompare(b, 'id', { sensitivity: 'base' });
 }
 
+const PROMPT_MONTH_LONG_ID = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+];
+
+function formatPromptDate(iso: string): string | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return undefined;
+  const d = new Date(`${iso}T00:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) return undefined;
+  if (d.getUTCDate() !== parseInt(iso.slice(8, 10), 10)) return undefined;
+  return `${d.getUTCDate()} ${PROMPT_MONTH_LONG_ID[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+function countPromptTripDays(startIso: string, endIso: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startIso) || !/^\d{4}-\d{2}-\d{2}$/.test(endIso)) return null;
+  const start = new Date(`${startIso}T00:00:00.000Z`);
+  const end = new Date(`${endIso}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const diff = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  return diff > 0 ? diff : null;
+}
+
+function formatPromptPrice(harga: number | null): string | undefined {
+  if (typeof harga !== 'number' || !Number.isFinite(harga) || harga <= 0) return undefined;
+  return `mulai Rp ${Math.round(harga).toLocaleString('id-ID')}`;
+}
+
+function formatPromptHotels(hotels?: BrochureHotel[]): string[] {
+  if (!hotels?.length) return [];
+  return hotels
+    .filter(h => h?.name?.trim())
+    .map(h => {
+      const city = h.city?.trim() || 'Hotel';
+      const stars = typeof h.stars === 'number' && h.stars > 0 ? ` (${'★'.repeat(Math.min(5, h.stars))})` : '';
+      return `${city}: ${h.name.trim()}${stars}`;
+    });
+}
+
 // FilterDropdown (custom, animated) now lives in ./FilterDropdown and is shared
 // with the public jadwal-paket header. See docs/DESIGN-SYSTEM.md.
 
@@ -270,7 +321,10 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   const exportPageRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [busy, setBusy] = useState<null | { kind: 'share' | 'download'; pageIndex: number }>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [promptPageIndex, setPromptPageIndex] = useState<number | null>(null);
+  const [saveMenuPageIndex, setSaveMenuPageIndex] = useState<number | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveMenuRef = useRef<HTMLDivElement | null>(null);
   // Export blobs are intentionally kept outside React state. They can be large,
   // and state updates would re-render every preview card for no UI benefit.
   const exportCacheRef = useRef<Map<string, ExportedImage>>(new Map());
@@ -519,6 +573,60 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   };
   const exportLabel = availableOnly && filterLabel ? `${filterLabel} tersedia` : filterLabel;
   const catalogFilterLabel = filterLabel || 'Filter aktif';
+
+  useEffect(() => {
+    if (promptPageIndex !== null && !activeImagePages[promptPageIndex]) {
+      setPromptPageIndex(null);
+    }
+  }, [activeImagePages, promptPageIndex]);
+
+  useEffect(() => {
+    if (saveMenuPageIndex !== null && !activeImagePages[saveMenuPageIndex]) {
+      setSaveMenuPageIndex(null);
+    }
+  }, [activeImagePages, saveMenuPageIndex]);
+
+  useEffect(() => {
+    if (saveMenuPageIndex === null) return;
+    const onPointer = (e: PointerEvent) => {
+      if (!saveMenuRef.current?.contains(e.target as Node)) setSaveMenuPageIndex(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSaveMenuPageIndex(null);
+    };
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [saveMenuPageIndex]);
+
+  const promptPage = promptPageIndex === null ? null : activeImagePages[promptPageIndex] ?? null;
+  const titleForPromptPage = (pageIndex: number) => {
+    const base = `Brosur Paket Umroh ${exportLabel || filterLabel || 'Jadwal'}`;
+    return activeImagePages.length > 1 ? `${base} - Halaman ${pageIndex + 1}` : base;
+  };
+  const buildSchedulePromptData = (page: BrochureMonth, pageIndex: number): BrochurePromptSchedule => ({
+    title: titleForPromptPage(pageIndex),
+    filterLabel: exportLabel || filterLabel || page.label,
+    pageIndex: pageIndex + 1,
+    pageCount: activeImagePages.length,
+    displayMode,
+    packages: page.packages.map(p => ({
+      nama: p.nama,
+      tgl: formatPromptDate(p.berangkat_tgl),
+      hari: p.hari ?? countPromptTripDays(p.berangkat_tgl, p.pulang_tgl),
+      seatSisa: p.seatSisa ?? null,
+      harga: p.soldOut ? undefined : formatPromptPrice(p.harga),
+      maskapai: p.maskapai || undefined,
+      landing: p.landing || undefined,
+      hotel: formatPromptHotels(p.hotel),
+      soldOut: !!p.soldOut,
+    })),
+    truncatedCount: page.truncatedCount,
+  });
+
   // Winter brochure theme: only the Tipe Paket -> Umroh Musim Dingin filter.
   const brochureVariant: 'default' | 'winter' =
     filterDim === 'tipe' && filterValue === TYPE_UMROH_MUSIM_DINGIN ? 'winter' : 'default';
@@ -1158,6 +1266,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
             activeImagePages.map((page, index) => {
               const shareBusy = busy?.kind === 'share' && busy.pageIndex === index;
               const downloadBusy = busy?.kind === 'download' && busy.pageIndex === index;
+              const saveMenuOpen = saveMenuPageIndex === index;
 
               return (
                 <div
@@ -1198,25 +1307,74 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                       background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
                     }}
                   >
-                    <div className={`grid ${showShareButton ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
-                      {showShareButton && (
-                        <button
-                          onClick={() => handleShare(index)}
-                          disabled={busy !== null || catalogBusy}
-                          className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
-                        >
-                          {shareBusy ? <Loader2 size={17} className="animate-spin" /> : <Share2 size={17} />}
-                          <span>Share</span>
-                        </button>
-                      )}
+                    <div className="grid grid-cols-2 gap-2">
                       <button
-                        onClick={() => handleDownload(index)}
+                        type="button"
+                        onClick={() => setPromptPageIndex(index)}
                         disabled={busy !== null || catalogBusy}
                         className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700/70 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
                       >
-                        {downloadBusy ? <Loader2 size={17} className="animate-spin" /> : <Download size={17} />}
-                        <span>Download</span>
+                        <Wand2 size={16} />
+                        <span className="whitespace-nowrap">Buat Ulang AI</span>
                       </button>
+                      {showShareButton ? (
+                        <div className="relative" ref={saveMenuOpen ? saveMenuRef : undefined}>
+                          <div
+                            role="menu"
+                            className={`absolute bottom-full right-0 mb-2 w-44 rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl overflow-hidden origin-bottom-right transition-all duration-150 z-20 ${
+                              saveMenuOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-1 pointer-events-none'
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setSaveMenuPageIndex(null);
+                                handleShare(index);
+                              }}
+                              disabled={busy !== null || catalogBusy}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
+                            >
+                              {shareBusy ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" /> : <Share2 size={16} className="text-emerald-600 dark:text-emerald-400" />}
+                              <span>Share</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setSaveMenuPageIndex(null);
+                                handleDownload(index);
+                              }}
+                              disabled={busy !== null || catalogBusy}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
+                            >
+                              {downloadBusy ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" /> : <Download size={16} className="text-emerald-600 dark:text-emerald-400" />}
+                              <span>Download</span>
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSaveMenuPageIndex(saveMenuOpen ? null : index)}
+                            disabled={busy !== null || catalogBusy}
+                            aria-haspopup="menu"
+                            aria-expanded={saveMenuOpen}
+                            className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                          >
+                            {(shareBusy || downloadBusy) ? <Loader2 size={17} className="animate-spin" /> : <Download size={17} />}
+                            <span>Simpan</span>
+                            <ChevronDown size={15} className={`transition-transform duration-200 ${saveMenuOpen ? 'rotate-180' : ''}`} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleDownload(index)}
+                          disabled={busy !== null || catalogBusy}
+                          className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                        >
+                          {downloadBusy ? <Loader2 size={17} className="animate-spin" /> : <Download size={17} />}
+                          <span>Download</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1236,6 +1394,16 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
           {toast}
         </div>
       )}
+
+      <BrochurePromptModal
+        isOpen={promptPageIndex !== null && !!promptPage}
+        onClose={() => setPromptPageIndex(null)}
+        agent={{ name: agent.name || '', phone: agent.phone || '', website: agent.website || '' }}
+        pkg={null}
+        schedule={promptPage && promptPageIndex !== null ? buildSchedulePromptData(promptPage, promptPageIndex) : null}
+        context="schedule"
+        title={promptPage && promptPageIndex !== null ? titleForPromptPage(promptPageIndex) : 'Brosur Paket Umroh'}
+      />
 
       {/* Off-screen full-size export node. Keep it rendered, not transparent, so export matches preview. */}
       <div

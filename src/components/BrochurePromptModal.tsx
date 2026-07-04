@@ -13,6 +13,7 @@ import {
   type BrochureVariant,
   type BrochureKind,
   type BrochurePromptPkg,
+  type BrochurePromptSchedule,
 } from './brochure-prompt/buildBrochurePrompt';
 
 interface BrochurePromptModalProps {
@@ -22,6 +23,10 @@ interface BrochurePromptModalProps {
   agent: { name: string; phone: string; website: string };
   /** Data paket sebagai sumber kebenaran. Null untuk brosur non-paket. */
   pkg?: BrochurePromptPkg | null;
+  /** Data brosur jadwal/filter sebagai sumber kebenaran untuk banyak paket. */
+  schedule?: BrochurePromptSchedule | null;
+  /** Schedule mode: single general brochure prompt, fixed 9:16, contact comes from attached image. */
+  context?: 'package' | 'schedule';
   /** Nama brosur/paket (header). */
   title: string;
 }
@@ -39,10 +44,11 @@ const labelCls = 'block text-[11px] font-semibold text-gray-500 dark:text-slate-
  * strip kontak agen. Tanpa panggilan API: prompt dirakit live di client, instan
  * & gratis. Agen menyalin prompt, buka ChatGPT, lampirkan brosur ini, tempel.
  */
-export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: BrochurePromptModalProps) {
+export function BrochurePromptModal({ isOpen, onClose, agent, pkg, schedule, context = 'package', title }: BrochurePromptModalProps) {
   // Perilaku tetap "rancang ulang" (poster premium yg benar2 berubah); akurasi dijaga lewat
   // data acuan + pengingat cek WA. Tanpa pilihan tab.
   const variant: BrochureVariant = 'redesign';
+  const isScheduleContext = context === 'schedule';
   const [kind, setKind] = useState<BrochureKind>('brosur');
   const [style, setStyle] = useState('modern');
   const [ratio, setRatio] = useState('4:5');
@@ -68,18 +74,23 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
   }, [isOpen, agent.name, agent.phone, agent.website]);
 
   const prompt = useMemo(
-    () =>
-      buildBrochurePrompt({
+    () => {
+      const promptKind: BrochureKind = isScheduleContext ? 'brosur' : kind;
+      const promptRatio = isScheduleContext ? '9:16' : ratio;
+      return buildBrochurePrompt({
         agent: { name, phone, website },
         pkg,
+        schedule,
+        contactSource: isScheduleContext ? 'attached' : 'explicit',
         extra: { instagram, alamat, note },
         variant,
-        kind,
+        kind: promptKind,
         style,
-        ratio,
+        ratio: promptRatio,
         reserveQr: false,
-      }),
-    [name, phone, website, instagram, alamat, note, variant, kind, style, ratio, pkg],
+      });
+    },
+    [name, phone, website, instagram, alamat, note, variant, kind, style, ratio, pkg, schedule, isScheduleContext],
   );
 
   const handleCopy = async () => {
@@ -95,7 +106,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    trackEvent('feature', 'brochure_prompt_copy', { variant, kind });
+    trackEvent('feature', 'brochure_prompt_copy', { variant, kind: isScheduleContext ? 'schedule' : kind });
   };
 
   // Auto-copy the prompt first (while this document is still focused), THEN open ChatGPT —
@@ -105,7 +116,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
     try { navigator.clipboard?.writeText(prompt).catch(() => {}); } catch { /* ignore */ }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    trackEvent('feature', 'brochure_prompt_open_chatgpt', { variant, kind });
+    trackEvent('feature', 'brochure_prompt_open_chatgpt', { variant, kind: isScheduleContext ? 'schedule' : kind });
     window.open('https://chatgpt.com/', '_blank', 'noopener,noreferrer');
   };
 
@@ -133,7 +144,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
               <div className="flex items-center gap-2 min-w-0">
                 <Wand2 size={16} className="text-emerald-500 shrink-0" />
                 <div className="min-w-0">
-                  <h2 className="text-sm font-bold text-gray-900 dark:text-white leading-tight">{kind === 'banner' ? 'Buat Banner Ads (AI)' : 'Buat Ulang Brosur (AI)'}</h2>
+                  <h2 className="text-sm font-bold text-gray-900 dark:text-white leading-tight">{!isScheduleContext && kind === 'banner' ? 'Buat Banner Ads (AI)' : 'Buat Ulang Brosur (AI)'}</h2>
                   <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">{title}</p>
                 </div>
               </div>
@@ -149,28 +160,30 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
               {/* Tab jenis materi */}
-              <div className="bg-gray-100 dark:bg-slate-900/60 rounded-xl p-1 flex gap-1">
-                {([
-                  { k: 'brosur', label: 'Brosur', Icon: FileImage },
-                  { k: 'banner', label: 'Banner Ads', Icon: Megaphone },
-                ] as const).map((t) => (
-                  <button
-                    key={t.k}
-                    onClick={() => setKind(t.k)}
-                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg text-xs transition-all duration-200 ${
-                      kind === t.k
-                        ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-300 font-semibold shadow-sm'
-                        : 'text-gray-400 dark:text-slate-500 font-medium active:opacity-70'
-                    }`}
-                  >
-                    <t.Icon size={15} />
-                    <span>{t.label}</span>
-                  </button>
-                ))}
-              </div>
+              {!isScheduleContext && (
+                <div className="bg-gray-100 dark:bg-slate-900/60 rounded-xl p-1 flex gap-1">
+                  {([
+                    { k: 'brosur', label: 'Brosur', Icon: FileImage },
+                    { k: 'banner', label: 'Banner Ads', Icon: Megaphone },
+                  ] as const).map((t) => (
+                    <button
+                      key={t.k}
+                      onClick={() => setKind(t.k)}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg text-xs transition-all duration-200 ${
+                        kind === t.k
+                          ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-300 font-semibold shadow-sm'
+                          : 'text-gray-400 dark:text-slate-500 font-medium active:opacity-70'
+                      }`}
+                    >
+                      <t.Icon size={15} />
+                      <span>{t.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Gaya desain + Rasio */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className={isScheduleContext ? '' : 'grid grid-cols-2 gap-3'}>
                 <div>
                   <span className={labelCls}>Gaya desain</span>
                   <FilterDropdown
@@ -184,65 +197,69 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, title }: Broc
                     portalZClass="z-[10002]"
                   />
                 </div>
-                <div>
-                  <span className={labelCls}>Rasio</span>
-                  <FilterDropdown
-                    value={ratio}
-                    onChange={setRatio}
-                    options={RATIOS}
-                    ariaLabel="Rasio brosur"
-                    variant="compact"
-                    widthClass="w-full"
-                    portal
-                    portalZClass="z-[10002]"
-                  />
-                </div>
-              </div>
-
-              {/* Info kontak (disclosure) */}
-              <div className="rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setContactOpen((o) => !o)}
-                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left bg-gray-50 dark:bg-slate-900/60"
-                >
-                  <span className="text-xs font-semibold text-gray-600 dark:text-slate-300">
-                    Info kontak
-                    <span className="block text-[10px] font-normal text-gray-400 dark:text-slate-500 truncate">
-                      {[name, phone, website].filter(Boolean).join(' · ') || 'Lengkapi info kontak'}
-                    </span>
-                  </span>
-                  <ChevronDown size={16} className={`text-gray-400 shrink-0 transition-transform ${contactOpen ? 'rotate-180' : ''}`} />
-                </button>
-                {contactOpen && (
-                  <div className="p-3 space-y-2.5">
-                    <div>
-                      <label className={labelCls}>Nama</label>
-                      <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Nama agen" />
-                    </div>
-                    <div>
-                      <label className={labelCls}>WhatsApp</label>
-                      <input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0812..." inputMode="tel" />
-                    </div>
-                    <div>
-                      <label className={labelCls}>Website</label>
-                      <input className={inputCls} value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="alhijaz.co/..." />
-                    </div>
-                    <div>
-                      <label className={labelCls}>Instagram <span className="font-normal text-gray-400">(opsional)</span></label>
-                      <input className={inputCls} value={instagram} onChange={(e) => setInstagram(e.target.value)} placeholder="@username" />
-                    </div>
-                    <div>
-                      <label className={labelCls}>Alamat <span className="font-normal text-gray-400">(opsional)</span></label>
-                      <input className={inputCls} value={alamat} onChange={(e) => setAlamat(e.target.value)} placeholder="Alamat kantor" />
-                    </div>
-                    <div>
-                      <label className={labelCls}>Instruksi tambahan <span className="font-normal text-gray-400">(opsional)</span></label>
-                      <input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="mis. tonjolkan promo early bird" />
-                    </div>
+                {!isScheduleContext && (
+                  <div>
+                    <span className={labelCls}>Rasio</span>
+                    <FilterDropdown
+                      value={ratio}
+                      onChange={setRatio}
+                      options={RATIOS}
+                      ariaLabel="Rasio brosur"
+                      variant="compact"
+                      widthClass="w-full"
+                      portal
+                      portalZClass="z-[10002]"
+                    />
                   </div>
                 )}
               </div>
+
+              {/* Info kontak (disclosure) */}
+              {!isScheduleContext && (
+                <div className="rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setContactOpen((o) => !o)}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left bg-gray-50 dark:bg-slate-900/60"
+                  >
+                    <span className="text-xs font-semibold text-gray-600 dark:text-slate-300">
+                      Info kontak
+                      <span className="block text-[10px] font-normal text-gray-400 dark:text-slate-500 truncate">
+                        {[name, phone, website].filter(Boolean).join(' · ') || 'Lengkapi info kontak'}
+                      </span>
+                    </span>
+                    <ChevronDown size={16} className={`text-gray-400 shrink-0 transition-transform ${contactOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {contactOpen && (
+                    <div className="p-3 space-y-2.5">
+                      <div>
+                        <label className={labelCls}>Nama</label>
+                        <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Nama agen" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>WhatsApp</label>
+                        <input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0812..." inputMode="tel" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Website</label>
+                        <input className={inputCls} value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="alhijaz.co/..." />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Instagram <span className="font-normal text-gray-400">(opsional)</span></label>
+                        <input className={inputCls} value={instagram} onChange={(e) => setInstagram(e.target.value)} placeholder="@username" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Alamat <span className="font-normal text-gray-400">(opsional)</span></label>
+                        <input className={inputCls} value={alamat} onChange={(e) => setAlamat(e.target.value)} placeholder="Alamat kantor" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Instruksi tambahan <span className="font-normal text-gray-400">(opsional)</span></label>
+                        <input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="mis. tonjolkan promo early bird" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Preview prompt */}
               <div>
