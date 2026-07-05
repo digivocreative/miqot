@@ -35,6 +35,8 @@ import { buildScheduleFlightMap, buildJamaahFlightIndex, jamaahForFlightCard } f
 import { mergeFlightEntriesByTourLeader } from './lib/flight-entry-merge.js';
 import { parseFlightSegmentsFromCalendar, parseRouteLegs, routeStringForEventType } from './lib/flight-segments.js';
 import { buildDepartureDateLookup, departureDateForCalendarEvent } from './lib/calendar-return-departure.js';
+import { extractReturnTerminalFromItinerary, extractReturnTerminalFromText } from './lib/itinerary-terminal.js';
+import { calendarJamForEvent } from './lib/calendar-jam.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
 import { RAHMAH_JULI_JAMAAH } from './src/lib/rahmahJuliLanding.js';
@@ -7579,6 +7581,10 @@ app.get('/api/calendar/events', dbLoadShedGuard, authMiddleware, async (req, res
       return res.status(500).json({ error: 'Gagal mengambil data kalender' });
     }
 
+    const scheduleById = await loadFlightScheduleMap(events || []);
+    const flightStatusById = await loadCalendarFlightStatusMap(events || [], scheduleById);
+    const itineraryTerminalById = await loadCalendarItineraryTerminalMap(events || []);
+
     // Group by date + type
     const grouped = {};
     for (const ev of (events || [])) {
@@ -7590,10 +7596,12 @@ app.get('/api/calendar/events', dbLoadShedGuard, authMiddleware, async (req, res
           details: [],
         };
       }
+      const airportInfo = calendarAirportInfoForEvent(ev, scheduleById, flightStatusById, itineraryTerminalById);
+      const schedule = ev.jadwal_id ? scheduleById.get(String(ev.jadwal_id)) : null;
       grouped[key].details.push({
         group_number: ev.group_number,
         pesawat: ev.pesawat,
-        jam: ev.jam,
+        jam: calendarJamForEvent(ev, schedule),
         paket: ev.paket,
         pax: ev.pax,
         pax_jamaah: ev.pax_jamaah ?? null,
@@ -7602,6 +7610,7 @@ app.get('/api/calendar/events', dbLoadShedGuard, authMiddleware, async (req, res
         tour_leader: ev.tour_leader,
         jam_kumpul: ev.jam_kumpul || null,
         titik_kumpul: ev.titik_kumpul || null,
+        ...airportInfo,
       });
     }
 
@@ -8268,6 +8277,7 @@ function routeForFlightSegment(segment, event, schedule, segmentIndex) {
 
 function buildFlightSegmentsForEvent(event, scheduleById = new Map()) {
   const schedule = event.jadwal_id ? scheduleById.get(String(event.jadwal_id)) : null;
+  const eventForTiming = { ...event, jam: calendarJamForEvent(event, schedule) };
   const scheduleSegments = parseFlightSegmentsFromCalendar(event.pesawat, {
     eventType: event.event_type,
     schedule,
@@ -8305,7 +8315,7 @@ function buildFlightSegmentsForEvent(event, scheduleById = new Map()) {
   }
 
   const routes = segments.map((segment) => routeForFlightSegment(segment, event, schedule, segment.segmentIndex));
-  const times = deriveCalendarFlightSegmentTimes(event, routes);
+  const times = deriveCalendarFlightSegmentTimes(eventForTiming, routes);
   if (tourStopoverCodes.size > 0 && segments.length === 1) {
     const firstStopIndex = fullRoutes.findIndex(route => route?.arr && tourStopoverCodes.has(route.arr));
     const segmentIndex = Number(segments[0]?.segmentIndex);
@@ -8757,10 +8767,13 @@ const FLIGHT_SCHEDULE_SELECT = [
   'year_code',
   'jadwal_nama',
   'maskapai',
+  'berangkat_jam',
   'berangkat_rute',
   'berangkat_kode_penerbangan',
+  'pulang_jam',
   'pulang_rute',
   'pulang_kode_penerbangan',
+  'manasik_jam',
   'paket_hotel',
 ].join(', ');
 
@@ -8785,6 +8798,162 @@ async function loadFlightScheduleMap(events) {
     if (!map.has(key)) map.set(key, row);
   }
   return map;
+}
+
+function calendarFlightSegmentsForEvent(event, scheduleById = new Map()) {
+  if (!event || (event.event_type !== 'keberangkatan' && event.event_type !== 'kepulangan')) return [];
+  const schedule = event.jadwal_id ? scheduleById.get(String(event.jadwal_id)) : null;
+  const segments = parseFlightSegmentsFromCalendar(event.pesawat, {
+    eventType: event.event_type,
+    schedule,
+  });
+  return segments
+    .map(segment => ({
+      segment,
+      flightId: `${event.event_date}_${segment.flightIata}`,
+      route: routeForFlightSegment(segment, event, schedule, segment.segmentIndex),
+    }))
+    .filter(item => item.segment?.flightIata && item.route);
+}
+
+async function loadCalendarFlightStatusMap(events, scheduleById = new Map()) {
+  const flightIds = [...new Set((events || [])
+    .flatMap(event => calendarFlightSegmentsForEvent(event, scheduleById).map(item => item.flightId))
+    .filter(Boolean))];
+  if (flightIds.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from('flight_status')
+    .select('id, dep_iata, dep_city, dep_terminal, arr_iata, arr_city, arr_terminal')
+    .in('id', flightIds);
+
+  if (error) {
+    console.warn('[Calendar API] Flight terminal lookup skipped:', error.message);
+    return new Map();
+  }
+
+  return new Map((data || []).map(row => [row.id, row]));
+}
+
+const calendarReturnTerminalPdfCache = new Map();
+
+async function extractReturnTerminalFromPdfUrl(url) {
+  const pdfUrl = String(url || '').replace(/^http:/, 'https:');
+  if (!pdfUrl) return { arrivalTerminal: null, departureTerminal: null };
+
+  const res = await fetch(pdfUrl, {
+    headers: { Referer: 'https://jadwal.alhijaz.co/', 'User-Agent': 'Mozilla/5.0' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`PDF download failed: ${res.status}`);
+
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const parser = new pdfParse({ data: buffer });
+  await parser.load();
+  const textResult = await parser.getText();
+  await parser.destroy();
+
+  return extractReturnTerminalFromText(textResult?.text || '');
+}
+
+async function loadCalendarPdfReturnTerminalMap(jadwalIds) {
+  const ids = [...new Set((jadwalIds || []).filter(Boolean).map(String))];
+  if (ids.length === 0) return new Map();
+
+  const missing = ids.filter(id => !calendarReturnTerminalPdfCache.has(id));
+  if (missing.length > 0) {
+    const { data, error } = await supabase
+      .from('umroh_schedules')
+      .select('jadwal_id, itinerary_cdn, itinerary')
+      .in('jadwal_id', missing);
+
+    if (error) {
+      console.warn('[Calendar API] Itinerary PDF terminal lookup skipped:', error.message);
+    } else {
+      for (const row of data || []) {
+        const id = String(row.jadwal_id);
+        try {
+          const terminal = await extractReturnTerminalFromPdfUrl(row.itinerary_cdn || row.itinerary);
+          calendarReturnTerminalPdfCache.set(id, terminal);
+        } catch (err) {
+          console.warn(`[Calendar API] Itinerary PDF terminal lookup failed for ${id}:`, err.message);
+          calendarReturnTerminalPdfCache.set(id, { arrivalTerminal: null, departureTerminal: null });
+        }
+      }
+    }
+
+    for (const id of missing) {
+      if (!calendarReturnTerminalPdfCache.has(id)) {
+        calendarReturnTerminalPdfCache.set(id, { arrivalTerminal: null, departureTerminal: null });
+      }
+    }
+  }
+
+  return new Map(ids.map(id => [id, calendarReturnTerminalPdfCache.get(id)]));
+}
+
+async function loadCalendarItineraryTerminalMap(events) {
+  const jadwalIds = [...new Set((events || [])
+    .filter(event => event.event_type === 'kepulangan')
+    .map(event => event.jadwal_id)
+    .filter(Boolean)
+    .map(String))];
+  if (jadwalIds.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from('itineraries')
+    .select('jadwal_id, content')
+    .in('jadwal_id', jadwalIds);
+
+  const out = new Map();
+  if (error) {
+    console.warn('[Calendar API] Itinerary terminal lookup skipped:', error.message);
+  } else {
+    for (const row of data || []) {
+      const extracted = extractReturnTerminalFromItinerary(row.content);
+      if (extracted.arrivalTerminal || extracted.departureTerminal) {
+        out.set(String(row.jadwal_id), extracted);
+      }
+    }
+  }
+
+  const missingArrivalIds = jadwalIds.filter(id => !out.get(id)?.arrivalTerminal);
+  const pdfTerminals = await loadCalendarPdfReturnTerminalMap(missingArrivalIds);
+  for (const [id, terminal] of pdfTerminals) {
+    if (terminal?.arrivalTerminal || terminal?.departureTerminal) out.set(id, terminal);
+  }
+  return out;
+}
+
+function calendarAirportInfoForEvent(event, scheduleById = new Map(), flightStatusById = new Map(), itineraryTerminalById = new Map()) {
+  const items = calendarFlightSegmentsForEvent(event, scheduleById);
+  if (items.length === 0) {
+    return {
+      departure_airport_code: null,
+      departure_airport_city: null,
+      departure_terminal: null,
+      arrival_airport_code: null,
+      arrival_airport_city: null,
+      arrival_terminal: null,
+    };
+  }
+
+  const first = items[0];
+  const last = items[items.length - 1];
+  const firstStatus = flightStatusById.get(first.flightId) || {};
+  const lastStatus = flightStatusById.get(last.flightId) || {};
+  const itineraryTerminal = event.event_type === 'kepulangan' && event.jadwal_id
+    ? itineraryTerminalById.get(String(event.jadwal_id)) || {}
+    : {};
+
+  return {
+    departure_airport_code: firstStatus.dep_iata || first.route.dep || null,
+    departure_airport_city: firstStatus.dep_city || first.route.depCity || airportCity(first.route.dep) || null,
+    departure_terminal: itineraryTerminal.departureTerminal || firstStatus.dep_terminal || first.route.depTerminal || null,
+    arrival_airport_code: lastStatus.arr_iata || last.route.arr || null,
+    arrival_airport_city: lastStatus.arr_city || last.route.arrCity || airportCity(last.route.arr) || null,
+    arrival_terminal: itineraryTerminal.arrivalTerminal || lastStatus.arr_terminal || last.route.arrTerminal || null,
+  };
 }
 
 // GET /api/flights/status — all flights within H-1 to H+1 window

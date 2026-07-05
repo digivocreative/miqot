@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Plane, User, Users, Clock, X } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Plane, User, Users, Clock, X, MapPin } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
+import { airportTerminalLabel } from '../lib/calendarTerminal';
 
 interface EventDetail {
   group_number: string | null;
@@ -15,6 +16,12 @@ interface EventDetail {
   tour_leader: string | null;
   jam_kumpul: string | null;
   titik_kumpul: string | null;
+  departure_airport_code: string | null;
+  departure_airport_city: string | null;
+  departure_terminal: string | null;
+  arrival_airport_code: string | null;
+  arrival_airport_city: string | null;
+  arrival_terminal: string | null;
 }
 
 // pax legacy = kuota grup nasional, bukan jumlah jamaah. Tampilkan kursi
@@ -411,6 +418,7 @@ export default function UpcomingSchedule() {
                       // Data legacy memprefiks nama tour leader dengan "•  " — buang
                       const tourLeader = (detail.tour_leader || '').replace(/^[•\s]+/, '').trim();
                       const hasTourLeader = !!tourLeader && tourLeader !== '-';
+                      const airportTerminalText = airportTerminalLabel(detail, activeTab);
                       return (
                       <div
                         key={i}
@@ -447,10 +455,18 @@ export default function UpcomingSchedule() {
                               ) : null}
                               <span>Take off</span>
                               <span className="font-semibold text-gray-700 dark:text-slate-200">{detail.jam}</span>
+                              {airportTerminalText && (
+                                <>
+                                  <span className="text-gray-300 dark:text-slate-600 mx-0.5">·</span>
+                                  <MapPin size={10} className={`${tabConfig.iconColor} shrink-0`} />
+                                  <span>{airportTerminalText}</span>
+                                </>
+                              )}
                             </div>
                           ) : (
                             <div className="flex items-center gap-1 flex-wrap text-[11px] text-gray-500 dark:text-slate-400 mt-1.5">
                               <Clock size={10} className={`${tabConfig.iconColor} shrink-0`} />
+                              {activeTab === 'kepulangan' && detail.jam && <span>Tiba</span>}
                               <span>{detail.jam || '-'}</span>
                               {paket.departure && (
                                 <>
@@ -458,6 +474,13 @@ export default function UpcomingSchedule() {
                                   <Plane size={10} className={`${tabConfig.iconColor} shrink-0`} />
                                   <span>Berangkat</span>
                                   <span className="font-semibold text-gray-700 dark:text-slate-200">{paket.departure}</span>
+                                </>
+                              )}
+                              {airportTerminalText && (
+                                <>
+                                  <span className="text-gray-300 dark:text-slate-600 mx-0.5">·</span>
+                                  <MapPin size={10} className={`${tabConfig.iconColor} shrink-0`} />
+                                  <span>{airportTerminalText}</span>
                                 </>
                               )}
                             </div>
