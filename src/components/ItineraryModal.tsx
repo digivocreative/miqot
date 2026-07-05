@@ -80,11 +80,20 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
   const [pdfWidth, setPdfWidth] = useState(0);
   const [contentSize, setContentSize] = useState({ width: 0, height: 0 });
   const contentRef = useRef<HTMLDivElement>(null);
+  const zoomAlignRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const zoomContentRef = useRef<HTMLDivElement>(null);
   const contentSizeRef = useRef({ width: 0, height: 0 });
   const scaleRafRef = useRef<number | null>(null);
+  const zoomRafRef = useRef<number | null>(null);
   const pendingScaleRef = useRef(1);
+  const pendingZoomFrameRef = useRef<{
+    scale: number;
+    center?: { x: number; y: number };
+    anchorX: number;
+    anchorY: number;
+    syncState: boolean;
+  } | null>(null);
 
   // ── Zoom state (visual transform only; PDF is not re-rendered during pinch) ──
   const [scale, setScale] = useState(1);
@@ -177,6 +186,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
 
   useEffect(() => () => {
     if (scaleRafRef.current !== null) cancelAnimationFrame(scaleRafRef.current);
+    if (zoomRafRef.current !== null) cancelAnimationFrame(zoomRafRef.current);
   }, []);
 
   // PDF load success handler
@@ -206,14 +216,20 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
   };
 
   const applyZoomStyles = (nextScale: number) => {
+    const align = zoomAlignRef.current;
     const stage = stageRef.current;
     const content = zoomContentRef.current;
     const size = contentSizeRef.current;
+    if (align) {
+      const isZoomed = nextScale > 1.01;
+      align.classList.toggle('justify-start', isZoomed);
+      align.classList.toggle('justify-center', !isZoomed);
+    }
     if (!stage || !content || size.width <= 0 || size.height <= 0) return;
 
     stage.style.width = `${size.width * nextScale}px`;
     stage.style.height = `${size.height * nextScale}px`;
-    content.style.transform = `scale(${nextScale})`;
+    content.style.transform = `translate3d(0, 0, 0) scale(${nextScale})`;
   };
 
   const scheduleScaleState = (nextScale: number) => {
@@ -225,27 +241,73 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     });
   };
 
-  const setViewerScale = (nextScale: number, center?: { x: number; y: number }) => {
+  const scheduleZoomFrame = (
+    nextScale: number,
+    center?: { x: number; y: number },
+    syncState = true,
+  ) => {
+    const anchor = pinchRef.current;
+    pendingZoomFrameRef.current = {
+      scale: nextScale,
+      center,
+      anchorX: anchor.anchorX,
+      anchorY: anchor.anchorY,
+      syncState,
+    };
+
+    if (zoomRafRef.current !== null) return;
+
+    zoomRafRef.current = window.requestAnimationFrame(() => {
+      zoomRafRef.current = null;
+      const frame = pendingZoomFrameRef.current;
+      pendingZoomFrameRef.current = null;
+      if (!frame) return;
+
+      applyZoomStyles(frame.scale);
+
+      const el = contentRef.current;
+      if (frame.center && el) {
+        el.scrollLeft = Math.max(0, (frame.anchorX * frame.scale) - frame.center.x);
+        el.scrollTop = Math.max(0, (frame.anchorY * frame.scale) - frame.center.y);
+      }
+
+      if (frame.syncState) scheduleScaleState(frame.scale);
+    });
+  };
+
+  const setViewerScale = (
+    nextScale: number,
+    center?: { x: number; y: number },
+    options?: { syncState?: boolean },
+  ) => {
     const clamped = clampItineraryScale(nextScale);
     scaleRef.current = clamped;
-    applyZoomStyles(clamped);
-    scheduleScaleState(clamped);
-
-    if (center && contentRef.current) {
-      const el = contentRef.current;
-      const anchor = pinchRef.current;
-      window.requestAnimationFrame(() => {
-        el.scrollLeft = Math.max(0, (anchor.anchorX * clamped) - center.x);
-        el.scrollTop = Math.max(0, (anchor.anchorY * clamped) - center.y);
-      });
-    }
-
+    scheduleZoomFrame(clamped, center, options?.syncState ?? true);
     return clamped;
+  };
+
+  const commitScaleState = () => {
+    const nextScale = scaleRef.current;
+    pendingScaleRef.current = nextScale;
+    if (scaleRafRef.current !== null) {
+      cancelAnimationFrame(scaleRafRef.current);
+      scaleRafRef.current = null;
+    }
+    setScale(nextScale);
+  };
+
+  const cancelScheduledZoomFrame = () => {
+    if (zoomRafRef.current !== null) {
+      cancelAnimationFrame(zoomRafRef.current);
+      zoomRafRef.current = null;
+    }
+    pendingZoomFrameRef.current = null;
   };
 
   const setViewerScaleImmediate = (nextScale: number) => {
     const clamped = clampItineraryScale(nextScale);
     scaleRef.current = clamped;
+    cancelScheduledZoomFrame();
     applyZoomStyles(clamped);
     setScale(clamped);
     return clamped;
@@ -253,7 +315,11 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
 
   useEffect(() => {
     applyZoomStyles(clampedScale);
-  }, [clampedScale, contentSize]);
+  }, [clampedScale]);
+
+  useEffect(() => {
+    applyZoomStyles(scaleRef.current);
+  }, [contentSize]);
 
   // Native non-passive listeners are needed on mobile Safari/Chrome so the
   // preview can own a two-finger pinch while one-finger scroll stays native.
@@ -278,12 +344,13 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
       if (event.cancelable) event.preventDefault();
       const dist = getTouchDistance(event.touches);
       const center = getTouchCenter(event.touches, el);
-      setViewerScale(pinchRef.current.startScale * (dist / pinchRef.current.startDist), center);
+      setViewerScale(pinchRef.current.startScale * (dist / pinchRef.current.startDist), center, { syncState: false });
     };
 
     const handleTouchEnd = () => {
       pinchRef.current.startDist = 0;
       if (scaleRef.current < 1.1) setViewerScaleImmediate(1);
+      else commitScaleState();
     };
 
     const handleGestureStart = (event: Event) => {
@@ -294,7 +361,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     const handleGestureChange = (event: Event) => {
       event.preventDefault();
       const gestureScale = Number((event as Event & { scale?: number }).scale || 1);
-      setViewerScale(pinchRef.current.startScale * gestureScale);
+      setViewerScale(pinchRef.current.startScale * gestureScale, undefined, { syncState: false });
     };
 
     el.addEventListener('touchstart', handleTouchStart, { passive: false });
@@ -303,6 +370,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     el.addEventListener('touchcancel', handleTouchEnd);
     el.addEventListener('gesturestart', handleGestureStart, { passive: false });
     el.addEventListener('gesturechange', handleGestureChange, { passive: false });
+    el.addEventListener('gestureend', handleTouchEnd);
     return () => {
       el.removeEventListener('touchstart', handleTouchStart);
       el.removeEventListener('touchmove', handleTouchMove);
@@ -310,6 +378,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
       el.removeEventListener('touchcancel', handleTouchEnd);
       el.removeEventListener('gesturestart', handleGestureStart);
       el.removeEventListener('gesturechange', handleGestureChange);
+      el.removeEventListener('gestureend', handleTouchEnd);
     };
   }, [isOpen]);
 
@@ -405,8 +474,12 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
       {/* ─── SCROLLABLE CONTENT (PDF/IMAGE VIEWER) ─── */}
       <div
         ref={contentRef}
-        className="flex-1 overflow-auto bg-gray-100 dark:bg-slate-950 px-4 pb-6 relative"
-        style={{ touchAction: 'manipulation', overscrollBehavior: 'contain' }}
+        className="flex-1 min-h-0 min-w-0 overflow-auto bg-gray-100 dark:bg-slate-950 px-4 pb-6 relative"
+        style={{
+          touchAction: 'pan-x pan-y',
+          overscrollBehavior: 'contain',
+          WebkitOverflowScrolling: 'touch',
+        }}
       >
         {/* Floating Zoom Controls — bottom center */}
         {proxyUrl && !isPdfLoading && (
@@ -442,7 +515,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
           </div>
         )}
 
-        <div className={`flex pt-4 ${clampedScale > 1 ? 'justify-start' : 'justify-center'}`}>
+        <div ref={zoomAlignRef} className={`flex pt-4 ${clampedScale > 1 ? 'justify-start' : 'justify-center'}`}>
           <div
             ref={stageRef}
             className="relative shrink-0"
@@ -455,7 +528,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
               ref={zoomContentRef}
               className={hasMeasuredContent ? 'absolute left-0 top-0 will-change-transform' : 'will-change-transform'}
               style={{
-                transform: `scale(${clampedScale})`,
+                transform: `translate3d(0, 0, 0) scale(${clampedScale})`,
                 transformOrigin: 'top left',
               }}
             >
