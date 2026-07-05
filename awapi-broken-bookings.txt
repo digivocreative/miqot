@@ -1,0 +1,72 @@
+================================================================================
+LAPORAN: Booking AWAPI yang MASIH pakai format "aggregate" lama (per 2026-06-25)
+Untuk: tim dev Alhijaz
+================================================================================
+
+Ringkasan
+- Dicek LIVE ke AWAPI: 772 booking (yang kemarin bermasalah).
+- Sudah diperbaiki (per-pax): 746 booking  → ~97% beres. Terima kasih.
+- MASIH pakai format lama: 25 booking unik (4 future / 21 past). Daftar di bawah.
+
+Pola bug (sama seperti laporan sebelumnya)
+- Field `bayar` = TOTAL pembayaran booking, di-copy identik ke setiap pax.
+- `bayar_sisa` & `bayar_status` dihitung lawan `paket_harga` PER-PAX → muncul
+  "LEBIH BAYAR" palsu padahal booking sebenarnya BELUM lunas.
+- Akibat: mustahil tahu siapa yang sudah/belum bayar, dan sisa tagihan booking salah.
+
+--------------------------------------------------------------------------------
+CONTOH PAYLOAD MENTAH (booking masih broken)
+GET /awapi/gu/SM01078/umrah/AIW0029174
+(3 pax @ Rp 44.900.000, total tagihan Rp 134.700.000; terbayar Rp 96.800.000 →
+ booking masih KURANG Rp 37.900.000, tapi ketiganya "LEBIH BAYAR")
+
+{ "nama":"LUSI LESMANA SARI",             "paket_harga":"44900000", "bayar":"96800000", "bayar_sisa":-51900000, "bayar_status":"LEBIH BAYAR" }
+{ "nama":"MUHAMMAD FAUZAN MARWAN ALUWIE", "paket_harga":"44900000", "bayar":"96800000", "bayar_sisa":-51900000, "bayar_status":"LEBIH BAYAR" }
+{ "nama":"MUHAMMAD IBNU FASA ATHAILLAH",  "paket_harga":"44900000", "bayar":"96800000", "bayar_sisa":-51900000, "bayar_status":"LEBIH BAYAR" }
+
+Harapan (per-pax, seperti booking yang sudah diperbaiki): tiap baris `bayar`
+adalah pembayaran orang itu sendiri, `bayar_sisa = paket_harga - bayar`, status
+LUNAS/CICILAN/BELUM BAYAR sesuai individunya.
+
+--------------------------------------------------------------------------------
+DAFTAR LENGKAP 25 BOOKING (id_umrah) — prioritas yang "future" (belum berangkat)
+
+agent | id_umrah    | pax | terbayar(agg) | tagihan(Σpaket) | kurang     | dep
+------|-------------|-----|---------------|-----------------|------------|-------
+SM01078 | AIW0029174 |  3 |  96.800.000   |   134.700.000   | 37.900.000 | FUTURE
+SM561   | AIW0026517 |  2 |   5.000.000   |    29.000.000   | 24.000.000 | FUTURE
+SM01078 | AIW0028654 |  2 |  83.850.000   |   106.400.000   | 22.550.000 | FUTURE
+SM848   | AIW0028479 |  4 |   5.000.000   |    26.350.000*  | (lihat *)  | FUTURE
+SM778   | AIW0026023 |  3 |  39.400.000   |   114.600.000   | 75.200.000 | past
+SM933   | AIW0026079 |  3 |  59.700.000   |    89.100.000   | 29.400.000 | past
+SM778   | AIW0028968 |  3 |  76.000.000   |   125.100.000   | 49.100.000 | past
+SM792   | AIW0025055 |  3 |  31.500.000   |    90.000.000   | 58.500.000 | past
+SM845   | AIW0022740 |  3 |  40.300.000   |   116.400.000   | 76.100.000 | past
+SM01078 | AIW0026963 |  3 |  48.200.000   |   141.600.000   | 93.400.000 | past
+SM561   | AIW0025193 |  3 |  30.200.000   |    88.200.000   | 58.000.000 | past
+SM01100 | AIW0026191 |  3 |  36.900.000   |   107.100.000   | 70.200.000 | past
+SM01078 | AIW0026025 |  2 |  60.800.000   |    83.600.000   | 22.800.000 | past
+SM302   | AIW0025363 |  2 |  36.400.000   |    68.800.000   | 32.400.000 | past
+SM257   | AIW0028644 |  2 |  58.500.000   |   106.400.000   | 47.900.000 | past
+SM575   | AIW0025846 |  2 |  37.000.000   |    67.800.000   | 30.800.000 | past
+SM412   | AIW0026577 |  2 |  37.000.000   |    67.800.000   | 30.800.000 | past
+SM778   | AIW0025060 |  2 |  40.800.000   |    80.400.000   | 39.600.000 | past
+SM778   | AIW0025381 |  2 |  39.900.000   |    77.400.000   | 37.500.000 | past
+SM257   | AIW0024870 |  2 |  38.700.000   |    75.000.000   | 36.300.000 | past
+SM919   | AIW0026266 |  2 |  50.600.000   |    96.200.000   | 45.600.000 | past
+SM01078 | AIW0026032 |  2 |  37.900.000   |    73.400.000   | 35.500.000 | past
+SM561   | AIW0028379 |  2 | 105.600.000   |   167.500.000   | 61.900.000 | past
+SM01025 | AIW0026988 |  2 |  76.000.000   |    93.800.000   | 17.800.000 | past
+SM440   | AIW0026042 |  2 |  60.000.000   |    64.000.000   |  4.000.000 | past
+
+--------------------------------------------------------------------------------
+ANOMALI SEKUNDER (bonus temuan) — paket_harga NEGATIF
+Pada AIW0028479 (SM848), 3 dari 4 pax mengembalikan "paket_harga":"-800000"
+(harga paket negatif), sementara 1 pax "28750000". Ini bug terpisah dari
+aggregate di atas — mohon dicek juga karena membuat Σ harga & status kacau:
+
+{ "nama":"MUHAMMAD SULTHAN AZIZ", "paket_harga":"-800000",  "bayar":"5000000", "bayar_sisa":-5800000, "bayar_status":"LEBIH BAYAR" }
+{ "nama":"IRANIA KUMALA SARI",    "paket_harga":"-800000",  "bayar":"5000000", "bayar_sisa":-5800000, "bayar_status":"LEBIH BAYAR" }
+{ "nama":"FILLYA DELFILA",        "paket_harga":"28750000", "bayar":"5000000", "bayar_sisa":23750000, "bayar_status":"CICILAN" }
+{ "nama":"YULBERTI FARET SH",     "paket_harga":"-800000",  "bayar":"5000000", "bayar_sisa":-5800000, "bayar_status":"LEBIH BAYAR" }
+================================================================================

@@ -807,6 +807,20 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     return { blob, ext: EXPORT_EXT, mime: blob.type || EXPORT_MIME };
   }
 
+  async function buildPromptReferenceFile(pageIndex: number): Promise<File | null> {
+    if (!exportLabel) return null;
+    const page = activeImagePages[pageIndex];
+    if (!page) return null;
+
+    const cached = exportCacheRef.current.get(page.key);
+    const image = cached || await captureBlob(pageIndex);
+    if (!image) return null;
+    if (!cached) rememberExport(page.key, image);
+
+    const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext);
+    return new File([image.blob], filename, { type: image.mime });
+  }
+
   function buildCatalogPlan(mode: CatalogMode): {
     summary: Array<{ label: string; count: number }>;
     pages: BrochureMonth[];
@@ -1401,6 +1415,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         agent={{ name: agent.name || '', phone: agent.phone || '', website: agent.website || '' }}
         pkg={null}
         schedule={promptPage && promptPageIndex !== null ? buildSchedulePromptData(promptPage, promptPageIndex) : null}
+        getReferenceImageFile={promptPageIndex !== null ? () => buildPromptReferenceFile(promptPageIndex) : null}
         context="schedule"
         title={promptPage && promptPageIndex !== null ? titleForPromptPage(promptPageIndex) : 'Brosur Paket Umroh'}
       />

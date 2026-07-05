@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Wand2, Copy, ClipboardCheck, ExternalLink, ChevronDown, FileImage, Megaphone } from 'lucide-react';
+import { X, Wand2, Copy, ClipboardCheck, ExternalLink, ChevronDown, FileImage, Megaphone, Loader2, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import FilterDropdown from './FilterDropdown';
 import { trackEvent } from '../utils/analytics';
+import { isTouchPrimary } from '../utils/share';
 import {
   buildBrochurePrompt,
   DESIGN_STYLES,
@@ -21,6 +22,10 @@ interface BrochurePromptModalProps {
   onClose: () => void;
   /** Info kontak agen — di-prefill (bisa diedit di dalam modal). */
   agent: { name: string; phone: string; website: string };
+  /** URL publik brosur referensi. Jika ada, prompt akan mencoba memakai link tanpa upload manual. */
+  referenceImageUrl?: string | null;
+  /** Pembuat file brosur referensi untuk materi yang dirender di browser, seperti Brosur Jadwal. */
+  getReferenceImageFile?: (() => Promise<File | null>) | null;
   /** Data paket sebagai sumber kebenaran. Null untuk brosur non-paket. */
   pkg?: BrochurePromptPkg | null;
   /** Data brosur jadwal/filter sebagai sumber kebenaran untuk banyak paket. */
@@ -39,12 +44,73 @@ const inputCls =
   'focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-400 transition';
 const labelCls = 'block text-[11px] font-semibold text-gray-500 dark:text-slate-400 mb-1';
 
+function toAbsoluteUrl(url?: string | null): string | null {
+  const trimmed = typeof url === 'string' ? url.trim() : '';
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^\/\//.test(trimmed)) return `https:${trimmed}`;
+  if (typeof window === 'undefined') return trimmed;
+  try {
+    return new URL(trimmed, window.location.origin).href;
+  } catch {
+    return trimmed;
+  }
+}
+
+function safeImageFilename(title: string): string {
+  const slug = (title || 'brosur')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80) || 'brosur';
+  return `${slug}.png`;
+}
+
+async function blobToPng(blob: Blob): Promise<Blob> {
+  if (blob.type === 'image/png') return blob;
+
+  const blobUrl = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    const loaded = new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('reference-image-load-failed'));
+    });
+    img.src = blobUrl;
+    await loaded;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas-context-unavailable');
+    ctx.drawImage(img, 0, 0);
+
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((png) => {
+        if (png && png.size > 0) resolve(png);
+        else reject(new Error('png-conversion-failed'));
+      }, 'image/png');
+    });
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
+async function fetchReferenceImageFile(url: string, title: string): Promise<File> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`reference-image-fetch-${res.status}`);
+  const sourceBlob = await res.blob();
+  const pngBlob = await blobToPng(sourceBlob);
+  return new File([pngBlob], safeImageFilename(title), { type: 'image/png' });
+}
+
 /**
  * Prompt Generator — merakit prompt ChatGPT untuk membuat ulang brosur dengan
  * strip kontak agen. Tanpa panggilan API: prompt dirakit live di client, instan
- * & gratis. Agen menyalin prompt, buka ChatGPT, lampirkan brosur ini, tempel.
+ * & gratis. Agen menyalin prompt, buka ChatGPT, lalu mencoba link brosur atau upload manual.
  */
-export function BrochurePromptModal({ isOpen, onClose, agent, pkg, schedule, context = 'package', title }: BrochurePromptModalProps) {
+export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl, getReferenceImageFile, pkg, schedule, context = 'package', title }: BrochurePromptModalProps) {
   // Perilaku tetap "rancang ulang" (poster premium yg benar2 berubah); akurasi dijaga lewat
   // data acuan + pengingat cek WA. Tanpa pilihan tab.
   const variant: BrochureVariant = 'redesign';
@@ -63,6 +129,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, schedule, con
   const [contactOpen, setContactOpen] = useState(false);
 
   const [copied, setCopied] = useState(false);
+  const [isOpeningChatGPT, setIsOpeningChatGPT] = useState(false);
 
   // Reset info kontak ke profil setiap kali modal dibuka (hindari data basi)
   useEffect(() => {
@@ -81,6 +148,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, schedule, con
         agent: { name, phone, website },
         pkg,
         schedule,
+        referenceImageUrl: isScheduleContext ? null : toAbsoluteUrl(referenceImageUrl),
         contactSource: isScheduleContext ? 'attached' : 'explicit',
         extra: { instagram, alamat, note },
         variant,
@@ -90,7 +158,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, schedule, con
         reserveQr: false,
       });
     },
-    [name, phone, website, instagram, alamat, note, variant, kind, style, ratio, pkg, schedule, isScheduleContext],
+    [name, phone, website, instagram, alamat, note, variant, kind, style, ratio, pkg, schedule, isScheduleContext, referenceImageUrl],
   );
 
   const handleCopy = async () => {
@@ -109,15 +177,52 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, schedule, con
     trackEvent('feature', 'brochure_prompt_copy', { variant, kind: isScheduleContext ? 'schedule' : kind });
   };
 
-  // Auto-copy the prompt first (while this document is still focused), THEN open ChatGPT —
-  // agent attaches the brochure & pastes. ChatGPT has no way to pre-attach an image (or
-  // reliably prefill text on the mobile app) via URL, so we copy instead of using ?q=.
-  const openChatGPT = () => {
-    try { navigator.clipboard?.writeText(prompt).catch(() => {}); } catch { /* ignore */ }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-    trackEvent('feature', 'brochure_prompt_open_chatgpt', { variant, kind: isScheduleContext ? 'schedule' : kind });
-    window.open('https://chatgpt.com/', '_blank', 'noopener,noreferrer');
+  const canTryNativeChatGPTShare =
+    Boolean(toAbsoluteUrl(referenceImageUrl) || getReferenceImageFile) &&
+    isTouchPrimary() &&
+    typeof navigator !== 'undefined' &&
+    typeof navigator.share === 'function' &&
+    typeof navigator.canShare === 'function';
+
+  // There is no supported ChatGPT deeplink that can prefill an attachment from another
+  // website. On mobile, the closest path is native share: send PNG + prompt, then the
+  // agent picks ChatGPT from the share sheet. Desktop falls back to copy + open.
+  const openChatGPT = async () => {
+    if (isOpeningChatGPT) return;
+    setIsOpeningChatGPT(true);
+    const absoluteReferenceUrl = toAbsoluteUrl(referenceImageUrl);
+
+    try {
+      if (canTryNativeChatGPTShare) {
+        try {
+          const file = getReferenceImageFile
+            ? await getReferenceImageFile()
+            : absoluteReferenceUrl
+              ? await fetchReferenceImageFile(absoluteReferenceUrl, title)
+              : null;
+          if (file && navigator.canShare?.({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+              title: `Brosur - ${title}`,
+              text: prompt,
+            });
+            trackEvent('feature', 'brochure_prompt_share_chatgpt', { variant, kind: isScheduleContext ? 'schedule' : kind });
+            return;
+          }
+        } catch (err: any) {
+          if (err?.name === 'AbortError') return;
+          console.warn('[brochure-prompt] native share failed, falling back to ChatGPT link:', err);
+        }
+      }
+
+      try { navigator.clipboard?.writeText(prompt).catch(() => {}); } catch { /* ignore */ }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      trackEvent('feature', 'brochure_prompt_open_chatgpt', { variant, kind: isScheduleContext ? 'schedule' : kind });
+      window.open('https://chatgpt.com/', '_blank', 'noopener,noreferrer');
+    } finally {
+      setIsOpeningChatGPT(false);
+    }
   };
 
   return createPortal(
@@ -287,10 +392,17 @@ export function BrochurePromptModal({ isOpen, onClose, agent, pkg, schedule, con
               </button>
               <button
                 onClick={openChatGPT}
+                disabled={isOpeningChatGPT}
                 className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-slate-700/60 border border-emerald-200 dark:border-emerald-700/60 transition-all duration-200 active:scale-95"
               >
-                <ExternalLink size={16} />
-                <span>Buka ChatGPT</span>
+                {isOpeningChatGPT ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : canTryNativeChatGPTShare ? (
+                  <Share2 size={16} />
+                ) : (
+                  <ExternalLink size={16} />
+                )}
+                <span>{isOpeningChatGPT ? 'Memproses...' : canTryNativeChatGPTShare ? 'Kirim ChatGPT' : 'Buka ChatGPT'}</span>
               </button>
             </div>
           </motion.div>

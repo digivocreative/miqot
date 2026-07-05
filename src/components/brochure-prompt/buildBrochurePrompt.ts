@@ -84,6 +84,8 @@ export interface BrochurePromptInput {
   agent: { name: string; phone: string; website: string };
   pkg?: BrochurePromptPkg | null;
   schedule?: BrochurePromptSchedule | null;
+  /** URL publik gambar brosur referensi. Dipakai untuk percobaan tanpa upload manual di ChatGPT. */
+  referenceImageUrl?: string | null;
   /** explicit = tulis kontak dari profil; attached = pakai kontak yang sudah ada di gambar terlampir. */
   contactSource?: 'explicit' | 'attached';
   extra: { instagram?: string; alamat?: string; note?: string };
@@ -157,12 +159,20 @@ function buildScheduleDataBlock(schedule?: BrochurePromptSchedule | null): strin
 }
 
 export function buildBrochurePrompt(input: BrochurePromptInput): string {
-  const { agent, pkg, schedule, contactSource = 'explicit', extra, variant, kind, style, ratio, reserveQr } = input;
+  const { agent, pkg, schedule, referenceImageUrl, contactSource = 'explicit', extra, variant, kind, style, ratio, reserveQr } = input;
   const wa = formatWa(agent.phone);
   const phrase = DESIGN_STYLES.find((s) => s.value === style)?.phrase ?? '';
   const stylePhrase = phrase ? ` Gaya visual: ${phrase}.` : '';
   const ratioOut = effectiveRatio(variant, ratio);
   const useAttachedContact = contactSource === 'attached';
+  const referenceUrl = typeof referenceImageUrl === 'string' ? referenceImageUrl.trim() : '';
+  const referenceBlock = referenceUrl
+    ? [
+        'Link brosur referensi:',
+        referenceUrl,
+        'Buka dan baca gambar dari link ini sebagai acuan visual/isi. Jika link tidak bisa dibuka, jangan mengarang detail dari gambar; minta saya upload brosurnya.',
+      ].join('\n')
+    : '';
 
   // ── Strip kontak ──
   const contact: string[] = [];
@@ -177,7 +187,10 @@ export function buildBrochurePrompt(input: BrochurePromptInput): string {
   // ════ BANNER ADS — sengaja MINIM teks; beda total dari brosur ════
   if (kind === 'banner') {
     const introB =
-      'Kamu adalah senior art director iklan digital. Saya lampirkan sebuah brosur paket umroh ' +
+      'Kamu adalah senior art director iklan digital. ' +
+      (referenceUrl
+        ? 'Saya sematkan link brosur paket umroh di bawah '
+        : 'Saya lampirkan sebuah brosur paket umroh ') +
       'HANYA sebagai acuan isi. Buatkan sebuah BANNER IKLAN (ad creative) yang scroll-stopping ' +
       `untuk Instagram/Facebook Ads — INI BUKAN brosur.${stylePhrase}`;
     const goalsB =
@@ -229,6 +242,7 @@ export function buildBrochurePrompt(input: BrochurePromptInput): string {
     return [
       introB,
       goalsB,
+      referenceBlock,
       dataB,
       useAttachedContact
         ? 'Kontak agen: ambil dari gambar brosur yang saya lampirkan, pertahankan secara akurat dan rapi.'
@@ -242,7 +256,11 @@ export function buildBrochurePrompt(input: BrochurePromptInput): string {
   let goals = '';
   if (schedule && variant !== 'keep') {
     intro =
-      'Kamu adalah senior creative director untuk kampanye umroh premium. Saya lampirkan brosur jadwal paket umroh sebagai ACUAN ISI, lalu saya ingin kamu membuat ulang menjadi desain vertical story 9:16 yang jauh lebih visual-rich, cinematic, dan eye-catching. Jangan meniru mentah-mentah; naikkan level komposisi, depth, pencahayaan, tipografi, dan rasa premium-nya.' +
+      'Kamu adalah senior creative director untuk kampanye umroh premium. ' +
+      (referenceUrl
+        ? 'Saya sematkan link brosur jadwal paket umroh di bawah sebagai ACUAN ISI, lalu '
+        : 'Saya lampirkan brosur jadwal paket umroh sebagai ACUAN ISI, lalu ') +
+      'saya ingin kamu membuat ulang menjadi desain vertical story 9:16 yang jauh lebih visual-rich, cinematic, dan eye-catching. Jangan meniru mentah-mentah; naikkan level komposisi, depth, pencahayaan, tipografi, dan rasa premium-nya.' +
       stylePhrase;
     goals =
       'Arah visual yang wajib terasa:\n' +
@@ -253,14 +271,18 @@ export function buildBrochurePrompt(input: BrochurePromptInput): string {
       '- Prioritaskan keterbacaan di layar HP; jangan menumpuk teks, jangan membuat tabel terlalu kecil, dan jangan mengarang data.';
   } else if (variant === 'keep') {
     intro =
-      'Tolong EDIT gambar brosur paket umroh yang saya lampirkan. Pertahankan seluruh ' +
+      (referenceUrl
+        ? 'Tolong EDIT gambar brosur paket umroh dari link referensi di bawah. Pertahankan seluruh '
+        : 'Tolong EDIT gambar brosur paket umroh yang saya lampirkan. Pertahankan seluruh ') +
       'desain, tata letak, warna, foto, dan semua teks (harga, tanggal, hotel, maskapai) ' +
       `PERSIS seperti aslinya — jangan diubah, jangan diketik ulang.${stylePhrase}`;
   } else {
     const isStory = variant === 'story';
     intro =
-      'Kamu adalah senior graphic designer spesialis materi promosi umroh & haji. Saya lampirkan ' +
-      'sebuah brosur paket umroh sebagai ACUAN ISI (bukan untuk ditiru mentah-mentah). ' +
+      'Kamu adalah senior graphic designer spesialis materi promosi umroh & haji. ' +
+      (referenceUrl
+        ? 'Saya sematkan link brosur paket umroh di bawah sebagai ACUAN ISI (bukan untuk ditiru mentah-mentah). '
+        : 'Saya lampirkan sebuah brosur paket umroh sebagai ACUAN ISI (bukan untuk ditiru mentah-mentah). ') +
       (isStory
         ? 'Susun ulang isinya menjadi konten vertical story 9:16 untuk Instagram/WhatsApp Story '
         : 'Rancang ULANG menjadi sebuah poster promosi ') +
@@ -312,6 +334,6 @@ export function buildBrochurePrompt(input: BrochurePromptInput): string {
   rules.push(`- Rasio ${ratioOut}, resolusi tinggi dan tajam (kualitas siap cetak).`);
   if (extra.note?.trim()) rules.push(`- ${extra.note.trim()}`);
 
-  const sections = [intro, goals, dataBlock, contactBlock, `Ketentuan:\n${rules.join('\n')}`].filter(Boolean);
+  const sections = [intro, goals, referenceBlock, dataBlock, contactBlock, `Ketentuan:\n${rules.join('\n')}`].filter(Boolean);
   return sections.join('\n\n');
 }

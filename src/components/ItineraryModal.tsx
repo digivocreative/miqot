@@ -35,6 +35,38 @@ interface ItineraryModalProps {
   agentPhoto?: string | null;
 }
 
+function clampItineraryScale(nextScale: number) {
+  return Math.min(3, Math.max(1, +nextScale.toFixed(2)));
+}
+
+function PdfLoadingPlaceholder({ pageWidth }: { pageWidth: number }) {
+  return (
+    <div className="w-full px-1 py-2">
+      <div
+        className="relative mx-auto w-full overflow-hidden rounded-lg border border-gray-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"
+        style={{ maxWidth: pageWidth, aspectRatio: '210 / 297', minHeight: 380 }}
+      >
+        <div className="absolute inset-x-6 top-7 h-3 rounded-full bg-gray-100 dark:bg-slate-800" />
+        <div className="absolute inset-x-6 top-14 h-2 rounded-full bg-gray-100 dark:bg-slate-800" />
+        <div className="absolute inset-x-10 top-20 h-2 rounded-full bg-gray-100 dark:bg-slate-800" />
+        <div className="absolute left-6 right-6 top-32 grid grid-cols-2 gap-3">
+          <div className="h-20 rounded-lg bg-gray-50 dark:bg-slate-800/70" />
+          <div className="h-20 rounded-lg bg-gray-50 dark:bg-slate-800/70" />
+        </div>
+        <div className="absolute inset-x-6 top-60 space-y-3">
+          <div className="h-2 rounded-full bg-gray-100 dark:bg-slate-800" />
+          <div className="h-2 rounded-full bg-gray-100 dark:bg-slate-800" />
+          <div className="h-2 w-2/3 rounded-full bg-gray-100 dark:bg-slate-800" />
+        </div>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white/70 backdrop-blur-[1px] dark:bg-slate-900/70">
+          <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+          <span className="text-sm font-medium text-gray-500 dark:text-slate-400">Memuat Dokumen...</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ============================================
 // Component
 // ============================================
@@ -46,11 +78,27 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
   const [isPdfLoading, setIsPdfLoading] = useState(true);
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'unknown'>('unknown');
   const [pdfWidth, setPdfWidth] = useState(0);
+  const [contentSize, setContentSize] = useState({ width: 0, height: 0 });
   const contentRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const zoomContentRef = useRef<HTMLDivElement>(null);
+  const contentSizeRef = useRef({ width: 0, height: 0 });
+  const scaleRafRef = useRef<number | null>(null);
+  const pendingScaleRef = useRef(1);
 
-  // ── Zoom state (re-renders PDF at correct resolution) ──
+  // ── Zoom state (visual transform only; PDF is not re-rendered during pinch) ──
   const [scale, setScale] = useState(1);
-  const pinchRef = useRef({ startDist: 0, startScale: 1 });
+  const scaleRef = useRef(1);
+  const pinchRef = useRef({
+    startDist: 0,
+    startScale: 1,
+    anchorX: 0,
+    anchorY: 0,
+  });
+  const clampedScale = clampItineraryScale(scale);
+  const hasMeasuredContent = contentSize.width > 0 && contentSize.height > 0;
+  const pdfShellWidth = Math.min(Math.max((pdfWidth || 400) + 16, 296), 672);
+  const pdfPageWidth = pdfShellWidth - 16;
 
   // Use CDN URL directly if it's a CDN URL, otherwise use proxy path
   const originalUrl = fileUrl ? fileUrl.replace(/^http:\/\//i, 'https://') : '';
@@ -78,8 +126,15 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
       setIsPdfLoading(true);
       setNumPages(null);
       setScale(1);
+      scaleRef.current = 1;
+      pendingScaleRef.current = 1;
+      setContentSize({ width: 0, height: 0 });
     }
   }, [isOpen, fileUrl]);
+
+  useEffect(() => {
+    scaleRef.current = clampedScale;
+  }, [clampedScale]);
 
   // Dynamically measure the container width for the PDF renderer
   useEffect(() => {
@@ -98,6 +153,32 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     return () => ro.disconnect();
   }, [isOpen]);
 
+  useEffect(() => {
+    const el = zoomContentRef.current;
+    if (!el || !isOpen) return;
+
+    const measure = () => {
+      const nextSize = {
+        width: Math.ceil(el.offsetWidth),
+        height: Math.ceil(el.offsetHeight),
+      };
+      if (nextSize.width <= 0 || nextSize.height <= 0) return;
+      contentSizeRef.current = nextSize;
+      setContentSize(prev => (
+        prev.width === nextSize.width && prev.height === nextSize.height ? prev : nextSize
+      ));
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isOpen, fileType, numPages, pdfWidth]);
+
+  useEffect(() => () => {
+    if (scaleRafRef.current !== null) cancelAnimationFrame(scaleRafRef.current);
+  }, []);
+
   // PDF load success handler
   function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
     setNumPages(numPages);
@@ -110,36 +191,143 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
     setIsPdfLoading(false);
   }
 
-  // ── Pinch-to-zoom (re-renders PDF at higher resolution, native scroll for panning) ──
-  const getTouchDistance = (touches: React.TouchList) => {
+  const getTouchDistance = (touches: TouchList) => {
     const dx = touches[0].clientX - touches[1].clientX;
     const dy = touches[0].clientY - touches[1].clientY;
     return Math.sqrt(dx * dx + dy * dy);
   };
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      pinchRef.current.startDist = getTouchDistance(e.touches);
-      pinchRef.current.startScale = scale;
+  const getTouchCenter = (touches: TouchList, el: HTMLDivElement) => {
+    const rect = el.getBoundingClientRect();
+    return {
+      x: (touches[0].clientX + touches[1].clientX) / 2 - rect.left,
+      y: (touches[0].clientY + touches[1].clientY) / 2 - rect.top,
+    };
+  };
+
+  const applyZoomStyles = (nextScale: number) => {
+    const stage = stageRef.current;
+    const content = zoomContentRef.current;
+    const size = contentSizeRef.current;
+    if (!stage || !content || size.width <= 0 || size.height <= 0) return;
+
+    stage.style.width = `${size.width * nextScale}px`;
+    stage.style.height = `${size.height * nextScale}px`;
+    content.style.transform = `scale(${nextScale})`;
+  };
+
+  const scheduleScaleState = (nextScale: number) => {
+    pendingScaleRef.current = nextScale;
+    if (scaleRafRef.current !== null) return;
+    scaleRafRef.current = window.requestAnimationFrame(() => {
+      scaleRafRef.current = null;
+      setScale(pendingScaleRef.current);
+    });
+  };
+
+  const setViewerScale = (nextScale: number, center?: { x: number; y: number }) => {
+    const clamped = clampItineraryScale(nextScale);
+    scaleRef.current = clamped;
+    applyZoomStyles(clamped);
+    scheduleScaleState(clamped);
+
+    if (center && contentRef.current) {
+      const el = contentRef.current;
+      const anchor = pinchRef.current;
+      window.requestAnimationFrame(() => {
+        el.scrollLeft = Math.max(0, (anchor.anchorX * clamped) - center.x);
+        el.scrollTop = Math.max(0, (anchor.anchorY * clamped) - center.y);
+      });
     }
+
+    return clamped;
   };
 
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      const dist = getTouchDistance(e.touches);
-      const ratio = dist / pinchRef.current.startDist;
-      const newScale = Math.min(3, Math.max(1, pinchRef.current.startScale * ratio));
-      setScale(newScale);
+  const setViewerScaleImmediate = (nextScale: number) => {
+    const clamped = clampItineraryScale(nextScale);
+    scaleRef.current = clamped;
+    applyZoomStyles(clamped);
+    setScale(clamped);
+    return clamped;
+  };
+
+  useEffect(() => {
+    applyZoomStyles(clampedScale);
+  }, [clampedScale, contentSize]);
+
+  // Native non-passive listeners are needed on mobile Safari/Chrome so the
+  // preview can own a two-finger pinch while one-finger scroll stays native.
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el || !isOpen) return;
+
+    const handleTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 2) return;
+      if (event.cancelable) event.preventDefault();
+      const center = getTouchCenter(event.touches, el);
+      pinchRef.current = {
+        startDist: getTouchDistance(event.touches),
+        startScale: scaleRef.current,
+        anchorX: (el.scrollLeft + center.x) / scaleRef.current,
+        anchorY: (el.scrollTop + center.y) / scaleRef.current,
+      };
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (event.touches.length !== 2 || pinchRef.current.startDist <= 0) return;
+      if (event.cancelable) event.preventDefault();
+      const dist = getTouchDistance(event.touches);
+      const center = getTouchCenter(event.touches, el);
+      setViewerScale(pinchRef.current.startScale * (dist / pinchRef.current.startDist), center);
+    };
+
+    const handleTouchEnd = () => {
+      pinchRef.current.startDist = 0;
+      if (scaleRef.current < 1.1) setViewerScaleImmediate(1);
+    };
+
+    const handleGestureStart = (event: Event) => {
+      event.preventDefault();
+      pinchRef.current.startScale = scaleRef.current;
+    };
+
+    const handleGestureChange = (event: Event) => {
+      event.preventDefault();
+      const gestureScale = Number((event as Event & { scale?: number }).scale || 1);
+      setViewerScale(pinchRef.current.startScale * gestureScale);
+    };
+
+    el.addEventListener('touchstart', handleTouchStart, { passive: false });
+    el.addEventListener('touchmove', handleTouchMove, { passive: false });
+    el.addEventListener('touchend', handleTouchEnd);
+    el.addEventListener('touchcancel', handleTouchEnd);
+    el.addEventListener('gesturestart', handleGestureStart, { passive: false });
+    el.addEventListener('gesturechange', handleGestureChange, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', handleTouchStart);
+      el.removeEventListener('touchmove', handleTouchMove);
+      el.removeEventListener('touchend', handleTouchEnd);
+      el.removeEventListener('touchcancel', handleTouchEnd);
+      el.removeEventListener('gesturestart', handleGestureStart);
+      el.removeEventListener('gesturechange', handleGestureChange);
+    };
+  }, [isOpen]);
+
+  const zoomFromCenter = (nextScale: number) => {
+    const el = contentRef.current;
+    if (!el) {
+      setViewerScaleImmediate(nextScale);
+      return;
     }
+    const center = { x: el.clientWidth / 2, y: el.clientHeight / 2 };
+    pinchRef.current.anchorX = (el.scrollLeft + center.x) / scaleRef.current;
+    pinchRef.current.anchorY = (el.scrollTop + center.y) / scaleRef.current;
+    setViewerScale(nextScale, center);
   };
 
-  const handleTouchEnd = () => {
-    if (scale < 1.1) setScale(1);
-  };
-
-  const zoomIn = () => setScale(prev => Math.min(3, +(prev + 0.25).toFixed(2)));
-  const zoomOut = () => setScale(prev => Math.max(1, +(prev - 0.25).toFixed(2)));
-  const resetZoom = () => setScale(1);
+  const zoomIn = () => zoomFromCenter(scaleRef.current + 0.25);
+  const zoomOut = () => zoomFromCenter(scaleRef.current - 0.25);
+  const resetZoom = () => setViewerScaleImmediate(1);
 
   // Share First, Download Fallback handler
   const handleShareItinerary = async () => {
@@ -218,9 +406,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
       <div
         ref={contentRef}
         className="flex-1 overflow-auto bg-gray-100 dark:bg-slate-950 px-4 pb-6 relative"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
+        style={{ touchAction: 'manipulation', overscrollBehavior: 'contain' }}
       >
         {/* Floating Zoom Controls — bottom center */}
         {proxyUrl && !isPdfLoading && (
@@ -241,7 +427,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
                 className="min-w-[44px] text-center text-xs font-semibold text-white px-1 py-1 rounded-full hover:bg-white/20 transition-colors"
                 aria-label="Reset zoom"
               >
-                {Math.round(scale * 100)}%
+                {Math.round(clampedScale * 100)}%
               </button>
               <button
                 type="button"
@@ -256,7 +442,23 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
           </div>
         )}
 
-        <div className={`flex pt-4 ${scale > 1 ? 'justify-start' : 'justify-center'}`}>
+        <div className={`flex pt-4 ${clampedScale > 1 ? 'justify-start' : 'justify-center'}`}>
+          <div
+            ref={stageRef}
+            className="relative shrink-0"
+            style={hasMeasuredContent ? {
+              width: contentSize.width * clampedScale,
+              height: contentSize.height * clampedScale,
+            } : undefined}
+          >
+            <div
+              ref={zoomContentRef}
+              className={hasMeasuredContent ? 'absolute left-0 top-0 will-change-transform' : 'will-change-transform'}
+              style={{
+                transform: `scale(${clampedScale})`,
+                transformOrigin: 'top left',
+              }}
+            >
 
         {/* Empty State */}
         {!proxyUrl && (
@@ -268,24 +470,22 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
 
         {/* PDF Renderer via react-pdf */}
         {proxyUrl && fileType === 'pdf' && (
-          <div className={`bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg min-h-[50vh] flex flex-col relative ${scale > 1 ? 'items-start w-fit' : 'items-center max-w-2xl w-full'}`}>
+          <div
+            className="bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg min-h-[50vh] flex flex-col relative items-center shrink-0"
+            style={{ width: pdfShellWidth }}
+          >
             <Document
               file={proxyUrl}
               onLoadSuccess={onDocumentLoadSuccess}
               onLoadError={onDocumentLoadError}
-              loading={
-                <div className="flex flex-col items-center gap-3 py-10">
-                  <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
-                  <span className="text-sm text-gray-500 dark:text-slate-400">Memuat Dokumen...</span>
-                </div>
-              }
+              loading={<PdfLoadingPlaceholder pageWidth={pdfPageWidth} />}
               error={
                 <div className="flex flex-col items-center gap-2 py-10 text-red-500">
                   <AlertCircle className="w-8 h-8" />
                   <span className="text-sm">Gagal memuat PDF.</span>
                 </div>
               }
-              className={`flex flex-col gap-4 ${scale > 1 ? 'items-start' : 'w-full items-center'}`}
+              className="flex flex-col gap-4 w-full items-center"
             >
               {numPages && Array.from(new Array(numPages), (_, index) => (
                 <Page
@@ -294,7 +494,7 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
                   renderTextLayer={false}
                   renderAnnotationLayer={false}
                   className="shadow-md rounded-lg overflow-hidden w-full max-w-full"
-                  width={(pdfWidth || 400) * scale}
+                  width={pdfPageWidth}
                 />
               ))}
             </Document>
@@ -312,6 +512,8 @@ export function ItineraryModal({ isOpen, onClose, fileUrl, title }: ItineraryMod
             />
           </div>
         )}
+            </div>
+          </div>
         </div>
       </div>
 

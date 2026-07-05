@@ -77,6 +77,57 @@ test('buildBrochurePrompt embeds schedule brochure package data', async () => {
   assert.doesNotMatch(prompt, /0812-3456-7890/);
 });
 
+test('buildBrochurePrompt embeds package brochure reference URL', async () => {
+  const { buildBrochurePrompt } = await importPromptBuilder();
+  const prompt = buildBrochurePrompt({
+    agent: { name: 'Agen Test', phone: '6281234567890', website: 'alhijaz.test/agen' },
+    pkg: {
+      nama: 'REGULER 9HR',
+      tgl: '12 Agustus 2026',
+      harga: 'mulai Rp 30.500.000',
+      mekkah: 'Movenpick (★★★★★)',
+      madinah: 'Taiba Front (★★★★★)',
+      maskapai: 'GARUDA',
+    },
+    schedule: null,
+    referenceImageUrl: 'https://cdn.test/brosur/JBU1234.webp?v=abc123',
+    contactSource: 'explicit',
+    extra: {},
+    variant: 'redesign',
+    kind: 'brosur',
+    style: 'modern',
+    ratio: '4:5',
+    reserveQr: false,
+  });
+
+  assert.match(prompt, /Saya sematkan link brosur paket umroh di bawah sebagai ACUAN ISI/);
+  assert.match(prompt, /Link brosur referensi:\nhttps:\/\/cdn\.test\/brosur\/JBU1234\.webp\?v=abc123/);
+  assert.match(prompt, /Jika link tidak bisa dibuka, jangan mengarang detail dari gambar/);
+  assert.match(prompt, /REGULER 9 HARI/);
+  assert.match(prompt, /WhatsApp: 0812-3456-7890/);
+  assert.doesNotMatch(prompt, /Saya lampirkan sebuah brosur paket umroh sebagai ACUAN ISI/);
+});
+
+test('PackageCard passes brochure URL into the AI recreate prompt', () => {
+  const source = readFileSync(join(root, 'src/components/PackageCard.tsx'), 'utf8');
+
+  assert.match(source, /<BrochurePromptModal/);
+  assert.match(source, /referenceImageUrl=\{brosurImageUrl \|\| pkg\.brosurUrl \|\| null\}/);
+});
+
+test('BrochurePromptModal uses native share for brochure image when available', () => {
+  const source = readFileSync(join(root, 'src/components/BrochurePromptModal.tsx'), 'utf8');
+
+  assert.match(source, /function safeImageFilename/);
+  assert.match(source, /async function fetchReferenceImageFile/);
+  assert.match(source, /getReferenceImageFile\?: \(\(\) => Promise<File \| null>\) \| null/);
+  assert.match(source, /const canTryNativeChatGPTShare =/);
+  assert.match(source, /Boolean\(toAbsoluteUrl\(referenceImageUrl\) \|\| getReferenceImageFile\)/);
+  assert.match(source, /const file = getReferenceImageFile/);
+  assert.match(source, /navigator\.share\(\{\s*files: \[file\],\s*title: `Brosur - \$\{title\}`,\s*text: prompt,/);
+  assert.match(source, />\{isOpeningChatGPT \? 'Memproses\.\.\.' : canTryNativeChatGPTShare \? 'Kirim ChatGPT' : 'Buka ChatGPT'\}</);
+});
+
 test('BrochureSchedulePage wires the AI recreate prompt modal', () => {
   const source = readFileSync(join(root, 'src/components/BrochureSchedulePage.tsx'), 'utf8');
 
@@ -84,8 +135,10 @@ test('BrochureSchedulePage wires the AI recreate prompt modal', () => {
   assert.match(source, /useState<number \| null>\(null\)/);
   assert.match(source, /setPromptPageIndex\(index\)/);
   assert.match(source, />Buat Ulang AI</);
+  assert.match(source, /async function buildPromptReferenceFile\(pageIndex: number\): Promise<File \| null>/);
   assert.match(source, /<BrochurePromptModal/);
   assert.match(source, /schedule=\{promptPage && promptPageIndex !== null \? buildSchedulePromptData\(promptPage, promptPageIndex\) : null\}/);
+  assert.match(source, /getReferenceImageFile=\{promptPageIndex !== null \? \(\) => buildPromptReferenceFile\(promptPageIndex\) : null\}/);
   assert.match(source, /context="schedule"/);
 });
 

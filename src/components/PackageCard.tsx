@@ -2439,6 +2439,7 @@ _________________________
         isOpen={isPromptOpen}
         onClose={() => setIsPromptOpen(false)}
         agent={{ name: currentAgent?.name || '', phone: currentAgent?.phone || '', website: currentAgent?.website || '' }}
+        referenceImageUrl={brosurImageUrl || pkg.brosurUrl || null}
         pkg={isPromptOpen ? buildBrochurePromptData() : null}
         title={pkg.nama}
       />
