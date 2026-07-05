@@ -40,6 +40,9 @@ const FlightSharePage = lazy(() => import('./components/FlightSharePage.tsx'))
 const BioPage = lazy(() => import('./components/bio/BioPage.tsx'))
 const TopPartnerPage = lazy(() => import('./components/TopPartnerPage.tsx'))
 const RahmahJuliLandingPage = lazy(() => import('./components/RahmahJuliLandingPage.tsx'))
+const LocalAgentation = import.meta.env.DEV
+  ? lazy(() => import('agentation').then(({ Agentation }) => ({ default: Agentation })))
+  : null
 import { AGENTS_DATA, loadAgentsFromSupabase } from '@/data/agents'
 
 // PWA scope is alhijaz.co only. On a custom domain the HTML is server-rendered
@@ -327,6 +330,7 @@ if (!shouldAutoRedirect) {
         </div>
       }>
         {page}
+        {LocalAgentation ? <LocalAgentation /> : null}
       </Suspense>
     )
   })()

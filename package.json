@@ -58,6 +58,7 @@
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.0.0",
+    "agentation": "^3.0.2",
     "autoprefixer": "^10.4.14",
     "postcss": "^8.4.24",
     "sharp": "^0.34.5",
