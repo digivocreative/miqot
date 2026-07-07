@@ -24,10 +24,13 @@ test('umrah registration refreshes legacy cookies and retries final submit after
   assert.match(laporanApi, /export async function submitUmrahRegistrationWithBrowser/);
   assert.match(laporanApi, /async function getLegacyBrowserRecaptchaConfig\(page\)/);
   assert.match(laporanApi, /grecaptcha\\.execute\\\(\\s\*\['"\]\(\[\^'"\]\+\)\['"\]/);
+  assert.match(laporanApi, /actionMatch\s*=\s*scripts\.match\(/);
+  assert.match(laporanApi, /tokenAction: recaptchaConfig\.action/);
+  assert.match(laporanApi, /window\.grecaptcha\.execute\(siteKey, \{ action: tokenAction \|\| 'submit' \}\)/);
   assert.match(laporanApi, /name\\s\*:\\s\*\['"\]\(\[\^'"\]\+\)\['"\]\\s\*,\\s\*value\\s\*:\\s\*isi/);
-  assert.match(laporanApi, /window\.grecaptcha\.execute\(siteKey, \{ action: 'submit' \}\)/);
   assert.match(laporanApi, /UMRAH_RECAPTCHA_FIELD_NAME/);
   assert.match(laporanApi, /recaptchaSource: recaptchaConfig\.source/);
+  assert.match(laporanApi, /recaptchaAction: recaptchaConfig\.action/);
   assert.match(laporanApi, /function findBlockingLegacyDialog/);
   assert.match(laporanApi, /pickLegacyBrowserSelectName\(page, \['vjadwal', 'jadwal', 'berangkat', 'tgl_berangkat'\]\)/);
   assert.match(laporanApi, /Alhijaz menolak jadwal\/paket/);
@@ -46,6 +49,12 @@ test('umrah registration refreshes legacy cookies and retries final submit after
   assert.match(server, /password: getDecryptedLegacyPassword\(\)/);
 
   assert.match(registerPage, /status:\s+\{\s+label: 'Status Nikah'/);
+  assert.match(registerPage, /tjamaah:\s+\{\s+label: 'No\. Telp\/HP Jamaah'[\s\S]*required: true/);
+  assert.match(registerPage, /plahir:\s+\{\s+label: 'Tempat Lahir'[\s\S]*required: true/);
+  assert.match(registerPage, /tlahir:\s+\{\s+label: 'Tanggal Lahir'[\s\S]*required: true/);
+  assert.match(registerPage, /return '3276010101900001'/);
+  assert.match(registerPage, /pendaftarPhone === '1111111111'/);
+  assert.match(registerPage, /submitFields\[hpPendaftarName\] = submitFields\[hpJamaahName\]/);
   assert.match(registerPage, /BELUM\\s\*KAWIN\|BELUM\\s\*MENIKAH/);
   assert.match(registerPage, /const responseText = await res\.text\(\)/);
   assert.match(registerPage, /JSON\.parse\(responseText\)/);

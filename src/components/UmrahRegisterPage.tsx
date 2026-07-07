@@ -73,10 +73,13 @@ const FIELD_CONFIG: Record<string, FieldDef> = {
   telp:          { label: 'No. Telp/HP Jamaah', section: 'jamaah', order: 15, required: true, placeholder: 'Nomor HP jamaah' },
   hp:            { label: 'No. Telp/HP Jamaah', section: 'jamaah', order: 15, required: true, placeholder: 'Nomor HP jamaah' },
   no_telp:       { label: 'No. Telp/HP Jamaah', section: 'jamaah', order: 15, required: true, placeholder: 'Nomor HP jamaah' },
-  tempat_lahir:  { label: 'Tempat Lahir', section: 'jamaah', order: 16, placeholder: 'Kota kelahiran' },
-  tempatlahir:   { label: 'Tempat Lahir', section: 'jamaah', order: 16, placeholder: 'Kota kelahiran' },
-  tgl_lahir:     { label: 'Tanggal Lahir', section: 'jamaah', order: 17, placeholder: 'DD/MM/YYYY' },
-  tgllahir:      { label: 'Tanggal Lahir', section: 'jamaah', order: 17, placeholder: 'DD/MM/YYYY' },
+  tjamaah:       { label: 'No. Telp/HP Jamaah', section: 'jamaah', order: 15, required: true, placeholder: 'Nomor HP jamaah' },
+  tempat_lahir:  { label: 'Tempat Lahir', section: 'jamaah', order: 16, required: true, placeholder: 'Kota kelahiran' },
+  tempatlahir:   { label: 'Tempat Lahir', section: 'jamaah', order: 16, required: true, placeholder: 'Kota kelahiran' },
+  plahir:        { label: 'Tempat Lahir', section: 'jamaah', order: 16, required: true, placeholder: 'Kota kelahiran' },
+  tgl_lahir:     { label: 'Tanggal Lahir', section: 'jamaah', order: 17, required: true, placeholder: 'DD/MM/YYYY' },
+  tgllahir:      { label: 'Tanggal Lahir', section: 'jamaah', order: 17, required: true, placeholder: 'DD/MM/YYYY' },
+  tlahir:        { label: 'Tanggal Lahir', section: 'jamaah', order: 17, required: true, placeholder: 'DD/MM/YYYY' },
   nikah:         { label: 'Status Nikah', section: 'jamaah', order: 18, required: true },
   status:        { label: 'Status Nikah', section: 'jamaah', order: 18, required: true },
   status_nikah:  { label: 'Status Nikah', section: 'jamaah', order: 18, required: true },
@@ -239,7 +242,7 @@ function nextAutoPendaftarName(gender: AutoFillGender, currentValue = ''): strin
 
 function dummyValueFor(label: string, gender: AutoFillGender = 'male', currentValue = ''): string {
   const l = label.toLowerCase();
-  if (l.includes('no. ktp') || l.includes('nik')) return '111111111111';
+  if (l.includes('no. ktp') || l.includes('nik')) return '3276010101900001';
   if (l.includes('telp') || l.includes('hp')) return '081234567890';
   if (l.includes('tanggal lahir') || l.includes('tgl lahir')) return '01/01/1990';
   if (l.includes('tempat lahir')) return 'Jakarta';
@@ -1094,6 +1097,12 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
       }
       if (hpJamaahName && hpPendaftarName && !submitFields[hpJamaahName] && submitFields[hpPendaftarName]) {
         submitFields[hpJamaahName] = submitFields[hpPendaftarName];
+      }
+      if (hpPendaftarName && hpJamaahName && submitFields[hpJamaahName]) {
+        const pendaftarPhone = String(submitFields[hpPendaftarName] || '').trim();
+        if (!pendaftarPhone || pendaftarPhone === '1111111111') {
+          submitFields[hpPendaftarName] = submitFields[hpJamaahName];
+        }
       }
 
       // 2. Discover the actual file field name from the legacy form

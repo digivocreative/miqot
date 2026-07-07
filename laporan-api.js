@@ -2365,6 +2365,7 @@ async function getLegacyBrowserRecaptchaConfig(page) {
       .join('\n');
 
     const executeMatch = scripts.match(/grecaptcha\.execute\(\s*['"]([^'"]+)['"]/i);
+    const actionMatch = scripts.match(/grecaptcha\.execute\(\s*['"][^'"]+['"]\s*,\s*\{\s*action\s*:\s*['"]([^'"]+)['"]/i);
     const renderMatch = scripts.match(/recaptcha\/api\.js\?render=([^'"\s&]+)/i);
     const siteKey = executeMatch?.[1]
       || (renderMatch?.[1] ? decodeURIComponent(renderMatch[1]) : '')
@@ -2378,6 +2379,7 @@ async function getLegacyBrowserRecaptchaConfig(page) {
 
     return {
       siteKey,
+      action: actionMatch?.[1] || 'submit',
       tokenField: tokenNameMatch?.[1] || fallbackTokenField,
       tokenId: tokenIdMatch?.[1] || 'legacy_recaptcha_token',
       source: tokenNameMatch?.[1] ? 'legacy_script' : 'fallback',
@@ -2542,7 +2544,7 @@ export async function submitUmrahRegistrationWithBrowser({
       };
     }
 
-    const tokenInfo = await page.evaluate(async ({ siteKey, tokenField, tokenId }) => {
+    const tokenInfo = await page.evaluate(async ({ siteKey, tokenAction, tokenField, tokenId }) => {
       const started = Date.now();
       while (Date.now() - started < 20_000) {
         if (window.grecaptcha && typeof window.grecaptcha.execute === 'function') break;
@@ -2551,7 +2553,7 @@ export async function submitUmrahRegistrationWithBrowser({
       if (!window.grecaptcha || typeof window.grecaptcha.execute !== 'function') {
         return { ok: false, error: 'grecaptcha tidak tersedia' };
       }
-      const token = await window.grecaptcha.execute(siteKey, { action: 'submit' });
+      const token = await window.grecaptcha.execute(siteKey, { action: tokenAction || 'submit' });
       if (!token) return { ok: false, error: 'token reCAPTCHA kosong' };
       const form = document.querySelector('form#mF');
       if (!form) return { ok: false, error: 'form legacy hilang sebelum submit' };
@@ -2565,6 +2567,7 @@ export async function submitUmrahRegistrationWithBrowser({
       return { ok: true, length: token.length };
     }, {
       siteKey: recaptchaConfig.siteKey,
+      tokenAction: recaptchaConfig.action,
       tokenField: recaptchaConfig.tokenField,
       tokenId: recaptchaConfig.tokenId,
     });
@@ -2599,6 +2602,7 @@ export async function submitUmrahRegistrationWithBrowser({
       formStillOpen,
       tokenLength: tokenInfo.length,
       recaptchaSource: recaptchaConfig.source,
+      recaptchaAction: recaptchaConfig.action,
       responsePreview,
     });
 
