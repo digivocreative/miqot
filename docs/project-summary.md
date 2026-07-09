@@ -83,6 +83,7 @@ Catatan:
 | CAPI analytics | `/api/capi/*`, `/api/analytics/*` | CAPI helpers in `server.js`, `lib/analytics-maintenance.js` | Meta events, logs, admin analytics, daily aggregate. |
 | Telegram | `/api/telegram/*`, `telegram-notifier.js` | Bot webhook + cron jobs | Deep link connect, preference, alerts, reminders, kurs. |
 | MCP assistant | `/mcp`, `/api/mcp-key` | `mcp-server.js`, MCP key routes | Read-only AI assistant tools scoped per agent. |
+| Dev-MCP (developer) | `/dev-mcp`, `/oauth/dev/*`, `/.well-known/oauth-*` | `dev-mcp.js` | Read-only MCP developer-tool (docs/struktur/cari kode) untuk brainstorming di claude.ai; OAuth 2.1 single-user. |
 | Top Partner | `/top-partner`, `/api/top-partner` | `TopPartnerPage.tsx`, `lib/top-partner*.js` | Public partner directory + cached photos/OG. |
 
 ## Peta Folder
@@ -96,7 +97,8 @@ Catatan:
 ├── haji-api.js                       # Legacy haji scrape/enrichment helpers
 ├── calendar-api.js                   # Calendar scrape/sync helpers
 ├── telegram-notifier.js              # Telegram bot, cron alerts, digest, reminders
-├── mcp-server.js                     # MCP read-only server
+├── mcp-server.js                     # MCP read-only server (data bisnis, per-agent)
+├── dev-mcp.js                        # Dev-MCP: MCP developer-tool (docs/struktur/kode) + OAuth single-user
 ├── deploy-webhook.js                 # GitHub webhook deploy listener
 ├── vite.config.ts                    # Vite, PWA, dev plugins, manual chunks
 ├── tailwind.config.js                # Tailwind tokens and animations
@@ -306,6 +308,7 @@ Do not increase background sync cadence, upsert batch size, or route polling wit
 | Landing/Bio/Domain | `/api/landing-config`, `/api/bio/*`, `/api/agent/custom-domain` |
 | Portal Jamaah | `/api/portal/jamaah/*` |
 | MCP | `/mcp`, `/api/mcp-key` |
+| Dev-MCP | `/dev-mcp`, `/oauth/dev/*`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server` |
 | Top Partner | `/api/top-partner` |
 | Schedule cache | `/api/schedules/:yearCode` |
 | Static/proxy/public | `/itinerary/*`, `/brosur/*`, `/:slug/umroh`, `/:slug/haji`, `/:slug/bio`, `/top-partner`, `/f/:code`, SPA fallback |
@@ -328,6 +331,18 @@ Common failure shape:
 ```json
 { "success": false, "error": "Pesan error" }
 ```
+
+### Dev-MCP (developer tool untuk brainstorming di claude.ai)
+
+`dev-mcp.js` — MCP read-only KEDUA, **berbeda dari `mcp-server.js`**: bukan data bisnis per-agent, melainkan **struktur project + dokumentasi + kode** untuk developer. Dipakai dari custom connector claude.ai supaya Claude paham codebase saat brainstorming. Endpoint `POST /dev-mcp`.
+
+- **Tools (7, read-only):** `project_overview` (project-summary.md), `design_system` (DESIGN-SYSTEM.md), `list_docs`, `read_doc`, `project_tree`, `search_code` (git grep), `read_file`.
+- **Batas aman = git:** hanya file **ter-track** yang bisa dibaca (`git ls-files`/`git grep`); `.env` & secret gitignore otomatis TAK terjangkau. Path-traversal di-guard, git dipanggil via `execFile` (no shell). Blocklist opsional `DEV_MCP_BLOCK_GLOBS`.
+- **Auth OAuth 2.1 single-user:** connector claude.ai wajib OAuth (bukan bearer statis). Gerbang **satu password** `DEV_MCP_PASSWORD`; semua artefak (client_id/code/access/refresh) = JWT bertanda-tangan → **tanpa tabel DB**. Discovery RFC 9728/8414 (`/.well-known/oauth-*`), DCR RFC 7591 (`/oauth/dev/register`), authorize+PKCE S256 (`/oauth/dev/authorize`), token (`/oauth/dev/token`). Access token aud-bound ke `<base>/dev-mcp`, exp 8 jam; refresh 30 hari.
+- **Secret:** `DEV_MCP_SECRET` (kalau kosong diturunkan dari `JWT_SECRET` via HMAC → token dev terpisah kriptografis dari JWT dashboard). **Revoke** = rotate `DEV_MCP_SECRET` + restart.
+- **Aktivasi:** kosongkan `DEV_MCP_PASSWORD` = endpoint nonaktif (default). Baca repo di disk VPS → mencerminkan versi **ter-deploy** (bukan working-dir belum di-commit).
+- **Pakai:** claude.ai → Settings → Connectors → Add custom connector → `https://alhijaz.co/dev-mcp` → login password dev.
+- **Test:** `tests/dev-mcp.test.js` (unit murni + guard read-only).
 
 Some legacy-sensitive endpoints intentionally return HTTP 200 with `success:false` so proxies do not replace useful JSON with generic HTML error pages.
 
@@ -381,6 +396,9 @@ Essential:
 | `JWT_SECRET` | Dashboard JWT signing. Must be set in production. |
 | `CAPI_ENCRYPTION_KEY` | Encrypt/decrypt sensitive CAPI and legacy credential data. |
 | `MASTER_PASSWORD` | Emergency/master login path used in auth/CAPI login. |
+| `DEV_MCP_PASSWORD` | **Wajib untuk MENGAKTIFKAN Dev-MCP `/dev-mcp`** (kosong = nonaktif). Password gerbang OAuth developer. |
+| `DEV_MCP_SECRET` | Opsional. JWT signing Dev-MCP; kalau kosong diturunkan aman dari `JWT_SECRET`. Rotate = revoke semua token Dev-MCP. |
+| `DEV_MCP_BLOCK_GLOBS` | Opsional. Glob dipisah koma untuk menyembunyikan berkas tertentu dari Dev-MCP. |
 
 External services:
 

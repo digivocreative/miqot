@@ -335,6 +335,8 @@ app.use(compression({
 // MCP JSON-RPC requests are tiny — cap /mcp tight so the global 10mb parser
 // can't be used to push oversized bodies at the public MCP endpoint.
 app.use('/mcp', express.json({ limit: '128kb' }));
+// Dev-MCP (developer tool, /dev-mcp) — body juga kecil; cap ketat sebelum global.
+app.use('/dev-mcp', express.json({ limit: '256kb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // ──────────────────────────────────────────────
@@ -4439,6 +4441,7 @@ app.put('/api/admin/agents/:slug/reject', authMiddleware, adminOnly, async (req,
 // ter-scope agent_id. Lihat mcp-server.js.
 // ──────────────────────────────────────────────
 import { initMcpServer, generateMcpApiKey, hashMcpApiKey } from './mcp-server.js';
+import { initDevMcp } from './dev-mcp.js';
 
 // Stamp pemakaian MCP key (UI "Tersambung" vs "belum tersambung") — throttled
 // 10 menit per agent supaya request asisten yang cerewet tidak jadi write storm.
@@ -4461,6 +4464,11 @@ function stampMcpKeyUsage(agent) {
 }
 
 const mcpRuntime = initMcpServer(app, { supabase, onAuthenticated: stampMcpKeyUsage });
+
+// Dev-MCP: MCP developer-tool (POST /dev-mcp) — dokumentasi + struktur + cari kode
+// untuk brainstorming di claude.ai. Single-user OAuth (DEV_MCP_PASSWORD). Read-only,
+// batas aman git tracked-only. Lihat dev-mcp.js. Nonaktif bila env tak di-set.
+initDevMcp(app, { log: console.log });
 
 // Dipanggil setiap generate/rotate/revoke: kunci berubah → bearer cache dan
 // throttle stamp harus mulai dari nol.
