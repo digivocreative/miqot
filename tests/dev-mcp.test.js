@@ -15,6 +15,7 @@ import {
   verifyPkceS256,
   validateRedirectUri,
   constantTimeEqual,
+  buildBaseUrl,
   makeClientId,
   parseClientId,
   issueAuthCode,
@@ -129,6 +130,18 @@ test('constantTimeEqual', () => {
   assert.equal(constantTimeEqual('abc', 'abc'), true);
   assert.equal(constantTimeEqual('abc', 'abd'), false);
   assert.equal(constantTimeEqual('abc', 'abcd'), false);
+});
+
+// ── base URL (proto forcing behind TLS proxy) ──
+test('buildBaseUrl forces https for non-localhost even if edge says http', () => {
+  const mk = (headers) => buildBaseUrl({ headers });
+  // Cloudflare/Caddy may forward x-forwarded-proto: http → must still be https
+  assert.equal(mk({ host: 'alhijaz.co', 'x-forwarded-proto': 'http' }), 'https://alhijaz.co');
+  assert.equal(mk({ host: 'alhijaz.co' }), 'https://alhijaz.co');
+  assert.equal(mk({ 'x-forwarded-host': 'alhijaz.co', host: 'node:3000' }), 'https://alhijaz.co');
+  // localhost keeps http for dev/test
+  assert.equal(mk({ host: '127.0.0.1:3000', 'x-forwarded-proto': 'http' }), 'http://127.0.0.1:3000');
+  assert.equal(mk({ host: 'localhost:5173' }), 'http://localhost:5173');
 });
 
 // ── Client registration (DCR) ──
