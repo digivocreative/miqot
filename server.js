@@ -15978,6 +15978,21 @@ const forceRevalidate = (res, filePath) => {
 app.use(express.static(distPath, { index: false, maxAge: '30d', immutable: true, setHeaders: forceRevalidate }));
 app.use(express.static(publicPath, { index: false, maxAge: '30d', immutable: true, setHeaders: forceRevalidate }));
 
+// Berkas statis yang TIDAK ada di disk tidak boleh jatuh ke SPA fallback di bawah.
+// `vite build` membersihkan chunk hash lama tiap deploy; kalau request chunk lama
+// dijawab HTML-200, respons itu di-cache browser sebagai "JS" selama 30 hari
+// (immutable) → dynamic import gagal → halaman blank permanen sampai cache
+// dibuang. 404 + no-store membuat klien mencoba lagi begitu deploy selesai.
+const STATIC_FILE_RE = /\.(?:js|mjs|css|map|png|jpe?g|gif|ico|svg|woff2?|ttf|eot|otf|webp|avif|json|webmanifest|txt|xml|mp4|webm|pdf)$/i;
+app.use((req, res, next) => {
+  if ((req.method === 'GET' || req.method === 'HEAD') &&
+      (req.path.startsWith('/assets/') || STATIC_FILE_RE.test(req.path))) {
+    res.set('Cache-Control', 'no-store');
+    return res.status(404).type('text/plain').send('Not found');
+  }
+  next();
+});
+
 function injectTopPartnerMeta(html, origin) {
   const title = escapeHtmlAttr(TOP_PARTNER_META_TITLE);
   const description = escapeHtmlAttr(TOP_PARTNER_META_DESCRIPTION);
