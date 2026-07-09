@@ -16,6 +16,7 @@ import {
   validateRedirectUri,
   constantTimeEqual,
   buildBaseUrl,
+  authorizePage,
   makeClientId,
   parseClientId,
   issueAuthCode,
@@ -142,6 +143,23 @@ test('buildBaseUrl forces https for non-localhost even if edge says http', () =>
   // localhost keeps http for dev/test
   assert.equal(mk({ host: '127.0.0.1:3000', 'x-forwarded-proto': 'http' }), 'http://127.0.0.1:3000');
   assert.equal(mk({ host: 'localhost:5173' }), 'http://localhost:5173');
+});
+
+// ── authorize page carries ALL params through the password POST ──
+test('authorizePage renders hidden inputs for every OAuth param (incl response_type)', () => {
+  const params = {
+    response_type: 'code', client_id: 'CID', redirect_uri: 'https://claude.ai/cb',
+    state: 'ST', code_challenge: 'CH', code_challenge_method: 'S256', resource: 'https://alhijaz.co/dev-mcp', scope: 'dev',
+  };
+  const html = authorizePage({ base: 'https://alhijaz.co', params });
+  // Every param the POST handler re-validates must survive as a hidden field —
+  // response_type was previously dropped → "Hanya response_type=code" after login.
+  for (const [k, v] of Object.entries(params)) {
+    assert.match(html, new RegExp(`name="${k}" value="${v.replace(/[/.]/g, '\\$&')}"`), `hidden field for ${k}`);
+  }
+  // reflected values are HTML-escaped (XSS guard)
+  const xss = authorizePage({ base: 'https://alhijaz.co', params: { state: '"><script>' } });
+  assert.doesNotMatch(xss, /"><script>/);
 });
 
 // ── Client registration (DCR) ──
