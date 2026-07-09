@@ -73,6 +73,20 @@ function PromoBadge() {
   return <span className="inline-block mt-1 px-2 py-0.5 bg-red-100 text-red-600 text-xs font-medium rounded">PROMO</span>;
 }
 
+function HeaderPrice({ price, formatHeaderPrice, showRp = true, unitClassName = 'text-sm' }: {
+  price: number | null;
+  formatHeaderPrice: (price: number | null) => string;
+  showRp?: boolean;
+  unitClassName?: string;
+}) {
+  if (!price) return <>Hubungi</>;
+  return (
+    <>
+      {showRp ? 'Rp ' : ''}{formatHeaderPrice(price)} <span className={unitClassName}>Jt</span>
+    </>
+  );
+}
+
 function PackageName({ pkg }: { pkg: UmrohPackage }) {
   return (
     <h3 className={`font-bold text-sm leading-tight line-clamp-2 ${
@@ -134,7 +148,9 @@ export function SplitLayout(props: VariantProps) {
           </div>
           <div className="w-7 border-t border-white/30" />
           <div className="text-center">
-            <p className="text-sm font-black leading-tight">{formatHeaderPrice(absoluteMinPrice)}<span className="text-[9px]"> Jt</span></p>
+            <p className="text-sm font-black leading-tight">
+              <HeaderPrice price={absoluteMinPrice} formatHeaderPrice={formatHeaderPrice} showRp={false} unitClassName="text-[9px]" />
+            </p>
           </div>
           <div className="w-7 border-t border-white/30" />
           <div className="text-center">
@@ -211,7 +227,9 @@ export function SpotlightLayout(props: VariantProps) {
           </div>
           <div className="text-right shrink-0">
             <p className="text-[10px] font-medium opacity-80">MULAI</p>
-            <p className="text-lg font-bold">Rp {formatHeaderPrice(absoluteMinPrice)} <span className="text-sm">Jt</span></p>
+            <p className="text-lg font-bold">
+              <HeaderPrice price={absoluteMinPrice} formatHeaderPrice={formatHeaderPrice} />
+            </p>
           </div>
         </div>
       </div>
@@ -279,7 +297,7 @@ export function TicketLayout(props: VariantProps) {
           </div>
           <div className="text-right shrink-0">
             <p className="text-lg font-bold text-orange-600 dark:text-orange-400">
-              Rp {formatHeaderPrice(absoluteMinPrice)} <span className="text-sm">Jt</span>
+              <HeaderPrice price={absoluteMinPrice} formatHeaderPrice={formatHeaderPrice} />
             </p>
           </div>
         </div>
@@ -320,7 +338,7 @@ export function TiledLayout(props: VariantProps) {
         <div className="text-right shrink-0">
           <p className="text-xs text-gray-500 dark:text-slate-400">MULAI</p>
           <p className="text-lg font-bold text-orange-600 dark:text-orange-400">
-            Rp {formatHeaderPrice(absoluteMinPrice)} <span className="text-sm">Jt</span>
+            <HeaderPrice price={absoluteMinPrice} formatHeaderPrice={formatHeaderPrice} />
           </p>
         </div>
       </div>
@@ -383,7 +401,7 @@ export function MagazineLayout(props: VariantProps) {
           <div className="text-right shrink-0">
             <p className="text-[10px] text-white/60 font-medium">MULAI</p>
             <p className="text-lg font-bold text-white">
-              Rp {formatHeaderPrice(absoluteMinPrice)} <span className="text-sm">Jt</span>
+              <HeaderPrice price={absoluteMinPrice} formatHeaderPrice={formatHeaderPrice} />
             </p>
           </div>
         </div>

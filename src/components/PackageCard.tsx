@@ -293,9 +293,13 @@ function PackageCardImpl({
     const depDate = new Date(pkg.keberangkatan?.tgl).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
     const prices: string[] = [];
-    if (tierPricing?.Quard) prices.push(`Quad: Rp ${Number(tierPricing.Quard).toLocaleString('id-ID')}`);
-    if (tierPricing?.Triple) prices.push(`Triple: Rp ${Number(tierPricing.Triple).toLocaleString('id-ID')}`);
-    if (tierPricing?.Double) prices.push(`Double: Rp ${Number(tierPricing.Double).toLocaleString('id-ID')}`);
+    const addPrice = (label: string, raw?: string) => {
+      const n = Number(raw);
+      if (Number.isFinite(n) && n > 0) prices.push(`${label}: Rp ${n.toLocaleString('id-ID')}`);
+    };
+    addPrice('Quad', tierPricing?.Quard);
+    addPrice('Triple', tierPricing?.Triple);
+    addPrice('Double', tierPricing?.Double);
 
     let text = `Assalamu'alaikum 🙏\n\nTelah dibuka pendaftaran *${pkg.nama}* bersama Alhijaz Indowisata.\n\n🗓 Berangkat: ${depDate}\n✈️ Maskapai: ${pkg.maskapai || '-'}`;
     if (hotelData?.mekkah_hotel) text += `\n🏨 Hotel Mekkah: ${hotelData.mekkah_hotel}`;
@@ -403,6 +407,10 @@ function PackageCardImpl({
     return parseFloat(millions.toFixed(1)).toString();
   };
 
+  const headerPriceLabel = absoluteMinPrice
+    ? `Rp ${formatHeaderPrice(absoluteMinPrice)} Jt`
+    : 'Hubungi kami';
+
   // Format price for display in table
   const formatRupiah = (price: string | undefined): string => {
     if (!price) return '-';
@@ -477,10 +485,14 @@ function PackageCardImpl({
     // Build pricing string
     const buildPricing = (): string => {
       const lines: string[] = [];
-      if (pricing?.Double) lines.push(`\`\`\`Double\`\`\`   →   \`\`\`Rp ${formatRupiah(pricing.Double)}\`\`\``);
-      if (pricing?.Triple) lines.push(`\`\`\`Triple\`\`\`   →   \`\`\`Rp ${formatRupiah(pricing.Triple)}\`\`\``);
-      if (pricing?.Quard) lines.push(`\`\`\`Quad\`\`\`     →   \`\`\`Rp ${formatRupiah(pricing.Quard)}\`\`\``);
-      if (pricing?.Infant) lines.push(`\`\`\`Infant\`\`\`   →   \`\`\`Rp ${formatRupiah(pricing.Infant)}\`\`\``);
+      const addLine = (label: string, raw?: string) => {
+        const formatted = formatRupiah(raw);
+        if (formatted !== '-') lines.push(`\`\`\`${label}\`\`\`   →   \`\`\`Rp ${formatted}\`\`\``);
+      };
+      addLine('Double', pricing?.Double);
+      addLine('Triple', pricing?.Triple);
+      addLine('Quad', pricing?.Quard);
+      addLine('Infant', pricing?.Infant);
       return lines.join('\n');
     };
 
@@ -1669,7 +1681,7 @@ _________________________
           <div className="text-right shrink-0">
             <p className="text-xs text-gray-500 dark:text-slate-400">MULAI</p>
             <p className="text-lg font-bold text-orange-600 dark:text-orange-400">
-              Rp {formatHeaderPrice(absoluteMinPrice)} <span className="text-sm">Jt</span>
+              {headerPriceLabel}
             </p>
           </div>
         </div>
