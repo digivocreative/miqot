@@ -71,7 +71,7 @@ import {
 } from './lib/analytics-maintenance.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, landingCityFromRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { inferSaudiJourneyOrderFromItinerary } from './lib/journey-order.js';
-import { appendUrlVersion, buildScheduleRows, hasValidPricing, serializeScheduleRows } from './lib/umroh-schedules.js';
+import { appendUrlVersion, buildScheduleRows, serializeScheduleRows, shouldKeepScheduleRow } from './lib/umroh-schedules.js';
 import { buildCdnMetadataUpdate, getCdnFileDecision } from './lib/cdn-file-sync.js';
 import {
   CURRENCY_NAMES,
@@ -13070,7 +13070,7 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
       const details = pickBrochurePackageDetails(r.paket_harga, r.paket_hotel);
       const seatSisa = parseSeatSisa(r.seat_sisa);
       const soldOut = seatSisa !== null && seatSisa <= 0;
-      if (!details && !soldOut) {
+      if (!details && !soldOut && !shouldKeepScheduleRow(r)) {
         droppedNoPrice++;
         continue;
       }
@@ -13096,7 +13096,7 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
       });
     }
     if (droppedNoPrice > 0) {
-      console.log(`[brosur-jadwal] dropped ${droppedNoPrice} packages with no resolvable price`);
+      console.log(`[brosur-jadwal] dropped ${droppedNoPrice} packages with no resolvable price or available seat`);
     }
 
     // Schedules are Indonesian business data; use Jakarta's calendar day as
@@ -14739,6 +14739,35 @@ app.get('/api/portal/jamaah/sessions', authMiddleware, async (req, res) => {
 // by the post-loop orphan cleanup in syncUmrohSchedules(). Keep in sync with the
 // dashboard year selector (src/App.tsx availableYears).
 const SCHEDULE_YEAR_CODES = ['1448', '1449'];
+const SCHEDULE_SOURCE_URLS = [
+  'https://jadwal.alhijaz.co',
+  'http://115.124.86.220',
+];
+
+async function fetchScheduleYear(year) {
+  let lastError = null;
+  for (const baseUrl of SCHEDULE_SOURCE_URLS) {
+    const url = `${baseUrl}/jadwal/api-get/${year}`;
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!res.ok) {
+        lastError = new Error(`${url} HTTP ${res.status}`);
+        console.warn(`[ScheduleSync] API ${year} ${baseUrl} HTTP ${res.status}`);
+        continue;
+      }
+
+      return await res.json();
+    } catch (err) {
+      lastError = err;
+      console.warn(`[ScheduleSync] API ${year} ${baseUrl} failed: ${err.message}`);
+    }
+  }
+  throw lastError || new Error(`No schedule source available for ${year}`);
+}
 
 async function syncUmrohSchedules() {
   console.log('[ScheduleSync] Starting...');
@@ -14747,17 +14776,7 @@ async function syncUmrohSchedules() {
 
   for (const year of SCHEDULE_YEAR_CODES) {
     try {
-      const res = await fetch(`https://jadwal.alhijaz.co/jadwal/api-get/${year}`, {
-        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(15000),
-      });
-
-      if (!res.ok) {
-        console.error(`[ScheduleSync] API ${year} HTTP ${res.status}`);
-        continue;
-      }
-
-      const json = await res.json();
+      const json = await fetchScheduleYear(year);
       const packages = json.aaData || [];
 
       if (!packages.length) {
@@ -14765,21 +14784,21 @@ async function syncUmrohSchedules() {
         continue;
       }
 
-      const validPackages = [];
+      const includedPackages = [];
       const rejectedPackages = [];
       for (const p of packages) {
-        if (hasValidPricing(p.paket_harga)) {
-          validPackages.push(p);
+        if (shouldKeepScheduleRow(p)) {
+          includedPackages.push(p);
         } else {
-          rejectedPackages.push({ jadwal_id: p.jadwal_id, jadwal_nama: p.jadwal_nama });
+          rejectedPackages.push({ jadwal_id: p.jadwal_id, jadwal_nama: p.jadwal_nama, seat_sisa: p.seat_sisa });
         }
       }
       if (rejectedPackages.length) {
-        const sample = rejectedPackages.slice(0, 5).map(r => `${r.jadwal_id}(${r.jadwal_nama})`).join(', ');
-        console.log(`[ScheduleSync] Year ${year}: filtered ${rejectedPackages.length} paket tanpa harga valid: ${sample}${rejectedPackages.length > 5 ? ', ...' : ''}`);
+        const sample = rejectedPackages.slice(0, 5).map(r => `${r.jadwal_id}(${r.jadwal_nama}, seat=${r.seat_sisa ?? '-'})`).join(', ');
+        console.log(`[ScheduleSync] Year ${year}: filtered ${rejectedPackages.length} paket tanpa harga valid dan tanpa seat tersedia: ${sample}${rejectedPackages.length > 5 ? ', ...' : ''}`);
       }
 
-      const rows = validPackages.map(p => ({
+      const rows = includedPackages.map(p => ({
         jadwal_id: p.jadwal_id,
         year_code: year,
         jadwal_nama: p.jadwal_nama,

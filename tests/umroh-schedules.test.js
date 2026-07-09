@@ -5,12 +5,36 @@ import {
   buildScheduleRows,
   hasValidPricing,
   serializeScheduleRows,
+  shouldKeepScheduleRow,
 } from '../lib/umroh-schedules.js';
 
 test('hasValidPricing: accepts real package prices and rejects placeholders', () => {
   assert.equal(hasValidPricing({ HEMAT: { Quard: '28900000', Triple: '29900000' } }), true);
   assert.equal(hasValidPricing({ UHUD: { '': 'N/A' } }), false);
   assert.equal(hasValidPricing(null), false);
+});
+
+test('shouldKeepScheduleRow: keeps N/A-priced packages only when seats are available', () => {
+  assert.equal(shouldKeepScheduleRow({
+    jadwal_id: 'JBU1565',
+    seat_sisa: '44',
+    paket_harga: { UHUD: { Quard: '49700000' } },
+  }), true);
+  assert.equal(shouldKeepScheduleRow({
+    jadwal_id: 'JBU1574',
+    seat_sisa: '44',
+    paket_harga: { UHUD: { Double: 'N/A', Triple: 'N/A', Quard: 'N/A', Infant: 'N/A' } },
+  }), true);
+  assert.equal(shouldKeepScheduleRow({
+    jadwal_id: 'DRAFT',
+    seat_sisa: '0',
+    paket_harga: { UHUD: { Quard: 'N/A' } },
+  }), false);
+  assert.equal(shouldKeepScheduleRow({
+    jadwal_id: '',
+    seat_sisa: '44',
+    paket_harga: { UHUD: { Quard: 'N/A' } },
+  }), false);
 });
 
 test('buildScheduleRows: upstream packages are authoritative while preserving CDN fields', () => {
@@ -53,17 +77,27 @@ test('buildScheduleRows: upstream packages are authoritative while preserving CD
       jadwal_nama: 'DRAFT TANPA HARGA',
       paket_harga: { UHUD: { '': 'N/A' } },
     },
+    {
+      jadwal_id: 'JBU1574',
+      jadwal_nama: 'UMRAH HEMAT PLUS DUBAI 10HR',
+      seat_sisa: '44',
+      seat_total: '45',
+      berangkat_tgl: '2026-11-15',
+      paket_harga: { UHUD: { Double: 'N/A', Triple: 'N/A', Quard: 'N/A', Infant: 'N/A' } },
+    },
   ];
 
   const rows = buildScheduleRows(cachedRows, upstreamRows, '1448');
 
-  assert.deepEqual(rows.map(row => row.jadwal_id), ['JBU1522', 'JBU1559']);
+  assert.deepEqual(rows.map(row => row.jadwal_id), ['JBU1522', 'JBU1559', 'JBU1574']);
   assert.equal(rows[0].seat_sisa, '20');
   assert.equal(rows[0].seat_total, '45');
   assert.equal(rows[0].brosur, 'https://origin/new-brosur.pdf');
   assert.equal(rows[0].brosur_cdn, 'https://cdn/brosur.pdf');
   assert.equal(rows[0].itinerary_cdn, 'https://cdn/itinerary.pdf');
   assert.equal(rows[1].year_code, '1448');
+  assert.equal(rows[2].year_code, '1448');
+  assert.equal(rows[2].paket_harga.UHUD.Quard, 'N/A');
 });
 
 test('buildScheduleRows: cached rows can be served without upstream data', () => {
