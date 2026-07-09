@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { BioAgentPublic, FeaturedPaketPreview } from '../types';
+import { getBioAgentPath } from '../bioUrls';
 
 interface Props {
   jadwal_id: string;
@@ -50,7 +51,7 @@ export default function TileFeatured({ jadwal_id, agent, badge, cta }: Props) {
     );
   }
 
-  const href = `/${agent.slug}/${data.jadwal_id}`;
+  const href = getBioAgentPath(agent.slug, data.jadwal_id);
   const ctaLabel = cta?.trim() || 'Lihat Detail';
   const badgeLabel = badge?.trim() || 'Rekomendasi';
   const depart = formatDateShort(data.berangkat_tgl);

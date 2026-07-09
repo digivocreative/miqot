@@ -140,15 +140,19 @@ const isResetPassword = segments.length === 1 && segments[0] === 'reset-password
 const isFlightShare = segments.length >= 2 && segments[0] === 'f'
 const flightShareCode = isFlightShare ? segments[1] : null
 // On custom domain the agent is implicit, so /kalkulasi and /compare may be single-segment.
-const isCustomDomainHost = !!(window as unknown as { __AGENT_CONTEXT__?: { customDomain?: string | null } }).__AGENT_CONTEXT__?.customDomain
+const serverAgentContext = (window as unknown as { __AGENT_CONTEXT__?: { customDomain?: string | null; slug?: string } }).__AGENT_CONTEXT__
+const isCustomDomainHost = !!serverAgentContext?.customDomain
+const customDomainSlug = serverAgentContext?.slug?.toLowerCase() || ''
 const isKalkulasi = (segments.length >= 2 && segments[1] === 'kalkulasi')
   || (isCustomDomainHost && segments.length === 1 && segments[0] === 'kalkulasi')
 const isCompare = (segments.length >= 2 && segments[1] === 'compare') || (segments.length === 1 && segments[0] === 'compare')
 const isCapi = segments.length >= 2 && segments[1] === 'capi'
-const isBio = segments.length >= 2 && segments[1] === 'bio'
-const bioSlug = isBio ? segments[0]?.toLowerCase() : null
+const isCustomDomainBio = isCustomDomainHost && segments.length === 1 && segments[0] === 'bio'
+const isBio = (segments.length >= 2 && segments[1] === 'bio') || isCustomDomainBio
+const bioSlug = isBio ? (isCustomDomainBio ? customDomainSlug : segments[0]?.toLowerCase()) : null
 const isTopPartner = segments.length === 1 && segments[0] === 'top-partner'
 const isRahmahJuliLanding = segments.length === 1 && segments[0] === 'rahmah-1-juli-2026'
+const isSsrLandingPath = segments.length === 2 && (segments[1] === 'umroh' || segments[1] === 'haji')
 
 // Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
 import { getFilterModeFromSlug } from '@/utils'
@@ -254,7 +258,28 @@ function DashboardRouter() {
   }} />
 }
 
-if (!shouldAutoRedirect) {
+if (isPwaHost && isSsrLandingPath) {
+  createRoot(document.getElementById('root')!).render(
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 flex items-center justify-center">
+      <div className="w-8 h-8 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
+    </div>
+  )
+  void (async () => {
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations()
+        await Promise.all(regs.map(reg => reg.unregister()))
+      }
+      if ('caches' in window) {
+        const keys = await caches.keys()
+        await Promise.all(keys.map(key => caches.delete(key)))
+      }
+    } catch {
+      /* ignore */
+    }
+    window.location.reload()
+  })()
+} else if (!shouldAutoRedirect) {
   void (async () => {
     // Routing for /:slug paths depends on AGENTS_DATA. If the cache doesn't
     // know this slug (cold start or stale cache after a new agent was added),
@@ -263,6 +288,7 @@ if (!shouldAutoRedirect) {
     // "Paket tidak ditemukan" until the user refreshes.
     const firstSlug = segments[0]?.toLowerCase()
     const slugMaybeAgent = !!firstSlug
+      && !isBio
       && !knownFirstSegments.includes(firstSlug)
       && !AGENTS_DATA[firstSlug]
     if (slugMaybeAgent) {
@@ -294,6 +320,7 @@ if (!shouldAutoRedirect) {
 
     // Case 2: bare /:jadwalId (1 segment, not a known route/agent/filter)
     const isBarePackageId = segments.length === 1
+      && !isBio
       && !knownFirstSegments.includes(firstSlug)
       && !AGENTS_DATA[firstSlug]
       && !getFilterModeFromSlug(firstSlug)

@@ -1,6 +1,7 @@
 import { Package, ChevronRight } from 'lucide-react';
 import type { BioAgentPublic } from '../types';
 import KaabaIcon from '../KaabaIcon';
+import { getBioAgentPath } from '../bioUrls';
 
 interface Props {
   variant: 'umroh' | 'umroh_landing' | 'haji';
@@ -9,23 +10,22 @@ interface Props {
 }
 
 const VARIANT_META = {
-  // "Jadwal Umroh" → bare agent slug, which is the public paket browser
-  // (jadwal list, not the umroh landing page).
+  // "Jadwal Umroh" opens the public paket browser, not the curated landing page.
   umroh: {
-    href: (slug: string) => `/${slug}`,
+    path: '',
     icon: Package,
     title: 'Cek Paket Umroh',
     subtitle: 'Lihat Jadwal Umroh Terbaru',
   },
-  // "Landing Page Umroh" → /:slug/umroh, the curated landing experience.
+  // "Landing Page Umroh" opens the curated landing experience.
   umroh_landing: {
-    href: (slug: string) => `/${slug}/umroh`,
+    path: 'umroh',
     icon: KaabaIcon,
     title: 'Umroh',
     subtitle: 'Lihat Penawaran Menarik',
   },
   haji: {
-    href: (slug: string) => `/${slug}/haji`,
+    path: 'haji',
     icon: KaabaIcon,
     title: 'Haji Plus',
     subtitle: 'Masa Tunggu Singkat',
@@ -36,9 +36,10 @@ export default function TileProduct({ variant, agent, cta }: Props) {
   const meta = VARIANT_META[variant];
   const Icon = meta.icon;
   const title = cta?.trim() || meta.title;
+  const href = getBioAgentPath(agent.slug, meta.path);
 
   return (
-    <a href={meta.href(agent.slug)} className="bio-tile bio-tile--button">
+    <a href={href} className="bio-tile bio-tile--button">
       <div className="bio-tile-row">
         <div className="bio-tile-icon">
           <Icon size={20} strokeWidth={2.2} />

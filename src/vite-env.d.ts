@@ -18,6 +18,8 @@ interface Window {
     website?: string;
     phone?: string;
     photo?: string;
-    customDomain?: boolean;
+    email?: string | null;
+    customDomain?: string | null;
+    hasCustomDomain?: boolean;
   };
 }

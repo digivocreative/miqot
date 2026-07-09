@@ -15711,44 +15711,59 @@ function escapeHtmlAttr(s) {
     .replace(/>/g, '&gt;');
 }
 
-app.get('/:slug/bio', async (req, res, next) => {
-  const slug = String(req.params.slug || '').toLowerCase();
-  try {
-    const resolved = await resolveSlug(slug);
-    if (!resolved) return next(); // unknown slug → SPA fallback (React 404)
-    if (resolved.redirect) {
-      return res.redirect(301, `/${resolved.redirect}/bio`);
-    }
+function serializeInlineJson(value) {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
+}
 
-    const agent = resolved.agent;
-    const bioConfig = agent.bio_config || {};
-    if (bioConfig.enabled === false) return next(); // explicitly disabled → SPA 404
+function buildAgentContextPayload(agent, servedCustomDomain = null) {
+  const hasCustomDomain = !!(
+    isCustomDomainEnabledForAgent(agent) &&
+    agent.custom_domain &&
+    agent.custom_domain_status === 'active'
+  );
+  return {
+    slug: agent.slug,
+    name: agent.name,
+    website: agent.website || null,
+    phone: agent.phone || null,
+    photo: agent.photo || null,
+    email: agent.email || null,
+    customDomain: servedCustomDomain || (hasCustomDomain ? agent.custom_domain : null),
+    hasCustomDomain,
+  };
+}
 
-    const title = bioConfig.seo?.title
-      || `${agent.name} — Konsultan Umroh & Haji Plus`;
-    const description = bioConfig.seo?.description
-      || `Halaman resmi ${agent.name}, mitra travel Umroh dan Haji Plus Alhijaz Indowisata.`;
-    const origin = `${req.protocol}://${req.get('host')}`;
-    const ogImage = bioConfig.seo?.og_image_url || `${origin}/og/${slug}.png`;
-    const pageUrl = `${origin}/${slug}/bio`;
+function renderBioPageHtml({ agent, slug, origin, pageUrl, customDomain = null }) {
+  const bioConfig = agent.bio_config || {};
+  if (bioConfig.enabled === false) return null;
 
-    let html = getIndexHtml();
+  const title = bioConfig.seo?.title
+    || `${agent.name} — Konsultan Umroh & Haji Plus`;
+  const description = bioConfig.seo?.description
+    || `Halaman resmi ${agent.name}, mitra travel Umroh dan Haji Plus Alhijaz Indowisata.`;
+  const canonicalSlug = String(agent.slug || slug || '').toLowerCase();
+  const ogImage = bioConfig.seo?.og_image_url || `${origin}/og/${canonicalSlug}.png`;
 
-    const t = escapeHtmlAttr(title);
-    const d = escapeHtmlAttr(description);
-    const img = escapeHtmlAttr(ogImage);
-    const url = escapeHtmlAttr(pageUrl);
+  let html = getIndexHtml();
 
-    html = html.replace(/<title>[^<]*<\/title>/i, `<title>${t}</title>`);
-    html = html.replace(
-      /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i,
-      `<meta name="description" content="${d}" />`
-    );
-    // Strip any inherited OG tags so bio's canonical tags win
-    html = html.replace(/<meta\s+property="og:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
-    html = html.replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '');
+  const t = escapeHtmlAttr(title);
+  const d = escapeHtmlAttr(description);
+  const img = escapeHtmlAttr(ogImage);
+  const url = escapeHtmlAttr(pageUrl);
+  const agentContextScript = customDomain
+    ? `\n    <script>window.__AGENT_CONTEXT__ = ${serializeInlineJson(buildAgentContextPayload(agent, customDomain))};</script>`
+    : '';
 
-    const metaTags = `
+  html = html.replace(/<title>[^<]*<\/title>/i, `<title>${t}</title>`);
+  html = html.replace(
+    /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i,
+    `<meta name="description" content="${d}" />`
+  );
+  // Strip any inherited OG tags so bio's canonical tags win
+  html = html.replace(/<meta\s+property="og:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+  html = html.replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '');
+
+  const metaTags = `
     <link rel="canonical" href="${url}" />
     <meta property="og:title" content="${t}" />
     <meta property="og:description" content="${d}" />
@@ -15761,9 +15776,53 @@ app.get('/:slug/bio', async (req, res, next) => {
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${t}" />
     <meta name="twitter:description" content="${d}" />
-    <meta name="twitter:image" content="${img}" />
+    <meta name="twitter:image" content="${img}" />${agentContextScript}
     `;
-    html = html.replace('</head>', `${metaTags}</head>`);
+  return html.replace('</head>', `${metaTags}</head>`);
+}
+
+app.get('/bio', async (req, res, next) => {
+  if (!req.customDomain || !req.customDomainAgent) return next();
+  const agent = req.customDomainAgent;
+  const slug = String(agent.slug || '').toLowerCase();
+  if (!slug) return next();
+  try {
+    const origin = `https://${req.customDomain}`;
+    const pageUrl = `${origin}/bio`;
+    const html = renderBioPageHtml({
+      agent,
+      slug,
+      origin,
+      pageUrl,
+      customDomain: req.customDomain,
+    });
+    if (!html) return next(); // explicitly disabled → SPA 404
+
+    res.set({
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'private, no-store, must-revalidate',
+    }).send(html);
+  } catch (err) {
+    console.error('[bio] custom-domain SSR error for', slug, ':', err.message);
+    next();
+  }
+});
+
+app.get('/:slug/bio', async (req, res, next) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+  try {
+    const resolved = await resolveSlug(slug);
+    if (!resolved) return next(); // unknown slug → SPA fallback (React 404)
+    if (resolved.redirect) {
+      return res.redirect(301, `/${resolved.redirect}/bio`);
+    }
+
+    const agent = resolved.agent;
+    const origin = `${req.protocol}://${req.get('host')}`;
+    const canonicalSlug = String(agent.slug || slug).toLowerCase();
+    const pageUrl = `${origin}/${canonicalSlug}/bio`;
+    const html = renderBioPageHtml({ agent, slug: canonicalSlug, origin, pageUrl });
+    if (!html) return next(); // explicitly disabled → SPA 404
 
     res.set({
       'Content-Type': 'text/html; charset=utf-8',
