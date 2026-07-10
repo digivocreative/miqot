@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS calendar_events (
   paket         TEXT,
   pax           INTEGER DEFAULT 0,
   staff         TEXT,
+  mutawif       TEXT,
   tour_leader   TEXT,
   jam_kumpul    TEXT,
   titik_kumpul  TEXT,
@@ -39,7 +40,8 @@ CREATE INDEX IF NOT EXISTS idx_calendar_type ON calendar_events(event_type);
 const ALTER_SQL = `
 ALTER TABLE calendar_events
 ADD COLUMN IF NOT EXISTS jam_kumpul TEXT,
-ADD COLUMN IF NOT EXISTS titik_kumpul TEXT;
+ADD COLUMN IF NOT EXISTS titik_kumpul TEXT,
+ADD COLUMN IF NOT EXISTS mutawif TEXT;
 `;
 
 async function migrate() {

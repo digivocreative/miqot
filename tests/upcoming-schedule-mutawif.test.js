@@ -41,7 +41,7 @@ test('calendar person formatter cleans bullet-separated mutawif names and placeh
 
 test('departure cards place kloter before the flight and prefix mutawif names with UST.', () => {
   assert.match(schedulePage, /const tourLeader = formatCalendarPrimaryPerson\(detail\.tour_leader\)/);
-  assert.match(schedulePage, /const mutawif = formatCalendarPrimaryPerson\(detail\.staff\)/);
+  assert.match(schedulePage, /const mutawif = formatCalendarPrimaryPerson\(detail\.mutawif\)/);
   const kloterPosition = schedulePage.indexOf('KLOTER {detail.group_number}');
   const flightPosition = schedulePage.indexOf("{detail.pesawat || '-'}");
   assert.ok(kloterPosition >= 0 && kloterPosition < flightPosition);
@@ -49,7 +49,7 @@ test('departure cards place kloter before the flight and prefix mutawif names wi
   assert.match(schedulePage, /UST\. \{mutawif\}/);
   assert.doesNotMatch(schedulePage, />\s*MUTAWIF\s*</);
   assert.match(schedulePage, /: 'Belum ditentukan'/);
-  assert.match(server, /staff: ev\.staff/);
+  assert.match(server, /mutawif: ev\.mutawif \|\| ev\.raw_data\?\.mutawif \|\| null/);
 });
 
 test('tour leader and mutawif share one compact metadata row', () => {

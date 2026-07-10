@@ -50,6 +50,7 @@
     "react-pdf": "^10.3.0",
     "recharts": "^3.8.0",
     "resend": "^6.9.4",
+    "undici": "^7.28.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

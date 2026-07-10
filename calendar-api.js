@@ -19,7 +19,7 @@ function parsePositiveInt(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-// Origin publik me-rate-limit (HTTP 403) bila volume modal terlalu tinggi dalam
+// Origin publik me-rate-limit bila volume modal terlalu tinggi dalam
 // satu jendela — sync penuh (~122 modal) di concurrency 6 menolak ~37 modal,
 // nyaris semua kepulangan (tab "Pulang" jadi tanpa TL). Concurrency 2 = 0 ditolak
 // (terverifikasi 20 Jun 2026 atas 45 modal kepulangan). Naikkan via env hanya
@@ -120,6 +120,32 @@ async function resolvePublicEventRows(event, scheduleFallbackById) {
   });
 
   return { rows, failedKey: null, fallbackUsed, emptyDetails };
+}
+
+function isMissingMutawifColumnError(error) {
+  const message = `${error?.code || ''} ${error?.message || ''} ${error?.details || ''}`;
+  return /mutawif/i.test(message) && /(column|schema cache|pgrst204)/i.test(message);
+}
+
+async function upsertCalendarBatch(supabase, batch) {
+  let result = await supabase
+    .from('calendar_events')
+    .upsert(batch, { onConflict: 'id' });
+
+  // Deployment kode dapat mendahului eksekusi migration SQL. Jangan biarkan
+  // seluruh sync gagal: MUTAWIF tetap tersimpan terpisah di raw_data.mutawif,
+  // lalu kolom top-level otomatis dipakai setelah migration tersedia.
+  if (isMissingMutawifColumnError(result.error)) {
+    const compatibleBatch = batch.map(({ mutawif: _mutawif, ...row }) => row);
+    result = await supabase
+      .from('calendar_events')
+      .upsert(compatibleBatch, { onConflict: 'id' });
+    if (!result.error) {
+      console.warn('[Calendar] Kolom mutawif belum tersedia; nilai disimpan sementara di raw_data.mutawif');
+    }
+  }
+
+  return result;
 }
 
 // ── Main sync function ──
@@ -233,9 +259,7 @@ export async function syncCalendar(supabase) {
     let upserted = 0;
     for (let i = 0; i < allRows.length; i += BATCH) {
       const batch = allRows.slice(i, i + BATCH);
-      const { error } = await supabase
-        .from('calendar_events')
-        .upsert(batch, { onConflict: 'id' });
+      const { error } = await upsertCalendarBatch(supabase, batch);
 
       if (error) {
         console.error('[Calendar] Upsert batch error:', error.message);

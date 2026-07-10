@@ -17,6 +17,7 @@ interface EventDetail {
   pax_jamaah: number | null;
   pax_terisi: number | null;
   staff: string | null;
+  mutawif: string | null;
   tour_leader: string | null;
   jam_kumpul: string | null;
   titik_kumpul: string | null;
@@ -424,7 +425,7 @@ export default function UpcomingSchedule() {
                       // Data legacy memprefiks nama tour leader dengan "•  " — buang
                       const tourLeader = formatCalendarPrimaryPerson(detail.tour_leader);
                       const hasTourLeader = !!tourLeader;
-                      const mutawif = formatCalendarPrimaryPerson(detail.staff);
+                      const mutawif = formatCalendarPrimaryPerson(detail.mutawif);
                       const meetingPoint = formatCalendarMeetingPoint(detail.titik_kumpul);
                       const airportTerminalText = airportTerminalLabel(detail, activeTab);
                       return (

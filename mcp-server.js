@@ -692,7 +692,7 @@ function buildAgentMcpServer({ agent, supabase, log }) {
   register('calendar_events', {
     title: 'Kalender manasik / keberangkatan / kepulangan',
     description: 'Agenda Alhijaz dari kalender internal: manasik, keberangkatan, dan kepulangan per grup — '
-      + 'termasuk paket, pesawat, jam, jumlah pax, Tour Leader (TL), staff, dan jam/titik kumpul bila ada. '
+      + 'termasuk paket, pesawat, jam, jumlah pax, Tour Leader (TL), mutawif, staff, dan jam/titik kumpul bila ada. '
       + 'Untuk tahu siapa TL sebuah keberangkatan, cari event keberangkatan grup tersebut. '
       + 'PENTING: pax di sini adalah KUOTA grup operasional (alokasi kursi nasional, identik seat_total jadwal) — '
       + 'BUKAN jumlah jamaah ter-booking; pax_terisi = kursi terisi nasional (kuota − sisa seat, angka utama dashboard); '
@@ -712,7 +712,7 @@ function buildAgentMcpServer({ agent, supabase, log }) {
     const FETCH_CAP = 150;
     let q = supabase
       .from('calendar_events')
-      .select('event_date, event_type, group_number, paket, pesawat, jam, pax, pax_jamaah, pax_terisi, tour_leader, staff, jam_kumpul, titik_kumpul')
+      .select('event_date, event_type, group_number, paket, pesawat, jam, pax, pax_jamaah, pax_terisi, tour_leader, staff, jam_kumpul, titik_kumpul, calendar_mutawif:raw_data->>mutawif')
       .gte('event_date', start)
       .lte('event_date', end)
       .order('event_date', { ascending: true })
@@ -738,6 +738,7 @@ function buildAgentMcpServer({ agent, supabase, log }) {
       pax_jamaah: row.pax_jamaah ?? null,
       pax_terisi: row.pax_terisi ?? null,
       tour_leader: cleanCalendarPerson(row.tour_leader),
+      mutawif: cleanCalendarPerson(row.calendar_mutawif),
       staff: cleanCalendarPerson(row.staff),
       jam_kumpul: row.jam_kumpul || null,
       titik_kumpul: row.titik_kumpul || null,

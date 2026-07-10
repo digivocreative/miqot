@@ -7667,6 +7667,7 @@ app.get('/api/calendar/events', dbLoadShedGuard, authMiddleware, async (req, res
         pax_jamaah: ev.pax_jamaah ?? null,
         pax_terisi: ev.pax_terisi ?? null,
         staff: ev.staff,
+        mutawif: ev.mutawif || ev.raw_data?.mutawif || null,
         tour_leader: ev.tour_leader,
         jam_kumpul: ev.jam_kumpul || null,
         titik_kumpul: ev.titik_kumpul || null,

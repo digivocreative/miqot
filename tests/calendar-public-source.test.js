@@ -1,29 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  applyOriginRewrite,
   buildPublicModalUrl,
+  calendarPublicOriginLookup,
   fetchPublicEventDetail,
   parsePublicCalendarEventsFromHtml,
   parsePublicEventDetailHTML,
   CALENDAR_PUBLIC_ORIGIN_IP,
 } from '../lib/calendar-public-source.js';
 
-test('applyOriginRewrite mengarahkan ke origin IP via http + Host header', () => {
-  // Default origin IP aktif (env tidak di-set kosong di file ini).
-  assert.equal(CALENDAR_PUBLIC_ORIGIN_IP, '115.124.86.220');
+test('calendar transport pins TLS hostname lookup to the current origin only', () => {
+  assert.equal(CALENDAR_PUBLIC_ORIGIN_IP, '101.255.3.160');
 
-  const { url, headers } = applyOriginRewrite(
-    'https://alhijazindowisata.com/jadwal/_kmodal.php?.m=B1&.g=G1',
-    { 'User-Agent': 'x' },
-  );
-  const parsed = new URL(url);
-  assert.equal(parsed.protocol, 'http:');
-  assert.equal(parsed.host, '115.124.86.220');
-  assert.equal(parsed.pathname, '/jadwal/_kmodal.php');
-  assert.equal(parsed.searchParams.get('.m'), 'B1');
-  assert.equal(headers.Host, 'alhijazindowisata.com');
-  assert.equal(headers['User-Agent'], 'x');
+  calendarPublicOriginLookup('alhijazindowisata.com', { all: true }, (error, addresses) => {
+    assert.equal(error, null);
+    assert.deepEqual(addresses, [{ address: '101.255.3.160', family: 4 }]);
+  });
 });
 
 const PAGE_HTML = `
@@ -135,23 +127,24 @@ test('parsePublicEventDetailHTML maps public WAKTU header into jam', () => {
     paket: "PROMO JUM'ATAIN PLUS TAIF +BADAR 15HR (KERETA CEPAT)",
     pax: 47,
     staff: '-',
+    mutawif: '-',
     tour_leader: '• SUSTEN MARYANI MASCIK',
   });
 });
 
-test('parsePublicEventDetailHTML maps current MUTAWIF header into the legacy staff field', () => {
+test('parsePublicEventDetailHTML keeps MUTAWIF separate from STAFF', () => {
   const rows = parsePublicEventDetailHTML(MUTAWIF_MODAL_HTML);
 
   assert.deepEqual(
-    rows.map(row => [row.group_number, row.tour_leader, row.staff]),
+    rows.map(row => [row.group_number, row.tour_leader, row.staff, row.mutawif]),
     [
-      ['13', '• NIKESARI MARZUHENDA MARZUKI', '• HANAFI FAUZAN'],
-      ['14', '• YULIA SUSANTI', '• ABDULBAITS JAZULI'],
+      ['13', '• NIKESARI MARZUHENDA MARZUKI', '-', '• HANAFI FAUZAN'],
+      ['14', '• YULIA SUSANTI', '-', '• ABDULBAITS JAZULI'],
     ],
   );
 });
 
-test('fetchPublicEventDetail prefers the canonical domain so current MUTAWIF data wins', async () => {
+test('fetchPublicEventDetail uses only the canonical TLS hostname pinned to the current origin', async () => {
   const urls = [];
   const rows = await fetchPublicEventDetail(
     { aid: 'B1559', date: '2026-07-11', type: 'keberangkatan', apalah: 'JBU1559,JBU1522' },
@@ -163,25 +156,9 @@ test('fetchPublicEventDetail prefers the canonical domain so current MUTAWIF dat
 
   assert.equal(new URL(urls[0]).hostname, 'alhijazindowisata.com');
   assert.equal(urls.length, 1);
-  assert.equal(rows[0].staff, '• HANAFI FAUZAN');
-});
-
-test('fetchPublicEventDetail falls back to the configured origin when the canonical domain is blocked', async () => {
-  const urls = [];
-  const rows = await fetchPublicEventDetail(
-    { aid: 'B1559', date: '2026-07-11', type: 'keberangkatan', apalah: 'JBU1559,JBU1522' },
-    async url => {
-      urls.push(url);
-      if (new URL(url).hostname === 'alhijazindowisata.com') {
-        return new Response('blocked', { status: 403 });
-      }
-      return new Response(DEPARTURE_MODAL_HTML, { status: 200 });
-    },
-  );
-
-  assert.equal(urls.length, 2);
-  assert.equal(new URL(urls[1]).hostname, CALENDAR_PUBLIC_ORIGIN_IP);
-  assert.equal(rows[0].tour_leader, '• SUSTEN MARYANI MASCIK');
+  assert.equal(urls.some(url => String(url).includes('115.124.86.220')), false);
+  assert.equal(rows[0].staff, '-');
+  assert.equal(rows[0].mutawif, '• HANAFI FAUZAN');
 });
 
 test('parsePublicEventDetailHTML preserves manasik departure prefix as DD/MM/YYYY package convention', () => {

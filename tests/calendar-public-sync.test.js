@@ -2,10 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ReadableStream, TransformStream } from 'node:stream/web';
 
-// Tes ini menguji orkestrasi & parsing sync, bukan transport origin-rewrite.
-// Nonaktifkan rewrite IP supaya request tetap menuju domain publik yang di-stub.
-// (Rewrite IP punya unit test sendiri di calendar-public-source.test.js.)
-process.env.CALENDAR_PUBLIC_ORIGIN_IP = '';
+// Tes ini menguji orkestrasi & parsing sync. Transport tetap memakai URL domain
+// resmi; DNS pinning berada di dispatcher dan tidak mengubah URL yang di-stub.
 
 function isoDateMonthsAhead(monthsAhead) {
   const d = new Date();
@@ -121,8 +119,15 @@ function makeResult(table, builder, state) {
   return { data: [], error: null };
 }
 
-function createFakeSupabase({ existingCalendarIds = [] } = {}) {
-  const state = { upserted: [], deletedIds: [], updates: [], existingCalendarIds };
+function createFakeSupabase({ existingCalendarIds = [], missingMutawifColumn = false } = {}) {
+  const state = {
+    upserted: [],
+    deletedIds: [],
+    updates: [],
+    existingCalendarIds,
+    missingMutawifColumn,
+    missingMutawifErrorCount: 0,
+  };
 
   return {
     state,
@@ -155,6 +160,15 @@ function createFakeSupabase({ existingCalendarIds = [] } = {}) {
           return this;
         },
         upsert(rows) {
+          if (state.missingMutawifColumn && rows.some(row => Object.hasOwn(row, 'mutawif'))) {
+            state.missingMutawifErrorCount++;
+            return Promise.resolve({
+              error: {
+                code: 'PGRST204',
+                message: "Could not find the 'mutawif' column of 'calendar_events' in the schema cache",
+              },
+            });
+          }
           state.upserted.push(...rows);
           return Promise.resolve({ error: null });
         },
@@ -218,6 +232,33 @@ test('syncCalendar scrapes public kegiatan page and public modal without legacy 
     assert.equal(urls.some(href => href.includes('/jadwal/_kmodal.php')), true);
     assert.equal(urls.some(href => href.includes('cek_login.php')), false);
     assert.equal(urls.some(href => href.includes('115.124.86.220')), false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('syncCalendar keeps MUTAWIF separate in raw_data while the additive column migration is pending', async () => {
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php') {
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({ missingMutawifColumn: true });
+    const result = await syncCalendar(supabase);
+
+    assert.equal(result.success, true);
+    assert.equal(supabase.state.missingMutawifErrorCount, 1);
+    assert.equal(Object.hasOwn(supabase.state.upserted[0], 'mutawif'), false);
+    assert.equal(supabase.state.upserted[0].raw_data.mutawif, '-');
   } finally {
     global.fetch = originalFetch;
   }
