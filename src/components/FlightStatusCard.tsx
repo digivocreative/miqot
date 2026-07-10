@@ -17,18 +17,18 @@ interface FlightSegmentData {
   flightNumber: string;
   airline: string;
   airlineLogo?: string;
-  status: 'en-route' | 'scheduled' | 'landed' | 'delayed' | 'cancelled';
+  status: 'en-route' | 'scheduled' | 'landed' | 'delayed' | 'cancelled' | 'unverified';
   depCity: string;
   depCode: string;
   depTerminal?: string;
   depGate?: string;
-  depScheduled: string;
+  depScheduled: string | null;
   depActual?: string;
   arrCity: string;
   arrCode: string;
   arrTerminal?: string;
   arrGate?: string;
-  arrScheduled: string;
+  arrScheduled: string | null;
   arrEstimated?: string;
   progress: number;
   delayed: number;
@@ -40,6 +40,9 @@ interface FlightSegmentData {
   routeLabel?: string | null;
   eventDate?: string;
   depDate?: string;
+  arrDate?: string;
+  isLive?: boolean;
+  trackingSource?: string;
 }
 
 interface FlightData extends FlightSegmentData {
@@ -77,6 +80,7 @@ const STATUS_CFG: Record<string, { label: string; color: string; bg: string }> =
   'landed':    { label: 'Mendarat',     color: '#10b981', bg: 'bg-emerald-500' },
   'delayed':   { label: 'Delay',        color: '#ef4444', bg: 'bg-red-500' },
   'cancelled': { label: 'Dibatalkan',   color: '#dc2626', bg: 'bg-red-600' },
+  'unverified': { label: 'Perlu Cek',   color: '#64748b', bg: 'bg-slate-500' },
 };
 
 // ── Helpers ──
@@ -586,7 +590,8 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
         ? `${depParsed.getFullYear()}-${String(depParsed.getMonth() + 1).padStart(2, '0')}-${String(depParsed.getDate()).padStart(2, '0')}`
         : depDateRaw.slice(0, 10);
       const flightDateStr = flightCardDateKey(flight) || depDateStr;
-      const airlineCode = flight.airline ? flight.airline.split(' ')[0]?.slice(0, 2) : (flight.flightNumber?.split(' ')[0]?.slice(0, 2) || null);
+      const airlineCode = flight.flightNumber?.replace(/\s+/g, '').match(/^([A-Z0-9]{2})/)?.[1]
+        || null;
       const durationStr = flight.duration ? formatDuration(flight.duration) : null;
       const shareSummary = summarizeFlightShareGroup(group);
       const res = await fetch('/api/flight-share', {
@@ -770,6 +775,16 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
 
   // ── Group flights by flightNumber + departureDate ──
   const grouped = groupFlights(flights);
+  const hasLiveTracking = flights.some(flight => (
+    flight.isLive || flight.segments?.some(segment => segment.isLive)
+  ));
+  const hasUnverified = flights.some(flight => (
+    flight.status === 'unverified'
+      || flight.segments?.some(segment => segment.status === 'unverified')
+  ));
+  const allTerminal = flights.length > 0 && flights.every(flight => (
+    flight.status === 'landed' || flight.status === 'cancelled'
+  ));
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
@@ -785,14 +800,23 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
           </div>
         </div>
 
-        {/* Live badge */}
-        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 flex-shrink-0">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-          </span>
-          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Live</span>
-        </div>
+        {/* Never label calendar-only estimates as live tracking. */}
+        {hasLiveTracking ? (
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 flex-shrink-0">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Live</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 flex-shrink-0">
+            <Clock size={10} className="text-amber-600 dark:text-amber-400" />
+            <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
+              {hasUnverified ? 'Perlu Cek' : allTerminal ? 'Selesai' : 'Jadwal'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ── Flight Cards (grouped) ── */}

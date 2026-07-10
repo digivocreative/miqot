@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Check, ChevronDown, ChevronUp, Moon, Pencil, Search, SlidersHorizontal, Sun, UsersRound } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Loader2, Moon, Package, Pencil, Save, Search, SlidersHorizontal, Sun, Truck, UsersRound } from 'lucide-react';
 import WhatsAppIcon from '@/components/common/WhatsAppIcon';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { fetchRahmahJuliPrepFromDb, saveRahmahJuliPrepToDb } from '@/lib/rahmahJuliPrepDb';
@@ -19,16 +19,24 @@ import {
 } from '@/lib/rahmahJuliLanding.js';
 
 type JamaahPrepItem = Partial<Record<RahmahJuliChecklistId, boolean>>
-  & Partial<Record<RahmahJuliRoomFieldId | 'phone', string>>;
+  & Partial<Record<
+    RahmahJuliRoomFieldId | 'phone' | 'zamzamRecipientName' | 'zamzamRecipientPhone' | 'zamzamAddress',
+    string
+  >>
+  & { zamzamMethod?: ZamzamMethod };
 type JamaahPrepState = Record<number, JamaahPrepItem>;
 type FilterMode = 'all' | 'nusuk' | 'raudhah';
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'offline';
-type EditingRoom = { jamaahNo: number; fieldId: RahmahJuliRoomFieldId } | null;
+type ZamzamMethod = 'pickup' | 'delivery';
+type ZamzamSaveFeedback = 'idle' | 'saved' | 'offline';
+type ZamzamPrepPatch = Pick<
+  JamaahPrepItem,
+  'zamzamMethod' | 'zamzamRecipientName' | 'zamzamRecipientPhone' | 'zamzamAddress'
+>;
 
 const CHECKLIST_STORAGE_KEY = `${RAHMAH_JULI_SLUG}:checklist`;
 const PREP_STORAGE_KEY = `${RAHMAH_JULI_SLUG}:prep`;
 const RAHMAH_THEME_KEY = `${RAHMAH_JULI_SLUG}:theme`;
-const ROOM_NUMBER_REGEX = /^\d{1,4}$/;
 const FILTER_OPTIONS: { id: FilterMode; label: string }[] = [
   { id: 'all', label: 'Semua' },
   { id: 'nusuk', label: 'Belum Nusuk' },
@@ -67,17 +75,6 @@ function getMemberPhone(prep: JamaahPrepState, member: RahmahJuliJamaah) {
   return typeof savedPhone === 'string' ? savedPhone : member.phone;
 }
 
-function normalizeJamaahWhatsAppNumber(phone: string) {
-  const digits = phone.replace(/\D/g, '');
-  if (!digits) return '';
-  return digits.startsWith('0') ? `62${digits.slice(1)}` : digits;
-}
-
-function getJamaahWhatsAppUrl(phone: string) {
-  const normalized = normalizeJamaahWhatsAppNumber(phone);
-  return normalized ? `https://wa.me/${normalized}` : '#';
-}
-
 function getRoomValue(prep: JamaahPrepState, jamaahNo: number, fieldId: RahmahJuliRoomFieldId) {
   return prep[jamaahNo]?.[fieldId]?.trim() || '';
 }
@@ -88,11 +85,16 @@ function isMemberReady(prep: JamaahPrepState, member: RahmahJuliJamaah) {
 }
 
 function getMemberSummaryItems(prep: JamaahPrepState, member: RahmahJuliJamaah) {
-  return [
-    { id: 'wa', label: 'WA Sesuai', done: isChecked(prep, member.no, 'wa') },
-    { id: 'nusuk', label: 'Nusuk', done: isChecked(prep, member.no, 'nusuk') },
-    { id: 'raudhah', label: 'Raudhah', done: isChecked(prep, member.no, 'raudhah') },
-  ];
+  const zamzamMethod = prep[member.no]?.zamzamMethod;
+  return [{
+    id: 'zamzam',
+    label: zamzamMethod === 'delivery'
+      ? 'Diantar ke Rumah'
+      : zamzamMethod === 'pickup'
+        ? 'Ambil Sendiri'
+        : 'Belum Pilih',
+    method: zamzamMethod || 'unselected',
+  }];
 }
 
 function readInitialTheme() {
@@ -167,103 +169,245 @@ function ContactPersonCard({ contact }: { contact: RahmahJuliContact }) {
   );
 }
 
-function RoomValueEditor({
+function ZamzamPickupEditor({
   member,
-  field,
-  value,
-  editingRoom,
-  roomDraft,
-  onStartEditRoom,
-  onRoomDraftChange,
-  onCommitRoom,
+  prep,
+  onSave,
 }: {
   member: RahmahJuliJamaah;
-  field: { id: RahmahJuliRoomFieldId; label: string };
-  value: string;
-  editingRoom: EditingRoom;
-  roomDraft: string;
-  onStartEditRoom: (member: RahmahJuliJamaah, field: { id: RahmahJuliRoomFieldId; label: string }) => void;
-  onRoomDraftChange: (value: string) => void;
-  onCommitRoom: () => void;
+  prep: JamaahPrepState;
+  onSave: (jamaahNo: number, patch: ZamzamPrepPatch) => Promise<boolean>;
 }) {
-  const isEditing = editingRoom?.jamaahNo === member.no && editingRoom.fieldId === field.id;
+  const savedMethod = prep[member.no]?.zamzamMethod || '';
+  const savedRecipientName = prep[member.no]?.zamzamRecipientName || '';
+  const savedRecipientPhone = prep[member.no]?.zamzamRecipientPhone || '';
+  const savedAddress = prep[member.no]?.zamzamAddress || '';
+  const [zamzamMethod, setZamzamMethod] = useState<ZamzamMethod | ''>(savedMethod);
+  const [recipientName, setRecipientName] = useState(savedRecipientName);
+  const [recipientPhone, setRecipientPhone] = useState(savedRecipientPhone);
+  const [address, setAddress] = useState(savedAddress);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<ZamzamSaveFeedback>('idle');
 
-  if (isEditing) {
-    return (
-      <div className="ml-auto flex flex-none items-center gap-1.5">
-        <input
-          data-jamaah-no={member.no}
-          data-room-field={field.id}
-          value={roomDraft}
-          onChange={(event) => onRoomDraftChange(event.target.value)}
-          aria-label={`${field.label} ${member.name}`}
-          inputMode="numeric"
-          maxLength={4}
-          pattern="[0-9]{1,4}"
-          className="h-8 w-16 rounded-lg border border-emerald-200 bg-white px-2 text-center text-xs font-bold tabular-nums text-gray-800 outline-none transition-all focus:ring-2 focus:ring-emerald-500/50 dark:border-emerald-800/40 dark:bg-slate-900 dark:text-white"
-        />
-        <button
-          type="button"
-          data-room-ok={`${member.no}:${field.id}`}
-          onClick={onCommitRoom}
-          disabled={!ROOM_NUMBER_REGEX.test(roomDraft)}
-          className="h-8 rounded-lg bg-emerald-500 px-2.5 text-[10px] font-bold text-white shadow-sm shadow-emerald-500/20 transition active:scale-95 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-white disabled:shadow-none dark:disabled:bg-slate-700"
-        >OK</button>
-      </div>
-    );
-  }
+  useEffect(() => {
+    setZamzamMethod(savedMethod);
+    setRecipientName(savedRecipientName);
+    setRecipientPhone(savedRecipientPhone);
+    setAddress(savedAddress);
+  }, [savedAddress, savedMethod, savedRecipientName, savedRecipientPhone]);
+
+  const deliveryDetailsComplete = recipientName.trim().length > 0
+    && recipientPhone.trim().length > 0
+    && address.trim().length > 0;
+  const canSave = zamzamMethod === 'pickup'
+    || (zamzamMethod === 'delivery' && deliveryDetailsComplete);
 
   return (
-    <button
-      type="button"
-      data-room-edit={`${member.no}:${field.id}`}
-      data-jamaah-no={member.no}
-      data-room-field={field.id}
-      onClick={() => onStartEditRoom(member, field)}
-      className="ml-auto inline-flex h-8 flex-none items-center gap-1.5 rounded-lg bg-white px-2.5 text-[10px] font-bold tabular-nums text-gray-700 shadow-sm ring-1 ring-gray-100 transition-all active:scale-95 hover:bg-gray-50 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700 dark:hover:bg-slate-800"
+    <form
+      data-zamzam-form={member.no}
+      aria-busy={isSaving}
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (!canSave || !zamzamMethod || isSaving) return;
+        setIsSaving(true);
+        setSaveFeedback('idle');
+        try {
+          const savedOnline = await onSave(member.no, {
+            zamzamMethod,
+            zamzamRecipientName: zamzamMethod === 'delivery' ? recipientName.trim() : '',
+            zamzamRecipientPhone: zamzamMethod === 'delivery' ? recipientPhone.trim() : '',
+            zamzamAddress: zamzamMethod === 'delivery' ? address.trim() : '',
+          });
+          setSaveFeedback(savedOnline ? 'saved' : 'offline');
+        } finally {
+          setIsSaving(false);
+        }
+      }}
+      className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 dark:border-emerald-800/40 dark:bg-emerald-900/10"
     >
-      <Pencil size={11} strokeWidth={2.5} className="text-gray-400 dark:text-slate-500" />
-      <span>{value || '000'}</span>
-    </button>
+      <div className="mb-3 flex items-start gap-2.5">
+        <div className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-white text-emerald-600 shadow-sm dark:bg-slate-900 dark:text-emerald-400">
+          <Package size={16} strokeWidth={2.4} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-slate-200">Pengambilan Air Zam-zam</p>
+          <p className="mt-0.5 text-[10px] font-medium leading-4 text-gray-500 dark:text-slate-400">Pilih ambil di kantor atau diantar ke rumah.</p>
+        </div>
+      </div>
+
+      <fieldset>
+        <legend className="sr-only">Cara pengambilan Air Zam-zam untuk {member.name}</legend>
+        <div className="grid grid-cols-2 gap-2">
+          <label className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border bg-white px-3 py-2.5 text-xs font-semibold transition-all dark:bg-slate-900 ${
+            zamzamMethod === 'pickup'
+              ? 'border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 dark:border-emerald-500 dark:text-emerald-400'
+              : 'border-gray-200 text-gray-600 dark:border-slate-700 dark:text-slate-300'
+          }`}>
+            <input
+              type="radio"
+              name={`zamzam-method-${member.no}`}
+              value="pickup"
+              data-zamzam-method="pickup"
+              checked={zamzamMethod === 'pickup'}
+              onChange={() => {
+                setZamzamMethod('pickup');
+                setSaveFeedback('idle');
+              }}
+              className="h-4 w-4 flex-none accent-emerald-500"
+            />
+            <span>Ambil Sendiri</span>
+          </label>
+          <label className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border bg-white px-3 py-2.5 text-xs font-semibold transition-all dark:bg-slate-900 ${
+            zamzamMethod === 'delivery'
+              ? 'border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 dark:border-emerald-500 dark:text-emerald-400'
+              : 'border-gray-200 text-gray-600 dark:border-slate-700 dark:text-slate-300'
+          }`}>
+            <input
+              type="radio"
+              name={`zamzam-method-${member.no}`}
+              value="delivery"
+              data-zamzam-method="delivery"
+              checked={zamzamMethod === 'delivery'}
+              onChange={() => {
+                setZamzamMethod('delivery');
+                setSaveFeedback('idle');
+              }}
+              className="h-4 w-4 flex-none accent-emerald-500"
+            />
+            <Truck size={13} className="flex-none" />
+            <span>Diantar ke Rumah</span>
+          </label>
+        </div>
+      </fieldset>
+
+      {zamzamMethod === 'delivery' && (
+        <div data-zamzam-delivery-fields={member.no} className="mt-3 space-y-3">
+          <label className="block">
+            <span className="mb-1.5 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
+              Nama penerima <span className="text-red-500">*</span>
+            </span>
+            <input
+              type="text"
+              value={recipientName}
+              onChange={(event) => {
+                setRecipientName(event.target.value);
+                setSaveFeedback('idle');
+              }}
+              data-zamzam-field="recipient-name"
+              placeholder="Nama lengkap penerima"
+              autoComplete="name"
+              maxLength={120}
+              required
+              className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-800 outline-none transition-all placeholder:text-gray-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white disabled:opacity-50"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
+              Nomor HP penerima <span className="text-red-500">*</span>
+            </span>
+            <input
+              type="tel"
+              value={recipientPhone}
+              onChange={(event) => {
+                setRecipientPhone(event.target.value);
+                setSaveFeedback('idle');
+              }}
+              data-zamzam-field="recipient-phone"
+              placeholder="Contoh: 0812 3456 7890"
+              autoComplete="tel"
+              inputMode="tel"
+              maxLength={32}
+              required
+              className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-800 outline-none transition-all placeholder:text-gray-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white disabled:opacity-50"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
+              Alamat lengkap <span className="text-red-500">*</span>
+            </span>
+            <textarea
+              value={address}
+              onChange={(event) => {
+                setAddress(event.target.value);
+                setSaveFeedback('idle');
+              }}
+              data-zamzam-field="address"
+              placeholder="Nama jalan, nomor rumah, RT/RW, kelurahan, kecamatan, kota, dan kode pos"
+              autoComplete="street-address"
+              rows={3}
+              maxLength={500}
+              required
+              className="w-full resize-y rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm leading-5 text-gray-800 outline-none transition-all placeholder:text-gray-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white disabled:opacity-50"
+            />
+          </label>
+        </div>
+      )}
+
+      <button
+        type="submit"
+        data-zamzam-save={member.no}
+        disabled={!canSave || isSaving}
+        className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-3 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70 disabled:active:scale-100"
+      >
+        {isSaving ? (
+          <>
+            <Loader2 size={16} strokeWidth={2.5} className="animate-spin" />
+            Menyimpan Pilihan...
+          </>
+        ) : saveFeedback === 'saved' ? (
+          <>
+            <Check size={16} strokeWidth={2.5} />
+            Pilihan Tersimpan
+          </>
+        ) : (
+          <>
+            <Save size={16} strokeWidth={2.5} />
+            Simpan Pilihan
+          </>
+        )}
+      </button>
+
+      <div aria-live="polite" className="min-h-4">
+        {saveFeedback === 'offline' && (
+          <p className="mt-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+            Tersimpan di perangkat. Coba simpan kembali saat koneksi tersedia.
+          </p>
+        )}
+        {saveFeedback === 'saved' && (
+          <p className="mt-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            Pilihan Air Zam-zam berhasil disimpan.
+          </p>
+        )}
+      </div>
+    </form>
   );
 }
 
 function JamaahGroupMemberRow({
   member,
   prep,
-  onToggle,
   editingPhoneNo,
   expandedJamaahNos,
-  editingRoom,
-  roomDraft,
   onStartEditPhone,
   onPhoneChange,
   onStopEditPhone,
   onToggleExpanded,
-  onStartEditRoom,
-  onRoomDraftChange,
-  onCommitRoom,
+  onSaveZamzam,
 }: {
   member: RahmahJuliJamaah;
   prep: JamaahPrepState;
-  onToggle: (jamaahNo: number, itemId: RahmahJuliChecklistId) => void;
   editingPhoneNo: number | null;
   expandedJamaahNos: Set<number>;
-  editingRoom: EditingRoom;
-  roomDraft: string;
   onStartEditPhone: (member: RahmahJuliJamaah) => void;
   onPhoneChange: (jamaahNo: number, value: string) => void;
   onStopEditPhone: () => void;
   onToggleExpanded: (jamaahNo: number) => void;
-  onStartEditRoom: (member: RahmahJuliJamaah, field: { id: RahmahJuliRoomFieldId; label: string }) => void;
-  onRoomDraftChange: (value: string) => void;
-  onCommitRoom: () => void;
+  onSaveZamzam: (jamaahNo: number, patch: ZamzamPrepPatch) => Promise<boolean>;
 }) {
   const avatarClass = member.gender === 'P'
     ? 'bg-pink-50 ring-pink-300 text-pink-700'
     : 'bg-blue-50 ring-blue-300 text-blue-700';
   const phone = getMemberPhone(prep, member);
-  const memberWhatsAppUrl = getJamaahWhatsAppUrl(phone);
   const isEditingPhone = editingPhoneNo === member.no;
   const isExpanded = expandedJamaahNos.has(member.no);
   const summaryItems = getMemberSummaryItems(prep, member);
@@ -324,13 +468,16 @@ function JamaahGroupMemberRow({
         {summaryItems.map((item) => (
           <span
             key={item.id}
+            data-zamzam-status={item.method}
             className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold transition-colors ${
-              item.done
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-900/20 dark:text-emerald-300'
-                : 'border-gray-200 bg-white text-gray-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500'
+              item.method === 'unselected'
+                ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-300'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-900/20 dark:text-emerald-300'
             }`}
           >
-            <Check size={10} strokeWidth={3} className={item.done ? 'text-emerald-500' : 'text-gray-300 dark:text-slate-600'} />
+            {item.method === 'delivery'
+              ? <Truck size={10} strokeWidth={2.5} />
+              : <Package size={10} strokeWidth={2.5} />}
             <span>{item.label}</span>
           </span>
         ))}
@@ -347,20 +494,6 @@ function JamaahGroupMemberRow({
           <div className={`space-y-3 transition-transform duration-300 ease-out motion-reduce:transition-none ${
             isExpanded ? 'translate-y-0 scale-100' : '-translate-y-1 scale-[0.98]'
           }`}>
-            {isExpanded && (
-              <a
-                href={memberWhatsAppUrl}
-                target="_blank"
-                rel="noreferrer"
-                data-member-whatsapp={member.no}
-                aria-label={`Chat WhatsApp ${member.name}`}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-white shadow-sm shadow-emerald-500/20 transition active:scale-[0.99] hover:bg-emerald-600"
-              >
-                <WhatsAppIcon size={14} />
-                <span>WhatsApp</span>
-              </a>
-            )}
-
             {isEditingPhone && (
               <div className="flex gap-2 rounded-xl border border-emerald-100 bg-emerald-50/60 p-2 dark:border-emerald-900/40 dark:bg-emerald-900/10">
                 <input
@@ -383,81 +516,11 @@ function JamaahGroupMemberRow({
               </div>
             )}
 
-            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-2.5 dark:border-slate-700 dark:bg-slate-800/60">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Checklist Persiapan</p>
-                <span className={`rounded-md px-2 py-0.5 text-[9px] font-bold ${
-                  isMemberReady(prep, member)
-                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300'
-                    : 'bg-white text-gray-400 dark:bg-slate-900 dark:text-slate-500'
-                }`}>
-                  {isMemberReady(prep, member) ? 'Siap' : 'Belum lengkap'}
-                </span>
-              </div>
-
-              <div className="space-y-1.5">
-              {RAHMAH_JULI_CHECKLIST_ITEMS.map((item) => {
-                const checked = isChecked(prep, member.no, item.id);
-                const description = item.id === 'wa'
-                  ? 'Nomor WhatsApp sudah sesuai apa belum?'
-                  : item.id === 'nusuk'
-                    ? 'Nusuk sudah install apa belum?'
-                    : 'Raudhah sudah reserved jadwal apa belum?';
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    data-jamaah-no={member.no}
-                    data-checklist-id={item.id}
-                    onClick={() => onToggle(member.no, item.id)}
-                    aria-pressed={checked}
-                    className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border bg-white px-2.5 py-2 text-left transition active:scale-[0.99] dark:bg-slate-900 ${
-                      checked
-                        ? 'border-emerald-200 text-emerald-700 dark:border-emerald-800/40 dark:text-emerald-300'
-                        : 'border-gray-200 text-gray-500 dark:border-slate-700 dark:text-slate-400'
-                    }`}
-                  >
-                    <span className="min-w-0">
-                      <span className="block text-[10px] font-extrabold text-gray-800 dark:text-slate-100">{item.label}</span>
-                      <span className="mt-0.5 block truncate text-[9px] font-semibold opacity-70">{description}</span>
-                    </span>
-                    <span className={`flex h-5 w-5 flex-none items-center justify-center rounded-md border ${
-                      checked ? 'border-emerald-500 bg-emerald-500' : 'border-gray-300 bg-white dark:border-slate-600 dark:bg-slate-900'
-                    }`}>
-                      {checked && <Check size={13} strokeWidth={3} className="text-white" />}
-                    </span>
-                  </button>
-                );
-              })}
-
-              {RAHMAH_JULI_ROOM_FIELDS.map((field) => {
-                const question = field.id === 'roomMekkah'
-                  ? 'Nomor Kamar Mekkah berapa?'
-                  : 'Nomor Kamar Madinah berapa?';
-                return (
-                  <div
-                    key={field.id}
-                    className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900"
-                  >
-                    <div className="min-w-0">
-                      <span className="block text-[10px] font-bold text-gray-600 dark:text-slate-300">{field.label}</span>
-                      <span className="mt-0.5 block truncate text-[9px] font-semibold text-gray-400 dark:text-slate-500">{question}</span>
-                    </div>
-                    <RoomValueEditor
-                      member={member}
-                      field={field}
-                      value={getRoomValue(prep, member.no, field.id)}
-                      editingRoom={editingRoom}
-                      roomDraft={roomDraft}
-                      onStartEditRoom={onStartEditRoom}
-                      onRoomDraftChange={onRoomDraftChange}
-                      onCommitRoom={onCommitRoom}
-                    />
-                  </div>
-                );
-              })}
-              </div>
-            </div>
+            <ZamzamPickupEditor
+              member={member}
+              prep={prep}
+              onSave={onSaveZamzam}
+            />
           </div>
         </div>
       </div>
@@ -468,33 +531,23 @@ function JamaahGroupMemberRow({
 function JamaahGroupCard({
   group,
   prep,
-  onToggle,
   editingPhoneNo,
   expandedJamaahNos,
-  editingRoom,
-  roomDraft,
   onStartEditPhone,
   onPhoneChange,
   onStopEditPhone,
   onToggleExpanded,
-  onStartEditRoom,
-  onRoomDraftChange,
-  onCommitRoom,
+  onSaveZamzam,
 }: {
   group: RahmahJuliGroup;
   prep: JamaahPrepState;
-  onToggle: (jamaahNo: number, itemId: RahmahJuliChecklistId) => void;
   editingPhoneNo: number | null;
   expandedJamaahNos: Set<number>;
-  editingRoom: EditingRoom;
-  roomDraft: string;
   onStartEditPhone: (member: RahmahJuliJamaah) => void;
   onPhoneChange: (jamaahNo: number, value: string) => void;
   onStopEditPhone: () => void;
   onToggleExpanded: (jamaahNo: number) => void;
-  onStartEditRoom: (member: RahmahJuliJamaah, field: { id: RahmahJuliRoomFieldId; label: string }) => void;
-  onRoomDraftChange: (value: string) => void;
-  onCommitRoom: () => void;
+  onSaveZamzam: (jamaahNo: number, patch: ZamzamPrepPatch) => Promise<boolean>;
 }) {
   const completedMembers = group.members.filter((member) => isMemberReady(prep, member)).length;
 
@@ -517,18 +570,13 @@ function JamaahGroupCard({
             key={member.no}
             member={member}
             prep={prep}
-            onToggle={onToggle}
             editingPhoneNo={editingPhoneNo}
             expandedJamaahNos={expandedJamaahNos}
-            editingRoom={editingRoom}
-            roomDraft={roomDraft}
             onStartEditPhone={onStartEditPhone}
             onPhoneChange={onPhoneChange}
             onStopEditPhone={onStopEditPhone}
             onToggleExpanded={onToggleExpanded}
-            onStartEditRoom={onStartEditRoom}
-            onRoomDraftChange={onRoomDraftChange}
-            onCommitRoom={onCommitRoom}
+            onSaveZamzam={onSaveZamzam}
           />
         ))}
       </div>
@@ -543,8 +591,6 @@ export default function RahmahJuliLandingPage() {
   const [prep, setPrep] = useState<JamaahPrepState>(() => loadPrepState());
   const [editingPhoneNo, setEditingPhoneNo] = useState<number | null>(null);
   const [expandedJamaahNos, setExpandedJamaahNos] = useState<Set<number>>(() => new Set());
-  const [editingRoom, setEditingRoom] = useState<EditingRoom>(null);
-  const [roomDraft, setRoomDraft] = useState('');
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const prepRef = useRef<JamaahPrepState>(prep);
   const filterWrapRef = useRef<HTMLDivElement>(null);
@@ -639,9 +685,11 @@ export default function RahmahJuliLandingPage() {
     try {
       await saveRahmahJuliPrepToDb(jamaahNo, nextItem);
       setSaveStatus('saved');
+      return true;
     } catch (error) {
       console.warn('[RahmahJuliLandingPage] Failed to save prep DB state:', error);
       setSaveStatus('offline');
+      return false;
     }
   };
 
@@ -656,11 +704,7 @@ export default function RahmahJuliLandingPage() {
     };
     prepRef.current = nextPrep;
     setPrep(nextPrep);
-    void persistPrepPatch(jamaahNo, nextItem);
-  };
-
-  const handleToggle = (jamaahNo: number, itemId: RahmahJuliChecklistId) => {
-    handlePrepChange(jamaahNo, { [itemId]: !prepRef.current[jamaahNo]?.[itemId] });
+    return persistPrepPatch(jamaahNo, nextItem);
   };
 
   const handleStartEditPhone = (member: RahmahJuliJamaah) => {
@@ -685,25 +729,8 @@ export default function RahmahJuliLandingPage() {
     });
   };
 
-  const handleStartEditRoom = (
-    member: RahmahJuliJamaah,
-    field: { id: RahmahJuliRoomFieldId; label: string }
-  ) => {
-    setExpandedJamaahNos((current) => new Set(current).add(member.no));
-    setEditingRoom({ jamaahNo: member.no, fieldId: field.id });
-    setRoomDraft(getRoomValue(prepRef.current, member.no, field.id));
-  };
-
-  const handleRoomDraftChange = (value: string) => {
-    setRoomDraft(value.replace(/\D/g, '').slice(0, 4));
-  };
-
-  const handleCommitRoom = () => {
-    if (!editingRoom) return;
-    if (!ROOM_NUMBER_REGEX.test(roomDraft)) return;
-    handlePrepChange(editingRoom.jamaahNo, { [editingRoom.fieldId]: roomDraft });
-    setEditingRoom(null);
-    setRoomDraft('');
+  const handleSaveZamzam = (jamaahNo: number, patch: ZamzamPrepPatch) => {
+    return handlePrepChange(jamaahNo, patch);
   };
 
   const waText = encodeURIComponent(
@@ -849,18 +876,13 @@ export default function RahmahJuliLandingPage() {
                   key={group.idUmrah}
                   group={group}
                   prep={prep}
-                  onToggle={handleToggle}
                   editingPhoneNo={editingPhoneNo}
                   expandedJamaahNos={expandedJamaahNos}
-                  editingRoom={editingRoom}
-                  roomDraft={roomDraft}
                   onStartEditPhone={handleStartEditPhone}
                   onPhoneChange={handlePhoneChange}
                   onStopEditPhone={handleStopEditPhone}
                   onToggleExpanded={handleToggleExpanded}
-                  onStartEditRoom={handleStartEditRoom}
-                  onRoomDraftChange={handleRoomDraftChange}
-                  onCommitRoom={handleCommitRoom}
+                  onSaveZamzam={handleSaveZamzam}
                 />
               ))}
             </div>

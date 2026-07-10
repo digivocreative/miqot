@@ -2282,23 +2282,27 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
 
-    const res = await fetch(actionUrl, {
-      method: 'POST',
-      headers: {
-        Cookie: session.cookie,
-        'User-Agent': LEGACY_UA,
-        'Origin': base.replace(/\/aiw\/staff$/, ''),
-        'Referer': `${base}/pages/main.php?route=umrah&act=tdaftar`,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        'Content-Length': String(bodyBuffer.length),
-      },
-      body: bodyBuffer,
-      redirect: 'manual',
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
+    let res;
+    try {
+      res = await fetch(actionUrl, {
+        method: 'POST',
+        headers: {
+          Cookie: session.cookie,
+          'User-Agent': LEGACY_UA,
+          'Origin': base.replace(/\/aiw\/staff$/, ''),
+          'Referer': `${base}/pages/main.php?route=umrah&act=tdaftar`,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': String(bodyBuffer.length),
+        },
+        body: bodyBuffer,
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
     refreshSessionCookies(session, res.headers);
 
     // Check for redirect (usually means success in PHP forms)
@@ -2376,11 +2380,29 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
     };
 
   } catch (err) {
+    const cause = err?.cause || err;
+    const debug = {
+      causeCode: cause?.code || err?.code || null,
+      causeMessage: cause?.message || err?.message || String(err),
+      bytesWritten: cause?.socket?.bytesWritten ?? null,
+      bytesRead: cause?.socket?.bytesRead ?? null,
+    };
     if (err.name === 'AbortError') {
-      return { success: false, error: 'Sistem internal tidak merespons (timeout)' };
+      console.error('[UmrahSubmit] TIMEOUT:', debug);
+      return {
+        success: false,
+        reason: 'transport_timeout',
+        error: 'Sistem internal tidak merespons (timeout)',
+        debug,
+      };
     }
-    console.error('[UmrahSubmit] EXCEPTION:', err.message, err.stack);
-    return { success: false, error: 'Gagal mengirim pendaftaran: ' + err.message };
+    console.error('[UmrahSubmit] EXCEPTION:', err.message, debug, err.stack);
+    return {
+      success: false,
+      reason: 'transport_error',
+      error: 'Koneksi ke sistem internal terputus. Silakan coba lagi.',
+      debug,
+    };
   }
 }
 
@@ -2513,6 +2535,34 @@ async function setLegacyBrowserFile(page, fileBuffer, fileName, fileFieldName) {
   return true;
 }
 
+// These values are populated by the live jadwal/paket AJAX flow in the fresh
+// browser form. Never overwrite them with the stale snapshot sent by the SPA.
+const BROWSER_MANAGED_UMRAH_FIELDS = new Set([
+  'pin',
+  'hpaket',
+  'harga_paket',
+  'npaket',
+  'harga_perlengkapan',
+  'lain',
+]);
+
+async function readLegacyBrowserPackagePrice(page) {
+  return page.evaluate(() => {
+    const names = ['hpaket', 'harga_paket', 'harga', 'hpkt'];
+    let firstFound = null;
+    for (const name of names) {
+      const element = document.querySelector(`[name="${name}"]`);
+      if (!element) continue;
+      const value = String(element.value || '').trim();
+      const numeric = Number(value.replace(/[^0-9]/g, '')) || 0;
+      const state = { name, value, numeric };
+      if (!firstFound) firstFound = state;
+      if (numeric > 0) return state;
+    }
+    return firstFound || { name: '', value: '', numeric: 0 };
+  });
+}
+
 async function waitForLegacyAjax(page, urlPart, timeout = 15_000) {
   return page.waitForResponse(res => res.url().includes(urlPart), { timeout }).catch(() => null);
 }
@@ -2549,10 +2599,9 @@ async function getLegacyBrowserRecaptchaConfig(page) {
   });
 }
 
-// Browser fallback for the final legacy submit. The current Alhijaz form requires
-// a reCAPTCHA v3 token that only exists after the page JavaScript runs; plain
-// multipart POST is therefore kept as the fast path, and this is only used after
-// legacy returns "Sesi Anda habis" on final submit.
+// Browser submit for the final legacy mutation. The current Alhijaz form requires
+// a reCAPTCHA v3 token that only exists after the page JavaScript runs, so this is
+// the primary submit path whenever a saved legacy password is available.
 export async function submitUmrahRegistrationWithBrowser({
   username,
   password,
@@ -2564,6 +2613,7 @@ export async function submitUmrahRegistrationWithBrowser({
   fileFieldName,
   idb,
   retryBlocked = true,
+  dryRun = false,
 }) {
   if (!username || !password) {
     return { success: false, error: 'Credential sistem internal tidak lengkap' };
@@ -2571,6 +2621,8 @@ export async function submitUmrahRegistrationWithBrowser({
 
   let browser;
   const dialogs = [];
+  let finalSubmitRequestSeen = false;
+  let pageClosed = false;
   try {
     const { chromium } = await import('playwright');
     browser = await chromium.launch({ headless: true });
@@ -2588,6 +2640,14 @@ export async function submitUmrahRegistrationWithBrowser({
     });
     page.on('pageerror', err => {
       console.warn('[UmrahBrowserSubmit] Page error:', err.message);
+    });
+    page.on('request', request => {
+      if (request.method() === 'POST' && request.url().includes('aksi_umrah.php')) {
+        finalSubmitRequestSeen = true;
+      }
+    });
+    page.on('close', () => {
+      pageClosed = true;
     });
 
     await page.goto(`${BROWSER_BASE}/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
@@ -2626,7 +2686,15 @@ export async function submitUmrahRegistrationWithBrowser({
     const jdaftarValue = fields.jdaftar || '1';
     const jdaftarWait = waitForLegacyAjax(page, '_jdaftar.php');
     await selectLegacyBrowserOption(page, 'jdaftar', jdaftarValue, { required: true });
-    await jdaftarWait;
+    const jdaftarResponse = await jdaftarWait;
+    if (!jdaftarResponse?.ok()) {
+      return {
+        success: false,
+        reason: 'legacy_dependency_failed',
+        error: 'Field data jamaah gagal dimuat dari Alhijaz. Silakan coba lagi.',
+        debug: { browserFallback: true, stage: 'jdaftar', statusCode: jdaftarResponse?.status() || null },
+      };
+    }
     await page.waitForSelector(`${legacyFieldSelector('ktp')}, select${legacyFieldSelector('kelamin')}`, { timeout: 15_000 }).catch(() => {});
 
     const jadwalValue = fields.jadwal || fields.vjadwal || fields.berangkat || fields.tgl_berangkat;
@@ -2636,7 +2704,15 @@ export async function submitUmrahRegistrationWithBrowser({
       const jadwalFieldName = await pickLegacyBrowserSelectName(page, ['vjadwal', 'jadwal', 'berangkat', 'tgl_berangkat']);
       if (!jadwalFieldName) throw new Error('Field jadwal tidak ditemukan di form legacy');
       await selectLegacyBrowserOption(page, jadwalFieldName, jadwalValue, { required: true });
-      await paketWait;
+      const paketResponse = await paketWait;
+      if (!paketResponse?.ok()) {
+        return {
+          success: false,
+          reason: 'legacy_dependency_failed',
+          error: 'Daftar paket gagal dimuat dari Alhijaz. Silakan coba lagi.',
+          debug: { browserFallback: true, stage: 'jadwal', statusCode: paketResponse?.status() || null },
+        };
+      }
       await page.waitForTimeout(300);
       const blockingDialog = findBlockingLegacyDialog(dialogs);
       if (blockingDialog) {
@@ -2651,7 +2727,15 @@ export async function submitUmrahRegistrationWithBrowser({
     if (paketValue) {
       const detailWait = waitForLegacyAjax(page, '_pkt.php');
       await selectLegacyBrowserOption(page, 'paket', paketValue, { required: true });
-      await detailWait;
+      const detailResponse = await detailWait;
+      if (!detailResponse?.ok()) {
+        return {
+          success: false,
+          reason: 'legacy_dependency_failed',
+          error: 'Harga paket gagal dimuat dari Alhijaz. Silakan coba lagi.',
+          debug: { browserFallback: true, stage: 'paket', statusCode: detailResponse?.status() || null },
+        };
+      }
       await page.waitForTimeout(300);
       const blockingDialog = findBlockingLegacyDialog(dialogs);
       if (blockingDialog) {
@@ -2665,7 +2749,8 @@ export async function submitUmrahRegistrationWithBrowser({
 
     for (const [name, value] of Object.entries(hiddenFields || {})) {
       // Use the browser's fresh anti-CSRF/session pin from the current form.
-      if (name === 'pin') continue;
+      if (BROWSER_MANAGED_UMRAH_FIELDS.has(name)) continue;
+      if (value === undefined || value === null || value === '') continue;
       await fillLegacyBrowserField(page, name, value);
     }
 
@@ -2673,12 +2758,33 @@ export async function submitUmrahRegistrationWithBrowser({
       'jdaftar', 'jadwal', 'vjadwal', 'berangkat', 'tgl_berangkat', 'paket', 'paket_umroh',
     ]);
     for (const [name, value] of Object.entries(fields || {})) {
-      if (dependencyFields.has(name)) continue;
+      if (dependencyFields.has(name) || BROWSER_MANAGED_UMRAH_FIELDS.has(name)) continue;
       const filled = await fillLegacyBrowserField(page, name, value);
       if (!filled) await appendLegacyBrowserHidden(page, name, value);
     }
 
-    await setLegacyBrowserFile(page, fileBuffer, fileName, fileFieldName);
+    const fileAttached = await setLegacyBrowserFile(page, fileBuffer, fileName, fileFieldName);
+    if (fileBuffer && fileName && !fileAttached) {
+      return {
+        success: false,
+        reason: 'file_field_missing',
+        error: 'Kolom upload KTP tidak ditemukan pada form Alhijaz. Muat ulang form lalu coba lagi.',
+        debug: { browserFallback: true, stage: 'file', fileFieldName },
+      };
+    }
+
+    if (paketValue) {
+      const packagePrice = await readLegacyBrowserPackagePrice(page);
+      console.log('[UmrahBrowserSubmit] Fresh package price:', packagePrice);
+      if (!packagePrice.name || packagePrice.numeric <= 0) {
+        return {
+          success: false,
+          reason: 'package_price_unresolved',
+          error: 'Harga paket belum berhasil dimuat dari Alhijaz. Pilih ulang jadwal dan paket, lalu coba lagi.',
+          debug: { browserFallback: true, dialogs, packagePrice, stage: 'package_price' },
+        };
+      }
+    }
 
     const preSubmitDialog = findBlockingLegacyDialog(dialogs);
     if (preSubmitDialog) {
@@ -2689,10 +2795,12 @@ export async function submitUmrahRegistrationWithBrowser({
       };
     }
 
-    const submitResponsePromise = page.waitForResponse(
-      res => res.url().includes('aksi_umrah.php'),
-      { timeout: 25_000 },
-    ).catch(() => null);
+    const submitResponsePromise = dryRun
+      ? null
+      : page.waitForResponse(
+        res => res.url().includes('aksi_umrah.php'),
+        { timeout: 25_000 },
+      ).catch(() => null);
 
     const recaptchaConfig = await getLegacyBrowserRecaptchaConfig(page);
     if (!recaptchaConfig.tokenField) {
@@ -2703,7 +2811,7 @@ export async function submitUmrahRegistrationWithBrowser({
       };
     }
 
-    const tokenInfo = await page.evaluate(async ({ siteKey, tokenAction, tokenField, tokenId }) => {
+    const tokenInfo = await page.evaluate(async ({ siteKey, tokenAction, tokenField, tokenId, isDryRun }) => {
       const started = Date.now();
       while (Date.now() - started < 20_000) {
         if (window.grecaptcha && typeof window.grecaptcha.execute === 'function') break;
@@ -2714,6 +2822,7 @@ export async function submitUmrahRegistrationWithBrowser({
       }
       const token = await window.grecaptcha.execute(siteKey, { action: tokenAction || 'submit' });
       if (!token) return { ok: false, error: 'token reCAPTCHA kosong' };
+      if (isDryRun) return { ok: true, length: token.length, dryRun: true };
       const form = document.querySelector('form#mF');
       if (!form) return { ok: false, error: 'form legacy hilang sebelum submit' };
       const input = document.createElement('input');
@@ -2729,6 +2838,7 @@ export async function submitUmrahRegistrationWithBrowser({
       tokenAction: recaptchaConfig.action,
       tokenField: recaptchaConfig.tokenField,
       tokenId: recaptchaConfig.tokenId,
+      isDryRun: dryRun,
     });
 
     if (!tokenInfo.ok) {
@@ -2738,16 +2848,29 @@ export async function submitUmrahRegistrationWithBrowser({
         debug: { browserFallback: true, dialogs },
       };
     }
+    if (tokenInfo.dryRun) {
+      return {
+        success: true,
+        dryRun: true,
+        message: 'Preflight browser pendaftaran berhasil',
+        debug: {
+          browserFallback: true,
+          tokenLength: tokenInfo.length,
+          recaptchaSource: recaptchaConfig.source,
+          recaptchaAction: recaptchaConfig.action,
+        },
+      };
+    }
 
     const submitResponse = await submitResponsePromise;
-    await page.waitForTimeout(1_500);
+    await new Promise(resolve => setTimeout(resolve, 1_500));
     const html = await page.content().catch(() => '');
     const statusCode = submitResponse?.status() || null;
     const responseUrl = submitResponse?.url() || '';
     const responsePreview = submitResponse
       ? (await submitResponse.text().catch(() => '')).trim().slice(0, 500).replace(/\s+/g, ' ')
       : '';
-    const currentUrl = page.url();
+    const currentUrl = pageClosed ? formUrl : page.url();
     const sessionDialog = dialogs.find(message => /Sesi Anda habis|silahkan re-login/i.test(message));
     const successDialog = dialogs.find(message => /berhasil|success/i.test(message));
     const blockingDialog = findBlockingLegacyDialog(dialogs);
@@ -2799,6 +2922,7 @@ export async function submitUmrahRegistrationWithBrowser({
         fileFieldName,
         idb,
         retryBlocked: false,
+        dryRun,
       });
     }
     if (statusCode === 403) {
@@ -2822,8 +2946,29 @@ export async function submitUmrahRegistrationWithBrowser({
       debug: { browserFallback: true, statusCode, responseUrl, currentUrl, dialogs, formStillOpen, responsePreview },
     };
   } catch (err) {
-    console.error('[UmrahBrowserSubmit] EXCEPTION:', err.message);
-    return { success: false, error: 'Fallback browser gagal: ' + err.message };
+    const successDialog = dialogs.find(message => /berhasil|success/i.test(message));
+    if (successDialog) {
+      return { success: true, message: successDialog || 'Pendaftaran jamaah berhasil' };
+    }
+    console.error('[UmrahBrowserSubmit] EXCEPTION:', err.message, {
+      finalSubmitRequestSeen,
+      pageClosed,
+      dialogs,
+    });
+    if (finalSubmitRequestSeen) {
+      return {
+        success: false,
+        reason: 'submit_outcome_unknown',
+        error: 'Pendaftaran sudah terkirim tetapi hasilnya belum dapat dipastikan. Cek daftar jamaah sebelum mencoba lagi.',
+        debug: { browserFallback: true, finalSubmitRequestSeen, pageClosed, dialogs, message: err.message },
+      };
+    }
+    return {
+      success: false,
+      reason: 'browser_submit_exception',
+      error: 'Browser pendaftaran gagal sebelum data dikirim. Silakan coba lagi.',
+      debug: { browserFallback: true, finalSubmitRequestSeen, pageClosed, dialogs, message: err.message },
+    };
   } finally {
     if (browser) await browser.close().catch(() => {});
   }

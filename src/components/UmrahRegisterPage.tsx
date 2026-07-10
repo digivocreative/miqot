@@ -481,11 +481,15 @@ interface UmrahRegisterPageProps {
   onNavigate?: (path: string) => void;
 }
 
-function summarizeSubmitErrorText(text: string) {
+function summarizeSubmitErrorText(text: string, status?: number) {
   const compact = text.replace(/\s+/g, ' ').trim();
   if (!compact) return '';
-  if (/<!doctype html|<html\b|cloudflare|cf-error|attention required|bad gateway|gateway timeout|origin is unreachable/i.test(compact)) {
+  if (/cloudflare|cf-error|attention required|origin is unreachable/i.test(compact)) {
     return 'Server/proxy mengembalikan halaman error Cloudflare. Cek daftar jamaah dulu; kalau belum masuk, coba ulang beberapa saat lagi.';
+  }
+  if (/<!doctype html|<html\b|bad gateway|gateway timeout/i.test(compact)) {
+    const statusLabel = status ? ` (HTTP ${status})` : '';
+    return `Server mengembalikan respons HTML yang tidak semestinya${statusLabel}. Coba ulang beberapa saat lagi.`;
   }
   return compact.slice(0, 180);
 }
@@ -1146,7 +1150,7 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
 
       const res = await fetch('/api/umrah/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           formAction: options.formAction,
           fields: submitFields,
@@ -1157,13 +1161,13 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
         }),
       });
       const responseText = await res.text();
-      let data: { error?: string; success?: boolean } = {};
+      let data: { error?: string; success?: boolean; reason?: string } = {};
       try {
         data = responseText ? JSON.parse(responseText) : {};
       } catch {
-        data = { error: summarizeSubmitErrorText(responseText) };
+        data = { success: false, error: summarizeSubmitErrorText(responseText, res.status) };
       }
-      if (!res.ok) {
+      if (!res.ok || data.success === false) {
         setError(data.error || 'Gagal mengirim pendaftaran');
         setSubmitting(false);
         return;

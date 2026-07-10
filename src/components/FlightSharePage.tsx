@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Plane, Check, MapPin, ArrowRight, ArrowLeft,
   Sun, Cloud, CloudRain, CloudSun, CloudLightning, CloudSnow,
-  Share2,
+  Share2, Clock,
 } from 'lucide-react';
 import { MapContainer, TileLayer, Polyline, Marker } from 'react-leaflet';
 import L from 'leaflet';
@@ -30,6 +30,7 @@ interface FlightData {
   tour_leader: string | null;
   airline_code: string | null;
   flight_status: string;
+  is_live?: boolean;
   progress?: number;
   created_at: string | null;
 }
@@ -113,6 +114,7 @@ const STATUS_COLORS: Record<string, string> = {
   landed:    'bg-blue-50 text-blue-700 border border-blue-200',
   delayed:   'bg-red-50 text-red-700 border border-red-200',
   cancelled: 'bg-red-50 text-red-700 border border-red-200',
+  unverified: 'bg-slate-50 text-slate-700 border border-slate-200',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -121,6 +123,7 @@ const STATUS_LABELS: Record<string, string> = {
   landed: 'MENDARAT',
   delayed: 'DELAY',
   cancelled: 'DIBATALKAN',
+  unverified: 'PERLU CEK',
 };
 
 function getFlightStatus(flight: FlightData): { label: string; color: string } {
@@ -537,14 +540,29 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
             >
               <Share2 size={14} strokeWidth={2.5} className="text-white/70" />
             </button>
-            <div className="flex items-center gap-1.5 bg-white/15 border border-white/20 px-3 py-1.5 rounded-full" style={{ animation: 'liveBreathe 3s ease-in-out infinite' }}>
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="absolute inset-0 rounded-full bg-emerald-400 opacity-75" style={{ animation: 'liveRipple 1.5s ease-out infinite' }} />
-                <span className="absolute inset-0 rounded-full bg-emerald-400 opacity-50" style={{ animation: 'liveRipple 1.5s ease-out infinite 0.5s' }} />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400" style={{ animation: 'liveDot 2s ease-in-out infinite' }} />
-              </span>
-              <span className="text-[10px] font-bold text-white tracking-wide">LIVE</span>
-            </div>
+            {flight.is_live ? (
+              <div className="flex items-center gap-1.5 bg-white/15 border border-white/20 px-3 py-1.5 rounded-full" style={{ animation: 'liveBreathe 3s ease-in-out infinite' }}>
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inset-0 rounded-full bg-emerald-400 opacity-75" style={{ animation: 'liveRipple 1.5s ease-out infinite' }} />
+                  <span className="absolute inset-0 rounded-full bg-emerald-400 opacity-50" style={{ animation: 'liveRipple 1.5s ease-out infinite 0.5s' }} />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400" style={{ animation: 'liveDot 2s ease-in-out infinite' }} />
+                </span>
+                <span className="text-[10px] font-bold text-white tracking-wide">LIVE</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 bg-white/10 border border-white/15 px-3 py-1.5 rounded-full">
+                <Clock size={11} className="text-white/70" />
+                <span className="text-[10px] font-bold text-white/80 tracking-wide">
+                  {flight.flight_status === 'unverified'
+                    ? 'PERLU CEK'
+                    : flight.flight_status === 'landed'
+                      ? 'MENDARAT'
+                      : flight.flight_status === 'cancelled'
+                        ? 'DIBATALKAN'
+                        : 'JADWAL'}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>

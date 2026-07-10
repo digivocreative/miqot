@@ -87,8 +87,11 @@ test('user-entered marketing discount survives enrichment and every internal sub
     server,
     /enrichedFields\[name\] === undefined \|\| enrichedFields\[name\] === '' \|\| enrichedFields\[name\] === '0'/,
   );
-  assert.match(server, /submitUmrahRegistration\(agent\.jamaah_username, \{[\s\S]*?fields: enrichedFields/);
-  assert.match(server, /submitUmrahRegistrationWithBrowser\(\{[\s\S]*?fields: enrichedFields/);
+  assert.match(server, /const commonSubmitPayload = \{\s*fields: enrichedFields/);
+  assert.match(server, /commonPayload: commonSubmitPayload/);
+  assert.match(server, /directPayload: directSubmitPayload/);
+  assert.match(server, /submitBrowser: submitUmrahRegistrationWithBrowser/);
+  assert.match(server, /submitDirect: submitUmrahRegistration/);
   assert.match(laporanApi, /for \(const \[key, value\] of Object\.entries\(fields\)\)/);
   assert.match(laporanApi, /for \(const \[name, value\] of Object\.entries\(fields \|\| \{\}\)\)/);
 });

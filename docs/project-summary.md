@@ -183,7 +183,7 @@ Snapshot audit 2026-07-03:
 - Portal Jamaah (`/:slug/jamaah`) with magic-link flow.
 - Flight share page `/f/:code`.
 - Top Partner directory `/top-partner`.
-- Special landing `/rahmah-1-juli-2026`.
+- Special landing `/rahmah-1-juli-2026` untuk pilihan pengambilan Air Zam-zam per jamaah.
 
 ### Dashboard Agent/Admin
 
@@ -205,6 +205,18 @@ Snapshot audit 2026-07-03:
 - MCP integration key management.
 - Admin agent management and analytics.
 
+### Special Landing Rahmah Juli
+
+Route `/rahmah-1-juli-2026` adalah tool publik mobile-first untuk 43 jamaah kloter Rahmah 1–9 Juli 2026.
+
+- Jamaah dikelompokkan per keluarga dan dapat dicari berdasarkan nama/nomor WA.
+- Setiap kartu selalu menampilkan status Zam-zam: `Belum Pilih`, `Ambil Sendiri`, atau `Diantar ke Rumah`.
+- Opsi antar mewajibkan nama penerima, nomor HP, dan alamat lengkap.
+- Tombol simpan menunggu respons API, mencegah klik ganda, dan menampilkan status sukses/fallback lokal.
+- Data persisten disimpan per jamaah di `booking_persiapan.tahapan[trip_slug].jamaah` melalui `GET/PUT /api/tour-leader-prep/:tripSlug`.
+- Frontend tetap memakai `localStorage` sebagai fallback perangkat, tetapi penyimpanan server memerlukan proses `miqot.service` yang sudah memuat kode backend terbaru; build SPA saja tidak cukup setelah route berubah.
+- Kartu jamaah tidak lagi menampilkan CTA WhatsApp atau checklist persiapan/kamar. CTA Chat WA hanya tersedia pada kartu Tour Leader/Muthowif.
+
 ## Flow Kritis: Pendaftaran Umrah
 
 Files:
@@ -222,27 +234,31 @@ Current behavior:
 3. In add-jamaah mode, `idb` must be full `id_umroh.id_jadwal`, for example `AIW0029560.JBU1535`.
 4. Frontend submits JSON to `POST /api/umrah/register`.
 5. Backend enriches compatibility fields required by legacy PHP (`jadwal`, `pakets`, `tgl_pendaftaran`, name variants, `plahir`, `tlahir`, `tjamaah`, `status`).
-6. Backend tries fast multipart POST.
-7. If legacy returns "Sesi Anda habis", backend relogins, fetches a fresh form, retries.
-8. If manual submit still fails, backend uses Playwright browser fallback:
+6. `lib/umrah-submit-orchestrator.js` memilih tepat satu transport:
+   - jika password legacy tersimpan, Playwright/browser adalah jalur utama karena form membutuhkan JavaScript dan reCAPTCHA;
+   - direct multipart hanya dipakai untuk sesi legacy aktif yang tidak memiliki password tersimpan.
+7. Jalur browser:
    - login through legacy page,
    - open form,
    - trigger dependency AJAX,
+   - baca harga paket dari browser agar snapshot SPA yang stale tidak menimpanya,
    - execute reCAPTCHA v3 in browser,
    - submit the real form.
-9. Browser fallback allows informational `sisa seat = N` dialogs when `N > 0`, but treats zero seat or other alerts as blocking.
+8. Browser submit allows informational `sisa seat = N` dialogs when `N > 0`, but treats zero seat or other alerts as blocking.
+9. Kegagalan upstream dikembalikan sebagai JSON terstruktur (`success:false`, `reason`, `retryable`, `error`) dengan HTTP 424; frontend juga merangkum HTML/proxy failure menjadi pesan yang aman dibaca.
 
 Why this exists:
 
-- Alhijaz legacy POST can reject direct multipart submit as expired session or HTTP 403 even when form GET works.
+- Alhijaz legacy POST dapat menolak direct multipart sebagai expired session atau HTTP 403 walau form GET berhasil.
 - The final form requires browser-executed JavaScript/reCAPTCHA context.
-- Replacing host with IP is not enough for POST stability.
+- Menjalankan dua transport secara berurutan berisiko submit ganda; orchestrator sengaja memilih tepat satu jalur.
 
 Operational checklist after touching this flow:
 
 ```bash
 node --check laporan-api.js
 node --check server.js
+node --test tests/umrah-submit-orchestrator.test.js
 node --test tests/umrah-register-session-retry.test.js
 npm run build:spa
 sudo systemctl restart miqot.service
@@ -274,6 +290,19 @@ Important guards:
 
 AWAPI owns frequent sync if enabled. Legacy haji scraper is scheduled enrichment and can be disabled with legacy background gates. Currency displayed on Haji rows is USD.
 
+### Calendar & Flight Integrity
+
+Public calendar transport and flight tracking fail closed when upstream evidence is incomplete:
+
+- `lib/calendar-public-source.js` tries the official TLS hostname first, then an optional origin-IP fallback with preserved Host/SNI behavior and cooldowns.
+- `lib/calendar-public-snapshot.js` rejects snapshots below the minimum event count or missing required event types.
+- Calendar stale deletion is skipped for degraded/fallback snapshots, bounded by a maximum delete ratio, and requires confirmation across snapshots before rows are removed.
+- The primary calendar origin is re-probed periodically; recovery triggers a full authoritative sync.
+- Flight rows are matched against flight number, operational date, departure, and arrival before provider evidence is accepted.
+- Provider status has per-state freshness windows. Only fresh `en-route`/`delayed` evidence may show `LIVE`.
+- Calendar-only or expired active states become `unverified`/`Perlu Cek`; scheduled snapshots expire at planned takeoff instead of pretending to be live.
+- Verified itinerary timing overrides are keyed by schedule/date/flight and guarded by itinerary SHA-256.
+
 ### DB Protection
 
 `lib/db-health.js` and `lib/db-circuit.js` protect the app when Supabase is slow/unreachable:
@@ -299,6 +328,7 @@ Do not increase background sync cadence, upsert batch size, or route polling wit
 | AWAPI smoke | `/api/awapi/test` |
 | Laporan/Jamaah Umroh | `/api/laporan/*` |
 | Umrah registration | `/api/umrah/*` |
+| Rahmah tour-leader prep | `/api/tour-leader-prep/:tripSlug/*` |
 | Haji | `/api/haji/*` |
 | Calendar | `/api/calendar/*` |
 | Flights | `/api/flights/*`, `/api/flight-share/*` |
@@ -367,7 +397,7 @@ Core tables referenced by current code/docs:
 | `analytics_events_daily` | Daily aggregate after retention cleanup. |
 | `capi_configs`, `capi_event_logs` | Meta CAPI config/logs. |
 | `ai_credits`, `ask_ai_cache` | AI usage/cache. |
-| `jamaah_portal_tokens`, `jamaah_portal_sessions`, `booking_persiapan` | Portal Jamaah auth and preparation checklist. |
+| `jamaah_portal_tokens`, `jamaah_portal_sessions`, `booking_persiapan` | Portal Jamaah auth plus JSON preparation/Zam-zam choices per booking and jamaah. |
 | `jamaah_document_cache` | Cached printable document HTML/PDF proxy source. |
 | `weather_cache`, `kurs_cache`, `top_partners_cache` | Server-side external data cache. |
 | `haji_plus_stats` | Haji Plus stats source. |
@@ -436,7 +466,9 @@ DB and cache tunables:
 | `DB_CIRCUIT_FAILS`, `DB_CIRCUIT_COOLDOWN_MS`, `DB_DEGRADED_RECHECK_MS` | DB circuit breaker. |
 | `DB_HEALTH_PROBE_MS`, `DB_HEALTH_LATENCY_MS` | DB health probe. |
 | `KURS_REFRESH_INTERVAL_MS`, `KURS_SHARE_CACHE_TTL_DAYS`, `KURS_SHARE_CACHE_MAX_MB` | Kurs refresh/cache. |
-| `CALENDAR_PUBLIC_*` | Public calendar scrape origin, modal URL, timeout, concurrency. |
+| `CALENDAR_PUBLIC_FALLBACK_ORIGIN_IP`, `CALENDAR_PUBLIC_FALLBACK_DETAIL_CONCURRENCY` | Optional calendar origin-IP failover and conservative detail concurrency. |
+| `CALENDAR_PUBLIC_ORIGIN_COOLDOWN_MS`, `CALENDAR_PUBLIC_TRANSIENT_COOLDOWN_MS`, `CALENDAR_PRIMARY_REPROBE_MINUTES` | Primary/fallback circuit cooldowns and recovery probe cadence. |
+| `CALENDAR_PUBLIC_MIN_EVENT_COUNT`, `CALENDAR_PUBLIC_REQUIRED_EVENT_TYPES`, `CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO` | Snapshot completeness and stale-delete safety thresholds. |
 
 ## Deployment & Runtime Notes
 
@@ -507,10 +539,13 @@ Don't:
 | Design-only change | `npm run build:spa` if class/component code changed; docs-only can use `git diff --check` |
 | Production deploy | build, restart `miqot.service`, check `systemctl is-active`, then relevant endpoint smoke |
 
-## Current Audit Notes (2026-07-03)
+## Current Audit Notes (2026-07-10)
 
-- Pendaftaran umrah has been stabilized with manual submit -> relogin retry -> browser/reCAPTCHA fallback.
+- Pendaftaran umrah memakai browser/reCAPTCHA sebagai jalur utama ketika password legacy tersedia; direct multipart adalah jalur terbatas tanpa saved password.
 - Add-jamaah must use `id_umroh.id_jadwal`; sending only `id_umroh` can target stale/zero-seat booking state.
 - Frontend submit now parses non-JSON/HTML proxy responses and shows a user-readable error instead of raw `<!DOCTYPE html>`.
+- Calendar sync validates snapshot completeness, preserves data during degraded fallback, and re-probes the primary source before authoritative cleanup.
+- Flight UI distinguishes provider-backed live tracking from schedule/unverified fallback; never label calendar-only estimates as `LIVE`.
+- Rahmah July Zam-zam selection persists in `booking_persiapan` through the public tour-leader prep API.
 - `src/main.tsx` already has stale-build and stuck-SW escape hatches; preserve them.
 - `docs/project-summary.md` and `docs/DESIGN-SYSTEM.md` were refreshed from current source structure and route audit.

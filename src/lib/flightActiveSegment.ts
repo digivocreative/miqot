@@ -10,7 +10,7 @@ export function selectActiveFlightSegment<T extends FlightStatusCarrier>(
 
   return segments.find(segment => segment.status === 'en-route')
     || segments.find(segment => segment.status === 'delayed')
-    || segments.find(segment => segment.status === 'scheduled')
+    || segments.find(segment => segment.status === 'scheduled' || segment.status === 'unverified')
     || [...segments].reverse().find(segment => segment.status === 'landed')
     || segments.find(segment => segment.status !== 'cancelled')
     || segments[0]

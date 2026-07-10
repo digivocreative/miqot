@@ -355,3 +355,52 @@ test('tour stopover label includes days when actual segment gap is available', (
   assert.equal(merged.length, 1);
   assert.equal(merged[0].transitLabel, 'Tour 2 hari di Dubai');
 });
+
+test('an unverified next leg is selected ahead of an already landed leg', () => {
+  const merged = mergeFlightEntriesByTourLeader([
+    {
+      id: 'leg-1', flightNumber: 'SV 261', eventDate: '2026-07-11', group: '10',
+      tourLeader: 'MERRY SUSANTY', pax: 45, status: 'landed', depCode: 'JED', arrCode: 'IST',
+      _mergeSourceKey: 'tour', _mergeCardKey: 'tour', _segmentIndex: 0, _segmentCount: 2,
+    },
+    {
+      id: 'leg-2', flightNumber: 'SV 278', eventDate: '2026-07-17', group: '10',
+      tourLeader: 'MERRY SUSANTY', pax: 45, status: 'unverified', depCode: 'IST', arrCode: 'JED',
+      _mergeSourceKey: 'tour', _mergeCardKey: 'tour', _segmentIndex: 1, _segmentCount: 2,
+    },
+  ]);
+
+  assert.equal(merged[0].flightNumber, 'SV 278');
+  assert.equal(merged[0].status, 'unverified');
+});
+
+test('an unverified current leg is not hidden by a later scheduled leg', () => {
+  const base = {
+    eventDate: '2026-07-10',
+    group: '8',
+    tourLeader: 'TEST LEADER',
+    pax: 1,
+    _mergeSourceKey: 'journey-test',
+    _segmentCount: 3,
+  };
+  const [merged] = mergeFlightEntriesByTourLeader([
+    { ...base, id: 'leg1', flightNumber: 'EK 802', status: 'landed', depCode: 'JED', arrCode: 'DXB', _segmentIndex: 0 },
+    { ...base, id: 'leg2', flightNumber: 'EK 358', status: 'unverified', depCode: 'DXB', arrCode: 'CGK', _segmentIndex: 1 },
+    { ...base, id: 'leg3', flightNumber: 'GA 001', status: 'scheduled', depCode: 'CGK', arrCode: 'SUB', _segmentIndex: 2 },
+  ]);
+  assert.equal(merged.flightNumber, 'EK 358');
+  assert.equal(merged.status, 'unverified');
+});
+
+test('the earliest upcoming scheduled leg is not skipped for a later unverified leg', () => {
+  const base = {
+    eventDate: '2026-07-10', group: '8', tourLeader: 'TEST LEADER', pax: 1,
+    _mergeSourceKey: 'journey-order', _segmentCount: 2,
+  };
+  const [merged] = mergeFlightEntriesByTourLeader([
+    { ...base, id: 'leg1', flightNumber: 'EK 802', status: 'scheduled', depCode: 'JED', arrCode: 'DXB', _segmentIndex: 0 },
+    { ...base, id: 'leg2', flightNumber: 'EK 358', status: 'unverified', depCode: 'DXB', arrCode: 'CGK', _segmentIndex: 1 },
+  ]);
+  assert.equal(merged.flightNumber, 'EK 802');
+  assert.equal(merged.status, 'scheduled');
+});

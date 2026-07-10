@@ -27,16 +27,45 @@ import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCacheableHtmlDocument, JAMAAH_DOCUMENT_TYPES } from './lib/jamaah-document-cache.js';
 import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { syncCalendar, enrichKeberangkatanWithKumpul, enrichCalendarPaxJamaah } from './calendar-api.js';
+import { probePublicCalendarPrimary } from './lib/calendar-public-source.js';
 import { regenerateOgForAgent, generatePortalJamaahOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
+import {
+  UMRAH_UPSTREAM_FAILURE_STATUS,
+  buildUmrahSubmitFailure,
+  executeUmrahSubmit,
+  shouldUseBrowserUmrahSubmit,
+} from './lib/umrah-submit-orchestrator.js';
 import { buildScheduleFlightMap, buildJamaahFlightIndex, jamaahForFlightCard } from './lib/flight-jamaah.js';
 import { mergeFlightEntriesByTourLeader } from './lib/flight-entry-merge.js';
-import { parseFlightSegmentsFromCalendar, parseRouteLegs, routeStringForEventType } from './lib/flight-segments.js';
+import {
+  parseFlightSegmentsFromCalendar,
+  parseRouteLegs,
+  routeStringForEventType,
+  selectCalendarReportedSegments,
+} from './lib/flight-segments.js';
 import { buildDepartureDateLookup, departureDateForCalendarEvent } from './lib/calendar-return-departure.js';
 import { extractReturnTerminalFromItinerary, extractReturnTerminalFromText } from './lib/itinerary-terminal.js';
-import { calendarJamForEvent } from './lib/calendar-jam.js';
+import {
+  calendarDayOffsetForEvent,
+  calendarJamForEvent,
+  normalizeCalendarJam,
+} from './lib/calendar-jam.js';
+import {
+  computeFallbackFlightState,
+  hasReliableFlightTimes,
+  scheduledSnapshotDisplayStatus,
+} from './lib/flight-fallback-state.js';
+import { verifiedItineraryFlightTime } from './lib/flight-itinerary-overrides.js';
+import { operationalFlightDate } from './lib/flight-marker-date.js';
+import {
+  isFreshProviderFlight,
+  isLiveProviderFlight,
+  providerBackedDisplayStatus,
+} from './lib/flight-provider-freshness.js';
+import { flightStatusRowMatchesSegment, providerFlightMatchesSegment } from './lib/flight-status-match.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
 import { RAHMAH_JULI_JAMAAH } from './src/lib/rahmahJuliLanding.js';
@@ -222,7 +251,18 @@ function sanitizeTourLeaderPrepRoomNumber(value) {
   return /^\d{1,4}$/.test(digits) ? digits : null;
 }
 
+function sanitizeTourLeaderPrepText(value, maxLength) {
+  if (typeof value !== 'string') return null;
+  const text = value.trim().slice(0, maxLength);
+  return text || null;
+}
+
 function tourLeaderPrepEntryFromPayload(payload = {}) {
+  const zamzamMethod = payload.zamzam_method === 'pickup' || payload.zamzam_method === 'delivery'
+    ? payload.zamzam_method
+    : null;
+  const isDelivery = zamzamMethod === 'delivery';
+
   return {
     phone: typeof payload.phone === 'string' ? payload.phone.trim().slice(0, 32) : null,
     wa_confirmed: payload.wa_confirmed === true,
@@ -230,6 +270,10 @@ function tourLeaderPrepEntryFromPayload(payload = {}) {
     raudhah_reserved: payload.raudhah_reserved === true,
     room_mekkah: sanitizeTourLeaderPrepRoomNumber(payload.room_mekkah),
     room_madinah: sanitizeTourLeaderPrepRoomNumber(payload.room_madinah),
+    zamzam_method: zamzamMethod,
+    zamzam_recipient_name: isDelivery ? sanitizeTourLeaderPrepText(payload.zamzam_recipient_name, 120) : null,
+    zamzam_recipient_phone: isDelivery ? sanitizeTourLeaderPrepText(payload.zamzam_recipient_phone, 32) : null,
+    zamzam_address: isDelivery ? sanitizeTourLeaderPrepText(payload.zamzam_address, 500) : null,
     updated_at: new Date().toISOString(),
   };
 }
@@ -252,6 +296,12 @@ function tourLeaderPrepRowToItems(row) {
         raudhah_reserved: saved.raudhah_reserved === true,
         room_mekkah: typeof saved.room_mekkah === 'string' ? saved.room_mekkah : null,
         room_madinah: typeof saved.room_madinah === 'string' ? saved.room_madinah : null,
+        zamzam_method: saved.zamzam_method === 'pickup' || saved.zamzam_method === 'delivery'
+          ? saved.zamzam_method
+          : null,
+        zamzam_recipient_name: typeof saved.zamzam_recipient_name === 'string' ? saved.zamzam_recipient_name : null,
+        zamzam_recipient_phone: typeof saved.zamzam_recipient_phone === 'string' ? saved.zamzam_recipient_phone : null,
+        zamzam_address: typeof saved.zamzam_address === 'string' ? saved.zamzam_address : null,
       };
     })
     .filter(Boolean);
@@ -266,10 +316,16 @@ function validateTourLeaderPrepPayload(tripSlug, jamaahNo, payload = {}) {
     return { error: 'Nomor jamaah tidak valid' };
   }
 
-  return {
-    member,
-    entry: tourLeaderPrepEntryFromPayload(payload),
-  };
+  const entry = tourLeaderPrepEntryFromPayload(payload);
+  if (payload.zamzam_method != null && !entry.zamzam_method) {
+    return { error: 'Pilihan pengambilan Air Zam-zam tidak valid' };
+  }
+  if (entry.zamzam_method === 'delivery'
+    && (!entry.zamzam_recipient_name || !entry.zamzam_recipient_phone || !entry.zamzam_address)) {
+    return { error: 'Data penerima dan alamat pengantaran wajib dilengkapi' };
+  }
+
+  return { member, entry };
 }
 
 // ── Helper: fetch all rows from a Supabase query (bypasses 1000-row PostgREST limit) ──
@@ -337,6 +393,10 @@ app.use(compression({
 app.use('/mcp', express.json({ limit: '128kb' }));
 // Dev-MCP (developer tool, /dev-mcp) — body juga kecil; cap ketat sebelum global.
 app.use('/dev-mcp', express.json({ limit: '256kb' }));
+// A 10 MiB KTP becomes ~13.4 MiB after base64 encoding. Parse these upload
+// routes before the tighter global parser so the UI's documented limit works.
+app.use('/api/umrah/register', express.json({ limit: '16mb' }));
+app.use('/api/umrah/ocr-ktp', express.json({ limit: '16mb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // ──────────────────────────────────────────────
@@ -7661,7 +7721,9 @@ app.get('/api/calendar/events', dbLoadShedGuard, authMiddleware, async (req, res
         jadwal_id: ev.jadwal_id || null,
         group_number: ev.group_number,
         pesawat: ev.pesawat,
-        jam: calendarJamForEvent(ev, schedule),
+        // Keep marker text for calendar display, but flight timing uses only
+        // the trusted clock returned by calendarJamForEvent.
+        jam: calendarJamForEvent(ev, schedule) || ev.jam || null,
         paket: ev.paket,
         pax: ev.pax,
         pax_jamaah: ev.pax_jamaah ?? null,
@@ -8192,7 +8254,44 @@ const ROUTE_PAIR_DURATIONS = {
   'JED-CGK': 540,
   'CGK-MED': 570,
   'MED-CGK': 570,
+  'JED-IST': 230,
+  'IST-JED': 230,
 };
+
+function airportLocalDateTimeToUTC(dateLocal, timeLocal, airportCode) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateLocal || ''))) return null;
+  const match = String(timeLocal || '').match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  const tzOffset = AIRPORT_TZ_OFFSETS[airportCode] ?? 7;
+  return Date.parse(`${dateLocal}T00:00:00Z`)
+    + (hours * 60 + minutes) * 60 * 1000
+    - tzOffset * 60 * 60 * 1000;
+}
+
+function verifiedItineraryTimesForSegment(event, schedule, segment, route) {
+  const verified = verifiedItineraryFlightTime({
+    eventDate: event?.event_date,
+    flightIata: segment?.flightIata,
+    schedule,
+  });
+  if (!verified || !route?.dep || !route?.arr) return null;
+
+  const depUTC = airportLocalDateTimeToUTC(
+    verified.depDateLocal,
+    verified.depLocal,
+    route.dep,
+  );
+  const arrUTC = airportLocalDateTimeToUTC(
+    verified.arrDateLocal,
+    verified.arrLocal,
+    route.arr,
+  );
+  const times = { ...verified, depUTC, arrUTC };
+  return hasReliableFlightTimes(times) ? times : null;
+}
 
 /**
  * Extract "HH:mm" from a datetime string like "2026-03-29 11:45" or ISO format.
@@ -8340,6 +8439,7 @@ function routeForFlightSegment(segment, event, schedule, segmentIndex) {
 function buildFlightSegmentsForEvent(event, scheduleById = new Map()) {
   const schedule = event.jadwal_id ? scheduleById.get(String(event.jadwal_id)) : null;
   const eventForTiming = { ...event, jam: calendarJamForEvent(event, schedule) };
+  const dayOffset = calendarDayOffsetForEvent(event, schedule);
   const scheduleSegments = parseFlightSegmentsFromCalendar(event.pesawat, {
     eventType: event.event_type,
     schedule,
@@ -8348,9 +8448,14 @@ function buildFlightSegmentsForEvent(event, scheduleById = new Map()) {
 
   const fullRoutes = scheduleSegments.map((segment, idx) => routeForFlightSegment(segment, event, schedule, idx));
   const tourStopoverCodes = tourStopoverCodesForEvent(event, schedule, fullRoutes);
-  let segments = scheduleSegments;
+  let segments = dayOffset !== null
+    ? selectCalendarReportedSegments(event.pesawat, {
+        eventType: event.event_type,
+        schedule,
+      })
+    : scheduleSegments;
 
-  if (tourStopoverCodes.size > 0) {
+  if (dayOffset === null && tourStopoverCodes.size > 0) {
     const calendarSegments = parseFlightSegmentsFromCalendar(event.pesawat, {
       eventType: event.event_type,
       schedule: null,
@@ -8377,11 +8482,16 @@ function buildFlightSegmentsForEvent(event, scheduleById = new Map()) {
   }
 
   const routes = segments.map((segment) => routeForFlightSegment(segment, event, schedule, segment.segmentIndex));
-  const times = deriveCalendarFlightSegmentTimes(eventForTiming, routes);
+  const derivedTimes = deriveCalendarFlightSegmentTimes(eventForTiming, routes);
+  const segmentTimes = segments.map((segment, idx) => (
+    verifiedItineraryTimesForSegment(event, schedule, segment, routes[idx])
+      || derivedTimes[idx]
+      || null
+  ));
   if (tourStopoverCodes.size > 0 && segments.length === 1) {
     const firstStopIndex = fullRoutes.findIndex(route => route?.arr && tourStopoverCodes.has(route.arr));
     const segmentIndex = Number(segments[0]?.segmentIndex);
-    const depUTC = Number(times[0]?.depUTC);
+    const depUTC = Number(segmentTimes[0]?.depUTC);
     const isTourContinuation = firstStopIndex >= 0 && Number.isFinite(segmentIndex) && segmentIndex > firstStopIndex;
     if (isTourContinuation && Number.isFinite(depUTC) && depUTC - Date.now() > TOUR_CONTINUATION_LOOKAHEAD_MS) {
       return [];
@@ -8391,7 +8501,15 @@ function buildFlightSegmentsForEvent(event, scheduleById = new Map()) {
   return segments.map((segment, idx) => ({
     ...segment,
     route: routes[idx],
-    times: times[idx] || null,
+    times: segmentTimes[idx],
+    flightDate: operationalFlightDate({
+      eventDate: event.event_date,
+      times: segmentTimes[idx],
+      dayOffset,
+      route: routes[idx],
+      segmentCount: segments.length,
+    }),
+    timingSource: segmentTimes[idx]?.source || (derivedTimes[idx] ? 'calendar' : 'unknown'),
     segmentCount: segments.length,
     tourStopover: Boolean(routes[idx]?.arr && tourStopoverCodes.has(routes[idx].arr)),
   }));
@@ -8406,7 +8524,8 @@ function buildFlightSegmentsForEvent(event, scheduleById = new Map()) {
  * internal calendar only stores one trip-level time.
  */
 function deriveCalendarFlightSegmentTimes(event, routes) {
-  const jamLocal = (event.jam || '00:00').replace('.', ':');
+  if (!event.jam) return [];
+  const jamLocal = String(event.jam).replace('.', ':');
   const [jamH, jamM] = jamLocal.split(':').map(Number);
   if (isNaN(jamH) || isNaN(jamM)) return [];
 
@@ -8427,7 +8546,7 @@ function deriveCalendarFlightSegmentTimes(event, routes) {
 
   const toAirportDate = (utcMs, tz) => new Date(utcMs + tz * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  const buildTimes = (route, depUTC, arrUTC) => {
+  const buildTimes = (route, depUTC, arrUTC, operationalDateTrusted) => {
     const depTZ = AIRPORT_TZ_OFFSETS[route.dep] || 7;
     const arrTZ = AIRPORT_TZ_OFFSETS[route.arr] || 7;
     return {
@@ -8438,6 +8557,10 @@ function deriveCalendarFlightSegmentTimes(event, routes) {
       depUTC,
       arrUTC,
       durationMin: route.durationMin || 540,
+      // A multi-leg chain has no layover data. Its dates are useful for
+      // rough sequencing, but its inferred clocks must never drive UI status.
+      operationalTimeTrusted: chain.length === 1,
+      operationalDateTrusted,
     };
   };
 
@@ -8449,7 +8572,7 @@ function deriveCalendarFlightSegmentTimes(event, routes) {
     for (let i = chain.length - 1; i >= 0; i--) {
       const route = chain[i];
       const depUTC = arrUTC - (route.durationMin || 540) * 60 * 1000;
-      out[i] = buildTimes(route, depUTC, arrUTC);
+      out[i] = buildTimes(route, depUTC, arrUTC, chain.length === 1 || i === chain.length - 1);
       arrUTC = depUTC;
     }
   } else {
@@ -8459,7 +8582,7 @@ function deriveCalendarFlightSegmentTimes(event, routes) {
     for (let i = 0; i < chain.length; i++) {
       const route = chain[i];
       const arrUTC = depUTC + (route.durationMin || 540) * 60 * 1000;
-      out[i] = buildTimes(route, depUTC, arrUTC);
+      out[i] = buildTimes(route, depUTC, arrUTC, chain.length === 1 || i === 0);
       depUTC = arrUTC;
     }
   }
@@ -8637,29 +8760,15 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent, flightSegment = null) 
   const parsed = flightSegment || parseFlightFromCalendar(calendarEvent.pesawat);
   if (!parsed) return null;
 
-  // Validate: AirLabs returns today's flight — dep date must match event_date
-  // dep_time is in airport-local time, so we just extract the date part
-  const apiDepTime = apiData.dep_time || apiData.dep_actual || apiData.dep_time_utc;
-  if (apiDepTime) {
-    const dateMatch = String(apiDepTime).match(/^(\d{4}-\d{2}-\d{2})/);
-    const apiDate = dateMatch ? dateMatch[1] : null;
-    const expectedDepDate = flightSegment?.times?.depDateLocal || calendarEvent.event_date;
-    if (apiDate && apiDate !== calendarEvent.event_date && apiDate !== expectedDepDate) {
-      console.log(`[FlightAPI] Date mismatch: API=${apiDate}, event=${calendarEvent.event_date}, expectedDep=${expectedDepDate} — skipping`);
-      return null;
-    }
-  }
-
-  // Validate: AirLabs route must match expected Umrah route
-  // Prevents flight number collision (e.g. GA961 domestic vs GA961 umrah)
-  const expectedRoute = flightSegment?.route || lookupRoute(parsed.flightIata, calendarEvent.event_type);
-  if (expectedRoute && apiData.dep_iata && apiData.arr_iata) {
-    const apiDep = apiData.dep_iata.toUpperCase();
-    const apiArr = apiData.arr_iata.toUpperCase();
-    if (apiDep !== expectedRoute.dep || apiArr !== expectedRoute.arr) {
-      console.log(`[FlightAPI] Route mismatch for ${parsed.flightIata}: API=${apiDep}→${apiArr}, expected=${expectedRoute.dep}→${expectedRoute.arr} — skipping`);
-      return null;
-    }
+  const flightDate = flightSegment?.flightDate || calendarEvent.event_date;
+  const expectedDepDate = flightSegment?.times?.depDateLocal
+    || flightDate
+    || calendarEvent.event_date;
+  // Validate raw provider identity before any missing route/time fields are
+  // filled from the calendar. Missing evidence fails closed.
+  if (!flightSegment || !providerFlightMatchesSegment(apiData, flightSegment)) {
+    console.log(`[FlightAPI] Provider evidence mismatch/incomplete for ${parsed.flightIata} ${expectedDepDate} — skipping`);
+    return null;
   }
 
   // Determine status
@@ -8676,8 +8785,8 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent, flightSegment = null) 
   const progress = computeFlightProgress(status, depProgTs, arrProgTs);
 
   const result = {
-    id: `${calendarEvent.event_date}_${parsed.flightIata}`,
-    event_date: calendarEvent.event_date,
+    id: `${flightDate}_${parsed.flightIata}`,
+    event_date: flightDate,
     flight_iata: parsed.flightIata,
     airline_name: parsed.airline,
     airline_iata: parsed.airlineCode,
@@ -8724,7 +8833,10 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent, flightSegment = null) 
     if (!result.arr_iata) result.arr_iata = route.arr;
     if (!result.arr_city) result.arr_city = route.arrCity;
     if (!result.arr_scheduled) {
-      const depTime = result.dep_scheduled || result.dep_actual || `${calendarEvent.event_date}T${(calendarEvent.jam || '00:00').replace('.', ':')}:00`;
+      const trustedJam = normalizeCalendarJam(calendarEvent.jam);
+      const depTime = result.dep_scheduled
+        || result.dep_actual
+        || (trustedJam ? `${expectedDepDate}T${trustedJam}:00` : null);
       result.arr_scheduled = estimateArrival(depTime, route.durationMin);
     }
     if (!result.arr_estimated && result.arr_scheduled) {
@@ -8743,6 +8855,11 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent, flightSegment = null) 
 function formatFlightForFrontend(row) {
   // Epoch ts utk hitung-ulang progress live di endpoint (fallback sama dgn sync)
   const { depTs, arrTs } = flightProgressTs(row.raw_api);
+  const isLive = isLiveProviderFlight(row);
+  const displayStatus = providerBackedDisplayStatus(row);
+  const detailsUsable = isFreshProviderFlight(row)
+    || row?.status === 'landed'
+    || row?.status === 'cancelled';
   return {
     id: row.id,
     flightNumber: row.flight_iata
@@ -8751,37 +8868,40 @@ function formatFlightForFrontend(row) {
     airline: row.airline_name || '',
     airlineLogo: row.airline_logo || null,
     group: row.group_number || '',
-    status: row.status || 'scheduled',
+    status: displayStatus,
     depCity: row.dep_city || '',
     depCode: row.dep_iata || '',
     depTerminal: row.dep_terminal || null,
     depGate: row.dep_gate || null,
     depScheduled: extractHHmm(row.dep_scheduled) || row.dep_scheduled,
-    depActual: extractHHmm(row.dep_actual) || null,
+    depActual: detailsUsable ? extractHHmm(row.dep_actual) || null : null,
     depDate: extractDateISO(row.dep_scheduled || row.dep_actual),
     arrCity: row.arr_city || '',
     arrCode: row.arr_iata || '',
     arrTerminal: row.arr_terminal || null,
     arrGate: row.arr_gate || null,
     arrScheduled: extractHHmm(row.arr_scheduled) || row.arr_scheduled,
-    arrEstimated: extractHHmm(row.arr_estimated) || null,
+    arrEstimated: detailsUsable ? extractHHmm(row.arr_estimated) || null : null,
+    arrDate: extractDateISO(row.arr_estimated || row.arr_scheduled),
     pax: row.pax || 0,
     tourLeader: row.tour_leader || '',
-    lat: row.lat || null,
-    lng: row.lng || null,
-    alt: row.alt || null,
-    speed: row.speed || null,
-    direction: row.direction || null,
-    progress: row.progress || 0,
+    lat: isLive ? row.lat || null : null,
+    lng: isLive ? row.lng || null : null,
+    alt: isLive ? row.alt || null : null,
+    speed: isLive ? row.speed || null : null,
+    direction: isLive ? row.direction || null : null,
+    progress: displayStatus === 'unverified' ? 0 : row.progress || 0,
     depTs,
     arrTs,
-    delayed: row.delayed || 0,
+    delayed: displayStatus === 'unverified' ? 0 : row.delayed || 0,
     aircraftType: getAircraftName(row.aircraft_icao),
     aircraftReg: row.aircraft_reg || null,
     duration: row.duration || null,
-    depDelayed: row.dep_delayed || 0,
-    arrDelayed: row.arr_delayed || 0,
+    depDelayed: displayStatus === 'unverified' ? 0 : row.dep_delayed || 0,
+    arrDelayed: displayStatus === 'unverified' ? 0 : row.arr_delayed || 0,
     arrBaggage: row.arr_baggage || null,
+    isLive,
+    trackingSource: 'airlabs',
   };
 }
 
@@ -8812,16 +8932,58 @@ function getFlightCacheTTL(status) {
 function getCachedFlight(flightId) {
   const cached = flightCache.get(flightId);
   if (!cached) return null;
-  const ttl = getFlightCacheTTL(cached.data?.status);
+  const ttl = getFlightCacheTTL(cached.providerStatus || cached.data?.status);
   if (Date.now() - cached.timestamp > ttl) {
     flightCache.delete(flightId);
     return null;
   }
-  return cached.data;
+  if (!cached.providerStatus || !cached.providerSyncedAt) return cached.data;
+
+  // Re-evaluate freshness on every read. A snapshot cached shortly before the
+  // freshness boundary must not keep an en-route/LIVE claim alive afterward.
+  const providerRow = {
+    status: cached.providerStatus,
+    synced_at: cached.providerSyncedAt,
+    raw_api: cached.providerDepTs ? { dep_time_ts: cached.providerDepTs } : null,
+  };
+  const status = providerBackedDisplayStatus(providerRow);
+  if (cached.providerStatus === 'scheduled' && status !== 'scheduled') {
+    flightCache.delete(flightId);
+    return null;
+  }
+  const refreshed = {
+    ...cached.data,
+    status,
+    isLive: isLiveProviderFlight(providerRow),
+    progress: status === 'unverified' ? 0 : cached.data.progress,
+  };
+  if (status === 'unverified') {
+    Object.assign(refreshed, {
+      depActual: null,
+      arrEstimated: null,
+      lat: null,
+      lng: null,
+      alt: null,
+      speed: null,
+      direction: null,
+      depTs: null,
+      arrTs: null,
+      delayed: 0,
+      depDelayed: 0,
+      arrDelayed: 0,
+    });
+  }
+  return refreshed;
 }
 
-function setCachedFlight(flightId, data) {
-  flightCache.set(flightId, { data, timestamp: Date.now() });
+function setCachedFlight(flightId, data, providerRow = null) {
+  flightCache.set(flightId, {
+    data,
+    timestamp: Date.now(),
+    providerStatus: providerRow?.status || null,
+    providerSyncedAt: providerRow?.synced_at || null,
+    providerDepTs: flightProgressTs(providerRow?.raw_api).depTs || null,
+  });
 }
 
 const FLIGHT_SCHEDULE_SELECT = [
@@ -8867,29 +9029,23 @@ async function loadFlightScheduleMap(events) {
 
 function calendarFlightSegmentsForEvent(event, scheduleById = new Map()) {
   if (!event || (event.event_type !== 'keberangkatan' && event.event_type !== 'kepulangan')) return [];
-  const schedule = event.jadwal_id ? scheduleById.get(String(event.jadwal_id)) : null;
-  const segments = parseFlightSegmentsFromCalendar(event.pesawat, {
-    eventType: event.event_type,
-    schedule,
-  });
-  return segments
+  return buildFlightSegmentsForEvent(event, scheduleById)
     .map(segment => ({
       segment,
-      flightId: `${event.event_date}_${segment.flightIata}`,
-      route: routeForFlightSegment(segment, event, schedule, segment.segmentIndex),
+      flightId: segment.flightDate ? `${segment.flightDate}_${segment.flightIata}` : null,
+      route: segment.route,
     }))
     .filter(item => item.segment?.flightIata && item.route);
 }
 
 async function loadCalendarFlightStatusMap(events, scheduleById = new Map()) {
-  const flightIds = [...new Set((events || [])
-    .flatMap(event => calendarFlightSegmentsForEvent(event, scheduleById).map(item => item.flightId))
-    .filter(Boolean))];
+  const items = (events || []).flatMap(event => calendarFlightSegmentsForEvent(event, scheduleById));
+  const flightIds = [...new Set(items.map(item => item.flightId).filter(Boolean))];
   if (flightIds.length === 0) return new Map();
 
   const { data, error } = await supabase
     .from('flight_status')
-    .select('id, dep_iata, dep_city, dep_terminal, arr_iata, arr_city, arr_terminal')
+    .select('id, event_date, flight_iata, dep_scheduled, dep_actual, dep_iata, dep_city, dep_terminal, arr_iata, arr_city, arr_terminal, raw_api')
     .in('id', flightIds);
 
   if (error) {
@@ -8897,7 +9053,10 @@ async function loadCalendarFlightStatusMap(events, scheduleById = new Map()) {
     return new Map();
   }
 
-  return new Map((data || []).map(row => [row.id, row]));
+  const expectedById = new Map(items.map(item => [item.flightId, item.segment]));
+  return new Map((data || [])
+    .filter(row => flightStatusRowMatchesSegment(row, expectedById.get(row.id)))
+    .map(row => [row.id, row]));
 }
 
 const calendarReturnTerminalPdfCache = new Map();
@@ -9033,9 +9192,12 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
     const tomorrowWIB = getWIBDateStr(new Date(nowMs + 24*60*60*1000));
 
     const startDate = yesterdayWIB;
-    const endDate = tomorrowWIB;
+    // Marker (+1) stores the Indonesian arrival day, so an H-1 departure can
+    // live on a calendar event at H+2. Query H+2, then filter by each leg's
+    // operational departure date below.
+    const endDate = getWIBDateStr(new Date(nowMs + 2*24*60*60*1000));
 
-    // 1. Get calendar events with flight data in the ±1 day window
+    // 1. Get calendar events that can yield an operational leg in H-1..H+1.
     let flightQuery = supabase
       .from('calendar_events')
       .select('*')
@@ -9129,9 +9291,10 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
     for (const event of events) {
       const segments = buildFlightSegmentsForEvent(event, scheduleById);
       for (const segment of segments) {
+        if (!segment.flightDate) continue;
         const times = segment.times;
         if (!times) continue; // jam tidak ter-parse — jangan ikut menentukan waktu bersama
-        const key = `${event.event_date}_${segment.flightIata}_${event.event_type}`;
+        const key = `${segment.flightDate}_${segment.flightIata}_${event.event_type}`;
         const cur = sharedFlightTimes.get(key);
         if (!cur || times.depUTC < cur.depUTC) sharedFlightTimes.set(key, times);
       }
@@ -9145,7 +9308,8 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
     for (const event of events) {
       const segments = buildFlightSegmentsForEvent(event, scheduleById);
       for (const segment of segments) {
-        const flightId = `${event.event_date}_${segment.flightIata}`;
+        if (!segment.flightDate) continue;
+        const flightId = `${segment.flightDate}_${segment.flightIata}`;
         // Unique ID per group (so multiple groups on same flight get distinct entries)
         const entryId = event.group_number
           ? `${flightId}_g${event.group_number}`
@@ -9171,9 +9335,10 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
 
           // Check in-memory cache
           const cached = getCachedFlight(flightId);
-          if (cached) {
+          if (cached && flightStatusRowMatchesSegment(cached, segment)) {
             flightBase = cached;
           } else {
+            if (cached) flightCache.delete(flightId);
             // Check Supabase
             const { data: existing } = await supabase
               .from('flight_status')
@@ -9181,24 +9346,19 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
               .eq('id', flightId)
               .single();
 
-            if (existing && existing.synced_at) {
-              let dateValid = true;
-              if (existing.dep_scheduled) {
-                const dateMatch = String(existing.dep_scheduled).match(/^(\d{4}-\d{2}-\d{2})/);
-                const depDate = dateMatch ? dateMatch[1] : null;
-                const expectedDepDate = segment.times?.depDateLocal || event.event_date;
-                if (depDate && depDate !== event.event_date && depDate !== expectedDepDate) {
-                  dateValid = false;
-                  await supabase.from('flight_status').delete().eq('id', flightId);
-                }
-              }
-              if (dateValid) {
+            if (existing) {
+              if (!flightStatusRowMatchesSegment(existing, segment)) {
+                await supabase.from('flight_status').delete().eq('id', flightId);
+              } else if (existing.status === 'scheduled'
+                  && providerBackedDisplayStatus(existing) !== 'scheduled') {
+                // Ignore an expired provider schedule and let the calendar
+                // fallback decide scheduled vs unverified from trusted time.
+                await supabase.from('flight_status').delete().eq('id', flightId);
+              } else {
                 const formatted = formatFlightForFrontend(existing);
-                setCachedFlight(flightId, formatted);
+                setCachedFlight(flightId, formatted, existing);
                 flightBase = formatted;
               }
-            } else if (existing) {
-              flightBase = formatFlightForFrontend(existing);
             }
           }
           flightDataCache.set(flightId, flightBase);
@@ -9209,7 +9369,7 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
           const entry = {
             ...flightBase,
             id: entryId,
-            eventDate: event.event_date,
+            eventDate: segment.flightDate,
             group: event.group_number || '',
             pax: event.pax_terisi ?? event.pax ?? 0,
             tourLeader: event.tour_leader || '',
@@ -9230,52 +9390,22 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
             _stopoverCityName: segment.tourStopover ? segment.route?.arrCity || airportCity(segment.route?.arr) : null,
           };
 
-          // Override stale status if departure time has clearly passed.
-          // Covers 'scheduled' (never updated) and 'cancelled' (might be wrong route data).
-          const statusDate = segment.times?.depDateLocal || event.event_date;
-          if (['scheduled', 'cancelled'].includes(entry.status) && statusDate <= todayWIB) {
-            const nowUTC = Date.now();
-            let depUTC = segment.times?.depUTC || null;
-            let arrUTC = segment.times?.arrUTC || null;
-            if ((!depUTC || !arrUTC) && entry.depScheduled) {
-              const depAirport = entry.depCode || segment.route?.dep || (event.event_type === 'kepulangan' ? 'JED' : 'CGK');
-              const tzOffset = AIRPORT_TZ_OFFSETS[depAirport] || 7;
-              const depHHmm = entry.depScheduled; // "HH:mm" string from formatFlightForFrontend
-              const [hh, mm] = depHHmm.split(':').map(Number);
-              if (!isNaN(hh) && !isNaN(mm)) {
-                const depDate = segment.times?.depDateLocal || event.event_date;
-                const depDateObj = new Date(`${depDate}T00:00:00Z`);
-                depUTC = depDateObj.getTime() + (hh * 60 + mm) * 60 * 1000 - tzOffset * 60 * 60 * 1000;
-                arrUTC = depUTC + (segment.route?.durationMin || 540) * 60 * 1000;
-              }
-            }
-            if (depUTC && arrUTC) {
-              if (nowUTC >= arrUTC) {
-                entry.status = 'landed';
-                entry.progress = 100;
-              } else if (nowUTC >= depUTC) {
-                entry.status = 'en-route';
-                const totalDuration = arrUTC - depUTC;
-                const elapsed = nowUTC - depUTC;
-                entry.progress = Math.min(99, Math.max(1, Math.round((elapsed / totalDuration) * 100)));
-              }
-            }
-          }
-
           // Progress en-route dihitung ulang per-request: nilai tersimpan hanya
           // snapshot poll terakhir (poller per jam) sehingga selalu basi/beku.
           if (entry.status === 'en-route') {
             entry.progress = computeFlightProgress(entry.status, entry.depTs, entry.arrTs, entry.progress);
           }
 
-          // Attach calendar reference time if it differs significantly from AirLabs.
-          // Only the side `jam` actually records for the whole trip; on multi-leg
-          // transit, this uses the derived segment-level reference time.
+          // Attach only the trip endpoint that the calendar actually records:
+          // first departure or final arrival. Intermediate clocks in a
+          // zero-layover derivation are not operational evidence.
           if (event.jam && entry.depScheduled && segment.times) {
-            if (event.event_type === 'kepulangan') {
+            const isFirstTripLeg = segment.segmentIndex === 0;
+            const isFinalTripLeg = segment.segmentIndex === segment.segmentCount - 1;
+            if (event.event_type === 'kepulangan' && isFinalTripLeg) {
               const arrDiff = Math.abs(parseHHmmToMinutes(entry.arrScheduled) - parseHHmmToMinutes(segment.times.arrLocal));
               if (arrDiff >= 15) entry.calendarArrTime = segment.times.arrLocal;
-            } else {
+            } else if (event.event_type === 'keberangkatan' && isFirstTripLeg) {
               const depDiff = Math.abs(parseHHmmToMinutes(entry.depScheduled) - parseHHmmToMinutes(segment.times.depLocal));
               if (depDiff >= 15) entry.calendarDepTime = segment.times.depLocal;
             }
@@ -9286,43 +9416,36 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
           // Fallback: enrich from calendar + route lookup.
           // Waktu diambil dari sharedFlightTimes (jam paling awal antar kloter se-flight).
           const route = segment.route;
-          const times = sharedFlightTimes.get(`${event.event_date}_${segment.flightIata}_${event.event_type}`)
-            || segment.times
-            || deriveCalendarFlightTimes({ ...event, jam: '00:00' }, route);
-          const { depLocal, arrLocal, depUTC, arrUTC, durationMin } = times;
-
-          const nowUTCFb = Date.now();
-          let fallbackStatus = 'scheduled';
-          let fallbackProgress = 0;
-          if (nowUTCFb >= arrUTC) {
-            fallbackStatus = 'landed';
-            fallbackProgress = 100;
-          } else if (nowUTCFb >= depUTC) {
-            fallbackStatus = 'en-route';
-            const totalDuration = arrUTC - depUTC;
-            const elapsed = nowUTCFb - depUTC;
-            fallbackProgress = Math.min(99, Math.max(1, Math.round((elapsed / totalDuration) * 100)));
-          }
+          const times = sharedFlightTimes.get(`${segment.flightDate}_${segment.flightIata}_${event.event_type}`)
+            || segment.times;
+          const reliableTimes = hasReliableFlightTimes(times);
+          const { status: fallbackStatus, progress: fallbackProgress } = computeFallbackFlightState(
+            times,
+            Date.now(),
+          );
+          const depUTC = reliableTimes ? times.depUTC : null;
+          const arrUTC = reliableTimes ? times.arrUTC : null;
 
           flights.push({
             id: entryId,
             flightNumber: `${segment.airlineCode} ${segment.flightNumber}`,
             airline: segment.airline,
             airlineLogo: null,
-            eventDate: event.event_date,
+            eventDate: segment.flightDate,
             group: event.group_number || '',
             status: fallbackStatus,
             depCity: route?.depCity || '',
             depCode: route?.dep || '',
             depTerminal: route?.depTerminal || null, depGate: null,
-            depScheduled: depLocal,
+            depScheduled: reliableTimes ? times.depLocal : null,
             depActual: null,
-            depDate: new Date(depUTC).toISOString(),
+            depDate: reliableTimes ? new Date(depUTC).toISOString() : `${segment.flightDate}T00:00:00`,
             arrCity: route?.arrCity || '',
             arrCode: route?.arr || '',
             arrTerminal: null, arrGate: null,
-            arrScheduled: arrLocal,
-            arrEstimated: arrLocal,
+            arrScheduled: reliableTimes ? times.arrLocal : null,
+            arrEstimated: reliableTimes ? times.arrLocal : null,
+            arrDate: reliableTimes ? `${times.arrDateLocal}T00:00:00` : null,
             pax: event.pax_terisi ?? event.pax ?? 0,
             tourLeader: event.tour_leader || '',
             jamaah: jamaahForFlightCard(jamaahIndex, {
@@ -9335,8 +9458,10 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
             progress: fallbackProgress,
             delayed: 0,
             aircraftType: null, aircraftReg: null,
-            duration: durationMin,
+            duration: reliableTimes ? times.durationMin : null,
             depDelayed: 0, arrDelayed: 0, arrBaggage: null,
+            isLive: false,
+            trackingSource: segment.timingSource || 'calendar-fallback',
             routeLabel: segment.segmentCount > 1 ? segmentRouteLabel : null,
             _mergeSourceKey: sourceEventKey,
             _mergeCardKey: segment.segmentCount > 1 ? cardJourneyKey : null,
@@ -9355,7 +9480,7 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
 
     // Sort: en-route first, then delayed, scheduled, landed, cancelled
     // Sort: newest date first, then by status priority within same date
-    const statusOrder = { 'en-route': 0, 'delayed': 1, 'scheduled': 2, 'landed': 3, 'cancelled': 4 };
+    const statusOrder = { 'en-route': 0, 'delayed': 1, 'unverified': 2, 'scheduled': 3, 'landed': 4, 'cancelled': 5 };
     mergedFlights.sort((a, b) => {
       const dateA = a.depScheduled || a.id;
       const dateB = b.depScheduled || b.id;
@@ -9372,21 +9497,22 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
     // Filter out landed/cancelled flights older than 6 hours
     const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
     const filtered = mergedFlights.filter(f => {
+      const flightDate = f.eventDate || f.id?.substring(0, 10);
+      if (!flightDate || flightDate < yesterdayWIB || flightDate > tomorrowWIB) return false;
       if (f.status !== 'landed' && f.status !== 'cancelled') return true;
       // Calculate arrival time in UTC to determine how long ago the flight ended
-      const flightDate = f.id?.substring(0, 10);
-      if (!flightDate) return false;
+      const arrivalDate = String(f.arrDate || '').substring(0, 10) || flightDate;
       const arrHHmm = f.arrEstimated || f.arrScheduled;
       if (arrHHmm && /^\d{2}:\d{2}$/.test(arrHHmm)) {
         const [h, m] = arrHHmm.split(':').map(Number);
         const arrAirport = f.arrCode || 'CGK';
         const arrTZ = AIRPORT_TZ_OFFSETS[arrAirport] || 7;
-        const arrDateObj = new Date(`${flightDate}T00:00:00Z`);
+        const arrDateObj = new Date(`${arrivalDate}T00:00:00Z`);
         const arrUTC = arrDateObj.getTime() + (h * 60 + m) * 60 * 1000 - arrTZ * 60 * 60 * 1000;
         return (nowMs - arrUTC) < SIX_HOURS_MS;
       }
       // No arrival time — fall back to date check
-      return flightDate >= todayWIB;
+      return arrivalDate >= todayWIB;
     });
 
     res.json({ success: true, data: filtered });
@@ -9426,8 +9552,17 @@ app.get('/api/flights/:flightId', authMiddleware, async (req, res) => {
       .single();
 
     if (existing) {
+      const detailSegment = {
+        flightIata,
+        flightDate: eventDate,
+        route: { dep: existing.dep_iata, arr: existing.arr_iata },
+      };
+      if (!flightStatusRowMatchesSegment(existing, detailSegment)) {
+        flightCache.delete(flightId);
+        return res.status(404).json({ error: 'Flight not found' });
+      }
       const formatted = formatFlightForFrontend(existing);
-      setCachedFlight(flightId, formatted);
+      setCachedFlight(flightId, formatted, existing);
       return res.json({ success: true, data: formatted });
     }
 
@@ -9734,7 +9869,7 @@ async function pollActiveFlights() {
 
   const nowMs = Date.now();
   const startDate = getWIBDateStr(new Date(nowMs - 24*60*60*1000));
-  const endDate = getWIBDateStr(new Date(nowMs + 24*60*60*1000));
+  const endDate = getWIBDateStr(new Date(nowMs + 2*24*60*60*1000));
 
   const { data: events } = await supabase
     .from('calendar_events')
@@ -9765,18 +9900,25 @@ async function pollActiveFlights() {
     const segments = buildFlightSegmentsForEvent(event, scheduleById);
     for (const segment of segments) {
       if (pollCount >= MAX_POLLS_PER_RUN) break eventLoop;
+      if (!segment.flightDate) continue;
 
-      const flightId = `${event.event_date}_${segment.flightIata}`;
-      if (!shouldPollFlight(event.event_date, event.event_type)) continue;
+      const flightId = `${segment.flightDate}_${segment.flightIata}`;
+      if (!shouldPollFlight(segment.flightDate, event.event_type)) continue;
 
-      const { data: existing } = await supabase
+      const { data: existingRow } = await supabase
         .from('flight_status').select('*').eq('id', flightId).single();
+      let existing = existingRow || null;
+      if (existing && !flightStatusRowMatchesSegment(existing, segment)) {
+        await supabase.from('flight_status').delete().eq('id', flightId);
+        flightCache.delete(flightId);
+        existing = null;
+      }
 
       // Skip landed flights (truly terminal)
       if (existing && existing.status === 'landed') continue;
       // Re-poll cancelled flights if event is today — cancellation might be from wrong route
       if (existing && existing.status === 'cancelled') {
-        if (event.event_date !== getWIBDateStr()) continue;
+        if (segment.flightDate !== getWIBDateStr()) continue;
         if (existing.synced_at) {
           const hoursSinceSync = (Date.now() - new Date(existing.synced_at).getTime()) / (1000 * 60 * 60);
           if (hoursSinceSync < 2) continue;
@@ -9820,7 +9962,7 @@ async function pollActiveFlights() {
       }
 
       await supabase.from('flight_status').upsert(mapped, { onConflict: 'id' });
-      setCachedFlight(flightId, formatFlightForFrontend(mapped));
+      setCachedFlight(flightId, formatFlightForFrontend(mapped), mapped);
       console.log(`[FlightCron] Updated ${flightId}: ${mapped.status}${mapped.delayed > 0 ? ` (delay ${mapped.delayed}m)` : ''}`);
     }
   }
@@ -10775,19 +10917,22 @@ app.get('/api/umrah/form-options', authMiddleware, async (req, res) => {
 });
 
 // ── Umrah Registration: Submit new jamaah to legacy system ──
-app.post('/api/umrah/register', authMiddleware, express.json({ limit: '10mb' }), async (req, res) => {
+app.post('/api/umrah/register', authMiddleware, express.json({ limit: '16mb' }), async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    const sess = await ensureLegacySession(agent);
-    if (!sess.success) {
-      return res.status(400).json({ error: sess.error });
+    const useBrowserSubmit = shouldUseBrowserUmrahSubmit(agent.jamaah_password);
+    if (!useBrowserSubmit) {
+      const sess = await ensureLegacySession(agent);
+      if (!sess.success) {
+        return res.status(400).json({ success: false, error: sess.error });
+      }
     }
 
     const { formAction, fields, hiddenFields, file, fileFieldName, idb } = req.body;
 
-    if (!formAction || !fields) {
-      return res.status(400).json({ error: 'Data form tidak lengkap' });
+    if (!fields || (!useBrowserSubmit && !formAction)) {
+      return res.status(400).json({ success: false, error: 'Data form tidak lengkap' });
     }
 
     // Convert base64 file to Buffer if provided
@@ -10811,7 +10956,7 @@ app.post('/api/umrah/register', authMiddleware, express.json({ limit: '10mb' }),
     if (jadwalValue && !enrichedFields.jadwal) {
       enrichedFields.jadwal = jadwalValue;
     }
-    if (jadwalValue && paketValue) {
+    if (!useBrowserSubmit && jadwalValue && paketValue) {
       const paketDetails = await fetchUmrahPaketDetails(agent.jamaah_username, jadwalValue, paketValue);
       if (paketDetails.success && paketDetails.fields) {
         // Merge fetched values, but don't override user-provided values
@@ -10935,78 +11080,52 @@ app.post('/api/umrah/register', authMiddleware, express.json({ limit: '10mb' }),
       status: enrichedFields.status,
     });
 
-    let decryptedLegacyPassword = null;
-    const getDecryptedLegacyPassword = () => {
-      if (decryptedLegacyPassword === null) decryptedLegacyPassword = capiDecrypt(agent.jamaah_password);
-      return decryptedLegacyPassword;
-    };
-
-    let result = await submitUmrahRegistration(agent.jamaah_username, {
-      formAction,
+    const commonSubmitPayload = {
       fields: enrichedFields,
       hiddenFields: hiddenFields || {},
       fileBuffer,
       fileName,
       fileFieldName,
       idb,
+    };
+    const directSubmitPayload = {
+      formAction,
+      ...commonSubmitPayload,
+    };
+
+    console.log(`[Register] Submit mode=${useBrowserSubmit ? 'browser' : 'direct'} for ${agent.jamaah_username}`);
+    const { mode: submitMode, result } = await executeUmrahSubmit({
+      username: agent.jamaah_username,
+      savedPassword: agent.jamaah_password,
+      kantor: agent.jamaah_kantor || '2',
+      commonPayload: commonSubmitPayload,
+      directPayload: directSubmitPayload,
+      decryptPassword: capiDecrypt,
+      submitBrowser: submitUmrahRegistrationWithBrowser,
+      submitDirect: submitUmrahRegistration,
     });
 
-    if (!result.success && result.reason === 'session_expired_remote' && agent.jamaah_password) {
-      console.log(`[Register] Remote session expired on submit — forcing re-login for ${agent.jamaah_username}`);
-      try {
-        const decrypted = getDecryptedLegacyPassword();
-        const fresh = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
-        if (fresh.success) {
-          let retryFormAction = formAction;
-          let retryHiddenFields = hiddenFields || {};
-          const freshForm = await fetchUmrahFormOptions(agent.jamaah_username, { idb });
-          if (freshForm.success) {
-            retryFormAction = freshForm.formAction || retryFormAction;
-            retryHiddenFields = freshForm.hiddenFields || retryHiddenFields;
-          } else {
-            console.warn('[Register] Re-login succeeded but fresh form fetch failed:', freshForm.error);
-          }
-
-          result = await submitUmrahRegistration(agent.jamaah_username, {
-            formAction: retryFormAction,
-            fields: enrichedFields,
-            hiddenFields: retryHiddenFields,
-            fileBuffer,
-            fileName,
-            fileFieldName,
-            idb,
-          });
-        } else {
-          console.warn('[Register] Re-login after submit session expiry failed:', fresh.error);
-        }
-      } catch (err) {
-        console.error('[Register] Re-login retry after submit session expiry threw:', err.message);
-      }
-    }
-
-    if (!result.success && result.reason === 'session_expired_remote' && agent.jamaah_password) {
-      console.log(`[Register] Manual submit still rejected — using browser fallback for ${agent.jamaah_username}`);
-      result = await submitUmrahRegistrationWithBrowser({
-        username: agent.jamaah_username,
-        password: getDecryptedLegacyPassword(),
-        kantor: agent.jamaah_kantor || '2',
-        fields: enrichedFields,
-        hiddenFields: hiddenFields || {},
-        fileBuffer,
-        fileName,
-        fileFieldName,
-        idb,
-      });
-    }
-
     if (!result.success) {
-      return res.status(502).json({ error: result.error, debug: result.debug });
+      console.warn('[Register] Submit failed:', {
+        mode: submitMode,
+        reason: result.reason || 'upstream_rejected',
+        error: result.error,
+        debug: result.debug,
+      });
+      return res
+        .status(UMRAH_UPSTREAM_FAILURE_STATUS)
+        .json(buildUmrahSubmitFailure(result));
     }
 
-    res.json({ success: true, message: result.message });
+    res.json({ success: true, mode: submitMode, message: result.message });
   } catch (err) {
     console.error('POST /api/umrah/register error:', err);
-    res.status(500).json({ error: 'Gagal mengirim pendaftaran' });
+    res.status(UMRAH_UPSTREAM_FAILURE_STATUS).json({
+      success: false,
+      reason: 'registration_handler_error',
+      retryable: false,
+      error: 'Gagal menjalankan proses pendaftaran. Silakan coba lagi.',
+    });
   }
 });
 
@@ -13579,7 +13698,7 @@ app.post('/api/flight-share', authMiddleware, async (req, res) => {
       await supabase
         .from('flight_shares')
         .update({
-          dep_city, arr_city, dep_time, arr_time, duration,
+          dep_iata, arr_iata, dep_city, arr_city, dep_time, arr_time, duration,
           group_number, pax, tour_leader, airline_code,
           flight_status: flight_status || 'scheduled',
         })
@@ -13677,57 +13796,71 @@ app.get('/api/flight-share/:code', async (req, res) => {
     const flightIata = share.flight_number.replace(/\s+/g, '');
     const liveId = `${share.flight_date}_${flightIata}`;
 
-    let liveDepTime = share.dep_time;
-    let liveArrTime = share.arr_time;
+    const snapshotStatus = share.flight_status || 'scheduled';
+    const snapshotIsSchedule = snapshotStatus === 'scheduled';
+    let liveDepTime = snapshotIsSchedule ? share.dep_time : null;
+    let liveArrTime = snapshotIsSchedule ? share.arr_time : null;
     let liveDuration = share.duration;
-    let liveStatus = share.flight_status || 'scheduled';
+    // A share snapshot has no provider timestamp/provenance. Never preserve an
+    // operational claim indefinitely after the matching live row disappears.
+    // Even a scheduled snapshot expires at its planned local takeoff.
+    const snapshotClock = normalizeCalendarJam(share.dep_time);
+    const snapshotAirport = String(share.dep_iata || '').toUpperCase();
+    const snapshotDepUTC = snapshotClock
+      && Number.isFinite(AIRPORT_TZ_OFFSETS[snapshotAirport])
+      ? airportLocalDateTimeToUTC(share.flight_date, snapshotClock, snapshotAirport)
+      : null;
+    let liveStatus = snapshotIsSchedule
+      ? scheduledSnapshotDisplayStatus(snapshotDepUTC)
+      : 'unverified';
     let liveProgress = 0;
+    let isLive = false;
 
-    const { data: liveData } = await supabase
+    const { data: liveRow } = await supabase
       .from('flight_status')
-      .select('dep_scheduled, dep_actual, arr_scheduled, arr_estimated, status, duration, progress, raw_api')
+      .select('id, event_date, flight_iata, dep_iata, arr_iata, dep_scheduled, dep_actual, arr_scheduled, arr_estimated, status, duration, progress, raw_api, synced_at')
       .eq('id', liveId)
       .single();
+    const matchedLiveData = flightStatusRowMatchesSegment(liveRow, {
+      flightIata,
+      flightDate: share.flight_date,
+      route: { dep: share.dep_iata, arr: share.arr_iata },
+    }) ? liveRow : null;
+    const liveData = matchedLiveData?.status === 'scheduled'
+      && providerBackedDisplayStatus(matchedLiveData) !== 'scheduled'
+      ? null
+      : matchedLiveData;
 
     if (liveData) {
-      // Use actual/estimated times if available, fall back to scheduled
-      const depTime = extractHHmm(liveData.dep_actual) || extractHHmm(liveData.dep_scheduled);
-      const arrTime = extractHHmm(liveData.arr_estimated) || extractHHmm(liveData.arr_scheduled);
-      if (depTime) liveDepTime = depTime;
-      if (arrTime) liveArrTime = arrTime;
-      if (liveData.status) liveStatus = liveData.status;
+      const providerIsFresh = isFreshProviderFlight(liveData);
+      const providerDetailsUsable = providerIsFresh
+        || liveData.status === 'landed'
+        || liveData.status === 'cancelled';
+      isLive = isLiveProviderFlight(liveData);
+      if (liveData.status) liveStatus = providerBackedDisplayStatus(liveData);
+
+      // Active actual/estimated values expire with their provider snapshot.
+      // Confirmed terminal history may keep its final times.
+      if (providerDetailsUsable) {
+        const depTime = extractHHmm(liveData.dep_actual) || extractHHmm(liveData.dep_scheduled);
+        const arrTime = extractHHmm(liveData.arr_estimated) || extractHHmm(liveData.arr_scheduled);
+        if (depTime) liveDepTime = depTime;
+        if (arrTime) liveArrTime = arrTime;
+      }
 
       const { depTs, arrTs } = flightProgressTs(liveData.raw_api);
-      liveProgress = computeFlightProgress(liveStatus, depTs, arrTs, liveData.progress || 0);
+      liveProgress = isLive || liveStatus === 'landed'
+        ? computeFlightProgress(liveStatus, depTs, arrTs, liveData.progress || 0)
+        : 0;
 
       // Format duration from minutes to human-readable
-      if (liveData.duration && liveData.duration > 0) {
+      if (providerDetailsUsable && liveData.duration && liveData.duration > 0) {
         const h = Math.floor(liveData.duration / 60);
         const m = liveData.duration % 60;
         liveDuration = h > 0 && m > 0 ? `${h} jam ${m} menit`
           : h > 0 ? `${h} jam`
           : `${m} menit`;
       }
-    }
-
-    // Also update the stored share data if live differs (keep it fresh)
-    const needsUpdate = liveData && (
-      liveDepTime !== share.dep_time ||
-      liveArrTime !== share.arr_time ||
-      liveStatus !== (share.flight_status || 'scheduled')
-    );
-    if (needsUpdate) {
-      supabase
-        .from('flight_shares')
-        .update({
-          dep_time: liveDepTime,
-          arr_time: liveArrTime,
-          duration: liveDuration,
-          flight_status: liveStatus,
-        })
-        .eq('code', code)
-        .then(() => {})
-        .catch(() => {});
     }
 
     res.json({
@@ -13748,6 +13881,7 @@ app.get('/api/flight-share/:code', async (req, res) => {
           tour_leader: share.tour_leader,
           airline_code: share.airline_code,
           flight_status: liveStatus,
+          is_live: isLive,
           progress: liveProgress,
           created_at: share.created_at,
         },
@@ -18369,27 +18503,126 @@ if (shouldRunBackgroundJobs()) scheduleBunnyCleanup();
 // → ops alert sekali per insiden + notifikasi saat pulih; last_success_at/
 // last_error dicatat di calendar_insights utk observability.
 const CALENDAR_RETRY_DELAYS_MIN = [10, 30];
+const CALENDAR_PRIMARY_REPROBE_MIN = Math.max(
+  1,
+  Number.parseInt(process.env.CALENDAR_PRIMARY_REPROBE_MINUTES || '30', 10) || 30,
+);
 let calendarSyncRetryTimer = null;
+let calendarPrimaryProbeTimer = null;
 let calendarSyncAlerted = false;
 let calendarLastSuccessAt = null;
+let calendarSyncRunning = false;
+let calendarSyncPendingAttempt = null;
+let calendarSyncHealthLoaded = false;
+let calendarSyncHealthState = {};
 
-async function persistCalendarSyncHealth(patch) {
+async function readCalendarSyncHealth() {
+  const { data: row, error } = await supabase
+    .from('calendar_insights')
+    .select('data')
+    .eq('id', 'calendar_sync_health')
+    .maybeSingle();
+  if (error) throw error;
+  return row?.data || {};
+}
+
+async function ensureCalendarSyncHealthLoaded() {
+  if (calendarSyncHealthLoaded) return true;
   try {
-    const { data: row } = await supabase
-      .from('calendar_insights')
-      .select('data')
-      .eq('id', 'calendar_sync_health')
-      .maybeSingle();
-    await supabase.from('calendar_insights').upsert({
-      id: 'calendar_sync_health',
-      data: { ...(row?.data || {}), ...patch },
-    }, { onConflict: 'id' });
+    calendarSyncHealthState = await readCalendarSyncHealth();
+    calendarLastSuccessAt = calendarSyncHealthState.last_success_at || null;
+    calendarSyncAlerted = calendarSyncHealthState.alerted === true;
+    calendarSyncHealthLoaded = true;
+    return true;
   } catch (err) {
-    console.warn('[Calendar] Gagal simpan sync health:', err.message);
+    console.warn('[Calendar] Gagal baca sync health:', err.message);
+    return false;
   }
 }
 
-async function runCalendarSync(attempt = 0) {
+async function persistCalendarSyncHealth(patch) {
+  try {
+    if (!calendarSyncHealthLoaded && !(await ensureCalendarSyncHealthLoaded())) return false;
+    const nextState = { ...calendarSyncHealthState, ...patch };
+    const { error } = await supabase.from('calendar_insights').upsert({
+      id: 'calendar_sync_health',
+      data: nextState,
+    }, { onConflict: 'id' });
+    if (error) throw error;
+    calendarSyncHealthState = nextState;
+    return true;
+  } catch (err) {
+    console.warn('[Calendar] Gagal simpan sync health:', err.message);
+    return false;
+  }
+}
+
+function clearCalendarPrimaryProbe() {
+  if (!calendarPrimaryProbeTimer) return;
+  clearTimeout(calendarPrimaryProbeTimer);
+  calendarPrimaryProbeTimer = null;
+}
+
+function queueCalendarSync(attempt) {
+  calendarSyncPendingAttempt = calendarSyncPendingAttempt === null
+    ? attempt
+    : Math.min(calendarSyncPendingAttempt, attempt);
+}
+
+function drainQueuedCalendarSync() {
+  if (calendarSyncPendingAttempt === null) return false;
+  const attempt = calendarSyncPendingAttempt;
+  calendarSyncPendingAttempt = null;
+  setTimeout(() => runCalendarSync(attempt), 0);
+  return true;
+}
+
+function scheduleCalendarPrimaryProbe() {
+  if (calendarPrimaryProbeTimer) return;
+  console.log(`[Calendar] Probe origin utama dijadwalkan ${CALENDAR_PRIMARY_REPROBE_MIN} menit lagi`);
+  calendarPrimaryProbeTimer = setTimeout(async () => {
+    calendarPrimaryProbeTimer = null;
+    if (calendarSyncRunning) {
+      scheduleCalendarPrimaryProbe();
+      return;
+    }
+
+    // Probe memakai mutex yang sama dengan full sync agar health state tidak
+    // ditulis bersamaan oleh dua jalur scheduler.
+    calendarSyncRunning = true;
+    const probeAt = new Date().toISOString();
+    let primaryRecovered = false;
+    try {
+      const probe = await probePublicCalendarPrimary();
+      console.log(`[Calendar] Origin utama pulih (${probe.eventCount} event); menjalankan full sync`);
+      await persistCalendarSyncHealth({
+        last_primary_probe_at: probeAt,
+        last_primary_probe_error: null,
+      });
+      primaryRecovered = true;
+    } catch (err) {
+      console.warn(`[Calendar] Probe origin utama gagal: ${err.message}`);
+      await persistCalendarSyncHealth({
+        last_primary_probe_at: probeAt,
+        last_primary_probe_error: err.message,
+      });
+    } finally {
+      calendarSyncRunning = false;
+    }
+
+    if (primaryRecovered) {
+      // Full primary sync mencakup trigger yang mungkin masuk selama probe.
+      calendarSyncPendingAttempt = null;
+      const started = await runCalendarSync(0);
+      if (!started) scheduleCalendarPrimaryProbe();
+    } else {
+      drainQueuedCalendarSync();
+      scheduleCalendarPrimaryProbe();
+    }
+  }, CALENDAR_PRIMARY_REPROBE_MIN * 60 * 1000);
+}
+
+async function runCalendarSyncAttempt(attempt = 0) {
   // Siklus 12-jam dimulai saat chain retry masih pending → batalkan chain lama
   if (calendarSyncRetryTimer) {
     clearTimeout(calendarSyncRetryTimer);
@@ -18397,20 +18630,52 @@ async function runCalendarSync(attempt = 0) {
   }
 
   let failReason = null;
+  let syncResult = null;
   try {
-    const result = await syncCalendar(supabase);
-    if (result?.success === false) failReason = result.error || 'sync mengembalikan kegagalan tanpa detail';
+    syncResult = await syncCalendar(supabase);
+    if (syncResult?.success === false) {
+      failReason = syncResult.error || 'sync mengembalikan kegagalan tanpa detail';
+    }
   } catch (err) {
     failReason = err.message;
   }
 
   if (!failReason) {
     calendarLastSuccessAt = new Date().toISOString();
-    persistCalendarSyncHealth({ last_success_at: calendarLastSuccessAt, last_error: null });
     if (calendarSyncAlerted) {
-      calendarSyncAlerted = false;
-      sendOpsAlert('✅ <b>Sync kalender pulih</b> — event & grup ter-update lagi.').catch(() => {});
+      try {
+        const recoveryMessage = syncResult?.degraded
+          ? '✅ <b>Sync kalender kembali operasional via fallback</b> — event & grup ter-update lagi; origin utama tetap dipantau.'
+          : '✅ <b>Sync kalender pulih</b> — event & grup ter-update lagi.';
+        await sendOpsAlert(recoveryMessage);
+        calendarSyncAlerted = false;
+      } catch (err) {
+        console.warn('[Calendar] Gagal kirim alert pemulihan:', err.message);
+      }
     }
+    const healthPatch = {
+      last_success_at: calendarLastSuccessAt,
+      last_error: null,
+      last_error_at: null,
+      last_source: syncResult?.source || 'unknown',
+      last_degraded: syncResult?.degraded === true,
+      last_degraded_reasons: syncResult?.degradedReasons || [],
+      last_degraded_error: syncResult?.degraded
+        ? `sync lengkap memakai ${syncResult.source || 'fallback'}: ${(syncResult.degradedReasons || []).join(', ')}`
+        : null,
+      last_events_total: syncResult?.eventsTotal ?? null,
+      last_events_succeeded: syncResult?.eventsSucceeded ?? null,
+      last_rows_upserted: syncResult?.rowsUpserted ?? syncResult?.count ?? null,
+      alerted: calendarSyncAlerted,
+    };
+    if (syncResult?.degraded) {
+      healthPatch.last_degraded_at = calendarLastSuccessAt;
+      scheduleCalendarPrimaryProbe();
+    } else {
+      healthPatch.last_full_success_at = calendarLastSuccessAt;
+      clearCalendarPrimaryProbe();
+    }
+    await persistCalendarSyncHealth(healthPatch);
     // Generate AI insight after first sync (if cache is empty or stale format)
     if (isInsightStale(insightCache)) {
       try { await generateCalendarInsight(); } catch (e) { console.error('[AI Insight] Post-sync error:', e.message); }
@@ -18420,7 +18685,17 @@ async function runCalendarSync(attempt = 0) {
 
   const totalAttempts = CALENDAR_RETRY_DELAYS_MIN.length + 1;
   console.error(`[Calendar] Sync error (attempt ${attempt + 1}/${totalAttempts}): ${failReason}`);
-  persistCalendarSyncHealth({ last_error: failReason, last_error_at: new Date().toISOString() });
+  await persistCalendarSyncHealth({
+    last_error: failReason,
+    last_error_at: new Date().toISOString(),
+    last_source: syncResult?.source || null,
+    last_degraded: syncResult?.degraded === true,
+    last_degraded_reasons: syncResult?.degradedReasons || [],
+    last_events_total: syncResult?.eventsTotal ?? null,
+    last_events_succeeded: syncResult?.eventsSucceeded ?? null,
+    last_rows_upserted: syncResult?.rowsUpserted ?? syncResult?.count ?? null,
+    alerted: calendarSyncAlerted,
+  });
 
   if (attempt < CALENDAR_RETRY_DELAYS_MIN.length) {
     const delayMin = CALENDAR_RETRY_DELAYS_MIN[attempt];
@@ -18431,24 +18706,40 @@ async function runCalendarSync(attempt = 0) {
 
   // Retry habis — alert sekali per insiden (reset saat pulih); siklus 12 jam tetap jalan
   if (!calendarSyncAlerted) {
-    calendarSyncAlerted = true;
-    if (!calendarLastSuccessAt) {
-      try {
-        const { data: row } = await supabase
-          .from('calendar_insights').select('data').eq('id', 'calendar_sync_health').maybeSingle();
-        calendarLastSuccessAt = row?.data?.last_success_at || null;
-      } catch { /* ignore */ }
-    }
     const sejak = calendarLastSuccessAt
       ? `\nSukses terakhir: ${new Date(calendarLastSuccessAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB`
       : '';
-    sendOpsAlert(
-      `🗓️⚠️ <b>Sync kalender gagal ${totalAttempts}x berturut-turut</b>\n\n` +
-      `${escapeHtml(failReason)}${sejak}\n\n` +
-      `Data kalender (event, grup, jam) membeku sampai sync pulih — card penerbangan ikut terdampak. ` +
-      `Cek: halaman publik kegiatan, endpoint _kmodal.php, layout halaman, atau koneksi ke server publik.`
-    ).catch(() => {});
+    try {
+      await sendOpsAlert(
+        `🗓️⚠️ <b>Sync kalender gagal ${totalAttempts}x berturut-turut</b>\n\n` +
+        `${escapeHtml(failReason)}${sejak}\n\n` +
+        `Data kalender (event, grup, jam) membeku sampai sync pulih — card penerbangan ikut terdampak. ` +
+        `Cek: halaman publik kegiatan, endpoint _kmodal.php, layout halaman, atau koneksi ke server publik.`
+      );
+      calendarSyncAlerted = true;
+      await persistCalendarSyncHealth({ alerted: true });
+    } catch (err) {
+      console.warn('[Calendar] Gagal kirim ops alert:', err.message);
+    }
   }
+}
+
+async function runCalendarSync(attempt = 0) {
+  if (calendarSyncRunning) {
+    queueCalendarSync(attempt);
+    console.warn('[Calendar] Sync masih berjalan; trigger berikutnya diantrikan');
+    return false;
+  }
+
+  calendarSyncRunning = true;
+  try {
+    await ensureCalendarSyncHealthLoaded();
+    await runCalendarSyncAttempt(attempt);
+  } finally {
+    calendarSyncRunning = false;
+    drainQueuedCalendarSync();
+  }
+  return true;
 }
 
 // Initial calendar sync 60s after startup, then every 12 hours

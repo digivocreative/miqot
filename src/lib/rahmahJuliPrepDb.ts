@@ -8,8 +8,13 @@ import {
 export const RAHMAH_JULI_PREP_TABLE = 'booking_persiapan';
 export const RAHMAH_JULI_PREP_API = `/api/tour-leader-prep/${RAHMAH_JULI_SLUG}`;
 
+export type RahmahJuliZamzamMethod = 'pickup' | 'delivery';
 export type RahmahJuliPrepItem = Partial<Record<RahmahJuliChecklistId, boolean>>
-  & Partial<Record<RahmahJuliRoomFieldId | 'phone', string>>;
+  & Partial<Record<
+    RahmahJuliRoomFieldId | 'phone' | 'zamzamRecipientName' | 'zamzamRecipientPhone' | 'zamzamAddress',
+    string
+  >>
+  & { zamzamMethod?: RahmahJuliZamzamMethod };
 export type RahmahJuliPrepState = Record<number, RahmahJuliPrepItem>;
 
 interface RahmahJuliPrepRow {
@@ -20,6 +25,10 @@ interface RahmahJuliPrepRow {
   raudhah_reserved: boolean | null;
   room_mekkah: string | null;
   room_madinah: string | null;
+  zamzam_method: RahmahJuliZamzamMethod | null;
+  zamzam_recipient_name: string | null;
+  zamzam_recipient_phone: string | null;
+  zamzam_address: string | null;
 }
 
 function sanitizeRahmahJuliRoomNumber(value: string | undefined) {
@@ -35,6 +44,10 @@ function rowToPrepItem(row: RahmahJuliPrepRow): RahmahJuliPrepItem {
     raudhah: !!row.raudhah_reserved,
     ...(row.room_mekkah ? { roomMekkah: row.room_mekkah } : {}),
     ...(row.room_madinah ? { roomMadinah: row.room_madinah } : {}),
+    ...(row.zamzam_method ? { zamzamMethod: row.zamzam_method } : {}),
+    ...(row.zamzam_recipient_name ? { zamzamRecipientName: row.zamzam_recipient_name } : {}),
+    ...(row.zamzam_recipient_phone ? { zamzamRecipientPhone: row.zamzam_recipient_phone } : {}),
+    ...(row.zamzam_address ? { zamzamAddress: row.zamzam_address } : {}),
   };
 }
 
@@ -54,6 +67,10 @@ function prepItemToRow(jamaahNo: number, item: RahmahJuliPrepItem) {
     raudhah_reserved: !!item.raudhah,
     room_mekkah: sanitizeRahmahJuliRoomNumber(item.roomMekkah),
     room_madinah: sanitizeRahmahJuliRoomNumber(item.roomMadinah),
+    zamzam_method: item.zamzamMethod ?? null,
+    zamzam_recipient_name: item.zamzamRecipientName?.trim() || null,
+    zamzam_recipient_phone: item.zamzamRecipientPhone?.trim() || null,
+    zamzam_address: item.zamzamAddress?.trim() || null,
   };
 }
 

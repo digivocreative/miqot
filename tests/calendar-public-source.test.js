@@ -1,21 +1,39 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  applyCalendarFallbackOrigin,
   buildPublicModalUrl,
+  calendarPublicFallbackOriginLookup,
   calendarPublicOriginLookup,
+  fetchPublicCalendarEvents,
   fetchPublicEventDetail,
   parsePublicCalendarEventsFromHtml,
   parsePublicEventDetailHTML,
+  probePublicCalendarPrimary,
+  CALENDAR_PUBLIC_FALLBACK_ORIGIN_IP,
   CALENDAR_PUBLIC_ORIGIN_IP,
 } from '../lib/calendar-public-source.js';
 
-test('calendar transport pins TLS hostname lookup to the current origin only', () => {
+test('calendar transport pins TLS to the current origin and configures the proven fallback', () => {
   assert.equal(CALENDAR_PUBLIC_ORIGIN_IP, '101.255.3.160');
+  assert.equal(CALENDAR_PUBLIC_FALLBACK_ORIGIN_IP, '115.124.86.220');
 
   calendarPublicOriginLookup('alhijazindowisata.com', { all: true }, (error, addresses) => {
     assert.equal(error, null);
     assert.deepEqual(addresses, [{ address: '101.255.3.160', family: 4 }]);
   });
+  calendarPublicFallbackOriginLookup('alhijazindowisata.com', { all: true }, (error, addresses) => {
+    assert.equal(error, null);
+    assert.deepEqual(addresses, [{ address: '115.124.86.220', family: 4 }]);
+  });
+
+  const fallback = applyCalendarFallbackOrigin(
+    'https://alhijazindowisata.com/jadwal/_kmodal.php?.m=B1&.g=G1',
+    { 'User-Agent': 'x' },
+  );
+  assert.equal(new URL(fallback.url).origin, 'http://alhijazindowisata.com');
+  assert.equal(Object.hasOwn(fallback.headers, 'Host'), false);
+  assert.equal(fallback.headers['User-Agent'], 'x');
 });
 
 const PAGE_HTML = `
@@ -159,6 +177,193 @@ test('fetchPublicEventDetail uses only the canonical TLS hostname pinned to the 
   assert.equal(urls.some(url => String(url).includes('115.124.86.220')), false);
   assert.equal(rows[0].staff, '-');
   assert.equal(rows[0].mutawif, '• HANAFI FAUZAN');
+  assert.equal(rows._calendarSource, 'primary');
+});
+
+test('calendar transport fails over on primary 403 and keeps the circuit open for modal requests', async () => {
+  const requests = [];
+  const fetchImpl = async (url, options) => {
+    const parsed = new URL(String(url));
+    requests.push({ url: parsed, headers: options.headers });
+
+    if (parsed.protocol === 'https:') {
+      return new Response('blocked', { status: 403 });
+    }
+    if (parsed.pathname.includes('/kegiatan/')) {
+      return new Response(PAGE_HTML, { status: 200 });
+    }
+    return new Response(DEPARTURE_MODAL_HTML, { status: 200 });
+  };
+
+  const events = await fetchPublicCalendarEvents(fetchImpl, {
+    validationOptions: { minimumEventCount: 3 },
+  });
+  const rows = await fetchPublicEventDetail(events[1], fetchImpl);
+
+  assert.equal(events.length, 3);
+  assert.equal(rows.length, 1);
+  assert.equal(requests.filter(request => request.url.protocol === 'https:').length, 1);
+  assert.equal(requests.filter(request => request.url.protocol === 'http:').length, 2);
+  assert.equal(requests.every(request => request.url.hostname === 'alhijazindowisata.com'), true);
+  assert.equal(requests.every(request => !Object.hasOwn(request.headers, 'Host')), true);
+  assert.equal(events._calendarSource, 'fallback');
+  assert.equal(rows._calendarSource, 'fallback');
+});
+
+test('calendar transport opens the primary circuit on 5xx before the modal batch', async () => {
+  let primaryRequests = 0;
+  let fallbackRequests = 0;
+  const fetchImpl = async (url) => {
+    const parsed = new URL(String(url));
+    if (parsed.protocol === 'https:') {
+      primaryRequests += 1;
+      return new Response('upstream unavailable', { status: 503 });
+    }
+
+    fallbackRequests += 1;
+    if (parsed.pathname.includes('/kegiatan/')) return new Response(PAGE_HTML, { status: 200 });
+    return new Response(DEPARTURE_MODAL_HTML, { status: 200 });
+  };
+
+  const events = await fetchPublicCalendarEvents(fetchImpl, {
+    validationOptions: { minimumEventCount: 3 },
+  });
+  await fetchPublicEventDetail(events[1], fetchImpl);
+
+  assert.equal(primaryRequests, 1);
+  assert.equal(fallbackRequests, 2);
+});
+
+test('calendar transport falls back when a primary page is parseable but semantically incomplete', async () => {
+  const requests = [];
+  const fetchImpl = async (url) => {
+    const parsed = new URL(String(url));
+    requests.push(parsed.protocol);
+    if (parsed.protocol === 'https:') {
+      return new Response('<script>const calendar = { events: [] };</script>', { status: 200 });
+    }
+    return new Response(PAGE_HTML, { status: 200 });
+  };
+
+  const events = await fetchPublicCalendarEvents(fetchImpl, {
+    validationOptions: { minimumEventCount: 3 },
+  });
+
+  assert.equal(events.length, 3);
+  assert.equal(events._calendarSource, 'fallback');
+  assert.deepEqual(requests, ['https:', 'http:']);
+});
+
+test('calendar detail tries the fallback when the primary modal is empty', async () => {
+  const requests = [];
+  const fetchImpl = async (url) => {
+    const parsed = new URL(String(url));
+    requests.push(parsed.protocol);
+    if (parsed.protocol === 'https:') {
+      return new Response(`
+        <table>
+          <thead><tr><th>GROUP</th><th>PESAWAT</th><th>WAKTU</th><th>PAKET</th><th>PAX</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      `, { status: 200 });
+    }
+    return new Response(DEPARTURE_MODAL_HTML, { status: 200 });
+  };
+
+  const rows = await fetchPublicEventDetail(
+    { aid: 'B1532', date: '2026-07-05', type: 'keberangkatan', apalah: 'JBU1532' },
+    fetchImpl,
+  );
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows._calendarSource, 'fallback');
+  assert.deepEqual(requests, ['https:', 'http:']);
+});
+
+test('calendar detail preserves an empty primary result when its fallback fails', async () => {
+  const fetchImpl = async (url) => {
+    const parsed = new URL(String(url));
+    if (parsed.protocol === 'https:') {
+      return new Response(`
+        <table>
+          <thead><tr><th>GROUP</th><th>PESAWAT</th><th>WAKTU</th><th>PAKET</th><th>PAX</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      `, { status: 200 });
+    }
+    return new Response('missing', { status: 404 });
+  };
+
+  const rows = await fetchPublicEventDetail(
+    { aid: 'B1532', date: '2026-07-05', type: 'keberangkatan', apalah: 'JBU1532' },
+    fetchImpl,
+  );
+
+  assert.deepEqual(rows, []);
+  assert.equal(rows._calendarSource, 'primary');
+});
+
+test('calendar transport does not retry terminal 404 responses from both origins', async () => {
+  let requests = 0;
+  const fetchImpl = async () => {
+    requests += 1;
+    return new Response('missing', { status: 404 });
+  };
+
+  await assert.rejects(
+    fetchPublicCalendarEvents(fetchImpl, { validationOptions: { minimumEventCount: 3 } }),
+    /gagal setelah 1 percobaan: origin utama 101\.255\.3\.160: HTTP 404; fallback 115\.124\.86\.220: HTTP 404/,
+  );
+  assert.equal(requests, 2);
+});
+
+test('calendar transport retries fallback 403 as a transient rate limit', async () => {
+  let primaryRequests = 0;
+  let fallbackRequests = 0;
+  const fetchImpl = async (url) => {
+    if (new URL(String(url)).protocol === 'https:') {
+      primaryRequests += 1;
+      return new Response('blocked', { status: 403 });
+    }
+
+    fallbackRequests += 1;
+    if (fallbackRequests === 1) return new Response('rate limited', { status: 403 });
+    return new Response(PAGE_HTML, { status: 200 });
+  };
+
+  const events = await fetchPublicCalendarEvents(fetchImpl, {
+    validationOptions: { minimumEventCount: 3 },
+  });
+
+  assert.equal(events.length, 3);
+  assert.equal(events._calendarSource, 'fallback');
+  assert.equal(primaryRequests, 1);
+  assert.equal(fallbackRequests, 2);
+});
+
+test('primary health probe never masks failure with the fallback origin', async () => {
+  const urls = [];
+  await assert.rejects(
+    probePublicCalendarPrimary(async url => {
+      urls.push(String(url));
+      return new Response('blocked', { status: 403 });
+    }),
+    /HTTP 403/,
+  );
+
+  assert.equal(urls.length, 1);
+  assert.equal(new URL(urls[0]).protocol, 'https:');
+  assert.equal(new URL(urls[0]).hostname, 'alhijazindowisata.com');
+
+  await assert.rejects(
+    probePublicCalendarPrimary(async () => new Response(PAGE_HTML, { status: 200 })),
+    /minimum aman 20/,
+  );
+  const result = await probePublicCalendarPrimary(
+    async () => new Response(PAGE_HTML, { status: 200 }),
+    { minimumEventCount: 3 },
+  );
+  assert.deepEqual(result, { success: true, eventCount: 3 });
 });
 
 test('parsePublicEventDetailHTML preserves manasik departure prefix as DD/MM/YYYY package convention', () => {
@@ -177,6 +382,21 @@ test('parsePublicEventDetailHTML rejects tables without required public modal he
       <table>
         <thead><tr><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr></thead>
         <tbody><tr><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td></tr></tbody>
+      </table>
+    `),
+    /format tabel detail tidak dikenali/,
+  );
+});
+
+test('parsePublicEventDetailHTML rejects a partial modal containing a blank core row', () => {
+  assert.throws(
+    () => parsePublicEventDetailHTML(`
+      <table>
+        <thead><tr><th>GROUP</th><th>PESAWAT</th><th>WAKTU</th><th>PAKET</th><th>PAX</th></tr></thead>
+        <tbody>
+          <tr><td>10</td><td>SV 827</td><td>00.40</td><td>REGULER</td><td>40</td></tr>
+          <tr><td></td><td>SV 827</td><td>00.40</td><td></td><td>40</td></tr>
+        </tbody>
       </table>
     `),
     /format tabel detail tidak dikenali/,

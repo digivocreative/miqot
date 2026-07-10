@@ -13,6 +13,9 @@ import { PDFParse } from 'pdf-parse';
 import { matchEventToSchedule, findSiblingKeberangkatan, tokenizeName, overlapScore } from './lib/calendar-jadwal-match.js';
 import { buildScheduleFallbackDetails, parseCalendarJadwalIds } from './lib/calendar-schedule-fallback.js';
 import { fetchPublicCalendarEvents, fetchPublicEventDetail } from './lib/calendar-public-source.js';
+import { validatePublicCalendarSnapshot } from './lib/calendar-public-snapshot.js';
+
+export { validatePublicCalendarSnapshot } from './lib/calendar-public-snapshot.js';
 
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(value, 10);
@@ -28,6 +31,18 @@ const CALENDAR_PUBLIC_DETAIL_CONCURRENCY = parsePositiveInt(
   process.env.CALENDAR_PUBLIC_DETAIL_CONCURRENCY,
   2
 );
+const CALENDAR_PUBLIC_FALLBACK_DETAIL_CONCURRENCY = parsePositiveInt(
+  process.env.CALENDAR_PUBLIC_FALLBACK_DETAIL_CONCURRENCY,
+  1,
+);
+const parsedMaxStaleDeleteRatio = Number.parseFloat(
+  process.env.CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO || '0.25',
+);
+const CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO = Number.isFinite(parsedMaxStaleDeleteRatio)
+  && parsedMaxStaleDeleteRatio >= 0
+  && parsedMaxStaleDeleteRatio <= 1
+  ? parsedMaxStaleDeleteRatio
+  : 0.25;
 
 async function mapWithConcurrency(items, concurrency, mapper) {
   const results = new Array(items.length);
@@ -79,17 +94,18 @@ async function loadScheduleFallbackMap(supabase, events) {
   return new Map((data || []).map(row => [row.jadwal_id, row]));
 }
 
-async function resolvePublicEventRows(event, scheduleFallbackById) {
+async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback) {
   const failedKey = `${event.date}_${event.type}`;
   let details;
 
   try {
-    details = await fetchPublicEventDetail(event);
+    details = await fetchPublicEventDetail(event, fetch, { forceFallback });
   } catch (err) {
     console.warn(`[Calendar] ${err.message} — baris lama event ini dipertahankan`);
-    return { rows: [], failedKey, fallbackUsed: 0, emptyDetails: 0 };
+    return { rows: [], failedKey, fallbackUsed: 0, emptyDetails: 0, detailUsesFallback: false };
   }
 
+  const detailUsesFallback = details._calendarSource === 'fallback';
   let fallbackUsed = 0;
   let emptyDetails = 0;
   if (details.length === 0) {
@@ -102,24 +118,26 @@ async function resolvePublicEventRows(event, scheduleFallbackById) {
       // Jangan tulis placeholder _0 karena itu akan menghapus baris detail lama.
       emptyDetails = 1;
       console.warn(`[Calendar] Detail kosong utk ${event.date}/${event.type} dan fallback jadwal tidak lengkap — baris lama dipertahankan`);
-      return { rows: [], failedKey, fallbackUsed, emptyDetails };
+      return { rows: [], failedKey, fallbackUsed, emptyDetails, detailUsesFallback };
     }
   }
 
   const rows = details.map((detail, idx) => {
     const rowKey = detail.jadwal_id || detail.group_number || `row${idx + 1}`;
     const id = `${event.date}_${event.type}_${rowKey}`;
+    const detailData = { ...detail };
     return {
       id,
       event_date: event.date,
       event_type: event.type,
-      ...detail,
-      raw_data: detail,
+      ...detailData,
+      raw_data: detailData,
+      _preserve_mutawif: detail._mutawifSourceAvailable !== true,
       synced_at: new Date().toISOString(),
     };
   });
 
-  return { rows, failedKey: null, fallbackUsed, emptyDetails };
+  return { rows, failedKey: null, fallbackUsed, emptyDetails, detailUsesFallback };
 }
 
 function isMissingMutawifColumnError(error) {
@@ -148,147 +166,266 @@ async function upsertCalendarBatch(supabase, batch) {
   return result;
 }
 
+const CALENDAR_STALE_CANDIDATES_ID = 'calendar_stale_candidates';
+
+async function loadCalendarStaleCandidates(supabase) {
+  const { data, error } = await supabase
+    .from('calendar_insights')
+    .select('data')
+    .eq('id', CALENDAR_STALE_CANDIDATES_ID)
+    .maybeSingle();
+  if (error) return { ids: new Set(), error };
+  const ids = Array.isArray(data?.data?.ids) ? data.data.ids : [];
+  return { ids: new Set(ids), error: null };
+}
+
+async function saveCalendarStaleCandidates(supabase, ids) {
+  const { error } = await supabase.from('calendar_insights').upsert({
+    id: CALENDAR_STALE_CANDIDATES_ID,
+    data: {
+      ids: [...ids],
+      observed_at: new Date().toISOString(),
+    },
+  }, { onConflict: 'id' });
+  return error || null;
+}
+
 // ── Main sync function ──
 export async function syncCalendar(supabase) {
   console.log('[Calendar] Starting sync...');
 
-  // Fetch ALL events from the public kegiatan page. The public page preloads
-  // the FullCalendar array, so this no longer needs legacy login credentials.
+  const now = new Date();
+  const rangeStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const rangeStartStr = rangeStart.toISOString().split('T')[0];
   let calendarEvents;
+  let filtered;
+  let snapshotError;
   try {
     calendarEvents = await fetchPublicCalendarEvents();
+    filtered = calendarEvents.filter(event => event.date >= rangeStartStr);
+    snapshotError = validatePublicCalendarSnapshot(filtered);
+
+    if (snapshotError && calendarEvents._calendarSource === 'primary') {
+      console.warn(`[Calendar] Snapshot primary untuk range aktif tidak aman (${snapshotError}); mencoba fallback`);
+      calendarEvents = await fetchPublicCalendarEvents(fetch, { forceFallback: true });
+      filtered = calendarEvents.filter(event => event.date >= rangeStartStr);
+      snapshotError = validatePublicCalendarSnapshot(filtered);
+    }
   } catch (err) {
     console.error('[Calendar] Public page fetch failed:', err.message);
     return { success: false, error: err.message };
   }
 
-  if (calendarEvents.length === 0) {
-    // Sumber selalu pre-load ~120 event — kosong berarti rusak, bukan "tidak ada jadwal"
-    return { success: false, error: 'sumber publik tidak memuat event sama sekali — layout halaman berubah?' };
+  if (snapshotError) {
+    return {
+      success: false,
+      error: `snapshot range sync (${rangeStartStr} ->) tidak aman: ${snapshotError}`,
+      source: calendarEvents._calendarSource || null,
+    };
   }
 
-  // Filter to relevant range: 1 month back, tanpa batas atas — sumber hanya
-  // preload set terbatas (~120 event); cap +3 bulan dulu membuat bulan
-  // Oktober+ tampak kosong di dashboard padahal sumbernya ada.
-  const now = new Date();
-  const rangeStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const rangeStartStr = rangeStart.toISOString().split('T')[0];
+  const publicPageUsesFallback = calendarEvents._calendarSource === 'fallback';
+  if (publicPageUsesFallback) {
+    console.warn('[Calendar] Snapshot berasal dari origin fallback; stale-delete akan dilewati');
+  }
 
-  const filtered = calendarEvents.filter(ev => ev.date >= rangeStartStr);
   console.log(`[Calendar] ${filtered.length} events in range (${rangeStartStr} →)`);
 
-  if (filtered.length === 0) {
-    return { success: false, error: `0 dari ${calendarEvents.length} event masuk range sync (${rangeStartStr} →) — anomali` };
-  }
-
-  // Fetch details for each event
   const allRows = [];
-  // Event yang detail-nya gagal di-fetch: di-skip dan baris LAMA-nya dipertahankan
-  // (dikecualikan dari stale-delete) — kegagalan parsial tidak boleh merusak data baik.
   const failedEventKeys = new Set();
   let detailsFetched = 0;
   const scheduleFallbackById = await loadScheduleFallbackMap(supabase, filtered);
   let fallbackUsed = 0;
   let emptyDetails = 0;
+  let detailOriginFallbackUsed = 0;
 
+  const detailConcurrency = publicPageUsesFallback
+    ? CALENDAR_PUBLIC_FALLBACK_DETAIL_CONCURRENCY
+    : CALENDAR_PUBLIC_DETAIL_CONCURRENCY;
   const detailResults = await mapWithConcurrency(
     filtered,
-    CALENDAR_PUBLIC_DETAIL_CONCURRENCY,
+    detailConcurrency,
     async (event) => {
-      const result = await resolvePublicEventRows(event, scheduleFallbackById);
-      detailsFetched++;
+      const result = await resolvePublicEventRows(event, scheduleFallbackById, publicPageUsesFallback);
+      detailsFetched += 1;
       if (detailsFetched % 10 === 0 || detailsFetched === filtered.length) {
         console.log(`[Calendar] Fetched details for ${detailsFetched}/${filtered.length} events...`);
       }
       return result;
-    }
+    },
   );
 
   for (const result of detailResults) {
     if (result.failedKey) failedEventKeys.add(result.failedKey);
     fallbackUsed += result.fallbackUsed;
     emptyDetails += result.emptyDetails;
-    if (result.rows.length > 0) {
-      allRows.push(...result.rows);
-    }
+    if (result.detailUsesFallback) detailOriginFallbackUsed += 1;
+    if (result.rows.length > 0) allRows.push(...result.rows);
   }
+
+  const syncSource = publicPageUsesFallback || detailOriginFallbackUsed > 0
+    ? 'fallback'
+    : 'primary';
+  const degradedReasons = [];
+  if (publicPageUsesFallback) degradedReasons.push('page_fallback');
+  if (detailOriginFallbackUsed > 0) degradedReasons.push('detail_fallback');
+  if (fallbackUsed > 0) degradedReasons.push('schedule_fallback');
+  if (failedEventKeys.size > 0) degradedReasons.push('detail_failures');
+
+  let rowsUpserted = 0;
+  const resultMeta = () => ({
+    count: rowsUpserted,
+    rowsUpserted,
+    eventsTotal: filtered.length,
+    eventsSucceeded: filtered.length - failedEventKeys.size,
+    failedEvents: failedEventKeys.size,
+    source: syncSource,
+    degraded: degradedReasons.length > 0,
+    degradedReasons,
+  });
 
   if (allRows.length === 0) {
-    return { success: false, error: `tidak ada baris dihasilkan dari ${filtered.length} event (${failedEventKeys.size} detail gagal)` };
+    return {
+      success: false,
+      error: `tidak ada baris dihasilkan dari ${filtered.length} event (${failedEventKeys.size} detail gagal)`,
+      ...resultMeta(),
+    };
   }
 
-  // Delete stale records in the sync range that no longer exist in source.
-  // This prevents ghost entries when groups get moved between dates.
-  {
-    const freshIds = new Set(allRows.map(r => r.id));
-    const failedPrefixes = [...failedEventKeys].map(k => `${k}_`);
+  const { data: existingRows, error: existingRowsError } = await supabase
+    .from('calendar_events')
+    .select('id, raw_data')
+    .gte('event_date', rangeStartStr);
 
-    // Fetch existing IDs in the sync range
-    const { data: existingRows, error: fetchErr } = await supabase
-      .from('calendar_events')
-      .select('id')
-      .gte('event_date', rangeStartStr);
-
-    if (!fetchErr && existingRows) {
-      const staleIds = existingRows
-        .map(r => r.id)
-        .filter(id =>
-          !freshIds.has(id) &&
-          !id.startsWith('_DEMO_') &&
-          !failedPrefixes.some(p => id.startsWith(p)) // baris event yang gagal di-fetch: jangan dihapus
-        );
-
-      if (staleIds.length > 0) {
-        const DEL_BATCH = 50;
-        for (let i = 0; i < staleIds.length; i += DEL_BATCH) {
-          const batch = staleIds.slice(i, i + DEL_BATCH);
-          const { error: delErr } = await supabase
-            .from('calendar_events')
-            .delete()
-            .in('id', batch);
-          if (delErr) {
-            console.error('[Calendar] Delete stale batch error:', delErr.message);
-          }
-        }
-        console.log(`[Calendar] Removed ${staleIds.length} stale records from sync range`);
-      }
-    }
-
-    // Upsert fresh data
-    const BATCH = 50;
-    let upserted = 0;
-    for (let i = 0; i < allRows.length; i += BATCH) {
-      const batch = allRows.slice(i, i + BATCH);
-      const { error } = await upsertCalendarBatch(supabase, batch);
-
-      if (error) {
-        console.error('[Calendar] Upsert batch error:', error.message);
-      } else {
-        upserted += batch.length;
-      }
-    }
-    if (failedEventKeys.size > 0) {
-      console.warn(`[Calendar] ${failedEventKeys.size} event dilewati (detail gagal) — baris lamanya dipertahankan`);
-    }
-    if (fallbackUsed > 0 || emptyDetails > 0) {
-      console.log(`[Calendar] Schedule fallback: ${fallbackUsed} event dipulihkan dari umroh_schedules, ${emptyDetails} event tetap kosong`);
-    }
-    console.log(`[Calendar] Sync complete: ${upserted} rows upserted from ${detailsFetched} events`);
+  const needsMutawifPreservation = allRows.some(row => row._preserve_mutawif);
+  if (existingRowsError && needsMutawifPreservation) {
+    const error = `gagal membaca data kalender lama untuk mempertahankan MUTAWIF: ${existingRowsError.message}`;
+    console.error(`[Calendar] ${error}`);
+    return { success: false, error, ...resultMeta() };
+  }
+  if (existingRowsError) {
+    degradedReasons.push('existing_rows_read_failed');
+    console.warn('[Calendar] Gagal membaca row lama; stale-delete dilewati:', existingRowsError.message);
   }
 
-  // Isi pax jamaah jaringan untuk baris yang baru di-sync
+  const existingById = new Map((existingRows || []).map(row => [row.id, row]));
+  for (const row of allRows) {
+    const preserveMutawif = row._preserve_mutawif;
+    delete row._preserve_mutawif;
+    if (!preserveMutawif) continue;
+
+    const existingMutawif = existingById.get(row.id)?.raw_data?.mutawif;
+    if (existingMutawif && existingMutawif !== '-') {
+      row.mutawif = existingMutawif;
+      row.raw_data = { ...row.raw_data, mutawif: existingMutawif };
+    }
+  }
+
+  // Upsert harus selesai seluruhnya sebelum stale-delete. Jika satu batch
+  // gagal, retry tetap aman karena row lama belum disentuh.
+  const UPSERT_BATCH = 50;
+  for (let i = 0; i < allRows.length; i += UPSERT_BATCH) {
+    const batch = allRows.slice(i, i + UPSERT_BATCH);
+    const { error } = await upsertCalendarBatch(supabase, batch);
+    if (error) {
+      const syncError = `upsert calendar_events gagal setelah ${rowsUpserted}/${allRows.length} row: ${error.message}`;
+      console.error(`[Calendar] ${syncError}`);
+      return { success: false, error: syncError, ...resultMeta() };
+    }
+    rowsUpserted += batch.length;
+  }
+
+  const degradedSnapshot = publicPageUsesFallback
+    || detailOriginFallbackUsed > 0
+    || fallbackUsed > 0
+    || failedEventKeys.size > 0;
+
+  if (!existingRowsError && existingRows && !degradedSnapshot) {
+    const freshIds = new Set(allRows.map(row => row.id));
+    const observedStaleIds = existingRows
+      .map(row => row.id)
+      .filter(id => !freshIds.has(id) && !id.startsWith('_DEMO_'));
+    const staleCandidates = await loadCalendarStaleCandidates(supabase);
+    if (staleCandidates.error) {
+      const syncError = `gagal membaca konfirmasi stale calendar: ${staleCandidates.error.message}`;
+      console.error(`[Calendar] ${syncError}`);
+      return { success: false, error: syncError, ...resultMeta() };
+    }
+
+    const staleIds = observedStaleIds.filter(id => staleCandidates.ids.has(id));
+    const pendingStaleIds = observedStaleIds.filter(id => !staleCandidates.ids.has(id));
+    const saveCandidatesError = await saveCalendarStaleCandidates(supabase, new Set(observedStaleIds));
+    if (saveCandidatesError) {
+      const syncError = `gagal menyimpan konfirmasi stale calendar: ${saveCandidatesError.message}`;
+      console.error(`[Calendar] ${syncError}`);
+      return { success: false, error: syncError, ...resultMeta() };
+    }
+    if (pendingStaleIds.length > 0) {
+      degradedReasons.push('stale_confirmation_pending');
+      console.warn(`[Calendar] ${pendingStaleIds.length} stale row menunggu konfirmasi snapshot berikutnya`);
+    }
+
+    const staleDeleteRatio = existingRows.length > 0
+      ? staleIds.length / existingRows.length
+      : 0;
+
+    if (staleDeleteRatio > CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO) {
+      const syncError = `stale-delete ${staleIds.length}/${existingRows.length} row (${Math.round(staleDeleteRatio * 100)}%) melewati batas aman ${Math.round(CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO * 100)}%`;
+      console.error(`[Calendar] ${syncError}`);
+      return { success: false, error: syncError, ...resultMeta() };
+    }
+
+    const DELETE_BATCH = 50;
+    for (let i = 0; i < staleIds.length; i += DELETE_BATCH) {
+      const batch = staleIds.slice(i, i + DELETE_BATCH);
+      const { error: deleteError } = await supabase
+        .from('calendar_events')
+        .delete()
+        .in('id', batch);
+      if (deleteError) {
+        const syncError = `delete stale calendar_events gagal: ${deleteError.message}`;
+        console.error(`[Calendar] ${syncError}`);
+        return { success: false, error: syncError, ...resultMeta() };
+      }
+    }
+    if (staleIds.length > 0) {
+      console.log(`[Calendar] Removed ${staleIds.length} stale records from sync range`);
+    }
+  } else if (!existingRowsError && existingRows && degradedSnapshot) {
+    console.warn('[Calendar] Stale-delete dilewati karena snapshot belum authoritative/complete');
+  }
+
+  if (failedEventKeys.size > 0) {
+    console.warn(`[Calendar] ${failedEventKeys.size} event dilewati (detail gagal) — baris lamanya dipertahankan`);
+  }
+  if (fallbackUsed > 0 || emptyDetails > 0) {
+    console.log(`[Calendar] Schedule fallback: ${fallbackUsed} event dipulihkan dari umroh_schedules, ${emptyDetails} event tetap kosong`);
+  }
+  if (detailOriginFallbackUsed > 0) {
+    console.warn(`[Calendar] ${detailOriginFallbackUsed} detail memakai origin fallback`);
+  }
+  console.log(`[Calendar] Sync complete: ${rowsUpserted} rows upserted from ${detailsFetched} events`);
+
+  if (existingRowsError) {
+    const syncError = `sync data selesai, tetapi verifikasi row lama gagal: ${existingRowsError.message}`;
+    return { success: false, error: syncError, ...resultMeta() };
+  }
+  if (failedEventKeys.size > 0) {
+    const syncError = `${failedEventKeys.size}/${filtered.length} detail event gagal; ${rowsUpserted} row aman sudah diperbarui dan row lama dipertahankan`;
+    return { success: false, error: syncError, ...resultMeta() };
+  }
+
   try {
     await enrichCalendarPaxJamaah(supabase);
   } catch (err) {
     console.error('[PaxJamaah] Enrichment failed:', err.message);
   }
 
-  // Fire-and-forget: enrich keberangkatan events with kumpul info from PDFs
   enrichKeberangkatanWithKumpul(supabase).catch(err => {
     console.error('[KumpulParser] Enrichment failed:', err.message);
   });
 
-  return { success: true, count: allRows.length, failedEvents: failedEventKeys.size };
+  return { success: true, ...resultMeta() };
 }
 
 // ── Enrich calendar events with pax terisi & pax jamaah jaringan ──

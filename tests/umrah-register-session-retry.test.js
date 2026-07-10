@@ -10,9 +10,10 @@ function read(path) {
   return readFileSync(join(rootPath, path), 'utf8');
 }
 
-test('umrah registration refreshes legacy cookies and retries final submit after remote session expiry', () => {
+test('umrah registration uses browser/reCAPTCHA as primary and keeps upstream failures structured', () => {
   const laporanApi = read('laporan-api.js');
   const server = read('server.js');
+  const orchestrator = read('lib/umrah-submit-orchestrator.js');
   const registerPage = read('src/components/UmrahRegisterPage.tsx');
   const jamaahPage = read('src/components/JamaahPage.tsx');
 
@@ -38,15 +39,25 @@ test('umrah registration refreshes legacy cookies and retries final submit after
   assert.match(laporanApi, /Alhijaz menolak tambah jamaah/);
   assert.match(laporanApi, /Final submit HTTP 403 — retrying once with a fresh browser session/);
   assert.match(laporanApi, /retryBlocked: false/);
+  assert.match(laporanApi, /const BROWSER_MANAGED_UMRAH_FIELDS = new Set/);
+  assert.match(laporanApi, /const packagePrice = await readLegacyBrowserPackagePrice\(page\)/);
+  assert.match(laporanApi, /reason: 'package_price_unresolved'/);
+  assert.match(laporanApi, /reason: 'transport_error'/);
+  assert.match(laporanApi, /causeCode: cause\?\.code/);
+  assert.match(laporanApi, /bytesWritten: cause\?\.socket\?\.bytesWritten/);
 
-  assert.match(server, /let result = await submitUmrahRegistration/);
-  assert.match(server, /result\.reason === 'session_expired_remote' && agent\.jamaah_password/);
-  assert.match(server, /const fresh = await laporanLogin\(agent\.jamaah_username, decrypted, agent\.jamaah_kantor \|\| '2'\)/);
-  assert.match(server, /const freshForm = await fetchUmrahFormOptions\(agent\.jamaah_username, \{ idb \}\)/);
-  assert.match(server, /formAction: retryFormAction/);
-  assert.match(server, /hiddenFields: retryHiddenFields/);
-  assert.match(server, /submitUmrahRegistrationWithBrowser\(\{/);
-  assert.match(server, /password: getDecryptedLegacyPassword\(\)/);
+  assert.match(server, /const useBrowserSubmit = shouldUseBrowserUmrahSubmit\(agent\.jamaah_password\)/);
+  assert.match(server, /if \(!useBrowserSubmit\) \{\s*const sess = await ensureLegacySession\(agent\)/);
+  assert.match(server, /const \{ mode: submitMode, result \} = await executeUmrahSubmit\(\{/);
+  assert.match(server, /submitBrowser: submitUmrahRegistrationWithBrowser/);
+  assert.match(server, /submitDirect: submitUmrahRegistration/);
+  assert.match(server, /status\(UMRAH_UPSTREAM_FAILURE_STATUS\)/);
+  assert.match(server, /app\.use\('\/api\/umrah\/register', express\.json\(\{ limit: '16mb' \}\)\)/);
+  assert.doesNotMatch(server, /Remote session expired on submit — forcing re-login/);
+
+  assert.match(orchestrator, /if \(shouldUseBrowserUmrahSubmit\(savedPassword\)\)/);
+  assert.match(orchestrator, /const result = await submitBrowser\(\{/);
+  assert.match(orchestrator, /const result = await submitDirect\(username, directPayload\)/);
 
   assert.match(registerPage, /status:\s+\{\s+label: 'Status Nikah'/);
   assert.match(registerPage, /tjamaah:\s+\{\s+label: 'No\. Telp\/HP Jamaah'[\s\S]*required: true/);
@@ -58,8 +69,10 @@ test('umrah registration refreshes legacy cookies and retries final submit after
   assert.match(registerPage, /BELUM\\s\*KAWIN\|BELUM\\s\*MENIKAH/);
   assert.match(registerPage, /const responseText = await res\.text\(\)/);
   assert.match(registerPage, /JSON\.parse\(responseText\)/);
-  assert.match(registerPage, /function summarizeSubmitErrorText\(text: string\)/);
+  assert.match(registerPage, /function summarizeSubmitErrorText\(text: string, status\?: number\)/);
   assert.match(registerPage, /cloudflare\|cf-error\|attention required/);
+  assert.match(registerPage, /'Accept': 'application\/json'/);
+  assert.match(registerPage, /if \(!res\.ok \|\| data\.success === false\)/);
 
   assert.doesNotMatch(jamaahPage, /function getLegacyAddIdb/);
   assert.doesNotMatch(jamaahPage, /idb: getLegacyAddIdb\(item\)/);

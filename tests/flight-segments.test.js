@@ -4,6 +4,7 @@ import {
   parseFlightCodeList,
   parseFlightSegmentsFromCalendar,
   parseRouteLegs,
+  selectCalendarReportedSegments,
 } from '../lib/flight-segments.js';
 
 test('parseFlightCodeList expands slash-separated same-airline transit codes', () => {
@@ -43,4 +44,45 @@ test('parseRouteLegs expands transit route pairs', () => {
     { dep: 'JED', arr: 'DXB' },
     { dep: 'DXB', arr: 'CGK' },
   ]);
+});
+
+test('day-marker event keeps only the flight reported by calendar and its schedule index', () => {
+  const segments = selectCalendarReportedSegments('SAUDIA ~ SV 261', {
+    eventType: 'kepulangan',
+    schedule: {
+      maskapai: 'SAUDIA',
+      pulang_kode_penerbangan: 'SV 261/278/818',
+    },
+  });
+
+  assert.deepEqual(
+    segments.map(segment => ({ flightIata: segment.flightIata, segmentIndex: segment.segmentIndex })),
+    [{ flightIata: 'SV261', segmentIndex: 0 }],
+  );
+});
+
+test('calendar-reported later leg retains its matching schedule route index', () => {
+  const segments = selectCalendarReportedSegments('SAUDIA ~ SV 278', {
+    eventType: 'kepulangan',
+    schedule: {
+      maskapai: 'SAUDIA',
+      pulang_kode_penerbangan: 'SV 261/278/818',
+    },
+  });
+
+  assert.equal(segments[0].flightIata, 'SV278');
+  assert.equal(segments[0].segmentIndex, 1);
+});
+
+test('marker segment selection fails closed for missing or unknown calendar flight code', () => {
+  const schedule = {
+    maskapai: 'SAUDIA',
+    pulang_kode_penerbangan: 'SV 261/278/818',
+  };
+  assert.deepEqual(selectCalendarReportedSegments('SAUDIA ~ -', {
+    eventType: 'kepulangan', schedule,
+  }), []);
+  assert.deepEqual(selectCalendarReportedSegments('SAUDIA ~ SV 999', {
+    eventType: 'kepulangan', schedule,
+  }), []);
 });

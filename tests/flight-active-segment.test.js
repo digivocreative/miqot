@@ -21,10 +21,14 @@ test('flight card selects en-route, then delayed, then scheduled segment', async
   const scheduled = { flightNumber: 'EK 358', status: 'scheduled' };
   const delayed = { flightNumber: 'EK 358', status: 'delayed' };
   const enRoute = { flightNumber: 'EK 802', status: 'en-route' };
+  const unverified = { flightNumber: 'SV 261', status: 'unverified' };
 
   assert.equal(selectActiveFlightSegment(fallback, [landed, scheduled]), scheduled);
   assert.equal(selectActiveFlightSegment(fallback, [landed, scheduled, delayed]), delayed);
   assert.equal(selectActiveFlightSegment(fallback, [delayed, enRoute, scheduled]), enRoute);
+  assert.equal(selectActiveFlightSegment(fallback, [landed, unverified]), unverified);
+  assert.equal(selectActiveFlightSegment(fallback, [landed, scheduled, unverified]), scheduled);
+  assert.equal(selectActiveFlightSegment(fallback, [landed, unverified, scheduled]), unverified);
   assert.equal(selectActiveFlightSegment(fallback, [landed]), landed);
 });
 

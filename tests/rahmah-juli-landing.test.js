@@ -117,7 +117,7 @@ test('Rahmah July landing has route-specific share metadata', () => {
   assert.match(server, /app\.get\(\['\/rahmah-1-juli-2026', '\/rahmah-1-juli-2026\/'\]/);
 });
 
-test('Rahmah July landing component renders grouped cards and per-jamaah checklist labels', () => {
+test('Rahmah July landing component renders grouped cards without the preparation checklist section', () => {
   const componentPath = 'src/components/RahmahJuliLandingPage.tsx';
   assert.equal(existsSync(join(rootPath, componentPath)), true);
 
@@ -128,12 +128,11 @@ test('Rahmah July landing component renders grouped cards and per-jamaah checkli
   assert.match(component, /getRahmahJuliGroups/);
   assert.match(component, /RAHMAH_JULI_CHECKLIST_ITEMS/);
   assert.match(component, /DAFTAR JAMAAH/);
-  assert.match(component, /data-jamaah-no/);
-  assert.match(component, /data-checklist-id/);
   assert.match(component, /data-phone-edit/);
   assert.match(component, /data-phone-done/);
-  assert.match(component, /data-room-field/);
-  assert.match(component, /Checklist Persiapan/);
+  assert.doesNotMatch(component, /data-checklist-id/);
+  assert.doesNotMatch(component, /data-room-field/);
+  assert.doesNotMatch(component, /Checklist (?:Persiapan|Perlengkapan)/i);
   assert.match(component, /localStorage/);
   assert.doesNotMatch(component, /Daftar jamaah tampil per keluarga/);
   assert.doesNotMatch(component, /ShieldCheck/);
@@ -141,7 +140,7 @@ test('Rahmah July landing component renders grouped cards and per-jamaah checkli
   assert.doesNotMatch(component, /tertua ke termuda/);
 });
 
-test('Rahmah July landing stores editable phones, checklist, and rooms per jamaah', () => {
+test('Rahmah July landing keeps editable phone data without checklist or room controls', () => {
   const component = read('src/components/RahmahJuliLandingPage.tsx');
 
   assert.match(component, /type JamaahPrepState/);
@@ -156,11 +155,10 @@ test('Rahmah July landing stores editable phones, checklist, and rooms per jamaa
   assert.match(component, /typeof savedPhone === 'string' \? savedPhone : member\.phone/);
   assert.match(component, /placeholder="Nomor WA"/);
   assert.match(component, /Selesai/);
-  assert.match(component, /Nomor WhatsApp sudah sesuai apa belum\?/);
-  assert.match(component, /Nusuk sudah install apa belum\?/);
-  assert.match(component, /Raudhah sudah reserved jadwal apa belum\?/);
-  assert.match(component, /Nomor Kamar Mekkah berapa\?/);
-  assert.match(component, /Nomor Kamar Madinah berapa\?/);
+  assert.doesNotMatch(component, /Nomor WhatsApp sudah sesuai apa belum\?/);
+  assert.doesNotMatch(component, /Nusuk sudah install apa belum\?/);
+  assert.doesNotMatch(component, /Raudhah sudah reserved jadwal apa belum\?/);
+  assert.doesNotMatch(component, /Nomor Kamar (?:Mekkah|Madinah) berapa\?/);
   assert.match(component, /isMemberReady\(prep, member\)/);
   assert.doesNotMatch(component, /data-phone-save/);
   assert.doesNotMatch(component, /handleSavePhone/);
@@ -179,10 +177,9 @@ test('Rahmah July landing persists jamaah prep changes to Supabase with a local 
   assert.match(component, /fetchRahmahJuliPrepFromDb/);
   assert.match(component, /saveRahmahJuliPrepToDb/);
   assert.match(component, /setSaveStatus/);
-  assert.match(component, /void persistPrepPatch\(jamaahNo, nextItem\)/);
-  assert.match(component, /const handleRoomDraftChange = \(value: string\) => \{\s*setRoomDraft\(value\.replace\(\/\\D\/g, ''\)\.slice\(0, 4\)\);\s*\};/);
-  assert.match(component, /handlePrepChange\(editingRoom\.jamaahNo, \{ \[editingRoom\.fieldId\]: roomDraft \}\);/);
-  assert.match(component, /onRoomDraftChange=\{handleRoomDraftChange\}/);
+  assert.match(component, /return persistPrepPatch\(jamaahNo, nextItem\)/);
+  assert.doesNotMatch(component, /handleRoomDraftChange/);
+  assert.doesNotMatch(component, /editingRoom/);
   assert.match(component, /setPrep\(\(prev\) => \(\{\s*\.\.\.prev,\s*\.\.\.dbPrep,/);
   assert.match(dbHelper, /RAHMAH_JULI_PREP_TABLE = 'booking_persiapan'/);
   assert.match(dbHelper, /RAHMAH_JULI_PREP_API = `\/api\/tour-leader-prep\/\$\{RAHMAH_JULI_SLUG\}`/);
@@ -205,19 +202,65 @@ test('Rahmah July landing persists jamaah prep changes to Supabase with a local 
   assert.match(dbHelper, /room_madinah/);
 });
 
+test('Rahmah July landing stores each jamaah Zam-zam pickup or delivery choice', () => {
+  const component = read('src/components/RahmahJuliLandingPage.tsx');
+  const dbHelper = read('src/lib/rahmahJuliPrepDb.ts');
+  const server = read('server.js');
+
+  assert.match(component, /function ZamzamPickupEditor/);
+  assert.match(component, /type ZamzamMethod = 'pickup' \| 'delivery'/);
+  assert.match(component, /data-zamzam-method="pickup"/);
+  assert.match(component, /data-zamzam-method="delivery"/);
+  assert.match(component, />Ambil Sendiri</);
+  assert.match(component, />Diantar ke Rumah</);
+  assert.match(component, /zamzamMethod === 'delivery' &&/);
+  assert.match(component, /data-zamzam-field="recipient-name"/);
+  assert.match(component, /data-zamzam-field="recipient-phone"/);
+  assert.match(component, /data-zamzam-field="address"/);
+  assert.match(component, /Nama penerima/);
+  assert.match(component, /Nomor HP penerima/);
+  assert.match(component, /Alamat lengkap/);
+  assert.match(component, /data-zamzam-save=\{member\.no\}/);
+  assert.match(component, /Simpan Pilihan/);
+  assert.match(component, /handleSaveZamzam/);
+  assert.match(component, /const \[isSaving, setIsSaving\]/);
+  assert.match(component, /const savedOnline = await onSave/);
+  assert.match(component, /Loader2 size=\{16\} strokeWidth=\{2\.5\} className="animate-spin"/);
+  assert.match(component, /Menyimpan Pilihan\.\.\./);
+  assert.match(component, /disabled=\{!canSave \|\| isSaving\}/);
+  assert.match(component, /rounded-xl bg-emerald-500 px-3 py-3 text-sm font-bold/);
+  assert.doesNotMatch(component, /cyan-/);
+
+  for (const field of [
+    'zamzam_method',
+    'zamzam_recipient_name',
+    'zamzam_recipient_phone',
+    'zamzam_address',
+  ]) {
+    assert.match(dbHelper, new RegExp(field));
+    assert.match(server, new RegExp(field));
+  }
+  assert.match(server, /Data penerima dan alamat pengantaran wajib dilengkapi/);
+});
+
+test('Rahmah July landing removes the jamaah WhatsApp action and preparation checklist section', () => {
+  const component = read('src/components/RahmahJuliLandingPage.tsx');
+
+  assert.doesNotMatch(component, /data-member-whatsapp/);
+  assert.doesNotMatch(component, /memberWhatsAppUrl/);
+  assert.doesNotMatch(component, /function getJamaahWhatsAppUrl/);
+  assert.doesNotMatch(component, /data-checklist-disabled/);
+  assert.doesNotMatch(component, /Checklist (?:Persiapan|Perlengkapan)/i);
+  assert.doesNotMatch(component, /function RoomValueEditor/);
+});
+
 test('Rahmah July landing member card header removes gender text and keeps phone beside age', () => {
   const component = read('src/components/RahmahJuliLandingPage.tsx');
 
   assert.match(component, /const phone = getMemberPhone\(prep, member\)/);
-  assert.match(component, /function normalizeJamaahWhatsAppNumber/);
-  assert.match(component, /function getJamaahWhatsAppUrl/);
-  assert.match(component, /const memberWhatsAppUrl = getJamaahWhatsAppUrl\(phone\)/);
   assert.match(component, /<p className="truncate text-sm font-bold text-gray-800 dark:text-slate-100">\{member\.name\}<\/p>/);
-  assert.match(component, /\{isExpanded && \(/);
-  assert.match(component, /data-member-whatsapp=\{member\.no\}/);
-  assert.match(component, /href=\{memberWhatsAppUrl\}/);
-  assert.match(component, /<span>WhatsApp<\/span>/);
-  assert.match(component, /aria-label=\{`Chat WhatsApp \$\{member\.name\}`\}/);
+  assert.doesNotMatch(component, /data-member-whatsapp=\{member\.no\}/);
+  assert.doesNotMatch(component, /<span>WhatsApp<\/span>/);
   assert.doesNotMatch(component, /<a[\s\S]{0,320}className="block truncate text-sm font-bold text-gray-800/);
   assert.match(component, /<span>\{member\.age\} tahun<\/span>[\s\S]*<WhatsAppIcon size=\{12\}/);
   assert.match(component, /data-phone-edit=\{member\.no\}/);
@@ -250,43 +293,37 @@ test('Rahmah July landing member cards are collapsed by default with chevron con
   assert.doesNotMatch(component, /data-jamaah-toggle=\{member\.no\}[\s\S]{0,260}bg-gray-50/);
 });
 
-test('Rahmah July landing member cards show compact status summary chips', () => {
+test('Rahmah July landing member cards always show the current Zam-zam status chip', () => {
   const component = read('src/components/RahmahJuliLandingPage.tsx');
 
   assert.match(component, /function getMemberSummaryItems/);
-  assert.match(component, /label: 'WA Sesuai'/);
-  assert.match(component, /label: 'Nusuk'/);
-  assert.match(component, /label: 'Raudhah'/);
+  assert.doesNotMatch(component, /label: 'WA Sesuai'/);
+  assert.doesNotMatch(component, /label: 'Nusuk'/);
+  assert.doesNotMatch(component, /label: 'Raudhah'/);
+  assert.match(component, /zamzamMethod === 'delivery'/);
+  assert.match(component, /\? 'Diantar ke Rumah'/);
+  assert.match(component, /\? 'Ambil Sendiri'/);
+  assert.match(component, /: 'Belum Pilih'/);
+  assert.match(component, /method: zamzamMethod \|\| 'unselected'/);
   assert.match(component, /summaryItems\.map/);
-  assert.match(component, /rounded-full border px-2 py-0\.5 text-\[9px\] font-bold/);
+  assert.match(component, /data-zamzam-status=\{item\.method\}/);
+  assert.match(component, /item\.method === 'unselected'/);
+  assert.match(component, /border-amber-200 bg-amber-50 text-amber-700/);
+  assert.match(component, /border-emerald-200 bg-emerald-50 text-emerald-700/);
   assert.doesNotMatch(component, /label: roomMekkah \? `Mekkah \$\{roomMekkah\}` : 'Mekkah'/);
   assert.doesNotMatch(component, /label: roomMadinah \? `Madinah \$\{roomMadinah\}` : 'Madinah'/);
 });
 
-test('Rahmah July landing room editor shows 000 display with pencil and OK commit', () => {
+test('Rahmah July landing does not render the removed checklist and room editor controls', () => {
   const component = read('src/components/RahmahJuliLandingPage.tsx');
 
-  assert.match(component, /function RoomValueEditor/);
-  assert.match(component, /editingRoom/);
-  assert.match(component, /roomDraft/);
-  assert.match(component, /data-room-edit=\{`\$\{member\.no\}:\$\{field\.id\}`\}/);
-  assert.match(component, /data-room-ok=\{`\$\{member\.no\}:\$\{field\.id\}`\}/);
-  assert.match(component, /value \|\| '000'/);
-  assert.match(component, /const ROOM_NUMBER_REGEX = \/\^\\d\{1,4\}\$\/;/);
-  assert.match(component, /maxLength=\{4\}/);
-  assert.match(component, /pattern="\[0-9\]\{1,4\}"/);
-  assert.match(component, /disabled=\{!ROOM_NUMBER_REGEX\.test\(roomDraft\)\}/);
-  assert.match(component, />OK<\/button>/);
-  assert.doesNotMatch(component, /placeholder="Nomor kamar"/);
-});
-
-test('Rahmah July landing checklist controls use white surfaces and stronger labels', () => {
-  const component = read('src/components/RahmahJuliLandingPage.tsx');
-
-  assert.match(component, /border bg-white px-2\.5 py-2 text-left transition active:scale-\[0\.99\] dark:bg-slate-900/);
-  assert.match(component, /className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-2\.5 py-2 dark:border-slate-700 dark:bg-slate-900"/);
-  assert.match(component, /block text-\[10px\] font-extrabold text-gray-800 dark:text-slate-100/);
-  assert.match(component, /Nomor WhatsApp sudah sesuai apa belum\?/);
+  assert.doesNotMatch(component, /function RoomValueEditor/);
+  assert.doesNotMatch(component, /editingRoom/);
+  assert.doesNotMatch(component, /roomDraft/);
+  assert.doesNotMatch(component, /data-room-edit/);
+  assert.doesNotMatch(component, /data-room-ok/);
+  assert.doesNotMatch(component, /ROOM_NUMBER_REGEX/);
+  assert.doesNotMatch(component, /data-checklist-id/);
 });
 
 test('Rahmah July landing uses an animated filter dropdown beside the search input', () => {
