@@ -463,7 +463,6 @@ interface JamaahPageProps {
 export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, initialSubTab = 'umroh', onConnectionChange, onHeaderRight, onNavigate }: JamaahPageProps) {
   const currentSession = getStoredSession();
   const resolvedAgentSlug = agentSlug || currentSession?.user?.slug || '';
-  const canEditJamaah = resolvedAgentSlug.trim().toLowerCase() === 'nikita';
   const resolvedAgentName = currentSession?.user?.name || 'Agent';
   // Fallback for callers that didn't pass onNavigate. Uses pushState +
   // popstate dispatch so DashboardLayout's listener can re-render — avoids
@@ -671,28 +670,19 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
   }, [view, expandedId, data?.items]);
 
   const openEditJamaah = (item: JamaahItem) => {
-    if (!canEditJamaah) return;
     goTo(`/dashboard/jamaah/edit/${encodeURIComponent(item.id)}`);
   };
 
   const renderBelumDpEditIcon = (item: JamaahItem, className = '') => {
-    const title = canEditJamaah
-      ? 'Edit data jamaah belum DP'
-      : 'Edit data jamaah hanya tersedia untuk agent Nikita';
+    const title = 'Edit data jamaah belum DP';
     return (
       <button
         type="button"
-        disabled={!canEditJamaah}
         onClick={(e) => {
           e.stopPropagation();
-          if (!canEditJamaah) return;
           openEditJamaah(item);
         }}
-        className={`shrink-0 flex items-center justify-center border transition-colors ${
-          canEditJamaah
-            ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/40 hover:bg-amber-100 dark:hover:bg-amber-900/35 active:scale-95'
-            : 'text-gray-300 dark:text-slate-600 bg-gray-50 dark:bg-slate-900/30 border-gray-100 dark:border-slate-800 cursor-not-allowed opacity-60'
-        } ${className}`}
+        className={`shrink-0 flex items-center justify-center border transition-colors text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/40 hover:bg-amber-100 dark:hover:bg-amber-900/35 active:scale-95 ${className}`}
         title={title}
         aria-label={`${title}: ${item.nama}`}
       >

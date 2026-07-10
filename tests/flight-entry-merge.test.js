@@ -61,9 +61,10 @@ test('transit segments from the same TL/event merge into one card without double
 
   assert.equal(merged.length, 1);
   assert.equal(merged[0].flightNumber, 'EK 802');
-  assert.equal(merged[0].routeLabel, null);
+  assert.equal(merged[0].routeLabel, 'JED-DXB');
   assert.equal(merged[0].depCode, 'JED');
-  assert.equal(merged[0].arrCode, 'CGK');
+  assert.equal(merged[0].arrCode, 'DXB');
+  assert.equal(merged[0].duration, 170);
   assert.equal(merged[0].pax, 28);
   assert.equal(merged[0].jamaah.length, 1);
   assert.equal(merged[0].transitLabel, 'Menuju Dubai');
@@ -82,6 +83,67 @@ test('transit segments from the same TL/event merge into one card without double
     ]
   );
   assert.equal(merged[0]._mergeSourceKey, undefined);
+});
+
+test('transit card summary switches to the active or next flight code instead of the whole journey', () => {
+  const merged = mergeFlightEntriesByTourLeader([
+    {
+      id: 'return_EK802',
+      flightNumber: 'EK 802',
+      eventDate: '2026-07-10',
+      group: '8',
+      tourLeader: 'NIKITA SARI',
+      pax: 46,
+      status: 'landed',
+      depCode: 'JED',
+      depCity: 'Jeddah',
+      depTerminal: '1',
+      depScheduled: '03:57',
+      arrCode: 'DXB',
+      arrCity: 'Dubai',
+      arrScheduled: '08:04',
+      progress: 100,
+      duration: 247,
+      routeLabel: 'JED-DXB',
+      _mergeSourceKey: 'return-event',
+      _segmentIndex: 0,
+      _segmentCount: 2,
+    },
+    {
+      id: 'return_EK358',
+      flightNumber: 'EK 358',
+      eventDate: '2026-07-10',
+      group: '8',
+      tourLeader: 'NIKITA SARI',
+      pax: 46,
+      status: 'scheduled',
+      depCode: 'DXB',
+      depCity: 'Dubai',
+      depTerminal: '3',
+      depScheduled: '10:50',
+      arrCode: 'CGK',
+      arrCity: 'Jakarta',
+      arrScheduled: '22:25',
+      progress: 0,
+      duration: 515,
+      routeLabel: 'DXB-CGK',
+      _mergeSourceKey: 'return-event',
+      _segmentIndex: 1,
+      _segmentCount: 2,
+    },
+  ]);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].flightNumber, 'EK 358');
+  assert.equal(merged[0].status, 'scheduled');
+  assert.equal(merged[0].depCode, 'DXB');
+  assert.equal(merged[0].arrCode, 'CGK');
+  assert.equal(merged[0].depScheduled, '10:50');
+  assert.equal(merged[0].arrScheduled, '22:25');
+  assert.equal(merged[0].depTerminal, '3');
+  assert.equal(merged[0].duration, 515);
+  assert.equal(merged[0].progress, 0);
+  assert.deepEqual(merged[0].segments.map(segment => segment.flightNumber), ['EK 802', 'EK 358']);
 });
 
 test('same flight and same TL rows merge while pax remains per source row', () => {

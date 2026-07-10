@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { buildFlightPathGeometry, type FlightLatLng } from '../lib/flightRoute';
 
 // ── Types ──
 
@@ -81,24 +82,6 @@ function planeIcon(bearing?: number | null) {
   });
 }
 
-function bearingDeg(a: [number, number], b: [number, number]): number {
-  const dLat = b[0] - a[0];
-  const dLng = (b[1] - a[1]) * Math.cos((((a[0] + b[0]) / 2) * Math.PI) / 180);
-  return (Math.atan2(dLng, dLat) * 180) / Math.PI;
-}
-
-function generateArc(start: [number, number], end: [number, number], points = 50): [number, number][] {
-  const arc: [number, number][] = [];
-  for (let i = 0; i <= points; i++) {
-    const t = i / points;
-    const lat = start[0] + (end[0] - start[0]) * t;
-    const lng = start[1] + (end[1] - start[1]) * t;
-    const arcOffset = Math.sin(t * Math.PI) * 3;
-    arc.push([lat + arcOffset, lng]);
-  }
-  return arc;
-}
-
 // ── Component ──
 
 export default function FlightMap({ flight }: FlightMapProps) {
@@ -106,32 +89,37 @@ export default function FlightMap({ flight }: FlightMapProps) {
   const arrCoord = AIRPORT_COORDS[flight.arrCode];
   const isDark = document.documentElement.classList.contains('dark');
 
-  // Generate arc path
-  const arcPath = useMemo(() => {
+  // Rute great-circle melewati koordinat live agar marker dan jalur konsisten.
+  // Koordinat live yang terlalu jauh dari koridor rute otomatis diabaikan.
+  const pathGeometry = useMemo(() => {
     if (!depCoord || !arrCoord) return null;
-    return generateArc(depCoord, arrCoord);
-  }, [depCoord, arrCoord]);
+    const hasLivePosition = Number.isFinite(flight.lat) && Number.isFinite(flight.lng);
+    const livePosition: FlightLatLng | null = hasLivePosition
+      ? [Number(flight.lat), Number(flight.lng)]
+      : null;
+    return buildFlightPathGeometry({
+      start: depCoord,
+      end: arrCoord,
+      progress: flight.progress,
+      livePosition,
+    });
+  }, [depCoord, arrCoord, flight.lat, flight.lng, flight.progress]);
 
-  // Posisi pesawat: lat/lng live dari AirLabs, atau — karena AirLabs sering tidak
-  // mengirim posisi live — titik progress di sepanjang arc rute.
+  const arcPath = pathGeometry?.path || null;
+
+  // Posisi pesawat selalu berasal dari geometri rute yang sama dengan polyline.
   const { planePos, planeBearing } = useMemo((): { planePos: [number, number] | null; planeBearing: number | null } => {
-    if (flight.status !== 'en-route') return { planePos: null, planeBearing: null };
-    if (flight.lat && flight.lng) {
-      return { planePos: [flight.lat, flight.lng], planeBearing: flight.direction ?? null };
-    }
-    if (!arcPath) return { planePos: null, planeBearing: null };
-    const idx = Math.min(arcPath.length - 1, Math.max(0, Math.round((flight.progress / 100) * (arcPath.length - 1))));
-    const prev = arcPath[Math.max(0, idx - 1)];
-    const next = arcPath[Math.min(arcPath.length - 1, idx + 1)];
-    return { planePos: arcPath[idx], planeBearing: bearingDeg(prev, next) };
-  }, [flight.status, flight.lat, flight.lng, flight.direction, flight.progress, arcPath]);
+    if (flight.status !== 'en-route' || !pathGeometry) return { planePos: null, planeBearing: null };
+    return {
+      planePos: pathGeometry.planePosition,
+      planeBearing: Number.isFinite(flight.direction) ? Number(flight.direction) : pathGeometry.planeBearing,
+    };
+  }, [flight.status, flight.direction, pathGeometry]);
 
   // Traveled portion of the arc
   const traveledArc = useMemo(() => {
-    if (!arcPath) return null;
-    const idx = Math.round((flight.progress / 100) * arcPath.length);
-    return arcPath.slice(0, Math.max(1, idx));
-  }, [arcPath, flight.progress]);
+    return pathGeometry?.traveledPath || null;
+  }, [pathGeometry]);
 
   // Calculate bounds
   const bounds = useMemo(() => {

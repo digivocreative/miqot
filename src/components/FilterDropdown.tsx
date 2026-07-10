@@ -71,7 +71,14 @@ export default function FilterDropdown({
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const lastTouchYRef = useRef<number | null>(null);
-  const [coords, setCoords] = useState({ top: 0, left: 0, right: 0, width: 0, alignRight: false });
+  const [coords, setCoords] = useState({
+    top: 0,
+    left: 0,
+    right: 0,
+    width: 0,
+    alignRight: false,
+    placeAbove: false,
+  });
 
   const selectedLabel = options.find(o => o.value === value)?.label ?? '';
   const showSearch = !showAllOptions && options.length >= 8;
@@ -111,14 +118,32 @@ export default function FilterDropdown({
     if (open && showSearch) searchRef.current?.focus({ preventScroll: true });
   }, [open, showSearch]);
 
-  // Measure the trigger box so the portaled (fixed) panel can anchor to it. Anchor to
-  // the trigger's right edge when it sits past the viewport midline, so a panel wider
-  // than the trigger grows left instead of overflowing the right edge.
+  // Measure the trigger and panel so a portaled dropdown can avoid the viewport edge.
+  // Near the bottom of a form, open upward when the full panel does not fit below.
   const measure = useCallback(() => {
     const r = rootRef.current?.getBoundingClientRect();
     if (!r) return;
     const vw = window.innerWidth;
-    setCoords({ top: r.bottom + 4, left: r.left, right: vw - r.right, width: r.width, alignRight: r.left + r.width / 2 > vw / 2 });
+    const visualViewport = window.visualViewport;
+    const viewportTop = visualViewport?.offsetTop || 0;
+    const viewportHeight = visualViewport?.height || window.innerHeight;
+    const viewportBottom = viewportTop + viewportHeight;
+    const panelHeight = panelRef.current?.offsetHeight || 0;
+    const spaceAbove = r.top - viewportTop - 8;
+    const spaceBelow = viewportBottom - r.bottom - 8;
+    const placeAbove = panelHeight > spaceBelow && spaceAbove > spaceBelow;
+    const top = placeAbove
+      ? Math.max(viewportTop + 8, r.top - panelHeight - 4)
+      : r.bottom + 4;
+
+    setCoords({
+      top,
+      left: r.left,
+      right: vw - r.right,
+      width: r.width,
+      alignRight: r.left + r.width / 2 > vw / 2,
+      placeAbove,
+    });
   }, []);
 
   // Portal mode: the panel is fixed-positioned in <body>, so follow the trigger on
@@ -129,9 +154,13 @@ export default function FilterDropdown({
     measure();
     window.addEventListener('scroll', measure, true);
     window.addEventListener('resize', measure);
+    window.visualViewport?.addEventListener('scroll', measure);
+    window.visualViewport?.addEventListener('resize', measure);
     return () => {
       window.removeEventListener('scroll', measure, true);
       window.removeEventListener('resize', measure);
+      window.visualViewport?.removeEventListener('scroll', measure);
+      window.visualViewport?.removeEventListener('resize', measure);
     };
   }, [portal, open, measure]);
 
@@ -236,11 +265,12 @@ export default function FilterDropdown({
         role="listbox"
         aria-label={ariaLabel}
         aria-hidden={!open}
+        data-placement={portal && coords.placeAbove ? 'top' : 'bottom'}
         style={panelStyle}
-        className={`${portal ? `${portalZClass} ${coords.alignRight ? 'origin-top-right' : 'origin-top'}` : 'absolute left-0 top-full mt-1 z-40 min-w-full w-max max-w-[90vw] origin-top'} rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg overflow-hidden transition duration-150 ease-out ${
+        className={`${portal ? `${portalZClass} ${coords.placeAbove ? (coords.alignRight ? 'origin-bottom-right' : 'origin-bottom') : (coords.alignRight ? 'origin-top-right' : 'origin-top')}` : 'absolute left-0 top-full mt-1 z-40 min-w-full w-max max-w-[90vw] origin-top'} rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg overflow-hidden transition duration-150 ease-out ${
           open
             ? 'opacity-100 scale-100 translate-y-0'
-            : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
+            : `opacity-0 scale-95 ${portal && coords.placeAbove ? 'translate-y-1' : '-translate-y-1'} pointer-events-none`
         }`}
       >
         {showSearch && (

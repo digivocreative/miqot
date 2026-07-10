@@ -5,16 +5,17 @@ import assert from 'node:assert/strict';
 const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../src/components/JamaahPage.tsx', import.meta.url), 'utf8');
 const editPage = readFileSync(new URL('../src/components/JamaahEditPage.tsx', import.meta.url), 'utf8');
+const editSkeleton = readFileSync(new URL('../src/components/JamaahEditSkeleton.tsx', import.meta.url), 'utf8');
 const dashboardLayout = readFileSync(new URL('../src/components/DashboardLayout.tsx', import.meta.url), 'utf8');
 const filterDropdown = readFileSync(new URL('../src/components/FilterDropdown.tsx', import.meta.url), 'utf8');
 const laporanApi = readFileSync(new URL('../laporan-api.js', import.meta.url), 'utf8');
 
-test('jamaah edit endpoint is agent-scoped and stores manual biodata overrides', () => {
+test('jamaah edit endpoint is agent-scoped, available to every agent, and stores manual biodata overrides', () => {
   assert.match(server, /app\.post\('\/api\/laporan\/jamaah\/update', authMiddleware/);
   assert.match(server, /\.eq\('id', rowId\)\s*\.eq\('agent_id', agentId\)/);
   assert.match(server, /isDashboardBelumDpJamaah\(existing\)/);
-  assert.match(server, /canEditDashboardJamaah\(agent\)/);
-  assert.match(server, /Edit data jamaah hanya tersedia untuk agent Nikita/);
+  assert.doesNotMatch(server, /canEditDashboardJamaah/);
+  assert.doesNotMatch(server, /Edit data jamaah hanya tersedia untuk agent Nikita/);
   assert.match(server, /Edit data hanya tersedia untuk jamaah yang belum DP/);
   assert.match(server, /submitUmrahJamaahEditWithBrowser/);
   assert.match(server, /Gagal menyimpan data ke sistem internal/);
@@ -40,11 +41,11 @@ test('jamaah edit form loader reads same legacy edit form options', () => {
   assert.match(laporanApi, /route=umrah&act=edaftar/);
 });
 
-test('jamaah dashboard opens compact edit page only through Belum DP pencil icons', () => {
+test('jamaah dashboard lets every agent open compact edit pages only through Belum DP pencil icons', () => {
   assert.match(page, /showBelumDpEdit\s*=\s*paymentStatus === 'belum'/);
-  assert.match(page, /canEditJamaah\s*=\s*resolvedAgentSlug\.trim\(\)\.toLowerCase\(\) === 'nikita'/);
-  assert.match(page, /disabled=\{!canEditJamaah\}/);
-  assert.match(page, /Edit data jamaah hanya tersedia untuk agent Nikita/);
+  assert.doesNotMatch(page, /canEditJamaah/);
+  assert.doesNotMatch(page, /disabled=\{!canEditJamaah\}/);
+  assert.doesNotMatch(page, /Edit data jamaah hanya tersedia untuk agent Nikita/);
   assert.match(page, /renderBelumDpEditIcon\(item/);
   assert.match(page, /Edit data jamaah belum DP/);
   assert.match(page, /goTo\(`\/dashboard\/jamaah\/edit\/\$\{encodeURIComponent\(item\.id\)\}`\)/);
@@ -83,7 +84,9 @@ test('jamaah edit route renders a compact page with the same visible fields as n
   assert.match(editPage, /Pengalaman Umrah/);
   assert.match(editPage, /Remarks/);
   assert.match(editPage, /<Save size=\{16\}/);
-  assert.match(editPage, /Menyimpan ke sistem internal/);
+  assert.match(editPage, /Menyimpan perubahan/);
+  assert.match(editPage, /Data jamaah sedang diperbarui/);
+  assert.doesNotMatch(editPage, /Menyimpan ke sistem internal/);
   assert.match(editPage, /FilterDropdown/);
   assert.match(editPage, /inputSkin/);
   assert.match(filterDropdown, /inputSkin\?: boolean/);
@@ -100,6 +103,17 @@ test('jamaah edit route renders a compact page with the same visible fields as n
   assert.doesNotMatch(editPage, /renderSelect\('kab'/);
   assert.doesNotMatch(editPage, /renderSelect\('kec'/);
   assert.doesNotMatch(editPage, /renderSelect\('kel'/);
+});
+
+test('jamaah edit route uses a layout-stable skeleton while its code and data load', () => {
+  assert.match(dashboardLayout, /isJamaahEdit \? <JamaahEditSkeleton \/>/);
+  assert.match(editPage, /if \(loading\) \{\s*return <JamaahEditSkeleton \/>/);
+  assert.match(editSkeleton, /role="status"/);
+  assert.match(editSkeleton, /animate-pulse/);
+  assert.match(editSkeleton, /bg-gray-100 dark:bg-slate-900/);
+  assert.match(editSkeleton, /rounded-2xl/);
+  assert.match(editSkeleton, /h-\[42px\]/);
+  assert.match(editSkeleton, /h-\[84px\]/);
 });
 
 test('jamaah edit write-back uses legacy browser form with recaptcha', () => {

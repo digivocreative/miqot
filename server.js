@@ -10239,10 +10239,6 @@ function isDashboardBelumDpJamaah(row) {
     && !hasNeutralizedNewAwapiPayment(row);
 }
 
-function canEditDashboardJamaah(agent) {
-  return String(agent?.slug || '').trim().toLowerCase() === 'nikita';
-}
-
 app.get('/api/laporan/jamaah/:rowId/edit-form', authMiddleware, async (req, res) => {
   try {
     const agentId = req.user.id;
@@ -10272,9 +10268,6 @@ app.get('/api/laporan/jamaah/:rowId/edit-form', authMiddleware, async (req, res)
 
     const agent = await getAgentById(agentId);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    if (!canEditDashboardJamaah(agent)) {
-      return res.status(403).json({ error: 'Edit data jamaah hanya tersedia untuk agent Nikita' });
-    }
     const sess = await ensureLegacySession(agent);
     if (!sess.success) return res.status(400).json({ error: sess.error });
 
@@ -10328,9 +10321,6 @@ app.post('/api/laporan/jamaah/update', authMiddleware, async (req, res) => {
 
     const agent = await getAgentById(agentId);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    if (!canEditDashboardJamaah(agent)) {
-      return res.status(403).json({ error: 'Edit data jamaah hanya tersedia untuk agent Nikita' });
-    }
 
     const nama = normalizeDashboardUpperText(req.body?.nama, 120);
     if (!nama) return res.status(400).json({ error: 'Nama jamaah wajib diisi' });

@@ -11,6 +11,7 @@ import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
 import type { Birthday } from './BirthdayWidget';
 import { trackEvent } from '../utils/analytics';
+import JamaahEditSkeleton from './JamaahEditSkeleton';
 
 function getLocalStorageItem(key: string): string | null {
   try {
@@ -689,7 +690,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
         {/* Sub-page content */}
         <main className="max-w-lg mx-auto">
-          <Suspense fallback={<div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-emerald-500" /></div>}>
+          <Suspense fallback={isJamaahEdit ? <JamaahEditSkeleton /> : <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-emerald-500" /></div>}>
           {activeTab === 'settings' && (
             <SettingsPage agent={agentData} onUpdated={refreshAgent} initialTab={getSettingsTabFromPath()} />
           )}

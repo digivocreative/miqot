@@ -3,6 +3,7 @@ import { AlertCircle, Loader2, Save, XCircle } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { normalizeWaNumber } from '../utils/phone';
 import FilterDropdown from './FilterDropdown';
+import JamaahEditSkeleton from './JamaahEditSkeleton';
 
 type EditOption = { value: string; label: string };
 
@@ -346,19 +347,13 @@ export default function JamaahEditPage({
     }
   };
 
+  if (loading) {
+    return <JamaahEditSkeleton />;
+  }
+
   return (
     <div className="px-4 pt-4 pb-8">
       <form onSubmit={handleSubmit} className="space-y-3">
-        {(loading || saving) && (
-          <div className="relative overflow-hidden rounded-xl border border-emerald-100 bg-emerald-50/80 p-3 text-xs font-medium text-emerald-700 dark:border-emerald-800/50 dark:bg-emerald-900/20 dark:text-emerald-300">
-            {saving && <div className="absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/50 to-transparent dark:via-emerald-500/10" />}
-            <span className="relative inline-flex items-center gap-2">
-              <Loader2 size={14} className="animate-spin" />
-              {saving ? 'Menyimpan ke sistem internal...' : 'Memuat data jamaah...'}
-            </span>
-          </div>
-        )}
-
         {error && (
           <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
             <AlertCircle size={14} className="mt-0.5 shrink-0" />
@@ -403,26 +398,41 @@ export default function JamaahEditPage({
         </section>
 
         <div className="sticky bottom-0 -mx-4 flex gap-2 border-t border-gray-100 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
-          <button
-            type="button"
-            onClick={onBack}
-            disabled={saving}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gray-100 py-3 text-sm font-bold text-gray-700 transition-all duration-200 hover:bg-gray-200 active:scale-95 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-          >
-            <XCircle size={16} />
-            Batal
-          </button>
-          <button
-            type="submit"
-            disabled={disabled || !rowId || !fullName}
-            className="relative flex flex-1 items-center justify-center gap-2 overflow-hidden rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {saving && <span className="absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/25 to-transparent" />}
-            <span className="relative inline-flex items-center gap-1.5">
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              {saving ? 'Menyimpan...' : 'Simpan'}
-            </span>
-          </button>
+          {saving ? (
+            <div
+              className="relative flex h-12 w-full items-center gap-3 overflow-hidden rounded-xl border border-emerald-200 bg-emerald-50 px-3 dark:border-emerald-800/60 dark:bg-emerald-900/20"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/70 to-transparent dark:via-emerald-400/10" />
+              <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500 text-white shadow-sm shadow-emerald-500/25">
+                <Loader2 size={16} className="animate-spin" />
+              </span>
+              <span className="relative min-w-0 leading-tight">
+                <span className="block text-xs font-bold text-emerald-700 dark:text-emerald-300">Menyimpan perubahan</span>
+                <span className="mt-0.5 block text-[10px] font-medium text-emerald-600/75 dark:text-emerald-400/70">Data jamaah sedang diperbarui</span>
+              </span>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={onBack}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gray-100 py-3 text-sm font-bold text-gray-700 transition-all duration-200 hover:bg-gray-200 active:scale-95 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+              >
+                <XCircle size={16} />
+                Batal
+              </button>
+              <button
+                type="submit"
+                disabled={disabled || !rowId || !fullName}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                <Save size={16} />
+                Simpan
+              </button>
+            </>
+          )}
         </div>
       </form>
     </div>

@@ -6,6 +6,7 @@ import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber } from '../utils/phone';
 import { flightCardDateKey, flightCardDisplayDateValue, flightCardGroupKey } from '../lib/flightCardDate';
 import { summarizeFlightShareGroup } from '../lib/flightShareSummary';
+import { selectActiveFlightSegment } from '../lib/flightActiveSegment';
 
 const FlightMap = lazy(() => import('./FlightMap'));
 
@@ -37,6 +38,8 @@ interface FlightSegmentData {
   calendarDepTime?: string;
   calendarArrTime?: string;
   routeLabel?: string | null;
+  eventDate?: string;
+  depDate?: string;
 }
 
 interface FlightData extends FlightSegmentData {
@@ -129,7 +132,7 @@ function formatDuration(minutes: number | null | undefined): string | null {
 
 // ── RouteLine SVG ──
 
-function RouteLine({ flight }: { flight: FlightData }) {
+function RouteLine({ flight }: { flight: Pick<FlightSegmentData, 'status' | 'progress'> }) {
   const w = 100, h = 16;
   const x1 = 4, x2 = w - 4;
   const prog = flight.progress / 100;
@@ -261,6 +264,26 @@ function groupFlights(flights: FlightData[]): FlightData[][] {
     return dateA.localeCompare(dateB);
   });
   return grouped;
+}
+
+function flightWithActiveSegment(flight: FlightData): FlightData {
+  const segments = flight.segments?.length ? flight.segments : [];
+  if (segments.length <= 1) return flight;
+
+  const active = selectActiveFlightSegment<FlightSegmentData>(flight, segments);
+  if (active === flight) return flight;
+
+  return {
+    ...flight,
+    ...active,
+    id: flight.id,
+    cardKey: flight.cardKey,
+    group: flight.group,
+    pax: flight.pax,
+    tourLeader: flight.tourLeader,
+    jamaah: flight.jamaah,
+    segments: flight.segments,
+  };
 }
 
 function FlightSegmentRows({ segments }: { segments: FlightSegmentData[] }) {
@@ -803,12 +826,13 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
             const first = group[0];
             const segments = first.segments?.length ? first.segments : [];
             const hasSegmentRows = segments.length > 1;
-            const sc = STATUS_CFG[first.status] || STATUS_CFG.scheduled;
+            const summaryFlight = flightWithActiveSegment(first);
+            const sc = STATUS_CFG[summaryFlight.status] || STATUS_CFG.scheduled;
             const totalPax = group.reduce((sum, f) => sum + (f.pax ?? 0), 0);
-            const depTime = formatTime(first.depActual || first.depScheduled);
-            const arrTime = formatTime(first.arrEstimated || first.arrScheduled);
+            const depTime = formatTime(summaryFlight.depActual || summaryFlight.depScheduled);
+            const arrTime = formatTime(summaryFlight.arrEstimated || summaryFlight.arrScheduled);
             const groupKey = `${first.flightNumber}-${flightCardDateKey(first)}`;
-            const flightKey = `${first.flightNumber}_${flightCardDateKey(first)}`;
+            const flightKey = `${summaryFlight.flightNumber}_${flightCardDateKey(summaryFlight)}`;
             const isExpanded = expandedFlight === groupKey;
 
             return (
@@ -825,8 +849,8 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                   onClick={() => {
                     const willExpand = !isExpanded;
                     if (willExpand) {
-                      trackEvent('action', 'view_flight_status', { flight: first.flightNumber });
-                      preGenerateShare(first, group);
+                      trackEvent('action', 'view_flight_status', { flight: summaryFlight.flightNumber });
+                      preGenerateShare(summaryFlight, group);
                     }
                     setExpandedFlight(willExpand ? groupKey : null);
                   }}
@@ -848,15 +872,13 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                     {/* Row 1: flight number + status badge + total pax */}
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span className="min-w-0 truncate text-[13px] font-bold text-gray-800 dark:text-white">
-                        {hasSegmentRows ? (first.transitLabel || 'Transit') : first.flightNumber}
+                        {summaryFlight.flightNumber}
                       </span>
-                      {!hasSegmentRows && (
-                        <span className={`text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide ${sc.bg}`}>
-                          {sc.label}
-                        </span>
-                      )}
-                      {!hasSegmentRows && first.delayed > 0 && (
-                        <span className="text-[9px] font-bold text-red-500 dark:text-red-400">+{first.delayed}m</span>
+                      <span className={`text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide ${sc.bg}`}>
+                        {sc.label}
+                      </span>
+                      {summaryFlight.delayed > 0 && (
+                        <span className="text-[9px] font-bold text-red-500 dark:text-red-400">+{summaryFlight.delayed}m</span>
                       )}
                     </div>
 
@@ -864,19 +886,19 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                     <div className="flex items-center gap-1.5 mt-1">
                       {hasSegmentRows ? (
                         <>
-                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{first.depCode || '—'}</span>
-                          <RouteLine flight={first} />
-                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{first.arrCode || '—'}</span>
+                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.depCode || '—'}</span>
+                          <RouteLine flight={summaryFlight} />
+                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.arrCode || '—'}</span>
                         </>
-                      ) : first.routeLabel ? (
+                      ) : summaryFlight.routeLabel ? (
                         <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400 truncate">
-                          {first.routeLabel}
+                          {summaryFlight.routeLabel}
                         </span>
                       ) : (
                         <>
-                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{first.depCode || '—'}</span>
-                          <RouteLine flight={first} />
-                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{first.arrCode || '—'}</span>
+                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.depCode || '—'}</span>
+                          <RouteLine flight={summaryFlight} />
+                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.arrCode || '—'}</span>
                         </>
                       )}
                     </div>
@@ -885,18 +907,18 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                   {/* Right info — date + chevron */}
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <span className="text-[9px] font-semibold text-gray-400 dark:text-slate-500">
-                      {formatDate(flightCardDisplayDateValue(first))}
+                      {formatDate(flightCardDisplayDateValue(summaryFlight))}
                     </span>
-                    {(first.depTerminal || first.depGate) && (
+                    {(summaryFlight.depTerminal || summaryFlight.depGate) && (
                       <div className="flex items-center gap-1">
-                        {first.depTerminal && (
+                        {summaryFlight.depTerminal && (
                           <span className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
-                            T{first.depTerminal}
+                            T{summaryFlight.depTerminal}
                           </span>
                         )}
-                        {first.depGate && (
+                        {summaryFlight.depGate && (
                           <span className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
-                            {first.depGate}
+                            {summaryFlight.depGate}
                           </span>
                         )}
                       </div>
@@ -1037,7 +1059,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                     >
                       <div className="border-t border-gray-100 dark:border-slate-700/50">
                         <KloterDetail
-                          flight={first}
+                          flight={summaryFlight}
                           shareUrl={shareCache.current[flightKey] || null}
                           shareCopied={copiedFlight === flightKey}
                           shareFailed={shareReady[flightKey] === false}
@@ -1049,9 +1071,9 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                                 delete next[flightKey];
                                 return next;
                               });
-                              await preGenerateShare(first, group);
+                              await preGenerateShare(summaryFlight, group);
                             }
-                            handleShareCopy(first);
+                            handleShareCopy(summaryFlight);
                           }}
                           hasInternalAuth={hasInternalAuth}
                           onAuthRequired={() => setShowAuthAlert(true)}
