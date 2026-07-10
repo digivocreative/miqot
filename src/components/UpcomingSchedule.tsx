@@ -1,10 +1,14 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Plane, User, Users, Clock, X, MapPin } from 'lucide-react';
+import { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Calendar, ChevronLeft, ChevronRight, FileText, Plane, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
 import { airportTerminalLabel } from '../lib/calendarTerminal';
+import { formatCalendarMeetingPoint, formatCalendarPrimaryPerson } from '../lib/calendarPeople';
+
+const ItineraryModal = lazy(() => import('./ItineraryModal').then(module => ({ default: module.ItineraryModal })));
 
 interface EventDetail {
+  jadwal_id: string | null;
   group_number: string | null;
   pesawat: string | null;
   jam: string | null;
@@ -22,6 +26,7 @@ interface EventDetail {
   arrival_airport_code: string | null;
   arrival_airport_city: string | null;
   arrival_terminal: string | null;
+  itinerary_url: string | null;
 }
 
 // pax legacy = kuota grup nasional, bukan jumlah jamaah. Tampilkan kursi
@@ -118,6 +123,7 @@ export default function UpcomingSchedule() {
   const [activeTab, setActiveTab] = useState<TabKey>('keberangkatan');
   const [calendarData, setCalendarData] = useState<Record<string, CalendarEvent[]>>({});
   const [loading, setLoading] = useState(true);
+  const [activeItinerary, setActiveItinerary] = useState<{ url: string; title: string } | null>(null);
   const calendarDataRef = useRef(calendarData);
   calendarDataRef.current = calendarData;
 
@@ -416,20 +422,31 @@ export default function UpcomingSchedule() {
                     {activeDetails.map((detail, i) => {
                       const paket = parsePaket(detail.paket);
                       // Data legacy memprefiks nama tour leader dengan "•  " — buang
-                      const tourLeader = (detail.tour_leader || '').replace(/^[•\s]+/, '').trim();
-                      const hasTourLeader = !!tourLeader && tourLeader !== '-';
+                      const tourLeader = formatCalendarPrimaryPerson(detail.tour_leader);
+                      const hasTourLeader = !!tourLeader;
+                      const mutawif = formatCalendarPrimaryPerson(detail.staff);
+                      const meetingPoint = formatCalendarMeetingPoint(detail.titik_kumpul);
                       const airportTerminalText = airportTerminalLabel(detail, activeTab);
                       return (
                       <div
                         key={i}
-                        className={`px-4 py-3 flex gap-3 items-start hover:bg-gray-50 dark:hover:bg-slate-700/40 transition-colors ${
+                        className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700/40 transition-colors ${
                           i > 0 ? 'border-t border-gray-100 dark:border-slate-700' : ''
                         }`}
                       >
                         {/* Center — Info */}
                         <div className="flex-1 min-w-0">
-                          {/* Pesawat */}
+                          {/* Kloter + pesawat */}
                           <div className="flex items-center gap-1.5 text-[10px]">
+                            {detail.group_number && (
+                              <>
+                                <span className={`flex shrink-0 items-center gap-1 font-bold ${tabConfig.textColor} ${tabConfig.textColorDark}`}>
+                                  <Users size={10} className="shrink-0" />
+                                  KLOTER {detail.group_number}
+                                </span>
+                                <span className="text-gray-300 dark:text-slate-600">·</span>
+                              </>
+                            )}
                             <Plane size={11} className={`${tabConfig.iconColor} shrink-0`} />
                             <span className="font-bold text-gray-800 dark:text-white truncate">{detail.pesawat || '-'}</span>
                           </div>
@@ -437,31 +454,32 @@ export default function UpcomingSchedule() {
                           <p className="text-[10px] text-gray-600 dark:text-slate-300 mt-1 leading-relaxed">
                             {paket.name}
                           </p>
-                          {/* Jam kumpul + titik kumpul + takeoff (1 baris merged) */}
+                          {/* Waktu/lokasi kumpul, lalu takeoff/terminal pada baris terpisah */}
                           {activeTab === 'keberangkatan' && detail.jam ? (
-                            <div className="flex items-center gap-1 flex-wrap text-[11px] text-gray-500 dark:text-slate-400 mt-1.5">
+                            <div className="mt-1.5 space-y-1 text-[11px] text-gray-500 dark:text-slate-400">
                               {detail.jam_kumpul ? (
-                                <>
+                                <div className="flex flex-wrap items-center gap-1">
                                   <span>Kumpul</span>
                                   <span className="font-semibold text-emerald-600 dark:text-emerald-400">{detail.jam_kumpul}</span>
-                                  {detail.titik_kumpul && (
+                                  {meetingPoint && (
                                     <>
                                       <span>di</span>
-                                      <span className="text-gray-600 dark:text-slate-300">{detail.titik_kumpul}</span>
+                                      <span className="text-gray-600 dark:text-slate-300">{meetingPoint}</span>
                                     </>
                                   )}
-                                  <span className="text-gray-300 dark:text-slate-600 mx-0.5">·</span>
-                                </>
+                                </div>
                               ) : null}
-                              <span>Take off</span>
-                              <span className="font-semibold text-gray-700 dark:text-slate-200">{detail.jam}</span>
-                              {airportTerminalText && (
-                                <>
-                                  <span className="text-gray-300 dark:text-slate-600 mx-0.5">·</span>
-                                  <MapPin size={10} className={`${tabConfig.iconColor} shrink-0`} />
-                                  <span>{airportTerminalText}</span>
-                                </>
-                              )}
+                              <div className="flex flex-wrap items-center gap-1">
+                                <span>Take off</span>
+                                <span className="font-semibold text-gray-700 dark:text-slate-200">{detail.jam}</span>
+                                {airportTerminalText && (
+                                  <>
+                                    <span className="text-gray-300 dark:text-slate-600 mx-0.5">·</span>
+                                    <MapPin size={10} className={`${tabConfig.iconColor} shrink-0`} />
+                                    <span>{airportTerminalText}</span>
+                                  </>
+                                )}
+                              </div>
                             </div>
                           ) : (
                             <div className="flex items-center gap-1 flex-wrap text-[11px] text-gray-500 dark:text-slate-400 mt-1.5">
@@ -485,33 +503,51 @@ export default function UpcomingSchedule() {
                               )}
                             </div>
                           )}
-                          {/* Kloter + Tour Leader */}
-                          {(detail.group_number || hasTourLeader) && (
-                            <div className="flex items-center gap-1 text-[10px] text-gray-600 dark:text-slate-300 mt-1">
-                              {detail.group_number && (
-                                <>
-                                  <Users size={10} className={`shrink-0 ${tabConfig.textColor} ${tabConfig.textColorDark}`} />
-                                  <span className={`font-bold ${tabConfig.textColor} ${tabConfig.textColorDark}`}>KLOTER {detail.group_number}</span>
-                                </>
-                              )}
-                              {detail.group_number && hasTourLeader && (
-                                <span className="text-gray-300 dark:text-slate-600 mx-0.5">·</span>
-                              )}
-                              {hasTourLeader && (
-                                <>
-                                  <User size={10} className="shrink-0" />
-                                  <span>{tourLeader}</span>
-                                </>
-                              )}
-                            </div>
-                          )}
                         </div>
 
-                        {/* Right — PAX */}
-                        <div className="flex-shrink-0 text-right pt-0.5">
-                          <div className="text-lg font-extrabold text-gray-800 dark:text-white leading-none">{displayPax(detail)}</div>
-                          <div className="text-[8px] font-bold text-gray-500 dark:text-slate-400 uppercase mt-0.5">PAX</div>
+                        {/* Right — PAX + itinerary */}
+                        <div className="flex flex-shrink-0 flex-col items-end text-right pt-0.5">
+                          {detail.itinerary_url && (
+                            <button
+                              type="button"
+                              onClick={() => setActiveItinerary({
+                                url: detail.itinerary_url as string,
+                                title: paket.name,
+                              })}
+                              className={`flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[8px] font-extrabold tracking-wide transition-colors hover:bg-emerald-100 active:scale-95 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/40 ${tabConfig.textColor} ${tabConfig.textColorDark}`}
+                            >
+                              <FileText size={9} strokeWidth={2.5} />
+                              ITINERARY
+                            </button>
+                          )}
+                          <div className="mt-auto">
+                            <div className="text-lg font-extrabold text-gray-800 dark:text-white leading-none">{displayPax(detail)}</div>
+                            <div className="text-[8px] font-bold text-gray-500 dark:text-slate-400 uppercase mt-0.5">PAX</div>
+                          </div>
                         </div>
+
+                        {/* Pendamping rombongan — satu baris rapat tanpa teks saling menimpa */}
+                        {(hasTourLeader || activeTab === 'keberangkatan') && (
+                          <div className="col-span-2 mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[10px] leading-relaxed text-gray-600 dark:text-slate-300">
+                            {hasTourLeader && (
+                              <span className="flex min-w-0 items-center gap-1 overflow-hidden">
+                                <User size={10} className={`shrink-0 ${tabConfig.textColor} ${tabConfig.textColorDark}`} />
+                                <span className="truncate font-medium">{tourLeader}</span>
+                              </span>
+                            )}
+                            {hasTourLeader && activeTab === 'keberangkatan' && (
+                              <span className="shrink-0 text-gray-300 dark:text-slate-600">·</span>
+                            )}
+                            {activeTab === 'keberangkatan' && (
+                              <span className="flex min-w-0 items-center gap-1 overflow-hidden">
+                                <UserCheck size={10} className={`shrink-0 ${tabConfig.textColor} ${tabConfig.textColorDark}`} />
+                                <span className={`truncate ${mutawif ? 'font-medium' : 'italic text-gray-400 dark:text-slate-500'}`}>
+                                  {mutawif ? <>UST. {mutawif}</> : 'Belum ditentukan'}
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                       );
                     })}
@@ -532,6 +568,16 @@ export default function UpcomingSchedule() {
           </>
         )}
       </AnimatePresence>
+      {activeItinerary && (
+        <Suspense fallback={null}>
+          <ItineraryModal
+            isOpen={true}
+            onClose={() => setActiveItinerary(null)}
+            fileUrl={activeItinerary.url}
+            title={activeItinerary.title}
+          />
+        </Suspense>
+      )}
     </>
   );
 }

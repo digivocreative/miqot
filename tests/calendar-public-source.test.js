@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   applyOriginRewrite,
   buildPublicModalUrl,
+  fetchPublicEventDetail,
   parsePublicCalendarEventsFromHtml,
   parsePublicEventDetailHTML,
   CALENDAR_PUBLIC_ORIGIN_IP,
@@ -83,6 +84,25 @@ const MANASIK_MODAL_HTML = `
   </tbody>
 </table>`;
 
+const MUTAWIF_MODAL_HTML = `
+<table class="w-100 tablex">
+  <thead>
+    <tr>
+      <th>GROUP</th><th>PESAWAT</th><th>WAKTU</th><th>PAKET</th><th>PAX</th><th>TL</th><th>MUTAWIF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>13</td><td>SAUDIA ~ SV 827</td><td>00.40</td><td>REGULER 9HR</td><td>41</td>
+      <td>• NIKESARI MARZUHENDA MARZUKI</td><td>• HANAFI FAUZAN</td>
+    </tr>
+    <tr>
+      <td>14</td><td>SAUDIA ~ SV 827</td><td>00.41</td><td>PROMO UMRAH 9 HARI</td><td>48</td>
+      <td>• YULIA SUSANTI</td><td>• ABDULBAITS JAZULI</td>
+    </tr>
+  </tbody>
+</table>`;
+
 test('parsePublicCalendarEventsFromHtml extracts public FullCalendar events and skips invalid dates', () => {
   const events = parsePublicCalendarEventsFromHtml(PAGE_HTML);
 
@@ -117,6 +137,51 @@ test('parsePublicEventDetailHTML maps public WAKTU header into jam', () => {
     staff: '-',
     tour_leader: '• SUSTEN MARYANI MASCIK',
   });
+});
+
+test('parsePublicEventDetailHTML maps current MUTAWIF header into the legacy staff field', () => {
+  const rows = parsePublicEventDetailHTML(MUTAWIF_MODAL_HTML);
+
+  assert.deepEqual(
+    rows.map(row => [row.group_number, row.tour_leader, row.staff]),
+    [
+      ['13', '• NIKESARI MARZUHENDA MARZUKI', '• HANAFI FAUZAN'],
+      ['14', '• YULIA SUSANTI', '• ABDULBAITS JAZULI'],
+    ],
+  );
+});
+
+test('fetchPublicEventDetail prefers the canonical domain so current MUTAWIF data wins', async () => {
+  const urls = [];
+  const rows = await fetchPublicEventDetail(
+    { aid: 'B1559', date: '2026-07-11', type: 'keberangkatan', apalah: 'JBU1559,JBU1522' },
+    async url => {
+      urls.push(url);
+      return new Response(MUTAWIF_MODAL_HTML, { status: 200 });
+    },
+  );
+
+  assert.equal(new URL(urls[0]).hostname, 'alhijazindowisata.com');
+  assert.equal(urls.length, 1);
+  assert.equal(rows[0].staff, '• HANAFI FAUZAN');
+});
+
+test('fetchPublicEventDetail falls back to the configured origin when the canonical domain is blocked', async () => {
+  const urls = [];
+  const rows = await fetchPublicEventDetail(
+    { aid: 'B1559', date: '2026-07-11', type: 'keberangkatan', apalah: 'JBU1559,JBU1522' },
+    async url => {
+      urls.push(url);
+      if (new URL(url).hostname === 'alhijazindowisata.com') {
+        return new Response('blocked', { status: 403 });
+      }
+      return new Response(DEPARTURE_MODAL_HTML, { status: 200 });
+    },
+  );
+
+  assert.equal(urls.length, 2);
+  assert.equal(new URL(urls[1]).hostname, CALENDAR_PUBLIC_ORIGIN_IP);
+  assert.equal(rows[0].tour_leader, '• SUSTEN MARYANI MASCIK');
 });
 
 test('parsePublicEventDetailHTML preserves manasik departure prefix as DD/MM/YYYY package convention', () => {

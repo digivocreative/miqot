@@ -7654,7 +7654,11 @@ app.get('/api/calendar/events', dbLoadShedGuard, authMiddleware, async (req, res
       }
       const airportInfo = calendarAirportInfoForEvent(ev, scheduleById, flightStatusById, itineraryTerminalById);
       const schedule = ev.jadwal_id ? scheduleById.get(String(ev.jadwal_id)) : null;
+      const itineraryUrl = schedule?.itinerary_cdn
+        ? appendUrlVersion(schedule.itinerary_cdn, schedule.itinerary_source_sha256)
+        : schedule?.itinerary || null;
       grouped[key].details.push({
+        jadwal_id: ev.jadwal_id || null,
         group_number: ev.group_number,
         pesawat: ev.pesawat,
         jam: calendarJamForEvent(ev, schedule),
@@ -7666,6 +7670,7 @@ app.get('/api/calendar/events', dbLoadShedGuard, authMiddleware, async (req, res
         tour_leader: ev.tour_leader,
         jam_kumpul: ev.jam_kumpul || null,
         titik_kumpul: ev.titik_kumpul || null,
+        itinerary_url: itineraryUrl,
         ...airportInfo,
       });
     }
@@ -8822,6 +8827,9 @@ const FLIGHT_SCHEDULE_SELECT = [
   'jadwal_id',
   'year_code',
   'jadwal_nama',
+  'itinerary',
+  'itinerary_cdn',
+  'itinerary_source_sha256',
   'maskapai',
   'berangkat_jam',
   'berangkat_rute',
