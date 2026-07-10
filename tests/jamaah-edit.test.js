@@ -9,14 +9,18 @@ const editSkeleton = readFileSync(new URL('../src/components/JamaahEditSkeleton.
 const dashboardLayout = readFileSync(new URL('../src/components/DashboardLayout.tsx', import.meta.url), 'utf8');
 const filterDropdown = readFileSync(new URL('../src/components/FilterDropdown.tsx', import.meta.url), 'utf8');
 const laporanApi = readFileSync(new URL('../laporan-api.js', import.meta.url), 'utf8');
+const editUpdateRoute = server.slice(
+  server.indexOf("app.post('/api/laporan/jamaah/update'"),
+  server.indexOf('// Jamaah note:', server.indexOf("app.post('/api/laporan/jamaah/update'")),
+);
 
-test('jamaah edit endpoint is agent-scoped, available to every agent, and stores manual biodata overrides', () => {
+test('jamaah edit endpoint is agent-scoped, supports every payment status, and stores manual biodata overrides', () => {
   assert.match(server, /app\.post\('\/api\/laporan\/jamaah\/update', authMiddleware/);
   assert.match(server, /\.eq\('id', rowId\)\s*\.eq\('agent_id', agentId\)/);
-  assert.match(server, /isDashboardBelumDpJamaah\(existing\)/);
+  assert.doesNotMatch(server, /isDashboardBelumDpJamaah/);
   assert.doesNotMatch(server, /canEditDashboardJamaah/);
   assert.doesNotMatch(server, /Edit data jamaah hanya tersedia untuk agent Nikita/);
-  assert.match(server, /Edit data hanya tersedia untuk jamaah yang belum DP/);
+  assert.doesNotMatch(server, /Edit data hanya tersedia untuk jamaah yang belum DP/);
   assert.match(server, /submitUmrahJamaahEditWithBrowser/);
   assert.match(server, /Gagal menyimpan data ke sistem internal/);
   assert.match(server, /internal_edit_updated_at/);
@@ -39,15 +43,22 @@ test('jamaah edit form loader reads same legacy edit form options', () => {
   assert.match(laporanApi, /export async function fetchUmrahJamaahEditForm/);
   assert.match(laporanApi, /collectLegacyFormFields/);
   assert.match(laporanApi, /route=umrah&act=edaftar/);
+  assert.match(server, /result\.values\?\.diskon_marketing \?\? result\.values\?\.diskon/);
+  assert.match(server, /String\(existing\.diskon_marketing \?\? 0\)/);
+  assert.match(server, /readOnly:\s*\{\s*diskonMarketing: displayDiskonMarketing/);
 });
 
-test('jamaah dashboard lets every agent open compact edit pages only through Belum DP pencil icons', () => {
+test('jamaah dashboard exposes edit for every payment status and removes card-level add actions', () => {
   assert.match(page, /showBelumDpEdit\s*=\s*paymentStatus === 'belum'/);
   assert.doesNotMatch(page, /canEditJamaah/);
   assert.doesNotMatch(page, /disabled=\{!canEditJamaah\}/);
   assert.doesNotMatch(page, /Edit data jamaah hanya tersedia untuk agent Nikita/);
-  assert.match(page, /renderBelumDpEditIcon\(item/);
-  assert.match(page, /Edit data jamaah belum DP/);
+  assert.match(page, /renderJamaahEditIcon\(item/);
+  assert.match(page, /onClick=\{\(\) => openEditJamaah\(item\)\}/);
+  assert.match(page, /<span className="whitespace-nowrap">Edit<\/span>/);
+  assert.doesNotMatch(page, /Tambah jamaah ke ID Umroh/);
+  assert.doesNotMatch(page, /<UserPlus/);
+  assert.doesNotMatch(page, /getLegacyAddIdb/);
   assert.match(page, /goTo\(`\/dashboard\/jamaah\/edit\/\$\{encodeURIComponent\(item\.id\)\}`\)/);
   assert.doesNotMatch(page, /jamaah-edit-modal/);
   assert.match(page, /formatJamaahPhone/);
@@ -65,7 +76,13 @@ test('jamaah edit route renders a compact page with the same visible fields as n
   assert.match(editPage, /formatPhoneForInput/);
   assert.doesNotMatch(editPage, /formatWaDisplay/);
   assert.match(editPage, /key === 'wa' \? e\.target\.value\.replace\(\/\\s\+\/g, ''\)/);
-  assert.match(editPage, /tpendaftar:\s*hidden\.tpendaftar \|\| form\.wa \|\| '1111111111'/);
+  assert.match(editPage, /function normalizeOptionalPhone/);
+  assert.match(editPage, /tpendaftar:\s*normalizeOptionalPhone\(values\.tpendaftar\)/);
+  assert.match(editPage, /tpendaftar:\s*hidden\.tpendaftar \|\| form\.wa \|\| null/);
+  assert.doesNotMatch(editPage, /tpendaftar:\s*hidden\.tpendaftar \|\| form\.wa \|\| '1111111111'/);
+  assert.match(server, /const submittedPendaftarPhone = normalizeDashboardJamaahPhone\(req\.body\?\.tpendaftar\)/);
+  assert.match(server, /submittedPendaftarPhone\.error \|\| submittedPendaftarPhone\.value === null/);
+  assert.match(server, /\? \{ value: phone\.value \}/);
   assert.match(editPage, /nama:\s*fullName/);
   assert.match(editPage, /Edit Data Jamaah/);
   assert.match(editPage, /Nama Depan/);
@@ -83,6 +100,12 @@ test('jamaah edit route renders a compact page with the same visible fields as n
   assert.match(editPage, /Pendamping \(Keberangkatan\)/);
   assert.match(editPage, /Pengalaman Umrah/);
   assert.match(editPage, /Remarks/);
+  assert.match(editPage, /Disc\. Marketing/);
+  assert.match(editPage, /value=\{meta\.readOnly\.diskonMarketing\}/);
+  assert.match(editPage, /value=\{meta\.readOnly\.diskonMarketing\}[\s\S]*?disabled/);
+  assert.doesNotMatch(editPage, /diskon_marketing/);
+  assert.doesNotMatch(editUpdateRoute, /legacyFields\.diskon/);
+  assert.doesNotMatch(editUpdateRoute, /diskon_marketing/);
   assert.match(editPage, /<Save size=\{16\}/);
   assert.match(editPage, /Menyimpan perubahan/);
   assert.match(editPage, /Data jamaah sedang diperbarui/);
@@ -114,6 +137,7 @@ test('jamaah edit route uses a layout-stable skeleton while its code and data lo
   assert.match(editSkeleton, /rounded-2xl/);
   assert.match(editSkeleton, /h-\[42px\]/);
   assert.match(editSkeleton, /h-\[84px\]/);
+  assert.ok((editSkeleton.match(/labelWidth:/g) || []).length >= 16);
 });
 
 test('jamaah edit write-back uses legacy browser form with recaptcha', () => {

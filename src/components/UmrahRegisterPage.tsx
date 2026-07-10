@@ -1,6 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Loader2, Upload, X, CheckCircle2, AlertCircle, Camera, Sparkles, Search, ChevronDown, Check, Mars, Venus, Save, XCircle, Wand2, UserPlus } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import {
+  MARKETING_DISCOUNT_MAX,
+  MARKETING_DISCOUNT_MIN,
+  MARKETING_DISCOUNT_QUICK_AMOUNTS,
+  formatMarketingDiscountInput,
+  formatMarketingDiscountRupiah,
+  getMarketingDiscountError,
+  normalizeMarketingDiscountInput,
+} from '../lib/marketingDiscount';
 
 type ViewMode = 'form' | 'ocr-processing';
 
@@ -42,6 +51,7 @@ interface FieldDef {
   section: 'pendaftaran' | 'jamaah' | 'alamat' | 'paket' | 'pendaftar' | 'auto' | 'lainnya';
   order: number;
   required?: boolean;
+  visible?: boolean;    // Render optional fields that agents still need to fill manually
   placeholder?: string;
   skip?: boolean;
   searchable?: boolean; // For selects with many options (e.g. tgl berangkat)
@@ -112,8 +122,8 @@ const FIELD_CONFIG: Record<string, FieldDef> = {
   harga_perlengkapan: { label: 'Perlengkapan & Handling', section: 'paket', order: 42, placeholder: 'Harga perlengkapan' },
   lain:          { label: 'Lainnya', section: 'paket', order: 43, placeholder: 'Harga Lainnya' },
   lainnya:       { label: 'Lainnya', section: 'paket', order: 43, placeholder: 'Harga Lainnya' },
-  diskon:        { label: 'Disc. Marketing', section: 'paket', order: 44, placeholder: 'Masukan diskon marketing' },
-  diskon_marketing: { label: 'Disc. Marketing', section: 'paket', order: 44, placeholder: 'Masukan diskon marketing' },
+  diskon:        { label: 'Disc. Marketing', section: 'paket', order: 44, visible: true, placeholder: 'Masukkan diskon marketing' },
+  diskon_marketing: { label: 'Disc. Marketing', section: 'paket', order: 44, visible: true, placeholder: 'Masukkan diskon marketing' },
   marketing:     { label: 'Marketing', section: 'paket', order: 45, required: true, searchable: true },
   vmarketing:    { label: 'Marketing', section: 'paket', order: 45, required: true, searchable: true },
   koordinator:   { label: 'Koordinator', section: 'paket', order: 46, required: true, searchable: true },
@@ -142,7 +152,7 @@ const SECTION_TITLES: Record<string, string> = {
   pendaftaran: 'Info Pendaftaran',
   jamaah: 'Data Jamaah',
   alamat: 'Alamat',
-  paket: 'Paket',
+  paket: 'Diskon',
   pendaftar: 'Info Pendaftar',
   auto: 'Info Otomatis',
   lainnya: 'Lainnya',
@@ -176,7 +186,7 @@ const LABEL_CLASS_INLINE = 'flex items-center gap-1.5 text-xs font-semibold text
 const DUMMY_BTN_CLASS = 'flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 uppercase tracking-wide px-2 py-0.5 rounded-md hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors';
 
 // Labels that should NOT show the Insert (dummy-generate) button
-const NO_INSERT_BTN_LABELS = new Set(['Jenis Kelamin', 'Tanggal Berangkat', 'Paket Umroh']);
+const NO_INSERT_BTN_LABELS = new Set(['Jenis Kelamin', 'Tanggal Berangkat', 'Paket Umroh', 'Disc. Marketing']);
 
 type AutoFillGender = 'male' | 'female';
 
@@ -603,7 +613,10 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
       // Pre-selected values from legacy form (e.g. vjadwal when .idb binds a parent jadwal)
       const preSelected = data.data.selectedValues || {};
       for (const [name, value] of Object.entries(preSelected as Record<string, string>)) {
-        if (value) defaults[name] = value;
+        if (!value) continue;
+        defaults[name] = getFieldDef(name).label === 'Disc. Marketing'
+          ? normalizeMarketingDiscountInput(value)
+          : value;
       }
 
       if (Object.keys(defaults).length > 0) {
@@ -1058,22 +1071,36 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
     return empty;
   };
 
+  const getInvalidMarketingDiscountFields = (): Record<string, string> => {
+    if (!options) return {};
+    const invalid: Record<string, string> = {};
+    for (const name of Object.keys(options.inputs)) {
+      if (getFieldDef(name).label !== 'Disc. Marketing') continue;
+      const message = getMarketingDiscountError(fields[name] || '');
+      if (message) invalid[name] = message;
+    }
+    return invalid;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!options) return;
     setError('');
 
-    // ── Client-side validation: required fields must be filled ──
+    // ── Client-side validation: required fields + optional marketing discount ──
     const emptyFields = getEmptyRequiredFields();
-    if (emptyFields.length > 0) {
-      const errorMap: Record<string, string> = {};
+    const errorMap: Record<string, string> = getInvalidMarketingDiscountFields();
+    if (emptyFields.length > 0 || Object.keys(errorMap).length > 0) {
       for (const name of emptyFields) {
         errorMap[name] = 'Wajib diisi';
       }
       setFieldErrors(errorMap);
-      setError(`Lengkapi ${emptyFields.length} field yang wajib diisi sebelum submit.`);
+      const discountIsInvalid = Object.values(errorMap).some(message => /^(Minimal|Maksimal)/.test(message));
+      setError(discountIsInvalid
+        ? `Nominal Disc. Marketing harus ${formatMarketingDiscountRupiah(MARKETING_DISCOUNT_MIN)}–${formatMarketingDiscountRupiah(MARKETING_DISCOUNT_MAX)}.`
+        : `Lengkapi ${emptyFields.length} field yang wajib diisi sebelum submit.`);
       // Scroll to first empty field
-      const firstEmpty = emptyFields[0];
+      const firstEmpty = emptyFields[0] || Object.keys(errorMap)[0];
       setTimeout(() => {
         const el = document.querySelector(`[name="${firstEmpty}"]`) ||
                    document.querySelector(`[data-field="${firstEmpty}"]`);
@@ -1086,6 +1113,12 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
     try {
       // ── Pre-submit transforms ──
       const submitFields: Record<string, string> = { ...fields };
+
+      // Keep the legacy field name, but never send visual Rupiah separators.
+      for (const name of Object.keys(options.inputs)) {
+        if (getFieldDef(name).label !== 'Disc. Marketing' || !submitFields[name]) continue;
+        submitFields[name] = normalizeMarketingDiscountInput(submitFields[name]);
+      }
 
       // 1. Default No. HP Jamaah ← No. HP Pendaftar (if jamaah HP empty)
       let hpJamaahName: string | undefined;
@@ -1267,7 +1300,7 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
   type FieldEntry = { name: string; type: 'select' | 'input' | 'textarea'; def: FieldDef };
   const allFields: FieldEntry[] = [];
 
-  const includeField = (def: FieldDef) => !def.skip && !def.hidden && def.required === true;
+  const includeField = (def: FieldDef) => !def.skip && !def.hidden && (def.required === true || def.visible === true);
 
   for (const name of Object.keys(options.selects)) {
     const def = getFieldDef(name);
@@ -1488,6 +1521,63 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
   };
 
   const renderInput = (name: string, label: string, placeholder: string, required: boolean, type = 'text', hideAuto = false) => {
+    if (label === 'Disc. Marketing') {
+      const rawValue = fields[name] || '';
+      const discountInputClass = (fieldErrors[name] ? INPUT_ERROR_CLASS : INPUT_CLASS)
+        .replace('px-3', 'pl-10 pr-3');
+
+      const selectDiscount = (amount: number) => updateField(name, String(amount));
+      const validateDiscount = () => {
+        const message = getMarketingDiscountError(fields[name] || '');
+        setFieldErrors(prev => ({ ...prev, [name]: message }));
+      };
+
+      return (
+        <div key={name} data-field={name}>
+          {renderLabelRow(label, required, null)}
+          <div className="relative">
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm font-bold text-gray-500 dark:text-slate-400">
+              Rp
+            </span>
+            <input
+              name={name}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9.]*"
+              autoComplete="off"
+              value={formatMarketingDiscountInput(rawValue)}
+              onChange={e => updateField(name, normalizeMarketingDiscountInput(e.target.value))}
+              onBlur={validateDiscount}
+              placeholder={placeholder}
+              aria-invalid={!!fieldErrors[name]}
+              aria-describedby={fieldErrors[name] ? `${name}-discount-error` : undefined}
+              className={`${discountInputClass} font-semibold tabular-nums`}
+            />
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-1.5" aria-label="Pilihan cepat diskon marketing">
+            {MARKETING_DISCOUNT_QUICK_AMOUNTS.map(amount => {
+              const selected = rawValue === String(amount);
+              return (
+                <button
+                  key={amount}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => selectDiscount(amount)}
+                  className={`min-w-0 rounded-lg border px-1 py-2 text-[10px] font-bold tabular-nums transition-colors ${selected
+                    ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm shadow-emerald-500/20'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-400 hover:bg-emerald-100 dark:border-emerald-800/70 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/40'
+                  }`}
+                >
+                  {formatMarketingDiscountRupiah(amount)}
+                </button>
+              );
+            })}
+          </div>
+          {fieldErrors[name] && <p id={`${name}-discount-error`} className="mt-1 text-xs text-red-500">{fieldErrors[name]}</p>}
+        </div>
+      );
+    }
+
     // Legacy registrations store Nama Pendaftar in uppercase, so force-match here.
     const forceUpper = label === 'Nama Pendaftar';
     return (
@@ -1732,6 +1822,7 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
             {SECTION_ORDER.map(sec => {
               const entries = sections[sec];
               if (!entries || entries.length === 0) return null;
+              const isDiscountSection = sec === 'paket';
 
               // Only INFO PENDAFTARAN is always interactive; other sections lock
               // until jadwal + paket are selected.
@@ -1745,7 +1836,10 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
                     }`}
                     aria-disabled={isLockedSection || undefined}
                   >
-                    <div className="px-4 py-2.5 border-b border-gray-50 dark:border-slate-700/50 flex items-center justify-between gap-2">
+                    <div className={`${isDiscountSection
+                      ? 'px-4 pt-4'
+                      : 'px-4 py-2.5 border-b border-gray-50 dark:border-slate-700/50'
+                    } flex items-center justify-between gap-2`}>
                       <h3 className="text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-slate-300">
                         {SECTION_TITLES[sec]}
                       </h3>
@@ -1761,7 +1855,7 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
                         </button>
                       )}
                     </div>
-                    <div className="p-4 space-y-4">
+                    <div className={`${isDiscountSection ? 'px-4 pt-3 pb-4' : 'p-4'} space-y-4`}>
                       {sec === 'pendaftaran' && bindIdb && (
                         <div>
                           <label className={LABEL_CLASS_INLINE.replace('gap-1.5', 'gap-1.5 mb-1.5')}>

@@ -61,7 +61,7 @@ test('umrah registration refreshes legacy cookies and retries final submit after
   assert.match(registerPage, /function summarizeSubmitErrorText\(text: string\)/);
   assert.match(registerPage, /cloudflare\|cf-error\|attention required/);
 
-  assert.match(jamaahPage, /function getLegacyAddIdb/);
-  assert.match(jamaahPage, /raw_data\?\.id_jadwal/);
-  assert.match(jamaahPage, /idb: getLegacyAddIdb\(item\)/);
+  assert.doesNotMatch(jamaahPage, /function getLegacyAddIdb/);
+  assert.doesNotMatch(jamaahPage, /idb: getLegacyAddIdb\(item\)/);
+  assert.match(jamaahPage, /onClick=\{\(\) => openEditJamaah\(item\)\}/);
 });

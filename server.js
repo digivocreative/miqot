@@ -10233,12 +10233,6 @@ function normalizeLegacySelectValue(value, maxLen = 40) {
   return text || null;
 }
 
-function isDashboardBelumDpJamaah(row) {
-  return Number(row?.sisa || 0) > 0
-    && Number(row?.bayar || 0) === 0
-    && !hasNeutralizedNewAwapiPayment(row);
-}
-
 app.get('/api/laporan/jamaah/:rowId/edit-form', authMiddleware, async (req, res) => {
   try {
     const agentId = req.user.id;
@@ -10249,7 +10243,7 @@ app.get('/api/laporan/jamaah/:rowId/edit-form', authMiddleware, async (req, res)
 
     const { data: existing, error: fetchErr } = await supabase
       .from('jamaah')
-      .select('id, agent_id, id_umroh, jm_id, bayar, sisa, raw_data')
+      .select('id, agent_id, id_umroh, jm_id, bayar, sisa, diskon_marketing, raw_data')
       .eq('id', rowId)
       .eq('agent_id', agentId)
       .maybeSingle();
@@ -10259,9 +10253,6 @@ app.get('/api/laporan/jamaah/:rowId/edit-form', authMiddleware, async (req, res)
       return res.status(500).json({ error: 'Gagal memuat data jamaah' });
     }
     if (!existing) return res.status(404).json({ error: 'Jamaah tidak ditemukan' });
-    if (!isDashboardBelumDpJamaah(existing)) {
-      return res.status(403).json({ error: 'Edit data hanya tersedia untuk jamaah yang belum DP' });
-    }
     if (!existing.id_umroh || !existing.jm_id) {
       return res.status(400).json({ error: 'Data internal jamaah tidak lengkap, tidak bisa diedit otomatis' });
     }
@@ -10295,12 +10286,22 @@ app.get('/api/laporan/jamaah/:rowId/edit-form', authMiddleware, async (req, res)
       return res.status(502).json({ error: result.error || 'Gagal mengambil form edit internal' });
     }
 
+    const internalDiskonMarketing = result.values?.diskon_marketing ?? result.values?.diskon;
+    const displayDiskonMarketing = internalDiskonMarketing !== undefined
+      && internalDiskonMarketing !== null
+      && String(internalDiskonMarketing).trim() !== ''
+      ? String(internalDiskonMarketing)
+      : String(existing.diskon_marketing ?? 0);
+
     res.json({
       success: true,
       data: {
         values: result.values || {},
         selects: result.selects || {},
         selectedValues: result.selectedValues || {},
+        readOnly: {
+          diskonMarketing: displayDiskonMarketing,
+        },
       },
     });
   } catch (err) {
@@ -10338,8 +10339,13 @@ app.post('/api/laporan/jamaah/update', authMiddleware, async (req, res) => {
     const jk = normalizeLegacySelectValue(req.body?.jk || req.body?.kelamin, 12);
     const ktp = normalizeDashboardDigits(req.body?.ktp, 32);
     const pendaftar = normalizeDashboardUpperText(req.body?.pendaftar, 120);
-    const pendaftarPhone = normalizeDashboardJamaahPhone(req.body?.tpendaftar || req.body?.wa);
-    if (pendaftarPhone.error) return res.status(400).json({ error: `No. HP Pendaftar tidak valid. ${pendaftarPhone.error.replace(/^No\\. HP Jamaah /, '')}` });
+    // tpendaftar adalah field tersembunyi dan data legacy sering berisi placeholder
+    // 1111111111. Jika tidak valid/kosong, gunakan nomor jamaah yang sudah lolos
+    // validasi; jika nomor jamaah juga kosong, biarkan field lama tidak tersentuh.
+    const submittedPendaftarPhone = normalizeDashboardJamaahPhone(req.body?.tpendaftar);
+    const pendaftarPhone = submittedPendaftarPhone.error || submittedPendaftarPhone.value === null
+      ? { value: phone.value }
+      : submittedPendaftarPhone;
     const tempatLahir = normalizeDashboardUpperText(req.body?.tempat_lahir || req.body?.plahir, 80);
     const statusNikah = normalizeLegacySelectValue(req.body?.status, 40);
     const pekerjaan = normalizeLegacySelectValue(req.body?.pekerjaan, 40);
@@ -10367,9 +10373,6 @@ app.post('/api/laporan/jamaah/update', authMiddleware, async (req, res) => {
       return res.status(500).json({ error: 'Gagal memuat data jamaah' });
     }
     if (!existing) return res.status(404).json({ error: 'Jamaah tidak ditemukan' });
-    if (!isDashboardBelumDpJamaah(existing)) {
-      return res.status(403).json({ error: 'Edit data hanya tersedia untuk jamaah yang belum DP' });
-    }
     if (!existing.id_umroh || !existing.jm_id) {
       return res.status(400).json({ error: 'Data internal jamaah tidak lengkap, tidak bisa diedit otomatis' });
     }

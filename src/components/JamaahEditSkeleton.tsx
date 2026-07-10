@@ -14,6 +14,7 @@ const fields = [
   { labelWidth: 'w-36' },
   { labelWidth: 'w-28' },
   { labelWidth: 'w-16', wide: true },
+  { labelWidth: 'w-28', wide: true },
 ];
 
 export default function JamaahEditSkeleton() {

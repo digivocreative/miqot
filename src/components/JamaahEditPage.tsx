@@ -42,6 +42,9 @@ type HiddenLegacyFields = {
 type EditMeta = {
   values: Record<string, string>;
   selects: Record<string, EditOption[]>;
+  readOnly: {
+    diskonMarketing: string;
+  };
 };
 
 const EMPTY_FORM: EditForm = {
@@ -93,6 +96,10 @@ function formatPhoneForInput(value: string | null | undefined) {
   const normalized = normalizeWaNumber(value);
   if (normalized) return normalized.startsWith('62') ? `0${normalized.slice(2)}` : normalized;
   return String(value).replace(/\s+/g, '');
+}
+
+function normalizeOptionalPhone(value: string | null | undefined) {
+  return normalizeWaNumber(value) || '';
 }
 
 function legacyDateToInput(value: string | null | undefined) {
@@ -148,7 +155,9 @@ function buildForm(values: Record<string, string>): EditForm {
 
 function buildHidden(values: Record<string, string>): HiddenLegacyFields {
   return {
-    tpendaftar: values.tpendaftar || '',
+    // Form lama memakai 1111111111 sebagai placeholder. Jangan kirim kembali
+    // placeholder itu sebagai nomor pendaftar karena bukan nomor seluler valid.
+    tpendaftar: normalizeOptionalPhone(values.tpendaftar),
     mahram: values.mahram || 'X',
     kondisi: values.kondisi || 'X',
     keterangan: values.keterangan || 'X',
@@ -176,7 +185,11 @@ export default function JamaahEditPage({
   const rowId = useMemo(getRowIdFromPath, []);
   const [form, setForm] = useState<EditForm>(EMPTY_FORM);
   const [hidden, setHidden] = useState<HiddenLegacyFields>(EMPTY_HIDDEN);
-  const [meta, setMeta] = useState<EditMeta>({ values: {}, selects: {} });
+  const [meta, setMeta] = useState<EditMeta>({
+    values: {},
+    selects: {},
+    readOnly: { diskonMarketing: '0' },
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -217,6 +230,9 @@ export default function JamaahEditPage({
         setMeta({
           values,
           selects: (result.data?.selects || {}) as Record<string, EditOption[]>,
+          readOnly: {
+            diskonMarketing: String(result.data?.readOnly?.diskonMarketing ?? '0'),
+          },
         });
         setForm(buildForm(values));
         setHidden(buildHidden(values));
@@ -309,7 +325,7 @@ export default function JamaahEditPage({
           ktp: form.ktp,
           pendaftar: form.pendaftar,
           wa: form.wa,
-          tpendaftar: hidden.tpendaftar || form.wa || '1111111111',
+          tpendaftar: hidden.tpendaftar || form.wa || null,
           tempat_lahir: form.tempat_lahir,
           tgl_lahir: form.tgl_lahir || null,
           status: form.status,
@@ -394,6 +410,16 @@ export default function JamaahEditPage({
             <div className="sm:col-span-2">
               {renderSelect('remarks', 'remarks', 'Remarks')}
             </div>
+            <label className="block min-w-0 sm:col-span-2">
+              <span className={labelClass}>Disc. Marketing</span>
+              <input
+                type="text"
+                value={meta.readOnly.diskonMarketing}
+                disabled
+                aria-label="Disc. Marketing"
+                className={inputClass}
+              />
+            </label>
           </div>
         </section>
 

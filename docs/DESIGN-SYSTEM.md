@@ -341,7 +341,7 @@ Section order:
 1. `Info Pendaftaran`
 2. `Data Jamaah`
 3. `Alamat`
-4. `Paket`
+4. `Diskon`
 5. `Info Pendaftar`
 6. `Info Otomatis`
 7. `Lainnya`
@@ -355,6 +355,7 @@ Current UI specifics:
 - KTP OCR has processing state with scan animation.
 - Name pendaftar input uppercases.
 - Searchable selects are used for long option lists.
+- Disc. Marketing is optional, displays a dot-formatted Rupiah amount, keeps raw digits for submission, and offers Rp 300.000, Rp 500.000, and Rp 1.000.000 quick actions.
 - In add-jamaah mode, top blue info box shows group/id context.
 - Submit responses are read as text, then JSON-parsed if possible. HTML/Cloudflare body is summarized for users.
 

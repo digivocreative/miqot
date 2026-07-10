@@ -4,7 +4,7 @@ import {
   Eye, EyeOff, LogIn, Loader2, User, Users, Lock, Search,
   Calendar, Building2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, RefreshCw,
-  SlidersHorizontal, X, Check, Plane, Landmark, PenLine, UserPlus, Plus,
+  SlidersHorizontal, X, Check, Plane, Landmark, PenLine, Plus,
   FileText, Download, Share2, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { getAuthHeaders, getStoredSession } from './LoginPage';
@@ -181,16 +181,6 @@ function isManualConfirmedLunas(item: Pick<JamaahItem, 'raw_data'>) {
 function canConfirmLunas(item: Pick<JamaahItem, 'sisa' | 'bayar' | 'raw_data'>) {
   const g = item.raw_data?.payment_guard;
   return getPaymentStatus(item) !== 'lunas' && typeof g === 'string' && AGGREGATE_MANAGED_GUARDS.includes(g);
-}
-
-function getLegacyAddIdb(item: Pick<JamaahItem, 'id_umroh' | 'raw_data'>) {
-  const idUmroh = String(item.id_umroh || '').trim();
-  if (!idUmroh) return '';
-  const idJadwal = typeof item.raw_data?.id_jadwal === 'string'
-    ? item.raw_data.id_jadwal.trim()
-    : '';
-  if (!idJadwal || idUmroh.includes('.')) return idUmroh;
-  return `${idUmroh}.${idJadwal}`;
 }
 
 function normalizeDocumentPath(value: unknown): string {
@@ -673,8 +663,8 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
     goTo(`/dashboard/jamaah/edit/${encodeURIComponent(item.id)}`);
   };
 
-  const renderBelumDpEditIcon = (item: JamaahItem, className = '') => {
-    const title = 'Edit data jamaah belum DP';
+  const renderJamaahEditIcon = (item: JamaahItem, className = '') => {
+    const title = 'Edit data jamaah';
     return (
       <button
         type="button"
@@ -1654,7 +1644,6 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
               return queue.map((entry, qIdx) => {
               if (entry.kind === 'belum-table') {
                 const members = entry.members;
-                const first = members[0];
                 return (
                   <div key={`bdp-${entry.idu}-${qIdx}`} className="rounded-2xl border border-amber-200 dark:border-amber-800/40 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
                     <div className="flex items-center justify-between px-3 py-2 bg-amber-50/60 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-800/40">
@@ -1667,21 +1656,6 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                         </span>
                         <span className="text-[10px] font-mono text-gray-400 dark:text-slate-500 truncate">· {entry.idu}</span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const paramsObj: Record<string, string> = { idb: getLegacyAddIdb(first), from: first.nama };
-                          if (first.tgl_berangkat) paramsObj.date = first.tgl_berangkat;
-                          if (first.paket) paramsObj.paket = first.paket;
-                          const params = new URLSearchParams(paramsObj);
-                          goTo(`/dashboard/jamaah/daftar?${params}`);
-                        }}
-                        className="shrink-0 flex items-center gap-1 text-[10px] font-bold border transition-colors rounded-lg px-2 py-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 active:scale-95"
-                        title={`Tambah jamaah ke ID Umroh ${entry.idu}`}
-                      >
-                        <UserPlus size={11} strokeWidth={2.5} />
-                        Tambah
-                      </button>
                     </div>
                     <div className="divide-y divide-gray-100 dark:divide-slate-700/50">
                       {members.slice(0, 2).map(m => {
@@ -1706,7 +1680,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                                 {formatDate(m.tgl_berangkat)}
                               </span>
                             )}
-                            {renderBelumDpEditIcon(m, 'w-8 h-8 rounded-lg')}
+                            {renderJamaahEditIcon(m, 'w-8 h-8 rounded-lg')}
                           </div>
                         );
                       })}
@@ -1729,20 +1703,15 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
               const isExpanded = expandedId === item.id;
               const paymentStatus = getPaymentStatus(item);
               const showRefreshAction = Boolean(item.jm_id);
-              const showAddJamaah = Boolean(item.id_umroh);
-              const showMagicLink = showAddJamaah && paymentStatus !== 'belum';
+              const showMagicLink = Boolean(item.id_umroh) && paymentStatus !== 'belum';
               const showBelumDpEdit = paymentStatus === 'belum';
               let actionGridClass = 'grid-cols-1';
-              if (showRefreshAction && showAddJamaah && showMagicLink) {
+              if (showRefreshAction && showMagicLink) {
                 actionGridClass = 'grid-cols-[15fr_40fr_45fr]';
-              } else if (showRefreshAction && showAddJamaah) {
+              } else if (showRefreshAction) {
                 actionGridClass = 'grid-cols-[15fr_85fr]';
               } else if (showMagicLink) {
                 actionGridClass = 'grid-cols-2';
-              } else if (showAddJamaah) {
-                actionGridClass = showRefreshAction ? 'grid-cols-[15fr_85fr]' : 'grid-cols-1';
-              } else if (showRefreshAction) {
-                actionGridClass = 'grid-cols-1';
               }
               const initials = (item.nama || '?').split(' ').slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
               const genderRing = item.jk === 'P' ? 'ring-2 ring-pink-300' : 'ring-2 ring-blue-300';
@@ -1869,7 +1838,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                       <ChevronDown size={14} />
                     </motion.div>
                     </button>
-                    {showBelumDpEdit && renderBelumDpEditIcon(item, 'w-11 rounded-none border-y-0 border-r-0')}
+                    {showBelumDpEdit && renderJamaahEditIcon(item, 'w-11 rounded-none border-y-0 border-r-0')}
                   </div>
 
                   {/* Expanded detail */}
@@ -2335,23 +2304,15 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                             </button>
                           );
                         })()}
-                        {showAddJamaah && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const paramsObj: Record<string, string> = { idb: getLegacyAddIdb(item), from: item.nama };
-                              if (item.tgl_berangkat) paramsObj.date = item.tgl_berangkat;
-                              if (item.paket) paramsObj.paket = item.paket;
-                              const params = new URLSearchParams(paramsObj);
-                              goTo(`/dashboard/jamaah/daftar?${params}`);
-                            }}
-                            className="min-w-0 h-10 flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-bold border transition-all bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 active:scale-95"
-                            title={`Tambah jamaah ke ID Umroh ${item.id_umroh}`}
-                          >
-                            <UserPlus size={14} strokeWidth={2.2} className="shrink-0" />
-                            <span className="whitespace-nowrap">Tambah</span>
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => openEditJamaah(item)}
+                          className="min-w-0 h-10 flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-bold border transition-all bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/40 hover:bg-amber-100 dark:hover:bg-amber-900/35 active:scale-95"
+                          title={`Edit data jamaah ${item.nama}`}
+                        >
+                          <PenLine size={14} strokeWidth={2.2} className="shrink-0" />
+                          <span className="whitespace-nowrap">Edit</span>
+                        </button>
                         {showMagicLink && (
                           <MagicLinkButton
                             jamaahId={item.id}
@@ -2505,7 +2466,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                           {formatDate(m.tgl_berangkat)}
                         </span>
                       )}
-                      {renderBelumDpEditIcon(m, 'w-8 h-8 rounded-lg')}
+                      {renderJamaahEditIcon(m, 'w-8 h-8 rounded-lg')}
                     </div>
                   );
                 })}

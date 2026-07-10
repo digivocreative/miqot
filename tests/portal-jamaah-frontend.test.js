@@ -292,7 +292,7 @@ test('dashboard hides magic link action for Belum DP jamaah cards', () => {
   assert.notEqual(belumDpBlockEnd, -1, 'Belum DP block should have a clear end');
   assert.match(jamaah, /function isBelumDPJamaah/);
   assert.doesNotMatch(belumDpBlock, /MagicLinkButton/);
-  assert.match(jamaah, /const showMagicLink = showAddJamaah && paymentStatus !== 'belum';/);
+  assert.match(jamaah, /const showMagicLink = Boolean\(item\.id_umroh\) && paymentStatus !== 'belum';/);
   assert.match(jamaah, /\{showMagicLink && \(/);
 });
 
