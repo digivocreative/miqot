@@ -49,6 +49,22 @@ import type { UmrohPackage, HotelInfo } from '@/types';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
+function getLocalStorageItem(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function setLocalStorageItem(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // unavailable storage should not block the calculator
+  }
+}
+
 // ============================================
 // Types
 // ============================================
@@ -747,13 +763,13 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
 
   // ── Dark Mode (synced with App via localStorage) ──
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    const saved = localStorage.getItem('darkMode');
+    const saved = getLocalStorageItem('darkMode');
     return saved === 'true';
   });
   useEffect(() => {
     const root = document.documentElement;
     if (isDarkMode) { root.classList.add('dark'); } else { root.classList.remove('dark'); }
-    localStorage.setItem('darkMode', isDarkMode.toString());
+    setLocalStorageItem('darkMode', isDarkMode.toString());
   }, [isDarkMode]);
 
   useEffect(() => {

@@ -42,6 +42,13 @@ rm -rf dist_staging dist_old
 npm run build:spa -- --outDir dist_staging --emptyOutDir
 npm run build:functions
 
+echo "==> Retaining previous hashed assets for stale clients..."
+if [ -d dist/assets ]; then
+  mkdir -p dist_staging/assets
+  cp -an dist/assets/. dist_staging/assets/ || true
+  find dist_staging/assets -type f -mtime +45 -delete || true
+fi
+
 echo "==> Swapping dist into place (atomic)..."
 mv dist dist_old
 mv dist_staging dist || { mv dist_old dist; echo "==> Swap failed — rolled back to previous dist"; exit 1; }

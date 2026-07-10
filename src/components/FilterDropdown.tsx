@@ -29,6 +29,8 @@ export interface FilterDropdownProps {
   portal?: boolean;
   /** Emerald-tinted trigger skin for accent header pills (e.g. Jamaah/Haji year filter). Default gray. */
   accent?: boolean;
+  /** Use the same white/slate input surface as form fields instead of the gray filter trigger skin. */
+  inputSkin?: boolean;
   /** Tailwind z-index class for the portaled panel (default `z-50`). Raise it (e.g. `z-[10000]`)
    *  when the dropdown lives inside a high-z modal so the panel renders above it. */
   portalZClass?: string;
@@ -58,6 +60,7 @@ export default function FilterDropdown({
   variant = 'default',
   portal = false,
   accent = false,
+  inputSkin = false,
   portalZClass = 'z-50',
   showAllOptions = false,
 }: FilterDropdownProps) {
@@ -192,11 +195,15 @@ export default function FilterDropdown({
   const graySkin = variant === 'default'
     ? 'bg-gray-100/80 dark:bg-slate-800/80 border-transparent dark:border-transparent text-gray-700 dark:text-slate-200 hover:bg-gray-200/80 dark:hover:bg-slate-700/80'
     : 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700/70';
+  const formInputSkin = 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-800 dark:text-white hover:bg-white dark:hover:bg-slate-900';
   const emeraldSkin = 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/30';
+  const disabledSkin = inputSkin
+    ? 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed opacity-50'
+    : 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed';
   const triggerClass = `${TRIGGER_BASE} ${TRIGGER_SIZE[variant]} ${
     disabled
-      ? 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed'
-      : `cursor-pointer ${accent ? emeraldSkin : graySkin}`
+      ? disabledSkin
+      : `cursor-pointer ${accent ? emeraldSkin : inputSkin ? formInputSkin : graySkin}`
   }`;
   const chevronSize = variant === 'default' ? 16 : variant === 'compact' ? 14 : 12;
   const chevronColor = accent ? 'text-emerald-500 dark:text-emerald-400' : 'text-gray-400 dark:text-slate-400';

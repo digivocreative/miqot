@@ -97,7 +97,9 @@ test('SimulasiHajiPlus export uses same-origin banner assets instead of remote a
   assert.match(source, /split\('\/'\)\.pop\(\)/);
   assert.match(source, /resolveSelfHostedAgentPhoto/);
   assert.match(source, /`\/agents\/\$\{slug\}\.jpg`/);
-  assert.match(source, /src=\{agentPhotoSrc\}/);
+  assert.match(source, /src=\{photoBust\s*\?/);
+  assert.match(source, /_r=\$\{photoBust\}/);
+  assert.match(source, /:\s*agentPhotoSrc\}/);
   assert.doesNotMatch(source, /src=\{agent\.photo\}/);
 });
 
@@ -223,8 +225,8 @@ test('SimulasiHajiPlus lets the agent choose price and kurs escalation rates', (
   assert.match(source, /const KURS_RATE_OPTIONS = \[0\.005, 0\.01, 0\.015, 0\.02, 0\.025\]/);
   assert.match(source, /const \[priceRate, setPriceRate\] = useState\(0\.015\)/);
   assert.match(source, /const \[kursRate, setKursRate\] = useState\(0\.015\)/);
-  assert.match(source, /setPriceRate\(Number\(e\.target\.value\)\)/);
-  assert.match(source, /setKursRate\(Number\(e\.target\.value\)\)/);
+  assert.match(source, /onChange=\{v => setPriceRate\(Number\(v\)\)\}/);
+  assert.match(source, /onChange=\{v => setKursRate\(Number\(v\)\)\}/);
   // threaded into the calc
   assert.match(source, /computeHajiPlusEscalation\(\{[\s\S]*priceRate,[\s\S]*kursRate,[\s\S]*\}\)/);
   // labels are dynamic, not hardcoded rate literals

@@ -93,14 +93,18 @@
       // this script detects it and forces a hard reload from the server.
       (function() {
         var p = location.pathname;
-        if (/\/[^/]+\/umroh\/?$/i.test(p) || /\/brosur\//i.test(p) || /\/itinerary\//i.test(p) || /\/[^/]+\/jamaah(\/|$)/i.test(p)) {
+        if (/\/[^/]+\/(?:umroh|haji|bio)\/?$/i.test(p) || /^\/bio\/?$/i.test(p) || /\/brosur\//i.test(p) || /\/itinerary\//i.test(p) || /\/[^/]+\/jamaah(\/|$)/i.test(p)) {
           // Mark that we're doing a bypass reload so we don't loop
           var key = '__sw_bypass_' + p;
-          if (sessionStorage.getItem(key)) {
-            sessionStorage.removeItem(key);
-            return; // Already reloaded once, don't loop
+          try {
+            if (sessionStorage.getItem(key)) {
+              sessionStorage.removeItem(key);
+              return; // Already reloaded once, don't loop
+            }
+            sessionStorage.setItem(key, '1');
+          } catch (e) {
+            return; // Storage unavailable; do not risk a reload loop
           }
-          sessionStorage.setItem(key, '1');
           // Unregister SW for this scope, then hard reload
           if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then(function(regs) {

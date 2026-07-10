@@ -17,7 +17,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
-import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, submitUmrahRegistration, submitUmrahRegistrationWithBrowser, fetchAwapiCredentials } from './laporan-api.js';
+import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, fetchUmrahJamaahEditForm, submitUmrahRegistration, submitUmrahRegistrationWithBrowser, submitUmrahJamaahEditWithBrowser, fetchAwapiCredentials } from './laporan-api.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
 import { buildBerangkatMendatang, computeUmrohKomisi } from './lib/laporan-stats.js';
@@ -347,6 +347,8 @@ app.use(express.json({ limit: '10mb' }));
 
 const agentDomainCache = new Map();
 const AGENT_DOMAIN_CACHE_TTL = 5 * 60 * 1000;
+const customDomainDnsHealthCache = new Map();
+const CUSTOM_DOMAIN_DNS_HEALTH_TTL = 5 * 60 * 1000;
 
 function isCustomDomainEnabledForAgent(agent) {
   return Boolean(agent?.slug);
@@ -360,6 +362,19 @@ function isPrimaryHost(host) {
   // local dev tunneling / preview hosts — skip custom domain logic
   if (host.endsWith('.localhost')) return true;
   return false;
+}
+
+function isSharedStaticRequestPath(path) {
+  const p = String(path || '/');
+  if (p.startsWith('/api/')) return false;
+  const firstSegment = p.split('/').filter(Boolean)[0]?.toLowerCase();
+  if (['assets', 'fonts', 'agents', 'flags', 'logo-bank', 'wp-content', 'wp-includes'].includes(firstSegment)) {
+    return true;
+  }
+  if (/^\/(?:sw\.js|manifest\.webmanifest|favicon(?:\.ico|\.svg)?|apple-touch-icon\.png|icon-\d+x\d+\.png|logo(?:-[\w-]+)?\.(?:png|svg|webp)|meta-logo\.(?:png|svg|webp)|workbox-[\w.-]+\.js)$/i.test(p)) {
+    return true;
+  }
+  return /\.(?:js|mjs|css|map|png|jpe?g|webp|svg|ico|woff2?|ttf|otf|json|txt|xml)$/i.test(p);
 }
 
 async function getAgentByCustomDomain(host) {
@@ -391,12 +406,42 @@ async function getAgentByCustomDomain(host) {
 function invalidateAgentDomainCache(host) {
   if (!host) return;
   agentDomainCache.delete(String(host).toLowerCase());
+  customDomainDnsHealthCache.delete(String(host).toLowerCase());
+}
+
+async function isCustomDomainDnsHealthyForRedirect(domain) {
+  const expectedIp = String(process.env.VPS_PUBLIC_IP || '').trim();
+  if (!expectedIp) return true;
+
+  const key = String(domain || '').trim().toLowerCase();
+  if (!key) return false;
+
+  const cached = customDomainDnsHealthCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.healthy;
+
+  let healthy = false;
+  try {
+    const addresses = await dns.resolve4(key);
+    healthy = addresses.includes(expectedIp);
+    if (!healthy) {
+      console.warn('[custom-domain] skip redirect, DNS mismatch:', key, '->', addresses.join(',') || '(empty)', 'expected', expectedIp);
+    }
+  } catch (err) {
+    console.warn('[custom-domain] skip redirect, DNS lookup failed:', key, err.message);
+  }
+
+  customDomainDnsHealthCache.set(key, {
+    healthy,
+    expiresAt: Date.now() + CUSTOM_DOMAIN_DNS_HEALTH_TTL,
+  });
+  return healthy;
 }
 
 // 1) Host detection — set req.customDomainAgent when accessing via custom domain
 app.use(async (req, res, next) => {
   const host = (req.hostname || '').toLowerCase();
   if (isPrimaryHost(host)) return next();
+  if (isSharedStaticRequestPath(req.path || '/')) return next();
   try {
     const agent = await getAgentByCustomDomain(host);
     if (!agent) {
@@ -464,6 +509,7 @@ app.use(async (req, res, next) => {
     const agent = await getAgentBySlug(slug);
     if (!isCustomDomainEnabledForAgent(agent)) return next();
     if (!agent?.custom_domain || agent.custom_domain_status !== 'active') return next();
+    if (!(await isCustomDomainDnsHealthyForRedirect(agent.custom_domain))) return next();
     const restPath = pathParts.slice(1).join('/');
     const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
     const target = `https://${agent.custom_domain}/${restPath}${qs}`;
@@ -5856,7 +5902,7 @@ async function enrichJamaahFromLaporanItems(agentId, items, context) {
 
   const { data: existing, error: existErr } = await supabase
     .from('jamaah')
-    .select('id, id_umroh, jm_id, nama, wa, tgl_lahir, no_paspor, paspor_expired, tgl_daftar, perlengkapan, dokumen')
+    .select('id, id_umroh, jm_id, nama, wa, tgl_lahir, no_paspor, paspor_expired, tgl_daftar, perlengkapan, dokumen, raw_data')
     .eq('agent_id', agentId)
     .in('id_umroh', idumrohSet);
   if (existErr) {
@@ -5890,11 +5936,13 @@ async function enrichJamaahFromLaporanItems(agentId, items, context) {
       continue;
     }
 
+    const manualOverrides = plainObjectOrEmpty(target.raw_data?.manual_overrides);
+    const isManualOverride = (field) => Object.hasOwn(manualOverrides, field);
     const patch = {};
-    if (item.wa && item.wa !== target.wa) patch.wa = item.wa;
-    if (item.tgl_lahir && item.tgl_lahir !== target.tgl_lahir) patch.tgl_lahir = item.tgl_lahir;
-    if (item.no_paspor && item.no_paspor !== target.no_paspor) patch.no_paspor = item.no_paspor;
-    if (item.paspor_expired && item.paspor_expired !== target.paspor_expired) patch.paspor_expired = item.paspor_expired;
+    if (!isManualOverride('wa') && item.wa && item.wa !== target.wa) patch.wa = item.wa;
+    if (!isManualOverride('tgl_lahir') && item.tgl_lahir && item.tgl_lahir !== target.tgl_lahir) patch.tgl_lahir = item.tgl_lahir;
+    if (!isManualOverride('no_paspor') && item.no_paspor && item.no_paspor !== target.no_paspor) patch.no_paspor = item.no_paspor;
+    if (!isManualOverride('paspor_expired') && item.paspor_expired && item.paspor_expired !== target.paspor_expired) patch.paspor_expired = item.paspor_expired;
     if (item.tgl_daftar && item.tgl_daftar !== target.tgl_daftar) patch.tgl_daftar = item.tgl_daftar;
     if (item.perlengkapan && Object.keys(item.perlengkapan).length > 0) {
       const existingP = target.perlengkapan || {};
@@ -10097,6 +10145,365 @@ app.get('/api/laporan/jamaah', dbLoadShedGuard, authMiddleware, async (req, res)
       piutang,
     },
   });
+});
+
+function compactDashboardText(value, maxLen = 120) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  return text ? text.slice(0, maxLen) : null;
+}
+
+function normalizeDashboardJamaahPhone(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return { value: null };
+
+  const candidate = raw.match(/(?:\+?62|0|8)[\d\s().-]{7,24}/)?.[0] || raw;
+  let cleaned = candidate.replace(/[^0-9]/g, '');
+  if (!cleaned) return { value: null };
+
+  if (/^628\d{7,12}$/.test(cleaned)) return { value: cleaned };
+  if (cleaned.startsWith('620')) cleaned = '62' + cleaned.slice(3);
+  else if (/^62[^8]\d{7,11}$/.test(cleaned)) cleaned = '628' + cleaned.slice(2);
+  else if (cleaned.startsWith('0')) cleaned = '62' + cleaned.slice(1);
+  else if (cleaned.startsWith('8')) cleaned = '62' + cleaned;
+
+  if (!/^628\d{7,12}$/.test(cleaned)) {
+    return { error: 'No. HP Jamaah tidak valid. Gunakan nomor seluler Indonesia, contoh 081234567890.' };
+  }
+  return { value: cleaned };
+}
+
+function comparableDashboardJamaahPhone(value) {
+  const normalized = normalizeDashboardJamaahPhone(value);
+  return normalized.error ? compactDashboardText(value, 32) : normalized.value;
+}
+
+function normalizeDashboardDate(value, label, { birth = false } = {}) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return { value: null };
+
+  let datePart = raw;
+  const dmy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) {
+    datePart = `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  } else {
+    const iso = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (iso) datePart = iso[1];
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    return { error: `${label} harus berformat YYYY-MM-DD atau DD/MM/YYYY.` };
+  }
+
+  const [year, month, day] = datePart.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return { error: `${label} tidak valid.` };
+  }
+
+  if (birth) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (datePart >= today) return { error: 'Tanggal lahir harus sebelum hari ini.' };
+  }
+
+  return { value: datePart };
+}
+
+function normalizePassportText(value) {
+  const text = compactDashboardText(value, 40);
+  if (!text || text === '0') return null;
+  return text.toUpperCase();
+}
+
+function normalizeDashboardUpperText(value, maxLen = 120) {
+  const text = compactDashboardText(value, maxLen);
+  return text ? text.toUpperCase() : null;
+}
+
+function normalizeDashboardDigits(value, maxLen = 32) {
+  const raw = String(value ?? '').replace(/\D/g, '').slice(0, maxLen);
+  return raw || null;
+}
+
+function normalizeLegacySelectValue(value, maxLen = 40) {
+  const text = compactDashboardText(value, maxLen);
+  return text || null;
+}
+
+function isDashboardBelumDpJamaah(row) {
+  return Number(row?.sisa || 0) > 0
+    && Number(row?.bayar || 0) === 0
+    && !hasNeutralizedNewAwapiPayment(row);
+}
+
+function canEditDashboardJamaah(agent) {
+  return String(agent?.slug || '').trim().toLowerCase() === 'nikita';
+}
+
+app.get('/api/laporan/jamaah/:rowId/edit-form', authMiddleware, async (req, res) => {
+  try {
+    const agentId = req.user.id;
+    const rowId = Number(req.params.rowId);
+    if (!Number.isInteger(rowId) || rowId <= 0) {
+      return res.status(400).json({ error: 'ID jamaah tidak valid' });
+    }
+
+    const { data: existing, error: fetchErr } = await supabase
+      .from('jamaah')
+      .select('id, agent_id, id_umroh, jm_id, bayar, sisa, raw_data')
+      .eq('id', rowId)
+      .eq('agent_id', agentId)
+      .maybeSingle();
+
+    if (fetchErr) {
+      console.error('[jamaah-edit-form] fetch error:', fetchErr.message);
+      return res.status(500).json({ error: 'Gagal memuat data jamaah' });
+    }
+    if (!existing) return res.status(404).json({ error: 'Jamaah tidak ditemukan' });
+    if (!isDashboardBelumDpJamaah(existing)) {
+      return res.status(403).json({ error: 'Edit data hanya tersedia untuk jamaah yang belum DP' });
+    }
+    if (!existing.id_umroh || !existing.jm_id) {
+      return res.status(400).json({ error: 'Data internal jamaah tidak lengkap, tidak bisa diedit otomatis' });
+    }
+
+    const agent = await getAgentById(agentId);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!canEditDashboardJamaah(agent)) {
+      return res.status(403).json({ error: 'Edit data jamaah hanya tersedia untuk agent Nikita' });
+    }
+    const sess = await ensureLegacySession(agent);
+    if (!sess.success) return res.status(400).json({ error: sess.error });
+
+    let result = await fetchUmrahJamaahEditForm(agent.jamaah_username, {
+      idUmroh: existing.id_umroh,
+      jmId: existing.jm_id,
+    });
+
+    if (!result.success && result.reason === 'session_expired_remote' && agent.jamaah_password) {
+      try {
+        const decrypted = capiDecrypt(agent.jamaah_password);
+        const fresh = await laporanLogin(agent.jamaah_username, decrypted, agent.jamaah_kantor || '2');
+        if (fresh.success) {
+          result = await fetchUmrahJamaahEditForm(agent.jamaah_username, {
+            idUmroh: existing.id_umroh,
+            jmId: existing.jm_id,
+          });
+        }
+      } catch (err) {
+        console.error('[jamaah-edit-form] re-login retry threw:', err.message);
+      }
+    }
+
+    if (!result.success) {
+      return res.status(502).json({ error: result.error || 'Gagal mengambil form edit internal' });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        values: result.values || {},
+        selects: result.selects || {},
+        selectedValues: result.selectedValues || {},
+      },
+    });
+  } catch (err) {
+    console.error('[jamaah-edit-form] Error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Jamaah biodata update: write through to the Alhijaz/internal edit form first,
+// then mirror the confirmed values into the dashboard cache.
+app.post('/api/laporan/jamaah/update', authMiddleware, async (req, res) => {
+  try {
+    const agentId = req.user.id;
+    const rowId = Number(req.body?.id);
+    if (!Number.isInteger(rowId) || rowId <= 0) {
+      return res.status(400).json({ error: 'ID jamaah tidak valid' });
+    }
+
+    const agent = await getAgentById(agentId);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!canEditDashboardJamaah(agent)) {
+      return res.status(403).json({ error: 'Edit data jamaah hanya tersedia untuk agent Nikita' });
+    }
+
+    const nama = normalizeDashboardUpperText(req.body?.nama, 120);
+    if (!nama) return res.status(400).json({ error: 'Nama jamaah wajib diisi' });
+
+    const phone = normalizeDashboardJamaahPhone(req.body?.wa);
+    if (phone.error) return res.status(400).json({ error: phone.error });
+
+    const birthDate = normalizeDashboardDate(req.body?.tgl_lahir, 'Tanggal lahir', { birth: true });
+    if (birthDate.error) return res.status(400).json({ error: birthDate.error });
+
+    const passportExpired = normalizeDashboardDate(req.body?.paspor_expired, 'Tanggal expired paspor');
+    if (passportExpired.error) return res.status(400).json({ error: passportExpired.error });
+
+    const noPaspor = normalizePassportText(req.body?.no_paspor);
+    const jk = normalizeLegacySelectValue(req.body?.jk || req.body?.kelamin, 12);
+    const ktp = normalizeDashboardDigits(req.body?.ktp, 32);
+    const pendaftar = normalizeDashboardUpperText(req.body?.pendaftar, 120);
+    const pendaftarPhone = normalizeDashboardJamaahPhone(req.body?.tpendaftar || req.body?.wa);
+    if (pendaftarPhone.error) return res.status(400).json({ error: `No. HP Pendaftar tidak valid. ${pendaftarPhone.error.replace(/^No\\. HP Jamaah /, '')}` });
+    const tempatLahir = normalizeDashboardUpperText(req.body?.tempat_lahir || req.body?.plahir, 80);
+    const statusNikah = normalizeLegacySelectValue(req.body?.status, 40);
+    const pekerjaan = normalizeLegacySelectValue(req.body?.pekerjaan, 40);
+    const pendamping = normalizeLegacySelectValue(req.body?.pendamping, 40);
+    const pengalaman = normalizeLegacySelectValue(req.body?.pengalaman, 40);
+    const remarks = normalizeLegacySelectValue(req.body?.remarks, 40);
+    const mahram = normalizeDashboardUpperText(req.body?.mahram, 80);
+    const kondisi = normalizeDashboardUpperText(req.body?.kondisi, 300);
+    const alamat = normalizeDashboardUpperText(req.body?.alamat, 500);
+    const prov = normalizeLegacySelectValue(req.body?.prov, 40);
+    const kab = normalizeLegacySelectValue(req.body?.kab, 40);
+    const kec = normalizeLegacySelectValue(req.body?.kec, 40);
+    const kel = normalizeLegacySelectValue(req.body?.kel, 40);
+    const keterangan = normalizeDashboardUpperText(req.body?.keterangan, 300);
+
+    const { data: existing, error: fetchErr } = await supabase
+      .from('jamaah')
+      .select('id, agent_id, id_umroh, jm_id, nama, jk, wa, tgl_lahir, no_paspor, paspor_expired, bayar, sisa, raw_data')
+      .eq('id', rowId)
+      .eq('agent_id', agentId)
+      .maybeSingle();
+
+    if (fetchErr) {
+      console.error('[jamaah-update] fetch error:', fetchErr.message);
+      return res.status(500).json({ error: 'Gagal memuat data jamaah' });
+    }
+    if (!existing) return res.status(404).json({ error: 'Jamaah tidak ditemukan' });
+    if (!isDashboardBelumDpJamaah(existing)) {
+      return res.status(403).json({ error: 'Edit data hanya tersedia untuk jamaah yang belum DP' });
+    }
+    if (!existing.id_umroh || !existing.jm_id) {
+      return res.status(400).json({ error: 'Data internal jamaah tidak lengkap, tidak bisa diedit otomatis' });
+    }
+
+    if (!agent?.jamaah_username || !agent?.jamaah_password) {
+      return res.status(400).json({ error: 'Credential sistem internal belum tersimpan. Login sistem internal dulu di halaman Jamaah.' });
+    }
+
+    const existingRaw = plainObjectOrEmpty(existing.raw_data);
+    const manualOverrides = { ...plainObjectOrEmpty(existingRaw.manual_overrides) };
+    const submitted = {
+      nama,
+      jk,
+      wa: phone.value,
+      tgl_lahir: birthDate.value,
+      no_paspor: noPaspor,
+      paspor_expired: passportExpired.value,
+    };
+    const current = {
+      nama: compactDashboardText(existing.nama, 120)?.toUpperCase() || null,
+      jk: existing.jk || null,
+      wa: comparableDashboardJamaahPhone(existing.wa),
+      tgl_lahir: existing.tgl_lahir || null,
+      no_paspor: normalizePassportText(existing.no_paspor),
+      paspor_expired: existing.paspor_expired || null,
+    };
+
+    let legacyPassword;
+    try {
+      legacyPassword = capiDecrypt(agent.jamaah_password);
+    } catch (err) {
+      console.error('[jamaah-update] decrypt legacy password error:', err.message);
+      return res.status(500).json({ error: 'Gagal membaca credential sistem internal' });
+    }
+
+    const legacyFields = {
+      nama,
+      wa: phone.value,
+      tgl_lahir: birthDate.value,
+    };
+    if (jk !== null) legacyFields.jk = jk;
+    if (ktp !== null) legacyFields.ktp = ktp;
+    if (pendaftar !== null) legacyFields.pendaftar = pendaftar;
+    if (pendaftarPhone.value !== null) legacyFields.tpendaftar = pendaftarPhone.value;
+    if (tempatLahir !== null) legacyFields.tempat_lahir = tempatLahir;
+    if (statusNikah !== null) legacyFields.status = statusNikah;
+    if (pekerjaan !== null) legacyFields.pekerjaan = pekerjaan;
+    if (pendamping !== null) legacyFields.pendamping = pendamping;
+    if (pengalaman !== null) legacyFields.pengalaman = pengalaman;
+    if (remarks !== null) legacyFields.remarks = remarks;
+    if (mahram !== null) legacyFields.mahram = mahram;
+    if (kondisi !== null) legacyFields.kondisi = kondisi;
+    if (alamat !== null) legacyFields.alamat = alamat;
+    if (prov !== null) legacyFields.prov = prov;
+    if (kab !== null) legacyFields.kab = kab;
+    if (kec !== null) legacyFields.kec = kec;
+    if (kel !== null) legacyFields.kel = kel;
+    if (keterangan !== null) legacyFields.keterangan = keterangan;
+    if (noPaspor || current.no_paspor) legacyFields.no_paspor = noPaspor;
+    if (passportExpired.value || current.paspor_expired) legacyFields.paspor_expired = passportExpired.value;
+
+    const legacyResult = await submitUmrahJamaahEditWithBrowser({
+      username: agent.jamaah_username,
+      password: legacyPassword,
+      kantor: agent.jamaah_kantor || '2',
+      idUmroh: existing.id_umroh,
+      jmId: existing.jm_id,
+      fields: legacyFields,
+    });
+
+    if (!legacyResult.success) {
+      console.error('[jamaah-update] legacy update failed:', legacyResult.error, legacyResult.debug || '');
+      return res.status(502).json({
+        error: legacyResult.error || 'Gagal menyimpan data ke sistem internal',
+        debug: legacyResult.debug,
+      });
+    }
+
+    for (const field of Object.keys(submitted)) {
+      if (Object.hasOwn(manualOverrides, field) || submitted[field] !== current[field]) {
+        manualOverrides[field] = submitted[field];
+      }
+    }
+
+    const now = new Date().toISOString();
+    const raw_data = {
+      ...existingRaw,
+      manual_overrides: manualOverrides,
+      manual_edit_fields: {
+        ...plainObjectOrEmpty(existingRaw.manual_edit_fields),
+        ...legacyFields,
+      },
+      manual_overrides_updated_at: now,
+      manual_overrides_updated_by: req.user.slug || String(agentId),
+      internal_edit_updated_at: now,
+      internal_edit_message: legacyResult.message || null,
+    };
+
+    const { data: updated, error: updateErr } = await supabase
+      .from('jamaah')
+      .update({
+        nama,
+        jk,
+        wa: phone.value,
+        tgl_lahir: birthDate.value,
+        no_paspor: noPaspor,
+        paspor_expired: passportExpired.value,
+        raw_data,
+      })
+      .eq('id', rowId)
+      .eq('agent_id', agentId)
+      .select('*')
+      .maybeSingle();
+
+    if (updateErr) {
+      console.error('[jamaah-update] update error:', updateErr.message);
+      return res.status(500).json({ error: 'Gagal menyimpan data jamaah' });
+    }
+
+    res.json({ success: true, data: { row: updated } });
+  } catch (err) {
+    console.error('[jamaah-update] Error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Jamaah note: create/update/clear note for a specific jamaah

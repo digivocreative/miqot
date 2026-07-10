@@ -527,7 +527,7 @@ test('self-service MCP key endpoints are scoped to the logged-in agent only', ()
 
 test('MCP UI is wired into the ai-tools tab', () => {
   const layout = read('src/components/DashboardLayout.tsx');
-  assert.match(layout, /import McpIntegrationPage from '\.\/McpIntegrationPage'/);
+  assert.match(layout, /const McpIntegrationPage = lazy\(\(\) => import\('\.\/McpIntegrationPage'\)\)/);
   assert.match(layout, /if \(sub === 'mcp'\) return <McpIntegrationPage \/>;/);
   assert.match(layout, /'mcp': \{ icon: Bot/);
 

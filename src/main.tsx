@@ -1,4 +1,4 @@
-import { StrictMode, lazy, Suspense } from 'react'
+import { StrictMode, lazy, Suspense, Component, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
 import './index.css'
@@ -15,6 +15,26 @@ console.log(
   'background:#1e293b;color:#94a3b8;padding:4px 8px;border-radius:0 4px 4px 0'
 )
 
+function getBrowserStorage(kind: 'local' | 'session'): Storage | null {
+  try {
+    const storage = kind === 'local' ? window.localStorage : window.sessionStorage;
+    const key = '__storage_probe__';
+    storage.setItem(key, key);
+    storage.removeItem(key);
+    return storage;
+  } catch {
+    return null;
+  }
+}
+
+function storageGet(kind: 'local' | 'session', key: string): string | null {
+  return getBrowserStorage(kind)?.getItem(key) ?? null;
+}
+
+function storageSet(kind: 'local' | 'session', key: string, value: string): void {
+  getBrowserStorage(kind)?.setItem(key, value);
+}
+
 // ── Stale-deploy guard ──
 // After a new build, the loaded HTML can reference JS chunk hashes that no longer
 // exist (classic case: a precached SW shell pointing at chunks already purged by
@@ -25,9 +45,9 @@ console.log(
 window.addEventListener('vite:preloadError', (event) => {
   const KEY = 'preload-error-reloaded-at'
   const now = Date.now()
-  const last = Number(sessionStorage.getItem(KEY) || '0')
+  const last = Number(storageGet('session', KEY) || '0')
   if (now - last < 10_000) return // already retried recently — let the error surface
-  sessionStorage.setItem(KEY, String(now))
+  storageSet('session', KEY, String(now))
   event.preventDefault() // we're handling it via reload; don't rethrow
   window.location.reload()
 })
@@ -40,10 +60,48 @@ const FlightSharePage = lazy(() => import('./components/FlightSharePage.tsx'))
 const BioPage = lazy(() => import('./components/bio/BioPage.tsx'))
 const TopPartnerPage = lazy(() => import('./components/TopPartnerPage.tsx'))
 const RahmahJuliLandingPage = lazy(() => import('./components/RahmahJuliLandingPage.tsx'))
-const LocalAgentation = import.meta.env.DEV
+const LocalAgentation = import.meta.env.DEV && getBrowserStorage('local')
   ? lazy(() => import('agentation').then(({ Agentation }) => ({ default: Agentation })))
   : null
 import { AGENTS_DATA, loadAgentsFromSupabase } from '@/data/agents'
+
+class RenderErrorBoundary extends Component<
+  { children: ReactNode; fallback?: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error('[render] route render failed:', error)
+  }
+
+  render() {
+    if (this.state.hasError) return this.props.fallback ?? null
+    return this.props.children
+  }
+}
+
+function RouteErrorFallback() {
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 flex items-center justify-center px-4">
+      <div className="max-w-sm rounded-xl border border-red-100 bg-white p-5 text-center shadow-sm dark:border-red-900/40 dark:bg-slate-900">
+        <h1 className="text-base font-bold text-slate-900 dark:text-white">Halaman gagal dimuat</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Silakan muat ulang halaman ini.</p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+        >
+          Muat ulang
+        </button>
+      </div>
+    </div>
+  )
+}
 
 // PWA scope is alhijaz.co only. On a custom domain the HTML is server-rendered
 // with `window.__AGENT_CONTEXT__` per-host, and the precached SW index.html
@@ -98,8 +156,8 @@ if (isPwaHost) {
       const { entry } = (await res.json()) as { entry?: string }
       if (!entry || entry === runningEntry) return
       const KEY = 'forced-reload-entry'
-      if (sessionStorage.getItem(KEY) === entry) return // already tried for this build
-      sessionStorage.setItem(KEY, entry)
+      if (storageGet('session', KEY) === entry) return // already tried for this build
+      storageSet('session', KEY, entry)
       try {
         const regs = await navigator.serviceWorker.getRegistrations()
         await Promise.all(regs.map(r => r.unregister()))
@@ -163,7 +221,7 @@ const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'b
 import { isSessionValid } from './utils/authUtils'
 
 const currentPath = window.location.pathname.replace(/\/+$/, '') || '/'
-const shouldAutoRedirect = isSessionValid() && (currentPath === '/' || currentPath === '/login')
+const shouldAutoRedirect = isSessionValid() && currentPath === '/'
 
 if (shouldAutoRedirect) {
   window.location.replace('/dashboard')
@@ -198,6 +256,10 @@ import RegisterPage from './components/RegisterPage.tsx'
 function LoginRouter() {
   const [session, setSession] = useState<AuthSession | null>(null)
 
+  useEffect(() => {
+    clearSession()
+  }, [])
+
   if (session) {
     // Setelah login berhasil, redirect ke /dashboard
     window.location.href = '/dashboard'
@@ -215,16 +277,23 @@ function DashboardRouter() {
     const token = session.token
     // Verify token — but never auto-logout on failure (network error, server restart, etc.)
     fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => { if (!r.ok) throw new Error('expired'); return r.json() })
+      .then(r => {
+        if (!r.ok) {
+          const err = new Error('auth rejected') as Error & { status?: number }
+          err.status = r.status
+          throw err
+        }
+        return r.json()
+      })
       .then((user) => {
         setSession(prev => {
           if (!prev || prev.token !== token) return prev
           const next = { ...prev, user: { ...prev.user, ...user } }
           try {
-            const storage = localStorage.getItem('auth_session')
-              ? localStorage
-              : sessionStorage.getItem('auth_session')
-              ? sessionStorage
+            const storage = storageGet('local', 'auth_session')
+              ? getBrowserStorage('local')
+              : storageGet('session', 'auth_session')
+              ? getBrowserStorage('session')
               : null
             storage?.setItem('auth_session', JSON.stringify(next))
           } catch { /* ignore */ }
@@ -232,9 +301,15 @@ function DashboardRouter() {
         })
         setChecking(false)
       })
-      .catch(() => {
-        // Don't clear session — just proceed with existing session
-        // Agent should never be auto-logged out
+      .catch((err: Error & { status?: number }) => {
+        if (err?.status === 401 || err?.status === 403) {
+          clearSession()
+          setSession(null)
+          setChecking(false)
+          return
+        }
+        // Network/server blips should not force logout. Keep the last verified
+        // session so agents are not kicked out during deploys or short outages.
         setChecking(false)
       })
   }, [session?.token])
@@ -356,8 +431,14 @@ if (isPwaHost && isSsrLandingPath) {
           <div className="w-8 h-8 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
         </div>
       }>
-        {page}
-        {LocalAgentation ? <LocalAgentation /> : null}
+        <RenderErrorBoundary fallback={<RouteErrorFallback />}>
+          {page}
+        </RenderErrorBoundary>
+        {LocalAgentation ? (
+          <RenderErrorBoundary fallback={null}>
+            <LocalAgentation />
+          </RenderErrorBoundary>
+        ) : null}
       </Suspense>
     )
   })()

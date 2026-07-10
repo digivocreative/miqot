@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  applyManualUmrohOverrides,
   guardNewSuspiciousAwapiPaymentRow,
   hasSuspiciousAwapiPayment,
   normalizeAwapiHajiRow,
@@ -186,6 +187,36 @@ test('preserveLegacyUmrohRawData keeps legacy staff when AWAPI refresh omits it'
   assert.equal(merged.raw_data.staf, 'BU ANITA');
   assert.equal(merged.raw_data.id_jadwal, 'JADWAL-1448-01');
   assert.deepEqual(merged.perlengkapan, { koper: true });
+});
+
+test('applyManualUmrohOverrides keeps dashboard-edited biodata sticky across AWAPI refreshes', () => {
+  const norm = normalizeAwapiRow(rawRow({
+    nama: 'NAMA DARI AWAPI',
+    hp: '0812000111',
+    tgl_lahir: `${jakartaYear() - 30}-01-01`,
+    paspor_nomor: 'A123',
+    paspor_expired: `${jakartaYear() + 1}-01-01`,
+  }), { agentId: 'agent-id' });
+
+  const merged = preserveLegacyUmrohRawData(norm, {
+    raw_data: {
+      manual_overrides: {
+        nama: 'NAMA EDIT MANUAL',
+        wa: '6281299998888',
+        tgl_lahir: `${jakartaYear() - 31}-02-02`,
+        no_paspor: 'B987',
+        paspor_expired: `${jakartaYear() + 2}-03-03`,
+      },
+    },
+  });
+
+  assert.equal(applyManualUmrohOverrides(norm, merged.raw_data).nama, 'NAMA EDIT MANUAL');
+  assert.equal(merged.nama, 'NAMA EDIT MANUAL');
+  assert.equal(merged.wa, '6281299998888');
+  assert.equal(merged.tgl_lahir, `${jakartaYear() - 31}-02-02`);
+  assert.equal(merged.no_paspor, 'B987');
+  assert.equal(merged.paspor_expired, `${jakartaYear() + 2}-03-03`);
+  assert.equal(merged.raw_data.manual_overrides.nama, 'NAMA EDIT MANUAL');
 });
 
 test('preserveLegacyUmrohRawData drops legacy payment raw when AWAPI takes over payment', () => {

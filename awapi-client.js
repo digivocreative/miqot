@@ -343,6 +343,29 @@ function safeRawObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function hasOwn(value, key) {
+  return Object.hasOwn(safeRawObject(value), key);
+}
+
+export function applyManualUmrohOverrides(row, rawData) {
+  if (!row) return row;
+  const raw = safeRawObject(rawData);
+  const overrides = safeRawObject(raw.manual_overrides);
+  if (Object.keys(overrides).length === 0) return row;
+
+  const out = { ...row };
+  if (hasOwn(overrides, 'nama')) {
+    const nama = safeText(overrides.nama);
+    if (nama) out.nama = nama;
+  }
+  if (hasOwn(overrides, 'wa')) out.wa = safeText(overrides.wa);
+  if (hasOwn(overrides, 'jk')) out.jk = safeText(overrides.jk);
+  if (hasOwn(overrides, 'tgl_lahir')) out.tgl_lahir = safeBirthDate(overrides.tgl_lahir);
+  if (hasOwn(overrides, 'no_paspor')) out.no_paspor = safePaspor(overrides.no_paspor);
+  if (hasOwn(overrides, 'paspor_expired')) out.paspor_expired = safeDate(overrides.paspor_expired);
+  return out;
+}
+
 export function preserveLegacyUmrohRawData(row, existing) {
   if (!row) return row;
 
@@ -373,11 +396,11 @@ export function preserveLegacyUmrohRawData(row, existing) {
   const existingDokumen = safeRawObject(existing?.dokumen);
   const dokumen = { ...existingDokumen, ...incomingDokumen };
 
-  return {
+  return applyManualUmrohOverrides({
     ...row,
     raw_data,
     dokumen: Object.keys(dokumen).length > 0 ? dokumen : row.dokumen,
-  };
+  }, raw_data);
 }
 
 /**

@@ -12,6 +12,22 @@ import { clearSession, getAuthHeaders } from './LoginPage';
 import type { Birthday } from './BirthdayWidget';
 import { trackEvent } from '../utils/analytics';
 
+function getLocalStorageItem(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function setLocalStorageItem(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // unavailable storage should not block dashboard rendering
+  }
+}
+
 // Heavy sub-pages are code-split: each becomes its own chunk, fetched on-demand
 // the first time its tab renders. This keeps the initial bundle (and the JS that
 // must be parsed on every reload) small. lazy/Suspense imported at top.
@@ -33,6 +49,7 @@ const KursPage = lazy(() => import('./KursPage'));
 const BrochureSchedulePage = lazy(() => import('./BrochureSchedulePage'));
 const McpIntegrationPage = lazy(() => import('./McpIntegrationPage'));
 const UmrahRegisterPage = lazy(() => import('./UmrahRegisterPage'));
+const JamaahEditPage = lazy(() => import('./JamaahEditPage'));
 // Home widgets — only mounted on the home tab; split out of the initial chunk
 // so a deep-link to a non-home dashboard route doesn't pay for them.
 const UpcomingSchedule = lazy(() => import('./UpcomingSchedule'));
@@ -77,12 +94,14 @@ function getTabFromPath(): TabId {
   return 'home';
 }
 
-function getSubTabFromPath(): 'umroh' | 'haji' | 'daftar' {
+function getSubTabFromPath(): 'umroh' | 'haji' | 'daftar' | 'edit' {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
   // /dashboard/jamaah/haji
   if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'jamaah' && segments[2] === 'haji') return 'haji';
   // /dashboard/jamaah/daftar
   if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'jamaah' && segments[2] === 'daftar') return 'daftar';
+  // /dashboard/jamaah/edit/:id
+  if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'jamaah' && segments[2] === 'edit') return 'edit';
   return 'umroh';
 }
 
@@ -279,6 +298,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // Statistik header slot for year dropdown
   const [statistikHeaderRight, setStatistikHeaderRight] = useState<React.ReactNode>(null);
   const [jamaahHeaderRight, setJamaahHeaderRight] = useState<React.ReactNode>(null);
+  const [jamaahEditHeader, setJamaahEditHeader] = useState<{ label: string; title: string } | null>(null);
   // Brosur "kolom ke-3" mode lives here (next to isDarkMode) so the header toggle
   // reads live state — guarantees the active highlight updates on click. Passed
   // down to BrochureSchedulePage as a prop. Persisted like the dark-mode pref.
@@ -427,14 +447,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       : TAB_TITLES[activeTab] || 'Dashboard';
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
+  const [isDarkMode, setIsDarkMode] = useState(() => getLocalStorageItem('darkMode') === 'true');
   const [agentData, setAgentData] = useState(session.user);
 
   useEffect(() => {
     const root = document.documentElement;
     if (isDarkMode) root.classList.add('dark');
     else root.classList.remove('dark');
-    localStorage.setItem('darkMode', isDarkMode.toString());
+    setLocalStorageItem('darkMode', isDarkMode.toString());
   }, [isDarkMode]);
 
   const refreshAgent = useCallback(async () => {
@@ -472,6 +492,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // ── Sub-page view with dashboard header ──
   if (activeTab !== 'home') {
     const activeCard = MENU_CARDS.find(c => c.id === activeTab);
+    const jamaahSub = activeTab === 'jamaah' ? getSubTabFromPath() : null;
+    const isJamaahEdit = activeTab === 'jamaah' && jamaahSub === 'edit';
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 transition-colors">
         {/* Sub-page header */}
@@ -479,8 +501,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
             <button
               onClick={() => {
-                // Jamaah daftar (registration form) → back to /dashboard/jamaah list
-                if (activeTab === 'jamaah' && getSubTabFromPath() === 'daftar') {
+                // Jamaah sub-pages → back to /dashboard/jamaah list
+                if (activeTab === 'jamaah' && (jamaahSub === 'daftar' || jamaahSub === 'edit')) {
                   navigatePath('/dashboard/jamaah');
                   setJamaahRefreshKey(k => k + 1);
                   return;
@@ -534,6 +556,25 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   'mcp': { icon: Bot, bg: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20', border: 'border-teal-100', borderDark: 'dark:border-teal-800/40', color: 'text-teal-600 dark:text-teal-400', label: 'AI Assistant (MCP)' },
                 };
                 const sub = aiSub && AI_SUB_STYLES[aiSub] ? AI_SUB_STYLES[aiSub] : null;
+                if (isJamaahEdit) {
+                  return (
+                    <>
+                      {activeCard && (
+                        <div className={`w-8 h-8 rounded-lg ${activeCard.bgLight} ${activeCard.bgDark} flex items-center justify-center border ${activeCard.borderLight} ${activeCard.borderDark}`}>
+                          <activeCard.icon size={16} className={activeCard.color} />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-medium text-gray-400 dark:text-slate-500 truncate">
+                          {jamaahEditHeader?.label || 'Edit Data Jamaah'}
+                        </p>
+                        <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">
+                          {jamaahEditHeader?.title || 'Memuat jamaah...'}
+                        </h1>
+                      </div>
+                    </>
+                  );
+                }
                 if (sub) {
                   const SubIcon = sub.icon;
                   return (
@@ -560,7 +601,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             {/* Per-tab selectors render to the LEFT of the dark-mode toggle */}
             {activeTab === 'statistik' && statistikHeaderRight}
             {activeTab === 'analytics' && analyticsHeaderRight}
-            {activeTab === 'jamaah' && jamaahHeaderRight}
+            {activeTab === 'jamaah' && jamaahSub !== 'daftar' && jamaahSub !== 'edit' && jamaahHeaderRight}
             {activeTab === 'brosur' && (
               <div className="flex items-center h-9 rounded-lg bg-gray-100 dark:bg-slate-800 p-0.5 shrink-0">
                 {(['hari', 'seat'] as const).map(mode => (
@@ -670,7 +711,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             <StatistikPage agentSlug={agentData.slug} role={agentData.role} onHeaderRight={setStatistikHeaderRight} initialStatTab={getStatistikTabFromPath()} />
           )}
           {activeTab === 'jamaah' && (
-            getSubTabFromPath() === 'daftar' ? (
+            jamaahSub === 'daftar' ? (
               <UmrahRegisterPage
                 agentSlug={agentData.slug}
                 onBack={() => {
@@ -679,13 +720,25 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 }}
                 onNavigate={navigatePath}
               />
+            ) : jamaahSub === 'edit' ? (
+              <JamaahEditPage
+                onBack={() => {
+                  navigatePath('/dashboard/jamaah');
+                  setJamaahRefreshKey(k => k + 1);
+                }}
+                onNavigate={(path) => {
+                  navigatePath(path);
+                  setJamaahRefreshKey(k => k + 1);
+                }}
+                onHeaderTitle={setJamaahEditHeader}
+              />
             ) : (
               <JamaahPage
                 key={jamaahRefreshKey}
                 agentSlug={agentData.slug}
                 jamaahConnected={jamaahConnected}
                 jamaahUser={jamaahUser}
-                initialSubTab={getSubTabFromPath() === 'haji' ? 'haji' : 'umroh'}
+                initialSubTab={jamaahSub === 'haji' ? 'haji' : 'umroh'}
                 onConnectionChange={(connected, user) => {
                   setJamaahConnected(connected);
                   setJamaahUser(user);

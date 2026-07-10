@@ -12,15 +12,51 @@ interface StoredSession {
   };
 }
 
-function getStoredSession(): StoredSession | null {
-  const raw = localStorage.getItem('auth_session') || sessionStorage.getItem('auth_session');
-  if (!raw) return null;
-
+function getBrowserStorage(kind: 'local' | 'session'): Storage | null {
+  if (typeof window === 'undefined') return null;
   try {
-    return JSON.parse(raw) as StoredSession;
+    const storage = kind === 'local' ? window.localStorage : window.sessionStorage;
+    const key = '__storage_probe__';
+    storage.setItem(key, key);
+    storage.removeItem(key);
+    return storage;
   } catch {
     return null;
   }
+}
+
+function isStoredSession(value: unknown): value is StoredSession {
+  if (!value || typeof value !== 'object') return false;
+  const session = value as Partial<StoredSession>;
+  const user = session.user as Partial<StoredSession['user']> | undefined;
+
+  return typeof session.token === 'string'
+    && session.token.trim().length > 0
+    && !!user
+    && typeof user.slug === 'string'
+    && user.slug.trim().length > 0
+    && typeof user.name === 'string'
+    && user.name.trim().length > 0
+    && (user.role === 'admin' || user.role === 'agent');
+}
+
+function readStoredSession(storage: Storage | null): StoredSession | null {
+  if (!storage) return null;
+  const raw = storage.getItem('auth_session');
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (isStoredSession(parsed)) return parsed;
+  } catch {
+    // malformed JSON, clear below
+  }
+  storage.removeItem('auth_session');
+  return null;
+}
+
+function getStoredSession(): StoredSession | null {
+  return readStoredSession(getBrowserStorage('local')) || readStoredSession(getBrowserStorage('session'));
 }
 
 /**

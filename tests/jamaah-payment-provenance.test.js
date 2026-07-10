@@ -114,5 +114,7 @@ test('scheduled Phase 2 enrichment remains payment-free', () => {
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   assert.doesNotMatch(snippet, /patch\.(bayar|sisa|diskon_kantor|diskon_marketing)\b/);
-  assert.doesNotMatch(snippet, /raw_data/);
+  assert.match(snippet, /manualOverrides = plainObjectOrEmpty\(target\.raw_data\?\.manual_overrides\)/);
+  assert.doesNotMatch(snippet, /patch\.raw_data/);
+  assert.doesNotMatch(snippet, /raw_data:\s*/);
 });

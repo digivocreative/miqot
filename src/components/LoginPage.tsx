@@ -17,25 +17,63 @@ export interface AuthSession {
   user: AuthUser;
 }
 
-export function getStoredSession(): AuthSession | null {
-  const raw = localStorage.getItem('auth_session') || sessionStorage.getItem('auth_session');
-  if (!raw) return null;
+function getBrowserStorage(kind: 'local' | 'session'): Storage | null {
+  if (typeof window === 'undefined') return null;
   try {
-    return JSON.parse(raw);
+    const storage = kind === 'local' ? window.localStorage : window.sessionStorage;
+    const key = '__storage_probe__';
+    storage.setItem(key, key);
+    storage.removeItem(key);
+    return storage;
   } catch {
     return null;
   }
 }
 
-export function clearSession() {
-  // Remove auth session
-  localStorage.removeItem('auth_session');
-  sessionStorage.removeItem('auth_session');
+function isStoredAuthSession(value: unknown): value is AuthSession {
+  if (!value || typeof value !== 'object') return false;
+  const session = value as Partial<AuthSession>;
+  const user = session.user as Partial<AuthUser> | undefined;
 
+  return typeof session.token === 'string'
+    && session.token.trim().length > 0
+    && !!user
+    && typeof user.slug === 'string'
+    && user.slug.trim().length > 0
+    && typeof user.name === 'string'
+    && user.name.trim().length > 0
+    && (user.role === 'admin' || user.role === 'agent');
+}
+
+function readStoredSession(storage: Storage | null): AuthSession | null {
+  if (!storage) return null;
+  const raw = storage.getItem('auth_session');
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (isStoredAuthSession(parsed)) return parsed;
+  } catch {
+    // malformed JSON, clear below
+  }
+  storage.removeItem('auth_session');
+  return null;
+}
+
+export function getStoredSession(): AuthSession | null {
+  return readStoredSession(getBrowserStorage('local')) || readStoredSession(getBrowserStorage('session'));
+}
+
+export function clearSession() {
+  const local = getBrowserStorage('local');
+  const session = getBrowserStorage('session');
+
+  // Remove auth session
+  local?.removeItem('auth_session');
+  session?.removeItem('auth_session');
   // Clear session-scoped UI state
-  sessionStorage.removeItem('insightDismissed'); // legacy cleanup
-  localStorage.removeItem('insightDismissedDate');
-  sessionStorage.removeItem('pin_unlocked');
+  session?.removeItem('insightDismissed'); // legacy cleanup
+  local?.removeItem('insightDismissedDate');
+  session?.removeItem('pin_unlocked');
 }
 
 export function getAuthHeaders(): Record<string, string> {
@@ -101,11 +139,8 @@ export default function LoginPage({ onLogin }: { onLogin: (session: AuthSession)
       const session: AuthSession = { token: data.token, user: data.user };
       // Clear any previous agent's session data before storing new session
       clearSession();
-      if (rememberMe) {
-        localStorage.setItem('auth_session', JSON.stringify(session));
-      } else {
-        sessionStorage.setItem('auth_session', JSON.stringify(session));
-      }
+      const storage = rememberMe ? getBrowserStorage('local') : getBrowserStorage('session');
+      storage?.setItem('auth_session', JSON.stringify(session));
 
       setLoading(false);
       setSuccess(true);

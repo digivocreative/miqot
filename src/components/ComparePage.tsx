@@ -29,6 +29,22 @@ import { getTemperature } from '@/data/temperatureData';
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
 
+function getLocalStorageItem(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function setLocalStorageItem(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // unavailable storage should not block compare page rendering
+  }
+}
+
 function hotelStars(name: string, stars?: string): number {
   const raw = String(stars || '').trim();
   const value = raw && raw !== '0' ? raw : (lookupHotelMetadata(name).stars || '0');
@@ -242,12 +258,12 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
 
   // ── Dark Mode ──
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    return localStorage.getItem('darkMode') === 'true';
+    return getLocalStorageItem('darkMode') === 'true';
   });
   useEffect(() => {
     const root = document.documentElement;
     if (isDarkMode) root.classList.add('dark'); else root.classList.remove('dark');
-    localStorage.setItem('darkMode', isDarkMode.toString());
+    setLocalStorageItem('darkMode', isDarkMode.toString());
   }, [isDarkMode]);
 
   useEffect(() => { document.title = 'Bandingkan Paket'; }, []);

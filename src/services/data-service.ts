@@ -37,6 +37,12 @@ interface PackagesCacheData {
   apiResponse: ApiResponse;
 }
 
+function isApiResponse(value: unknown): value is ApiResponse {
+  if (!value || typeof value !== 'object') return false;
+  const response = value as Partial<ApiResponse>;
+  return response.status === 'ok' && Array.isArray(response.aaData);
+}
+
 /**
  * Save API response to localStorage cache
  */
@@ -63,7 +69,11 @@ function loadPackagesFromCache(yearCode: string): { data: ApiResponse; age: numb
     const raw = localStorage.getItem(PACKAGES_CACHE_PREFIX + yearCode);
     if (!raw) return null;
 
-    const cached: PackagesCacheData = JSON.parse(raw);
+    const cached = JSON.parse(raw) as Partial<PackagesCacheData>;
+    if (typeof cached.timestamp !== 'number' || !isApiResponse(cached.apiResponse)) {
+      localStorage.removeItem(PACKAGES_CACHE_PREFIX + yearCode);
+      return null;
+    }
     const age = Date.now() - cached.timestamp;
 
     if (age > PACKAGES_CACHE_TTL_MS) {
@@ -163,8 +173,13 @@ export function transformHotelInfo(rawHotel: Record<string, string>): HotelInfo 
 function transformPackage(raw: UmrohPackageRaw): UmrohPackage {
   // Transform hotel tiers
   const hotel: PackageHotels = {};
-  for (const [tier, hotelData] of Object.entries(raw.paket_hotel)) {
-    hotel[tier] = transformHotelInfo(hotelData);
+  const paketHotel = raw.paket_hotel && typeof raw.paket_hotel === 'object'
+    ? raw.paket_hotel
+    : {};
+  for (const [tier, hotelData] of Object.entries(paketHotel)) {
+    if (hotelData && typeof hotelData === 'object') {
+      hotel[tier] = transformHotelInfo(hotelData as Record<string, string>);
+    }
   }
 
   return {
@@ -408,9 +423,9 @@ async function fetchFromApi(
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const data: ApiResponse = await response.json();
+    const data: unknown = await response.json();
 
-    if (data.status !== 'ok') {
+    if (!isApiResponse(data)) {
       throw new Error('API returned error status');
     }
 

@@ -16,6 +16,8 @@ import {
   validateRedirectUri,
   constantTimeEqual,
   buildBaseUrl,
+  validateResourceIndicator,
+  normalizeOAuthScope,
   authorizePage,
   makeClientId,
   parseClientId,
@@ -23,6 +25,7 @@ import {
   issueAccessToken,
   issueRefreshToken,
   verifyAccessToken,
+  decodeBearerToken,
 } from '../dev-mcp.js';
 
 const SECRET = 'test-secret-dev-mcp';
@@ -133,6 +136,25 @@ test('constantTimeEqual', () => {
   assert.equal(constantTimeEqual('abc', 'abcd'), false);
 });
 
+test('validateResourceIndicator accepts only the Dev-MCP resource', () => {
+  assert.deepEqual(validateResourceIndicator(undefined, RESOURCE), { resource: RESOURCE, provided: false });
+  assert.deepEqual(validateResourceIndicator(RESOURCE, RESOURCE), { resource: RESOURCE, provided: true });
+  // trailing slash is accepted as the same resource, but the requested value is preserved for aud echoing.
+  assert.deepEqual(validateResourceIndicator(`${RESOURCE}/`, RESOURCE), { resource: `${RESOURCE}/`, provided: true });
+  assert.equal(validateResourceIndicator('https://evil.com/dev-mcp', RESOURCE).error, 'invalid_target');
+  assert.equal(validateResourceIndicator('https://alhijaz.co/other', RESOURCE).error, 'invalid_target');
+  assert.equal(validateResourceIndicator(`${RESOURCE}#frag`, RESOURCE).error, 'invalid_resource');
+  assert.equal(validateResourceIndicator([RESOURCE, 'https://evil.com/dev-mcp'], RESOURCE).error, 'multiple_resources');
+});
+
+test('normalizeOAuthScope defaults to dev and rejects unsupported scopes', () => {
+  assert.equal(normalizeOAuthScope(undefined), 'dev');
+  assert.equal(normalizeOAuthScope(''), 'dev');
+  assert.equal(normalizeOAuthScope('dev dev'), 'dev');
+  assert.equal(normalizeOAuthScope('openid'), null);
+  assert.equal(normalizeOAuthScope('dev openid'), null);
+});
+
 // ── base URL (proto forcing behind TLS proxy) ──
 test('buildBaseUrl forces https for non-localhost even if edge says http', () => {
   const mk = (headers) => buildBaseUrl({ headers });
@@ -174,14 +196,30 @@ test('makeClientId / parseClientId round-trip carries redirect_uris', () => {
 
 // ── Tokens ──
 test('issueAccessToken / verifyAccessToken round-trip + aud binding', () => {
-  const at = issueAccessToken(SECRET, RESOURCE);
-  const p = verifyAccessToken(SECRET, at, RESOURCE);
+  const at = issueAccessToken(SECRET, RESOURCE, '8h', { issuer: 'https://alhijaz.co', clientId: 'cid-1', scope: 'dev' });
+  const p = verifyAccessToken(SECRET, at, RESOURCE, { issuer: 'https://alhijaz.co' });
   assert.equal(p.typ, 'at');
   assert.equal(p.sub, 'dev');
+  assert.equal(p.iss, 'https://alhijaz.co');
+  assert.equal(p.client_id, 'cid-1');
+  assert.equal(p.scope, 'dev');
+  assert.ok(p.jti);
+  assert.equal(at.includes('.'), false);
+  assert.equal(at.startsWith('mcp_at_'), true);
+  assert.equal(decodeBearerToken(at).scope, 'dev');
   // wrong audience rejected
   assert.throws(() => verifyAccessToken(SECRET, at, 'https://evil.com/dev-mcp'));
+  // trailing slash variant is accepted as the same protected resource.
+  assert.equal(verifyAccessToken(SECRET, issueAccessToken(SECRET, `${RESOURCE}/`), RESOURCE).aud, `${RESOURCE}/`);
   // wrong secret rejected
   assert.throws(() => verifyAccessToken('other', at, RESOURCE));
+});
+
+test('access token can omit scope when OAuth client did not request one', () => {
+  const at = issueAccessToken(SECRET, RESOURCE, '8h', { issuer: 'https://alhijaz.co', clientId: 'cid-1', scope: null });
+  const p = verifyAccessToken(SECRET, at, RESOURCE, { issuer: 'https://alhijaz.co' });
+  assert.equal(p.scope, undefined);
+  assert.equal(p.client_id, 'cid-1');
 });
 
 test('expired access token is rejected', () => {
@@ -190,17 +228,25 @@ test('expired access token is rejected', () => {
 });
 
 test('refresh token has typ rt and is aud-bound', () => {
-  const rt = issueRefreshToken(SECRET, RESOURCE);
-  const p = jwt.verify(rt, SECRET, { audience: RESOURCE });
+  const rt = issueRefreshToken(SECRET, RESOURCE, '30d', { issuer: 'https://alhijaz.co', clientId: 'cid-1', scope: 'dev' });
+  assert.equal(rt.includes('.'), false);
+  assert.equal(rt.startsWith('mcp_rt_'), true);
+  const p = decodeBearerToken(rt, 'rt');
   assert.equal(p.typ, 'rt');
+  assert.equal(p.iss, 'https://alhijaz.co');
+  assert.equal(p.aud, RESOURCE);
+  assert.equal(p.client_id, 'cid-1');
+  assert.equal(p.scope, 'dev');
 });
 
 test('auth code carries pkce challenge + jti and expires', () => {
   const challenge = pkceChallengeFromVerifier('verifier-xyz-1234567890');
-  const code = issueAuthCode(SECRET, { redirect_uri: 'https://claude.ai/cb', code_challenge: challenge, resource: RESOURCE, client_id: 'cid' });
+  const code = issueAuthCode(SECRET, { redirect_uri: 'https://claude.ai/cb', code_challenge: challenge, resource: RESOURCE, client_id: 'cid', scope: 'dev', scopeProvided: true });
   const p = jwt.verify(code, SECRET);
   assert.equal(p.typ, 'code');
   assert.equal(p.code_challenge, challenge);
+  assert.equal(p.scope, 'dev');
+  assert.equal(p.scope_provided, true);
   assert.ok(p.jti);
   assert.ok(p.exp - p.iat <= 60);
 });

@@ -459,7 +459,7 @@ export default defineConfig({
         // pages, portal-jamaah meta, dashboard auth shell).
         navigateFallback: '/index.html',
         // Don't cache API responses in SW
-        navigateFallbackDenylist: [/^\/api/, /\/umroh\/?$/, /\/haji\/?$/, /\/brosur/, /\/itinerary/, /^\/agents\//, /^\/login/, /^\/dashboard/, /^\/f\//, /\/jamaah(\/|$)/],
+        navigateFallbackDenylist: [/^\/api/, /\/umroh\/?$/, /\/haji\/?$/, /\/bio\/?$/, /^\/bio\/?$/, /\/brosur/, /\/itinerary/, /^\/agents\//, /^\/login/, /^\/dashboard/, /^\/f\//, /\/jamaah(\/|$)/],
         runtimeCaching: [
           {
             urlPattern: /^\/api\/.*/i,

@@ -97,6 +97,12 @@ type SortKey = 'nama' | 'sisa_desc' | 'berangkat' | 'terbaru';
 const AUTO_PERLENGKAPAN_STALE_MS = 60 * 60 * 1000;
 const DEFAULT_HIJRIAH_YEAR = '1448';
 
+function formatJamaahPhone(value: string | null) {
+  if (!value) return '-';
+  const normalized = normalizeWaNumber(value);
+  return normalized ? formatWaDisplay(normalized) : value;
+}
+
 function getJamaahRefreshKey(item: Pick<JamaahItem, 'id_umroh' | 'jm_id'>) {
   return `${item.id_umroh || '-'}::${item.jm_id}`;
 }
@@ -457,6 +463,7 @@ interface JamaahPageProps {
 export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, initialSubTab = 'umroh', onConnectionChange, onHeaderRight, onNavigate }: JamaahPageProps) {
   const currentSession = getStoredSession();
   const resolvedAgentSlug = agentSlug || currentSession?.user?.slug || '';
+  const canEditJamaah = resolvedAgentSlug.trim().toLowerCase() === 'nikita';
   const resolvedAgentName = currentSession?.user?.name || 'Agent';
   // Fallback for callers that didn't pass onNavigate. Uses pushState +
   // popstate dispatch so DashboardLayout's listener can re-render — avoids
@@ -662,6 +669,37 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
     const item = data.items.find(j => j.id === expandedId);
     if (item) maybeAutoRefreshPerlengkapan(item);
   }, [view, expandedId, data?.items]);
+
+  const openEditJamaah = (item: JamaahItem) => {
+    if (!canEditJamaah) return;
+    goTo(`/dashboard/jamaah/edit/${encodeURIComponent(item.id)}`);
+  };
+
+  const renderBelumDpEditIcon = (item: JamaahItem, className = '') => {
+    const title = canEditJamaah
+      ? 'Edit data jamaah belum DP'
+      : 'Edit data jamaah hanya tersedia untuk agent Nikita';
+    return (
+      <button
+        type="button"
+        disabled={!canEditJamaah}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!canEditJamaah) return;
+          openEditJamaah(item);
+        }}
+        className={`shrink-0 flex items-center justify-center border transition-colors ${
+          canEditJamaah
+            ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/40 hover:bg-amber-100 dark:hover:bg-amber-900/35 active:scale-95'
+            : 'text-gray-300 dark:text-slate-600 bg-gray-50 dark:bg-slate-900/30 border-gray-100 dark:border-slate-800 cursor-not-allowed opacity-60'
+        } ${className}`}
+        title={title}
+        aria-label={`${title}: ${item.nama}`}
+      >
+        <PenLine size={14} strokeWidth={2.4} />
+      </button>
+    );
+  };
 
   const handleSaveNote = async (item: JamaahItem) => {
     setSavingNote(true);
@@ -1666,8 +1704,11 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-xs font-bold text-gray-800 dark:text-white truncate">{m.nama}</p>
-                              {(m.jadwal_nama || m.paket) && (
-                                <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{m.jadwal_nama || m.paket}</p>
+                              {(m.jadwal_nama || m.paket || m.wa) && (
+                                <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
+                                  {m.jadwal_nama || m.paket || formatJamaahPhone(m.wa)}
+                                  {(m.jadwal_nama || m.paket) && m.wa ? ` · ${formatJamaahPhone(m.wa)}` : ''}
+                                </p>
                               )}
                             </div>
                             {m.tgl_berangkat && (
@@ -1675,6 +1716,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                                 {formatDate(m.tgl_berangkat)}
                               </span>
                             )}
+                            {renderBelumDpEditIcon(m, 'w-8 h-8 rounded-lg')}
                           </div>
                         );
                       })}
@@ -1696,6 +1738,22 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
               const isGrouped = grpSize > 1;
               const isExpanded = expandedId === item.id;
               const paymentStatus = getPaymentStatus(item);
+              const showRefreshAction = Boolean(item.jm_id);
+              const showAddJamaah = Boolean(item.id_umroh);
+              const showMagicLink = showAddJamaah && paymentStatus !== 'belum';
+              const showBelumDpEdit = paymentStatus === 'belum';
+              let actionGridClass = 'grid-cols-1';
+              if (showRefreshAction && showAddJamaah && showMagicLink) {
+                actionGridClass = 'grid-cols-[15fr_40fr_45fr]';
+              } else if (showRefreshAction && showAddJamaah) {
+                actionGridClass = 'grid-cols-[15fr_85fr]';
+              } else if (showMagicLink) {
+                actionGridClass = 'grid-cols-2';
+              } else if (showAddJamaah) {
+                actionGridClass = showRefreshAction ? 'grid-cols-[15fr_85fr]' : 'grid-cols-1';
+              } else if (showRefreshAction) {
+                actionGridClass = 'grid-cols-1';
+              }
               const initials = (item.nama || '?').split(' ').slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
               const genderRing = item.jk === 'P' ? 'ring-2 ring-pink-300' : 'ring-2 ring-blue-300';
 
@@ -1729,10 +1787,11 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                   }`}
                 >
                   {/* Collapsed row */}
-                  <button
-                    onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors"
-                  >
+                  <div className="flex items-stretch">
+                    <button
+                      onClick={() => setExpandedId(isExpanded ? null : item.id)}
+                      className="min-w-0 flex-1 flex items-center gap-2.5 px-3 py-2 text-left hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors"
+                    >
                     {/* Avatar with gender ring + lunas overlay */}
                     <div className="relative shrink-0">
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold bg-gray-50 dark:bg-slate-700 text-gray-600 dark:text-slate-300 ${genderRing}`}>
@@ -1770,8 +1829,11 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                         )}
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        {(item.jadwal_nama || item.paket) && (
-                          <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{item.jadwal_nama || item.paket}</p>
+                        {(item.jadwal_nama || item.paket || item.wa) && (
+                          <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
+                            {item.jadwal_nama || item.paket || formatJamaahPhone(item.wa)}
+                            {(item.jadwal_nama || item.paket) && item.wa ? ` · ${formatJamaahPhone(item.wa)}` : ''}
+                          </p>
                         )}
                         {item.notes && (
                           <span className="shrink-0 text-[8px] font-bold uppercase tracking-wide text-amber-500 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-[1px] rounded">Note</span>
@@ -1816,7 +1878,9 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                     >
                       <ChevronDown size={14} />
                     </motion.div>
-                  </button>
+                    </button>
+                    {showBelumDpEdit && renderBelumDpEditIcon(item, 'w-11 rounded-none border-y-0 border-r-0')}
+                  </div>
 
                   {/* Expanded detail */}
                   <AnimatePresence initial={false}>
@@ -1873,10 +1937,10 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                       {/* ─── Section 2: Info Grid (white block) ─── */}
                       <div className="px-3 py-2.5 grid grid-cols-2 gap-x-4 gap-y-2">
                         <div>
-                          <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">WhatsApp</p>
+                          <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">No. HP Jamaah</p>
                           {item.wa ? (() => {
                             const waE164 = normalizeWaNumber(item.wa);
-                            const display = waE164 ? formatWaDisplay(waE164) : item.wa;
+                            const display = formatJamaahPhone(item.wa);
                             return waE164 ? (
                               <a href={`https://wa.me/${waE164}`} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-emerald-600 dark:text-emerald-400 underline underline-offset-2">{display}</a>
                             ) : (
@@ -2245,7 +2309,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                       })()}
 
                       {/* ─── Section 4: Action Buttons ─── */}
-                      <div className={`px-3 py-2.5 grid gap-2 ${paymentStatus !== 'belum' ? 'grid-cols-[15fr_40fr_45fr]' : 'grid-cols-[15fr_85fr]'}`}>
+                      <div className={`px-3 py-2.5 grid gap-2 ${actionGridClass}`}>
                         {/* Refresh single row from Alhijaz Official API */}
                         {item.jm_id && (() => {
                           const refreshKey = getJamaahRefreshKey(item);
@@ -2281,7 +2345,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                             </button>
                           );
                         })()}
-                        {item.id_umroh && (
+                        {showAddJamaah && (
                           <button
                             type="button"
                             onClick={() => {
@@ -2298,7 +2362,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                             <span className="whitespace-nowrap">Tambah</span>
                           </button>
                         )}
-                        {item.id_umroh && paymentStatus !== 'belum' && (
+                        {showMagicLink && (
                           <MagicLinkButton
                             jamaahId={item.id}
                             jamaahName={item.nama}
@@ -2439,8 +2503,11 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{m.nama}</p>
-                        {(m.jadwal_nama || m.paket) && (
-                          <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">{m.jadwal_nama || m.paket}</p>
+                        {(m.jadwal_nama || m.paket || m.wa) && (
+                          <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">
+                            {m.jadwal_nama || m.paket || formatJamaahPhone(m.wa)}
+                            {(m.jadwal_nama || m.paket) && m.wa ? ` · ${formatJamaahPhone(m.wa)}` : ''}
+                          </p>
                         )}
                       </div>
                       {m.tgl_berangkat && (
@@ -2448,6 +2515,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                           {formatDate(m.tgl_berangkat)}
                         </span>
                       )}
+                      {renderBelumDpEditIcon(m, 'w-8 h-8 rounded-lg')}
                     </div>
                   );
                 })}

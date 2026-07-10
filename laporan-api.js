@@ -1414,6 +1414,165 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat, idb } = {}
   }
 }
 
+function collectLegacyFormFields($, formEl) {
+  const values = {};
+  const inputs = {};
+  const textareas = {};
+  const selects = {};
+  const selectedValues = {};
+
+  formEl.find('input').each((_, el) => {
+    const name = $(el).attr('name');
+    if (!name) return;
+    const type = ($(el).attr('type') || 'text').toLowerCase();
+    inputs[name] = {
+      type,
+      required: $(el).attr('required') !== undefined,
+      disabled: $(el).attr('disabled') !== undefined,
+      readonly: $(el).attr('readonly') !== undefined,
+      placeholder: $(el).attr('placeholder') || '',
+    };
+    if (type === 'checkbox' || type === 'radio') {
+      if ($(el).attr('checked') !== undefined) values[name] = $(el).attr('value') || '1';
+      return;
+    }
+    if (type !== 'file' && type !== 'submit' && type !== 'button' && type !== 'reset') {
+      values[name] = $(el).attr('value') || '';
+    }
+  });
+
+  formEl.find('textarea').each((_, el) => {
+    const name = $(el).attr('name');
+    if (!name) return;
+    textareas[name] = {
+      required: $(el).attr('required') !== undefined,
+      disabled: $(el).attr('disabled') !== undefined,
+      readonly: $(el).attr('readonly') !== undefined,
+      placeholder: $(el).attr('placeholder') || '',
+    };
+    values[name] = $(el).text() || '';
+  });
+
+  formEl.find('select').each((_, el) => {
+    const name = $(el).attr('name');
+    if (!name) return;
+    const opts = [];
+    let selected = '';
+    $(el).find('option').each((_, opt) => {
+      const value = $(opt).attr('value') || '';
+      const label = $(opt).text().replace(/\s+/g, ' ').trim();
+      const isSelected = $(opt).attr('selected') !== undefined;
+      if (isSelected) selected = value;
+      if (value || label) opts.push({ value, label });
+    });
+    if (!selected) selected = String($(el).val() || '');
+    selects[name] = opts;
+    selectedValues[name] = selected;
+    values[name] = selected;
+  });
+
+  return { values, inputs, textareas, selects, selectedValues };
+}
+
+function legacyDateToIso(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const dmy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  const iso = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return iso ? iso[1] : raw;
+}
+
+export async function fetchUmrahJamaahEditForm(username, { idUmroh, jmId } = {}) {
+  const session = sessions.get(username);
+  if (!session) return { success: false, reason: 'session_expired', error: 'Belum login' };
+
+  if (Date.now() - session.createdAt > SESSION_TTL) {
+    sessions.delete(username);
+    return { success: false, reason: 'session_expired', error: 'Session kedaluwarsa' };
+  }
+  if (!idUmroh || !jmId) {
+    return { success: false, error: 'ID Umroh/Jamaah tidak lengkap' };
+  }
+
+  const base = getSessionBase(session);
+  const editUrl = `${base}/pages/main.php?route=umrah&act=edaftar&.idb=${encodeURIComponent(`${idUmroh}.${jmId}`)}`;
+
+  try {
+    const res = await fetch(editUrl, {
+      method: 'GET',
+      headers: {
+        Cookie: session.cookie,
+        'User-Agent': LEGACY_UA,
+        'Referer': `${base}/pages/main.php?route=umrah&act=edit&id=${encodeURIComponent(idUmroh)}`,
+      },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(20_000),
+    });
+    refreshSessionCookies(session, res.headers);
+    const html = await res.text();
+    if (isSessionExpiredHtml(html)) {
+      sessions.delete(username);
+      return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di sistem internal' };
+    }
+
+    const $ = cheerio.load(html);
+    const formEl = $('form#mF').first();
+    if (!formEl.length) {
+      const blockingAlert = findBlockingLegacyDialog([extractLegacyAlert(html)]);
+      return {
+        success: false,
+        reason: blockingAlert ? 'legacy_form_rejected' : 'form_not_found',
+        error: blockingAlert ? `Alhijaz menolak form edit: ${blockingAlert}` : 'Form edit jamaah legacy tidak ditemukan',
+      };
+    }
+
+    const form = collectLegacyFormFields($, formEl);
+    form.values.tgl_lahir = legacyDateToIso(form.values.tlahir || form.values.tgl_lahir);
+
+    const docUrl = `${base}/pages/main.php?route=dokumen&act=edit-dokumen&id=${encodeURIComponent(idUmroh)}&idj=${encodeURIComponent(jmId)}`;
+    try {
+      const docRes = await fetch(docUrl, {
+        method: 'GET',
+        headers: {
+          Cookie: session.cookie,
+          'User-Agent': LEGACY_UA,
+          'Referer': editUrl,
+        },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(12_000),
+      });
+      refreshSessionCookies(session, docRes.headers);
+      const docHtml = await docRes.text();
+      if (!isSessionExpiredHtml(docHtml)) {
+        const $$ = cheerio.load(docHtml);
+        const docForm = collectLegacyFormFields($$, $$('form').first());
+        const rawPassport = String(docForm.values.no_passpor || '').trim();
+        if (rawPassport && !/PASPOR\s+BELUM\s+DITERIMA/i.test(rawPassport)) {
+          form.values.no_paspor = rawPassport;
+        }
+        const expired = legacyDateToIso(docForm.values.tgl_expired || '');
+        if (expired) form.values.paspor_expired = expired;
+      }
+    } catch (err) {
+      console.warn('[UmrahEditForm] Dokumen form fetch failed:', err.message);
+    }
+
+    return {
+      success: true,
+      formAction: formEl.attr('action') || '',
+      values: form.values,
+      inputs: form.inputs,
+      textareas: form.textareas,
+      selects: form.selects,
+      selectedValues: form.selectedValues,
+    };
+  } catch (err) {
+    if (err.name === 'AbortError') return { success: false, reason: 'timeout', error: 'Sistem internal tidak merespons (timeout)' };
+    return { success: false, reason: 'unknown', error: err.message || 'Gagal mengambil form edit jamaah' };
+  }
+}
+
 // ── Fetch Jdaftar Fields: Call _jdaftar.php with selected jdaftar value ──
 // Triggered by function ojd(val) in legacy JS. The response contains fields
 // specific to the jamaah type: kelamin, ktp, status_nikah, pekerjaan, pendamping,
@@ -2665,6 +2824,449 @@ export async function submitUmrahRegistrationWithBrowser({
   } catch (err) {
     console.error('[UmrahBrowserSubmit] EXCEPTION:', err.message);
     return { success: false, error: 'Fallback browser gagal: ' + err.message };
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+}
+
+function normalizeLegacyCompareText(value) {
+  return String(value || '').replace(/\s+/g, '').trim().toUpperCase();
+}
+
+function isoDateToLegacyDmy(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  return raw;
+}
+
+function isoDateForLegacyInput(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const dmy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  const iso = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  return raw;
+}
+
+async function getLegacyBrowserFieldValue(page, name) {
+  const loc = page.locator(`${legacyFieldSelector(name)}`).first();
+  if (await loc.count() === 0) return '';
+  return loc.evaluate(el => el.value || '').catch(() => '');
+}
+
+async function enableLegacyBrowserField(page, name) {
+  const loc = page.locator(`${legacyFieldSelector(name)}`).first();
+  if (await loc.count() === 0) return false;
+  await loc.evaluate(el => {
+    el.disabled = false;
+    el.readOnly = false;
+    el.removeAttribute('disabled');
+    el.removeAttribute('readonly');
+  });
+  return true;
+}
+
+async function loginLegacyBrowserPage(page, { username, password, kantor }) {
+  await page.goto(`${BROWSER_BASE}/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  await page.selectOption('select[name="kantor"]', String(kantor || '2'));
+  await page.fill('input[name="username"]', username);
+  await page.fill('input[name="password"]', password);
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30_000 }),
+    page.click('button[type="submit"], input[type="submit"]'),
+  ]);
+
+  if (await page.locator('input[name="username"]').count()) {
+    return { success: false, error: 'Login sistem internal ditolak saat edit jamaah' };
+  }
+  return { success: true };
+}
+
+async function submitCurrentLegacyBrowserFormWithRecaptcha(page, dialogs, {
+  responseUrlPart,
+  operationLabel,
+  successMessage,
+}) {
+  const submitResponsePromise = page.waitForResponse(
+    res => res.url().includes(responseUrlPart),
+    { timeout: 25_000 },
+  ).catch(() => null);
+
+  const recaptchaConfig = await getLegacyBrowserRecaptchaConfig(page);
+  if (!recaptchaConfig.tokenField) {
+    return {
+      success: false,
+      error: 'Field reCAPTCHA legacy tidak ditemukan',
+      debug: { browserEdit: true, dialogs, operation: operationLabel, recaptchaSource: recaptchaConfig.source },
+    };
+  }
+
+  const tokenInfo = await page.evaluate(async ({ siteKey, tokenAction, tokenField, tokenId }) => {
+    const started = Date.now();
+    while (Date.now() - started < 20_000) {
+      if (window.grecaptcha && typeof window.grecaptcha.execute === 'function') break;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    if (!window.grecaptcha || typeof window.grecaptcha.execute !== 'function') {
+      return { ok: false, error: 'grecaptcha tidak tersedia' };
+    }
+    const token = await window.grecaptcha.execute(siteKey, { action: tokenAction || 'submit' });
+    if (!token) return { ok: false, error: 'token reCAPTCHA kosong' };
+    const form = document.querySelector('form#mF') || document.querySelector('form');
+    if (!form) return { ok: false, error: 'form legacy hilang sebelum submit' };
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.id = tokenId || 'legacy_recaptcha_token';
+    input.name = tokenField;
+    input.value = token;
+    form.appendChild(input);
+    HTMLFormElement.prototype.submit.call(form);
+    return { ok: true, length: token.length };
+  }, {
+    siteKey: recaptchaConfig.siteKey,
+    tokenAction: recaptchaConfig.action,
+    tokenField: recaptchaConfig.tokenField,
+    tokenId: recaptchaConfig.tokenId,
+  });
+
+  if (!tokenInfo.ok) {
+    return {
+      success: false,
+      error: tokenInfo.error || 'Gagal membuat token reCAPTCHA legacy',
+      debug: { browserEdit: true, dialogs, operation: operationLabel },
+    };
+  }
+
+  const submitResponse = await submitResponsePromise;
+  await page.waitForTimeout(1_500);
+  const html = await page.content().catch(() => '');
+  const statusCode = submitResponse?.status() || null;
+  const responseUrl = submitResponse?.url() || '';
+  const responsePreview = submitResponse
+    ? (await submitResponse.text().catch(() => '')).trim().slice(0, 500).replace(/\s+/g, ' ')
+    : '';
+  const currentUrl = page.url();
+  const sessionDialog = dialogs.find(message => /Sesi Anda habis|silahkan re-login/i.test(message));
+  const successDialog = dialogs.find(message => /berhasil|success/i.test(message));
+  const blockingDialog = findBlockingLegacyDialog(dialogs);
+  const formStillOpen = await page.locator('form#mF').count().catch(() => 0);
+
+  console.log('[UmrahBrowserEdit] Result:', {
+    operation: operationLabel,
+    statusCode,
+    responseUrl,
+    currentUrl,
+    dialogs,
+    formStillOpen,
+    tokenLength: tokenInfo.length,
+    recaptchaSource: recaptchaConfig.source,
+    recaptchaAction: recaptchaConfig.action,
+    responsePreview,
+  });
+
+  if (sessionDialog || isSessionExpiredHtml(html)) {
+    return {
+      success: false,
+      reason: 'session_expired_remote',
+      error: 'Session kedaluwarsa di sistem internal',
+      debug: { browserEdit: true, statusCode, responseUrl, currentUrl, dialogs, operation: operationLabel },
+    };
+  }
+  if (successDialog) {
+    return { success: true, message: successDialog || successMessage };
+  }
+  if (blockingDialog) {
+    return {
+      success: false,
+      error: `Alhijaz menolak edit jamaah: ${blockingDialog}`,
+      debug: { browserEdit: true, statusCode, responseUrl, currentUrl, dialogs, responsePreview, operation: operationLabel },
+    };
+  }
+  if (statusCode === 403) {
+    const cloudflareLike = /cloudflare|cf-error|attention required|<!doctype html/i.test(responsePreview);
+    return {
+      success: false,
+      error: cloudflareLike
+        ? 'Alhijaz/Cloudflare sedang menolak submit edit (HTTP 403). Coba ulang beberapa saat lagi.'
+        : 'Alhijaz menolak submit edit (HTTP 403). Coba ulang beberapa saat lagi.',
+      debug: { browserEdit: true, statusCode, responseUrl, currentUrl, dialogs, responsePreview, operation: operationLabel },
+    };
+  }
+  if (statusCode && statusCode >= 200 && statusCode < 400 && !formStillOpen) {
+    return { success: true, message: successMessage };
+  }
+
+  return {
+    success: false,
+    error: dialogs.find(Boolean) || 'Submit edit internal tidak mengembalikan status berhasil',
+    debug: { browserEdit: true, statusCode, responseUrl, currentUrl, dialogs, formStillOpen, responsePreview, operation: operationLabel },
+  };
+}
+
+async function submitLegacyDocumentEditForm(page, dialogs, {
+  idUmroh,
+  jmId,
+  fields = {},
+}) {
+  const needsDocumentUpdate =
+    fields.no_paspor !== undefined ||
+    fields.paspor_expired !== undefined;
+  if (!needsDocumentUpdate) return { success: true, skipped: true };
+
+  const documentUrl = `${BROWSER_BASE}/pages/main.php?route=dokumen&act=edit-dokumen&id=${encodeURIComponent(idUmroh)}&idj=${encodeURIComponent(jmId)}`;
+  await page.goto(documentUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  await page.waitForTimeout(300);
+
+  if (await page.locator('form').count() === 0) {
+    const html = await page.content().catch(() => '');
+    if (isSessionExpiredHtml(html)) {
+      return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di sistem internal' };
+    }
+    return { success: false, error: 'Form dokumen jamaah legacy tidak ditemukan' };
+  }
+
+  const formIds = await page.evaluate(() => ({
+    idu: document.querySelector('[name="idu"]')?.value || '',
+    idj: document.querySelector('[name="idj"]')?.value || '',
+  }));
+  if (formIds.idu && formIds.idu !== idUmroh) {
+    return { success: false, error: 'Form dokumen internal tidak cocok dengan ID Umroh jamaah' };
+  }
+  if (formIds.idj && formIds.idj !== jmId) {
+    return { success: false, error: 'Form dokumen internal tidak cocok dengan ID Jamaah' };
+  }
+
+  if (fields.nama !== undefined) {
+    await enableLegacyBrowserField(page, 'nama_jamaah');
+    await fillLegacyBrowserField(page, 'nama_jamaah', fields.nama || '');
+  }
+  if (fields.no_paspor !== undefined && fields.no_paspor !== null && fields.no_paspor !== '') {
+    await enableLegacyBrowserField(page, 'no_passpor');
+    await fillLegacyBrowserField(page, 'no_passpor', fields.no_paspor);
+  }
+  if (fields.paspor_expired !== undefined) {
+    await enableLegacyBrowserField(page, 'tgl_expired');
+    await fillLegacyBrowserField(page, 'tgl_expired', isoDateForLegacyInput(fields.paspor_expired));
+  }
+
+  const submitResponsePromise = page.waitForResponse(
+    res => res.url().includes('aksi_dokumen.php'),
+    { timeout: 25_000 },
+  ).catch(() => null);
+
+  const submitButton = page.locator('input[type="submit"], button[type="submit"]').first();
+  if (await submitButton.count() === 0) {
+    return { success: false, error: 'Tombol submit dokumen legacy tidak ditemukan' };
+  }
+  await submitButton.click();
+
+  const submitResponse = await submitResponsePromise;
+  await page.waitForTimeout(1_500);
+  const html = await page.content().catch(() => '');
+  const statusCode = submitResponse?.status() || null;
+  const responseUrl = submitResponse?.url() || '';
+  const responsePreview = submitResponse
+    ? (await submitResponse.text().catch(() => '')).trim().slice(0, 500).replace(/\s+/g, ' ')
+    : '';
+  const sessionDialog = dialogs.find(message => /Sesi Anda habis|silahkan re-login/i.test(message));
+  const successDialog = dialogs.find(message => /berhasil|success/i.test(message));
+  const blockingDialog = findBlockingLegacyDialog(dialogs);
+
+  console.log('[UmrahBrowserEditDocs] Result:', {
+    statusCode,
+    responseUrl,
+    currentUrl: page.url(),
+    dialogs,
+    responsePreview,
+  });
+
+  if (sessionDialog || isSessionExpiredHtml(html)) {
+    return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di sistem internal' };
+  }
+  if (successDialog) return { success: true, message: successDialog };
+  if (blockingDialog) return { success: false, error: `Alhijaz menolak edit dokumen: ${blockingDialog}` };
+  if (!statusCode || (statusCode >= 200 && statusCode < 400)) {
+    return { success: true, message: 'Dokumen jamaah berhasil diperbarui' };
+  }
+  return {
+    success: false,
+    error: 'Submit dokumen internal tidak mengembalikan status berhasil',
+    debug: { browserEdit: true, statusCode, responseUrl, responsePreview },
+  };
+}
+
+export async function submitUmrahJamaahEditWithBrowser({
+  username,
+  password,
+  kantor = '2',
+  idUmroh,
+  jmId,
+  fields = {},
+  retryBlocked = true,
+}) {
+  if (!username || !password) {
+    return { success: false, error: 'Credential sistem internal tidak lengkap' };
+  }
+  if (!idUmroh || !jmId) {
+    return { success: false, error: 'ID Umroh/Jamaah internal tidak lengkap' };
+  }
+
+  let browser;
+  const dialogs = [];
+  try {
+    const { chromium } = await import('playwright');
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+      viewport: { width: 1365, height: 900 },
+      userAgent: LEGACY_UA,
+    });
+    const page = await context.newPage();
+
+    page.on('dialog', async dialog => {
+      const message = normalizeLegacyDialogMessage(dialog.message());
+      dialogs.push(message);
+      console.log('[UmrahBrowserEdit] Dialog:', message);
+      await dialog.accept().catch(() => {});
+    });
+    page.on('pageerror', err => {
+      console.warn('[UmrahBrowserEdit] Page error:', err.message);
+    });
+
+    const loginResult = await loginLegacyBrowserPage(page, { username, password, kantor });
+    if (!loginResult.success) return loginResult;
+
+    const editUrl = `${BROWSER_BASE}/pages/main.php?route=umrah&act=edaftar&.idb=${encodeURIComponent(`${idUmroh}.${jmId}`)}`;
+    await page.goto(editUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForTimeout(300);
+    if (await page.locator('form#mF').count() === 0) {
+      const blockingDialog = findBlockingLegacyDialog(dialogs);
+      if (blockingDialog) {
+        return {
+          success: false,
+          error: `Alhijaz menolak edit jamaah: ${blockingDialog}`,
+          debug: { browserEdit: true, dialogs, stage: 'form_load' },
+        };
+      }
+      const html = await page.content().catch(() => '');
+      if (isSessionExpiredHtml(html)) {
+        return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di sistem internal' };
+      }
+      return { success: false, error: 'Form edit jamaah legacy tidak ditemukan' };
+    }
+
+    const formIds = await page.evaluate(() => ({
+      idu: document.querySelector('[name="idu"]')?.value || '',
+      idjamaah: document.querySelector('[name="idjamaah"]')?.value || '',
+    }));
+    if (formIds.idu && formIds.idu !== idUmroh) {
+      return { success: false, error: 'Form edit internal tidak cocok dengan ID Umroh jamaah' };
+    }
+    if (formIds.idjamaah && formIds.idjamaah !== jmId) {
+      return { success: false, error: 'Form edit internal tidak cocok dengan ID Jamaah' };
+    }
+
+    const originalName = await getLegacyBrowserFieldValue(page, 'nlengkap');
+    const originalPhone = await getLegacyBrowserFieldValue(page, 'tjamaah');
+    const originalPendaftar = await getLegacyBrowserFieldValue(page, 'pendaftar');
+    const originalPendaftarPhone = await getLegacyBrowserFieldValue(page, 'tpendaftar');
+
+    if (fields.nama !== undefined) {
+      await fillLegacyBrowserField(page, 'nlengkap', fields.nama || '');
+      if (
+        !originalPendaftar ||
+        normalizeLegacyCompareText(originalPendaftar) === normalizeLegacyCompareText(originalName)
+      ) {
+        await fillLegacyBrowserField(page, 'pendaftar', fields.nama || '');
+      }
+    }
+    if (fields.wa !== undefined) {
+      await fillLegacyBrowserField(page, 'tjamaah', fields.wa || '');
+      if (!originalPendaftarPhone || originalPendaftarPhone === originalPhone) {
+        await fillLegacyBrowserField(page, 'tpendaftar', fields.wa || '');
+      }
+    }
+    if (fields.tgl_lahir !== undefined) {
+      await fillLegacyBrowserField(page, 'tlahir', isoDateToLegacyDmy(fields.tgl_lahir));
+    }
+
+    const fieldMap = {
+      jk: 'kelamin',
+      kelamin: 'kelamin',
+      ktp: 'ktp',
+      pendaftar: 'pendaftar',
+      tpendaftar: 'tpendaftar',
+      tempat_lahir: 'plahir',
+      plahir: 'plahir',
+      status: 'status',
+      pekerjaan: 'pekerjaan',
+      pendamping: 'pendamping',
+      pengalaman: 'pengalaman',
+      remarks: 'remarks',
+      mahram: 'mahram',
+      kondisi: 'kondisi',
+      alamat: 'alamat',
+      prov: 'prov',
+      kab: 'kab',
+      kec: 'kec',
+      kel: 'kel',
+      keterangan: 'keterangan',
+    };
+    for (const [incomingName, legacyName] of Object.entries(fieldMap)) {
+      if (fields[incomingName] === undefined) continue;
+      await fillLegacyBrowserField(page, legacyName, fields[incomingName] || '');
+    }
+
+    const preSubmitDialog = findBlockingLegacyDialog(dialogs);
+    if (preSubmitDialog) {
+      return {
+        success: false,
+        error: `Alhijaz menolak edit jamaah: ${preSubmitDialog}`,
+        debug: { browserEdit: true, dialogs, stage: 'pre_submit' },
+      };
+    }
+
+    let biodataResult = await submitCurrentLegacyBrowserFormWithRecaptcha(page, dialogs, {
+      responseUrlPart: 'aksi_umrah.php',
+      operationLabel: 'jamaah_biodata',
+      successMessage: 'Edit data jamaah berhasil',
+    });
+
+    if (!biodataResult.success && biodataResult.debug?.statusCode === 403 && retryBlocked) {
+      console.warn('[UmrahBrowserEdit] Final submit HTTP 403 — retrying once with a fresh browser session');
+      await browser.close().catch(() => {});
+      browser = null;
+      await new Promise(resolve => setTimeout(resolve, 1_000));
+      return submitUmrahJamaahEditWithBrowser({
+        username,
+        password,
+        kantor,
+        idUmroh,
+        jmId,
+        fields,
+        retryBlocked: false,
+      });
+    }
+
+    if (!biodataResult.success) return biodataResult;
+
+    const documentResult = await submitLegacyDocumentEditForm(page, dialogs, {
+      idUmroh,
+      jmId,
+      fields,
+    });
+    if (!documentResult.success) return documentResult;
+
+    return {
+      success: true,
+      message: biodataResult.message || 'Edit data jamaah berhasil',
+      documentUpdated: !documentResult.skipped,
+    };
+  } catch (err) {
+    console.error('[UmrahBrowserEdit] EXCEPTION:', err.message);
+    return { success: false, error: 'Edit internal gagal: ' + err.message };
   } finally {
     if (browser) await browser.close().catch(() => {});
   }

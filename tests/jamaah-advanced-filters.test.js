@@ -47,6 +47,6 @@ test('umroh page exposes useful filters and sends them to the API', () => {
 
 test('umroh advanced filter panel uses compact controls instead of crowded chip rows', () => {
   assert.doesNotMatch(jamaahPage, /grid grid-cols-5 gap-1\.5/);
-  assert.match(jamaahPage, /value=\{paymentFilter\}[\s\S]*setPaymentFilter\(e\.target\.value as PaymentFilter\)/);
-  assert.match(jamaahPage, /value=\{departureFilter\}[\s\S]*setDepartureFilter\(e\.target\.value as DepartureFilter\)/);
+  assert.match(jamaahPage, /<FilterDropdown[\s\S]*variant="compact"[\s\S]*value=\{paymentFilter\}[\s\S]*onChange=\{v => \{ setPaymentFilter\(v as PaymentFilter\); setPage\(1\); \}\}/);
+  assert.match(jamaahPage, /<FilterDropdown[\s\S]*variant="compact"[\s\S]*value=\{departureFilter\}[\s\S]*onChange=\{v => \{ setDepartureFilter\(v as DepartureFilter\); setPage\(1\); \}\}/);
 });

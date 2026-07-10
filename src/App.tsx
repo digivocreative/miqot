@@ -12,6 +12,22 @@ import { sendCapiEvent } from '@/lib/capi';
 import { trackPublicEvent } from '@/utils/analytics';
 import PortalJamaahRouter from '@/components/portal-jamaah/PortalJamaahRouter';
 
+function getLocalStorageItem(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function setLocalStorageItem(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // unavailable storage should not block public schedule rendering
+  }
+}
+
 // ============================================
 // Main App Component
 // ============================================
@@ -56,13 +72,13 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   const [compactDetailId, setCompactDetailId] = useState<string | null>(null);
   const [isGoingBack, setIsGoingBack] = useState(false);
   const [isCompactView, setIsCompactView] = useState(() => {
-    return localStorage.getItem('compactView') === 'true';
+    return getLocalStorageItem('compactView') === 'true';
   });
 
   const toggleCompactView = useCallback(() => {
     setIsCompactView(prev => {
       const next = !prev;
-      localStorage.setItem('compactView', next.toString());
+      setLocalStorageItem('compactView', next.toString());
       return next;
     });
   }, []);
@@ -72,7 +88,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // ============================================
   const [isDarkMode, setIsDarkMode] = useState(() => {
     // Check localStorage first
-    const savedMode = localStorage.getItem('darkMode');
+    const savedMode = getLocalStorageItem('darkMode');
     if (savedMode !== null) {
       return savedMode === 'true';
     }
@@ -88,7 +104,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     } else {
       root.classList.remove('dark');
     }
-    localStorage.setItem('darkMode', isDarkMode.toString());
+    setLocalStorageItem('darkMode', isDarkMode.toString());
   }, [isDarkMode]);
 
   // Detect agent + filter slug from URL (shared state for SEO + FloatingAgentBar).
@@ -153,6 +169,15 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
 
     if (customDomainSlug) {
       agent = AGENTS_DATA[customDomainSlug.toLowerCase()];
+      if (!agent && serverAgentContext) {
+        agent = {
+          name: serverAgentContext.name,
+          website: serverAgentContext.website || '',
+          phone: serverAgentContext.phone || '',
+          photo: serverAgentContext.photo || '',
+          card_variant: 'default',
+        };
+      }
       if (segments.length >= 1) filterSlugFromUrl = segments[0];
     } else if (segments.length >= 1) {
       const possibleAgent = AGENTS_DATA[segments[0]?.toLowerCase()];
@@ -164,7 +189,11 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       }
     }
 
-    setCurrentAgent(agent || null);
+    if (agent) {
+      setCurrentAgent(agent);
+    } else if (!customDomainSlug) {
+      setCurrentAgent(null);
+    }
 
     // Apply filter from URL slug
     if (filterSlugFromUrl) {
