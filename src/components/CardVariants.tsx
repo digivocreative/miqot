@@ -127,11 +127,11 @@ function getHotelData(hotelInfo: HotelInfo | undefined) {
 }
 
 // ════════════════════════════════════════════════
-// 1. SPLIT LAYOUT — collapsed content only
+// 1. SPLIT LAYOUT — persistent card summary
 // ════════════════════════════════════════════════
 
 export function SplitLayout(props: VariantProps) {
-  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection } = props;
+  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, SeatAndDateSection } = props;
   const f = getFlightData(pkg);
   const h = getHotelData(hotelInfo);
   const depDate = new Date(pkg.keberangkatan.tgl);
@@ -198,21 +198,19 @@ export function SplitLayout(props: VariantProps) {
       </div>
 
       {/* Seat bar — full width below the flex, inside card */}
-      {!isExpanded && (
-        <div className="px-4 pb-1">
-          <SeatAndDateSection isFooter={false} />
-        </div>
-      )}
+      <div className="px-4 pb-1">
+        <SeatAndDateSection isFooter={false} />
+      </div>
     </>
   );
 }
 
 // ════════════════════════════════════════════════
-// 2. SPOTLIGHT LAYOUT — collapsed content only
+// 2. SPOTLIGHT LAYOUT — persistent card summary
 // ════════════════════════════════════════════════
 
 export function SpotlightLayout(props: VariantProps) {
-  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, formatDate } = props;
+  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, SeatAndDateSection, formatDate } = props;
   const f = getFlightData(pkg);
   const h = getHotelData(hotelInfo);
 
@@ -244,18 +242,18 @@ export function SpotlightLayout(props: VariantProps) {
           <HotelCell label="Mekkah" name={h.mekkahName} stars={h.mekkahStars} distance={h.mekkahDist} />
           <HotelCell label="Madinah" name={h.madinahName} stars={h.madinahStars} distance={h.madinahDist} />
         </div>
-        {!isExpanded && <SeatAndDateSection isFooter={false} />}
+        <SeatAndDateSection isFooter={false} />
       </div>
     </>
   );
 }
 
 // ════════════════════════════════════════════════
-// 3. TICKET LAYOUT — collapsed content only
+// 3. TICKET LAYOUT — persistent card summary
 // ════════════════════════════════════════════════
 
 export function TicketLayout(props: VariantProps) {
-  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, formatDate } = props;
+  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, SeatAndDateSection, formatDate } = props;
   const f = getFlightData(pkg);
   const h = getHotelData(hotelInfo);
 
@@ -313,18 +311,18 @@ export function TicketLayout(props: VariantProps) {
           <HotelCell label="Mekkah" name={h.mekkahName} stars={h.mekkahStars} distance={h.mekkahDist} />
           <HotelCell label="Madinah" name={h.madinahName} stars={h.madinahStars} distance={h.madinahDist} />
         </div>
-        {!isExpanded && <SeatAndDateSection isFooter={false} />}
+        <SeatAndDateSection isFooter={false} />
       </div>
     </>
   );
 }
 
 // ════════════════════════════════════════════════
-// 4. TILED LAYOUT — collapsed content only
+// 4. TILED LAYOUT — persistent card summary
 // ════════════════════════════════════════════════
 
 export function TiledLayout(props: VariantProps) {
-  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, formatDate } = props;
+  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, SeatAndDateSection, formatDate } = props;
   const f = getFlightData(pkg);
   const h = getHotelData(hotelInfo);
 
@@ -372,17 +370,17 @@ export function TiledLayout(props: VariantProps) {
         </div>
       </div>
 
-      {!isExpanded && <SeatAndDateSection isFooter={false} />}
+      <SeatAndDateSection isFooter={false} />
     </div>
   );
 }
 
 // ════════════════════════════════════════════════
-// 5. MAGAZINE LAYOUT — collapsed content only
+// 5. MAGAZINE LAYOUT — persistent card summary
 // ════════════════════════════════════════════════
 
 export function MagazineLayout(props: VariantProps) {
-  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, formatDate } = props;
+  const { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, SeatAndDateSection, formatDate } = props;
   const f = getFlightData(pkg);
   const h = getHotelData(hotelInfo);
 
@@ -417,7 +415,7 @@ export function MagazineLayout(props: VariantProps) {
           <HotelCell label="Mekkah" name={h.mekkahName} stars={h.mekkahStars} distance={h.mekkahDist} />
           <HotelCell label="Madinah" name={h.madinahName} stars={h.madinahStars} distance={h.madinahDist} />
         </div>
-        {!isExpanded && <SeatAndDateSection isFooter={false} />}
+        <SeatAndDateSection isFooter={false} />
       </div>
     </>
   );

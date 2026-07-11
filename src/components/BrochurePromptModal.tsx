@@ -9,6 +9,8 @@ import { trackEvent } from '../utils/analytics';
 import { isTouchPrimary } from '../utils/share';
 import {
   buildBrochurePrompt,
+  buildNativeSharePrompt,
+  buildSingleImageShareData,
   DESIGN_STYLES,
   RATIOS,
   type BrochureVariant,
@@ -105,6 +107,52 @@ async function fetchReferenceImageFile(url: string, title: string): Promise<File
   return new File([pngBlob], safeImageFilename(title), { type: 'image/png' });
 }
 
+async function writeTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fallback di bawah untuk browser/webview yang membatasi Clipboard API.
+  }
+
+  let textarea: HTMLTextAreaElement | null = null;
+  try {
+    textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    textarea?.remove();
+  }
+}
+
+function copyTextSynchronously(text: string): boolean {
+  let textarea: HTMLTextAreaElement | null = null;
+  try {
+    textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    textarea?.remove();
+  }
+}
+
 /**
  * Prompt Generator — merakit prompt ChatGPT untuk membuat ulang brosur dengan
  * strip kontak agen. Tanpa panggilan API: prompt dirakit live di client, instan
@@ -161,19 +209,30 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
     [name, phone, website, instagram, alamat, note, variant, kind, style, ratio, pkg, schedule, isScheduleContext, referenceImageUrl],
   );
 
+  const nativeSharePrompt = useMemo(
+    () => {
+      const promptKind: BrochureKind = isScheduleContext ? 'brosur' : kind;
+      const promptRatio = isScheduleContext ? '9:16' : ratio;
+      return buildNativeSharePrompt({
+        agent: { name, phone, website },
+        pkg,
+        schedule,
+        contactSource: isScheduleContext ? 'attached' : 'explicit',
+        extra: { instagram, alamat, note },
+        variant,
+        kind: promptKind,
+        style,
+        ratio: promptRatio,
+        reserveQr: false,
+      });
+    },
+    [name, phone, website, instagram, alamat, note, variant, kind, style, ratio, pkg, schedule, isScheduleContext],
+  );
+
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(prompt);
-    } catch {
-      const ta = document.createElement('textarea');
-      ta.value = prompt;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const promptCopied = await writeTextToClipboard(prompt);
+    setCopied(promptCopied);
+    if (promptCopied) setTimeout(() => setCopied(false), 2000);
     trackEvent('feature', 'brochure_prompt_copy', { variant, kind: isScheduleContext ? 'schedule' : kind });
   };
 
@@ -184,13 +243,23 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
     typeof navigator.share === 'function' &&
     typeof navigator.canShare === 'function';
 
-  // There is no supported ChatGPT deeplink that can prefill an attachment from another
-  // website. On mobile, the closest path is native share: send PNG + prompt, then the
-  // agent picks ChatGPT from the share sheet. Desktop falls back to copy + open.
+  // Always use a file-only Web Share payload. Safari iOS exposes text/title and
+  // files as separate share-sheet activity items, which ChatGPT can import as a
+  // second attachment. The compact prompt is copied before the share sheet opens.
   const openChatGPT = async () => {
     if (isOpeningChatGPT) return;
     setIsOpeningChatGPT(true);
     const absoluteReferenceUrl = toAbsoluteUrl(referenceImageUrl);
+    let nativePromptCopied = false;
+
+    if (canTryNativeChatGPTShare) {
+      // Run this before the first await while the click activation is still
+      // active. This also avoids consuming Safari's share activation with an
+      // asynchronous Clipboard API call.
+      nativePromptCopied = copyTextSynchronously(nativeSharePrompt);
+      setCopied(nativePromptCopied);
+      if (nativePromptCopied) setTimeout(() => setCopied(false), 3000);
+    }
 
     try {
       if (canTryNativeChatGPTShare) {
@@ -200,13 +269,25 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
             : absoluteReferenceUrl
               ? await fetchReferenceImageFile(absoluteReferenceUrl, title)
               : null;
-          if (file && navigator.canShare?.({ files: [file] })) {
-            await navigator.share({
-              files: [file],
-              title: `Brosur - ${title}`,
-              text: prompt,
+          if (file) {
+            if (!nativePromptCopied) {
+              nativePromptCopied = await writeTextToClipboard(nativeSharePrompt);
+              setCopied(nativePromptCopied);
+              if (nativePromptCopied) setTimeout(() => setCopied(false), 3000);
+            }
+            if (!nativePromptCopied) throw new Error('native-share-prompt-copy-failed');
+
+            const shareData = buildSingleImageShareData(file);
+            if (!navigator.canShare?.({ files: [file] })) throw new Error('native-share-data-unsupported');
+            await navigator.share(shareData);
+            trackEvent('feature', 'brochure_prompt_share_chatgpt', {
+              variant,
+              kind: isScheduleContext ? 'schedule' : kind,
+              file_count: shareData.files?.length || 0,
+              prompt_length: nativeSharePrompt.length,
+              prompt_transport: 'clipboard',
+              payload_fields: Object.keys(shareData).sort().join(','),
             });
-            trackEvent('feature', 'brochure_prompt_share_chatgpt', { variant, kind: isScheduleContext ? 'schedule' : kind });
             return;
           }
         } catch (err: any) {
@@ -215,9 +296,9 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
         }
       }
 
-      try { navigator.clipboard?.writeText(prompt).catch(() => {}); } catch { /* ignore */ }
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      const promptCopied = await writeTextToClipboard(prompt);
+      setCopied(promptCopied);
+      if (promptCopied) setTimeout(() => setCopied(false), 2000);
       trackEvent('feature', 'brochure_prompt_open_chatgpt', { variant, kind: isScheduleContext ? 'schedule' : kind });
       window.open('https://chatgpt.com/', '_blank', 'noopener,noreferrer');
     } finally {
@@ -300,6 +381,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
                     widthClass="w-full"
                     portal
                     portalZClass="z-[10002]"
+                    searchable={false}
                   />
                 </div>
                 {!isScheduleContext && (
@@ -379,31 +461,38 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
             </div>
 
             {/* Footer */}
-            <div className="px-4 py-3 border-t border-gray-200 dark:border-slate-700 flex gap-2">
-              <button
-                onClick={handleCopy}
-                className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95"
-              >
-                {copied ? (
-                  <><ClipboardCheck size={17} /><span>Tersalin</span></>
-                ) : (
-                  <><Copy size={17} /><span>Salin Prompt</span></>
-                )}
-              </button>
-              <button
-                onClick={openChatGPT}
-                disabled={isOpeningChatGPT}
-                className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-slate-700/60 border border-emerald-200 dark:border-emerald-700/60 transition-all duration-200 active:scale-95"
-              >
-                {isOpeningChatGPT ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : canTryNativeChatGPTShare ? (
-                  <Share2 size={16} />
-                ) : (
-                  <ExternalLink size={16} />
-                )}
-                <span>{isOpeningChatGPT ? 'Memproses...' : canTryNativeChatGPTShare ? 'Kirim ChatGPT' : 'Buka ChatGPT'}</span>
-              </button>
+            <div className="px-4 py-3 border-t border-gray-200 dark:border-slate-700">
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCopy}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95"
+                >
+                  {copied ? (
+                    <><ClipboardCheck size={17} /><span>Tersalin</span></>
+                  ) : (
+                    <><Copy size={17} /><span>Salin Prompt</span></>
+                  )}
+                </button>
+                <button
+                  onClick={openChatGPT}
+                  disabled={isOpeningChatGPT}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-slate-700/60 border border-emerald-200 dark:border-emerald-700/60 transition-all duration-200 active:scale-95"
+                >
+                  {isOpeningChatGPT ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : canTryNativeChatGPTShare ? (
+                    <Share2 size={16} />
+                  ) : (
+                    <ExternalLink size={16} />
+                  )}
+                  <span>{isOpeningChatGPT ? 'Memproses...' : canTryNativeChatGPTShare ? 'Kirim ChatGPT' : 'Buka ChatGPT'}</span>
+                </button>
+              </div>
+              {canTryNativeChatGPTShare && (
+                <p className="mt-2 text-center text-[10px] font-medium text-gray-400 dark:text-slate-500">
+                  1 gambar • prompt disalin, tempel 1× di ChatGPT
+                </p>
+              )}
             </div>
           </motion.div>
         </motion.div>

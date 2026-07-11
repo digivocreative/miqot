@@ -69,7 +69,9 @@ test('buildBrochurePrompt embeds schedule brochure package data', async () => {
   assert.match(prompt, /halaman 1 dari 2/);
   assert.match(prompt, /PROMO JUM'ATAIN PLUS TAIF 12 HARI/);
   assert.match(prompt, /7 seat/);
-  assert.match(prompt, /mulai Rp 33\.900\.000/);
+  assert.match(prompt, /mulai Rp 33\.9 Juta/);
+  assert.match(prompt, /FORMAT HARGA WAJIB/);
+  assert.doesNotMatch(prompt, /Rp 33\.900\.000/);
   assert.match(prompt, /SAUDIA/);
   assert.match(prompt, /SOLD OUT/);
   assert.match(prompt, /1 paket lain tidak tampil di halaman ini/);
@@ -104,8 +106,81 @@ test('buildBrochurePrompt embeds package brochure reference URL', async () => {
   assert.match(prompt, /Link brosur referensi:\nhttps:\/\/cdn\.test\/brosur\/JBU1234\.webp\?v=abc123/);
   assert.match(prompt, /Jika link tidak bisa dibuka, jangan mengarang detail dari gambar/);
   assert.match(prompt, /REGULER 9 HARI/);
+  assert.match(prompt, /mulai Rp 30\.5 Juta/);
   assert.match(prompt, /WhatsApp: 0812-3456-7890/);
   assert.doesNotMatch(prompt, /Saya lampirkan sebuah brosur paket umroh sebagai ACUAN ISI/);
+});
+
+test('brochure prompt exposes 12 distinct design styles', async () => {
+  const { buildBrochurePrompt, DESIGN_STYLES } = await importPromptBuilder();
+  assert.equal(DESIGN_STYLES.length, 12);
+  assert.equal(new Set(DESIGN_STYLES.map(style => style.value)).size, 12);
+  assert.equal(new Set(DESIGN_STYLES.map(style => style.label)).size, 12);
+  for (const style of DESIGN_STYLES) {
+    assert.ok(style.phrase.length >= 60, `${style.label} needs a specific visual direction`);
+  }
+
+  const prompt = buildBrochurePrompt({
+    agent: { name: 'Agen Test', phone: '6281234567890', website: 'alhijaz.test/agen' },
+    pkg: { nama: 'REGULER 9HR', harga: 'Rp 39.400.000' },
+    extra: {},
+    variant: 'redesign',
+    kind: 'brosur',
+    style: 'futuristic',
+    ratio: '4:5',
+    reserveQr: false,
+  });
+  assert.match(prompt, /Arah gaya terpilih — Futuristik glass \(WAJIB konsisten\)/);
+  assert.match(prompt, /glassmorphism terkontrol/);
+});
+
+test('formatBrochurePrice normalizes full rupiah amounts into one-decimal millions', async () => {
+  const { formatBrochurePrice } = await importPromptBuilder();
+  assert.equal(formatBrochurePrice('Rp 39.400.000'), 'Rp 39.4 Juta');
+  assert.equal(formatBrochurePrice('mulai Rp 33.950.000'), 'mulai Rp 34.0 Juta');
+  assert.equal(formatBrochurePrice('Rp 39,4 juta'), 'Rp 39.4 Juta');
+  assert.equal(formatBrochurePrice(30_500_000), 'Rp 30.5 Juta');
+});
+
+test('native share prompt stays safely inline and uses the attached image as source', async () => {
+  const { buildNativeSharePrompt, CHATGPT_NATIVE_SHARE_SAFE_BUDGET } = await importPromptBuilder();
+  const packages = Array.from({ length: 13 }, (_, index) => ({
+    nama: `PROMO JUMATAIN PLUS TAIF DAN BADAR PAKET RAHMAH ${12 + (index % 3)}HR`,
+    tgl: `${index + 1} September 2026`,
+    hari: 12,
+    seatSisa: 7 + index,
+    harga: `mulai Rp ${33 + index}.900.000`,
+    maskapai: 'SAUDIA AIRLINES',
+    landing: 'Jeddah',
+    hotel: ['Makkah: Movenpick Hajar Tower (★★★★★)', 'Madinah: Taiba Front Hotel (★★★★★)'],
+  }));
+  const prompt = buildNativeSharePrompt({
+    agent: { name: 'Agen Test', phone: '6281234567890', website: 'alhijaz.test/agen' },
+    schedule: { title: 'Brosur September 2026', displayMode: 'seat', packages },
+    contactSource: 'attached',
+    extra: {},
+    variant: 'redesign',
+    kind: 'brosur',
+    style: 'futuristic',
+    ratio: '9:16',
+    reserveQr: false,
+  });
+
+  assert.ok(prompt.length <= CHATGPT_NATIVE_SHARE_SAFE_BUDGET, `native prompt is ${prompt.length} chars`);
+  assert.match(prompt, /pertahankan SEMUA 13 baris paket dari gambar secara akurat/);
+  assert.match(prompt, /ubah “Rp 39\.400\.000” menjadi “Rp 39\.4 Juta”/);
+  assert.match(prompt, /Futuristik glass/);
+  assert.doesNotMatch(prompt, /1\. PROMO JUMATAIN/);
+});
+
+test('ChatGPT native share payload contains only one image activity item', async () => {
+  const { buildSingleImageShareData } = await importPromptBuilder();
+  const image = { name: 'brosur.png', type: 'image/png' };
+  const payload = buildSingleImageShareData(image);
+
+  assert.deepEqual(Object.keys(payload), ['files']);
+  assert.equal(payload.files.length, 1);
+  assert.equal(payload.files[0], image);
 });
 
 test('PackageCard passes brochure URL into the AI recreate prompt', () => {
@@ -115,16 +190,26 @@ test('PackageCard passes brochure URL into the AI recreate prompt', () => {
   assert.match(source, /referenceImageUrl=\{brosurImageUrl \|\| pkg\.brosurUrl \|\| null\}/);
 });
 
-test('BrochurePromptModal uses native share for brochure image when available', () => {
+test('BrochurePromptModal uses a file-only payload and clipboard prompt on iPhone', () => {
   const source = readFileSync(join(root, 'src/components/BrochurePromptModal.tsx'), 'utf8');
 
   assert.match(source, /function safeImageFilename/);
   assert.match(source, /async function fetchReferenceImageFile/);
+  assert.match(source, /async function writeTextToClipboard/);
+  assert.match(source, /function copyTextSynchronously/);
   assert.match(source, /getReferenceImageFile\?: \(\(\) => Promise<File \| null>\) \| null/);
   assert.match(source, /const canTryNativeChatGPTShare =/);
   assert.match(source, /Boolean\(toAbsoluteUrl\(referenceImageUrl\) \|\| getReferenceImageFile\)/);
+  assert.match(source, /const nativeSharePrompt = useMemo/);
+  assert.match(source, /buildNativeSharePrompt\(\{/);
   assert.match(source, /const file = getReferenceImageFile/);
-  assert.match(source, /navigator\.share\(\{\s*files: \[file\],\s*title: `Brosur - \$\{title\}`,\s*text: prompt,/);
+  assert.match(source, /buildSingleImageShareData\(file\)/);
+  assert.match(source, /navigator\.canShare\?\.\(\{ files: \[file\] \}\)/);
+  assert.match(source, /navigator\.share\(shareData\)/);
+  assert.match(source, /file_count: shareData\.files\?\.length \|\| 0/);
+  assert.match(source, /prompt_transport: 'clipboard'/);
+  assert.match(source, /payload_fields: Object\.keys\(shareData\)\.sort\(\)\.join\(','\)/);
+  assert.match(source, /1 gambar • prompt disalin, tempel 1× di ChatGPT/);
   assert.match(source, />\{isOpeningChatGPT \? 'Memproses\.\.\.' : canTryNativeChatGPTShare \? 'Kirim ChatGPT' : 'Buka ChatGPT'\}</);
 });
 
@@ -150,4 +235,13 @@ test('BrochurePromptModal simplifies controls in schedule context', () => {
   assert.match(source, /contactSource: isScheduleContext \? 'attached' : 'explicit'/);
   assert.match(source, /\{!isScheduleContext && \(/);
   assert.match(source, /!isScheduleContext && \(\s*<div>[\s\S]*ariaLabel="Rasio brosur"/);
+});
+
+test('brochure design style dropdown shows all style choices without search UI', () => {
+  const modal = readFileSync(join(root, 'src/components/BrochurePromptModal.tsx'), 'utf8');
+  const dropdown = readFileSync(join(root, 'src/components/FilterDropdown.tsx'), 'utf8');
+
+  assert.match(modal, /ariaLabel="Gaya desain brosur"[\s\S]{0,180}searchable=\{false\}/);
+  assert.match(dropdown, /searchable\?: boolean/);
+  assert.match(dropdown, /const showSearch = searchable && !showAllOptions && options\.length >= 8/);
 });

@@ -36,6 +36,8 @@ export interface FilterDropdownProps {
   portalZClass?: string;
   /** Remove the option-list height cap so every option is visible without inner scrolling. */
   showAllOptions?: boolean;
+  /** Show the search field for long option lists. Defaults to true. */
+  searchable?: boolean;
 }
 
 /**
@@ -63,6 +65,7 @@ export default function FilterDropdown({
   inputSkin = false,
   portalZClass = 'z-50',
   showAllOptions = false,
+  searchable = true,
 }: FilterDropdownProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -81,7 +84,7 @@ export default function FilterDropdown({
   });
 
   const selectedLabel = options.find(o => o.value === value)?.label ?? '';
-  const showSearch = !showAllOptions && options.length >= 8;
+  const showSearch = searchable && !showAllOptions && options.length >= 8;
   const filtered = showSearch && query.trim()
     ? options.filter(o => o.label.toLowerCase().includes(query.trim().toLowerCase()))
     : options;

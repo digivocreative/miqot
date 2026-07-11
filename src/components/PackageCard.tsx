@@ -3,7 +3,7 @@
 import { Fragment, useState, useRef, useEffect, useMemo, Suspense, lazy, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check, Route, ChevronRight } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { UmrohPackage, RoomPricing, HotelInfo } from '@/types';
 import { BrochureModal } from './BrochureModal';
 
@@ -24,7 +24,7 @@ import { getLandingCityName, getPackageJourneySteps } from '@/utils/journey';
 import { isSessionValid } from '@/utils/authUtils';
 import { CaptionAIModal } from './CaptionAIModal';
 import { BrochurePromptModal } from './BrochurePromptModal';
-import type { BrochurePromptPkg } from './brochure-prompt/buildBrochurePrompt';
+import { formatBrochurePrice, type BrochurePromptPkg } from './brochure-prompt/buildBrochurePrompt';
 
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
@@ -144,8 +144,7 @@ function PackageCardImpl({
   onCompare,
   isComparing = false,
 }: PackageCardProps) {
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [contentHeight, setContentHeight] = useState(0);
+  const shouldReduceMotion = useReducedMotion();
   const [isBrochureOpen, setIsBrochureOpen] = useState(false);
   const [isItineraryOpen, setIsItineraryOpen] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -326,7 +325,7 @@ function PackageCardImpl({
     const priceNums = [tierPricing?.Quard, tierPricing?.Triple, tierPricing?.Double]
       .map((v: any) => Number(v))
       .filter((n: number) => Number.isFinite(n) && n > 0);
-    const harga = priceNums.length ? `mulai Rp ${Math.min(...priceNums).toLocaleString('id-ID')}` : undefined;
+    const harga = priceNums.length ? formatBrochurePrice(`mulai Rp ${Math.min(...priceNums).toLocaleString('id-ID')}`) : undefined;
 
     const star = (b: any) => { const n = parseInt(b || '0', 10); return n > 0 ? ` (${'★'.repeat(n)})` : ''; };
     const mekkah = hotelData?.mekkah_hotel ? `${hotelData.mekkah_hotel}${star(hotelData.mekkah_bintang)}` : undefined;
@@ -424,13 +423,6 @@ function PackageCardImpl({
     const formatted = formatRupiah(price);
     return formatted === '-' ? '-' : `Rp ${formatted}`;
   };
-
-  // Update content height for animation
-  useEffect(() => {
-    if (contentRef.current) {
-      setContentHeight(contentRef.current.scrollHeight);
-    }
-  }, [isExpanded, pkg]);
 
   // Handle card click
   const handleCardClick = (e: React.MouseEvent) => {
@@ -1617,21 +1609,21 @@ _________________________
       data-jadwal-id={pkg.jadwalId}
       onClick={handleCardClick}
       className={`
-        bg-white dark:bg-slate-800 rounded-xl relative overflow-hidden cursor-pointer
-        transition-all duration-300 ease-out
+        bg-white dark:bg-slate-800 rounded-xl relative overflow-hidden cursor-pointer border pb-1
+        transition-[box-shadow,border-color] duration-300 ease-out
         ${isExpanded
-          ? 'shadow-lg ring-1 ring-emerald-100 dark:ring-emerald-900 pb-2'
-          : 'shadow-sm border border-gray-100 dark:border-slate-700 hover:shadow-md pb-1'
+          ? 'shadow-lg border-emerald-100 dark:border-emerald-900 ring-1 ring-emerald-100 dark:ring-emerald-900'
+          : 'shadow-sm border-gray-100 dark:border-slate-700 hover:shadow-md'
         }
       `}
     >
 
 
-      {/* Flag overlay — corner peek (hidden when expanded) */}
-      {!isExpanded && (() => {
+      {/* Flag overlay — keep it mounted so expand/collapse does not flash while repainting. */}
+      {(() => {
         const flags = getCountryFlags(hotelInfo);
         return (
-          <div className="absolute -right-2.5 -bottom-2.5 z-0 pointer-events-none -rotate-[8deg]">
+          <div className={`absolute -right-2.5 -bottom-2.5 z-0 pointer-events-none -rotate-[8deg] transition-opacity duration-200 ${isExpanded ? 'opacity-0' : 'opacity-100'}`}>
             {flags.length === 1 ? (
               <div className="relative w-[125px] h-[88px]">
                 <img src={flags[0]} alt="" className="w-full h-full object-cover opacity-[0.12] rounded" />
@@ -1661,7 +1653,7 @@ _________________________
         : cardVariant === 'ticket' ? <TicketLayout {...variantProps} />
         : cardVariant === 'tiled' ? <TiledLayout {...variantProps} />
         : cardVariant === 'magazine' ? <MagazineLayout {...variantProps} />
-        : <div className={isExpanded ? "pt-4 px-4 pb-0" : "p-4"}>
+        : <div className="p-4">
         {/* Header: Title & Price */}
         <div className="flex justify-between items-start gap-3 mb-4">
           <div className="flex-1 min-w-0">
@@ -1788,24 +1780,26 @@ _________________________
           </div>
         </div>
 
-        {/* Availability Bar + Departure Date (Only when Collapsed) */}
-        {!isExpanded && <SeatAndDateSection isFooter={false} />}
+        {/* Keep this row mounted in one position to avoid a flash during expansion. */}
+        <SeatAndDateSection isFooter={false} />
       </div>}
 
       {/* ============================================ */}
       {/* EXPANDED VIEW (Animated) — shared across all variants */}
       {/* ============================================ */}
-      <div
-        className="overflow-hidden transition-all duration-300 ease-out"
-        style={{
-          maxHeight: isExpanded ? (isSingleView ? 'none' : `${contentHeight}px`) : '0px',
-          opacity: isExpanded ? 1 : 0,
+      <motion.div
+        data-expand-panel
+        aria-hidden={!isExpanded}
+        initial={false}
+        animate={{
+          height: isExpanded ? 'auto' : 0,
         }}
+        transition={shouldReduceMotion ? { duration: 0 } : {
+          height: { duration: 0.36, ease: [0.22, 1, 0.36, 1] },
+        }}
+        className="overflow-hidden"
       >
-        <div ref={contentRef} className="px-4 pb-4">
-
-          {/* Availability Bar + Departure Date (Expanded position: above Landing & Manasik) */}
-          {isExpanded && <div className="mb-3"><SeatAndDateSection isFooter={false} /></div>}
+        <div className="px-4 pb-4">
 
           {/* ---- New Info Section: Landing & Manasik ---- */}
           <div className="flex items-center gap-3 mb-2 bg-gray-50 dark:bg-slate-900/50 p-3 rounded-lg">
@@ -2363,7 +2357,7 @@ _________________________
 
 
         </div>
-      </div>
+      </motion.div>
       </div>
     </div>
 

@@ -24,7 +24,7 @@ import {
   type BrochureHotel,
 } from './BrochureScheduleTemplate';
 import { BrochurePromptModal } from './BrochurePromptModal';
-import type { BrochurePromptSchedule } from './brochure-prompt/buildBrochurePrompt';
+import { formatBrochurePrice, type BrochurePromptSchedule } from './brochure-prompt/buildBrochurePrompt';
 import { getAuthHeaders } from './LoginPage';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { CatalogLoadingModal } from './CatalogLoadingModal';
@@ -291,7 +291,7 @@ function countPromptTripDays(startIso: string, endIso: string): number | null {
 
 function formatPromptPrice(harga: number | null): string | undefined {
   if (typeof harga !== 'number' || !Number.isFinite(harga) || harga <= 0) return undefined;
-  return `mulai Rp ${Math.round(harga).toLocaleString('id-ID')}`;
+  return formatBrochurePrice(`mulai Rp ${Math.round(harga).toLocaleString('id-ID')}`);
 }
 
 function formatPromptHotels(hotels?: BrochureHotel[]): string[] {
