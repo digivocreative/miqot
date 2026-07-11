@@ -48,7 +48,7 @@ test('jamaah edit form loader reads same legacy edit form options', () => {
   assert.match(server, /readOnly:\s*\{\s*diskonMarketing: displayDiskonMarketing/);
 });
 
-test('jamaah dashboard exposes edit for every payment status and removes card-level add actions', () => {
+test('jamaah dashboard exposes edit for every payment status and restores add for Belum DP groups', () => {
   assert.match(page, /showBelumDpEdit\s*=\s*paymentStatus === 'belum'/);
   assert.doesNotMatch(page, /canEditJamaah/);
   assert.doesNotMatch(page, /disabled=\{!canEditJamaah\}/);
@@ -56,9 +56,11 @@ test('jamaah dashboard exposes edit for every payment status and removes card-le
   assert.match(page, /renderJamaahEditIcon\(item/);
   assert.match(page, /onClick=\{\(\) => openEditJamaah\(item\)\}/);
   assert.match(page, /<span className="whitespace-nowrap">Edit<\/span>/);
-  assert.doesNotMatch(page, /Tambah jamaah ke ID Umroh/);
-  assert.doesNotMatch(page, /<UserPlus/);
-  assert.doesNotMatch(page, /getLegacyAddIdb/);
+  assert.match(page, /Tambah jamaah ke ID Umroh/);
+  assert.match(page, /<UserPlus/);
+  assert.match(page, /function getLegacyAddIdb/);
+  assert.match(page, /idb: getLegacyAddIdb\(first\)/);
+  assert.match(page, /goTo\(`\/dashboard\/jamaah\/daftar\?\$\{params\}`\)/);
   assert.match(page, /goTo\(`\/dashboard\/jamaah\/edit\/\$\{encodeURIComponent\(item\.id\)\}`\)/);
   assert.doesNotMatch(page, /jamaah-edit-modal/);
   assert.match(page, /formatJamaahPhone/);

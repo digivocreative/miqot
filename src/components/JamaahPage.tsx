@@ -4,7 +4,7 @@ import {
   Eye, EyeOff, LogIn, Loader2, User, Users, Lock, Search,
   Calendar, Building2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, RefreshCw,
-  SlidersHorizontal, X, Check, Plane, Landmark, PenLine, Plus,
+  SlidersHorizontal, X, Check, Plane, Landmark, PenLine, UserPlus, Plus,
   FileText, Download, Share2, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { getAuthHeaders, getStoredSession } from './LoginPage';
@@ -181,6 +181,16 @@ function isManualConfirmedLunas(item: Pick<JamaahItem, 'raw_data'>) {
 function canConfirmLunas(item: Pick<JamaahItem, 'sisa' | 'bayar' | 'raw_data'>) {
   const g = item.raw_data?.payment_guard;
   return getPaymentStatus(item) !== 'lunas' && typeof g === 'string' && AGGREGATE_MANAGED_GUARDS.includes(g);
+}
+
+function getLegacyAddIdb(item: Pick<JamaahItem, 'id_umroh' | 'raw_data'>) {
+  const idUmroh = String(item.id_umroh || '').trim();
+  if (!idUmroh) return '';
+  const idJadwal = typeof item.raw_data?.id_jadwal === 'string'
+    ? item.raw_data.id_jadwal.trim()
+    : '';
+  if (!idJadwal || idUmroh.includes('.')) return idUmroh;
+  return `${idUmroh}.${idJadwal}`;
 }
 
 function normalizeDocumentPath(value: unknown): string {
@@ -1644,6 +1654,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
               return queue.map((entry, qIdx) => {
               if (entry.kind === 'belum-table') {
                 const members = entry.members;
+                const first = members[0];
                 return (
                   <div key={`bdp-${entry.idu}-${qIdx}`} className="rounded-2xl border border-amber-200 dark:border-amber-800/40 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
                     <div className="flex items-center justify-between px-3 py-2 bg-amber-50/60 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-800/40">
@@ -1656,6 +1667,22 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                         </span>
                         <span className="text-[10px] font-mono text-gray-400 dark:text-slate-500 truncate">· {entry.idu}</span>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const paramsObj: Record<string, string> = { idb: getLegacyAddIdb(first), from: first.nama };
+                          if (first.tgl_berangkat) paramsObj.date = first.tgl_berangkat;
+                          if (first.paket) paramsObj.paket = first.paket;
+                          const params = new URLSearchParams(paramsObj);
+                          goTo(`/dashboard/jamaah/daftar?${params}`);
+                        }}
+                        className="shrink-0 flex items-center gap-1 text-[10px] font-bold border transition-colors rounded-lg px-2 py-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 active:scale-95"
+                        title={`Tambah jamaah ke ID Umroh ${entry.idu}`}
+                        aria-label={`Tambah jamaah ke ID Umroh ${entry.idu}`}
+                      >
+                        <UserPlus size={11} strokeWidth={2.5} />
+                        Tambah
+                      </button>
                     </div>
                     <div className="divide-y divide-gray-100 dark:divide-slate-700/50">
                       {members.slice(0, 2).map(m => {

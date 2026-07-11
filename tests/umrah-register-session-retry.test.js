@@ -74,7 +74,9 @@ test('umrah registration uses browser/reCAPTCHA as primary and keeps upstream fa
   assert.match(registerPage, /'Accept': 'application\/json'/);
   assert.match(registerPage, /if \(!res\.ok \|\| data\.success === false\)/);
 
-  assert.doesNotMatch(jamaahPage, /function getLegacyAddIdb/);
-  assert.doesNotMatch(jamaahPage, /idb: getLegacyAddIdb\(item\)/);
+  assert.match(jamaahPage, /function getLegacyAddIdb/);
+  assert.match(jamaahPage, /idb: getLegacyAddIdb\(first\)/);
+  assert.match(registerPage, /const bindIdb = searchParams\.get\('idb'\) \|\| ''/);
+  assert.match(registerPage, /idb: bindIdb \|\| undefined/);
   assert.match(jamaahPage, /onClick=\{\(\) => openEditJamaah\(item\)\}/);
 });
