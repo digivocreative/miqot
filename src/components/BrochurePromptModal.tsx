@@ -38,7 +38,27 @@ interface BrochurePromptModalProps {
   title: string;
 }
 
+declare const __APP_VERSION__: string;
+
 const STYLE_OPTIONS = DESIGN_STYLES.map((s) => ({ value: s.value, label: s.label }));
+
+/**
+ * Bukti sisi-device untuk debugging share iOS: ringkasan payload TANPA isi
+ * prompt/data sensitif, plus penanda bundle supaya log server bisa memastikan
+ * versi mana yang benar-benar berjalan di HP pengguna.
+ */
+function describeSharePayload(shareData: ShareData, file: File) {
+  return {
+    payload_fields: Object.keys(shareData).sort().join(','),
+    file_count: shareData.files?.length ?? 0,
+    file_name: file.name,
+    file_type: file.type,
+    file_size: file.size,
+    app_version: typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev',
+    display_mode: typeof window !== 'undefined' && window.matchMedia?.('(display-mode: standalone)').matches ? 'standalone' : 'browser',
+    sw_controlled: typeof navigator !== 'undefined' && Boolean(navigator.serviceWorker?.controller),
+  };
+}
 
 const inputCls =
   'w-full px-3 py-2 rounded-lg text-sm bg-gray-50 dark:bg-slate-900/60 border border-gray-200 ' +
@@ -278,6 +298,17 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
             if (!nativePromptCopied) throw new Error('native-share-prompt-copy-failed');
 
             const shareData = buildSingleImageShareData(file);
+            const payloadSummary = describeSharePayload(shareData, file);
+            // Dicatat SEBELUM navigator.share supaya bukti payload tetap ada
+            // walau pengguna membatalkan share sheet atau share-nya gagal.
+            console.info('[brochure-share] payload:', payloadSummary);
+            trackEvent('feature', 'brochure_prompt_share_payload', {
+              ...payloadSummary,
+              variant,
+              kind: isScheduleContext ? 'schedule' : kind,
+              prompt_length: nativeSharePrompt.length,
+              prompt_transport: 'clipboard',
+            });
             if (!navigator.canShare?.({ files: [file] })) throw new Error('native-share-data-unsupported');
             await navigator.share(shareData);
             trackEvent('feature', 'brochure_prompt_share_chatgpt', {
@@ -286,12 +317,16 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
               file_count: shareData.files?.length || 0,
               prompt_length: nativeSharePrompt.length,
               prompt_transport: 'clipboard',
-              payload_fields: Object.keys(shareData).sort().join(','),
+              payload_fields: payloadSummary.payload_fields,
+              app_version: payloadSummary.app_version,
             });
             return;
           }
         } catch (err: any) {
-          if (err?.name === 'AbortError') return;
+          if (err?.name === 'AbortError') {
+            trackEvent('feature', 'brochure_prompt_share_cancelled', { kind: isScheduleContext ? 'schedule' : kind });
+            return;
+          }
           console.warn('[brochure-prompt] native share failed, falling back to ChatGPT link:', err);
         }
       }
