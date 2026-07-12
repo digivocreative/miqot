@@ -58,7 +58,7 @@ const TOOLS: Tool[] = [
   {
     id: 'landing-page',
     name: 'Landing Page',
-    desc: 'Atur SEO & link preview saat link dibagikan',
+    desc: 'Edit konten, tampilan & link halaman Umroh/Haji',
     icon: Globe,
     color: 'purple',
     route: 'landing-page',

@@ -10,7 +10,7 @@ const filterHeader = readFileSync(join(root.pathname, 'src/components/FilterHead
 test('FilterDropdown supports rendering all options without a scroll cap', () => {
   assert.match(filterDropdown, /showAllOptions\?: boolean/);
   assert.match(filterDropdown, /showAllOptions = false/);
-  assert.match(filterDropdown, /const showSearch = !showAllOptions && options\.length >= 8/);
+  assert.match(filterDropdown, /const showSearch = searchable && !showAllOptions && options\.length >= 8/);
   assert.match(filterDropdown, /showAllOptions\s+\?\s+'overflow-visible'/);
   assert.match(filterDropdown, /:\s+'max-h-60 overflow-y-auto overscroll-contain touch-pan-y \[-webkit-overflow-scrolling:touch\]'/);
 });
@@ -25,4 +25,10 @@ test('landing header disables the scroll cap only for the main filter dropdown',
 
   assert.ok(otherDropdownBlocks.length > 0);
   assert.ok(otherDropdownBlocks.every((block) => !block.includes('showAllOptions')));
+});
+
+test('landing header does not offer the school holiday filter', () => {
+  const optionsBlock = filterHeader.match(/const FILTER_MODE_OPTIONS[\s\S]*?\n\];/)?.[0] ?? '';
+
+  assert.doesNotMatch(optionsBlock, /LIBURAN_SEKOLAH|LIBURAN SEKOLAH/);
 });

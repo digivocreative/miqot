@@ -1572,10 +1572,12 @@ _________________________
               className="h-full rounded-full"
               style={{
                 width: `${percentage}%`,
-                background: `repeating-linear-gradient(45deg, ${statusStyle.stripe[0]}, ${statusStyle.stripe[0]} 6px, ${statusStyle.stripe[1]} 6px, ${statusStyle.stripe[1]} 12px)`,
-                backgroundSize: '20px 20px',
+                backgroundColor: statusStyle.stripe[0],
+                backgroundImage: `linear-gradient(135deg, ${statusStyle.stripe[1]} 25%, transparent 25%, transparent 50%, ${statusStyle.stripe[1]} 50%, ${statusStyle.stripe[1]} 75%, transparent 75%, transparent)`,
+                backgroundSize: '16px 16px',
                 animation: 'stripe-move 1s linear infinite',
                 transition: 'width 0.5s ease',
+                willChange: 'background-position',
               }}
             />
           </div>
@@ -1686,10 +1688,10 @@ _________________________
               <PlaneTakeoff size={16} />
             </div>
             <div>
-              <p className="text-xs text-gray-500 dark:text-slate-400 flex items-center gap-1">
-                <span className="font-medium text-gray-700 dark:text-slate-200">{(pkg.keberangkatan.kodePenerbangan || '').split('/')[0].trim()}</span>
-                <span>/</span>
-                <span>{formatDate(pkg.keberangkatan.tgl)}</span>
+              <p className="flex items-center gap-1">
+                <span className="text-xs font-medium text-gray-700 dark:text-slate-200">{formatDate(pkg.keberangkatan.tgl)}</span>
+                <span className="text-[10px] text-gray-400 dark:text-slate-500">/</span>
+                <span className="text-[10px] text-gray-500 dark:text-slate-400">{(pkg.keberangkatan.kodePenerbangan || '').split('/')[0].trim()}</span>
               </p>
               <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">{pkg.keberangkatan.jam.replace('.', ':')} WIB</p>
             </div>
@@ -1701,10 +1703,10 @@ _________________________
               <PlaneLanding size={16} />
             </div>
             <div>
-              <p className="text-xs text-gray-500 dark:text-slate-400 flex items-center gap-1">
-                <span className="font-medium text-gray-700 dark:text-slate-200">{(pkg.kepulangan.kodePenerbangan || '').split('/')[0].trim()}</span>
-                <span>/</span>
-                <span>{formatDate(pkg.kepulangan.tgl)}</span>
+              <p className="flex items-center gap-1">
+                <span className="text-xs font-medium text-gray-700 dark:text-slate-200">{formatDate(pkg.kepulangan.tgl)}</span>
+                <span className="text-[10px] text-gray-400 dark:text-slate-500">/</span>
+                <span className="text-[10px] text-gray-500 dark:text-slate-400">{(pkg.kepulangan.kodePenerbangan || '').split('/')[0].trim()}</span>
               </p>
               <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">{pkg.kepulangan.jam.replace('.', ':')} WIB</p>
             </div>

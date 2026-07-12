@@ -8,7 +8,7 @@ import { chromium } from 'playwright';
 
 const root = new URL('..', import.meta.url).pathname;
 
-test('browser builds one image-only share item and keeps the prompt compact for clipboard transport', async () => {
+test('browser shares one brochure image together with the compact prompt text', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'native-share-payload-'));
   const bundlePath = join(dir, 'promptBuilder.js');
   await build({
@@ -44,29 +44,31 @@ test('browser builds one image-only share item and keeps the prompt compact for 
         reserveQr: false,
       });
       const file = new File([new Uint8Array([137, 80, 78, 71])], 'brosur.png', { type: 'image/png' });
-      const shareData = PromptBuilder.buildSingleImageShareData(file);
+      const shareData = PromptBuilder.buildImageAndPromptShareData(file, prompt);
       let received = null;
       Object.defineProperty(navigator, 'canShare', {
         configurable: true,
-        value: candidate => candidate.files?.length === 1,
+        value: candidate => candidate.files?.length === 1 && typeof candidate.text === 'string',
       });
       Object.defineProperty(navigator, 'share', {
         configurable: true,
         value: async candidate => { received = candidate; },
       });
-      if (!navigator.canShare({ files: [file] })) throw new Error('canShare rejected image');
+      if (!navigator.canShare(shareData)) throw new Error('canShare rejected image + prompt');
       await navigator.share(shareData);
       return {
         keys: Object.keys(received),
         fileCount: received.files.length,
         fileName: received.files[0].name,
+        sharedText: received.text,
         prompt,
       };
     });
 
-    assert.deepEqual(result.keys, ['files']);
+    assert.deepEqual(result.keys, ['files', 'text']);
     assert.equal(result.fileCount, 1);
     assert.equal(result.fileName, 'brosur.png');
+    assert.equal(result.sharedText, result.prompt);
     assert.ok(result.prompt.length <= 1_800);
     assert.match(result.prompt, /Buat ulang brosur jadwal/);
     assert.match(result.prompt, /AKURASI/);

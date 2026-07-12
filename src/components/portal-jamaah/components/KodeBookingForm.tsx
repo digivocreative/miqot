@@ -1,4 +1,4 @@
-import { Send } from 'lucide-react';
+import { Loader2, Send } from 'lucide-react';
 
 interface Props {
   kodeBooking: string;
@@ -20,24 +20,30 @@ export default function KodeBookingForm({
   onSubmit,
 }: Props) {
   return (
-    <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Masuk dengan Kode Booking</p>
+    <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Masuk dengan Kode Booking</p>
       <div className="mt-4 space-y-3">
         <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold text-slate-700">Kode Booking</span>
+          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
+            Kode Booking
+          </span>
           <input
             type="text"
             value={kodeBooking}
             onChange={(e) => onKodeBookingChange(e.target.value.toUpperCase())}
             placeholder="Contoh: AIW0028902"
-            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold uppercase tracking-wide text-slate-900 outline-none transition focus:border-emerald-700 focus:ring-4 focus:ring-emerald-50"
+            autoComplete="off"
+            spellCheck={false}
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm font-semibold uppercase tracking-wide text-gray-800 outline-none transition-all placeholder:text-gray-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
           />
         </label>
 
         <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold text-slate-700">Nomor WhatsApp</span>
-          <div className="flex overflow-hidden rounded-xl border border-slate-200 bg-white transition focus-within:border-emerald-700 focus-within:ring-4 focus-within:ring-emerald-50">
-            <div className="flex items-center border-r border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-500">
+          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
+            Nomor WhatsApp
+          </span>
+          <div className="flex overflow-hidden rounded-xl border border-gray-200 bg-white transition-all focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-center border-r border-gray-200 bg-gray-50 px-3 text-sm font-semibold text-gray-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
               +62
             </div>
             <input
@@ -46,13 +52,14 @@ export default function KodeBookingForm({
               value={waNumber}
               onChange={(e) => onWaNumberChange(e.target.value.replace(/[^\d\s-]/g, ''))}
               placeholder="812 3456 7890"
-              className="min-w-0 flex-1 px-4 py-3 text-sm font-semibold text-slate-900 outline-none"
+              autoComplete="tel"
+              className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 dark:text-white"
             />
           </div>
         </label>
 
         {error && (
-          <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+          <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
             {error}
           </p>
         )}
@@ -61,12 +68,12 @@ export default function KodeBookingForm({
           type="button"
           onClick={onSubmit}
           disabled={submitting}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          <Send size={16} strokeWidth={2} />
+          {submitting ? <Loader2 size={16} strokeWidth={2} className="animate-spin" /> : <Send size={16} strokeWidth={2} />}
           {submitting ? 'Mengirim...' : 'Kirim Link Akses ke WA'}
         </button>
-        <p className="text-center text-xs leading-relaxed text-slate-500">
+        <p className="text-center text-xs leading-relaxed text-gray-500 dark:text-slate-400">
           Link akan dikirim ke WhatsApp Anda dalam beberapa detik
         </p>
       </div>

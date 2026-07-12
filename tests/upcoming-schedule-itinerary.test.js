@@ -24,3 +24,10 @@ test('upcoming departure card places ITINERARY above PAX and opens the shared mo
   assert.match(schedulePage, /setActiveItinerary\(\{/);
   assert.match(schedulePage, /<ItineraryModal[\s\S]*fileUrl=\{activeItinerary\.url\}/);
 });
+
+test('take-off row uses the take-off icon instead of a location pin', () => {
+  const takeOffBlock = schedulePage.match(/<span>Take off<\/span>[\s\S]*?<\/div>/)?.[0] || '';
+  assert.match(schedulePage, /PlaneTakeoff/);
+  assert.match(takeOffBlock, /<PlaneTakeoff/);
+  assert.doesNotMatch(takeOffBlock, /<MapPin/);
+});

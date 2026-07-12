@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractReturnTerminalFromItinerary, extractReturnTerminalFromText } from '../lib/itinerary-terminal.js';
+import {
+  extractReturnTerminalFromItinerary,
+  extractReturnTerminalFromText,
+  resolveCalendarArrivalTerminal,
+} from '../lib/itinerary-terminal.js';
 
 test('extractReturnTerminalFromItinerary reads arrival terminal on the final return day', () => {
   const result = extractReturnTerminalFromItinerary({
@@ -90,4 +94,10 @@ test('extractReturnTerminalFromText reads terminal 2F from raw PDF return text',
   `);
 
   assert.deepEqual(result, { arrivalTerminal: '2F', departureTerminal: null });
+});
+
+test('kepulangan terminal uses itinerary only and never falls back to provider', () => {
+  assert.equal(resolveCalendarArrivalTerminal('kepulangan', '2F', '3', '3'), '2F');
+  assert.equal(resolveCalendarArrivalTerminal('kepulangan', null, '3', '3'), null);
+  assert.equal(resolveCalendarArrivalTerminal('keberangkatan', null, '3', '2F'), '3');
 });

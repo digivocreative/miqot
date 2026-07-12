@@ -62,7 +62,6 @@ export interface FilterHeaderProps {
 const FILTER_MODE_OPTIONS: { value: FilterMode; label: string }[] = [
   { value: 'AVAILABLE', label: 'SEAT TERSEDIA' },
   { value: 'LANDING DI', label: 'LANDING DI' },
-  { value: 'LIBURAN_SEKOLAH', label: 'LIBURAN SEKOLAH' },
   { value: 'UMROH CUTI 5 HARI', label: 'UMROH CUTI 5 HARI' },
   { value: 'PROMO', label: 'UMROH PROMO' },
   { value: 'UMROH REGULER', label: 'UMROH REGULER' },
@@ -185,11 +184,17 @@ export function FilterHeader({
             <a href={(() => {
               const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
               return seg ? `/${seg}` : '/';
-            })()} className="block cursor-pointer">
+            })()} className="group relative block cursor-pointer transition-opacity hover:opacity-80">
               <img 
                 src={logoAlhijaz} 
                 alt="Alhijaz Indowisata" 
-                className="h-8 md:h-10 w-auto object-contain hover:opacity-80 transition-opacity"
+                className="h-8 w-auto object-contain md:h-10"
+              />
+              <img
+                src={logoAlhijaz}
+                alt=""
+                aria-hidden="true"
+                className="animate-logo-shine pointer-events-none absolute inset-0 h-8 w-auto object-contain md:h-10"
               />
             </a>
           </div>

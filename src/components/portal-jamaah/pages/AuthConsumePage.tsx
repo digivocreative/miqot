@@ -63,29 +63,29 @@ export default function AuthConsumePage({ slug, token }: { slug: string; token: 
 
   if (state === 'success' && result) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8 font-sans">
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 px-4 py-8 font-sans dark:from-slate-900 dark:to-slate-950">
         <main className="w-full max-w-lg">
-          <section className="rounded-2xl border border-slate-100 bg-white p-6 text-center shadow-sm">
-            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border-2 border-emerald-700 bg-white text-emerald-700">
+          <section className="rounded-2xl border border-gray-100 bg-white p-6 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border-2 border-emerald-500 bg-white text-emerald-600 dark:bg-slate-900 dark:text-emerald-400">
               <Check size={36} strokeWidth={2} />
             </div>
-            <p className="mt-5 text-sm font-semibold text-slate-500">Assalamualaikum,</p>
-            <h1 className="mt-1 text-2xl font-bold text-slate-950">{result.jamaah_name}</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+            <p className="mt-5 text-sm font-semibold text-gray-500 dark:text-slate-400">Assalamualaikum,</p>
+            <h1 className="mt-1 break-words text-2xl font-bold text-gray-900 dark:text-white">{result.jamaah_name}</h1>
+            <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-slate-300">
               Anda berhasil masuk sebagai jamaah booking {result.id_umroh}.
             </p>
-            <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4 text-left">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Kode Booking</p>
-              <p className="mt-1 text-lg font-bold text-slate-950">{result.id_umroh}</p>
+            <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-left dark:border-slate-700 dark:bg-slate-900">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Kode Booking</p>
+              <p className="mt-1 break-all text-lg font-bold text-gray-900 dark:text-white">{result.id_umroh}</p>
             </div>
             <button
               type="button"
               onClick={() => window.location.replace(getPortalDashboardPath(slug, token))}
-              className="mt-5 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-800"
+              className="mt-5 w-full rounded-xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-colors hover:bg-emerald-600 active:scale-95"
             >
               Masuk ke Portal
             </button>
-            <p className="mt-3 text-xs text-slate-500">Sesi Anda berlaku selama 90 hari.</p>
+            <p className="mt-3 text-xs text-gray-500 dark:text-slate-400">Sesi Anda berlaku selama 90 hari.</p>
           </section>
         </main>
       </div>
@@ -93,12 +93,12 @@ export default function AuthConsumePage({ slug, token }: { slug: string; token: 
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8 font-sans">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 px-4 py-8 font-sans dark:from-slate-900 dark:to-slate-950">
       <div className="text-center">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
           <Loader2 size={30} strokeWidth={2} className="animate-spin" />
         </div>
-        <p className="mt-4 text-sm font-semibold text-slate-700">Memverifikasi akses Anda...</p>
+        <p className="mt-4 text-sm font-semibold text-gray-700 dark:text-slate-200">Memverifikasi akses Anda...</p>
       </div>
     </div>
   );

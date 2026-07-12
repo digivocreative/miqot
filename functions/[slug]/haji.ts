@@ -5,6 +5,7 @@
  * WhatsApp links with agent-specific links, injects sticky agent bar.
  */
 import { replaceFaIcons, rewriteAssetsToCdn, LANDING_FONT_CSS, SVG_FA_CSS, FONT_PRELOAD_HTML } from './fa-icons';
+import { applyLandingBuilderToHtml } from '../../lib/landing-builder.js';
 
 export const AGENTS: Record<string, { name: string; phone: string; website: string; photo: string }> = {
   'bagas':       { name: 'Bagas Pramudita',     phone: '6287878573311', website: 'alhijaz.co',                  photo: '/agents/bagas.jpg' },
@@ -37,6 +38,9 @@ const WA_PATH = 'M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.
 const WA_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px"><path d="' + WA_PATH + '"/><' + '/svg>';
 
 function buildStickyBarAndFab(agentName: string, agentPhoto: string, waUrl: string): string {
+  const safeAgentName = escapeHtmlAttr(agentName);
+  const safeAgentPhoto = escapeHtmlAttr(agentPhoto);
+  const safeWaUrl = escapeHtmlAttr(waUrl);
   const css = [
     '<st' + 'yle>',
     '.alhijaz-sticky{position:fixed;bottom:0;left:0;right:0;z-index:99999;background:rgba(255,255,255,.96);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid #e2e8f0;padding:10px 16px;transform:translateY(100%);transition:transform .4s cubic-bezier(.16,1,.3,1)}',
@@ -63,14 +67,14 @@ function buildStickyBarAndFab(agentName: string, agentPhoto: string, waUrl: stri
 
   const stickyBar = '<div class="alhijaz-sticky" id="alhijazStickyBar"><div class="alhijaz-sticky__in">'
     + '<div class="alhijaz-sticky__avatar">'
-    + '<img src="' + agentPhoto + '" alt="' + agentName + '" loading="eager">'
+    + '<img src="' + safeAgentPhoto + '" alt="' + safeAgentName + '" loading="eager">'
     + '<div class="alhijaz-sticky__badge"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="12" fill="#1DA1F2"/><path d="M9.5 12.5L11 14L15 10" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>'
     + '</div>'
-    + '<div class="alhijaz-sticky__text"><strong>' + agentName + '</strong><p>Konsultasi Gratis</p></div>'
-    + '<a href="' + waUrl + '" target="_blank" rel="noopener" class="alhijaz-btn--sticky">' + WA_SVG + ' Chat WA</a>'
+    + '<div class="alhijaz-sticky__text"><strong>' + safeAgentName + '</strong><p>Konsultasi Gratis</p></div>'
+    + '<a href="' + safeWaUrl + '" target="_blank" rel="noopener" class="alhijaz-btn--sticky">' + WA_SVG + ' Chat WA</a>'
     + '</div></div>';
 
-  const fab = '<a href="' + waUrl + '" target="_blank" rel="noopener" class="alhijaz-fab" id="alhijazFab" aria-label="WhatsApp">'
+  const fab = '<a href="' + safeWaUrl + '" target="_blank" rel="noopener" class="alhijaz-fab" id="alhijazFab" aria-label="WhatsApp">'
     + '<svg viewBox="0 0 24 24"><path d="' + WA_PATH + '"/></svg></a>';
 
   const js = '<sc' + 'ript>'
@@ -95,6 +99,7 @@ interface AgentOverride {
     title?: string | null;
     description?: string | null;
     og_image_url?: string | null;
+    builder?: Record<string, unknown> | null;
   };
 }
 
@@ -106,7 +111,7 @@ function escapeHtmlAttr(s: string): string {
     .replace(/>/g, '&gt;');
 }
 
-async function generateHTML(slug: string, agentOverride?: AgentOverride): Promise<string> {
+async function generateHTML(slug: string, agentOverride?: AgentOverride, preview = false): Promise<string> {
   const agent = AGENTS[slug];
   const phone = agentOverride?.phone || agent?.phone || DEFAULT_PHONE;
   const agentName = agentOverride?.name || agent?.name || slug.charAt(0).toUpperCase() + slug.slice(1);
@@ -146,6 +151,10 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   html = html.replace(/https:\/\/wa\.me\/\d+\?text=([^"]*)/g, 'https://api.whatsapp.com/send?phone=' + phone + '&text=$1');
   //    Bare link (no text param): pakai teks umum haji
   html = html.replace(/https:\/\/wa\.me\/\d+(?=["'])/g, waGeneral);
+
+  if (agentOverride?.landing?.builder) {
+    html = applyLandingBuilderToHtml(html, 'haji', agentOverride.landing.builder, { phone, preview });
+  }
 
   // 2. Update <title>, og:title, meta description, and og:image using landing config (or defaults)
   const customTitle = agentOverride?.landing?.title;
@@ -403,13 +412,12 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
     + '})();'
     + '</sc' + 'ript>';
 
-  html = html.replace('</body>', stickyBarHtml + '\n' + capiScript + '\n</body>');
+  if (!preview) {
+    html = html.replace('</body>', stickyBarHtml + '\n' + capiScript + '\n</body>');
 
-  // 6. Add padding-bottom to body so sticky bar doesn't overlap content
-  html = html.replace(
-    /<body /,
-    '<body style="padding-bottom:76px" '
-  );
+    // Add padding-bottom to body so sticky bar doesn't overlap content.
+    html = html.replace(/<body /, '<body style="padding-bottom:76px" ');
+  }
 
   // Bunny CDN rewrite (env-gated; tanpa env tetap self-hosted/relatif)
   html = rewriteAssetsToCdn(html);
@@ -423,11 +431,12 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   return html;
 }
 
-export const onRequest = async (context: { params: { slug: string }; request: Request }) => {
+export const onRequest = async (context: { params: { slug: string }; request: Request; preview?: boolean }) => {
   const slug = (context.params.slug || '').toLowerCase();
   const agentOverride = (context as any).agentOverride as AgentOverride | undefined;
-  return new Response(await generateHTML(slug, agentOverride), {
+  const preview = context.preview === true;
+  return new Response(await generateHTML(slug, agentOverride, preview), {
     status: 200,
-    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': preview ? 'private, no-store' : 'public, max-age=3600' },
   });
 };

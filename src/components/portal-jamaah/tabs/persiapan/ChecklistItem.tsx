@@ -14,6 +14,7 @@ export default function ChecklistItem({
   onToggle,
   onCrossLink,
   descriptionItalic = false,
+  comfortableTouchTarget = false,
 }: {
   item: PortalPersiapanItem;
   kind: PersiapanKind;
@@ -21,6 +22,7 @@ export default function ChecklistItem({
   onToggle: (kind: PersiapanKind, itemId: string, checked: boolean) => void;
   onCrossLink?: (target: string) => void;
   descriptionItalic?: boolean;
+  comfortableTouchTarget?: boolean;
 }) {
   const disabled = Boolean(item.auto_synced);
   const checkboxClass = item.checked
@@ -36,13 +38,20 @@ export default function ChecklistItem({
           type="button"
           disabled={disabled}
           onClick={() => onToggle(kind, item.id, !item.checked)}
-          className={`doc-check mt-0.5 flex h-[22px] w-[22px] flex-none items-center justify-center rounded-lg border-[1.5px] ${checkboxClass} ${
+          className={`doc-check mt-0.5 flex flex-none items-center justify-center rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-800 ${
+            comfortableTouchTarget ? 'h-9 w-9' : 'h-[22px] w-[22px]'
+          } ${
             disabled ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'
           }`}
           title={disabled ? 'Otomatis dari data pembayaran/dokumen' : undefined}
+          aria-label={disabled
+            ? `${item.title} disinkronkan otomatis`
+            : `${item.checked ? 'Batalkan tanda selesai untuk' : 'Tandai selesai'} ${item.title}`}
           aria-pressed={item.checked}
         >
-          {item.checked && <Check className="h-3.5 w-3.5" strokeWidth={2.4} />}
+          <span className={`flex h-[22px] w-[22px] items-center justify-center rounded-lg border-[1.5px] ${checkboxClass}`} aria-hidden="true">
+            {item.checked && <Check className="h-3.5 w-3.5" strokeWidth={2.4} />}
+          </span>
         </button>
 
         <div className="min-w-0 flex-1">

@@ -21,7 +21,7 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function packageToPreview(p: UmrohPackage): FeaturedPaketPreview {
+function packageToPreview(p: UmrohPackage, yearCode: string): FeaturedPaketPreview {
   // Pick anchor price from cheapest tier
   let anchor: number | null = null;
   for (const tier of Object.values(p.harga || {})) {
@@ -33,7 +33,7 @@ function packageToPreview(p: UmrohPackage): FeaturedPaketPreview {
   }
   return {
     jadwal_id: p.jadwalId,
-    year_code: '',
+    year_code: yearCode,
     name: p.nama,
     berangkat_tgl: p.keberangkatan?.tgl || '',
     pulang_tgl: p.kepulangan?.tgl || '',
@@ -50,13 +50,21 @@ export default function PaketPicker({ open, onClose, onPick }: Props) {
   const [packages, setPackages] = useState<UmrohPackage[]>([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState('');
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     let alive = true;
+    setPackages([]);
+    setLoadError(null);
     setLoading(true);
     getPackages({ yearCode: year })
-      .then(r => { if (alive && r.success) setPackages(r.packages); })
+      .then(r => {
+        if (!alive) return;
+        if (r.success) setPackages(r.packages);
+        else setLoadError('Daftar paket tidak dapat dimuat.');
+      })
+      .catch(() => { if (alive) setLoadError('Daftar paket tidak dapat dimuat.'); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [open, year]);
@@ -117,7 +125,11 @@ export default function PaketPicker({ open, onClose, onPick }: Props) {
           <p className="text-sm text-gray-500 dark:text-slate-400 text-center py-8">Memuat daftar paket…</p>
         )}
 
-        {!loading && filtered.length === 0 && (
+        {!loading && loadError && (
+          <p className="text-sm text-red-600 dark:text-red-400 text-center py-8">{loadError}</p>
+        )}
+
+        {!loading && !loadError && filtered.length === 0 && (
           <p className="text-sm text-gray-500 dark:text-slate-400 text-center py-8">
             Tidak ada paket untuk tahun {year}{q ? ` · "${q}"` : ''}.
           </p>
@@ -128,7 +140,7 @@ export default function PaketPicker({ open, onClose, onPick }: Props) {
             <button
               key={p.jadwalId}
               type="button"
-              onClick={() => onPick(packageToPreview(p))}
+              onClick={() => onPick(packageToPreview(p, year))}
               className="w-full text-left p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/15 transition-colors active:scale-[0.99]"
             >
               <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{p.nama}</p>

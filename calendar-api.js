@@ -14,6 +14,10 @@ import { matchEventToSchedule, findSiblingKeberangkatan, tokenizeName, overlapSc
 import { buildScheduleFallbackDetails, parseCalendarJadwalIds } from './lib/calendar-schedule-fallback.js';
 import { fetchPublicCalendarEvents, fetchPublicEventDetail } from './lib/calendar-public-source.js';
 import { validatePublicCalendarSnapshot } from './lib/calendar-public-snapshot.js';
+import {
+  extractDepartureMeetingInfoFromText,
+  needsDepartureMeetingEnrichment,
+} from './lib/calendar-meeting-point.js';
 
 export { validatePublicCalendarSnapshot } from './lib/calendar-public-snapshot.js';
 
@@ -555,66 +559,11 @@ async function extractKumpulFromPdf(itineraryUrl) {
       return null;
     }
 
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-
-    let jamKumpul = null;
-
-    // Collect the full text block around "berkumpul" for location extraction
-    let kumpulBlock = '';
-
-    // Search for "berkumpul" or "kumpul di" in text (first occurrence only, Hari 1)
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!/berkumpul|kumpul\s+di/i.test(line)) continue;
-
-      // Gather surrounding lines for context (kumpul line + next 2 lines)
-      kumpulBlock = lines.slice(i, i + 3).join(' ');
-
-      // Format A: "19.40 Rombongan tiba dan berkumpul di ..." (time + text same line)
-      const sameLineMatch = line.match(/^(\d{1,2}[.:]\d{2})\s+/);
-      if (sameLineMatch) {
-        jamKumpul = sameLineMatch[1].replace(':', '.');
-        break;
-      }
-
-      // Format B: time on previous line
-      if (i > 0) {
-        const prevLine = lines[i - 1];
-        const timeMatch = prevLine.match(/^(\d{1,2}[.:]\d{2})$/);
-        if (timeMatch) {
-          jamKumpul = timeMatch[1].replace(':', '.');
-          break;
-        }
-      }
+    const meetingInfo = extractDepartureMeetingInfoFromText(text);
+    if (meetingInfo) {
+      console.log(`[KumpulParser] Extracted: jam=${meetingInfo.jamKumpul}, titik=${meetingInfo.titikKumpul}`);
     }
-
-    // Extract titik kumpul from the text block: "nama tempat" + "Terminal X"
-    let titikKumpul = null;
-    if (kumpulBlock) {
-      const parts = [];
-
-      // Extract named place: hotel/café/cafe/resto + 1-2 words
-      const placeMatch = kumpulBlock.match(/(?:hotel|caf[eé]|resto|restaurant|lounge)\s+[\w']+(?:\s+[\w']+)?/i);
-      if (placeMatch) {
-        let place = placeMatch[0].replace(/\s+Terminal\b.*$/i, '').trim();
-        place = place.replace(/\b\w/g, c => c.toUpperCase());
-        parts.push(place);
-      }
-
-      // Extract terminal number
-      const terminalMatch = kumpulBlock.match(/Terminal\s+(\d)/i);
-      if (terminalMatch) {
-        parts.push('Terminal ' + terminalMatch[1]);
-      }
-
-      if (parts.length) titikKumpul = parts.join(', ');
-    }
-
-    if (jamKumpul) {
-      console.log(`[KumpulParser] Extracted: jam=${jamKumpul}, titik=${titikKumpul}`);
-    }
-
-    return jamKumpul ? { jamKumpul, titikKumpul } : null;
+    return meetingInfo;
   } catch (err) {
     console.error('[KumpulParser] PDF extract error:', err.message);
     return null;
@@ -625,41 +574,70 @@ async function extractKumpulFromPdf(itineraryUrl) {
 export async function enrichKeberangkatanWithKumpul(supabase) {
   console.log('[KumpulParser] Starting enrichment...');
 
-  // 1. Get keberangkatan events missing jam_kumpul
-  const { data: events, error } = await supabase
+  // 1. Retry when either field is incomplete. Previously, a row with a known
+  // time but a missing location was permanently skipped.
+  const { data: eventRows, error } = await supabase
     .from('calendar_events')
-    .select('id, event_date, paket, jam')
+    .select('id, event_date, paket, jam, jam_kumpul, titik_kumpul, jadwal_id')
     .eq('event_type', 'keberangkatan')
-    .is('jam_kumpul', null)
     .gt('pax', 0);
 
   if (error) {
     console.error('[KumpulParser] Query error:', error.message);
     return;
   }
-  if (!events?.length) {
+  const events = (eventRows || []).filter(needsDepartureMeetingEnrichment);
+  if (!events.length) {
     console.log('[KumpulParser] No events need enrichment');
     return;
   }
 
   console.log(`[KumpulParser] ${events.length} keberangkatan events need kumpul data`);
 
-  // 2. Fetch package data from both Hijri years (1447 + 1448)
+  // 2. Prefer the schedule row already mapped to the event. Besides avoiding
+  // Hijri-year assumptions, this uses the mirrored CDN itinerary when present.
   let packages = [];
-  for (const year of ['1447', '1448']) {
-    try {
-      const res = await fetch(`https://jadwal.alhijaz.co/jadwal/api-get/${year}`, {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        signal: AbortSignal.timeout(15000),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        const items = json.aaData || [];
-        packages.push(...items);
-        console.log(`[KumpulParser] ${items.length} packages from API year ${year}`);
+  const mappedIds = [...new Set(events.map(event => event.jadwal_id).filter(Boolean).map(String))];
+  if (mappedIds.length > 0) {
+    const { data: mappedPackages, error: mappedError } = await supabase
+      .from('umroh_schedules')
+      .select('jadwal_id, jadwal_nama, berangkat_tgl, itinerary, itinerary_cdn, year_code')
+      .in('jadwal_id', mappedIds)
+      .order('year_code', { ascending: false });
+    if (mappedError) {
+      console.error('[KumpulParser] Mapped schedule query failed:', mappedError.message);
+    } else {
+      const seenIds = new Set();
+      for (const row of mappedPackages || []) {
+        const id = String(row.jadwal_id);
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+        packages.push({ ...row, itinerary: row.itinerary_cdn || row.itinerary });
       }
-    } catch (err) {
-      console.error(`[KumpulParser] Package API ${year} failed:`, err.message);
+    }
+  }
+
+  const needsLegacyPackages = events.some(event => (
+    !event.jadwal_id
+    || !packages.some(pkg => String(pkg.jadwal_id) === String(event.jadwal_id))
+  ));
+  if (needsLegacyPackages) {
+    // Legacy fallback for old calendar rows that do not have jadwal_id yet.
+    for (const year of ['1447', '1448']) {
+      try {
+        const res = await fetch(`https://jadwal.alhijaz.co/jadwal/api-get/${year}`, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const items = json.aaData || [];
+          packages.push(...items);
+          console.log(`[KumpulParser] ${items.length} packages from API year ${year}`);
+        }
+      } catch (err) {
+        console.error(`[KumpulParser] Package API ${year} failed:`, err.message);
+      }
     }
   }
 
@@ -672,17 +650,20 @@ export async function enrichKeberangkatanWithKumpul(supabase) {
 
   for (const event of events) {
     // 3. Match event → package by date first, then keyword overlap
+    const exactPackage = event.jadwal_id
+      ? packages.find(pkg => String(pkg.jadwal_id) === String(event.jadwal_id))
+      : null;
     const dateCandidates = packages.filter(pkg => pkg.berangkat_tgl === event.event_date);
-    if (!dateCandidates.length) {
+    if (!exactPackage && !dateCandidates.length) {
       console.log(`[KumpulParser] No package match for: ${event.paket} (${event.event_date})`);
       continue;
     }
 
     // Find best match by keyword overlap
     const calWords = tokenizeName(event.paket);
-    let matchedPkg = null;
+    let matchedPkg = exactPackage;
     let bestScore = 0;
-    for (const pkg of dateCandidates) {
+    for (const pkg of exactPackage ? [] : dateCandidates) {
       const score = overlapScore(calWords, pkg.jadwal_nama);
       if (score > bestScore) {
         bestScore = score;
@@ -691,7 +672,7 @@ export async function enrichKeberangkatanWithKumpul(supabase) {
     }
 
     // Require at least 50% keyword overlap
-    if (!matchedPkg || bestScore < 0.5) {
+    if (!matchedPkg || (!exactPackage && bestScore < 0.5)) {
       console.log(`[KumpulParser] No package match for: ${event.paket} (${event.event_date}) [best score: ${bestScore.toFixed(2)}]`);
       continue;
     }
@@ -710,12 +691,12 @@ export async function enrichKeberangkatanWithKumpul(supabase) {
     console.log(`[KumpulParser] Processing: ${event.paket} (${event.event_date}) → ${matchedPkg.itinerary}`);
     const kumpulInfo = await extractKumpulFromPdf(matchedPkg.itinerary);
 
-    if (kumpulInfo?.jamKumpul) {
+    if (kumpulInfo?.jamKumpul && kumpulInfo?.titikKumpul) {
       await supabase
         .from('calendar_events')
         .update({
           jam_kumpul: kumpulInfo.jamKumpul,
-          titik_kumpul: kumpulInfo.titikKumpul || null,
+          titik_kumpul: kumpulInfo.titikKumpul,
         })
         .eq('id', event.id);
 

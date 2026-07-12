@@ -23,17 +23,17 @@ export default function TaskListWidget({
   return (
     <section className="space-y-3">
       <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-        YANG PERLU ANDA LAKUKAN
+        Yang Perlu Anda Lakukan
       </h2>
       {tasks.length === 0 ? (
-        <div className="flex items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50 p-4 dark:border-emerald-800/40 dark:bg-emerald-900/20">
+        <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50 p-3.5 dark:border-emerald-800/40 dark:bg-emerald-900/20">
           <div className="flex h-10 w-10 flex-none items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-900/40">
             <CheckCircle className="h-5 w-5 text-emerald-600 dark:text-emerald-400" strokeWidth={2} />
           </div>
           <p className="text-sm font-bold text-emerald-800 dark:text-emerald-200">Semua tugas tuntas, semoga lancar ya</p>
         </div>
       ) : (
-        <div className="space-y-2.5">
+        <div className="space-y-2">
           {tasks.map((task) => {
             const Icon = task.icon;
             const styles = CATEGORY_STYLES[task.category];
@@ -42,14 +42,14 @@ export default function TaskListWidget({
                 key={task.id}
                 type="button"
                 onClick={() => onNavigate(task.navigateTo)}
-                className="flex w-full items-center gap-3 rounded-xl border border-gray-100 bg-white p-4 text-left shadow-sm transition active:scale-[0.98] hover:border-emerald-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-emerald-700"
+                className="flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-white p-3.5 text-left shadow-sm transition active:scale-[0.98] hover:border-emerald-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-emerald-700"
               >
                 <div className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${styles.bg}`}>
                   <Icon className={`h-5 w-5 ${styles.color}`} strokeWidth={2} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-bold text-gray-900 dark:text-white">{task.title}</p>
-                  <p className="truncate text-xs text-gray-500 dark:text-slate-400">{task.subtitle}</p>
+                  <p className="break-words text-sm font-bold leading-5 text-gray-900 dark:text-white">{task.title}</p>
+                  <p className="mt-0.5 break-words text-xs leading-5 text-gray-500 dark:text-slate-400">{task.subtitle}</p>
                 </div>
                 <ChevronRight className="h-[18px] w-[18px] flex-none text-gray-400 dark:text-slate-500" strokeWidth={2} />
               </button>

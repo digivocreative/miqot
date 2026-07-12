@@ -6,11 +6,10 @@ import { X, Wand2, Copy, ClipboardCheck, ExternalLink, ChevronDown, FileImage, M
 import { motion, AnimatePresence } from 'framer-motion';
 import FilterDropdown from './FilterDropdown';
 import { trackEvent } from '../utils/analytics';
-import { isTouchPrimary } from '../utils/share';
 import {
   buildBrochurePrompt,
+  buildImageAndPromptShareData,
   buildNativeSharePrompt,
-  buildSingleImageShareData,
   DESIGN_STYLES,
   RATIOS,
   type BrochureVariant,
@@ -175,8 +174,8 @@ function copyTextSynchronously(text: string): boolean {
 
 /**
  * Prompt Generator — merakit prompt ChatGPT untuk membuat ulang brosur dengan
- * strip kontak agen. Tanpa panggilan API: prompt dirakit live di client, instan
- * & gratis. Agen menyalin prompt, buka ChatGPT, lalu mencoba link brosur atau upload manual.
+ * strip kontak agen. Tanpa panggilan API: prompt dirakit live di client. Native
+ * share mengirim gambar + prompt; browser yang tidak mendukung memakai copy + buka web.
  */
 export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl, getReferenceImageFile, pkg, schedule, context = 'package', title }: BrochurePromptModalProps) {
   // Perilaku tetap "rancang ulang" (poster premium yg benar2 berubah); akurasi dijaga lewat
@@ -198,6 +197,8 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
 
   const [copied, setCopied] = useState(false);
   const [isOpeningChatGPT, setIsOpeningChatGPT] = useState(false);
+  const [preparedReferenceFile, setPreparedReferenceFile] = useState<File | null>(null);
+  const [nativeSharePreparationFailed, setNativeSharePreparationFailed] = useState(false);
 
   // Reset info kontak ke profil setiap kali modal dibuka (hindari data basi)
   useEffect(() => {
@@ -258,21 +259,62 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
 
   const canTryNativeChatGPTShare =
     Boolean(toAbsoluteUrl(referenceImageUrl) || getReferenceImageFile) &&
-    isTouchPrimary() &&
     typeof navigator !== 'undefined' &&
     typeof navigator.share === 'function' &&
     typeof navigator.canShare === 'function';
 
-  // Always use a file-only Web Share payload. Safari iOS exposes text/title and
-  // files as separate share-sheet activity items, which ChatGPT can import as a
-  // second attachment. The compact prompt is copied before the share sheet opens.
+  // Siapkan file saat modal terbuka. Dengan begitu navigator.share() bisa dipanggil
+  // langsung dari klik pengguna tanpa menunggu capture/fetch yang dapat menghabiskan
+  // transient user activation di Safari iOS.
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isOpen || !canTryNativeChatGPTShare) {
+      setPreparedReferenceFile(null);
+      setNativeSharePreparationFailed(false);
+      return () => { cancelled = true; };
+    }
+
+    const absoluteReferenceUrl = toAbsoluteUrl(referenceImageUrl);
+    setPreparedReferenceFile(null);
+    setNativeSharePreparationFailed(false);
+
+    void (async () => {
+      try {
+        const file = getReferenceImageFile
+          ? await getReferenceImageFile()
+          : absoluteReferenceUrl
+            ? await fetchReferenceImageFile(absoluteReferenceUrl, title)
+            : null;
+        if (!cancelled) {
+          setPreparedReferenceFile(file);
+          setNativeSharePreparationFailed(!file);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[brochure-prompt] native share image preparation failed:', err);
+          setPreparedReferenceFile(null);
+          setNativeSharePreparationFailed(true);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [isOpen, canTryNativeChatGPTShare, getReferenceImageFile, referenceImageUrl, title]);
+
+  const canUseNativeChatGPTShare = canTryNativeChatGPTShare && Boolean(preparedReferenceFile);
+  const isNativeSharePending =
+    isOpen && canTryNativeChatGPTShare && !preparedReferenceFile && !nativeSharePreparationFailed;
+
+  // Web Share tidak dapat memilih aplikasi tujuan secara otomatis. Payload ini
+  // membuat ChatGPT tersedia sebagai pilihan OS (bila terpasang) dan membawa
+  // gambar + prompt sekaligus. Clipboard dipakai hanya sebagai cadangan.
   const openChatGPT = async () => {
     if (isOpeningChatGPT) return;
     setIsOpeningChatGPT(true);
-    const absoluteReferenceUrl = toAbsoluteUrl(referenceImageUrl);
     let nativePromptCopied = false;
 
-    if (canTryNativeChatGPTShare) {
+    if (canUseNativeChatGPTShare) {
       // Run this before the first await while the click activation is still
       // active. This also avoids consuming Safari's share activation with an
       // asynchronous Clipboard API call.
@@ -282,46 +324,35 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
     }
 
     try {
-      if (canTryNativeChatGPTShare) {
+      if (canUseNativeChatGPTShare && preparedReferenceFile) {
         try {
-          const file = getReferenceImageFile
-            ? await getReferenceImageFile()
-            : absoluteReferenceUrl
-              ? await fetchReferenceImageFile(absoluteReferenceUrl, title)
-              : null;
-          if (file) {
-            if (!nativePromptCopied) {
-              nativePromptCopied = await writeTextToClipboard(nativeSharePrompt);
-              setCopied(nativePromptCopied);
-              if (nativePromptCopied) setTimeout(() => setCopied(false), 3000);
-            }
-            if (!nativePromptCopied) throw new Error('native-share-prompt-copy-failed');
-
-            const shareData = buildSingleImageShareData(file);
-            const payloadSummary = describeSharePayload(shareData, file);
-            // Dicatat SEBELUM navigator.share supaya bukti payload tetap ada
-            // walau pengguna membatalkan share sheet atau share-nya gagal.
-            console.info('[brochure-share] payload:', payloadSummary);
-            trackEvent('feature', 'brochure_prompt_share_payload', {
-              ...payloadSummary,
-              variant,
-              kind: isScheduleContext ? 'schedule' : kind,
-              prompt_length: nativeSharePrompt.length,
-              prompt_transport: 'clipboard',
-            });
-            if (!navigator.canShare?.({ files: [file] })) throw new Error('native-share-data-unsupported');
-            await navigator.share(shareData);
-            trackEvent('feature', 'brochure_prompt_share_chatgpt', {
-              variant,
-              kind: isScheduleContext ? 'schedule' : kind,
-              file_count: shareData.files?.length || 0,
-              prompt_length: nativeSharePrompt.length,
-              prompt_transport: 'clipboard',
-              payload_fields: payloadSummary.payload_fields,
-              app_version: payloadSummary.app_version,
-            });
-            return;
-          }
+          const file = preparedReferenceFile;
+          const shareData = buildImageAndPromptShareData(file, nativeSharePrompt);
+          const payloadSummary = describeSharePayload(shareData, file);
+          // Dicatat SEBELUM navigator.share supaya bukti payload tetap ada
+          // walau pengguna membatalkan share sheet atau share-nya gagal.
+          console.info('[brochure-share] payload:', payloadSummary);
+          trackEvent('feature', 'brochure_prompt_share_payload', {
+            ...payloadSummary,
+            variant,
+            kind: isScheduleContext ? 'schedule' : kind,
+            prompt_length: nativeSharePrompt.length,
+            prompt_transport: 'share_text',
+            clipboard_backup: nativePromptCopied,
+          });
+          if (!navigator.canShare?.(shareData)) throw new Error('native-share-data-unsupported');
+          await navigator.share(shareData);
+          trackEvent('feature', 'brochure_prompt_share_chatgpt', {
+            variant,
+            kind: isScheduleContext ? 'schedule' : kind,
+            file_count: shareData.files?.length || 0,
+            prompt_length: nativeSharePrompt.length,
+            prompt_transport: 'share_text',
+            clipboard_backup: nativePromptCopied,
+            payload_fields: payloadSummary.payload_fields,
+            app_version: payloadSummary.app_version,
+          });
+          return;
         } catch (err: any) {
           if (err?.name === 'AbortError') {
             trackEvent('feature', 'brochure_prompt_share_cancelled', { kind: isScheduleContext ? 'schedule' : kind });
@@ -510,24 +541,25 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
                 </button>
                 <button
                   onClick={openChatGPT}
-                  disabled={isOpeningChatGPT}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-slate-700/60 border border-emerald-200 dark:border-emerald-700/60 transition-all duration-200 active:scale-95"
+                  disabled={isOpeningChatGPT || isNativeSharePending}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-slate-700/60 border border-emerald-200 dark:border-emerald-700/60 transition-all duration-200 active:scale-95 disabled:cursor-wait disabled:opacity-70"
                 >
-                  {isOpeningChatGPT ? (
+                  {isOpeningChatGPT || isNativeSharePending ? (
                     <Loader2 size={16} className="animate-spin" />
-                  ) : canTryNativeChatGPTShare ? (
+                  ) : canUseNativeChatGPTShare ? (
                     <Share2 size={16} />
                   ) : (
                     <ExternalLink size={16} />
                   )}
-                  <span>{isOpeningChatGPT ? 'Memproses...' : canTryNativeChatGPTShare ? 'Kirim ChatGPT' : 'Buka ChatGPT'}</span>
+                  <span>{
+                    isOpeningChatGPT
+                      ? 'Memproses...'
+                      : isNativeSharePending
+                        ? 'Menyiapkan...'
+                        : 'ChatGPT'
+                  }</span>
                 </button>
               </div>
-              {canTryNativeChatGPTShare && (
-                <p className="mt-2 text-center text-[10px] font-medium text-gray-400 dark:text-slate-500">
-                  1 gambar • prompt disalin, tempel 1× di ChatGPT
-                </p>
-              )}
             </div>
           </motion.div>
         </motion.div>

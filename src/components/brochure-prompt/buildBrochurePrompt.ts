@@ -199,21 +199,24 @@ function buildScheduleDataBlock(schedule?: BrochurePromptSchedule | null): strin
 }
 
 /**
- * ChatGPT mengubah teks >5.000 karakter menjadi attachment. Native share perlu
- * prompt ringkas agar gambar tetap satu-satunya attachment dan instruksi masuk
- * langsung ke composer.
+ * ChatGPT dapat mengubah teks native-share yang terlalu panjang menjadi
+ * attachment. Jaga prompt ringkas agar instruksi tetap mudah dipakai bersama
+ * gambar brosur yang dibagikan.
  */
 export const CHATGPT_NATIVE_SHARE_TEXT_LIMIT = 5_000;
 export const CHATGPT_NATIVE_SHARE_SAFE_BUDGET = 1_800;
 
 /**
- * Safari iOS turns every non-file Web Share field into a separate activity
- * item. Keep the iPhone payload file-only so ChatGPT receives exactly one
- * image instead of treating the prompt as a second attachment.
+ * Satu payload Web Share untuk dikirim ke ChatGPT melalui native share sheet.
+ * `title` sengaja tidak ditambahkan agar iOS tidak membuat activity item ketiga;
+ * gambar dan prompt tetap ikut dalam request yang sama.
  */
-export function buildSingleImageShareData(file: File): ShareData {
+export function buildImageAndPromptShareData(file: File, prompt: string): ShareData {
   if (!file || !file.type.startsWith('image/')) throw new Error('native-share-image-required');
-  return { files: [file] };
+  const text = prompt?.trim();
+  if (!text) throw new Error('native-share-prompt-required');
+  if (text.length > CHATGPT_NATIVE_SHARE_TEXT_LIMIT) throw new Error('native-share-prompt-too-long');
+  return { files: [file], text };
 }
 
 export function buildNativeSharePrompt(input: BrochurePromptInput): string {

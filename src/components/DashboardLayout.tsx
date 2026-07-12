@@ -12,6 +12,7 @@ import { clearSession, getAuthHeaders } from './LoginPage';
 import type { Birthday } from './BirthdayWidget';
 import { trackEvent } from '../utils/analytics';
 import JamaahEditSkeleton from './JamaahEditSkeleton';
+import { isLandingBuilderEnabledForAgent } from '../lib/landingBuilderAccess';
 
 function getLocalStorageItem(key: string): string | null {
   try {
@@ -43,6 +44,7 @@ const AIToolsPage = lazy(() => import('./AIToolsPage'));
 const VoiceOverPage = lazy(() => import('./VoiceOverPage'));
 const BusinessCardPage = lazy(() => import('./BusinessCardPage'));
 const LandingPagePage = lazy(() => import('./LandingPagePage'));
+const LandingPageEditorPage = lazy(() => import('./landing-builder/LandingPageEditorPage'));
 const CustomDomainPage = lazy(() => import('./CustomDomainPage'));
 const HajiPlusPage = lazy(() => import('./HajiPlusPage'));
 const HajiPlusExportPage = lazy(() => import('./HajiPlusExportPage'));
@@ -139,6 +141,14 @@ function getAIToolsSubFromPath(): string | null {
     if (segments.length >= 4 && segments[2] === 'landing-page' && segments[3] === 'custom-domain') {
       return 'landing-page/custom-domain';
     }
+    if (
+      segments.length >= 5 &&
+      segments[2] === 'landing-page' &&
+      (segments[3] === 'umroh' || segments[3] === 'haji') &&
+      segments[4] === 'editor'
+    ) {
+      return `landing-page/${segments[3]}/editor`;
+    }
     return segments[2];
   }
   return null;
@@ -154,6 +164,15 @@ const TAB_TITLES: Record<TabId, string> = {
   analytics: 'Analytics',
   'ai-tools': 'Tools',
 };
+
+function getCurrentDocumentTitle(): string {
+  const sub = getAIToolsSubFromPath();
+  if (sub === 'landing-page/umroh/editor') return 'Editor Landing Page Umroh';
+  if (sub === 'landing-page/haji/editor') return 'Editor Landing Page Haji';
+  if (sub === 'landing-page') return 'Landing Page';
+  if (sub === 'landing-page/custom-domain') return 'Custom Domain';
+  return TAB_TITLES[getTabFromPath()] || 'Dashboard';
+}
 
 interface MenuCard {
   id: TabId;
@@ -399,15 +418,16 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // Navigate to an arbitrary in-app path without a full page reload.
   // Used for sub-routes like /dashboard/jamaah/daftar where the SW would
   // otherwise serve a stale index.html on reload.
-  const navigatePath = useCallback((path: string, opts?: { replace?: boolean }) => {
+  const navigatePath = useCallback((path: string, opts?: { replace?: boolean; state?: Record<string, unknown> }) => {
+    const state = opts?.state || {};
     if (opts?.replace) {
-      window.history.replaceState({}, '', path);
+      window.history.replaceState(state, '', path);
     } else {
-      window.history.pushState({}, '', path);
+      window.history.pushState(state, '', path);
     }
     const tab = getTabFromPath();
     setActiveTab(tab);
-    document.title = TAB_TITLES[tab] || 'Dashboard';
+    document.title = getCurrentDocumentTitle();
     setPathTick(t => t + 1);
   }, []);
 
@@ -416,7 +436,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     const onPopState = () => {
       const tab = getTabFromPath();
       setActiveTab(tab);
-      document.title = TAB_TITLES[tab] || 'Dashboard';
+      document.title = getCurrentDocumentTitle();
       setPathTick(t => t + 1);
     };
     window.addEventListener('popstate', onPopState);
@@ -427,7 +447,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   useEffect(() => {
     window.history.replaceState({ tab: activeTab }, '', window.location.pathname + window.location.search + window.location.hash);
     const aiSub = getAIToolsSubFromPath();
-    document.title = (activeTab === 'ai-tools' && aiSub === 'voice-over')
+    document.title = (activeTab === 'ai-tools' && aiSub === 'landing-page/umroh/editor')
+      ? 'Editor Landing Page Umroh'
+      : (activeTab === 'ai-tools' && aiSub === 'landing-page/haji/editor')
+      ? 'Editor Landing Page Haji'
+      : (activeTab === 'ai-tools' && aiSub === 'voice-over')
       ? 'Voice Over'
       : (activeTab === 'ai-tools' && aiSub === 'business-card')
       ? 'Kartu Nama'
@@ -489,6 +513,38 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const isAdmin = agentData.role === 'admin';
   const visibleCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly);
   const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly) : [];
+
+  const landingEditorSub = activeTab === 'ai-tools' ? getAIToolsSubFromPath() : null;
+  const landingEditorType = landingEditorSub === 'landing-page/umroh/editor'
+    ? 'umroh'
+    : landingEditorSub === 'landing-page/haji/editor'
+    ? 'haji'
+    : null;
+  const landingBuilderEnabled = isLandingBuilderEnabledForAgent(agentData.slug);
+
+  useEffect(() => {
+    if (!landingEditorType || landingBuilderEnabled) return;
+    navigatePath(`/dashboard/ai-tools/landing-page/${landingEditorType}`, { replace: true });
+  }, [landingBuilderEnabled, landingEditorType, navigatePath]);
+
+  if (landingEditorType && !landingBuilderEnabled) {
+    return (
+      <div className="fixed inset-0 bg-gray-100 dark:bg-slate-950 flex items-center justify-center">
+        <Loader2 size={24} className="animate-spin text-emerald-500" />
+      </div>
+    );
+  }
+  if (landingEditorType) {
+    return (
+      <Suspense fallback={<div className="fixed inset-0 z-[8000] bg-gray-100 dark:bg-slate-950 flex items-center justify-center"><Loader2 size={24} className="animate-spin text-emerald-500" /></div>}>
+        <LandingPageEditorPage
+          type={landingEditorType}
+          agent={{ slug: agentData.slug, name: agentData.name, phone: agentData.phone, photo: agentData.photo }}
+          onNavigate={navigatePath}
+        />
+      </Suspense>
+    );
+  }
 
   // ── Sub-page view with dashboard header ──
   if (activeTab !== 'home') {
@@ -776,7 +832,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             if (sub === 'voice-over') return <VoiceOverPage />;
             if (sub === 'business-card') return <BusinessCardPage agent={agentData} />;
             if (sub === 'landing-page/custom-domain') return <CustomDomainPage agent={{ slug: agentData.slug, name: agentData.name }} />;
-            if (sub === 'landing-page') return <LandingPagePage agent={{ slug: agentData.slug, name: agentData.name, photo: agentData.photo, phone: agentData.phone, role: agentData.role }} />;
+            if (sub === 'landing-page') return <LandingPagePage agent={{ slug: agentData.slug, name: agentData.name, photo: agentData.photo, phone: agentData.phone, role: agentData.role }} onNavigate={navigatePath} />;
             if (sub === 'haji-plus/export') return <HajiPlusExportPage agent={agentData} />;
             if (sub === 'haji-plus/simulasi') return <HajiPlusPage agent={agentData} initialTab="simulasi" onExport={() => {
               window.history.pushState({}, '', '/dashboard/ai-tools/haji-plus/export');

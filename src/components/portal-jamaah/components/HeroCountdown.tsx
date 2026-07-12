@@ -50,7 +50,7 @@ export default function HeroCountdown({
 
   return (
     <section
-      className="relative overflow-hidden rounded-2xl border border-emerald-200/10 p-5 text-white shadow-lg shadow-emerald-950/15"
+      className="relative overflow-hidden rounded-2xl border border-emerald-200/10 p-4 text-white shadow-lg shadow-emerald-950/15"
       style={{
         background:
           'radial-gradient(circle at 82% 72%, rgba(52,211,153,0.28) 0%, rgba(16,185,129,0.12) 26%, transparent 54%), radial-gradient(circle at 16% 6%, rgba(255,255,255,0.10) 0%, transparent 32%), linear-gradient(145deg, #022c22 0%, #064e3b 34%, #0f766e 68%, #065f46 100%)',
@@ -86,66 +86,64 @@ export default function HeroCountdown({
       />
 
       <div className="relative z-10">
-        {greetingName && (
-          <div className="mb-4 border-b border-white/20 pb-3">
-            <p className="text-[12px] font-semibold text-emerald-50">Assalamualaikum,</p>
-            <h1 className="mt-0.5 truncate text-lg font-bold tracking-normal text-white">{greetingName}</h1>
-          </div>
-        )}
-
         <div className="flex items-start justify-between gap-3">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-50">Berangkat dalam</p>
-          <span className="flex-none rounded-full border border-white/10 bg-white/20 px-3 py-1 text-[11px] font-bold tracking-wide text-white shadow-sm backdrop-blur-sm">
+          <div className="min-w-0">
+            {greetingName && (
+              <>
+                <p className="text-[11px] font-semibold text-emerald-100">Assalamualaikum,</p>
+                <h1 className="truncate text-base font-bold leading-tight text-white">{greetingName}</h1>
+              </>
+            )}
+          </div>
+          <span className="flex-none rounded-full border border-white/15 bg-white/15 px-2.5 py-1 text-[10px] font-bold tracking-wide text-white shadow-sm backdrop-blur-sm">
             {booking.id_umroh}
           </span>
         </div>
 
-        <div className="mt-3">
-          <div className="min-w-0">
-            <div className="flex items-end gap-2 rounded-2xl border border-white/10 bg-white/10 px-3 py-2 backdrop-blur-sm">
-              <span className="text-3xl font-bold leading-none tracking-normal">{safeDays}</span>
-              <span className="pb-0.5 text-sm font-semibold text-emerald-50">
+        <div className="mt-3 flex items-end justify-between gap-3 border-t border-white/15 pt-3">
+          <div className="flex-none">
+            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-100">Berangkat</p>
+            <div className="mt-1 flex items-end gap-1.5">
+              <span className="text-[34px] font-extrabold leading-none tracking-tight text-white">{safeDays}</span>
+              <span className="pb-0.5 text-[13px] font-semibold text-emerald-50">
                 {safeDays === 0 ? 'hari keberangkatan' : 'hari lagi'}
               </span>
             </div>
-            <p className="mt-2 min-w-0 truncate text-sm font-medium text-emerald-50">
+          </div>
+          <div className="min-w-0 rounded-xl border border-white/10 bg-white/10 px-2.5 py-2 text-right backdrop-blur-sm">
+            <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-100">Tanggal</p>
+            <p className="mt-0.5 text-[11px] font-semibold leading-snug text-white">
               {formatLongDate(booking.tgl_berangkat)}
             </p>
           </div>
         </div>
 
-        <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/10 px-3 py-2.5 backdrop-blur-sm">
-          <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-100">Penerbangan</p>
-            <p className="mt-0.5 truncate text-xs font-semibold text-white">
-              {airline?.name || 'Maskapai menyusul'}
-            </p>
-          </div>
-          {flightCodeText && airline ? (
-            <div className="flex min-w-0 flex-none items-center gap-2 text-right">
+        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-white/15 pt-3">
+          <div className="flex min-w-0 items-center gap-2 rounded-xl border border-white/10 bg-white/10 px-2.5 py-2 backdrop-blur-sm">
+            {flightCodeText && airline && (
               <span className="relative flex h-7 w-7 flex-none items-center justify-center overflow-hidden rounded-full bg-white p-1 text-[8px] font-bold text-emerald-700 shadow-sm">
                 <span className="absolute inset-0 flex items-center justify-center">{airline.code}</span>
                 <img
-                  src={airline.logoUrl}
-                  alt={`${airline.name} logo`}
-                  className="relative h-full w-full object-contain"
-                  loading="lazy"
-                  onError={(event) => {
-                    event.currentTarget.style.display = 'none';
-                  }}
-                />
+                    src={airline.logoUrl}
+                    alt={`${airline.name} logo`}
+                    className="relative h-full w-full object-contain"
+                    loading="lazy"
+                    onError={(event) => {
+                      event.currentTarget.style.display = 'none';
+                    }}
+                  />
               </span>
-              <p className="whitespace-nowrap text-sm font-bold leading-tight text-white">{flightCodeText}</p>
+            )}
+            <div className="min-w-0">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-100">Penerbangan</p>
+              <p className="mt-0.5 truncate text-xs font-bold text-white">
+                {flightCodeText || 'Belum dijadwalkan'}
+              </p>
             </div>
-          ) : (
-            <p className="flex-none text-xs font-bold italic text-emerald-100/80">Belum dijadwalkan</p>
-          )}
-        </div>
-
-        <div className="mt-4 border-t border-white/20 pt-3">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-100">Paket</p>
-            <p className="mt-0.5 text-sm font-bold leading-snug">{packageName}</p>
+          </div>
+          <div className="min-w-0 rounded-xl border border-white/10 bg-white/10 px-2.5 py-2 backdrop-blur-sm">
+            <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-100">Paket</p>
+            <p className="mt-0.5 line-clamp-2 text-[11px] font-bold leading-snug text-white">{packageName}</p>
           </div>
         </div>
       </div>

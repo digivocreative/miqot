@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, FileText, Plane, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, FileText, Plane, PlaneTakeoff, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
 import { airportTerminalLabel } from '../lib/calendarTerminal';
@@ -476,7 +476,7 @@ export default function UpcomingSchedule() {
                                 {airportTerminalText && (
                                   <>
                                     <span className="text-gray-300 dark:text-slate-600 mx-0.5">·</span>
-                                    <MapPin size={10} className={`${tabConfig.iconColor} shrink-0`} />
+                                    <PlaneTakeoff size={11} className={`${tabConfig.iconColor} shrink-0`} />
                                     <span>{airportTerminalText}</span>
                                   </>
                                 )}

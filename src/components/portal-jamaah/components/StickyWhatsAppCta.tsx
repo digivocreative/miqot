@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { BadgeCheck } from 'lucide-react';
 import { handleAgentPhotoError } from '@/lib/agent-photo';
 import { normalizeWaNumber } from '@/utils/phone';
 import type { PortalAgentInfo, PortalBooking, PortalJamaah } from '../hooks/usePortalMe';
@@ -24,19 +25,19 @@ export default function StickyWhatsAppCta({
   initiator: PortalJamaah | undefined;
 }) {
   const [isVisible, setIsVisible] = useState(false);
-  const [lastScrollY, setLastScrollY] = useState(0);
+  const lastScrollY = useRef(0);
 
   const handleScroll = useCallback(() => {
     const currentScrollY = window.scrollY;
     if (currentScrollY <= SHOW_AFTER_SCROLL_Y) {
       setIsVisible(false);
-    } else if (currentScrollY > lastScrollY) {
+    } else if (currentScrollY > lastScrollY.current) {
       setIsVisible(false);
     } else {
       setIsVisible(true);
     }
-    setLastScrollY(currentScrollY);
-  }, [lastScrollY]);
+    lastScrollY.current = currentScrollY;
+  }, []);
 
   useEffect(() => {
     window.addEventListener('scroll', handleScroll, { passive: true });
@@ -52,19 +53,20 @@ export default function StickyWhatsAppCta({
   return (
     <div
       className={`
-        fixed bottom-6 left-4 right-4 z-50
-        max-w-lg mx-auto
+        fixed left-4 right-4 z-40
+        mx-auto max-w-lg
         bg-gradient-to-r from-emerald-50 via-white to-white
         dark:from-emerald-950/40 dark:via-slate-800 dark:to-slate-800
         backdrop-blur-md
         border border-emerald-100 dark:border-emerald-800/50
-        shadow-2xl
+        shadow-lg shadow-slate-900/15 dark:shadow-black/30
         rounded-full
         flex items-center justify-between
         p-2 pl-3
         transition-all duration-300 ease-in-out
         ${isVisible ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-24 opacity-0'}
       `}
+      style={{ bottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
     >
       <div className="flex items-center gap-2.5 overflow-hidden flex-1 min-w-0">
         <div className="w-10 h-10 flex-shrink-0">
@@ -82,12 +84,9 @@ export default function StickyWhatsAppCta({
           )}
         </div>
         <div className="flex flex-col min-w-0">
-          <span className="text-sm font-bold text-gray-900 dark:text-white leading-tight flex items-center gap-1">
+          <span className="flex items-center gap-1 text-sm font-bold leading-tight text-gray-900 dark:text-white">
             <span className="truncate">{agent?.name || 'Agent'}</span>
-            <svg className="w-[15px] h-[15px] flex-shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="12" cy="12" r="10" fill="#1DA1F2"/>
-              <path d="M9 12l2 2 4-4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            <BadgeCheck className="h-[15px] w-[15px] flex-none text-sky-500" strokeWidth={2.4} aria-hidden="true" />
           </span>
           <span className="text-[11px] text-gray-500 dark:text-slate-400 truncate font-medium">
             Konsultan Umroh Anda

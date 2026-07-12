@@ -32,8 +32,10 @@ export function formatShortDate(value?: string | null): string {
 export function formatPortalTime(value?: string | null): string {
   const raw = String(value || '').trim();
   if (!raw) return 'Jam menyusul';
-  if (/WIB$/i.test(raw)) return raw;
-  return `${raw} WIB`;
+  const withoutZone = raw.replace(/\s*WIB$/i, '').trim();
+  const clock = withoutZone.match(/^(\d{1,2})[.:](\d{2})(?::\d{2})?$/);
+  if (clock) return `${clock[1].padStart(2, '0')}:${clock[2]} WIB`;
+  return /WIB$/i.test(raw) ? raw : `${raw} WIB`;
 }
 
 function startOfJakartaDay(date: Date): number {

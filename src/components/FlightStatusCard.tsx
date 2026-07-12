@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, useId, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap, Calendar, Radio, Share2, Check, Lock, Loader2 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
@@ -138,12 +138,38 @@ function formatDuration(minutes: number | null | undefined): string | null {
 
 function RouteLine({ flight }: { flight: Pick<FlightSegmentData, 'status' | 'progress'> }) {
   const w = 100, h = 16;
-  const x1 = 4, x2 = w - 4;
-  const prog = flight.progress / 100;
+  // Pulse pesawat/checkmark mencapai radius 6 (+ stroke). Beri inset cukup
+  // supaya marker pada progress 0%/100% tidak terpotong oleh batas viewBox SVG.
+  const markerEdgeInset = 8;
+  const x1 = markerEdgeInset, x2 = w - markerEdgeInset;
+  const prog = Math.min(1, Math.max(0, flight.progress / 100));
   const px = x1 + (x2 - x1) * prog;
+  const traveledSpan = Math.max(px - x1, 1);
+  const auroraGradientId = `flight-route-${useId().replace(/:/g, '')}`;
 
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="flex-shrink-0">
+
+      {flight.status === 'en-route' && (
+        <defs>
+          <linearGradient
+            id={auroraGradientId}
+            gradientUnits="userSpaceOnUse"
+            x1={x1 - traveledSpan}
+            y1={h/2}
+            x2={x1}
+            y2={h/2}
+          >
+            <stop offset="0%" stopColor="#2563eb" />
+            <stop offset="36%" stopColor="#3b82f6" />
+            <stop offset="58%" stopColor="#67e8f9" />
+            <stop offset="72%" stopColor="#dbeafe" />
+            <stop offset="100%" stopColor="#2563eb" />
+            <animate attributeName="x1" values={`${x1 - traveledSpan};${px}`} dur="2.8s" repeatCount="indefinite" />
+            <animate attributeName="x2" values={`${x1};${px + traveledSpan}`} dur="2.8s" repeatCount="indefinite" />
+          </linearGradient>
+        </defs>
+      )}
 
       {/* ===== TERJADWAL: Marching Ants ===== */}
       {flight.status === 'scheduled' && (
@@ -169,6 +195,17 @@ function RouteLine({ flight }: { flight: Pick<FlightSegmentData, 'status' | 'pro
           <line
             x1={x1} y1={h/2} x2={px} y2={h/2}
             stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round"
+          />
+          {/* Flowing aurora: gradasi solid bergerak, tanpa pola dash/partikel. */}
+          <line
+            x1={x1} y1={h/2} x2={px} y2={h/2}
+            stroke={`url(#${auroraGradientId})`}
+            strokeWidth="5" strokeLinecap="round" opacity="0.18"
+          />
+          <line
+            x1={x1} y1={h/2} x2={px} y2={h/2}
+            stroke={`url(#${auroraGradientId})`}
+            strokeWidth="2.6" strokeLinecap="round" opacity="0.95"
           />
         </>
       )}
@@ -775,22 +812,12 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
 
   // ── Group flights by flightNumber + departureDate ──
   const grouped = groupFlights(flights);
-  const hasLiveTracking = flights.some(flight => (
-    flight.isLive || flight.segments?.some(segment => segment.isLive)
-  ));
-  const hasUnverified = flights.some(flight => (
-    flight.status === 'unverified'
-      || flight.segments?.some(segment => segment.status === 'unverified')
-  ));
-  const allTerminal = flights.length > 0 && flights.every(flight => (
-    flight.status === 'landed' || flight.status === 'cancelled'
-  ));
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
 
       {/* ── Header ── */}
-      <div className="px-3.5 py-3 flex items-center justify-between" style={flights.length > 0 && !notReady ? { paddingBottom: 0 } : undefined}>
+      <div className="px-3.5 py-3 flex items-center" style={flights.length > 0 && !notReady ? { paddingBottom: 0 } : undefined}>
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/40 flex items-center justify-center flex-shrink-0">
             <Plane size={16} className="text-blue-600 dark:text-blue-400" strokeWidth={2} />
@@ -800,23 +827,6 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
           </div>
         </div>
 
-        {/* Never label calendar-only estimates as live tracking. */}
-        {hasLiveTracking ? (
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/40 flex-shrink-0">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-            </span>
-            <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Live</span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 flex-shrink-0">
-            <Clock size={10} className="text-amber-600 dark:text-amber-400" />
-            <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-              {hasUnverified ? 'Perlu Cek' : allTerminal ? 'Selesai' : 'Jadwal'}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* ── Flight Cards (grouped) ── */}
@@ -981,7 +991,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                         {/* Pax + Name */}
                         <span className="flex-1 text-[11px] text-gray-500 dark:text-slate-400 truncate">
                           <span className="font-semibold text-gray-600 dark:text-slate-300">{kloter.pax}</span> pax
-                          {tlClean && <> · {tlClean}</>}
+                          {tlClean && <> · {tlClean.toUpperCase()}</>}
                         </span>
                       </div>
                     );

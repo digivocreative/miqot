@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Plane } from 'lucide-react';
 import PortalBackBar from '../components/PortalBackBar';
 import FlightCard from '../components/FlightCard';
 import HotelCard from '../components/HotelCard';
@@ -23,7 +24,7 @@ function airlineFromCode(code?: string | null) {
 function normalizeRoute(route?: string | null) {
   const raw = String(route || '').trim();
   if (!raw) return 'Rute menyusul';
-  return raw.replace(/\s*[-–>]\s*/g, ' -> ');
+  return raw.replace(/\s*[-–>,→]\s*/g, ' → ');
 }
 
 function routeNote(route?: string | null) {
@@ -34,18 +35,11 @@ function routeNote(route?: string | null) {
 
 function detectRoomType(paket?: string | null) {
   const lower = String(paket || '').toLowerCase();
+  if (lower.includes('single')) return 'Single';
   if (lower.includes('double')) return 'Double';
   if (lower.includes('triple')) return 'Triple';
-  if (lower.includes('quad')) return 'Quad';
+  if (lower.includes('quad') || lower.includes('quard')) return 'Quad';
   return null;
-}
-
-function detectRoomKey(paket?: string | null) {
-  const lower = String(paket || '').toLowerCase();
-  if (lower.includes('double')) return 'double';
-  if (lower.includes('triple')) return 'triple';
-  if (lower.includes('quad')) return 'quad';
-  return '';
 }
 
 function formatPackageTitle(value?: string | null) {
@@ -64,10 +58,10 @@ function formatPackageTitle(value?: string | null) {
 }
 
 function parseHotelName(value: unknown) {
-  if (typeof value === 'string') return value.replace(/\s*\([★⭐]\d\)\s*$/u, '').trim() || 'Hotel menyusul';
+  if (typeof value === 'string') return value.replace(/\s*\([★⭐]\s*\d\s*\)\s*$/u, '').trim() || 'Hotel menyusul';
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
-    return String(obj.hotel || obj.name || obj.nama || 'Hotel menyusul');
+    return String(obj.hotel || obj.name || obj.nama || 'Hotel menyusul').trim() || 'Hotel menyusul';
   }
   return 'Hotel menyusul';
 }
@@ -76,17 +70,43 @@ function hotelEntries(paketHotel: unknown, paketName?: string | null) {
   const raw = typeof paketHotel === 'string' ? JSON.parse(paketHotel || '{}') : paketHotel;
   if (!raw || typeof raw !== 'object') return [];
   const root = raw as Record<string, unknown>;
-  const roomKey = detectRoomKey(paketName);
-  const tier = (roomKey && root[roomKey]) || root[Object.keys(root)[0]];
-  if (!tier || typeof tier !== 'object') return [];
-  return Object.entries(tier as Record<string, unknown>)
-    .filter(([city]) => /madinah|mekkah|makkah/i.test(city))
-    .map(([city, value]) => ({
-      city: /madinah/i.test(city) ? 'Madinah' : 'Makkah',
+  const rootKeys = Object.keys(root);
+  const hasFlatCityFields = rootKeys.some((key) => /^(madinah|makkah|mekkah)(?:_hotel)?$/i.test(key));
+  const normalizedPackage = String(paketName || '').toLocaleLowerCase('id-ID');
+  const matchingTierKey = rootKeys.find((key) => normalizedPackage.includes(key.toLocaleLowerCase('id-ID')));
+  const selectedTier = hasFlatCityFields ? root : root[matchingTierKey || rootKeys[0]];
+  if (!selectedTier || typeof selectedTier !== 'object') return [];
+
+  const tier = selectedTier as Record<string, unknown>;
+  const roomType = detectRoomType(paketName);
+  const formatLocation = (distance: unknown, mosque: string) => {
+    const rawDistance = String(distance || '').trim();
+    if (!rawDistance) return `Area ${mosque}`;
+    return /masjid|dari|from/i.test(rawDistance) ? rawDistance : `${rawDistance} dari ${mosque}`;
+  };
+  const cities = [
+    {
+      city: 'Madinah',
+      value: tier.madinah_hotel ?? tier.madinah,
+      distance: tier.madinah_jarak,
+      mosque: 'Masjid Nabawi',
+    },
+    {
+      city: 'Makkah',
+      value: tier.makkah_hotel ?? tier.mekkah_hotel ?? tier.makkah ?? tier.mekkah,
+      distance: tier.makkah_jarak ?? tier.mekkah_jarak,
+      mosque: 'Masjidil Haram',
+    },
+  ];
+
+  return cities
+    .filter(({ value }) => value !== undefined && value !== null && String(value).trim() !== '')
+    .map(({ city, value, distance, mosque }) => ({
+      city,
       name: parseHotelName(value),
-      location: /madinah/i.test(city) ? 'Area Masjid Nabawi' : 'Area Masjidil Haram',
+      location: formatLocation(distance, mosque),
       duration: 'Detail malam mengikuti itinerary',
-      roomType: detectRoomType(paketName),
+      roomType,
     }));
 }
 
@@ -120,6 +140,9 @@ export default function PerjalananPage({
   const displayPackageName = formatPackageTitle(packageName);
   const departureCode = schedule?.berangkat_kode_penerbangan || 'TBA';
   const returnCode = schedule?.pulang_kode_penerbangan || 'TBA';
+  const scheduledAirline = String(schedule?.maskapai || '').trim();
+  const departureAirline = scheduledAirline || airlineFromCode(departureCode);
+  const returnAirline = scheduledAirline || airlineFromCode(returnCode);
   const duration = tripDurationDays(data.booking.tgl_berangkat, data.booking.tgl_pulang);
   const itineraryItems = useMemo(
     () => extractItineraryDays(schedule?.itinerary, data.booking.tgl_berangkat),
@@ -127,11 +150,11 @@ export default function PerjalananPage({
   );
   const hotels = useMemo(() => {
     try {
-      return hotelEntries(schedule?.paket_hotel, packageName);
+      return hotelEntries(schedule?.paket_hotel, data.booking.paket || packageName);
     } catch {
       return [];
     }
-  }, [schedule?.paket_hotel, packageName]);
+  }, [schedule?.paket_hotel, data.booking.paket, packageName]);
 
   useEffect(() => {
     const jadwalId = data.booking.jadwal?.jadwal_id;
@@ -154,29 +177,29 @@ export default function PerjalananPage({
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 text-gray-900 dark:from-slate-900 dark:to-slate-950 dark:text-white">
-      <PortalBackBar title="Perjalanan" onBack={onBack} />
-      <main className="mx-auto w-full max-w-lg space-y-5 px-4 pb-24 pt-5">
+      <PortalBackBar title="Perjalanan" onBack={onBack} icon={Plane} />
+      <main className="mx-auto w-full max-w-lg space-y-4 px-4 pb-24 pt-4">
         <section
           className="rounded-2xl p-5 text-white shadow-sm"
           style={{ background: 'linear-gradient(135deg, #064e3b 0%, #0F6E56 50%, #065f46 100%)' }}
         >
           <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Paket</p>
-          <h1 className="mt-2 text-xl font-bold leading-tight tracking-tight">{displayPackageName}</h1>
-          <p className="mt-2 text-sm font-medium text-emerald-100">
-            {data.booking.jadwal?.year_code || new Date().getFullYear()} · {airlineFromCode(departureCode)}
+          <h1 className="mt-2 break-words text-xl font-bold leading-tight tracking-tight [overflow-wrap:anywhere]">{displayPackageName}</h1>
+          <p className="mt-2 break-words text-sm font-medium text-emerald-100 [overflow-wrap:anywhere]">
+            {data.booking.jadwal?.year_code || new Date().getFullYear()} · {departureAirline}
           </p>
           <div className="mt-5 grid grid-cols-3 gap-3 border-t border-white/20 pt-4">
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-200">Berangkat</p>
-              <p className="mt-1 text-sm font-bold">{formatShortDate(data.booking.tgl_berangkat)}</p>
+              <p className="mt-1 break-words text-sm font-bold leading-tight">{formatShortDate(data.booking.tgl_berangkat)}</p>
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-200">Pulang</p>
-              <p className="mt-1 text-sm font-bold">{formatShortDate(data.booking.tgl_pulang)}</p>
+              <p className="mt-1 break-words text-sm font-bold leading-tight">{formatShortDate(data.booking.tgl_pulang)}</p>
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-200">Durasi</p>
-              <p className="mt-1 text-sm font-bold">{duration ? `${duration} hari` : 'Menyusul'}</p>
+              <p className="mt-1 break-words text-sm font-bold leading-tight">{duration ? `${duration} hari` : 'Menyusul'}</p>
             </div>
           </div>
         </section>
@@ -189,7 +212,7 @@ export default function PerjalananPage({
               route={normalizeRoute(schedule?.berangkat_rute)}
               code={departureCode}
               time={formatPortalTime(schedule?.berangkat_jam)}
-              airline={airlineFromCode(departureCode)}
+              airline={departureAirline}
               note={routeNote(schedule?.berangkat_rute)}
             />
             <FlightCard
@@ -197,7 +220,7 @@ export default function PerjalananPage({
               route={normalizeRoute(schedule?.pulang_rute)}
               code={returnCode}
               time={formatPortalTime(schedule?.pulang_jam)}
-              airline={airlineFromCode(returnCode)}
+              airline={returnAirline}
               note={routeNote(schedule?.pulang_rute)}
             />
           </div>
@@ -220,8 +243,8 @@ export default function PerjalananPage({
 
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Itinerary Harian</p>
-            <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-700 dark:bg-violet-900/20 dark:text-violet-300">
+            <p className="min-w-0 text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Itinerary Harian</p>
+            <span className="inline-flex flex-none items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-violet-700 dark:bg-violet-900/20 dark:text-violet-300">
               Rencana perjalanan
             </span>
           </div>

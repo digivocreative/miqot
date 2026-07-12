@@ -29,9 +29,10 @@ test('payload summary carries bundle + payload evidence without leaking prompt c
   assert.doesNotMatch(payloadEventBlock, /prompt: /);
 });
 
-test('share payload stays file-only via buildSingleImageShareData and cancel is tracked', () => {
-  assert.match(modalSource, /const shareData = buildSingleImageShareData\(file\)/);
-  // navigator.share tidak boleh menerima object literal dengan text/title/url.
+test('share payload carries image and prompt text while cancel remains tracked', () => {
+  assert.match(modalSource, /const shareData = buildImageAndPromptShareData\(file, nativeSharePrompt\)/);
+  assert.match(modalSource, /navigator\.canShare\?\.\(shareData\)/);
+  // Payload tetap dibangun oleh helper agar field yang dikirim konsisten.
   assert.doesNotMatch(modalSource, /navigator\.share\(\{/);
   assert.match(modalSource, /brochure_prompt_share_cancelled/);
 });

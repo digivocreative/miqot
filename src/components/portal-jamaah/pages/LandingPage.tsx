@@ -4,6 +4,7 @@ import { normalizeWaNumber } from '@/utils/phone';
 import AgentHeaderBar from '../components/AgentHeaderBar';
 import KodeBookingForm from '../components/KodeBookingForm';
 import MagicLinkSuccessCard from '../components/MagicLinkSuccessCard';
+import ThemeToggle from '../components/ThemeToggle';
 import { fetchAgentBySlug, type PortalAgent } from '../lib/fetchAgentBySlug';
 import { portalApi } from '../lib/portalApi';
 
@@ -67,27 +68,27 @@ export default function LandingPage({ slug }: { slug: string }) {
 
   if (!loadingAgent && !agent) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8 font-sans">
-        <section className="w-full max-w-lg rounded-2xl border border-slate-100 bg-white p-6 text-center shadow-sm">
-          <h1 className="text-xl font-bold text-slate-950">Agent tidak ditemukan</h1>
-          <p className="mt-2 text-sm leading-6 text-slate-600">Pastikan alamat portal yang Anda buka sudah benar.</p>
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 px-4 py-8 font-sans dark:from-slate-900 dark:to-slate-950">
+        <section className="w-full max-w-lg rounded-2xl border border-gray-100 bg-white p-6 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Agent tidak ditemukan</h1>
+          <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-slate-300">Pastikan alamat portal yang Anda buka sudah benar.</p>
         </section>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-slate-50 font-sans text-slate-900">
-      <AgentHeaderBar agent={agent} />
+    <div className="min-h-screen overflow-x-hidden bg-gradient-to-b from-gray-50 to-gray-100 font-sans text-gray-900 dark:from-slate-900 dark:to-slate-950 dark:text-white">
+      <AgentHeaderBar agent={agent} rightSlot={<ThemeToggle />} />
       <main className="mx-auto w-full max-w-lg px-4 pb-10 pt-8">
         <section className="text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-700 text-white shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-md shadow-emerald-500/20">
             <Moon size={30} strokeWidth={2} />
           </div>
-          <h1 className="mt-5 text-2xl font-bold tracking-normal text-slate-950">
+          <h1 className="mt-4 text-2xl font-bold tracking-normal text-gray-900 dark:text-white">
             Selamat datang di Portal Jamaah
           </h1>
-          <p className="mt-3 text-sm leading-6 text-slate-600">
+          <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-slate-300">
             Pantau persiapan, pembayaran, dan info perjalanan Umroh Anda di satu tempat.
           </p>
         </section>
@@ -100,16 +101,16 @@ export default function LandingPage({ slug }: { slug: string }) {
             />
           ) : (
             <>
-              <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+              <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
                 <div className="flex items-start gap-4">
-                  <div className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+                  <div className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
                     <ShieldCheck size={22} strokeWidth={2} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
                       Sudah dapat link dari Agent?
                     </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                    <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-slate-300">
                       Buka link yang dikirim agent Anda. Jika belum menerima, hubungi agent untuk kirim ulang.
                     </p>
                   </div>
@@ -119,7 +120,7 @@ export default function LandingPage({ slug }: { slug: string }) {
                     href={waLink}
                     target="_blank"
                     rel="noreferrer"
-                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 active:scale-95 dark:border-emerald-800/50 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
                   >
                     <MessageCircle size={16} strokeWidth={2} />
                     Chat {agent?.name || 'Agent'} di WhatsApp
@@ -128,9 +129,9 @@ export default function LandingPage({ slug }: { slug: string }) {
               </section>
 
               <div className="flex items-center gap-3">
-                <div className="h-px flex-1 bg-slate-200" />
-                <span className="text-xs font-semibold text-slate-400">atau</span>
-                <div className="h-px flex-1 bg-slate-200" />
+                <div className="h-px flex-1 bg-gray-200 dark:bg-slate-700" />
+                <span className="text-xs font-semibold text-gray-400 dark:text-slate-500">atau</span>
+                <div className="h-px flex-1 bg-gray-200 dark:bg-slate-700" />
               </div>
 
               <KodeBookingForm
@@ -148,7 +149,7 @@ export default function LandingPage({ slug }: { slug: string }) {
 
         <a
           href={`/${slug}`}
-          className="mt-7 block text-center text-sm font-semibold text-emerald-700 hover:text-emerald-800"
+          className="mt-7 block text-center text-sm font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
         >
           Belum jadi jamaah? Lihat paket umroh →
         </a>

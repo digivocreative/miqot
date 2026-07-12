@@ -41,14 +41,14 @@ function AlertRow({ alert, onNavigate }: { alert: PortalAlert; onNavigate: (r: P
     <button
       type="button"
       onClick={() => onNavigate(alert.navigateTo)}
-      className={`flex w-full items-center gap-3 rounded-2xl border p-4 text-left transition active:scale-[0.98] ${tone.card}`}
+      className={`flex w-full items-center gap-3 rounded-2xl border p-3.5 text-left transition active:scale-[0.98] ${tone.card}`}
     >
       <div className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${tone.iconWrap}`}>
         <Icon className={`h-5 w-5 ${tone.iconColor}`} strokeWidth={2} />
       </div>
       <div className="min-w-0 flex-1">
-        <p className={`text-sm font-bold ${tone.title}`}>{alert.title}</p>
-        <p className={`text-xs ${tone.sub}`}>{alert.subtitle}</p>
+        <p className={`break-words text-sm font-bold leading-5 ${tone.title}`}>{alert.title}</p>
+        <p className={`mt-0.5 break-words text-xs leading-5 ${tone.sub}`}>{alert.subtitle}</p>
       </div>
       <ChevronRight className={`h-[18px] w-[18px] flex-none ${tone.iconColor}`} strokeWidth={2} />
     </button>

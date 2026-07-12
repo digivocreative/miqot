@@ -14,15 +14,15 @@ export default function PortalMenuCard({
       onClick={onClick}
       aria-label={menu.label}
       title={menu.desc}
-      className={`group relative aspect-square overflow-hidden rounded-2xl border p-3.5 shadow-sm transition-all duration-200 active:scale-[0.97] hover:-translate-y-0.5 hover:shadow-xl ${menu.cardBg} ${menu.cardBorder}`}
+      className={`group relative overflow-hidden ${menu.cardBg} rounded-2xl p-3.5 border ${menu.cardBorder} shadow-sm ${menu.hoverShadow} hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.97]`}
     >
-      <div className={`pointer-events-none absolute -right-4 -top-4 h-16 w-16 rounded-full opacity-20 blur-xl transition-opacity group-hover:opacity-30 ${menu.blob}`} />
+      <div className={`pointer-events-none absolute -top-6 -right-6 w-20 h-20 rounded-full ${menu.iconBg} opacity-20 blur-2xl group-hover:opacity-30 transition-opacity`} />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/40 via-transparent to-transparent dark:from-white/5" />
-      <div className="relative flex h-full flex-col items-center justify-center text-center">
-        <div className={`mb-2.5 flex h-9 w-9 items-center justify-center rounded-xl ring-1 ring-inset transition-transform duration-200 group-hover:scale-105 ${menu.iconBg} ${menu.iconRing}`}>
-          <Icon size={18} strokeWidth={2.2} className={menu.iconText} />
+      <div className="relative flex flex-col items-center text-center">
+        <div className={`w-11 h-11 rounded-xl ${menu.iconBg} ${menu.iconShadow} flex items-center justify-center mb-2 ring-1 ring-white/40 dark:ring-white/10 group-hover:scale-110 group-hover:rotate-3 transition-transform duration-200`}>
+          <Icon size={22} strokeWidth={2} className={`text-white ${menu.iconAnim}`} />
         </div>
-        <p className="text-[11px] font-semibold leading-tight text-slate-700 dark:text-slate-100">{menu.label}</p>
+        <p className="text-[12px] font-bold text-gray-800 dark:text-white leading-tight">{menu.label}</p>
       </div>
     </button>
   );

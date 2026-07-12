@@ -84,15 +84,21 @@ test('usePortalRoute: exposes 7 route IDs + navigation helpers', () => {
 test('portalMenu: 6 menus with semantic colors and lucide icons', () => {
   const src = read('src/components/portal-jamaah/lib/portalMenu.ts');
   assert.match(src, /export const PORTAL_MENUS/);
-  for (const id of ['perjalanan', 'pembayaran', 'dokumen', 'perlengkapan', 'manasik', 'faq']) {
+  const menuTones = {
+    perjalanan: 'emerald',
+    pembayaran: 'amber',
+    dokumen: 'blue',
+    perlengkapan: 'violet',
+    manasik: 'fuchsia',
+    faq: 'rose',
+  };
+  for (const [id, tone] of Object.entries(menuTones)) {
     assert.match(src, new RegExp(`id:\\s*['"]${id}['"]`), `menu ${id} missing`);
+    assert.match(src, new RegExp(`from-${tone}-400`), `icon gradient ${tone} missing`);
+    assert.match(src, new RegExp(`from-${tone}-50`), `card gradient ${tone} missing`);
   }
-  for (const tone of ['emerald', 'amber', 'blue', 'violet', 'purple', 'pink']) {
-    assert.match(src, new RegExp(`bg-${tone}-100/80`), `icon tone ${tone} missing`);
-    assert.match(src, new RegExp(`border-${tone}-100/80`), `soft border tone ${tone} missing`);
-    assert.match(src, new RegExp(`text-${tone}-700`), `icon text tone ${tone} missing`);
-  }
-  assert.doesNotMatch(src, /from-(emerald|sky|amber|violet|purple|rose)-400/);
+  assert.match(src, /iconShadow/);
+  assert.match(src, /hoverShadow/);
 });
 
 test('portalAlerts: deriveAlerts returns max 2 alerts in priority order', () => {
@@ -131,7 +137,8 @@ test('ThemeToggle: renders Sun/Moon icon button with DESIGN-SYSTEM classes', () 
   const src = read('src/components/portal-jamaah/components/ThemeToggle.tsx');
   assert.match(src, /Moon/);
   assert.match(src, /Sun/);
-  assert.match(src, /bg-gray-100\/80 dark:bg-slate-800\/80/);
+  assert.match(src, /bg-gray-100\/80/);
+  assert.match(src, /dark:bg-slate-800\/80/);
   assert.match(src, /rounded-(xl|lg)/);
   assert.match(src, /usePortalTheme/);
   assert.match(src, /active:scale-95/);
@@ -178,13 +185,14 @@ test('PortalBackBar: back button + title + sticky header per DESIGN-SYSTEM', () 
   assert.match(src, /max-w-lg/);
   assert.match(src, /onBack/);
   assert.match(src, /px-4 py-3/, 'sub-page header should use portal header spacing');
-  assert.match(src, /grid-cols-\[44px_minmax\(0,1fr\)_44px\]/);
-  assert.match(src, /h-11 w-11/, 'back button should use design-system control sizing');
+  assert.match(src, /grid-cols-\[36px_minmax\(0,1fr\)_36px\]/);
+  assert.match(src, /h-9 w-9/, 'back button should use compact design-system control sizing');
   assert.match(src, /rounded-xl/);
-  assert.match(src, /bg-white\/10/);
-  assert.match(src, /text-slate-700/);
-  assert.match(src, />Halaman</);
-  assert.match(src, /text-center/);
+  assert.match(src, /bg-gray-100\/80/);
+  assert.match(src, /text-gray-500/);
+  assert.doesNotMatch(src, />Halaman</);
+  assert.match(src, /text-left/);
+  assert.match(src, /icon: Icon/);
   assert.match(src, /truncate text-sm font-bold text-slate-900/);
   assert.match(src, /ThemeToggle/);
   assert.match(src, /rightSlot \?\? <ThemeToggle \/>/);
@@ -192,8 +200,9 @@ test('PortalBackBar: back button + title + sticky header per DESIGN-SYSTEM', () 
 
 test('StickyWhatsAppCta: floating pill with agent photo + WhatsApp Chat button', () => {
   const src = read('src/components/portal-jamaah/components/StickyWhatsAppCta.tsx');
-  assert.match(src, /fixed bottom-6/);
-  assert.match(src, /z-50/);
+  assert.match(src, /fixed left-4 right-4/);
+  assert.match(src, /safe-area-inset-bottom/);
+  assert.match(src, /z-40/, 'contact pill must stay below z-50 dialogs');
   assert.match(src, /rounded-full/);
   assert.match(src, /backdrop-blur-md/);
   assert.match(src, /bg-emerald-500/);
@@ -207,7 +216,7 @@ test('StickyWhatsAppCta: floating pill with agent photo + WhatsApp Chat button',
 
 test('HeroCountdown: emerald gradient hero with compact countdown', () => {
   const src = read('src/components/portal-jamaah/components/HeroCountdown.tsx');
-  assert.match(src, /text-3xl/, 'countdown should use compact mobile-first sizing');
+  assert.match(src, /text-\[34px\]/, 'countdown should use compact mobile-first sizing');
   assert.match(src, /radial-gradient\(circle at 82% 72%/);
   assert.match(src, /linear-gradient\(145deg, #022c22 0%, #064e3b 34%, #0f766e 68%, #065f46 100%\)/i);
   assert.match(src, /relative overflow-hidden rounded-2xl/);
@@ -223,7 +232,7 @@ test('HeroCountdown: emerald gradient hero with compact countdown', () => {
   assert.doesNotMatch(src, /translate\(356 262\) scale\(0\.62\)/);
   assert.doesNotMatch(src, /opacity="0\.(05|08|12|13|14|18|22|26|28|35|45)"/);
   assert.doesNotMatch(src, /backgroundSize:\s*['"]48px 84px['"]/);
-  assert.match(src, /Berangkat dalam/i);
+  assert.match(src, />Berangkat</i);
   assert.doesNotMatch(src, /Menuju Tanah Suci/i);
   assert.match(src, /rounded-2xl/);
   assert.match(src, /id_umroh/);
@@ -235,7 +244,8 @@ test('HeroCountdown: emerald gradient hero with compact countdown', () => {
   assert.match(src, /airline\.name/);
   assert.match(src, /flightCodeText/);
   assert.match(src, /Penerbangan/);
-  assert.match(src, /flex-none items-center gap-2 text-right/);
+  assert.match(src, /grid grid-cols-2 gap-2/);
+  assert.match(src, /line-clamp-2/);
   assert.doesNotMatch(src, /function flightLabel/);
   assert.doesNotMatch(src, /\$\{normalized\}\s*·/);
   assert.doesNotMatch(src, /tripDurationDays/);
@@ -245,18 +255,18 @@ test('HeroCountdown: emerald gradient hero with compact countdown', () => {
 
 test('PortalMenuCard: card with icon badge + label-only tap handler', () => {
   const src = read('src/components/portal-jamaah/components/PortalMenuCard.tsx');
-  assert.match(src, /aspect-square/);
-  assert.match(src, /h-9 w-9/, 'icon container should follow compact portal tile spec');
+  assert.doesNotMatch(src, /aspect-square/);
+  assert.match(src, /w-11 h-11/, 'icon container should match dashboard menu tiles');
   assert.match(src, /rounded-2xl/);
-  assert.match(src, /h-full flex-col items-center justify-center/);
+  assert.match(src, /flex flex-col items-center text-center/);
   assert.doesNotMatch(src, /min-h-\[96px\]/);
   assert.match(src, /active:scale-\[0\.97\]/);
-  assert.match(src, /text-\[11px\] font-semibold/);
+  assert.match(src, /text-\[12px\] font-bold/);
   assert.match(src, /aria-label=\{menu\.label\}/);
   assert.match(src, /title=\{menu\.desc\}/);
-  assert.match(src, /menu\.blob/);
-  assert.match(src, /blur-xl/);
-  assert.match(src, /menu\.iconText/);
+  assert.match(src, /menu\.iconBg/);
+  assert.match(src, /blur-2xl/);
+  assert.match(src, /menu\.iconShadow/);
   assert.match(src, /hover:-translate-y-0\.5/);
 });
 
@@ -282,7 +292,7 @@ test('TaskListWidget: renders deriveTopTasks output + empty-state', () => {
   assert.match(src, /deriveTopTasks/);
   assert.match(src, /Semua tugas tuntas/i);
   assert.match(src, /ChevronRight/);
-  assert.match(src, /YANG PERLU ANDA LAKUKAN/);
+  assert.match(src, /Yang Perlu Anda Lakukan/i);
 });
 
 test('RosterItem: gender ring + payment overlay + visual progress bar', () => {
@@ -292,7 +302,7 @@ test('RosterItem: gender ring + payment overlay + visual progress bar', () => {
   assert.match(src, /bg-emerald-500/, 'lunas overlay');
   assert.match(src, /bg-blue-500/, 'dp overlay');
   assert.match(src, /bg-amber-500/, 'belum overlay');
-  assert.match(src, /h-1\.5 rounded-full/, 'progress bar');
+  assert.match(src, /h-1\.5[^"']*rounded-full/, 'progress bar');
 });
 
 test('BerandaPage: composes hero + alerts + menu grid + tasks + roster', () => {
@@ -391,7 +401,7 @@ test('FaqPage: accordion of PORTAL_FAQ + escalation CTA', () => {
   const src = read('src/components/portal-jamaah/pages/FaqPage.tsx');
   assert.match(src, /PortalBackBar/);
   assert.match(src, /PORTAL_FAQ/);
-  assert.match(src, /Tidak menemukan jawaban/i);
+  assert.match(src, /Hubungi \{data\.agent\?\.name \|\| 'Agent'\} via WhatsApp/);
   assert.match(src, /useState/);
 });
 

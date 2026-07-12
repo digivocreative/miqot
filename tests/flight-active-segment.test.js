@@ -47,3 +47,27 @@ test('flight status header renders the selected segment code, route, time and te
   assert.doesNotMatch(page, /<KloterDetail\s+flight=\{first\}/);
   assert.doesNotMatch(page, /hasSegmentRows \? \(first\.transitLabel/);
 });
+
+test('route marker stays inside the SVG at both progress endpoints', () => {
+  const page = readFileSync(new URL('../src/components/FlightStatusCard.tsx', import.meta.url), 'utf8');
+
+  assert.match(page, /const markerEdgeInset = 8/);
+  assert.match(page, /const x1 = markerEdgeInset, x2 = w - markerEdgeInset/);
+  assert.match(page, /Math\.min\(1, Math\.max\(0, flight\.progress \/ 100\)\)/);
+});
+
+test('en-route traveled line renders a flowing aurora gradient without animated dashes', () => {
+  const page = readFileSync(new URL('../src/components/FlightStatusCard.tsx', import.meta.url), 'utf8');
+
+  assert.match(page, /<linearGradient[\s\S]*stopColor="#67e8f9"[\s\S]*stopColor="#dbeafe"/);
+  assert.match(page, /attributeName="x1"[\s\S]*dur="2\.8s"/);
+  assert.match(page, /attributeName="x2"[\s\S]*dur="2\.8s"/);
+  assert.match(page, /stroke=\{`url\(#\$\{auroraGradientId\}\)`\}/);
+  assert.doesNotMatch(page, /strokeDasharray="22 78"|strokeDasharray="10 90"/);
+});
+
+test('flight card renders tour leader names in uppercase', () => {
+  const page = readFileSync(new URL('../src/components/FlightStatusCard.tsx', import.meta.url), 'utf8');
+
+  assert.match(page, /tlClean\.toUpperCase\(\)/);
+});

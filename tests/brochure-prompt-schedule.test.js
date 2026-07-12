@@ -173,14 +173,15 @@ test('native share prompt stays safely inline and uses the attached image as sou
   assert.doesNotMatch(prompt, /1\. PROMO JUMATAIN/);
 });
 
-test('ChatGPT native share payload contains only one image activity item', async () => {
-  const { buildSingleImageShareData } = await importPromptBuilder();
+test('ChatGPT native share payload contains the brochure image and prompt text', async () => {
+  const { buildImageAndPromptShareData } = await importPromptBuilder();
   const image = { name: 'brosur.png', type: 'image/png' };
-  const payload = buildSingleImageShareData(image);
+  const payload = buildImageAndPromptShareData(image, 'Buat ulang brosur ini.');
 
-  assert.deepEqual(Object.keys(payload), ['files']);
+  assert.deepEqual(Object.keys(payload), ['files', 'text']);
   assert.equal(payload.files.length, 1);
   assert.equal(payload.files[0], image);
+  assert.equal(payload.text, 'Buat ulang brosur ini.');
 });
 
 test('PackageCard passes brochure URL into the AI recreate prompt', () => {
@@ -190,7 +191,7 @@ test('PackageCard passes brochure URL into the AI recreate prompt', () => {
   assert.match(source, /referenceImageUrl=\{brosurImageUrl \|\| pkg\.brosurUrl \|\| null\}/);
 });
 
-test('BrochurePromptModal uses a file-only payload and clipboard prompt on iPhone', () => {
+test('BrochurePromptModal shares the image and prompt through the native share sheet', () => {
   const source = readFileSync(join(root, 'src/components/BrochurePromptModal.tsx'), 'utf8');
 
   assert.match(source, /function safeImageFilename/);
@@ -203,14 +204,15 @@ test('BrochurePromptModal uses a file-only payload and clipboard prompt on iPhon
   assert.match(source, /const nativeSharePrompt = useMemo/);
   assert.match(source, /buildNativeSharePrompt\(\{/);
   assert.match(source, /const file = getReferenceImageFile/);
-  assert.match(source, /buildSingleImageShareData\(file\)/);
-  assert.match(source, /navigator\.canShare\?\.\(\{ files: \[file\] \}\)/);
+  assert.match(source, /buildImageAndPromptShareData\(file, nativeSharePrompt\)/);
+  assert.match(source, /navigator\.canShare\?\.\(shareData\)/);
   assert.match(source, /navigator\.share\(shareData\)/);
   assert.match(source, /file_count: shareData\.files\?\.length \|\| 0/);
-  assert.match(source, /prompt_transport: 'clipboard'/);
+  assert.match(source, /prompt_transport: 'share_text'/);
   assert.match(source, /payload_fields: Object\.keys\(shareData\)\.sort\(\)\.join\(','\)/);
-  assert.match(source, /1 gambar • prompt disalin, tempel 1× di ChatGPT/);
-  assert.match(source, />\{isOpeningChatGPT \? 'Memproses\.\.\.' : canTryNativeChatGPTShare \? 'Kirim ChatGPT' : 'Buka ChatGPT'\}</);
+  assert.match(source, /setPreparedReferenceFile\(file\)/);
+  assert.doesNotMatch(source, /Pilih ChatGPT di menu berbagi/);
+  assert.match(source, /isNativeSharePending[\s\S]{0,120}\? 'Menyiapkan\.\.\.'[\s\S]{0,80}: 'ChatGPT'/);
 });
 
 test('BrochureSchedulePage wires the AI recreate prompt modal', () => {

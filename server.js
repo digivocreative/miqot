@@ -47,12 +47,17 @@ import {
   selectCalendarReportedSegments,
 } from './lib/flight-segments.js';
 import { buildDepartureDateLookup, departureDateForCalendarEvent } from './lib/calendar-return-departure.js';
-import { extractReturnTerminalFromItinerary, extractReturnTerminalFromText } from './lib/itinerary-terminal.js';
+import {
+  extractReturnTerminalFromItinerary,
+  extractReturnTerminalFromText,
+  resolveCalendarArrivalTerminal,
+} from './lib/itinerary-terminal.js';
 import {
   calendarDayOffsetForEvent,
   calendarJamForEvent,
   normalizeCalendarJam,
 } from './lib/calendar-jam.js';
+import { requireLandingBuilderAccess } from './lib/landing-builder-access.js';
 import {
   computeFallbackFlightState,
   hasReliableFlightTimes,
@@ -124,6 +129,17 @@ import { mirrorTopPartnerPhotos, normalizeBunnyDownloadUrl } from './lib/top-par
 import { evaluateDbProbe, freshDbHealthState, DEFAULT_DB_HEALTH_CONFIG } from './lib/db-health.js';
 import { freshCircuitState, recordDbOutcome, isCircuitOpen, nextBackoffMs, isDbConnectivityError, DEFAULT_CIRCUIT_CONFIG } from './lib/db-circuit.js';
 import { resolveJamaahUpsertBatch, jamaahUpsertKey, partitionChangedJamaahRows } from './lib/jamaah-upsert.js';
+import {
+  getLandingBuilderDefaults,
+  getLandingBuilderState,
+  normalizeLandingBuilderDocument,
+  validateLandingBuilderDocument,
+} from './lib/landing-builder.js';
+import {
+  applyLandingContentOverrides,
+  extractLandingContentManifest,
+  validateLandingOverrideCapabilities,
+} from './lib/landing-builder-content.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
 import cron from 'node-cron';
@@ -397,6 +413,11 @@ app.use('/dev-mcp', express.json({ limit: '256kb' }));
 // routes before the tighter global parser so the UI's documented limit works.
 app.use('/api/umrah/register', express.json({ limit: '16mb' }));
 app.use('/api/umrah/ocr-ktp', express.json({ limit: '16mb' }));
+// Landing builder documents are structured and intentionally small. Mount the
+// upload exception first, then cap every other builder mutation before the
+// global 10mb parser consumes the body.
+app.use('/api/landing-builder/:type/hero-image', express.json({ limit: '9mb' }));
+app.use('/api/landing-builder', express.json({ limit: '250kb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // ──────────────────────────────────────────────
@@ -1255,6 +1276,7 @@ async function getScheduleDetailMap() {
 // Raw description from /public/{umroh,haji-plus}.html — read once at boot.
 // Shown to agents as placeholder text so they see the literal fallback the public page serves.
 let rawLandingDescription = { umroh: '', haji: '' };
+let landingBuilderTemplateHtml = { umroh: '', haji: '' };
 try {
   const extractDescription = (html) => {
     const m = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']*)["']/i);
@@ -1262,6 +1284,7 @@ try {
   };
   const umrohHtml = readFileSync(resolve(__dirname, 'public/umroh.html'), 'utf-8');
   const hajiHtml = readFileSync(resolve(__dirname, 'public/haji-plus.html'), 'utf-8');
+  landingBuilderTemplateHtml = { umroh: umrohHtml, haji: hajiHtml };
   rawLandingDescription = {
     umroh: extractDescription(umrohHtml),
     haji: extractDescription(hajiHtml),
@@ -1289,16 +1312,25 @@ function getDefaultLandingConfig(agent) {
 function mergeLandingConfig(agent) {
   const defaults = getDefaultLandingConfig(agent);
   const custom = agent?.landing_config || {};
+  const umrohBuilder = custom.umroh?.builder;
+  const hajiBuilder = custom.haji?.builder;
   return {
     umroh: {
       title: custom.umroh?.title || defaults.umroh.title,
       description: custom.umroh?.description ?? defaults.umroh.description,
       og_image_url: custom.umroh?.og_image_url ?? defaults.umroh.og_image_url,
+      // No stored publication means "serve the original Elementor markup".
+      builder: umrohBuilder?.published
+        ? getLandingBuilderState('umroh', umrohBuilder).published
+        : null,
     },
     haji: {
       title: custom.haji?.title || defaults.haji.title,
       description: custom.haji?.description ?? defaults.haji.description,
       og_image_url: custom.haji?.og_image_url ?? defaults.haji.og_image_url,
+      builder: hajiBuilder?.published
+        ? getLandingBuilderState('haji', hajiBuilder).published
+        : null,
     },
   };
 }
@@ -1306,6 +1338,20 @@ function mergeLandingConfig(agent) {
 function invalidateLandingCaches(slug) {
   umrohLandingCache.delete(slug);
   hajiLandingCache.delete(slug);
+  landingCacheEpochBySlug.set(slug, (landingCacheEpochBySlug.get(slug) || 0) + 1);
+}
+
+const landingCacheEpochBySlug = new Map();
+
+function landingCacheEpoch(slug) {
+  return landingCacheEpochBySlug.get(slug) || 0;
+}
+
+function setLandingCacheIfCurrent(cache, slug, epoch, html) {
+  if (landingCacheEpoch(slug) !== epoch) return false;
+  const ttl = html.includes('class="alhijaz-featured-package"') ? 5 * 60 * 1000 : null;
+  cache.set(slug, { html, ts: Date.now(), ttl });
+  return true;
 }
 
 // Fire-and-forget: regenerate /public/og/{slug}.png using fresh agent data.
@@ -3296,34 +3342,379 @@ app.put('/api/landing-config', authMiddleware, express.json({ limit: '100kb' }),
       return trimmed;
     };
 
-    const existing = agent.landing_config || {};
-    const merged = {
-      umroh: { ...(existing.umroh || {}) },
-      haji: { ...(existing.haji || {}) },
-    };
-
+    const patches = {};
     for (const type of ['umroh', 'haji']) {
       const patch = req.body?.[type];
       if (!patch || typeof patch !== 'object') continue;
-      const title = normalizeField(patch.title, 60);
-      const description = normalizeField(patch.description, 160);
-      if (title !== undefined) merged[type].title = title;
-      if (description !== undefined) merged[type].description = description;
+      patches[type] = {
+        title: normalizeField(patch.title, 60),
+        description: normalizeField(patch.description, 160),
+      };
     }
 
-    const { error } = await supabase
-      .from('agents')
-      .update({ landing_config: merged })
-      .eq('id', agent.id);
-    if (error) throw error;
+    const merged = await updateLandingConfig(agent, (existing) => {
+      const next = {
+        ...existing,
+        umroh: { ...(existing.umroh || {}) },
+        haji: { ...(existing.haji || {}) },
+      };
+      for (const type of ['umroh', 'haji']) {
+        const patch = patches[type];
+        if (!patch) continue;
+        if (patch.title !== undefined) next[type].title = patch.title;
+        if (patch.description !== undefined) next[type].description = patch.description;
+      }
+      return next;
+    });
 
-    invalidateAgentCache();
     invalidateLandingCaches(agent.slug);
     res.json({ success: true, data: merged });
   } catch (err) {
     console.error('[landing-config] PUT error:', err.message);
     const status = /Melebihi batas/.test(err.message) ? 400 : 500;
     res.status(status).json({ error: err.message || 'Gagal menyimpan konfigurasi' });
+  }
+});
+
+// ──────────────────────────────────────────────
+// Landing Page Builder API
+// Draft and published documents live inside agents.landing_config JSONB so the
+// feature remains backward-compatible with the existing SEO configuration.
+// ──────────────────────────────────────────────
+
+function landingBuilderType(raw) {
+  const type = String(raw || '').toLowerCase();
+  return type === 'umroh' || type === 'haji' ? type : null;
+}
+
+async function readLatestLandingConfig(agentId) {
+  const { data, error } = await supabase
+    .from('agents')
+    .select('landing_config')
+    .eq('id', agentId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.landing_config || {};
+}
+
+const landingConfigWriteTails = new Map();
+
+async function withLandingConfigWriteLock(agentId, task) {
+  const previous = landingConfigWriteTails.get(agentId) || Promise.resolve();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const tail = previous.catch(() => undefined).then(() => gate);
+  landingConfigWriteTails.set(agentId, tail);
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    release();
+    if (landingConfigWriteTails.get(agentId) === tail) landingConfigWriteTails.delete(agentId);
+  }
+}
+
+async function updateLandingConfig(agent, updater) {
+  return withLandingConfigWriteLock(agent.id, async () => {
+    const latest = await readLatestLandingConfig(agent.id);
+    const merged = updater(latest || {});
+    const { error } = await supabase
+      .from('agents')
+      .update({ landing_config: merged })
+      .eq('id', agent.id);
+    if (error) throw error;
+    if (agentCacheById?.[agent.id]) {
+      agentCacheById[agent.id] = { ...agentCacheById[agent.id], landing_config: merged };
+    }
+    if (agentCacheBySlug?.[agent.slug]) {
+      agentCacheBySlug[agent.slug] = { ...agentCacheBySlug[agent.slug], landing_config: merged };
+    }
+    return merged;
+  });
+}
+
+async function writeLandingBuilder(agent, type, updateBuilder) {
+  let builder;
+  const merged = await updateLandingConfig(agent, (latest) => {
+    const current = latest[type]?.builder || {};
+    builder = updateBuilder(current);
+    return {
+      ...latest,
+      [type]: {
+        ...(latest[type] || {}),
+        builder,
+      },
+    };
+  });
+  return { merged, builder };
+}
+
+function landingBuilderRequestError(message, status = 400) {
+  return Object.assign(new Error(message), { status });
+}
+
+function packageAnchorPrice(paket) {
+  const prices = [];
+  for (const tier of Object.values(paket?.paket_harga || {})) {
+    if (!tier || typeof tier !== 'object') continue;
+    for (const value of [tier.Quard, tier.Triple, tier.Double]) {
+      if (value === null || value === undefined || value === '') continue;
+      const numeric = typeof value === 'number'
+        ? value
+        : Number(String(value).replace(/[^0-9]/g, ''));
+      if (Number.isFinite(numeric) && numeric > 0) prices.push(numeric);
+    }
+  }
+  return prices.length ? Math.min(...prices) : null;
+}
+
+function jakartaDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date);
+}
+
+function isSellableLandingPackage(paket) {
+  const seat = paket?.seat_sisa === null || paket?.seat_sisa === undefined
+    ? null
+    : Number(paket.seat_sisa);
+  if (Number.isFinite(seat) && seat <= 0) return false;
+  const departure = String(paket?.berangkat_tgl || '').slice(0, 10);
+  return !departure || departure >= jakartaDateKey();
+}
+
+function landingPackageSnapshot(paket) {
+  const seat = paket?.seat_sisa === null || paket?.seat_sisa === undefined
+    ? null
+    : Number(paket.seat_sisa);
+  return {
+    jadwal_id: String(paket.jadwal_id || ''),
+    year_code: String(paket.year_code || ''),
+    name: String(paket.jadwal_nama || paket.nama || ''),
+    departure_date: String(paket.berangkat_tgl || ''),
+    airline: String(paket.maskapai || ''),
+    price: packageAnchorPrice(paket),
+    seat_remaining: Number.isFinite(seat) && seat >= 0 ? Math.round(seat) : null,
+    image_url: paket.brosur_cdn
+      ? appendUrlVersion(paket.brosur_cdn, paket.brosur_source_sha256)
+      : (paket.brosur || null),
+  };
+}
+
+async function resolveLandingBuilderPackage(type, document, { strict = true } = {}) {
+  if (type !== 'umroh' || !document.featured_package) return document;
+  const selected = document.featured_package;
+  let paket;
+  try {
+    paket = await getJadwalById(selected.jadwal_id, selected.year_code, { throwOnError: true });
+  } catch {
+    if (!strict) return document;
+    throw landingBuilderRequestError('Data jadwal sedang tidak tersedia. Coba lagi sebentar.', 503);
+  }
+  if (!paket || !isSellableLandingPackage(paket)) {
+    if (!strict) return { ...document, featured_package: null };
+    throw landingBuilderRequestError('Paket unggulan sudah tidak aktif. Silakan pilih paket lain.');
+  }
+  return normalizeLandingBuilderDocument(type, {
+    ...document,
+    featured_package: landingPackageSnapshot(paket),
+  });
+}
+
+async function validateLandingBuilderRequest(type, body) {
+  const validation = validateLandingBuilderDocument(type, body?.document ?? body);
+  if (!validation.ok) throw landingBuilderRequestError(validation.error);
+  const capabilityError = validateLandingOverrideCapabilities(
+    landingBuilderTemplateHtml[type],
+    validation.data,
+  );
+  if (capabilityError) throw landingBuilderRequestError(capabilityError);
+  return resolveLandingBuilderPackage(type, validation.data, { strict: true });
+}
+
+async function refreshLandingBuilderStatePackages(type, state) {
+  const [draft, published] = await Promise.all([
+    resolveLandingBuilderPackage(type, state.draft, { strict: false }),
+    resolveLandingBuilderPackage(type, state.published, { strict: false }),
+  ]);
+  return {
+    ...state,
+    draft,
+    published,
+    has_unpublished_changes: JSON.stringify(draft) !== JSON.stringify(published),
+  };
+}
+
+async function refreshLandingConfigForRender(type, landing) {
+  if (!landing?.builder) return landing;
+  return {
+    ...landing,
+    builder: await resolveLandingBuilderPackage(type, landing.builder, { strict: false }),
+  };
+}
+
+function hasExpectedImageSignature(buffer, mime) {
+  if (mime === 'image/jpeg') {
+    return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  }
+  if (mime === 'image/png') {
+    const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    return buffer.length >= png.length && png.every((byte, index) => buffer[index] === byte);
+  }
+  return mime === 'image/webp'
+    && buffer.length >= 12
+    && buffer.toString('ascii', 0, 4) === 'RIFF'
+    && buffer.toString('ascii', 8, 12) === 'WEBP';
+}
+
+app.get('/api/landing-builder/:type', authMiddleware, async (req, res) => {
+  try {
+    const type = landingBuilderType(req.params.type);
+    if (!type) return res.status(400).json({ error: 'Jenis landing page tidak valid' });
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireLandingBuilderAccess(agent, res)) return;
+    const state = await refreshLandingBuilderStatePackages(
+      type,
+      getLandingBuilderState(type, agent.landing_config?.[type]?.builder),
+    );
+    const landing = {
+      ...mergeLandingConfig(agent)[type],
+      builder: state.draft,
+    };
+    const previewHtml = type === 'umroh'
+      ? await generateUmrohPage(agent.slug, { landing, preview: true })
+      : await generateHajiPage(agent.slug, { landing, preview: true });
+    res.json({
+      success: true,
+      data: state,
+      defaults: getLandingBuilderDefaults(type),
+      content_manifest: extractLandingContentManifest(previewHtml),
+      public_path: `/${agent.slug}/${type}`,
+    });
+  } catch (err) {
+    console.error('[landing-builder] GET error:', err);
+    res.status(500).json({ error: 'Gagal memuat editor landing page' });
+  }
+});
+
+app.put('/api/landing-builder/:type/draft', authMiddleware, express.json({ limit: '250kb' }), async (req, res) => {
+  try {
+    const type = landingBuilderType(req.params.type);
+    if (!type) return res.status(400).json({ error: 'Jenis landing page tidak valid' });
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireLandingBuilderAccess(agent, res)) return;
+    const document = await validateLandingBuilderRequest(type, req.body);
+    const clientUpdatedAt = Number.isFinite(Number(req.body?.client_updated_at))
+      ? Number(req.body.client_updated_at)
+      : Date.now();
+    const { builder } = await writeLandingBuilder(agent, type, (current) => {
+      const currentRevision = Number(current.draft_client_updated_at) || 0;
+      if (clientUpdatedAt < currentRevision) return current;
+      return {
+        ...current,
+        schema_version: 2,
+        draft: document,
+        draft_updated_at: new Date().toISOString(),
+        draft_client_updated_at: clientUpdatedAt,
+      };
+    });
+    res.json({ success: true, data: getLandingBuilderState(type, builder) });
+  } catch (err) {
+    console.error('[landing-builder] draft save error:', err);
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Gagal menyimpan draft' });
+  }
+});
+
+app.post('/api/landing-builder/:type/publish', authMiddleware, express.json({ limit: '250kb' }), async (req, res) => {
+  try {
+    const type = landingBuilderType(req.params.type);
+    if (!type) return res.status(400).json({ error: 'Jenis landing page tidak valid' });
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireLandingBuilderAccess(agent, res)) return;
+    const document = await validateLandingBuilderRequest(type, req.body);
+    const clientUpdatedAt = Number.isFinite(Number(req.body?.client_updated_at))
+      ? Number(req.body.client_updated_at)
+      : Date.now();
+    const now = new Date().toISOString();
+    const { builder } = await writeLandingBuilder(agent, type, (current) => ({
+      ...current,
+      schema_version: 2,
+      draft: document,
+      published: document,
+      draft_updated_at: now,
+      draft_client_updated_at: clientUpdatedAt,
+      published_at: now,
+    }));
+    invalidateLandingCaches(agent.slug);
+    res.json({ success: true, data: getLandingBuilderState(type, builder) });
+  } catch (err) {
+    console.error('[landing-builder] publish error:', err);
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Gagal memublikasikan landing page' });
+  }
+});
+
+app.post('/api/landing-builder/:type/preview', authMiddleware, express.json({ limit: '250kb' }), async (req, res) => {
+  try {
+    const type = landingBuilderType(req.params.type);
+    if (!type) return res.status(400).json({ error: 'Jenis landing page tidak valid' });
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireLandingBuilderAccess(agent, res)) return;
+    const document = await validateLandingBuilderRequest(type, req.body);
+    const landing = {
+      ...mergeLandingConfig(agent)[type],
+      builder: document,
+    };
+    const html = type === 'umroh'
+      ? await generateUmrohPage(agent.slug, { landing, preview: true })
+      : await generateHajiPage(agent.slug, { landing, preview: true });
+    res.set({ 'Cache-Control': 'private, no-store' }).json({
+      success: true,
+      html,
+      content_manifest: extractLandingContentManifest(html),
+    });
+  } catch (err) {
+    console.error('[landing-builder] preview error:', err);
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Gagal membuat preview' });
+  }
+});
+
+app.post('/api/landing-builder/:type/hero-image', authMiddleware, express.json({ limit: '9mb' }), async (req, res) => {
+  try {
+    const type = landingBuilderType(req.params.type);
+    if (!type) return res.status(400).json({ error: 'Jenis landing page tidak valid' });
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireLandingBuilderAccess(agent, res)) return;
+    const { image_data, mime, data } = req.body || {};
+    const payload = typeof image_data === 'string'
+      ? image_data
+      : (typeof mime === 'string' && typeof data === 'string' ? `data:${mime};base64,${data}` : '');
+    const match = payload
+      ? payload.match(/^data:(image\/(?:jpeg|png|webp));base64,([a-z0-9+/=]+)$/i)
+      : null;
+    if (!match) return res.status(400).json({ error: 'Format gambar tidak valid' });
+    const buffer = Buffer.from(match[2], 'base64');
+    if (!buffer.length || buffer.length > 6 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Ukuran gambar maksimal 6MB' });
+    }
+    if (!hasExpectedImageSignature(buffer, match[1].toLowerCase())) {
+      return res.status(400).json({ error: 'Isi file gambar tidak valid' });
+    }
+    const ext = match[1] === 'image/png' ? 'png' : match[1] === 'image/webp' ? 'webp' : 'jpg';
+    const fileName = `landing-builder/${agent.slug}-${type}-${Date.now()}.${ext}`;
+    const { error: uploadError } = await supabase.storage
+      .from('agent-photos')
+      .upload(fileName, buffer, { contentType: match[1], upsert: true, cacheControl: '31536000' });
+    if (uploadError) throw uploadError;
+    const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(fileName);
+    res.json({ success: true, url: urlData.publicUrl });
+  } catch (err) {
+    console.error('[landing-builder] hero upload error:', err);
+    res.status(500).json({ error: 'Gagal mengunggah gambar hero' });
   }
 });
 
@@ -3388,23 +3779,16 @@ app.post('/api/landing-config/og-image', authMiddleware, express.json({ limit: '
     }
 
     stage = 'db-update';
-    const existing = agent.landing_config || {};
-    const merged = {
+    await updateLandingConfig(agent, (existing) => ({
+      ...existing,
       umroh: { ...(existing.umroh || {}) },
       haji: { ...(existing.haji || {}) },
-    };
-    merged[landing_type].og_image_url = newUrl;
+      [landing_type]: {
+        ...(existing[landing_type] || {}),
+        og_image_url: newUrl,
+      },
+    }));
 
-    const { error: dbErr } = await supabase
-      .from('agents')
-      .update({ landing_config: merged })
-      .eq('id', agent.id);
-    if (dbErr) {
-      console.error('[landing-config] DB update error:', dbErr);
-      throw new Error(`db-update: ${dbErr.message || JSON.stringify(dbErr)}`);
-    }
-
-    invalidateAgentCache();
     invalidateLandingCaches(slug);
     res.json({ success: true, og_image_url: newUrl });
   } catch (err) {
@@ -3434,20 +3818,16 @@ app.delete('/api/landing-config/og-image', authMiddleware, express.json({ limit:
       }
     }
 
-    const existing = agent.landing_config || {};
-    const merged = {
+    await updateLandingConfig(agent, (existing) => ({
+      ...existing,
       umroh: { ...(existing.umroh || {}) },
       haji: { ...(existing.haji || {}) },
-    };
-    merged[landing_type].og_image_url = null;
+      [landing_type]: {
+        ...(existing[landing_type] || {}),
+        og_image_url: null,
+      },
+    }));
 
-    const { error: dbErr } = await supabase
-      .from('agents')
-      .update({ landing_config: merged })
-      .eq('id', agent.id);
-    if (dbErr) throw dbErr;
-
-    invalidateAgentCache();
     invalidateLandingCaches(agent.slug);
     res.json({ success: true });
   } catch (err) {
@@ -3815,19 +4195,29 @@ function buildDefaultBioConfig(_agent) {
 
 // Fetch umroh_schedules row by jadwal_id (pick most recent year_code).
 // jadwal_id is not globally unique (composite key with year_code), so we sort desc.
-async function getJadwalById(jadwalId) {
+const jadwalByIdCache = new Map();
+const JADWAL_BY_ID_CACHE_TTL_MS = 60 * 1000;
+
+async function getJadwalById(jadwalId, yearCode = null, { throwOnError = false } = {}) {
   if (!jadwalId) return null;
+  const cacheKey = `${jadwalId}|${yearCode || 'latest'}`;
+  const cached = jadwalByIdCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) return cached.data;
   try {
-    const { data } = await supabase
+    let query = supabase
       .from('umroh_schedules')
       .select('*')
-      .eq('jadwal_id', jadwalId)
-      .order('year_code', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    return data || null;
+      .eq('jadwal_id', jadwalId);
+    if (yearCode) query = query.eq('year_code', yearCode);
+    else query = query.order('year_code', { ascending: false });
+    const { data, error } = await query.limit(1).maybeSingle();
+    if (error) throw error;
+    const result = data || null;
+    jadwalByIdCache.set(cacheKey, { data: result, expiresAt: Date.now() + JADWAL_BY_ID_CACHE_TTL_MS });
+    return result;
   } catch (err) {
     console.warn('[bio] getJadwalById error:', err.message);
+    if (throwOnError) throw err;
     return null;
   }
 }
@@ -9176,7 +9566,12 @@ function calendarAirportInfoForEvent(event, scheduleById = new Map(), flightStat
     departure_terminal: itineraryTerminal.departureTerminal || firstStatus.dep_terminal || first.route.depTerminal || null,
     arrival_airport_code: lastStatus.arr_iata || last.route.arr || null,
     arrival_airport_city: lastStatus.arr_city || last.route.arrCity || airportCity(last.route.arr) || null,
-    arrival_terminal: itineraryTerminal.arrivalTerminal || lastStatus.arr_terminal || last.route.arrTerminal || null,
+    arrival_terminal: resolveCalendarArrivalTerminal(
+      event.event_type,
+      itineraryTerminal.arrivalTerminal,
+      lastStatus.arr_terminal,
+      last.route.arrTerminal,
+    ),
   };
 }
 
@@ -16021,20 +16416,30 @@ app.get(['/itinerary/{*path}', '/brosur/{*path}'], async (req, res) => {
 const umrohLandingCache = new Map();
 const UMROH_CACHE_TTL = 3600_000; // 1 hour
 
-async function generateUmrohPage(slug) {
+async function generateUmrohPage(slug, options = {}) {
   const mod = await import('./functions/umroh-landing.mjs');
   const agent = await getAgentBySlug(slug);
+  const landing = agent
+    ? await refreshLandingConfigForRender('umroh', options.landing || mergeLandingConfig(agent).umroh)
+    : null;
   const result = await mod.onRequest({
     params: { slug },
     request: new Request('http://localhost/' + slug + '/umroh'),
+    preview: options.preview === true,
     agentOverride: agent ? {
       name: agent.name,
       phone: agent.phone,
       photo: agent.photo,
-      landing: mergeLandingConfig(agent).umroh,
+      landing,
     } : undefined,
   });
-  return await result.text();
+  const html = await result.text();
+  return applyLandingContentOverrides(
+    html,
+    landing?.builder?.content_overrides,
+    landing?.builder?.component_overrides,
+    { preview: options.preview === true },
+  );
 }
 
 (async () => {
@@ -16045,8 +16450,9 @@ async function generateUmrohPage(slug) {
     console.log('[Umroh Landing] Pre-caching ' + slugs.length + ' agents...');
     for (const slug of slugs) {
       try {
+        const epoch = landingCacheEpoch(slug);
         const html = await generateUmrohPage(slug);
-        umrohLandingCache.set(slug, { html, ts: Date.now() });
+        setLandingCacheIfCurrent(umrohLandingCache, slug, epoch, html);
       } catch (e) {
         console.error('[Umroh Landing] Pre-cache failed for', slug, e.message);
       }
@@ -16084,15 +16490,16 @@ app.get('/umroh', async (req, res, next) => {
   if (!slug) return next();
   try {
     const cached = umrohLandingCache.get(slug);
-    if (cached && (Date.now() - cached.ts) < UMROH_CACHE_TTL) {
+    if (cached && (Date.now() - cached.ts) < (cached.ttl || UMROH_CACHE_TTL)) {
       return res.set({
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'private, no-store, must-revalidate',
         'X-Cache': 'HIT',
       }).send(cached.html);
     }
+    const epoch = landingCacheEpoch(slug);
     const html = await generateUmrohPage(slug);
-    umrohLandingCache.set(slug, { html, ts: Date.now() });
+    setLandingCacheIfCurrent(umrohLandingCache, slug, epoch, html);
     res.set({
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'private, no-store, must-revalidate',
@@ -16120,20 +16527,21 @@ app.get('/:slug/umroh', async (req, res) => {
     }
 
     const cached = umrohLandingCache.get(slug);
-    if (cached && (Date.now() - cached.ts) < UMROH_CACHE_TTL) {
+    if (cached && (Date.now() - cached.ts) < (cached.ttl || UMROH_CACHE_TTL)) {
       return res.set({
         'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'public, max-age=0, must-revalidate',
         'X-Cache': 'HIT',
       }).send(cached.html);
     }
 
+    const epoch = landingCacheEpoch(slug);
     const html = await generateUmrohPage(slug);
-    umrohLandingCache.set(slug, { html, ts: Date.now() });
+    setLandingCacheIfCurrent(umrohLandingCache, slug, epoch, html);
 
     res.set({
       'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'public, max-age=3600',
+      'Cache-Control': 'public, max-age=0, must-revalidate',
       'X-Cache': 'MISS',
     }).send(html);
   } catch (err) {
@@ -16149,20 +16557,30 @@ const hajiLandingCache = new Map(); // slug → { html, ts }
 const HAJI_CACHE_TTL = 3600_000;    // 1 hour
 
 // Helper: generate haji page for a slug using Supabase agent data
-async function generateHajiPage(slug) {
+async function generateHajiPage(slug, options = {}) {
   const mod = await import('./functions/haji-landing.mjs');
   const agent = await getAgentBySlug(slug);
+  const landing = agent
+    ? await refreshLandingConfigForRender('haji', options.landing || mergeLandingConfig(agent).haji)
+    : null;
   const result = await mod.onRequest({
     params: { slug },
     request: new Request('http://localhost/' + slug + '/haji'),
+    preview: options.preview === true,
     agentOverride: agent ? {
       name: agent.name,
       phone: agent.phone,
       photo: agent.photo,
-      landing: mergeLandingConfig(agent).haji,
+      landing,
     } : undefined,
   });
-  return await result.text();
+  const html = await result.text();
+  return applyLandingContentOverrides(
+    html,
+    landing?.builder?.content_overrides,
+    landing?.builder?.component_overrides,
+    { preview: options.preview === true },
+  );
 }
 
 // Pre-load cache for ALL agents from Supabase on startup
@@ -16175,8 +16593,9 @@ async function generateHajiPage(slug) {
     console.log('[Haji Landing] Pre-caching ' + slugs.length + ' agents...');
     for (const slug of slugs) {
       try {
+        const epoch = landingCacheEpoch(slug);
         const html = await generateHajiPage(slug);
-        hajiLandingCache.set(slug, { html, ts: Date.now() });
+        setLandingCacheIfCurrent(hajiLandingCache, slug, epoch, html);
       } catch (e) {
         console.error('[Haji Landing] Pre-cache failed for', slug, e.message);
       }
@@ -16201,8 +16620,9 @@ app.get('/haji', async (req, res, next) => {
         'X-Cache': 'HIT',
       }).send(cached.html);
     }
+    const epoch = landingCacheEpoch(slug);
     const html = await generateHajiPage(slug);
-    hajiLandingCache.set(slug, { html, ts: Date.now() });
+    setLandingCacheIfCurrent(hajiLandingCache, slug, epoch, html);
     res.set({
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'private, no-store, must-revalidate',
@@ -16231,17 +16651,18 @@ app.get('/:slug/haji', async (req, res) => {
     if (cached && (Date.now() - cached.ts) < HAJI_CACHE_TTL) {
       return res.set({
         'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'public, max-age=0, must-revalidate',
         'X-Cache': 'HIT',
       }).send(cached.html);
     }
 
+    const epoch = landingCacheEpoch(slug);
     const html = await generateHajiPage(slug);
-    hajiLandingCache.set(slug, { html, ts: Date.now() });
+    setLandingCacheIfCurrent(hajiLandingCache, slug, epoch, html);
 
     res.set({
       'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'public, max-age=3600',
+      'Cache-Control': 'public, max-age=0, must-revalidate',
       'X-Cache': 'MISS',
     }).send(html);
   } catch (err) {
