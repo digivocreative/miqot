@@ -198,6 +198,14 @@ function displayFlightNum(fn: string): string {
   return fn.replace(/^([A-Z]{2})(\d+)$/, '$1 $2');
 }
 
+function flightPageTitle(groupNumber: string | null, flightNumber: string, agentName: string): string {
+  const kloterValue = String(groupNumber || '').trim();
+  const kloterName = kloterValue
+    ? (/^kloter\b/i.test(kloterValue) ? kloterValue : `Kloter ${kloterValue}`)
+    : 'Kloter';
+  return `Lacak Penerbangan ${kloterName} | ${flightNumber} | ${agentName}`;
+}
+
 function getWeatherDesc(code: number): string {
   if (code <= 1) return 'Cerah';
   if (code <= 3) return 'Cerah berawan';
@@ -337,11 +345,9 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
   // Set document title — matches server-side OG injection format
   useEffect(() => {
     if (!data) return;
-    const airlineCode = data.flight.airline_code || '';
-    const airline = AIRLINE_NAMES[airlineCode] || '';
     const dfn = displayFlightNum(data.flight.flight_number);
     const agentName = data.agent?.name || 'Agent';
-    document.title = `Lacak Penerbangan ${airline ? airline + ' ' : ''}${dfn} - ${agentName}`;
+    document.title = flightPageTitle(data.flight.group_number, dfn, agentName);
     return () => { document.title = 'Jadwal Umroh - Alhijaz Indowisata'; };
   }, [data]);
 
@@ -350,7 +356,7 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
     if (!data) return;
     const dfn = displayFlightNum(data.flight.flight_number);
     const url = window.location.href;
-    const title = `Status Penerbangan ${dfn}`;
+    const title = flightPageTitle(data.flight.group_number, dfn, data.agent?.name || 'Agent');
     const text = `Cek status penerbangan ${dfn} (${data.flight.dep_iata} → ${data.flight.arr_iata}) di sini:`;
 
     if (navigator.share) {

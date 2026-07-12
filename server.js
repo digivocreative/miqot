@@ -17210,13 +17210,16 @@ app.get('/f/:code', async (req, res, next) => {
       .single();
 
     const agentName = String(agent?.name || 'Agent').trim() || 'Agent';
-    const airlineName = AIRLINE_NAMES_SERVER[share.airline_code] || '';
     const flightNum = String(share.flight_number || '')
       .replace(/\s+/g, '')
       .replace(/^([A-Z0-9]{2})(\d+)$/, '$1 $2');
+    const kloterValue = String(share.group_number || '').trim();
+    const kloterName = kloterValue
+      ? (/^kloter\b/i.test(kloterValue) ? kloterValue : `Kloter ${kloterValue}`)
+      : 'Kloter';
 
     const origin = `${req.protocol}://${req.get('host')}`;
-    const rawTitle = `Lacak Penerbangan ${airlineName ? airlineName + ' ' : ''}${flightNum} - ${agentName}`;
+    const rawTitle = `Lacak Penerbangan ${kloterName} | ${flightNum} | ${agentName}`;
     const rawDescription = `Status penerbangan ${share.flight_number} dari ${share.dep_city || share.dep_iata} ke ${share.arr_city || share.arr_iata}. Dikelola oleh ${agentName} — Alhijaz Indowisata.`;
     const imageVersion = crypto.createHash('sha1').update(JSON.stringify([
       share.flight_number,

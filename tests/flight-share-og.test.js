@@ -68,5 +68,8 @@ test('flight page injects a versioned large-image preview and accessible metadat
   assert.match(handler, /og:image:alt" content="\$\{imageAlt\}"/);
   assert.match(handler, /twitter:card" content="summary_large_image"/);
   assert.match(handler, /twitter:image:alt" content="\$\{imageAlt\}"/);
+  assert.match(handler, /const kloterValue = String\(share\.group_number \|\| ''\)\.trim\(\)/);
+  assert.match(handler, /`Kloter \$\{kloterValue\}`/);
+  assert.match(handler, /const rawTitle = `Lacak Penerbangan \$\{kloterName\} \| \$\{flightNum\} \| \$\{agentName\}`/);
   assert.doesNotMatch(handler, /\/og\/\$\{agentSlug\}\.png/);
 });

@@ -43,6 +43,12 @@ test('public share page refreshes status and progress on the dashboard cadence',
   assert.match(sharePage, /cache: 'no-store'/);
 });
 
+test('public share title uses kloter, flight number, and agent name', () => {
+  assert.match(sharePage, /flightPageTitle\(data\.flight\.group_number, dfn, agentName\)/);
+  assert.match(sharePage, /`Kloter \$\{kloterValue\}`/);
+  assert.match(sharePage, /`Lacak Penerbangan \$\{kloterName\} \| \$\{flightNumber\} \| \$\{agentName\}`/);
+});
+
 test('unknown statuses safely use the same scheduled fallback', async () => {
   const { getFlightStatusPresentation, normalizeFlightStatus } = await importTsModule(
     'src/lib/flightStatusPresentation.ts',
