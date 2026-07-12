@@ -28,12 +28,6 @@ export function formatCalendarMeetingPoint(value: string | null | undefined): st
   const terminal = text.match(/\bTerminal\s+[A-Z0-9]+\b/i)?.[0]
     ?.replace(/^terminal/i, 'Terminal') || '';
 
-  // Gate — often the actual gathering spot when there is no named venue, e.g.
-  // "Gate 5" or "Gate 1 tiang A". Previously dropped, which collapsed values
-  // like "Gate 5 Terminal 2F Bandara Soekarno-Hatta" to a bare "Terminal 2F".
-  const gate = text.match(/\bGate\s+[A-Z0-9]+(?:\s+tiang\s+[A-Z0-9]+)?\b/i)?.[0]
-    ?.replace(/^gate/i, 'Gate') || '';
-
   // Named venue (café/lounge/hotel/…) up to the next gate/terminal/airport token.
   const namedPlace = text.match(
     /\b(?:caf[eé]|lounge|hotel|resto|restaurant|lobby)\s+.+?(?=\s+(?:gate|terminal|bandara|airport)\b|,|$)/i,
@@ -54,7 +48,7 @@ export function formatCalendarMeetingPoint(value: string | null | undefined): st
     .map(word => (word ? word[0].toUpperCase() + word.slice(1) : word))
     .join(' ');
 
-  // Venue → gate → terminal, keeping every part the source actually names so the
-  // meeting point is never reduced to terminal-only.
-  return [venue, gate, terminal].filter(Boolean).join(', ');
+  // Venue → terminal. Gate is intentionally omitted — the named venue is the
+  // meaningful gathering spot; the terminal keeps it oriented.
+  return [venue, terminal].filter(Boolean).join(', ');
 }
