@@ -49,21 +49,22 @@ test('flight status header renders the selected segment code, route, time and te
 });
 
 test('route marker stays inside the SVG at both progress endpoints', () => {
-  const page = readFileSync(new URL('../src/components/FlightStatusCard.tsx', import.meta.url), 'utf8');
+  const routeLine = readFileSync(new URL('../src/components/FlightRouteLine.tsx', import.meta.url), 'utf8');
 
-  assert.match(page, /const markerEdgeInset = 8/);
-  assert.match(page, /const x1 = markerEdgeInset, x2 = w - markerEdgeInset/);
-  assert.match(page, /Math\.min\(1, Math\.max\(0, flight\.progress \/ 100\)\)/);
+  assert.match(routeLine, /const markerEdgeInset = 8/);
+  assert.match(routeLine, /const x1 = markerEdgeInset/);
+  assert.match(routeLine, /const x2 = w - markerEdgeInset/);
+  assert.match(routeLine, /Math\.min\(1, Math\.max\(0,[\s\S]*progress \/ 100/);
 });
 
 test('en-route traveled line renders a flowing aurora gradient without animated dashes', () => {
-  const page = readFileSync(new URL('../src/components/FlightStatusCard.tsx', import.meta.url), 'utf8');
+  const routeLine = readFileSync(new URL('../src/components/FlightRouteLine.tsx', import.meta.url), 'utf8');
 
-  assert.match(page, /<linearGradient[\s\S]*stopColor="#67e8f9"[\s\S]*stopColor="#dbeafe"/);
-  assert.match(page, /attributeName="x1"[\s\S]*dur="2\.8s"/);
-  assert.match(page, /attributeName="x2"[\s\S]*dur="2\.8s"/);
-  assert.match(page, /stroke=\{`url\(#\$\{auroraGradientId\}\)`\}/);
-  assert.doesNotMatch(page, /strokeDasharray="22 78"|strokeDasharray="10 90"/);
+  assert.match(routeLine, /<linearGradient[\s\S]*stopColor="#67e8f9"[\s\S]*stopColor="#dbeafe"/);
+  assert.match(routeLine, /attributeName="x1"[\s\S]*dur="2\.8s"/);
+  assert.match(routeLine, /attributeName="x2"[\s\S]*dur="2\.8s"/);
+  assert.match(routeLine, /stroke=\{`url\(#\$\{auroraGradientId\}\)`\}/);
+  assert.doesNotMatch(routeLine, /strokeDasharray="22 78"|strokeDasharray="10 90"/);
 });
 
 test('flight card renders tour leader names in uppercase', () => {

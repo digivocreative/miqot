@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useId, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap, Calendar, Radio, Share2, Check, Lock, Loader2 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
@@ -7,6 +7,8 @@ import { normalizeWaNumber } from '../utils/phone';
 import { flightCardDateKey, flightCardDisplayDateValue, flightCardGroupKey } from '../lib/flightCardDate';
 import { summarizeFlightShareGroup } from '../lib/flightShareSummary';
 import { selectActiveFlightSegment } from '../lib/flightActiveSegment';
+import { getFlightStatusPresentation } from '../lib/flightStatusPresentation';
+import FlightRouteLine from './FlightRouteLine';
 
 const FlightMap = lazy(() => import('./FlightMap'));
 
@@ -72,17 +74,6 @@ interface FlightData extends FlightSegmentData {
   segments?: FlightSegmentData[];
 }
 
-// ── Status Config ──
-
-const STATUS_CFG: Record<string, { label: string; color: string; bg: string }> = {
-  'en-route':  { label: 'Terbang',      color: '#3b82f6', bg: 'bg-blue-500' },
-  'scheduled': { label: 'Dijadwalkan',  color: '#d97706', bg: 'bg-amber-500' },
-  'landed':    { label: 'Mendarat',     color: '#10b981', bg: 'bg-emerald-500' },
-  'delayed':   { label: 'Delay',        color: '#ef4444', bg: 'bg-red-500' },
-  'cancelled': { label: 'Dibatalkan',   color: '#dc2626', bg: 'bg-red-600' },
-  'unverified': { label: 'Perlu Cek',   color: '#64748b', bg: 'bg-slate-500' },
-};
-
 // ── Helpers ──
 
 function formatTime(val?: string | null): string {
@@ -134,158 +125,6 @@ function formatDuration(minutes: number | null | undefined): string | null {
   return `${h} jam ${m} menit`;
 }
 
-// ── RouteLine SVG ──
-
-function RouteLine({ flight }: { flight: Pick<FlightSegmentData, 'status' | 'progress'> }) {
-  const w = 100, h = 16;
-  // Pulse pesawat/checkmark mencapai radius 6 (+ stroke). Beri inset cukup
-  // supaya marker pada progress 0%/100% tidak terpotong oleh batas viewBox SVG.
-  const markerEdgeInset = 8;
-  const x1 = markerEdgeInset, x2 = w - markerEdgeInset;
-  const prog = Math.min(1, Math.max(0, flight.progress / 100));
-  const px = x1 + (x2 - x1) * prog;
-  const traveledSpan = Math.max(px - x1, 1);
-  const auroraGradientId = `flight-route-${useId().replace(/:/g, '')}`;
-
-  return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="flex-shrink-0">
-
-      {flight.status === 'en-route' && (
-        <defs>
-          <linearGradient
-            id={auroraGradientId}
-            gradientUnits="userSpaceOnUse"
-            x1={x1 - traveledSpan}
-            y1={h/2}
-            x2={x1}
-            y2={h/2}
-          >
-            <stop offset="0%" stopColor="#2563eb" />
-            <stop offset="36%" stopColor="#3b82f6" />
-            <stop offset="58%" stopColor="#67e8f9" />
-            <stop offset="72%" stopColor="#dbeafe" />
-            <stop offset="100%" stopColor="#2563eb" />
-            <animate attributeName="x1" values={`${x1 - traveledSpan};${px}`} dur="2.8s" repeatCount="indefinite" />
-            <animate attributeName="x2" values={`${x1};${px + traveledSpan}`} dur="2.8s" repeatCount="indefinite" />
-          </linearGradient>
-        </defs>
-      )}
-
-      {/* ===== TERJADWAL: Marching Ants ===== */}
-      {flight.status === 'scheduled' && (
-        <line
-          x1={x1} y1={h/2} x2={x2} y2={h/2}
-          stroke="#d1d5db" strokeWidth="2" strokeDasharray="4 4"
-          className="dark:stroke-slate-600"
-        >
-          <animate attributeName="stroke-dashoffset" values="0;-16" dur="1s" repeatCount="indefinite" />
-        </line>
-      )}
-
-      {/* ===== EN-ROUTE: Solid traveled + dashed remaining ===== */}
-      {flight.status === 'en-route' && (
-        <>
-          {/* Remaining path (dashed, no animation) */}
-          <line
-            x1={x1} y1={h/2} x2={x2} y2={h/2}
-            stroke="#e5e7eb" strokeWidth="1.5" strokeDasharray="3 2"
-            className="dark:stroke-slate-600"
-          />
-          {/* Traveled path (solid blue) */}
-          <line
-            x1={x1} y1={h/2} x2={px} y2={h/2}
-            stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round"
-          />
-          {/* Flowing aurora: gradasi solid bergerak, tanpa pola dash/partikel. */}
-          <line
-            x1={x1} y1={h/2} x2={px} y2={h/2}
-            stroke={`url(#${auroraGradientId})`}
-            strokeWidth="5" strokeLinecap="round" opacity="0.18"
-          />
-          <line
-            x1={x1} y1={h/2} x2={px} y2={h/2}
-            stroke={`url(#${auroraGradientId})`}
-            strokeWidth="2.6" strokeLinecap="round" opacity="0.95"
-          />
-        </>
-      )}
-
-      {/* ===== DELAYED: Same as scheduled but red ===== */}
-      {flight.status === 'delayed' && (
-        <line
-          x1={x1} y1={h/2} x2={x2} y2={h/2}
-          stroke="#fca5a5" strokeWidth="2" strokeDasharray="4 4"
-          className="dark:stroke-red-800"
-        >
-          <animate attributeName="stroke-dashoffset" values="0;-16" dur="1s" repeatCount="indefinite" />
-        </line>
-      )}
-
-      {/* ===== LANDED: Solid green line ===== */}
-      {flight.status === 'landed' && (
-        <line
-          x1={x1} y1={h/2} x2={x2} y2={h/2}
-          stroke="#10b981" strokeWidth="2.5" strokeLinecap="round"
-        />
-      )}
-
-      {/* ===== CANCELLED: Gray dashed static ===== */}
-      {flight.status === 'cancelled' && (
-        <line
-          x1={x1} y1={h/2} x2={x2} y2={h/2}
-          stroke="#d1d5db" strokeWidth="1.5" strokeDasharray="3 3"
-          className="dark:stroke-slate-600"
-        />
-      )}
-
-      {/* ===== Departure dot (selalu hijau) ===== */}
-      <circle cx={x1} cy={h/2} r="3" fill="#10b981" stroke="white" strokeWidth="1.5" />
-
-      {/* ===== Arrival dot ===== */}
-      {flight.status !== 'landed' && (
-        <circle cx={x2} cy={h/2} r="3"
-          fill={flight.status === 'cancelled' ? '#d1d5db' : '#cbd5e1'}
-          stroke="white" strokeWidth="1.5"
-          className="dark:fill-slate-500"
-        />
-      )}
-
-      {/* ===== EN-ROUTE: Plane dot with pulse ===== */}
-      {flight.status === 'en-route' && (
-        <>
-          <circle cx={px} cy={h/2} r="5" fill="#3b82f6" stroke="white" strokeWidth="1.5">
-            <animate attributeName="r" values="4;6;4" dur="1.5s" repeatCount="indefinite" />
-          </circle>
-          <text
-            x={px} y={h/2}
-            textAnchor="middle" dominantBaseline="middle"
-            fontSize="7" fill="white"
-          >✈</text>
-        </>
-      )}
-
-      {/* ===== LANDED: Checkmark pop ===== */}
-      {flight.status === 'landed' && (
-        <g transform={`translate(${x2 - 5}, ${h/2 - 5})`}>
-          <circle cx="5" cy="5" r="5" fill="#10b981" stroke="white" strokeWidth="1.5">
-            <animate attributeName="r" values="3;6;5" dur="0.6s" fill="freeze" />
-          </circle>
-          <path
-            d="M3 5.5 L4.5 7 L7.5 3.5"
-            stroke="white" strokeWidth="1.5" fill="none"
-            strokeLinecap="round" strokeLinejoin="round"
-            opacity="0"
-          >
-            <animate attributeName="opacity" values="0;0;1" dur="0.6s" fill="freeze" />
-          </path>
-        </g>
-      )}
-
-    </svg>
-  );
-}
-
-
 // ── Component ──
 
 // ── Grouping helper ──
@@ -333,7 +172,7 @@ function FlightSegmentRows({ segments }: { segments: FlightSegmentData[] }) {
   return (
     <div className="border-t border-gray-50 dark:border-slate-700/50 px-2.5 py-2 flex flex-col gap-1.5">
       {segments.map((segment, idx) => {
-        const sc = STATUS_CFG[segment.status] || STATUS_CFG.scheduled;
+        const sc = getFlightStatusPresentation(segment.status);
         const route = segment.routeLabel || `${segment.depCode || '—'}-${segment.arrCode || '—'}`;
         const dep = formatTime(segment.depActual || segment.depScheduled);
         const arr = formatTime(segment.arrEstimated || segment.arrScheduled);
@@ -861,7 +700,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
             const segments = first.segments?.length ? first.segments : [];
             const hasSegmentRows = segments.length > 1;
             const summaryFlight = flightWithActiveSegment(first);
-            const sc = STATUS_CFG[summaryFlight.status] || STATUS_CFG.scheduled;
+            const sc = getFlightStatusPresentation(summaryFlight.status);
             const totalPax = group.reduce((sum, f) => sum + (f.pax ?? 0), 0);
             const depTime = formatTime(summaryFlight.depActual || summaryFlight.depScheduled);
             const arrTime = formatTime(summaryFlight.arrEstimated || summaryFlight.arrScheduled);
@@ -921,7 +760,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                       {hasSegmentRows ? (
                         <>
                           <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.depCode || '—'}</span>
-                          <RouteLine flight={summaryFlight} />
+                          <FlightRouteLine flight={summaryFlight} />
                           <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.arrCode || '—'}</span>
                         </>
                       ) : summaryFlight.routeLabel ? (
@@ -931,7 +770,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                       ) : (
                         <>
                           <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.depCode || '—'}</span>
-                          <RouteLine flight={summaryFlight} />
+                          <FlightRouteLine flight={summaryFlight} />
                           <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.arrCode || '—'}</span>
                         </>
                       )}

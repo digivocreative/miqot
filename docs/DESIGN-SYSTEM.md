@@ -1,6 +1,6 @@
 # Design System - Alhijaz Dashboard
 
-Terakhir diperbarui: 2026-07-03
+Terakhir diperbarui: 2026-07-12
 
 Dokumen ini merangkum aturan visual dan interaction pattern yang aktif di repo `miqot`. Sumber audit: `tailwind.config.js`, `src/index.css`, `src/components/common/SegmentedControl.tsx`, `FilterDropdown.tsx`, dashboard pages, Portal Jamaah, dan komponen export/share.
 
@@ -58,6 +58,8 @@ Feature accents:
 | Brosur | Rose |
 | AI Tools | Purple/fuchsia |
 | Agents / Analytics | Cyan |
+| Flight status | Blue untuk scheduled/en-route, red untuk delayed/cancelled, emerald untuk landed |
+| Flight OG | Burgundy/gold Alhijaz dengan panel itinerary putih |
 | Settings / CAPI neutral | Gray/slate |
 | Telegram | `#2AA9E0`, `#229ED9`, `#16719E` |
 
@@ -528,6 +530,14 @@ Rules:
 - Keep durations around `150-300ms` for controls and `280-450ms` for page/modal transitions.
 - Use Framer Motion where already established for sheets/panels.
 
+Flight route animation:
+
+- Gunakan `src/components/FlightRouteLine.tsx` untuk kartu Dashboard dan landing `/f/:code`; jangan membuat SVG atau perhitungan progress terpisah.
+- `scheduled`: blue marching dashes untuk perjalanan yang belum dimulai.
+- `en-route`: bagian yang sudah ditempuh berwarna biru, aurora bergerak, serta plane marker yang pulse pada progress terkini.
+- `delayed`: red marching dashes; `landed`: garis emerald dan check pop; `cancelled`: garis dashed statis.
+- Warna, label, dan normalisasi status berasal dari `src/lib/flightStatusPresentation.ts` agar state visual selalu konsisten di semua surface.
+
 ## Image Export & Native Share
 
 Export strategy:
@@ -535,6 +545,13 @@ Export strategy:
 - `snapdom` for DOM-to-image cards that need fidelity.
 - `modern-screenshot` for brochure/page captures already using it.
 - `sharp`/server helper for generated OG and some cached images.
+
+Flight social preview:
+
+- `/og/flight/:code.png` selalu menghasilkan PNG `1200x630` melalui `lib/og-generator.mjs`.
+- Gunakan identitas Alhijaz burgundy/gold, tampilkan agent, maskapai/nomor penerbangan, tanggal, route, jam, durasi, group/pax, dan TL dengan hierarchy yang tetap terbaca pada thumbnail kecil.
+- Jangan menaruh status operasional yang cepat berubah pada gambar karena cache crawler dapat bertahan lebih lama daripada data live.
+- Meta `/f/:code` harus menunjuk URL gambar versioned dan menyertakan width, height, MIME type, alt text, canonical, serta Twitter large image card.
 
 Native share:
 
@@ -594,7 +611,8 @@ Rules:
 
 - Public page should show the actual product/person/place early.
 - Use real/generated bitmap assets where visual inspection matters.
-- Update OG metadata path if share preview matters.
+- Update OG metadata path if share preview matters; untuk route yang dilayani SPA, pastikan Express menyuntikkan tag agar crawler tanpa JavaScript tetap membacanya.
+- Verify OG dimensions, MIME type, cache header, canonical, alt text, and thumbnail readability using representative data.
 - Do not make a marketing landing page when the route is intended to be a tool/app surface.
 
 ### New Export Template
@@ -625,7 +643,7 @@ Don't:
 - Do not add visible how-to text for obvious controls.
 - Do not make one-off palettes that clash with emerald/slate base.
 
-## Current Audit Notes (2026-07-03)
+## Current Audit Notes (2026-07-12)
 
 - Existing app intentionally uses `rounded-2xl` cards; preserve this unless a component-specific system says otherwise.
 - Dashboard is mobile-first and `max-w-lg`; desktop should remain centered unless a feature explicitly needs a wider canvas/map/table.
@@ -633,3 +651,6 @@ Don't:
 - `SegmentedControl` is now reusable; prefer it over copying Settings tab code.
 - `UmrahRegisterPage` has legacy-field-specific UI rules; keep docs and code aligned when legacy field mapping changes.
 - Portal Jamaah uses glass headers and task cards; do not blindly copy dashboard card styles there if the portal component already has a local pattern.
+- Dashboard flight card dan public flight share memakai `FlightRouteLine` serta status presentation yang sama; parity ini adalah kontrak UI.
+- Flight share header hanya memuat identitas penerbangan dan share action. Badge status ditampilkan sekali pada hero untuk menghindari redundansi.
+- Flight OG adalah aset dinamis `1200x630` dengan fakta itinerary stabil, bukan salinan layar status live.

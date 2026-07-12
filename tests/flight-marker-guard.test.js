@@ -33,13 +33,13 @@ test('marker operational date keys cache, status cards, and polling consistently
   assert.match(server, /providerFlightMatchesSegment\(apiData, flightSegment\)/);
 });
 
-test('flight status header only says Live when provider-backed rows exist', () => {
-  assert.match(card, /const hasLiveTracking = flights\.some/);
-  assert.match(card, /hasLiveTracking \? \(/);
-  assert.match(card, /hasUnverified \? 'Perlu Cek'/);
+test('flight status UI uses provider-backed normalized labels without a redundant header badge', () => {
+  assert.match(card, /getFlightStatusPresentation\(summaryFlight\.status\)/);
+  assert.match(card, /\{sc\.label\}/);
   assert.match(server, /is_live: isLive/);
-  assert.match(sharePage, /flight\.is_live \? \(/);
-  assert.match(sharePage, /flight\.flight_status === 'unverified'[\s\S]*\? 'PERLU CEK'/);
+  assert.match(sharePage, /getFlightStatusPresentation\(currentFlightStatus\)/);
+  assert.match(sharePage, /\{status\.label\}/);
+  assert.doesNotMatch(sharePage, /flight\.is_live|liveBreathe|liveRipple/);
 });
 
 test('share regeneration refreshes route and derives SV from flight number', () => {

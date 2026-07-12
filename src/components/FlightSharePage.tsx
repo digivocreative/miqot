@@ -2,12 +2,14 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Plane, Check, MapPin, ArrowRight, ArrowLeft,
   Sun, Cloud, CloudRain, CloudSun, CloudLightning, CloudSnow,
-  Share2, Clock,
+  Share2,
 } from 'lucide-react';
 import { MapContainer, TileLayer, Polyline, Marker } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import logoWhite from '@/logo-alhijaz-white.png';
+import FlightRouteLine from './FlightRouteLine';
+import { getFlightStatusPresentation, normalizeFlightStatus } from '../lib/flightStatusPresentation';
 
 // ── Types ──
 
@@ -30,7 +32,6 @@ interface FlightData {
   tour_leader: string | null;
   airline_code: string | null;
   flight_status: string;
-  is_live?: boolean;
   progress?: number;
   created_at: string | null;
 }
@@ -106,35 +107,9 @@ const AIRLINE_NAMES: Record<string, string> = {
   KD: 'Kal Star Aviation',
 };
 
-// ── Status badge config ──
-
-const STATUS_COLORS: Record<string, string> = {
-  scheduled: 'bg-amber-50 text-amber-700 border border-amber-200',
-  'en-route': 'bg-emerald-50 text-emerald-700 border border-emerald-200',
-  landed:    'bg-blue-50 text-blue-700 border border-blue-200',
-  delayed:   'bg-red-50 text-red-700 border border-red-200',
-  cancelled: 'bg-red-50 text-red-700 border border-red-200',
-  unverified: 'bg-slate-50 text-slate-700 border border-slate-200',
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  scheduled: 'DIJADWALKAN',
-  'en-route': 'TERBANG',
-  landed: 'MENDARAT',
-  delayed: 'DELAY',
-  cancelled: 'DIBATALKAN',
-  unverified: 'PERLU CEK',
-};
-
-function getFlightStatus(flight: FlightData): { label: string; color: string } {
-  const s = flight.flight_status || 'scheduled';
-  return {
-    label: STATUS_LABELS[s] || 'DIJADWALKAN',
-    color: s,
-  };
-}
-
 // ── Helpers ──
+
+const FLIGHT_SHARE_REFRESH_MS = 30 * 60 * 1000;
 
 function generateArc(start: [number, number], end: [number, number], points = 50): [number, number][] {
   const arc: [number, number][] = [];
@@ -244,6 +219,32 @@ function WeatherIcon({ code, size = 20 }: { code: number; size?: number }) {
   return <CloudLightning size={size} className="text-purple-500" />;
 }
 
+async function loadDestinationWeather(iata: string): Promise<WeatherData | null> {
+  const city = CITY_COORDS[iata];
+  if (!city) return null;
+
+  try {
+    const res = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current=temperature_2m,weather_code,relative_humidity_2m&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1`
+    );
+    const data = await res.json();
+    if (!data.current) return null;
+
+    return {
+      temp: Math.round(data.current.temperature_2m),
+      desc: getWeatherDesc(data.current.weather_code),
+      weatherCode: data.current.weather_code,
+      high: Math.round(data.daily.temperature_2m_max[0]),
+      low: Math.round(data.daily.temperature_2m_min[0]),
+      humidity: data.current.relative_humidity_2m
+        ? Math.round(data.current.relative_humidity_2m)
+        : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ── Component ──
 
 export default function FlightSharePage({ code }: FlightSharePageProps) {
@@ -254,42 +255,48 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/flight-share/${code}`)
-      .then(r => r.json())
-      .then(d => {
-        if (d.success) {
-          setData(d.data);
-          fetchWeather(d.data.flight.arr_iata);
-        } else {
+    let disposed = false;
+    let initialRequestComplete = false;
+
+    const loadFlight = async () => {
+      const isInitialRequest = !initialRequestComplete;
+      try {
+        const response = await fetch(`/api/flight-share/${code}`, { cache: 'no-store' });
+        const result = await response.json();
+        if (disposed) return;
+
+        if (result.success) {
+          setData(result.data);
+          setNotFound(false);
+
+          if (isInitialRequest) {
+            void loadDestinationWeather(result.data.flight.arr_iata).then(nextWeather => {
+              if (!disposed && nextWeather) setWeather(nextWeather);
+            });
+          }
+        } else if (isInitialRequest) {
           setNotFound(true);
         }
-      })
-      .catch(() => setNotFound(true))
-      .finally(() => setLoading(false));
-  }, [code]);
-
-  const fetchWeather = async (iata: string) => {
-    const city = CITY_COORDS[iata];
-    if (!city) return;
-    try {
-      const res = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current=temperature_2m,weather_code,relative_humidity_2m&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1`
-      );
-      const d = await res.json();
-      if (d.current) {
-        setWeather({
-          temp: Math.round(d.current.temperature_2m),
-          desc: getWeatherDesc(d.current.weather_code),
-          weatherCode: d.current.weather_code,
-          high: Math.round(d.daily.temperature_2m_max[0]),
-          low: Math.round(d.daily.temperature_2m_min[0]),
-          humidity: d.current.relative_humidity_2m
-            ? Math.round(d.current.relative_humidity_2m)
-            : null,
-        });
+      } catch {
+        if (!disposed && isInitialRequest) setNotFound(true);
+      } finally {
+        if (isInitialRequest) {
+          initialRequestComplete = true;
+          if (!disposed) setLoading(false);
+        }
       }
-    } catch { /* silent fail */ }
-  };
+    };
+
+    void loadFlight();
+    const refreshTimer = window.setInterval(() => {
+      void loadFlight();
+    }, FLIGHT_SHARE_REFRESH_MS);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(refreshTimer);
+    };
+  }, [code]);
 
   // ── Map data ──
   const depCoord = data ? AIRPORT_COORDS[data.flight.dep_iata] : null;
@@ -310,7 +317,8 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
 
   // Pesawat di titik progress sepanjang arc, menghadap searah rute (en-route saja)
   const flightProgress = data?.flight.progress ?? 0;
-  const isEnRoute = data?.flight.flight_status === 'en-route';
+  const currentFlightStatus = normalizeFlightStatus(data?.flight.flight_status);
+  const isEnRoute = currentFlightStatus === 'en-route';
   const { planePos, planeBearing } = useMemo((): { planePos: [number, number] | null; planeBearing: number | null } => {
     if (!isEnRoute || !arcPath) return { planePos: null, planeBearing: null };
     const idx = Math.min(arcPath.length - 1, Math.max(0, Math.round((flightProgress / 100) * (arcPath.length - 1))));
@@ -483,7 +491,7 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
   const { flight, agent } = data;
   const tlClean = cleanTourLeader(flight.tour_leader);
   const arrCityName = flight.arr_city || CITY_COORDS[flight.arr_iata]?.name || flight.arr_iata;
-  const status = getFlightStatus(flight);
+  const status = getFlightStatusPresentation(currentFlightStatus);
   const airlineName = AIRLINE_NAMES[flight.airline_code || ''] || null;
   const dfn = displayFlightNum(flight.flight_number);
 
@@ -533,37 +541,12 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
               {flight.dep_iata} → {flight.arr_iata}
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleNativeShare}
-              className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center active:scale-95 transition-transform"
-            >
-              <Share2 size={14} strokeWidth={2.5} className="text-white/70" />
-            </button>
-            {flight.is_live ? (
-              <div className="flex items-center gap-1.5 bg-white/15 border border-white/20 px-3 py-1.5 rounded-full" style={{ animation: 'liveBreathe 3s ease-in-out infinite' }}>
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="absolute inset-0 rounded-full bg-emerald-400 opacity-75" style={{ animation: 'liveRipple 1.5s ease-out infinite' }} />
-                  <span className="absolute inset-0 rounded-full bg-emerald-400 opacity-50" style={{ animation: 'liveRipple 1.5s ease-out infinite 0.5s' }} />
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400" style={{ animation: 'liveDot 2s ease-in-out infinite' }} />
-                </span>
-                <span className="text-[10px] font-bold text-white tracking-wide">LIVE</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 bg-white/10 border border-white/15 px-3 py-1.5 rounded-full">
-                <Clock size={11} className="text-white/70" />
-                <span className="text-[10px] font-bold text-white/80 tracking-wide">
-                  {flight.flight_status === 'unverified'
-                    ? 'PERLU CEK'
-                    : flight.flight_status === 'landed'
-                      ? 'MENDARAT'
-                      : flight.flight_status === 'cancelled'
-                        ? 'DIBATALKAN'
-                        : 'JADWAL'}
-                </span>
-              </div>
-            )}
-          </div>
+          <button
+            onClick={handleNativeShare}
+            className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center active:scale-95 transition-transform"
+          >
+            <Share2 size={14} strokeWidth={2.5} className="text-white/70" />
+          </button>
         </div>
       </div>
 
@@ -580,27 +563,26 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
                 {formatDate(flight.flight_date)}
               </div>
             </div>
-            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wide flex-shrink-0 ${STATUS_COLORS[status.color] || STATUS_COLORS.scheduled}`}>
-              {status.color === 'en-route' && (
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wide flex-shrink-0 ${status.badge}`}>
+              {currentFlightStatus === 'en-route' && (
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
               )}
               {status.label}
             </span>
           </div>
 
-          {/* Route — large IATA, thick solid+dashed line */}
+          {/* Route status — shared with the Dashboard card */}
           <div className="flex items-center mb-1">
-            <div className="text-4xl font-extrabold text-gray-800 tracking-tight leading-none">
+            <div className="text-4xl font-extrabold text-gray-800 tracking-tight leading-none flex-shrink-0">
               {flight.dep_iata}
             </div>
-            <div className="flex-1 flex items-center px-2">
-              <div className="flex-1 h-[3px] bg-emerald-500 rounded-full" />
-              <div className="w-7 h-7 rounded-full bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center mx-1 flex-shrink-0">
-                <Plane size={12} className="text-emerald-600" fill="currentColor" />
-              </div>
-              <div className="flex-1 border-t-[3px] border-dashed border-gray-300" />
+            <div className="flex-1 min-w-0 px-2">
+              <FlightRouteLine
+                flight={{ status: currentFlightStatus, progress: flight.progress }}
+                className="w-full h-auto"
+              />
             </div>
-            <div className="text-4xl font-extrabold text-gray-800 tracking-tight leading-none text-right">
+            <div className="text-4xl font-extrabold text-gray-800 tracking-tight leading-none text-right flex-shrink-0">
               {flight.arr_iata}
             </div>
           </div>
@@ -648,7 +630,7 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
               <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />
               {/* Style garis = FlightMap dashboard: dashed abu sisa rute,
                   solid biru tertempuh, solid hijau penuh saat landed */}
-              {flight.flight_status === 'landed' ? (
+              {currentFlightStatus === 'landed' ? (
                 <Polyline positions={arcPath} pathOptions={{ color: '#10b981', weight: 3 }} />
               ) : (
                 <Polyline positions={arcPath} pathOptions={{ color: '#cbd5e1', weight: 2, dashArray: '8 6' }} />
@@ -875,18 +857,6 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
         @keyframes shareToastIn {
           from { opacity: 0; transform: translate(-50%, 10px); }
           to { opacity: 1; transform: translate(-50%, 0); }
-        }
-        @keyframes liveRipple {
-          0% { transform: scale(1); opacity: 0.6; }
-          100% { transform: scale(2.8); opacity: 0; }
-        }
-        @keyframes liveDot {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.7; transform: scale(0.85); }
-        }
-        @keyframes liveBreathe {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.03); }
         }
         @keyframes planePulse {
           0%, 100% { transform: scale(1); }

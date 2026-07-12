@@ -143,20 +143,26 @@ export function FilterHeader({
     inputRef.current?.focus();
   };
 
-  // Group packages by month
+  // Secondary filter choices must match the packages those modes can show.
+  // Sold-out packages remain accessible only through "SEMUA DATA".
+  const availablePackages = useMemo(() => {
+    return packages.filter(pkg => pkg.seatSisa > 0);
+  }, [packages]);
+
+  // Group available packages by month
   const monthGroups = useMemo<MonthGroup[]>(() => {
-    return groupByMonth(packages);
-  }, [packages]);
+    return groupByMonth(availablePackages);
+  }, [availablePackages]);
 
-  // Extract unique durations from packages
+  // Extract unique durations from available packages
   const durationOptions = useMemo(() => {
-    return extractUniqueDurations(packages);
-  }, [packages]);
+    return extractUniqueDurations(availablePackages);
+  }, [availablePackages]);
 
-  // Extract unique landing cities from packages
+  // Extract unique landing cities from available packages
   const landingOptions = useMemo(() => {
-    return extractUniqueLandings(packages);
-  }, [packages]);
+    return extractUniqueLandings(availablePackages);
+  }, [availablePackages]);
 
   // Check if secondary dropdown should be shown
   const showSortDropdown = filterMode === 'AVAILABLE' || filterMode === 'LIBURAN_SEKOLAH' || filterMode === 'UMROH CUTI 5 HARI' || filterMode === 'PROMO' || filterMode === 'UMROH REGULER' || filterMode === 'UMROH MUSIM DINGIN' || filterMode === 'BINTANG 5';

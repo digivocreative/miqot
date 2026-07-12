@@ -302,25 +302,29 @@ export function filterPackages(
 ): UmrohPackage[] {
   const { mode, secondaryValue } = params;
 
-  switch (mode) {
-    case 'SEMUA DATA':
-      // Return all data, no filtering
-      return data;
+  // "SEMUA DATA" is the only mode that may expose sold-out packages.
+  // Every other schedule filter starts from packages that still have seats,
+  // including modes whose secondary option has not been selected yet.
+  if (mode === 'SEMUA DATA') {
+    return data;
+  }
 
+  const availableData = data.filter(pkg => pkg.seatSisa > 0);
+
+  switch (mode) {
     case 'AVAILABLE':
-      // Filter packages with available seats
-      return data.filter(pkg => pkg.seatSisa > 0);
+      return availableData;
 
     case 'LANDING DI':
       // Filter by landing city (airport code of the departure flight's final leg)
       if (!secondaryValue) {
-        return data;
+        return availableData;
       }
-      return data.filter(pkg => getLandingAirportCode(pkg) === secondaryValue);
+      return availableData.filter(pkg => getLandingAirportCode(pkg) === secondaryValue);
 
     case 'LIBURAN_SEKOLAH':
       // Filter packages with departure in June or July 2026
-      return data.filter(pkg => {
+      return availableData.filter(pkg => {
         const depDate = new Date(pkg.keberangkatan.tgl);
         const month = depDate.getMonth(); // 0-indexed: 5=June, 6=July
         const year = depDate.getFullYear();
@@ -328,15 +332,15 @@ export function filterPackages(
       });
 
     case 'UMROH CUTI 5 HARI':
-      return data.filter(matchesCuti5Hari);
+      return availableData.filter(matchesCuti5Hari);
 
     case 'PROMO':
       // Filter promo packages only
-      return data.filter(pkg => pkg.isPromo);
+      return availableData.filter(pkg => pkg.isPromo);
 
     case 'UMROH REGULER':
       // Only packages with Mekkah & Madinah (no "PLUS" in name, no non-Saudi destinations)
-      return data.filter(pkg => {
+      return availableData.filter(pkg => {
         // Exclude packages with "PLUS" in their name
         if (pkg.nama.toUpperCase().includes('PLUS')) return false;
         return Object.values(pkg.hotel).every(hotelInfo => {
@@ -352,14 +356,14 @@ export function filterPackages(
 
     case 'UMROH MUSIM DINGIN':
       // Packages departing in December or January (winter season)
-      return data.filter(pkg => {
+      return availableData.filter(pkg => {
         const month = new Date(pkg.keberangkatan.tgl).getMonth(); // 0-indexed
         return month === 11 || month === 0; // December or January
       });
 
     case 'BINTANG 5':
       // Packages where at least one tier has all bintang 5
-      return data.filter(pkg => {
+      return availableData.filter(pkg => {
         return Object.values(pkg.hotel).some(hotelInfo => {
           const info = hotelInfo as unknown as Record<string, string>;
           const bintangKeys = Object.keys(info).filter(k => k.endsWith('_bintang'));
@@ -370,9 +374,9 @@ export function filterPackages(
     case 'DURASI PERJALANAN':
       // Filter by trip duration
       if (!secondaryValue) {
-        return data;
+        return availableData;
       }
-      return data.filter(pkg => {
+      return availableData.filter(pkg => {
         const days = calculateDuration(pkg);
         return days === parseInt(secondaryValue, 10);
       });
@@ -380,15 +384,15 @@ export function filterPackages(
     case 'DATA PER-BULAN':
       // Filter by departure month
       if (!secondaryValue) {
-        return data;
+        return availableData;
       }
-      return data.filter(pkg => {
+      return availableData.filter(pkg => {
         const monthKey = getMonthKey(pkg.keberangkatan.tgl);
         return monthKey === secondaryValue;
       });
 
     default:
-      return data;
+      return availableData;
   }
 }
 

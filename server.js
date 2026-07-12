@@ -28,7 +28,7 @@ import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCachea
 import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { syncCalendar, enrichKeberangkatanWithKumpul, enrichCalendarPaxJamaah } from './calendar-api.js';
 import { probePublicCalendarPrimary } from './lib/calendar-public-source.js';
-import { regenerateOgForAgent, generatePortalJamaahOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
+import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
@@ -16984,6 +16984,58 @@ app.get('/og/jamaah/:slug/:token.png', async (req, res) => {
   }
 });
 
+// Flight-share OG card. Generated from the share snapshot so each public link
+// gets a useful route preview instead of the agent's generic profile image.
+app.get('/og/flight/:code.png', async (req, res) => {
+  try {
+    const code = String(req.params.code || '');
+    if (!/^[A-Za-z0-9]{6,16}$/.test(code)) {
+      return res.status(404).type('text/plain').send('not found');
+    }
+
+    const { data: share, error } = await supabase
+      .from('flight_shares')
+      .select('flight_number, flight_date, dep_iata, arr_iata, dep_city, arr_city, dep_time, arr_time, duration, group_number, pax, tour_leader, airline_code, agent_id')
+      .eq('code', code)
+      .single();
+
+    if (error || !share) return res.status(404).type('text/plain').send('not found');
+
+    const { data: agent } = await supabase
+      .from('agents')
+      .select('slug, name, photo')
+      .eq('id', share.agent_id)
+      .single();
+
+    const agentPhotoBuffer = await loadAgentPhotoBuffer(agent?.photo, agent?.slug);
+    const png = await generateFlightShareOgPng({
+      flightNumber: share.flight_number,
+      flightDate: share.flight_date,
+      depIata: share.dep_iata,
+      arrIata: share.arr_iata,
+      depCity: share.dep_city,
+      arrCity: share.arr_city,
+      depTime: share.dep_time,
+      arrTime: share.arr_time,
+      duration: share.duration,
+      airlineName: AIRLINE_NAMES_SERVER[share.airline_code] || share.airline_code,
+      groupNumber: share.group_number,
+      pax: share.pax,
+      tourLeader: share.tour_leader,
+      agentName: agent?.name,
+      agentPhotoBuffer,
+    });
+
+    return res.set({
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+    }).send(png);
+  } catch (err) {
+    console.error('[og/flight] generation failed:', err.message);
+    return res.status(500).type('text/plain').send('og generation failed');
+  }
+});
+
 // Serve static assets from dist/ first, then fallback to public/
 // This ensures uploaded files (e.g. agent photos in public/agents/)
 // are always accessible, even if they were added after the last build.
@@ -17144,7 +17196,7 @@ app.get('/f/:code', async (req, res, next) => {
 
     const { data: share } = await supabase
       .from('flight_shares')
-      .select('flight_number, flight_date, dep_iata, arr_iata, dep_city, arr_city, agent_id, airline_code')
+      .select('flight_number, flight_date, dep_iata, arr_iata, dep_city, arr_city, dep_time, arr_time, duration, group_number, pax, tour_leader, agent_id, airline_code')
       .eq('code', code)
       .single();
 
@@ -17153,18 +17205,40 @@ app.get('/f/:code', async (req, res, next) => {
     // Ambil nama agent
     const { data: agent } = await supabase
       .from('agents')
-      .select('slug, name')
+      .select('slug, name, photo')
       .eq('id', share.agent_id)
       .single();
 
-    const agentName = agent?.name || 'Agent';
-    const agentSlug = agent?.slug || '';
+    const agentName = String(agent?.name || 'Agent').trim() || 'Agent';
     const airlineName = AIRLINE_NAMES_SERVER[share.airline_code] || '';
-    const flightNum = share.flight_number.replace(/^([A-Z]{2})(\d+)$/, '$1 $2');
+    const flightNum = String(share.flight_number || '')
+      .replace(/\s+/g, '')
+      .replace(/^([A-Z0-9]{2})(\d+)$/, '$1 $2');
 
-    const title = `Lacak Penerbangan ${airlineName ? airlineName + ' ' : ''}${flightNum} - ${agentName}`;
-    const description = `Status penerbangan ${share.flight_number} dari ${share.dep_city || share.dep_iata} ke ${share.arr_city || share.arr_iata}. Dikelola oleh ${agentName} — Alhijaz Indowisata.`;
-    const ogImageUrl = `${req.protocol}://${req.get('host')}/og/${agentSlug}.png`;
+    const origin = `${req.protocol}://${req.get('host')}`;
+    const rawTitle = `Lacak Penerbangan ${airlineName ? airlineName + ' ' : ''}${flightNum} - ${agentName}`;
+    const rawDescription = `Status penerbangan ${share.flight_number} dari ${share.dep_city || share.dep_iata} ke ${share.arr_city || share.arr_iata}. Dikelola oleh ${agentName} — Alhijaz Indowisata.`;
+    const imageVersion = crypto.createHash('sha1').update(JSON.stringify([
+      share.flight_number,
+      share.flight_date,
+      share.dep_iata,
+      share.arr_iata,
+      share.dep_time,
+      share.arr_time,
+      share.duration,
+      share.group_number,
+      share.pax,
+      share.tour_leader,
+      agentName,
+      agent?.photo,
+    ])).digest('hex').slice(0, 10);
+    const pageUrl = `${origin}/f/${encodeURIComponent(code)}`;
+    const rawOgImageUrl = `${origin}/og/flight/${encodeURIComponent(code)}.png?v=${imageVersion}`;
+    const title = escapeHtmlAttr(rawTitle);
+    const description = escapeHtmlAttr(rawDescription);
+    const canonicalUrl = escapeHtmlAttr(pageUrl);
+    const ogImageUrl = escapeHtmlAttr(rawOgImageUrl);
+    const imageAlt = escapeHtmlAttr(`Status penerbangan ${flightNum}: ${share.dep_iata} ke ${share.arr_iata}`);
 
     let html = getIndexHtml();
 
@@ -17179,26 +17253,33 @@ app.get('/f/:code', async (req, res, next) => {
 
     // Remove existing OG tags
     html = html.replace(/<meta\s+property="og:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+    html = html.replace(/<meta\s+name="twitter:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+    html = html.replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '');
 
     const metaTags = `
+      <link rel="canonical" href="${canonicalUrl}" />
       <meta property="og:title" content="${title}" />
       <meta property="og:description" content="${description}" />
       <meta property="og:type" content="website" />
-      <meta property="og:url" content="https://alhijaz.co/f/${code}" />
+      <meta property="og:url" content="${canonicalUrl}" />
       <meta property="og:site_name" content="Alhijaz Indowisata" />
       <meta property="og:image" content="${ogImageUrl}" />
       <meta property="og:image:width" content="1200" />
       <meta property="og:image:height" content="630" />
+      <meta property="og:image:type" content="image/png" />
+      <meta property="og:image:alt" content="${imageAlt}" />
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:title" content="${title}" />
       <meta name="twitter:description" content="${description}" />
       <meta name="twitter:image" content="${ogImageUrl}" />
+      <meta name="twitter:image:alt" content="${imageAlt}" />
     `;
 
     // Inject sebelum </head>
     html = html.replace('</head>', `${metaTags}\n</head>`);
 
     res.set('Content-Type', 'text/html');
+    res.set('Cache-Control', 'public, max-age=0, must-revalidate');
     res.send(html);
   } catch (err) {
     console.error('[FlightShare] OG injection error:', err.message);

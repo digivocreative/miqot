@@ -1,8 +1,8 @@
 # Alhijaz Indowisata - Project Summary
 
-Terakhir diperbarui: 2026-07-03
+Terakhir diperbarui: 2026-07-12
 
-Dokumen ini adalah peta kerja untuk repo `miqot` / `alhijaz-umroh-schedule`. Isinya dibuat dari audit struktur repo, route backend, modul frontend, migrasi, test, dan flow operasional yang aktif pada 2026-07-03.
+Dokumen ini adalah peta kerja untuk repo `miqot` / `alhijaz-umroh-schedule`. Isinya dibuat dari audit struktur repo, route backend, modul frontend, migrasi, test, dan flow operasional yang aktif pada 2026-07-12.
 
 ## Cara Pakai Cepat
 
@@ -32,7 +32,7 @@ Saat menambah fitur besar, update bagian:
 | Auth | Custom JWT untuk dashboard. Portal Jamaah memakai magic link + cookie. MCP memakai bearer key agent-scoped. |
 | Upstream | `jadwal.alhijaz.co`, legacy internal `115.124.86.220/aiw`, AWAPI official, AirLabs, Bank Mandiri, OpenAI, Google TTS, Telegram, Bunny CDN. |
 | Deploy | VPS Ubuntu via systemd `miqot.service`; webhook deploy menarik repo, build, lalu restart service. |
-| Test | 70 file `node:test`; fokus pure/business logic dan source guards. Tidak ada e2e full browser suite. |
+| Test | 106 file `node:test`; fokus pure/business logic, generator, dan source guards. Tidak ada e2e full browser suite. |
 
 ## Command Cepat
 
@@ -72,13 +72,13 @@ Catatan:
 | Flow | Entry point | Modul utama | Output |
 | --- | --- | --- | --- |
 | Public jadwal paket | `/`, `/:slug`, `/:slug/:jadwalId` | `src/App.tsx`, `src/services/data-service.ts`, `/api/api-get/*`, `/api/schedules/:yearCode` | Paket umroh, filter, CTA WhatsApp, analytics public. |
-| Landing agent | `/:slug/umroh`, `/:slug/haji`, `/:slug/bio` | `functions/[slug]/*`, SSR injection di `server.js`, `LandingPagePage.tsx`, bio editor | SEO/OG page agent, Link Bio, custom domain context. |
+| Landing agent | `/:slug/umroh`, `/:slug/haji`, `/:slug/bio`, `/dashboard/ai-tools/landing-page/:type` | `functions/[slug]/*`, SSR injection di `server.js`, `LandingPagePage.tsx`, `src/components/landing-builder/`, bio editor | SEO/OG page agent, visual landing builder, Link Bio, custom domain context. |
 | Dashboard | `/dashboard/*` | `DashboardLayout.tsx`, lazy-loaded feature pages | Tools agent/admin, jamaah, statistik, AI tools, settings. |
 | Sync jamaah umroh | `/api/laporan/sync`, background loop | `awapi-client.js`, `laporan-api.js`, sync helpers in `lib/` | Upsert `jamaah`, payment provenance, notification, CAPI Purchase. |
 | Pendaftaran umrah | `/dashboard/jamaah/daftar`, `/api/umrah/*` | `UmrahRegisterPage.tsx`, `server.js`, `laporan-api.js`, Playwright fallback | Submit jamaah baru/tambah jamaah ke legacy Alhijaz. |
 | Sync jamaah haji | `/api/haji/sync`, background loop | `awapi-client.js`, `haji-api.js`, `lib/haji-stats.js` | Upsert `jamaah_haji`, docs, stats. |
 | Portal Jamaah | `/:slug/jamaah...`, `/api/portal/jamaah/*` | `src/components/portal-jamaah/`, portal API in `server.js` | Magic link, dashboard jamaah, persiapan, payment/doc/travel view. |
-| Calendar & flight | `/api/calendar/*`, `/api/flights/*`, `/f/:code` | `calendar-api.js`, flight helpers, `FlightStatusCard.tsx` | Calendar events, AirLabs status, flight share public page. |
+| Calendar & flight | `/api/calendar/*`, `/api/flights/*`, `/f/:code`, `/og/flight/:code.png` | `calendar-api.js`, flight helpers, `FlightStatusCard.tsx`, `FlightSharePage.tsx`, `FlightRouteLine.tsx`, `flightStatusPresentation.ts`, `lib/og-generator.mjs` | Calendar events, AirLabs status, public flight share, dan OG image spesifik penerbangan. |
 | AI tools | `/api/ai-copy`, `/api/ask-ai/*`, `/api/ai-tools/*` | OpenAI proxy, `AskAIModal.tsx`, AI tools pages | Captions, Tanya AI, script/voice, brochure schedule data. |
 | CAPI analytics | `/api/capi/*`, `/api/analytics/*` | CAPI helpers in `server.js`, `lib/analytics-maintenance.js` | Meta events, logs, admin analytics, daily aggregate. |
 | Telegram | `/api/telegram/*`, `telegram-notifier.js` | Bot webhook + cron jobs | Deep link connect, preference, alerts, reminders, kurs. |
@@ -100,6 +100,8 @@ Catatan:
 ├── mcp-server.js                     # MCP read-only server (data bisnis, per-agent)
 ├── dev-mcp.js                        # Dev-MCP: MCP developer-tool (docs/struktur/kode) + OAuth single-user
 ├── deploy-webhook.js                 # GitHub webhook deploy listener
+├── lib/og-generator.mjs              # Generator OG Top Partner dan flight share
+├── lib/landing-builder*.js           # Validasi, access gate, dan transform visual landing builder
 ├── vite.config.ts                    # Vite, PWA, dev plugins, manual chunks
 ├── tailwind.config.js                # Tailwind tokens and animations
 ├── src/
@@ -107,6 +109,7 @@ Catatan:
 │   ├── App.tsx                       # Public package listing
 │   ├── index.css                     # Global CSS and custom animations
 │   ├── components/                   # 100+ component files and feature folders
+│   │   └── landing-builder/          # Editor visual landing Umroh/Haji
 │   ├── data/                         # Agent/package metadata helpers
 │   ├── hooks/                        # Shared frontend hooks
 │   ├── lib/                          # Frontend helper modules
@@ -118,7 +121,7 @@ Catatan:
 ├── scripts/                          # Migrations, backfills, one-off tools
 ├── migrations/                       # SQL migrations committed for recent schema changes
 ├── public/                           # Static assets, fonts, OG images, landing HTML
-├── tests/                            # 70 node:test files
+├── tests/                            # 106 node:test files
 ├── Dockerfile
 └── docker-compose.yml
 ```
@@ -129,7 +132,7 @@ Express is the production boundary:
 
 - Serves `/api/*` backend routes.
 - Serves `dist/` assets and SPA fallback.
-- Injects OG metadata/context for public landing pages.
+- Injects OG metadata/context for public landing pages dan membuat OG PNG dinamis untuk flight share.
 - Runs Telegram notifier, sync loops, weather/top-partner refresh, schedule sync, DB health probes.
 - Owns server-only secrets through `dotenv`.
 
@@ -139,13 +142,13 @@ PWA is enabled only on `alhijaz.co`, `localhost`, and `127.0.0.1`. Custom domain
 
 ## Source Inventory
 
-Snapshot audit 2026-07-03:
+Snapshot audit 2026-07-12:
 
 | Area | Count / note |
 | --- | --- |
-| `src` TS/TSX/CSS files | 129 |
-| Test files | 70 `*.test.js` |
-| SQL migrations | 12 files under `migrations/` |
+| `src` TS/TSX/CSS files | 212 |
+| Test files | 106 `*.test.js` |
+| SQL migrations | 13 files under `migrations/` |
 | Backend route declarations | 120+ `app.get/post/put/delete` declarations in `server.js` |
 | Largest file | `server.js` (~18k lines) |
 | Critical large frontend files | `PackageCard`, `DashboardProfile`, `JamaahPage`, `UmrahRegisterPage`, `KalkulasiPage`, `HajiPage`, `AskAIModal`, `StatistikPage`. |
@@ -173,6 +176,7 @@ Snapshot audit 2026-07-03:
 ### Public
 
 - Jadwal umroh dengan filter paket, maskapai, tanggal, harga, seat, hotel, dan route.
+- Semua mode filter selain `SEMUA DATA` hanya menampilkan paket dengan `seatSisa > 0`; opsi bulan, durasi, dan kota landing juga dibentuk dari paket yang masih tersedia agar pilihan sekunder tidak berujung kosong.
 - Agent-specific public page by slug and custom domain.
 - Single package deep link and OG injection.
 - Package card variants: default, split, spotlight, ticket, tiled, magazine.
@@ -181,7 +185,8 @@ Snapshot audit 2026-07-03:
 - Link Bio (`/:slug/bio`) with editor-driven tiles.
 - Landing pages `/:slug/umroh`, `/:slug/haji`.
 - Portal Jamaah (`/:slug/jamaah`) with magic-link flow.
-- Flight share page `/f/:code`.
+- Flight share page `/f/:code` memakai status, warna, progress bar, dan animasi yang sama dengan kartu Dashboard. Header hanya memuat identitas penerbangan dan tombol share; status ditampilkan sekali di hero.
+- Preview sosial flight share memakai OG PNG `1200x630` yang dibentuk dari snapshot penerbangan dan profil agent melalui `/og/flight/:code.png`.
 - Top Partner directory `/top-partner`.
 - Special landing `/rahmah-1-juli-2026` untuk pilihan pengambilan Air Zam-zam per jamaah.
 
@@ -202,8 +207,20 @@ Snapshot audit 2026-07-03:
 - Voice-over script and audio generation.
 - Simulasi Haji Plus and Haji Plus export.
 - Business card generator.
+- Visual Landing Page Builder Umroh/Haji untuk agent yang mendapat akses.
 - MCP integration key management.
 - Admin agent management and analytics.
+
+### Landing Page Builder
+
+Visual editor berada di `/dashboard/ai-tools/landing-page/:type`, dengan `type` bernilai `umroh` atau `haji`.
+
+- Access gate saat ini dibatasi ke agent slug `nikita` oleh `lib/landing-builder-access.js`; backend tetap memvalidasi akses pada setiap route, bukan hanya menyembunyikan menu frontend.
+- Editor mendukung draft terpisah dari versi published, autosave sekitar 800 ms setelah perubahan, preview sekitar 300 ms, undo/redo, restore published, dan publish eksplisit.
+- Preview dapat dilihat dalam mode desktop, tablet, atau mobile. Teks, gambar, dan section dapat dipilih langsung dari iframe preview untuk membuka inspector terkait.
+- Hero, konten, paket unggulan, dan program dapat diedit. Kontak/WhatsApp dikunci dan selalu diturunkan dari profil agent.
+- Upload hero menggunakan storage Bunny pada path `landing-builder/...`; konfigurasi draft/published disimpan di `agents.landing_config`.
+- Surface API utama: `GET /api/landing-builder/:type`, `PUT /api/landing-builder/:type/draft`, serta `POST` untuk `preview`, `publish`, dan `hero-image`.
 
 ### Special Landing Rahmah Juli
 
@@ -303,6 +320,15 @@ Public calendar transport and flight tracking fail closed when upstream evidence
 - Calendar-only or expired active states become `unverified`/`Perlu Cek`; scheduled snapshots expire at planned takeoff instead of pretending to be live.
 - Verified itinerary timing overrides are keyed by schedule/date/flight and guarded by itinerary SHA-256.
 
+Presentation status penerbangan sengaja dibagi sebagai shared UI agar Dashboard dan landing publik tidak menyimpang:
+
+- `src/lib/flightStatusPresentation.ts` adalah sumber tunggal normalisasi status, label, dan warna untuk `scheduled`, `en-route`, `delayed`, `landed`, `cancelled`, dan `unverified`.
+- `src/components/FlightRouteLine.tsx` adalah SVG bersama untuk kartu Dashboard dan `/f/:code`: scheduled memakai marching dash, en-route menampilkan garis yang sudah ditempuh dan pulse pesawat, delayed memakai dash merah, landed memakai garis/check hijau, sedangkan cancelled statis.
+- `FlightStatusCard.tsx` dan `FlightSharePage.tsx` harus memakai dua modul shared tersebut. Jangan menyalin kembali mapping status atau SVG route ke masing-masing surface.
+- Public flight share me-refresh `/api/flight-share/:code` setiap 30 menit dengan `cache: no-store`, sama seperti cadence Dashboard.
+- OG image `/og/flight/:code.png` mengambil snapshot `flight_shares` dan identitas agent. Gambar sengaja tidak mengklaim status operasional sementara karena cache crawler dapat hidup lebih lama dari status penerbangan.
+- HTML `/f/:code` menyuntikkan canonical, Open Graph, Twitter Card, alt text, dan query version SHA-1 pada URL gambar agar perubahan data utama mem-bust cache crawler.
+
 ### DB Protection
 
 `lib/db-health.js` and `lib/db-circuit.js` protect the app when Supabase is slow/unreachable:
@@ -331,17 +357,17 @@ Do not increase background sync cadence, upsert batch size, or route polling wit
 | Rahmah tour-leader prep | `/api/tour-leader-prep/:tripSlug/*` |
 | Haji | `/api/haji/*` |
 | Calendar | `/api/calendar/*` |
-| Flights | `/api/flights/*`, `/api/flight-share/*` |
+| Flights | `/api/flights/*`, `/api/flight-share/*`, `/og/flight/:code.png` |
 | AI | `/api/ai-copy`, `/api/ask-ai/*`, `/api/ai-tools/*` |
 | Analytics | `/api/analytics/*` |
 | Weather/Kurs | `/api/weather/*`, `/api/kurs*` |
-| Landing/Bio/Domain | `/api/landing-config`, `/api/bio/*`, `/api/agent/custom-domain` |
+| Landing/Bio/Domain | `/api/landing-config`, `/api/landing-builder/:type/*`, `/api/bio/*`, `/api/agent/custom-domain` |
 | Portal Jamaah | `/api/portal/jamaah/*` |
 | MCP | `/mcp`, `/api/mcp-key` |
 | Dev-MCP | `/dev-mcp`, `/oauth/dev/*`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server` |
 | Top Partner | `/api/top-partner` |
 | Schedule cache | `/api/schedules/:yearCode` |
-| Static/proxy/public | `/itinerary/*`, `/brosur/*`, `/:slug/umroh`, `/:slug/haji`, `/:slug/bio`, `/top-partner`, `/f/:code`, SPA fallback |
+| Static/proxy/public | `/itinerary/*`, `/brosur/*`, `/:slug/umroh`, `/:slug/haji`, `/:slug/bio`, `/top-partner`, `/f/:code`, `/og/flight/:code.png`, SPA fallback |
 
 Auth format for dashboard endpoints:
 
@@ -497,6 +523,7 @@ DB and cache tunables:
 - Many routes return mixed shapes because some legacy failures are normalized to `success:false` with HTTP 200. Frontend must handle both `res.ok` and `success:false`.
 - PWA/custom-domain interaction is subtle. Service worker must remain disabled on custom domains.
 - Public landing and OG behavior depends on both `functions/[slug]/*` and `server.js` injection. Update both if metadata shape changes.
+- Flight share metadata dan endpoint PNG berada di `server.js`, sedangkan rendering gambarnya di `lib/og-generator.mjs`. Pertahankan dimensi `1200x630`, URL versioned, dan hindari status live pada aset yang dicache crawler.
 - Test suite is strong on pure logic, weak on browser end-to-end. Critical user flows need manual smoke or Playwright tests if expanded.
 
 ### Low Risk / Maintenance
@@ -536,16 +563,20 @@ Don't:
 | Sync/payment logic | Related `tests/*sync*`, `jamaah-payment*`, `booking-outstanding*`, `awapi*` tests |
 | Frontend dashboard | `npm run build:spa`, browser smoke on target route |
 | Landing pages | `npm run verify:landing`, check OG/public URL |
+| Flight status/share | `node --test tests/flight-*.test.js`, `npm run build`, cek meta `/f/:code`, header/cache/dimensi `/og/flight/:code.png`, dan visual PNG |
 | Design-only change | `npm run build:spa` if class/component code changed; docs-only can use `git diff --check` |
 | Production deploy | build, restart `miqot.service`, check `systemctl is-active`, then relevant endpoint smoke |
 
-## Current Audit Notes (2026-07-10)
+## Current Audit Notes (2026-07-12)
 
 - Pendaftaran umrah memakai browser/reCAPTCHA sebagai jalur utama ketika password legacy tersedia; direct multipart adalah jalur terbatas tanpa saved password.
 - Add-jamaah must use `id_umroh.id_jadwal`; sending only `id_umroh` can target stale/zero-seat booking state.
 - Frontend submit now parses non-JSON/HTML proxy responses and shows a user-readable error instead of raw `<!DOCTYPE html>`.
 - Calendar sync validates snapshot completeness, preserves data during degraded fallback, and re-probes the primary source before authoritative cleanup.
-- Flight UI distinguishes provider-backed live tracking from schedule/unverified fallback; never label calendar-only estimates as `LIVE`.
+- Dashboard dan `/f/:code` kini memakai shared status presentation serta `FlightRouteLine`; perubahan status atau animasi harus dilakukan pada modul shared.
+- Header flight share tidak lagi menampilkan badge status duplikat. Status tunggal berada di hero, sementara OG image dinamis menampilkan fakta itinerary yang aman dicache.
+- Filter publik selain `SEMUA DATA` hanya memproses paket yang masih memiliki kursi; opsi filter sekunder berasal dari subset tersedia yang sama.
+- Landing Page Builder Umroh/Haji memiliki draft/published lifecycle, preview interaktif, dan access gate backend untuk agent yang diizinkan.
 - Rahmah July Zam-zam selection persists in `booking_persiapan` through the public tour-leader prep API.
 - `src/main.tsx` already has stale-build and stuck-SW escape hatches; preserve them.
 - `docs/project-summary.md` and `docs/DESIGN-SYSTEM.md` were refreshed from current source structure and route audit.
