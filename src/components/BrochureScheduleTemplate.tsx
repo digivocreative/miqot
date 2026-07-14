@@ -144,6 +144,12 @@ const GOLD = '#C98A2C';
 const PALE_GOLD = '#F8DFA1';
 const CREAM = '#FFF8EC';
 const ROW_LINE = '#F0D8B5';
+// Highlight kuning-emas untuk baris paket PROMO / HEMAT. Gradien flat + inset
+// shadow tanpa blur agar tetap raster-safe di export katalog PDF. Sold-out
+// selalu menang atas highlight (baris abu, tanpa kuning).
+const HIGHLIGHT_ROW_BG = 'linear-gradient(90deg, #FFFDF3 0%, #FFF6D2 38%, #FFEDAC 100%)';
+const HIGHLIGHT_ROW_ACCENT = '#EDB421';
+const HIGHLIGHT_ROW_LINE = '#F3D98C';
 const INK = '#241A1C';
 const MUTED = '#6F6264';
 const CANVAS_BACKGROUND = [
@@ -471,6 +477,12 @@ function detectPackagePills(rawName: string, umrohDulu?: boolean): PillTag[] {
   return pills;
 }
 
+// PROMO via flag API (promo='1') ATAU kata di nama; HEMAT hanya via nama —
+// API tidak punya flag tersendiri untuk HEMAT.
+function isHighlightedPackage(p: BrochurePackage): boolean {
+  return p.isPromo === true || /\b(PROMO|HEMAT)\b/i.test(p.nama);
+}
+
 function countTripDays(berangkat: string, pulang: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(berangkat) || !/^\d{4}-\d{2}-\d{2}$/.test(pulang)) return null;
   const start = new Date(`${berangkat}T00:00:00.000Z`);
@@ -782,6 +794,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
           const departureMonthName = showFullDate ? formatDepartureMonthName(p.berangkat_tgl) : '';
           const isSoldOut = !!p.soldOut;
           const soldOutContentOpacity = isSoldOut ? 0.58 : 1;
+          const isHighlighted = !isSoldOut && isHighlightedPackage(p);
 
           return (
             <div key={p.id} style={{
@@ -789,14 +802,17 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
               gridTemplateColumns: TABLE_COLUMNS,
               background: isSoldOut
                 ? 'linear-gradient(90deg, rgba(248,250,252,0.92) 0%, rgba(255,248,236,0.7) 100%)'
-                : '#FFFFFF',
+                : isHighlighted
+                  ? HIGHLIGHT_ROW_BG
+                  : '#FFFFFF',
+              boxShadow: isHighlighted ? `inset 8px 0 0 ${HIGHLIGHT_ROW_ACCENT}` : undefined,
               color: INK,
               fontWeight: 400,
               fontSize: 24,
               height: rowH,
               alignItems: 'center',
               padding: '0 14px',
-              borderTop: i === 0 ? 'none' : `1px solid ${theme.rowLine}`,
+              borderTop: i === 0 ? 'none' : `1px solid ${isHighlighted ? HIGHLIGHT_ROW_LINE : theme.rowLine}`,
               letterSpacing: 0.15,
             }}>
               <span style={{
