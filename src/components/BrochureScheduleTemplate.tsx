@@ -147,9 +147,9 @@ const ROW_LINE = '#F0D8B5';
 // Highlight kuning-emas untuk baris paket PROMO / HEMAT. Gradien flat + inset
 // shadow tanpa blur agar tetap raster-safe di export katalog PDF. Sold-out
 // selalu menang atas highlight (baris abu, tanpa kuning).
-const HIGHLIGHT_ROW_BG = 'linear-gradient(90deg, #FFFDF3 0%, #FFF6D2 38%, #FFEDAC 100%)';
-const HIGHLIGHT_ROW_ACCENT = '#EDB421';
-const HIGHLIGHT_ROW_LINE = '#F3D98C';
+const HIGHLIGHT_ROW_BG = 'linear-gradient(90deg, #FFFEF9 0%, #FFF9E4 45%, #FFF3CE 100%)';
+const HIGHLIGHT_ROW_ACCENT = '#EEC461';
+const HIGHLIGHT_ROW_LINE = '#F5E3AE';
 const INK = '#241A1C';
 const MUTED = '#6F6264';
 const CANVAS_BACKGROUND = [
@@ -805,7 +805,7 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
                 : isHighlighted
                   ? HIGHLIGHT_ROW_BG
                   : '#FFFFFF',
-              boxShadow: isHighlighted ? `inset 8px 0 0 ${HIGHLIGHT_ROW_ACCENT}` : undefined,
+              boxShadow: isHighlighted ? `inset 5px 0 0 ${HIGHLIGHT_ROW_ACCENT}` : undefined,
               color: INK,
               fontWeight: 400,
               fontSize: 24,
