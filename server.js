@@ -106,7 +106,7 @@ import {
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, landingCityFromRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { inferSaudiJourneyOrderFromItinerary } from './lib/journey-order.js';
 import { appendUrlVersion, buildScheduleRows, serializeScheduleRows, shouldKeepScheduleRow } from './lib/umroh-schedules.js';
-import { buildCdnMetadataUpdate, buildSourceDownloadCandidates, getCdnFileDecision } from './lib/cdn-file-sync.js';
+import { buildCdnMetadataUpdate, buildSourceDownloadCandidates, getCdnFileDecision, resolveScheduleBrochureSource } from './lib/cdn-file-sync.js';
 import {
   CURRENCY_NAMES,
   isKursCacheRefreshDue,
@@ -15762,7 +15762,7 @@ async function syncUmrohSchedules() {
         pulang_kode_penerbangan: p.pulang_kode_penerbangan,
         manasik_tgl: p.manasik_tgl,
         manasik_jam: p.manasik_jam,
-        brosur: p.brosur,
+        brosur: resolveScheduleBrochureSource(p),
         itinerary: p.itinerary,
         perlengkapan_harga: p.perlengkapan_harga,
         paket_harga: p.paket_harga,

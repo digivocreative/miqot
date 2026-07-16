@@ -6,7 +6,28 @@ import {
   buildCdnMetadataUpdate,
   buildSourceDownloadCandidates,
   getCdnFileDecision,
+  resolveScheduleBrochureSource,
 } from '../lib/cdn-file-sync.js';
+
+test('resolveScheduleBrochureSource: uses the official August brochure for JBU1493', () => {
+  assert.equal(
+    resolveScheduleBrochureSource({
+      jadwal_id: 'JBU1493',
+      berangkat_tgl: '2026-08-16',
+      brosur: 'https://jadwal.alhijaz.co/brosur/legacy-generated-image',
+    }),
+    'https://alhijaz.id/storage/2023/05/Umroh-Plus-Turki-2026-Agustus.webp',
+  );
+
+  assert.equal(
+    resolveScheduleBrochureSource({
+      jadwal_id: 'JBU1493',
+      berangkat_tgl: '2027-08-16',
+      brosur: 'https://jadwal.alhijaz.co/brosur/future-package',
+    }),
+    'https://jadwal.alhijaz.co/brosur/future-package',
+  );
+});
 
 test('buildSourceDownloadCandidates: prefers direct origin for schedule files', () => {
   assert.deepEqual(
@@ -22,6 +43,18 @@ test('buildSourceDownloadCandidates: keeps direct-IP HTTP usable', () => {
   assert.deepEqual(
     buildSourceDownloadCandidates('http://115.124.86.220/itinerary/paket.pdf?download=1'),
     ['http://115.124.86.220/itinerary/paket.pdf?download=1'],
+  );
+});
+
+test('buildSourceDownloadCandidates: can mirror official marketing images behind Cloudflare', () => {
+  assert.deepEqual(
+    buildSourceDownloadCandidates(
+      'https://alhijaz.id/storage/2023/05/Umroh-Plus-Turki-2026-Agustus.webp',
+    ),
+    [
+      'https://alhijaz.id/storage/2023/05/Umroh-Plus-Turki-2026-Agustus.webp',
+      'https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Falhijaz.id%2Fstorage%2F2023%2F05%2FUmroh-Plus-Turki-2026-Agustus.webp&f=1&nofb=1',
+    ],
   );
 });
 
