@@ -1,10 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Download, Loader2, Share2, Check, Maximize2, Minimize2 } from 'lucide-react';
+import { Download, Loader2, Share2, Check, Maximize2, Minimize2, QrCode } from 'lucide-react';
 import QRCode from 'qrcode';
 import { trackEvent } from '../utils/analytics';
+import { handleAgentPhotoError } from '../lib/agent-photo';
+import { getAuthHeaders } from './LoginPage';
 
 type DesignId = 'd1' | 'd2' | 'd3' | 'd4' | 'd5';
 type CardFormat = 'landscape' | 'portrait';
+type QrMode = 'web' | 'vcard';
+
+const QR_MODES: { id: QrMode; label: string; desc: string }[] = [
+  { id: 'web', label: 'Halaman Web', desc: 'Scan membuka halaman paket umroh kamu' },
+  { id: 'vcard', label: 'Simpan Kontak', desc: 'Scan langsung menyimpan nama & nomormu ke kontak HP. Paling andal discan dari layar; untuk kartu cetak, pakai mode Halaman Web.' },
+];
 
 interface DesignMeta {
   id: DesignId;
@@ -17,7 +25,8 @@ const DESIGNS: DesignMeta[] = [
   { id: 'd2', name: 'Dark Navy', qrColor: { dark: '#0f172a', light: '#f8fafc' } },
   { id: 'd3', name: 'Minimal Line', qrColor: { dark: '#059669', light: '#ffffff' } },
   { id: 'd4', name: 'Warm Gold', qrColor: { dark: '#b45309', light: '#fffbeb' } },
-  { id: 'd5', name: 'Full Dark', qrColor: { dark: '#10b981', light: '#0f172a' } },
+  // d5: QR tetap gelap-di-terang (tile putih) — QR terbalik sering ditolak scanner.
+  { id: 'd5', name: 'Full Dark', qrColor: { dark: '#0f172a', light: '#ffffff' } },
 ];
 
 const CARD_SIZE = {
@@ -46,10 +55,46 @@ function getInitials(name: string): string {
   return name.split(/\s+/).map(w => w.charAt(0)).slice(0, 2).join('').toUpperCase();
 }
 
+function normalizePhoneDigits(phone: string): string {
+  let d = (phone || '').replace(/\D/g, '');
+  if (d.startsWith('0')) d = '62' + d.slice(1);
+  return d;
+}
+
+// "6281234567890" → "+62 812-3456-7890"
+function formatPhoneDisplay(phone: string): string {
+  const d = normalizePhoneDigits(phone);
+  if (!d) return '';
+  const rest = d.startsWith('62') ? d.slice(2) : d;
+  const tail = rest.slice(3).match(/.{1,4}/g) || [];
+  return `+62 ${[rest.slice(0, 3), ...tail].filter(Boolean).join('-')}`;
+}
+
+function escapeVCard(v: string): string {
+  return v.replace(/\\/g, '\\\\').replace(/[,;]/g, m => '\\' + m).replace(/\n/g, '\\n');
+}
+
+// vCard 3.0 seminimal mungkin: tiap karakter menaikkan kepadatan QR (payload
+// penuh = QR versi 11 yang gagal discan dari cetakan). TITLE & URL sengaja
+// tidak disertakan — URL sudah dilayani mode QR "Halaman Web".
+function buildVCard(o: { name: string; phoneDigits: string; email: string }): string {
+  const lines = ['BEGIN:VCARD', 'VERSION:3.0', `N:;${escapeVCard(o.name)};;;`, `FN:${escapeVCard(o.name)}`, 'ORG:Alhijaz Indowisata'];
+  if (o.phoneDigits) lines.push(`TEL;TYPE=CELL:+${o.phoneDigits}`);
+  if (o.email) lines.push(`EMAIL:${escapeVCard(o.email)}`);
+  lines.push('END:VCARD');
+  return lines.join('\r\n');
+}
+
+// Kecilkan font nama panjang agar tetap muat satu baris (maxChars ≈ lebar area / (0.52 × base)).
+function fitName(base: number, name: string, maxChars: number): number {
+  if (name.length <= maxChars) return base;
+  return Math.max(Math.round((base * maxChars) / name.length), Math.round(base * 0.6));
+}
+
 // ── Shared sub-components ──
 interface CardProps {
   name: string; initials: string; role: string; brand: string;
-  wa: string; email: string; web: string; slug: string;
+  wa: string; email: string; web: string; qrCaption: string;
   photoUrl: string | null; qrDataUrl: string;
 }
 
@@ -62,9 +107,12 @@ const geoPattern = (color: string, opacity = 0.06) =>
 function Avatar({ url, initials, size, bg, border, textColor, fontSize, shadow }: {
   url: string | null; initials: string; size: number; bg: string; border: string; textColor: string; fontSize: number; shadow?: string;
 }) {
+  // Setelah retry habis, fallback ke inisial bergaya desain kartu (bukan ui-avatars).
+  const [failed, setFailed] = useState(false);
   const s: React.CSSProperties = { width: size, height: size, borderRadius: '50%', border, flexShrink: 0, overflow: 'hidden', boxShadow: shadow || '0 4px 20px rgba(0,0,0,0.15)' };
-  return url
-    ? <img src={url} style={{ ...s, objectFit: 'cover' }} />
+  return url && !failed
+    ? <img src={url} style={{ ...s, objectFit: 'cover' }}
+        onError={e => handleAgentPhotoError(e.currentTarget, initials, size, () => setFailed(true))} />
     : <div style={{ ...s, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <span style={{ fontSize, fontWeight: 700, color: textColor }}>{initials}</span>
       </div>;
@@ -86,8 +134,8 @@ function Contacts({ wa, email, web, iconColor, iconBg, iconBorder, textColor, ga
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap }}>
-      <ContactRow icon={<PhoneSvg color={iconColor} size={15} />} text={wa} iconBg={iconBg} iconBorder={iconBorder} textColor={textColor} />
-      <ContactRow icon={<MailSvg color={iconColor} size={15} />} text={email} iconBg={iconBg} iconBorder={iconBorder} textColor={textColor} />
+      {wa && <ContactRow icon={<PhoneSvg color={iconColor} size={15} />} text={wa} iconBg={iconBg} iconBorder={iconBorder} textColor={textColor} />}
+      {email && <ContactRow icon={<MailSvg color={iconColor} size={15} />} text={email} iconBg={iconBg} iconBorder={iconBorder} textColor={textColor} />}
       <ContactRow icon={<GlobeSvg color={iconColor} size={15} />} text={web} iconBg={iconBg} iconBorder={iconBorder} textColor={textColor} />
     </div>
   );
@@ -104,7 +152,7 @@ function QRBox({ src, size, border, bg, radius = 10 }: { src: string; size: numb
 // ════════════════════════════════════════
 // D1 — Emerald Split (rich gradient + geometric pattern + glassmorphism)
 // ════════════════════════════════════════
-function D1Landscape({ name, role, brand, wa, email, web, photoUrl, initials, qrDataUrl }: CardProps) {
+function D1Landscape({ name, role, brand, wa, email, web, photoUrl, initials, qrDataUrl, qrCaption }: CardProps) {
   return (
     <div style={{ width: 1050, height: 600, display: 'flex', position: 'relative', fontFamily: font, overflow: 'hidden' }}>
       <div style={{ width: 400, height: '100%', background: 'linear-gradient(155deg, #047857, #059669 40%, #10b981)', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0, backgroundImage: geoPattern('#ffffff', 0.08), backgroundSize: '60px 60px' }}>
@@ -113,7 +161,7 @@ function D1Landscape({ name, role, brand, wa, email, web, photoUrl, initials, qr
         <div style={{ position: 'absolute', bottom: -40, left: -40, width: 160, height: 160, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,255,255,0.1), transparent 70%)' }} />
         <Avatar url={photoUrl} initials={initials} size={150} bg="rgba(255,255,255,0.15)" border="4px solid rgba(255,255,255,0.4)" textColor="white" fontSize={52} shadow="0 8px 32px rgba(0,0,0,0.2)" />
         <div style={{ textAlign: 'center', padding: '0 20px', marginTop: 16 }}>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'white', lineHeight: 1.2, textShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>{name}</div>
+          <div style={{ fontSize: fitName(32, name, 21), fontWeight: 700, color: 'white', lineHeight: 1.2, textShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>{name}</div>
           <div style={{ fontSize: 18, color: 'rgba(255,255,255,0.8)', marginTop: 6, fontWeight: 500, letterSpacing: 1 }}>{role}</div>
         </div>
         {/* Arrow divider with glass effect */}
@@ -126,7 +174,7 @@ function D1Landscape({ name, role, brand, wa, email, web, photoUrl, initials, qr
         </div>
         <Contacts wa={wa} email={email} web={web} iconColor="#059669" iconBg="linear-gradient(135deg, #ecfdf5, #d1fae5)" iconBorder="#a7f3d0" textColor="#1f2937" />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div><span style={{ fontSize: 15, color: '#9ca3af', fontWeight: 500 }}>Scan QR → lihat paket umroh</span></div>
+          <div><span style={{ fontSize: 15, color: '#9ca3af', fontWeight: 500 }}>{qrCaption}</span></div>
           <QRBox src={qrDataUrl} size={100} border="1.5px solid #d1fae5" bg="linear-gradient(135deg, #f0fdf4, #ffffff)" />
         </div>
       </div>
@@ -134,7 +182,7 @@ function D1Landscape({ name, role, brand, wa, email, web, photoUrl, initials, qr
   );
 }
 
-function D1Portrait({ name, role, brand, wa, email, web, photoUrl, initials, qrDataUrl }: CardProps) {
+function D1Portrait({ name, role, brand, wa, email, web, photoUrl, initials, qrDataUrl, qrCaption }: CardProps) {
   return (
     <div style={{ width: 600, height: 1020, display: 'flex', flexDirection: 'column', fontFamily: font, overflow: 'hidden', background: 'linear-gradient(180deg, #ffffff 0%, #f0fdf4 100%)' }}>
       <div style={{ height: 300, background: 'linear-gradient(135deg, #047857, #059669 50%, #10b981)', position: 'relative', padding: '36px 36px 0', flexShrink: 0, backgroundImage: geoPattern('#ffffff', 0.07), backgroundSize: '60px 60px' }}>
@@ -149,7 +197,7 @@ function D1Portrait({ name, role, brand, wa, email, web, photoUrl, initials, qrD
         <Avatar url={photoUrl} initials={initials} size={140} bg="#d1fae5" border="6px solid white" textColor="#059669" fontSize={48} shadow="0 8px 32px rgba(0,0,0,0.12)" />
       </div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 16 }}>
-        <div style={{ fontSize: 30, fontWeight: 700, color: '#111827' }}>{name}</div>
+        <div style={{ fontSize: fitName(30, name, 32), fontWeight: 700, color: '#111827' }}>{name}</div>
         <div style={{ fontSize: 18, fontWeight: 600, color: '#10b981', letterSpacing: 2, marginTop: 4 }}>{role}</div>
         <div style={{ width: 50, height: 3, background: 'linear-gradient(90deg, #059669, #34d399)', borderRadius: 2, margin: '16px 0' }} />
         <div style={{ width: '78%' }}>
@@ -157,7 +205,7 @@ function D1Portrait({ name, role, brand, wa, email, web, photoUrl, initials, qrD
         </div>
         <div style={{ marginTop: 'auto', paddingBottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
           <QRBox src={qrDataUrl} size={120} border="1.5px solid #d1fae5" bg="linear-gradient(135deg, #f0fdf4, #ffffff)" />
-          <span style={{ fontSize: 14, color: '#9ca3af', fontWeight: 500 }}>scan → lihat paket</span>
+          <span style={{ fontSize: 14, color: '#9ca3af', fontWeight: 500 }}>{qrCaption}</span>
         </div>
       </div>
     </div>
@@ -167,7 +215,7 @@ function D1Portrait({ name, role, brand, wa, email, web, photoUrl, initials, qrD
 // ════════════════════════════════════════
 // D2 — Dark Navy (deep gradients, cyan accent, glass sidebar)
 // ════════════════════════════════════════
-function D2Landscape({ name, role, brand, wa, email, web, slug, photoUrl, initials, qrDataUrl }: CardProps) {
+function D2Landscape({ name, role, brand, wa, email, web, qrCaption, photoUrl, initials, qrDataUrl }: CardProps) {
   return (
     <div style={{ width: 1050, height: 600, display: 'flex', fontFamily: font, overflow: 'hidden' }}>
       <div style={{ width: 420, background: 'linear-gradient(170deg, #0f172a 0%, #1e293b 60%, #0f172a 100%)', padding: 40, display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'relative', backgroundImage: geoPattern('#10b981', 0.04), backgroundSize: '50px 50px' }}>
@@ -178,7 +226,7 @@ function D2Landscape({ name, role, brand, wa, email, web, slug, photoUrl, initia
         </div>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
           <Avatar url={photoUrl} initials={initials} size={120} bg="linear-gradient(135deg, #1e293b, #334155)" border="3px solid #334155" textColor="#34d399" fontSize={42} shadow="0 8px 32px rgba(0,0,0,0.3)" />
-          <div style={{ fontSize: 30, fontWeight: 700, color: 'white', marginTop: 20, textAlign: 'center', textShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>{name}</div>
+          <div style={{ fontSize: fitName(30, name, 21), fontWeight: 700, color: 'white', marginTop: 20, textAlign: 'center', textShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>{name}</div>
           <div style={{ fontSize: 18, color: '#64748b', marginTop: 4, fontWeight: 500 }}>{role}</div>
         </div>
       </div>
@@ -187,7 +235,7 @@ function D2Landscape({ name, role, brand, wa, email, web, slug, photoUrl, initia
         <span style={{ fontSize: 20, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 2 }}>{brand}</span>
         <Contacts wa={wa} email={email} web={web} iconColor="#475569" iconBg="linear-gradient(135deg, #f8fafc, #f1f5f9)" iconBorder="#e2e8f0" textColor="#374151" />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 16, color: '#9ca3af', fontWeight: 500 }}>{slug}</span>
+          <span style={{ fontSize: 16, color: '#9ca3af', fontWeight: 500 }}>{qrCaption}</span>
           <QRBox src={qrDataUrl} size={96} border="2px solid #1e293b" bg="#f8fafc" />
         </div>
       </div>
@@ -195,7 +243,7 @@ function D2Landscape({ name, role, brand, wa, email, web, slug, photoUrl, initia
   );
 }
 
-function D2Portrait({ name, role, brand, wa, email, web, slug, photoUrl, initials, qrDataUrl }: CardProps) {
+function D2Portrait({ name, role, brand, wa, email, web, qrCaption, photoUrl, initials, qrDataUrl }: CardProps) {
   return (
     <div style={{ width: 600, height: 1020, display: 'flex', flexDirection: 'column', fontFamily: font, overflow: 'hidden', background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)' }}>
       <div style={{ height: 260, background: 'linear-gradient(150deg, #0f172a 0%, #1e293b 100%)', position: 'relative', flexShrink: 0, padding: '36px 36px 0', backgroundImage: geoPattern('#10b981', 0.04), backgroundSize: '50px 50px' }}>
@@ -209,7 +257,7 @@ function D2Portrait({ name, role, brand, wa, email, web, slug, photoUrl, initial
         <Avatar url={photoUrl} initials={initials} size={140} bg="linear-gradient(135deg, #1e293b, #334155)" border="6px solid white" textColor="#34d399" fontSize={48} shadow="0 8px 32px rgba(0,0,0,0.15)" />
       </div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 16 }}>
-        <div style={{ fontSize: 30, fontWeight: 700, color: '#111827' }}>{name}</div>
+        <div style={{ fontSize: fitName(30, name, 32), fontWeight: 700, color: '#111827' }}>{name}</div>
         <div style={{ fontSize: 18, color: '#64748b', marginTop: 4, fontWeight: 500 }}>{role}</div>
         <div style={{ width: 50, height: 2, background: 'linear-gradient(90deg, #0f172a, #334155)', borderRadius: 1, margin: '16px 0' }} />
         <div style={{ width: '78%' }}>
@@ -217,7 +265,7 @@ function D2Portrait({ name, role, brand, wa, email, web, slug, photoUrl, initial
         </div>
         <div style={{ marginTop: 'auto', paddingBottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
           <QRBox src={qrDataUrl} size={120} border="2px solid #1e293b" bg="#f8fafc" />
-          <span style={{ fontSize: 14, color: '#9ca3af', fontWeight: 500 }}>{slug}</span>
+          <span style={{ fontSize: 14, color: '#9ca3af', fontWeight: 500 }}>{qrCaption}</span>
         </div>
       </div>
     </div>
@@ -234,12 +282,12 @@ function D3Landscape({ name, role, brand, wa, email, web, photoUrl, initials, qr
       <div style={{ flex: 1, padding: '36px 48px', display: 'flex', gap: 40, alignItems: 'center' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, flexShrink: 0 }}>
           <Avatar url={photoUrl} initials={initials} size={130} bg="linear-gradient(135deg, #ecfdf5, #d1fae5)" border="3px solid #a7f3d0" textColor="#059669" fontSize={46} shadow="0 6px 24px rgba(5,150,105,0.12)" />
-          <QRBox src={qrDataUrl} size={90} border="1.5px solid #d1fae5" bg="linear-gradient(135deg, #f0fdf4, #ffffff)" />
+          <QRBox src={qrDataUrl} size={104} border="1.5px solid #d1fae5" bg="linear-gradient(135deg, #f0fdf4, #ffffff)" />
         </div>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%' }}>
           <span style={{ fontSize: 18, fontWeight: 700, color: '#059669', textTransform: 'uppercase', letterSpacing: 3 }}>{brand}</span>
           <div>
-            <div style={{ fontSize: 40, fontWeight: 700, color: '#111827', lineHeight: 1.1 }}>{name}</div>
+            <div style={{ fontSize: fitName(40, name, 33), fontWeight: 700, color: '#111827', lineHeight: 1.1 }}>{name}</div>
             <div style={{ fontSize: 22, fontWeight: 600, color: '#6b7280', marginTop: 4 }}>{role}</div>
           </div>
           <div style={{ width: 72, height: 3, background: 'linear-gradient(90deg, #059669, #34d399)', borderRadius: 2 }} />
@@ -250,14 +298,14 @@ function D3Landscape({ name, role, brand, wa, email, web, photoUrl, initials, qr
   );
 }
 
-function D3Portrait({ name, role, brand, wa, email, web, photoUrl, initials, qrDataUrl }: CardProps) {
+function D3Portrait({ name, role, brand, wa, email, web, photoUrl, initials, qrDataUrl, qrCaption }: CardProps) {
   return (
     <div style={{ width: 600, height: 1020, background: 'linear-gradient(180deg, #ffffff 0%, #f0fdf4 100%)', fontFamily: font, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <div style={{ height: 16, background: 'linear-gradient(90deg, #047857, #059669, #10b981, #34d399)', flexShrink: 0 }} />
       <div style={{ flex: 1, padding: '40px 40px 36px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <Avatar url={photoUrl} initials={initials} size={150} bg="linear-gradient(135deg, #ecfdf5, #d1fae5)" border="3px solid #a7f3d0" textColor="#059669" fontSize={52} shadow="0 6px 24px rgba(5,150,105,0.12)" />
         <span style={{ fontSize: 16, fontWeight: 700, color: '#059669', textTransform: 'uppercase', letterSpacing: 3, marginTop: 20 }}>{brand}</span>
-        <div style={{ fontSize: 30, fontWeight: 700, color: '#111827', marginTop: 8 }}>{name}</div>
+        <div style={{ fontSize: fitName(30, name, 32), fontWeight: 700, color: '#111827', marginTop: 8 }}>{name}</div>
         <div style={{ fontSize: 20, fontWeight: 600, color: '#6b7280', marginTop: 4 }}>{role}</div>
         <div style={{ width: 50, height: 3, background: 'linear-gradient(90deg, #059669, #34d399)', borderRadius: 2, margin: '16px 0' }} />
         <div style={{ width: '78%' }}>
@@ -265,7 +313,7 @@ function D3Portrait({ name, role, brand, wa, email, web, photoUrl, initials, qrD
         </div>
         <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
           <QRBox src={qrDataUrl} size={120} border="1.5px solid #d1fae5" bg="linear-gradient(135deg, #f0fdf4, #ffffff)" />
-          <span style={{ fontSize: 14, color: '#9ca3af', fontWeight: 500 }}>scan → lihat paket</span>
+          <span style={{ fontSize: 14, color: '#9ca3af', fontWeight: 500 }}>{qrCaption}</span>
         </div>
       </div>
     </div>
@@ -275,14 +323,14 @@ function D3Portrait({ name, role, brand, wa, email, web, photoUrl, initials, qrD
 // ════════════════════════════════════════
 // D4 — Warm Gold (rich amber gradients + warm texture)
 // ════════════════════════════════════════
-function D4Landscape({ name, role, brand, wa, email, web, slug, photoUrl, initials, qrDataUrl }: CardProps) {
+function D4Landscape({ name, role, brand, wa, email, web, qrCaption, photoUrl, initials, qrDataUrl }: CardProps) {
   return (
     <div style={{ width: 1050, height: 600, fontFamily: font, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: 'linear-gradient(180deg, #ffffff 0%, #fffbeb 100%)' }}>
       <div style={{ height: 230, background: 'linear-gradient(135deg, #92400e 0%, #b45309 30%, #d97706 60%, #f59e0b 100%)', padding: '40px 48px', display: 'flex', justifyContent: 'space-between', position: 'relative', flexShrink: 0, backgroundImage: geoPattern('#ffffff', 0.06), backgroundSize: '50px 50px' }}>
         <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,255,255,0.12), transparent 70%)' }} />
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', zIndex: 1 }}>
           <span style={{ fontSize: 18, color: 'rgba(255,255,255,0.7)', fontWeight: 500, letterSpacing: 1 }}>{brand}</span>
-          <div style={{ fontSize: 40, fontWeight: 700, color: 'white', marginTop: 4, lineHeight: 1.1, textShadow: '0 2px 4px rgba(0,0,0,0.15)' }}>{name}</div>
+          <div style={{ fontSize: fitName(40, name, 36), fontWeight: 700, color: 'white', marginTop: 4, lineHeight: 1.1, textShadow: '0 2px 4px rgba(0,0,0,0.15)' }}>{name}</div>
           <div style={{ fontSize: 22, color: 'rgba(255,255,255,0.85)', marginTop: 4, fontWeight: 500 }}>{role}</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', zIndex: 1 }}>
@@ -296,14 +344,14 @@ function D4Landscape({ name, role, brand, wa, email, web, slug, photoUrl, initia
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
           <QRBox src={qrDataUrl} size={100} border="2px solid #fde68a" bg="linear-gradient(135deg, #fffbeb, #ffffff)" />
-          <span style={{ fontSize: 14, color: '#9ca3af', fontWeight: 500 }}>{slug}</span>
+          <span style={{ fontSize: 14, color: '#9ca3af', fontWeight: 500 }}>{qrCaption}</span>
         </div>
       </div>
     </div>
   );
 }
 
-function D4Portrait({ name, role, brand, wa, email, web, slug, photoUrl, initials, qrDataUrl }: CardProps) {
+function D4Portrait({ name, role, brand, wa, email, web, qrCaption, photoUrl, initials, qrDataUrl }: CardProps) {
   return (
     <div style={{ width: 600, height: 1020, display: 'flex', flexDirection: 'column', fontFamily: font, overflow: 'hidden', background: 'linear-gradient(180deg, #ffffff 0%, #fffbeb 100%)' }}>
       <div style={{ height: 300, background: 'linear-gradient(135deg, #92400e 0%, #b45309 30%, #d97706 60%, #f59e0b 100%)', position: 'relative', padding: '36px 36px 0', flexShrink: 0, backgroundImage: geoPattern('#ffffff', 0.06), backgroundSize: '50px 50px' }}>
@@ -318,7 +366,7 @@ function D4Portrait({ name, role, brand, wa, email, web, slug, photoUrl, initial
         <Avatar url={photoUrl} initials={initials} size={140} bg="linear-gradient(135deg, #fef3c7, #fde68a)" border="6px solid white" textColor="#b45309" fontSize={48} shadow="0 8px 32px rgba(0,0,0,0.12)" />
       </div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 16 }}>
-        <div style={{ fontSize: 30, fontWeight: 700, color: '#111827' }}>{name}</div>
+        <div style={{ fontSize: fitName(30, name, 32), fontWeight: 700, color: '#111827' }}>{name}</div>
         <div style={{ fontSize: 18, fontWeight: 600, color: '#b45309', letterSpacing: 2, marginTop: 4 }}>{role}</div>
         <div style={{ width: 50, height: 3, background: 'linear-gradient(90deg, #b45309, #f59e0b)', borderRadius: 2, margin: '16px 0' }} />
         <div style={{ width: '78%' }}>
@@ -326,7 +374,7 @@ function D4Portrait({ name, role, brand, wa, email, web, slug, photoUrl, initial
         </div>
         <div style={{ marginTop: 'auto', paddingBottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
           <QRBox src={qrDataUrl} size={120} border="2px solid #fde68a" bg="linear-gradient(135deg, #fffbeb, #ffffff)" />
-          <span style={{ fontSize: 14, color: '#9ca3af', fontWeight: 500 }}>{slug}</span>
+          <span style={{ fontSize: 14, color: '#9ca3af', fontWeight: 500 }}>{qrCaption}</span>
         </div>
       </div>
     </div>
@@ -336,7 +384,7 @@ function D4Portrait({ name, role, brand, wa, email, web, slug, photoUrl, initial
 // ════════════════════════════════════════
 // D5 — Full Dark (deep dark + emerald neon accents + glass panel)
 // ════════════════════════════════════════
-function D5Landscape({ name, role, brand, wa, email, web, slug, photoUrl, initials, qrDataUrl }: CardProps) {
+function D5Landscape({ name, role, brand, wa, email, web, qrCaption, photoUrl, initials, qrDataUrl }: CardProps) {
   return (
     <div style={{ width: 1050, height: 600, display: 'flex', fontFamily: font, overflow: 'hidden', background: 'linear-gradient(135deg, #0f172a 0%, #0c1222 40%, #0f172a 100%)' }}>
       <div style={{ flex: 1, padding: '40px 48px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', position: 'relative', backgroundImage: geoPattern('#10b981', 0.03), backgroundSize: '50px 50px' }}>
@@ -346,7 +394,7 @@ function D5Landscape({ name, role, brand, wa, email, web, slug, photoUrl, initia
           <span style={{ fontSize: 18, color: '#475569', textTransform: 'uppercase', letterSpacing: 2 }}>{brand}</span>
         </div>
         <div>
-          <div style={{ fontSize: 40, fontWeight: 700, color: 'white', lineHeight: 1.1, textShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>{name}</div>
+          <div style={{ fontSize: fitName(40, name, 33), fontWeight: 700, color: 'white', lineHeight: 1.1, textShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>{name}</div>
           <div style={{ fontSize: 24, fontWeight: 700, color: '#10b981', letterSpacing: 3, marginTop: 6, textShadow: '0 0 20px rgba(16,185,129,0.3)' }}>{role}</div>
           <div style={{ width: 50, height: 2, background: 'linear-gradient(90deg, #10b981, #047857)', borderRadius: 1, marginTop: 12 }} />
         </div>
@@ -356,13 +404,13 @@ function D5Landscape({ name, role, brand, wa, email, web, slug, photoUrl, initia
         <div style={{ position: 'absolute', top: -30, right: -30, width: 100, height: 100, borderRadius: '50%', background: 'radial-gradient(circle, rgba(16,185,129,0.06), transparent 70%)' }} />
         <Avatar url={photoUrl} initials={initials} size={110} bg="linear-gradient(135deg, #0f2d1e, #0a2218)" border="3px solid #10b981" textColor="#10b981" fontSize={40} shadow="0 0 24px rgba(16,185,129,0.15), 0 8px 32px rgba(0,0,0,0.3)" />
         <QRBox src={qrDataUrl} size={110} border="1.5px solid #334155" bg="linear-gradient(135deg, #0f172a, #1e293b)" />
-        <span style={{ fontSize: 16, color: '#475569', fontWeight: 500 }}>{slug}</span>
+        <span style={{ fontSize: 16, color: '#475569', fontWeight: 500 }}>{qrCaption}</span>
       </div>
     </div>
   );
 }
 
-function D5Portrait({ name, role, brand, wa, email, web, slug, photoUrl, initials, qrDataUrl }: CardProps) {
+function D5Portrait({ name, role, brand, wa, email, web, qrCaption, photoUrl, initials, qrDataUrl }: CardProps) {
   return (
     <div style={{ width: 600, height: 1020, background: 'linear-gradient(180deg, #0f172a 0%, #0c1222 50%, #0f172a 100%)', fontFamily: font, overflow: 'hidden', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 40px 36px', position: 'relative', backgroundImage: geoPattern('#10b981', 0.03), backgroundSize: '50px 50px' }}>
       <div style={{ position: 'absolute', top: -60, right: -60, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(16,185,129,0.05), transparent 70%)' }} />
@@ -371,7 +419,7 @@ function D5Portrait({ name, role, brand, wa, email, web, slug, photoUrl, initial
         <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 12px rgba(16,185,129,0.5)' }} />
         <span style={{ fontSize: 16, color: '#334155', textTransform: 'uppercase', letterSpacing: 2 }}>{brand}</span>
       </div>
-      <div style={{ fontSize: 30, fontWeight: 700, color: 'white', marginTop: 12, textAlign: 'center', textShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>{name}</div>
+      <div style={{ fontSize: fitName(30, name, 32), fontWeight: 700, color: 'white', marginTop: 12, textAlign: 'center', textShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>{name}</div>
       <div style={{ fontSize: 20, fontWeight: 700, color: '#10b981', letterSpacing: 3, marginTop: 4, textShadow: '0 0 20px rgba(16,185,129,0.3)' }}>{role}</div>
       <div style={{ width: 50, height: 2, background: 'linear-gradient(90deg, #10b981, #047857)', borderRadius: 1, margin: '16px 0' }} />
       <div style={{ width: '78%' }}>
@@ -379,7 +427,7 @@ function D5Portrait({ name, role, brand, wa, email, web, slug, photoUrl, initial
       </div>
       <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
         <QRBox src={qrDataUrl} size={120} border="1.5px solid #334155" bg="linear-gradient(135deg, #1e293b, #0f172a)" />
-        <span style={{ fontSize: 14, color: '#475569', fontWeight: 500 }}>{slug}</span>
+        <span style={{ fontSize: 14, color: '#475569', fontWeight: 500 }}>{qrCaption}</span>
       </div>
     </div>
   );
@@ -409,31 +457,56 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
   const initials = getInitials(name);
   const role = 'Agen Umroh';
   const brand = 'Alhijaz Indowisata';
-  const wa = agent.phone || '';
+  const waDigits = normalizePhoneDigits(agent.phone || '');
+  const wa = formatPhoneDisplay(agent.phone || '');
   const email = agent.email || '';
-  const web = `${agent.slug || 'agent'}.alhijaz.co`;
-  const slug = `alhijaz.co/${agent.slug || 'agent'}`;
-  const photoUrl: string | null = agent.photo || null;
+  const rawPhoto = agent.photo || '';
+  // Foto default agent baru adalah URL ui-avatars — inisial bergaya desain kartu lebih rapi.
+  const photoUrl: string | null = rawPhoto && !rawPhoto.includes('ui-avatars.com') ? rawPhoto : null;
+
+  // Target QR selalu alhijaz.co/{slug}: tahan ganti slug (301 via agent_slug_history)
+  // dan otomatis redirect ke custom domain selagi aktif. Custom domain hanya
+  // dipakai untuk teks URL di kartu.
+  const publicUrl = `https://alhijaz.co/${agent.slug || 'agent'}`;
+  const [customDomain, setCustomDomain] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/agent/custom-domain', { headers: getAuthHeaders() })
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (!cancelled && j?.domain && j.status === 'active') setCustomDomain(j.domain); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  const web = customDomain || `alhijaz.co/${agent.slug || 'agent'}`;
 
   const [selectedDesign, setSelectedDesign] = useState<DesignId>('d1');
   const [format, setFormat] = useState<CardFormat>('landscape');
+  const [qrMode, setQrMode] = useState<QrMode>('web');
   const hasTrackedGenerate = useRef(false);
   const [exporting, setExporting] = useState<'download' | 'share' | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState('');
   const currentDesign = DESIGNS.find(d => d.id === selectedDesign)!;
+  const qrCaption = qrMode === 'vcard' ? 'Scan → simpan kontak' : 'Scan → lihat paket umroh';
 
   useEffect(() => {
-    QRCode.toDataURL(`https://alhijaz.co/${agent.slug || 'agent'}`, {
-      width: 200, margin: 1,
+    const content = qrMode === 'vcard'
+      ? buildVCard({ name, phoneDigits: waDigits, email })
+      : publicUrl;
+    // scale (px per modul, bukan width) menjaga modul tetap integer-crisp tanpa
+    // blur antialiasing; ECC L untuk vCard menurunkan versi QR agar modulnya
+    // lebih besar dan mudah discan.
+    QRCode.toDataURL(content, {
+      scale: qrMode === 'vcard' ? 6 : 8, margin: 1,
+      errorCorrectionLevel: qrMode === 'vcard' ? 'L' : 'M',
       color: { dark: currentDesign.qrColor.dark, light: currentDesign.qrColor.light },
     }).then(url => {
       setQrDataUrl(url);
       if (!hasTrackedGenerate.current) {
-        trackEvent('action', 'generate_business_card', { theme: currentDesign.name, orientation: format });
+        trackEvent('action', 'generate_business_card', { theme: currentDesign.name, orientation: format, qr: qrMode });
         hasTrackedGenerate.current = true;
       }
     });
-  }, [agent.slug, selectedDesign]);
+  }, [publicUrl, selectedDesign, qrMode, name, waDigits, email]);
 
   const cardExportRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -451,7 +524,7 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
     return () => window.removeEventListener('resize', computeScale);
   }, [computeScale]);
 
-  const cardProps: CardProps = { name, initials, role, brand, wa, email, web, slug, photoUrl, qrDataUrl };
+  const cardProps: CardProps = { name, initials, role, brand, wa, email, web, qrCaption, photoUrl, qrDataUrl };
   const CardRenderer = RENDERERS[selectedDesign][format];
   const cardSize = CARD_SIZE[format];
 
@@ -460,7 +533,8 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
     setExporting('download');
     try {
       const { snapdom } = await import('@zumer/snapdom');
-      const result = await snapdom(cardExportRef.current, { scale: 2 });
+      // embedFonts wajib: tanpa ini hasil export jatuh ke font sistem, bukan Inter.
+      const result = await snapdom(cardExportRef.current, { scale: 2, embedFonts: true });
       await result.download({ type: 'png', filename: `kartu-nama-${agent.slug || 'agent'}-${format}` });
       trackEvent('action', 'download_business_card', { theme: currentDesign.name });
     } catch (e) { console.error('Export gagal:', e); }
@@ -472,10 +546,13 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
     setExporting('share');
     try {
       const { snapdom } = await import('@zumer/snapdom');
-      const result = await snapdom(cardExportRef.current, { scale: 2 });
+      const result = await snapdom(cardExportRef.current, { scale: 2, embedFonts: true });
       const blob = await result.toBlob({ type: 'png' });
       const file = new File([blob], `kartu-nama-${agent.slug || 'agent'}.png`, { type: 'image/png' });
-      if (navigator.share) await navigator.share({ files: [file] });
+      if (navigator.share) {
+        await navigator.share({ files: [file] });
+        trackEvent('action', 'share_business_card', { theme: currentDesign.name });
+      }
     } catch (e: any) { if (e?.name !== 'AbortError') console.error('Share gagal:', e); }
     finally { setExporting(null); }
   };
@@ -521,6 +598,27 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
               </button>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* QR Code */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-50 dark:border-slate-700/50 flex items-center gap-1.5">
+          <QrCode size={13} className="text-gray-400" />
+          <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">QR Code</span>
+        </div>
+        <div className="p-4 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            {QR_MODES.map(m => (
+              <button key={m.id} onClick={() => setQrMode(m.id)}
+                className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition-all active:scale-95 ${qrMode === m.id
+                  ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400'
+                  : 'border-gray-200 dark:border-slate-600 text-gray-400 dark:text-slate-500'}`}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-gray-400 dark:text-slate-500 text-center">{QR_MODES.find(m => m.id === qrMode)!.desc}</p>
         </div>
       </div>
 

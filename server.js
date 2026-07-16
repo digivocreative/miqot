@@ -13304,6 +13304,7 @@ const ACTION_LABELS = {
   generate_script: 'Generate Script VO', generate_voice: 'Generate Voice VO',
   download_mp3: 'Download MP3', download_wav: 'Download WAV',
   generate_business_card: 'Generate Kartu Nama', download_business_card: 'Download Kartu Nama',
+  share_business_card: 'Share Kartu Nama',
   export_haji_infographic: 'Export Infografis Haji',
   update_lead_status: 'Update Status Lead', delete_lead: 'Hapus Lead', wa_click_lead: 'WA Lead',
   sync_jamaah_haji: 'Sync Jamaah Haji', view_bpih_doc: 'Lihat BPIH',

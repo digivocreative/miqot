@@ -12,6 +12,9 @@ export function handleAgentPhotoError(
   img: HTMLImageElement,
   name: string | null | undefined,
   size?: number,
+  // Fallback kustom setelah retry habis (mis. inisial bergaya desain di kartu
+  // nama); tanpa ini fallback default adalah ui-avatars.
+  onFallback?: () => void,
 ): void {
   // Already fell back — never loop on the ui-avatars URL itself.
   if (img.dataset.fellBack === '1') return;
@@ -39,6 +42,10 @@ export function handleAgentPhotoError(
   }
 
   img.dataset.fellBack = '1';
+  if (onFallback) {
+    onFallback();
+    return;
+  }
   const sizeParam = size ? `&size=${size}` : '';
   img.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
     name || 'Agent',

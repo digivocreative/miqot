@@ -206,7 +206,7 @@ Snapshot audit 2026-07-12:
 - Kurs share image.
 - Voice-over script and audio generation.
 - Simulasi Haji Plus and Haji Plus export.
-- Business card generator.
+- Business card generator (5 desain × landscape/portrait; QR bisa diarahkan ke halaman web agent atau vCard "simpan kontak"; teks URL pakai custom domain bila aktif).
 - Visual Landing Page Builder Umroh/Haji untuk agent yang mendapat akses.
 - MCP integration key management.
 - Admin agent management and analytics.

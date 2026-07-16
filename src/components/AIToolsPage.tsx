@@ -89,7 +89,7 @@ const TOOLS: Tool[] = [
     icon: CreditCard,
     color: 'teal',
     route: 'business-card',
-    active: false,
+    active: true,
   },
 ];
 
