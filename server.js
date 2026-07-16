@@ -106,7 +106,7 @@ import {
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, landingCityFromRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { inferSaudiJourneyOrderFromItinerary } from './lib/journey-order.js';
 import { appendUrlVersion, buildScheduleRows, serializeScheduleRows, shouldKeepScheduleRow } from './lib/umroh-schedules.js';
-import { buildCdnMetadataUpdate, buildSourceDownloadCandidates, getCdnFileDecision, resolveScheduleBrochureSource } from './lib/cdn-file-sync.js';
+import { buildCdnMetadataUpdate, buildContentAddressedCdnPath, buildSourceDownloadCandidates, getCdnFileDecision, resolveScheduleBrochureSource } from './lib/cdn-file-sync.js';
 import {
   CURRENCY_NAMES,
   isKursCacheRefreshDue,
@@ -16181,7 +16181,15 @@ async function syncFilesToBunny({ kinds = ['brosur', 'itinerary'] } = {}) {
           }
         }
 
-        const path = `${config.folder}/${pkg.jadwal_id}${file.ext || config.fallbackExt}`;
+        // Bunny can be configured to ignore query strings in its cache key. A
+        // fingerprint in the object name guarantees changed files cannot reuse
+        // stale edge content even when `?v=` is ignored by the pull zone.
+        const path = buildContentAddressedCdnPath(
+          config.folder,
+          pkg.jadwal_id,
+          file.sha256,
+          file.ext || config.fallbackExt,
+        );
         await bunnyUpload(path, file.buffer, file.contentType);
         const cdnUrl = `https://${BUNNY_CDN_HOSTNAME}/${path}`;
         const update = buildCdnMetadataUpdate(config.kind, cdnUrl, fileMeta);

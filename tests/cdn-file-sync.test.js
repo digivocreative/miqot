@@ -4,10 +4,23 @@ import { readFileSync } from 'node:fs';
 
 import {
   buildCdnMetadataUpdate,
+  buildContentAddressedCdnPath,
   buildSourceDownloadCandidates,
   getCdnFileDecision,
   resolveScheduleBrochureSource,
 } from '../lib/cdn-file-sync.js';
+
+test('buildContentAddressedCdnPath: fingerprints the object name to bypass stale edges', () => {
+  assert.equal(
+    buildContentAddressedCdnPath(
+      'brosur',
+      'JBU1493',
+      '4da61f608ec16fdd074ae3cc35522a00fdbba90abbbbf384ef19c8baf1360d15',
+      '.webp',
+    ),
+    'brosur/JBU1493-4da61f608ec16fdd.webp',
+  );
+});
 
 test('resolveScheduleBrochureSource: uses the official August brochure for JBU1493', () => {
   assert.equal(
