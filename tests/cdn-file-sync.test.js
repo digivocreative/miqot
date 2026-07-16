@@ -1,10 +1,53 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   buildCdnMetadataUpdate,
+  buildSourceDownloadCandidates,
   getCdnFileDecision,
 } from '../lib/cdn-file-sync.js';
+
+test('buildSourceDownloadCandidates: prefers direct origin for schedule files', () => {
+  assert.deepEqual(
+    buildSourceDownloadCandidates('http://jadwal.alhijaz.co/brosur/paket-terbaru'),
+    [
+      'http://115.124.86.220/brosur/paket-terbaru',
+      'https://jadwal.alhijaz.co/brosur/paket-terbaru',
+    ],
+  );
+});
+
+test('buildSourceDownloadCandidates: keeps direct-IP HTTP usable', () => {
+  assert.deepEqual(
+    buildSourceDownloadCandidates('http://115.124.86.220/itinerary/paket.pdf?download=1'),
+    ['http://115.124.86.220/itinerary/paket.pdf?download=1'],
+  );
+});
+
+test('buildSourceDownloadCandidates: preserves HTTPS upgrade for unrelated origins', () => {
+  assert.deepEqual(
+    buildSourceDownloadCandidates('http://files.example.com/brosur.webp'),
+    ['https://files.example.com/brosur.webp'],
+  );
+  assert.deepEqual(
+    buildSourceDownloadCandidates('https://alhijaz.b-cdn.net/brosur/JBU1493.webp?v=abc'),
+    ['https://alhijaz.b-cdn.net/brosur/JBU1493.webp?v=abc'],
+  );
+});
+
+test('schedule sync fingerprints brochures every 30-minute data cycle', () => {
+  const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  const runScheduleSync = server.slice(
+    server.indexOf('async function runScheduleSync()'),
+    server.indexOf('if (shouldRunBackgroundJobs()) {', server.indexOf('async function runScheduleSync()')),
+  );
+
+  assert.match(runScheduleSync, /await syncUmrohSchedules\(\)/);
+  assert.match(runScheduleSync, /await queueFilesToBunny\(\{ kinds: \['brosur'\] \}\)/);
+  assert.match(server, /setInterval\([\s\S]*?runScheduleSync\(\)[\s\S]*?30 \* 60 \* 1000\)/);
+  assert.match(server, /await queueFilesToBunny\(\)/);
+});
 
 test('getCdnFileDecision: uploads when CDN URL is missing', () => {
   const decision = getCdnFileDecision({

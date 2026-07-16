@@ -106,7 +106,7 @@ import {
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, landingCityFromRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { inferSaudiJourneyOrderFromItinerary } from './lib/journey-order.js';
 import { appendUrlVersion, buildScheduleRows, serializeScheduleRows, shouldKeepScheduleRow } from './lib/umroh-schedules.js';
-import { buildCdnMetadataUpdate, getCdnFileDecision } from './lib/cdn-file-sync.js';
+import { buildCdnMetadataUpdate, buildSourceDownloadCandidates, getCdnFileDecision } from './lib/cdn-file-sync.js';
 import {
   CURRENCY_NAMES,
   isKursCacheRefreshDue,
@@ -15902,12 +15902,32 @@ async function bunnyDelete(path) {
 }
 
 async function downloadFile(url) {
-  const normalizedUrl = normalizeBunnyDownloadUrl(url);
-  const res = await fetch(normalizedUrl, {
-    headers: { 'User-Agent': 'Mozilla/5.0' },
-    signal: AbortSignal.timeout(120000),
-  });
-  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  const candidates = buildSourceDownloadCandidates(url);
+  let res = null;
+  let lastError = null;
+
+  for (const candidate of candidates) {
+    try {
+      const response = await fetch(candidate, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(120000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      res = response;
+      break;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (!res) {
+    throw new Error(`Download failed: ${lastError?.message || 'no usable source URL'}`);
+  }
   const contentType = res.headers.get('content-type') || 'application/octet-stream';
   // Extract extension from Content-Disposition or Content-Type
   const disposition = res.headers.get('content-disposition') || '';
@@ -15972,7 +15992,7 @@ function topPartnerBunnyDeps() {
     enabled: getBunnyEnabled(),
     cdnHostname: BUNNY_CDN_HOSTNAME,
     fileExists: topPartnerBunnyFileExists,
-    downloadFile,
+    downloadFile: url => downloadFile(normalizeBunnyDownloadUrl(url)),
     uploadFile: bunnyUpload,
     logger: console,
   };
@@ -16085,13 +16105,14 @@ app.get('/api/top-partner', async (req, res) => {
   }
 });
 
-async function syncFilesToBunny() {
+async function syncFilesToBunny({ kinds = ['brosur', 'itinerary'] } = {}) {
   if (!getBunnyEnabled()) {
     console.log('[BunnySync] Skipped — Bunny credentials not configured');
     return;
   }
 
-  console.log('[BunnySync] Starting...');
+  const requestedKinds = new Set(kinds);
+  console.log(`[BunnySync] Starting (${[...requestedKinds].join(', ') || 'no file kinds'})...`);
   const startTime = Date.now();
   let uploaded = 0, metadataUpdated = 0, skipped = 0, errors = 0;
   let uploadsSincePause = 0;
@@ -16124,7 +16145,7 @@ async function syncFilesToBunny() {
   const fileConfigs = [
     { kind: 'brosur', folder: 'brosur', sourceField: 'brosur', cdnField: 'brosur_cdn', fallbackExt: '.webp', label: 'Brosur' },
     { kind: 'itinerary', folder: 'itinerary', sourceField: 'itinerary', cdnField: 'itinerary_cdn', fallbackExt: '.pdf', label: 'Itinerary' },
-  ];
+  ].filter(config => requestedKinds.has(config.kind));
 
   for (const pkg of packages) {
     for (const config of fileConfigs) {
@@ -16187,6 +16208,15 @@ async function syncFilesToBunny() {
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`[BunnySync] Complete: ${uploaded} uploaded, ${metadataUpdated} metadata updated, ${skipped} skipped, ${errors} errors in ${elapsed}s`);
+}
+
+// Schedule and daily timers may land on the same minute. Serialize file scans so
+// they never race uploads/metadata updates for the same Bunny object.
+let bunnySyncQueue = Promise.resolve();
+function queueFilesToBunny(options) {
+  const run = bunnySyncQueue.then(() => syncFilesToBunny(options));
+  bunnySyncQueue = run.catch(() => {});
+  return run;
 }
 
 // ──────────────────────────────────────────────
@@ -18958,6 +18988,10 @@ async function runScheduleSync() {
     return;
   }
   await syncUmrohSchedules();
+  // Brochure contents can change behind a stable API URL. Fingerprint them in
+  // the same 30-minute cycle as schedule data so the public CDN URL is updated
+  // promptly instead of waiting for the once-daily full document scan.
+  await queueFilesToBunny({ kinds: ['brosur'] });
 }
 if (shouldRunBackgroundJobs()) {
   setTimeout(() => {
@@ -18975,7 +19009,7 @@ function scheduleDailyBunnySync() {
   console.log(`[BunnySync] Next daily file sync in ${Math.round(delayMs / 60000)} minutes (03:30 WIB)`);
   setTimeout(async () => {
     try {
-      await syncFilesToBunny();
+      await queueFilesToBunny();
     } catch (err) {
       console.error('[BunnySync] Daily sync error:', err.message);
     } finally {
