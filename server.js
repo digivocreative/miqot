@@ -28,7 +28,7 @@ import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCachea
 import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { syncCalendar, enrichKeberangkatanWithKumpul, enrichCalendarPaxJamaah } from './calendar-api.js';
 import { probePublicCalendarPrimary } from './lib/calendar-public-source.js';
-import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
+import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, generatePackageValueAgentCardPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
@@ -116,6 +116,14 @@ import {
 } from './lib/kurs-mandiri.js';
 import { shouldRunBackgroundJobs, shouldRunJamaahBackgroundSync, shouldRunLegacyBackgroundSync } from './lib/background-jobs.js';
 import { buildAiCopyPrompts, buildAiCopyChatBody, parseAiCopyVersions } from './lib/ai-copy-prompt.js';
+import {
+  PACKAGE_VALUE_PROMPT_VERSION,
+  buildPackageValueChatBody,
+  buildPackageValueContext,
+  buildPackageValuePrompts,
+  parsePackageValueResult,
+  pickPackageValueStyle,
+} from './lib/package-value-prompt.js';
 import { parseSyncCooldownMinutes, parseSyncCooldownMs, computeFirstCycleDelayMs } from './lib/sync-schedule.js';
 import { isWeatherRefreshDue, mergeWeatherResults } from './lib/weather-cache.js';
 import {
@@ -1428,6 +1436,256 @@ app.post('/api/ai-copy', authMiddleware, async (req, res) => {
 
 // CORS preflight for /api/ai-copy
 app.options('/api/ai-copy', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  }).sendStatus(204);
+});
+
+// ──────────────────────────────────────────────
+// API: Nilai Plus Paket — grounded brochure + itinerary analysis
+// ──────────────────────────────────────────────
+const PACKAGE_VALUE_RATE_LIMIT_MAX = 15;
+const PACKAGE_VALUE_RATE_LIMIT_WINDOW_MS = 2 * 60 * 60 * 1000;
+const packageValueRateLimits = new Map(); // agent id → cache-miss attempts (sukses maupun gagal)
+// Saat tabel cache hilang (belum migrate / schema cache PostgREST belum reload),
+// cache di-nonaktifkan sementara dengan backoff — bukan latch permanen — supaya
+// "Ganti Gaya" kembali murah begitu tabel tersedia tanpa perlu restart service.
+const PACKAGE_VALUE_CACHE_BACKOFF_MS = 5 * 60 * 1000;
+let packageValueCacheDisabledUntil = 0;
+
+function isPackageValueCacheEnabled() {
+  return Date.now() >= packageValueCacheDisabledUntil;
+}
+
+function disablePackageValueCacheTemporarily() {
+  packageValueCacheDisabledUntil = Date.now() + PACKAGE_VALUE_CACHE_BACKOFF_MS;
+}
+
+function isMissingPackageValueCache(error) {
+  const value = `${error?.code || ''} ${error?.message || ''}`.toLowerCase();
+  return value.includes('42p01')
+    || value.includes('pgrst205')
+    || (value.includes('package_value_cache') && value.includes('not find'));
+}
+
+function packageValueRateLimit(agentId) {
+  const now = Date.now();
+  const current = packageValueRateLimits.get(agentId);
+  if (!current || now >= current.resetAt) {
+    const fresh = { count: 0, resetAt: now + PACKAGE_VALUE_RATE_LIMIT_WINDOW_MS };
+    packageValueRateLimits.set(agentId, fresh);
+    return fresh;
+  }
+  return current;
+}
+
+async function readPackageValueCache(cacheKey, context, style) {
+  if (!isPackageValueCacheEnabled()) return null;
+  const { data, error } = await supabase
+    .from('package_value_cache')
+    .select('content')
+    .eq('cache_key', cacheKey)
+    .maybeSingle();
+  if (error) {
+    if (isMissingPackageValueCache(error)) disablePackageValueCacheTemporarily();
+    else console.warn('[PackageValue] Cache read failed:', error.message);
+    return null;
+  }
+  if (!data?.content) return null;
+  return parsePackageValueResult(JSON.stringify(data.content), {
+    itineraryAvailable: context.sourceAvailability.itinerary,
+    evidenceCatalog: context.evidence,
+    packageData: context.package,
+    style,
+  });
+}
+
+async function writePackageValueCache({ cacheKey, schedule, tier, documentHash, content, itineraryAvailable }) {
+  if (!isPackageValueCacheEnabled()) return;
+  // Simpan hanya hasil analisis kanonis. bannerPrompt dan gaya desain dirakit
+  // ulang per request supaya "ganti gaya" tetap bekerja pada cache hit.
+  const { bannerPrompt: _prompt, style: _style, ...analysis } = content;
+  const { error } = await supabase.from('package_value_cache').upsert({
+    cache_key: cacheKey,
+    jadwal_id: schedule.jadwal_id,
+    tier,
+    document_hash: documentHash,
+    prompt_version: PACKAGE_VALUE_PROMPT_VERSION,
+    content: analysis,
+    itinerary_available: itineraryAvailable,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'cache_key' });
+  if (error) {
+    if (isMissingPackageValueCache(error)) disablePackageValueCacheTemporarily();
+    else console.warn('[PackageValue] Cache write failed:', error.message);
+  }
+}
+
+async function fetchPackageValueSchedule(jadwalId) {
+  const { data, error } = await supabase
+    .from('umroh_schedules')
+    .select([
+      'jadwal_id', 'jadwal_nama', 'year_code', 'promo', 'maskapai',
+      'berangkat_tgl', 'berangkat_jam', 'berangkat_rute', 'berangkat_kode_penerbangan',
+      'pulang_tgl', 'pulang_jam', 'pulang_rute', 'pulang_kode_penerbangan',
+      'paket_harga', 'paket_hotel', 'brosur_source_sha256', 'itinerary_source_sha256',
+    ].join(','))
+    .eq('jadwal_id', jadwalId)
+    .order('year_code', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+app.get('/api/package-value/agent-card', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Profil agent tidak ditemukan' });
+
+    const photoBuffer = await loadAgentPhotoBuffer(agent.photo, agent.slug);
+    // Custom domain aktif lebih relevan untuk banner daripada kolom website lama.
+    const website = agent.custom_domain && agent.custom_domain_status === 'active'
+      ? agent.custom_domain
+      : agent.website;
+    const png = await generatePackageValueAgentCardPng({
+      name: agent.name,
+      phone: agent.phone,
+      photoBuffer,
+      website,
+    });
+    res.set({
+      'Content-Type': 'image/png',
+      'Content-Length': String(png.length),
+      'Content-Disposition': 'inline; filename="identitas-agent-alhijaz.png"',
+      'Cache-Control': 'private, max-age=300',
+    });
+    return res.send(png);
+  } catch (error) {
+    console.error('[PackageValue] Agent card error:', error?.message || error);
+    return res.status(500).json({ error: 'Lampiran identitas agent belum dapat dibuat' });
+  }
+});
+
+app.post('/api/package-value', authMiddleware, async (req, res) => {
+  const jadwalId = String(req.body?.jadwalId || '').trim();
+  const requestedTier = String(req.body?.tier || '').trim();
+  const refresh = req.body?.refresh === true;
+  // "Ganti gaya" mengirim id gaya yang barusan tampil agar rotasi terasa nyata.
+  const excludeStyleId = typeof req.body?.excludeStyle === 'string'
+    ? req.body.excludeStyle.trim().slice(0, 40)
+    : '';
+
+  if (!/^[a-z0-9_-]{1,80}$/i.test(jadwalId) || requestedTier.length > 40) {
+    return res.status(400).json({ error: 'Data paket tidak valid' });
+  }
+  const style = pickPackageValueStyle({ excludeId: excludeStyleId });
+
+  try {
+    const schedule = await fetchPackageValueSchedule(jadwalId);
+    if (!schedule) return res.status(404).json({ error: 'Paket tidak ditemukan' });
+
+    // Itinerary dibaca dari cache kanonis. Endpoint ini tidak menerima URL dari
+    // browser dan tidak mengunduh dokumen arbitrer ketika tombol diklik.
+    const itinerary = await getItineraryContext(jadwalId);
+    const context = buildPackageValueContext(schedule, itinerary, requestedTier);
+    if (!context) return res.status(422).json({ error: 'Data paket belum cukup untuk dianalisis' });
+
+    const itineraryAvailable = context.sourceAvailability.itinerary;
+    const documentHash = crypto.createHash('sha256').update(JSON.stringify({
+      brochure: schedule.brosur_source_sha256 || '',
+      itinerary: schedule.itinerary_source_sha256 || '',
+      context,
+    })).digest('hex');
+    const cacheKey = crypto.createHash('sha256').update([
+      PACKAGE_VALUE_PROMPT_VERSION,
+      jadwalId,
+      context.package.tier,
+      documentHash,
+    ].join('|')).digest('hex');
+
+    if (!refresh) {
+      const cached = await readPackageValueCache(cacheKey, context, style);
+      if (cached) {
+        return res.json({
+          success: true,
+          result: cached,
+          cached: true,
+          tier: context.package.tier,
+          sourceAvailability: context.sourceAvailability,
+        });
+      }
+    }
+
+    const rate = packageValueRateLimit(req.user.id);
+    if (rate.count >= PACKAGE_VALUE_RATE_LIMIT_MAX) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((rate.resetAt - Date.now()) / 1000));
+      res.set('Retry-After', String(retryAfterSeconds));
+      return res.status(429).json({
+        error: 'Limit analisis Nilai Plus telah tercapai',
+        retryAfterMinutes: Math.ceil(retryAfterSeconds / 60),
+      });
+    }
+
+    const OPENAI_KEY = process.env.OPENAI_API_KEY;
+    if (!OPENAI_KEY) return res.status(500).json({ error: 'Layanan AI belum dikonfigurasi' });
+    const prompts = buildPackageValuePrompts(context);
+    if (!prompts) return res.status(422).json({ error: 'Data paket belum cukup untuk dianalisis' });
+
+    // Hitung SEBELUM memanggil OpenAI: percobaan yang gagal (502 upstream,
+    // output tak valid) tetap membakar biaya dan harus terkena limiter.
+    rate.count += 1;
+
+    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_KEY}`,
+      },
+      signal: AbortSignal.timeout(45000),
+      body: JSON.stringify(buildPackageValueChatBody(prompts)),
+    });
+    if (!openaiRes.ok) {
+      const detail = await openaiRes.text();
+      console.error('[PackageValue] OpenAI error:', detail.substring(0, 500));
+      return res.status(502).json({ error: 'AI belum berhasil menganalisis paket' });
+    }
+
+    const completion = await openaiRes.json();
+    const result = parsePackageValueResult(
+      completion.choices?.[0]?.message?.content || '',
+      { itineraryAvailable, evidenceCatalog: context.evidence, packageData: context.package, style },
+    );
+    if (!result?.bannerPrompt) return res.status(502).json({ error: 'Prompt banner belum berhasil disusun. Silakan coba lagi.' });
+
+    await writePackageValueCache({
+      cacheKey,
+      schedule,
+      tier: context.package.tier,
+      documentHash,
+      content: result,
+      itineraryAvailable,
+    });
+
+    return res.json({
+      success: true,
+      result,
+      cached: false,
+      tier: context.package.tier,
+      sourceAvailability: context.sourceAvailability,
+    });
+  } catch (error) {
+    const isTimeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+    console.error('[PackageValue] Error:', error?.message || error);
+    return res.status(isTimeout ? 504 : 500).json({
+      error: isTimeout ? 'Penyusunan prompt memerlukan waktu terlalu lama. Silakan coba lagi.' : 'Gagal menyusun prompt banner paket',
+    });
+  }
+});
+
+app.options('/api/package-value', (req, res) => {
   res.set({
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',

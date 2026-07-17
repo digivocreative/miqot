@@ -203,6 +203,7 @@ Snapshot audit 2026-07-12:
 - Kalkulasi package price and quotation PDF.
 - Compare package.
 - Brosur Jadwal monthly export/catalog.
+- Nilai Plus Paket: prompt ad-creative grounded dari brosur+itinerary dengan rotasi 10 gaya desain + lampiran lembar identitas agent (lihat seksi di bawah).
 - Kurs share image.
 - Voice-over script and audio generation.
 - Simulasi Haji Plus and Haji Plus export.
@@ -221,6 +222,17 @@ Visual editor berada di `/dashboard/ai-tools/landing-page/:type`, dengan `type` 
 - Hero, konten, paket unggulan, dan program dapat diedit. Kontak/WhatsApp dikunci dan selalu diturunkan dari profil agent.
 - Upload hero menggunakan storage Bunny pada path `landing-builder/...`; konfigurasi draft/published disimpan di `agents.landing_config`.
 - Surface API utama: `GET /api/landing-builder/:type`, `PUT /api/landing-builder/:type/draft`, serta `POST` untuk `preview`, `publish`, dan `hero-image`.
+
+### Nilai Plus Paket (AI Tools brosur)
+
+Entry: BrochureModal → AI Tools → "Nilai Plus Paket" (`PackageValueModal.tsx`). Tujuan: menonjolkan keunggulan paket sebagai prompt ad-creative siap tempel ke ChatGPT, bukan menyalin brosur mentah.
+
+- `POST /api/package-value` (auth agent): analisis grounded via gpt-4o-mini atas brosur terstruktur + itinerary cache; hasil = headline hook, summary, visualIdea, 2-3 advantages (title/benefit experiential/description faktual, evidence-locked), bestFor.
+- Prompt banner dirakit deterministik di `lib/package-value-prompt.js` dengan SATU preset dari `PACKAGE_VALUE_STYLES` (10 arah desain berbeda: editorial, sinematik, Swiss, tipografi, luxury malam, dokumenter, kolase, poster vintage, geometri islami, gradien mihrab). Server merotasi gaya per request; body `excludeStyle` (tombol "Ganti Gaya") menjamin gaya baru tanpa AI call — cache hit merakit ulang prompt saja.
+- Panjang prompt dijaga ≤ ~4.9k (plafon native share 5000) lewat degradasi bertingkat `PROMPT_DEGRADE_STAGES`.
+- Cache `package_value_cache` menyimpan HANYA analisis (tanpa bannerPrompt/style); key = sha256(promptVersion|jadwalId|tier|documentHash). Bump `PACKAGE_VALUE_PROMPT_VERSION` menginvalidasi otomatis. Rate limit 15 analisis AI/2 jam per agent (cache hit tidak dihitung).
+- `GET /api/package-value/agent-card`: PNG 1200x630 "lembar referensi identitas" (`generatePackageValueAgentCardPng` di `lib/og-generator.mjs`) — asset board berlabel chip 01·FOTO…06·LOGO berisi foto (fallback monogram + caption "jangan buat wajah"), nama (auto 2 baris), peran Konsultan Umroh & Haji, WhatsApp lokal, website (custom domain aktif > `agents.website`), logo. Dilampirkan bersama prompt via native share file+text (fallback: buka ChatGPT + salin + unduh).
+- Tests: `tests/package-value-*.test.js` (kontrak prompt/gaya/panjang, modal, endpoint, kartu identitas).
 
 ### Special Landing Rahmah Juli
 
@@ -358,7 +370,7 @@ Do not increase background sync cadence, upsert batch size, or route polling wit
 | Haji | `/api/haji/*` |
 | Calendar | `/api/calendar/*` |
 | Flights | `/api/flights/*`, `/api/flight-share/*`, `/og/flight/:code.png` |
-| AI | `/api/ai-copy`, `/api/ask-ai/*`, `/api/ai-tools/*` |
+| AI | `/api/ai-copy`, `/api/ask-ai/*`, `/api/ai-tools/*`, `/api/package-value`, `/api/package-value/agent-card` |
 | Analytics | `/api/analytics/*` |
 | Weather/Kurs | `/api/weather/*`, `/api/kurs*` |
 | Landing/Bio/Domain | `/api/landing-config`, `/api/landing-builder/:type/*`, `/api/bio/*`, `/api/agent/custom-domain` |

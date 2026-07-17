@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles, Wand2, ChevronDown } from 'lucide-react';
+import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles, Wand2, ChevronDown, Gem } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 
@@ -17,6 +17,8 @@ interface BrochureModalProps {
   title: string;
   /** When provided, shows a "Caption" button in the footer (agent-only tool). */
   onCaption?: () => void;
+  /** When provided, shows the grounded package-value analyzer (agent-only). */
+  onPackageValue?: () => void;
   /** When provided, shows a "Buat Ulang (AI)" button — opens the ChatGPT prompt generator (agent-only). */
   onPrompt?: () => void;
 }
@@ -25,7 +27,7 @@ interface BrochureModalProps {
 // Component
 // ============================================
 
-export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onPrompt }: BrochureModalProps) {
+export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onPackageValue, onPrompt }: BrochureModalProps) {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [scale, setScale] = useState(1);
@@ -155,10 +157,11 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
     }
   };
 
-  // AI Tools (agent-only) — Caption + Buat Ulang digabung jadi satu tombol dropdown.
+  // AI Tools (agent-only) — semua alat terkait brosur ada di satu dropdown.
   // Menu membuka KE ATAS karena footer dipatok di dasar modal.
   const aiActions = [
     onCaption ? { key: 'caption', label: 'Caption AI', desc: 'Caption promosi WhatsApp', Icon: Sparkles, onClick: onCaption } : null,
+    onPackageValue ? { key: 'package-value', label: 'Nilai Plus Paket', desc: 'Prompt banner dari brosur & itinerary', Icon: Gem, onClick: onPackageValue } : null,
     onPrompt ? { key: 'prompt', label: 'Buat Ulang Brosur', desc: 'Prompt ChatGPT untuk re-create brosur', Icon: Wand2, onClick: onPrompt } : null,
   ].filter(Boolean) as { key: string; label: string; desc: string; Icon: typeof Sparkles; onClick: () => void }[];
 
@@ -330,12 +333,12 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
                 ) : useShareLabel ? (
                   <>
                     <Share2 size={17} />
-                    <span>{(onCaption || onPrompt) ? 'Bagikan' : 'Bagikan Brosur'}</span>
+                    <span>{(onCaption || onPackageValue || onPrompt) ? 'Bagikan' : 'Bagikan Brosur'}</span>
                   </>
                 ) : (
                   <>
                     <Download size={17} />
-                    <span>{(onCaption || onPrompt) ? 'Download' : 'Download Brosur'}</span>
+                    <span>{(onCaption || onPackageValue || onPrompt) ? 'Download' : 'Download Brosur'}</span>
                   </>
                 )}
               </button>

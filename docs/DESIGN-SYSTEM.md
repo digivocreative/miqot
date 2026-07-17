@@ -27,6 +27,7 @@ Dokumen ini merangkum aturan visual dan interaction pattern yang aktif di repo `
 | Supporting text | `text-[10px]` to `text-[12px]`, `font-medium` |
 | Badge | `text-[9px] font-bold uppercase tracking-wide` |
 | Stat value | `text-2xl font-bold` |
+| AI result display headline | `text-base font-bold leading-snug` — hanya untuk konten hasil AI (hook/headline) di dalam kartu hasil modal AI, bukan judul UI |
 
 Do not scale font size with viewport width. Keep letter spacing at default except existing uppercase micro-labels that use Tailwind `tracking-wide`.
 

@@ -23,6 +23,7 @@ import { trackEvent, trackPublicEvent } from '@/utils/analytics';
 import { getLandingCityName, getPackageJourneySteps } from '@/utils/journey';
 import { isSessionValid } from '@/utils/authUtils';
 import { CaptionAIModal } from './CaptionAIModal';
+import { PackageValueModal } from './PackageValueModal';
 import { BrochurePromptModal } from './BrochurePromptModal';
 import { formatBrochurePrice, type BrochurePromptPkg } from './brochure-prompt/buildBrochurePrompt';
 
@@ -152,6 +153,7 @@ function PackageCardImpl({
   const [selectedGradient, setSelectedGradient] = useState(0);
   const gradientRef = useRef(0);
   const [isAiCopyOpen, setIsAiCopyOpen] = useState(false);
+  const [isPackageValueOpen, setIsPackageValueOpen] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [askAIOpen, setAskAIOpen] = useState(false);
   const [brosurError, setBrosurError] = useState(false);
@@ -2407,6 +2409,10 @@ _________________________
             setIsBrochureOpen(false);
             setIsAiCopyOpen(true);
           } : undefined}
+          onPackageValue={isSessionValid() ? () => {
+            setIsBrochureOpen(false);
+            setIsPackageValueOpen(true);
+          } : undefined}
           onPrompt={isSessionValid() ? () => setIsPromptOpen(true) : undefined}
         />
       )}
@@ -2453,6 +2459,20 @@ _________________________
         subject={pkg.nama}
         buildPayload={buildAiCopyPayload}
         buildFallbackText={buildAiCopyFallback}
+      />
+
+      {/* Grounded package advantages from canonical brochure data + cached itinerary. */}
+      <PackageValueModal
+        isOpen={isPackageValueOpen}
+        onClose={() => setIsPackageValueOpen(false)}
+        subject={pkg.nama}
+        jadwalId={pkg.jadwalId}
+        tier={activeTier}
+        agent={currentAgent ? {
+          name: currentAgent.name,
+          phone: currentAgent.phone,
+          photo: currentAgent.photo,
+        } : null}
       />
 
       {/* Brochure Prompt Generator (agent-only) — bikin prompt ChatGPT re-create brosur */}
