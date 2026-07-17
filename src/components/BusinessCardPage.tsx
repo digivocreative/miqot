@@ -138,8 +138,10 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
     try {
       const { snapdom } = await import('@zumer/snapdom');
       // embedFonts wajib: tanpa ini hasil export jatuh ke font sistem, bukan Inter.
-      const result = await snapdom(cardExportRef.current, { scale: 2, embedFonts: true });
-      await result.download({ type: 'png', filename: `kartu-nama-${agent.slug || 'agent'}-${format}` });
+      // dpr eksplisit 1: default snapdom mengalikan devicePixelRatio layar, bikin
+      // resolusi hasil beda antar device (download() kebetulan memaksa 1, toBlob tidak).
+      const result = await snapdom(cardExportRef.current, { scale: 2, dpr: 1, embedFonts: true });
+      await result.download({ type: 'png', dpr: 1, filename: `kartu-nama-${agent.slug || 'agent'}-${format}` });
       trackEvent('action', 'download_business_card', { theme: currentDesign.name });
     } catch (e) { console.error('Export gagal:', e); }
     finally { setExporting(null); }
@@ -150,8 +152,9 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
     setExporting('share');
     try {
       const { snapdom } = await import('@zumer/snapdom');
-      const result = await snapdom(cardExportRef.current, { scale: 2, embedFonts: true });
-      const blob = await result.toBlob({ type: 'png' });
+      // dpr: 1 — samakan resolusi share dengan download di semua device (lihat handleDownload).
+      const result = await snapdom(cardExportRef.current, { scale: 2, dpr: 1, embedFonts: true });
+      const blob = await result.toBlob({ type: 'png', dpr: 1 });
       const file = new File([blob], `kartu-nama-${agent.slug || 'agent'}.png`, { type: 'image/png' });
       if (navigator.share) {
         await navigator.share({ files: [file] });
