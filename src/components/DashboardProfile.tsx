@@ -528,19 +528,17 @@ function EmailAliasField() {
 
   if (status.alias) {
     return (
-      <div className="mt-2 px-3 py-2.5 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700">
-        <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Email Alias</p>
-        <div className="flex items-center gap-1.5">
-          <input
-            type="text"
-            value={status.alias.split('@')[0]}
-            disabled
-            className="min-w-0 flex-1 px-2.5 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-100 dark:bg-slate-800/60 text-gray-500 dark:text-slate-400 cursor-not-allowed"
-          />
-          <span className="text-xs font-medium text-gray-500 dark:text-slate-400 shrink-0">@alhijaz.co</span>
-          <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-        </div>
-        <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1.5">Alias permanen — email yang masuk diteruskan ke email kamu.</p>
+      <div className="mt-3">
+        <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide">
+          <Mail size={12} /> Email Alias
+        </label>
+        <input
+          type="text"
+          value={status.alias}
+          disabled
+          className="w-full px-3 py-2.5 bg-gray-100 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-500 dark:text-slate-400 cursor-not-allowed"
+        />
+        <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1">Alias permanen — email yang masuk diteruskan ke email kamu.</p>
       </div>
     );
   }
@@ -572,22 +570,24 @@ function EmailAliasField() {
   };
 
   return (
-    <div className="mt-2 px-3 py-2.5 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700">
-      <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Email Alias — opsional</p>
+    <div className="mt-3">
+      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide">
+        <Mail size={12} /> Email Alias <span className="normal-case font-normal text-gray-400 dark:text-slate-500">(opsional)</span>
+      </label>
       <div className="flex items-center gap-1.5">
         <input
           type="text"
           value={aliasInput}
           onChange={e => { setAliasInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')); setError(''); }}
           placeholder="namakamu"
-          className="min-w-0 flex-1 px-2.5 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-300 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+          className="min-w-0 flex-1 px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 focus:ring-emerald-500 focus:border-emerald-500 rounded-xl text-sm focus:ring-2 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500"
         />
         <span className="text-xs font-medium text-gray-500 dark:text-slate-400 shrink-0">@alhijaz.co</span>
         <button
           type="button"
           disabled={!valid || saving}
           onClick={handleCreate}
-          className={`shrink-0 px-3 py-2 rounded-lg text-xs font-bold transition-all active:scale-95 ${
+          className={`shrink-0 px-3 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
             valid && !saving
               ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
               : 'bg-gray-200 dark:bg-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed'
@@ -597,9 +597,9 @@ function EmailAliasField() {
         </button>
       </div>
       {error && (
-        <p className="text-[10px] text-red-500 dark:text-red-400 mt-1.5 flex items-center gap-1"><AlertCircle size={10} />{error}</p>
+        <p className="text-[10px] text-red-500 dark:text-red-400 mt-1 flex items-center gap-1"><AlertCircle size={10} />{error}</p>
       )}
-      <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1.5">
+      <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1">
         Diteruskan ke email kamu. <span className="font-semibold">Hanya bisa dibuat sekali, tidak bisa diganti.</span>
       </p>
     </div>
