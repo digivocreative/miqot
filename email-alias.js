@@ -82,6 +82,16 @@ function sanitizeHeaderValue(value) {
   return String(value).replace(/[\r\n]+/g, ' ').trim();
 }
 
+// Nama/alamat pengirim asli tampil di body (bukan cuma header) — konten
+// dikendalikan pengirim, wajib di-escape sebelum masuk HTML.
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 // Lookup case-insensitive di Record header hasil receiving.get
 function headerValue(headers, name) {
   if (!headers) return '';
@@ -106,9 +116,11 @@ async function logForward(supabase, row) {
 
 function buildForwardPayload({ fullEmail, fromParsed, alias, agentEmail, attachments }) {
   const origAddr = fromParsed.address || '';
-  const display = sanitizeDisplayName(
-    fromParsed.name ? `${fromParsed.name} (${origAddr})` : origAddr || 'Pengirim tidak dikenal'
-  );
+  // Display name TANPA alamat email — pola `Nama (email@x)` di display name
+  // memicu heuristik anti-phishing Gmail (salah satu penyebab masuk spam).
+  // Alamat asli tetap terlihat: di Reply-To dan baris info awal body.
+  const origLocal = origAddr.split('@')[0] || '';
+  const display = sanitizeDisplayName(`${fromParsed.name || origLocal || 'Pengirim'} via Alhijaz`);
 
   // References/In-Reply-To dari email asli supaya bolak-balik percakapan yang
   // sama menyatu jadi satu thread di Gmail agent.
@@ -118,22 +130,38 @@ function buildForwardPayload({ fullEmail, fromParsed, alias, agentEmail, attachm
   );
   if (refs) headers.References = refs;
   if (fullEmail.message_id) headers['In-Reply-To'] = sanitizeHeaderValue(fullEmail.message_id);
+  // Penanda forward otomatis sesuai pedoman forwarder Google + RFC 3834 —
+  // membantu Gmail mengklasifikasikan sebagai terusan, bukan bulk mail.
+  headers['Auto-Submitted'] = 'auto-forwarded';
+  headers['X-Forwarded-For'] = alias;
+  headers['X-Forwarded-To'] = sanitizeHeaderValue(agentEmail);
 
   const payload = {
     from: `"${display}" <${alias}>`,
     to: agentEmail,
     subject: fullEmail.subject || '(tanpa subjek)',
+    headers,
   };
   if (origAddr) {
     payload.replyTo = fromParsed.name
       ? `"${sanitizeDisplayName(fromParsed.name)}" <${origAddr}>`
       : origAddr;
   }
-  if (Object.keys(headers).length) payload.headers = headers;
   if (attachments && attachments.length) payload.attachments = attachments;
-  if (fullEmail.html) payload.html = fullEmail.html;
-  if (fullEmail.text) payload.text = fullEmail.text;
-  if (!payload.html && !payload.text) payload.text = '(pesan tanpa isi)';
+
+  // Baris info ala Gmail-forward di awal body: agent tetap melihat alamat
+  // pengirim asli meski tidak lagi ada di display name.
+  const senderLabel = fromParsed.name ? `${fromParsed.name} <${origAddr}>` : (origAddr || 'tidak dikenal');
+  if (fullEmail.html) {
+    payload.html =
+      `<div style="font-size:12px;color:#667085;border-bottom:1px solid #e4e7ec;padding-bottom:8px;margin-bottom:12px">` +
+      `Diteruskan dari <b>${escapeHtml(senderLabel)}</b> untuk ${escapeHtml(alias)}</div>` +
+      fullEmail.html;
+  }
+  if (fullEmail.text) {
+    payload.text = `--- Diteruskan dari ${senderLabel} untuk ${alias} ---\n\n${fullEmail.text}`;
+  }
+  if (!payload.html && !payload.text) payload.text = `--- Diteruskan dari ${senderLabel} untuk ${alias} ---\n\n(pesan tanpa isi)`;
   return payload;
 }
 

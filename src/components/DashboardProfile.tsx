@@ -534,6 +534,7 @@ function EmailAliasField() {
           <p className="text-xs font-semibold text-gray-700 dark:text-slate-200 break-all">{status.alias}</p>
           <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">
             Email alias aktif — pesan yang masuk diteruskan ke email kamu di atas. Alias bersifat permanen dan tampil di kartu nama.
+            Kalau terusan masuk folder Spam, tandai <span className="font-semibold">"Bukan spam"</span> sekali agar berikutnya masuk inbox.
           </p>
         </div>
       </div>
