@@ -1182,6 +1182,7 @@ function adminOnly(req, res, next) {
 // ── Agent cache (in-memory, refreshes every 5 minutes) ──
 let agentCacheById = null;
 let agentCacheBySlug = null;
+let agentCacheByAlias = null;
 let agentCacheTime = 0;
 const AGENT_CACHE_TTL = 5 * 60 * 1000; // 5 min
 // When a refresh FAILS (DB unreachable / 522), keep serving the stale cache and
@@ -1210,12 +1211,15 @@ async function getAgents() {
     }
     const idMap = {};
     const slugMap = {};
+    const aliasMap = {};
     for (const a of data) {
       idMap[a.id] = a;
       slugMap[a.slug] = a;
+      if (a.email_alias) aliasMap[a.email_alias.toLowerCase()] = a;
     }
     agentCacheById = idMap;
     agentCacheBySlug = slugMap;
+    agentCacheByAlias = aliasMap;
     agentCacheTime = Date.now();
     agentCacheFailUntil = 0;
     return idMap;
@@ -1238,9 +1242,15 @@ async function getAgentBySlug(slug) {
   return (agentCacheBySlug || {})[slug] || null;
 }
 
+async function getAgentByAlias(alias) {
+  await getAgents();
+  return (agentCacheByAlias || {})[String(alias).toLowerCase()] || null;
+}
+
 function invalidateAgentCache() {
   agentCacheById = null;
   agentCacheBySlug = null;
+  agentCacheByAlias = null;
   agentCacheTime = 0;
   agentCacheFailUntil = 0;
 }
@@ -2612,7 +2622,7 @@ app.post('/api/auth/login', async (req, res) => {
       website: agent.website,
       phone: agent.phone,
       email: agent.email || '',
-      email_alias_enabled: !!agent.email_alias_enabled,
+      email_alias: (agent.email_alias && agent.email_alias_enabled) ? agent.email_alias : null,
       card_variant: agent.card_variant || 'default',
     },
   });
@@ -2750,7 +2760,7 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     website: agent.website,
     phone: agent.phone,
     email: agent.email || '',
-    email_alias_enabled: !!agent.email_alias_enabled,
+    email_alias: (agent.email_alias && agent.email_alias_enabled) ? agent.email_alias : null,
     telegram_chat_id: agent.telegram_chat_id || '',
     card_variant: agent.card_variant || 'default',
     awapi_code: agent.awapi_code || '',
@@ -3542,7 +3552,7 @@ app.post('/api/resend-inbound', emailAliasConfigured
   ? createResendInboundHandler({
       resend,
       supabase,
-      getAgentBySlug,
+      getAgentByAlias,
       webhookSecret: process.env.RESEND_WEBHOOK_SECRET,
     })
   : (_req, res) => res.status(503).json({ error: 'Email alias belum dikonfigurasi' }));
@@ -3554,10 +3564,9 @@ app.get('/api/agent/email-alias', authMiddleware, async (req, res) => {
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     res.json({
       configured: emailAliasConfigured,
-      enabled: !!agent.email_alias_enabled,
-      alias: `${agent.slug}@${ALIAS_DOMAIN}`,
+      alias: agent.email_alias ? `${agent.email_alias}@${ALIAS_DOMAIN}` : null,
+      enabled: !!(agent.email_alias && agent.email_alias_enabled),
       destination: agent.email || '',
-      reserved: RESERVED_EMAIL_LOCAL_PARTS.includes(agent.slug),
     });
   } catch (err) {
     console.error('[email-alias] status error:', err);
@@ -3565,7 +3574,7 @@ app.get('/api/agent/email-alias', authMiddleware, async (req, res) => {
   }
 });
 
-// Aktifkan alias (opt-in per agent)
+// Buat alias — SEKALI SAJA per agent, tidak bisa diganti setelahnya
 app.post('/api/agent/email-alias', authMiddleware, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
@@ -3573,47 +3582,56 @@ app.post('/api/agent/email-alias', authMiddleware, async (req, res) => {
     if (!emailAliasConfigured) {
       return res.status(503).json({ error: 'Fitur email alias belum dikonfigurasi di server' });
     }
-    if (RESERVED_EMAIL_LOCAL_PARTS.includes(agent.slug)) {
-      return res.status(400).json({ error: 'Username ini tidak bisa dipakai sebagai alamat email' });
+    if (agent.email_alias) {
+      return res.status(400).json({
+        error: 'ALIAS_LOCKED',
+        message: 'Alias sudah pernah dibuat dan tidak bisa diganti.',
+      });
     }
     if (!agent.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agent.email)) {
       return res.status(400).json({
         error: 'EMAIL_REQUIRED',
-        message: 'Isi email tujuan yang valid di profil terlebih dahulu.',
+        message: 'Isi email tujuan yang valid terlebih dahulu.',
       });
     }
-    const { error } = await supabase
+    const alias = String(req.body?.alias || '').trim().toLowerCase();
+    if (alias.length < 2 || alias.length > 30 || !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(alias)) {
+      return res.status(400).json({ error: 'Alias harus 2-30 karakter: huruf kecil, angka, strip (tidak di awal/akhir)' });
+    }
+    if (RESERVED_EMAIL_LOCAL_PARTS.includes(alias)) {
+      return res.status(400).json({ error: 'Alias ini tidak tersedia' });
+    }
+    // Cegah memakai username agent lain (squatting nama) atau alias yang sudah diambil
+    const bySlug = await getAgentBySlug(alias);
+    if (bySlug && bySlug.id !== agent.id) {
+      return res.status(400).json({ error: 'Alias ini tidak tersedia' });
+    }
+    if (await getAgentByAlias(alias)) {
+      return res.status(400).json({ error: 'Alias ini tidak tersedia' });
+    }
+    // Set-once: guard .is(null) menahan race double-submit; unique index
+    // lower(email_alias) menahan race antar-agent
+    const { data: updated, error } = await supabase
       .from('agents')
-      .update({ email_alias_enabled: true })
-      .eq('id', req.user.id);
-    if (error) throw error;
+      .update({ email_alias: alias, email_alias_enabled: true })
+      .eq('id', req.user.id)
+      .is('email_alias', null)
+      .select('email_alias');
+    if (error) {
+      if (error.code === '23505') return res.status(400).json({ error: 'Alias ini tidak tersedia' });
+      throw error;
+    }
+    if (!updated || !updated.length) {
+      return res.status(400).json({ error: 'ALIAS_LOCKED', message: 'Alias sudah pernah dibuat dan tidak bisa diganti.' });
+    }
     invalidateAgentCache();
     if (req.user.role !== 'admin') {
-      logAnalyticsEvent(req.user.id, 'action', 'enable_email_alias', {}, getClientIpUa(req));
+      logAnalyticsEvent(req.user.id, 'action', 'set_email_alias', { alias }, getClientIpUa(req));
     }
-    res.json({ success: true, alias: `${agent.slug}@${ALIAS_DOMAIN}` });
+    res.json({ success: true, alias: `${alias}@${ALIAS_DOMAIN}` });
   } catch (err) {
-    console.error('[email-alias] enable error:', err);
-    res.status(500).json({ error: 'Gagal mengaktifkan alias email' });
-  }
-});
-
-// Matikan alias — email berikutnya ke alamat ini di-drop
-app.delete('/api/agent/email-alias', authMiddleware, async (req, res) => {
-  try {
-    const { error } = await supabase
-      .from('agents')
-      .update({ email_alias_enabled: false })
-      .eq('id', req.user.id);
-    if (error) throw error;
-    invalidateAgentCache();
-    if (req.user.role !== 'admin') {
-      logAnalyticsEvent(req.user.id, 'action', 'disable_email_alias', {}, getClientIpUa(req));
-    }
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[email-alias] disable error:', err);
-    res.status(500).json({ error: 'Gagal menonaktifkan alias email' });
+    console.error('[email-alias] set error:', err);
+    res.status(500).json({ error: 'Gagal membuat alias email' });
   }
 });
 

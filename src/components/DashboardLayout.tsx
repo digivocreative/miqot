@@ -108,12 +108,12 @@ function getSubTabFromPath(): 'umroh' | 'haji' | 'daftar' | 'edit' {
   return 'umroh';
 }
 
-function getSettingsTabFromPath(): 'profil' | 'telegram' | 'email' | 'capi' {
+function getSettingsTabFromPath(): 'profil' | 'telegram' | 'capi' {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
   // /dashboard/settings/telegram or /dashboard/settings/capi
   if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'settings') {
-    const sub = segments[2] as 'profil' | 'telegram' | 'email' | 'capi';
-    if (['profil', 'telegram', 'email', 'capi'].includes(sub)) return sub;
+    const sub = segments[2] as 'profil' | 'telegram' | 'capi';
+    if (['profil', 'telegram', 'capi'].includes(sub)) return sub;
   }
   return 'profil';
 }

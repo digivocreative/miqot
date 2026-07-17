@@ -1,10 +1,10 @@
-// ── Email alias forwarding (slug@alhijaz.co → email pribadi agent) ──
+// ── Email alias forwarding (alias@alhijaz.co → email pribadi agent) ──
 //
 // Arsitektur: MX alhijaz.co → Resend Inbound (catch-all domain) → webhook
-// `email.received` → handler ini → lookup local-part vs agents.slug →
+// `email.received` → handler ini → lookup local-part vs agents.email_alias →
 // kirim ulang via resend.emails.send (from alias, reply-to pengirim asli).
-// Tidak ada provisioning per-alias di Resend: routing murni lookup dinamis,
-// jadi alias otomatis mengikuti slug (termasuk saat agent ganti slug).
+// Alias dipilih agent sendiri SEKALI (immutable setelah dibuat, tidak terikat
+// slug); tidak ada provisioning per-alias di Resend — routing murni lookup.
 //
 // Aktif hanya bila RESEND_API_KEY + RESEND_WEBHOOK_SECRET terisi (lihat
 // wiring di server.js). Log ke tabel email_forward_log; idempoten terhadap
@@ -139,9 +139,9 @@ function buildForwardPayload({ fullEmail, fromParsed, alias, agentEmail, attachm
 
 // Factory handler Express untuk POST /api/resend-inbound.
 // Body HARUS Buffer mentah (express.raw) — verifikasi Svix butuh byte persis.
-// getAgentBySlug dipakai (bukan query per email) agar spam ke catch-all tidak
-// membebani DB — lihat [[db-io-throttling-incident]].
-export function createResendInboundHandler({ resend, supabase, getAgentBySlug, webhookSecret, aliasDomain = ALIAS_DOMAIN }) {
+// getAgentByAlias dipakai dari cache agent (bukan query per email) agar spam
+// ke catch-all tidak membebani DB — lihat [[db-io-throttling-incident]].
+export function createResendInboundHandler({ resend, supabase, getAgentByAlias, webhookSecret, aliasDomain = ALIAS_DOMAIN }) {
   const reserved = new Set(RESERVED_EMAIL_LOCAL_PARTS);
   const suffix = `@${aliasDomain}`;
 
@@ -211,7 +211,7 @@ export function createResendInboundHandler({ resend, supabase, getAgentBySlug, w
 
         let agent;
         try {
-          agent = await getAgentBySlug(localPart);
+          agent = await getAgentByAlias(localPart);
         } catch (err) {
           console.error('[email-alias] lookup agent gagal:', err.message);
           transient = true;

@@ -19,7 +19,7 @@ interface AgentProfile {
   card_variant?: string;
   awapi_code?: string;
   has_awapi_key?: boolean;
-  email_alias_enabled?: boolean;
+  email_alias?: string | null;
 }
 
 // ── Notification preference groups ──
@@ -508,18 +508,11 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
 
 
 
-// ── Exported Email Alias Section for SettingsPage ──
-interface EmailAliasStatus {
-  configured: boolean;
-  enabled: boolean;
-  alias: string;
-  destination: string;
-  reserved: boolean;
-}
-
-export function EmailAliasSection() {
-  const [status, setStatus] = useState<EmailAliasStatus | null>(null);
-  const [statusLoading, setStatusLoading] = useState(true);
+// ── Email Alias field (inline di bawah input Email pada form profil) ──
+// Alias dipilih agent SEKALI dan permanen — server menolak perubahan (ALIAS_LOCKED).
+function EmailAliasField() {
+  const [status, setStatus] = useState<{ configured: boolean; alias: string | null; enabled: boolean; destination: string } | null>(null);
+  const [aliasInput, setAliasInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -528,24 +521,43 @@ export function EmailAliasSection() {
       const res = await fetch('/api/agent/email-alias', { headers: { ...getAuthHeaders() } });
       if (res.ok) setStatus(await res.json());
     } catch { /* ignore */ }
-    setStatusLoading(false);
   };
   useEffect(() => { fetchStatus(); }, []);
 
-  const handleToggle = async () => {
-    if (!status || saving) return;
+  if (!status || !status.configured) return null;
+
+  if (status.alias) {
+    return (
+      <div className="mt-2 flex items-start gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20">
+        <CheckCircle2 size={14} className="text-emerald-500 shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-gray-700 dark:text-slate-200 break-all">{status.alias}</p>
+          <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">
+            Email alias aktif — pesan yang masuk diteruskan ke email kamu di atas. Alias bersifat permanen dan tampil di kartu nama.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const valid = aliasInput.length >= 2 && aliasInput.length <= 30 && /^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(aliasInput);
+
+  const handleCreate = async () => {
+    if (!valid || saving) return;
+    if (!confirm(`Alias ${aliasInput}@alhijaz.co hanya bisa dibuat SEKALI dan tidak bisa diganti lagi.\n\nBuat alias ini?`)) return;
     setSaving(true);
     setError('');
     try {
       const res = await fetch('/api/agent/email-alias', {
-        method: status.enabled ? 'DELETE' : 'POST',
-        headers: { ...getAuthHeaders() },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ alias: aliasInput }),
       });
       const json = await res.json();
       if (!res.ok) {
-        setError(json.message || json.error || 'Gagal menyimpan perubahan');
+        setError(json.message || json.error || 'Gagal membuat alias');
       } else {
-        trackEvent('action', status.enabled ? 'disable_email_alias' : 'enable_email_alias');
+        trackEvent('action', 'set_email_alias');
         await fetchStatus();
       }
     } catch {
@@ -554,110 +566,37 @@ export function EmailAliasSection() {
     setSaving(false);
   };
 
-  if (statusLoading) {
-    return (
-      <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 flex items-center justify-center">
-        <Loader2 size={18} className="animate-spin text-gray-400" />
-      </div>
-    );
-  }
-  if (!status) {
-    return (
-      <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 text-center">
-        <p className="text-sm text-gray-500 dark:text-slate-400">Gagal memuat status alias email. Coba muat ulang halaman.</p>
-      </div>
-    );
-  }
-
-  const missingDestination = !status.destination;
-
   return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-full bg-emerald-500/10 dark:bg-emerald-500/20 flex items-center justify-center shrink-0">
-            <Mail size={18} className="text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">Email Alias</p>
-              {status.enabled ? (
-                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 size={11} /> Aktif
-                </span>
-              ) : (
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-gray-200/70 dark:bg-slate-700 text-gray-500 dark:text-slate-400">
-                  Nonaktif
-                </span>
-              )}
-            </div>
-            <p className="mt-1 font-mono text-sm text-gray-900 dark:text-white break-all">{status.alias}</p>
-            <p className="mt-2 text-xs text-gray-400 dark:text-slate-500 leading-relaxed">
-              Email yang masuk ke alamat ini otomatis diteruskan ke email pribadimu
-              {status.destination ? <> (<span className="font-medium text-gray-500 dark:text-slate-400">{status.destination}</span>)</> : null}.
-              Cocok dipajang di kartu nama supaya terlihat profesional.
-            </p>
-          </div>
-        </div>
-
-        {status.reserved ? (
-          <div className="mt-4 flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-xl p-3">
-            <AlertCircle size={14} className="shrink-0 mt-0.5" />
-            <span>Username kamu termasuk kata khusus yang tidak bisa dipakai sebagai alamat email. Ganti username terlebih dahulu untuk memakai fitur ini.</span>
-          </div>
-        ) : !status.configured ? (
-          <div className="mt-4 flex items-start gap-2 text-xs text-gray-400 dark:text-slate-500 bg-gray-100 dark:bg-slate-700/50 rounded-xl p-3">
-            <AlertCircle size={14} className="shrink-0 mt-0.5" />
-            <span>Fitur ini belum tersedia. Hubungi admin.</span>
-          </div>
-        ) : (
-          <>
-            {missingDestination && !status.enabled && (
-              <div className="mt-4 flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-xl p-3">
-                <AlertCircle size={14} className="shrink-0 mt-0.5" />
-                <span>Isi email di tab Profil terlebih dahulu sebagai alamat tujuan penerusan.</span>
-              </div>
-            )}
-            {error && (
-              <div className="mt-4 flex items-start gap-2 text-xs text-red-500 bg-red-500/10 rounded-xl p-3">
-                <AlertCircle size={14} className="shrink-0 mt-0.5" />
-                <span>{error}</span>
-              </div>
-            )}
-            <button
-              type="button"
-              disabled={saving || (missingDestination && !status.enabled)}
-              onClick={handleToggle}
-              className={`mt-4 w-full py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2 ${
-                status.enabled
-                  ? 'border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700'
-                  : missingDestination
-                    ? 'bg-gray-200 dark:bg-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed'
-                    : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
-              }`}
-            >
-              {saving ? (
-                <><Loader2 size={16} className="animate-spin" /> Menyimpan...</>
-              ) : status.enabled ? (
-                <>Nonaktifkan Alias</>
-              ) : (
-                <><Mail size={16} /> Aktifkan Alias</>
-              )}
-            </button>
-          </>
-        )}
+    <div className="mt-2 px-3 py-2.5 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700">
+      <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Email Alias — opsional</p>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="text"
+          value={aliasInput}
+          onChange={e => { setAliasInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')); setError(''); }}
+          placeholder="namakamu"
+          className="min-w-0 flex-1 px-2.5 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-300 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+        />
+        <span className="text-xs font-medium text-gray-500 dark:text-slate-400 shrink-0">@alhijaz.co</span>
+        <button
+          type="button"
+          disabled={!valid || saving}
+          onClick={handleCreate}
+          className={`shrink-0 px-3 py-2 rounded-lg text-xs font-bold transition-all active:scale-95 ${
+            valid && !saving
+              ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+              : 'bg-gray-200 dark:bg-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed'
+          }`}
+        >
+          {saving ? <Loader2 size={14} className="animate-spin" /> : 'Buat'}
+        </button>
       </div>
-
-      {status.enabled && (
-        <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5">
-          <p className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">Perlu diketahui</p>
-          <ul className="text-xs text-gray-400 dark:text-slate-500 leading-relaxed space-y-1.5 list-disc pl-4">
-            <li>Alias hanya untuk <span className="font-semibold text-gray-500 dark:text-slate-400">menerima</span> email. Saat kamu membalas, pengirimnya tetap email pribadimu.</li>
-            <li>Kalau kamu mengganti username, alamat alias ikut berubah — kartu nama yang sudah dicetak dengan alias lama tidak menerima email lagi.</li>
-            <li>Email spam yang lolos cukup dihapus saja — jangan tandai "Report spam" agar penerusan tetap lancar.</li>
-          </ul>
-        </div>
+      {error && (
+        <p className="text-[10px] text-red-500 dark:text-red-400 mt-1.5 flex items-center gap-1"><AlertCircle size={10} />{error}</p>
       )}
+      <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1.5">
+        Email yang masuk ke alias ini diteruskan ke email kamu di atas. <span className="font-semibold">Hanya bisa dibuat sekali dan tidak bisa diganti.</span>
+      </p>
     </div>
   );
 }
@@ -2015,6 +1954,7 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
               className={inputCls('email')}
             />
             {fieldErrors.email && <p className="text-[10px] text-red-500 dark:text-red-400 mt-1 flex items-center gap-1"><AlertCircle size={10} />{fieldErrors.email}</p>}
+            <EmailAliasField />
           </div>
 
         {/* Telegram Section — only shown in standalone mode */}

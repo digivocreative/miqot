@@ -194,8 +194,8 @@ Snapshot audit 2026-07-12:
 
 - Login/register/reset password.
 - Dashboard home with schedule, Telegram banner, calendar, weather, kurs, birthday, flight status.
-- Settings: profile, Telegram, Email (alias), CAPI.
-- Email alias `slug@alhijaz.co` (opt-in per agent): email masuk diteruskan ke email pribadi agent via Resend Inbound; tampil menggantikan email pribadi di kartu nama + vCard QR saat aktif. Detail di §Email Alias Agent.
+- Settings: profile, Telegram, CAPI.
+- Email alias `alias@alhijaz.co` (dipilih agent sekali, permanen; form di bawah field Email tab Profil): email masuk diteruskan ke email pribadi agent via Resend Inbound; tampil menggantikan email pribadi di kartu nama + vCard QR. Detail di §Email Alias Agent.
 - Agent profile/photo/crop, slug cooldown, card variant, landing config.
 - Custom domain management.
 - Jamaah Umroh and Haji management.
@@ -418,20 +418,21 @@ Common failure shape:
 
 Some legacy-sensitive endpoints intentionally return HTTP 200 with `success:false` so proxies do not replace useful JSON with generic HTML error pages.
 
-## Email Alias Agent (slug@alhijaz.co)
+## Email Alias Agent (alias@alhijaz.co)
 
 Forwarding email per-agent via **Resend Inbound** (bukan Cloudflare Email Routing — dipilih karena zero friksi: tidak ada verifikasi destination per agent, tidak ada limit 200 alias, dan Resend sudah dipakai untuk outbound).
 
-Arsitektur: MX apex `alhijaz.co` → Resend (catch-all seluruh domain) → webhook `email.received` → `POST /api/resend-inbound` (raw body, verifikasi Svix manual di `email-alias.js`) → lookup local-part vs `agents.slug` (via cache `getAgentBySlug`, hemat DB) → `resend.emails.receiving.get` + attachments (signed `download_url`, berlaku 1 jam) → `resend.emails.send` dengan `from: "Pengirim (email@asli)" <slug@alhijaz.co>`, `replyTo` pengirim asli, header `References`/`In-Reply-To` untuk threading Gmail.
+Arsitektur: MX apex `alhijaz.co` → Resend (catch-all seluruh domain) → webhook `email.received` → `POST /api/resend-inbound` (raw body, verifikasi Svix manual di `email-alias.js`) → lookup local-part vs `agents.email_alias` (via cache `getAgentByAlias`, hemat DB) → `resend.emails.receiving.get` + attachments (signed `download_url`, berlaku 1 jam) → `resend.emails.send` dengan `from: "Pengirim (email@asli)" <alias@alhijaz.co>`, `replyTo` pengirim asli, header `References`/`In-Reply-To` untuk threading Gmail.
 
 Keputusan desain (Jul 2026):
 
 - **Receive-only** — agent membalas dari email pribadinya; reply-as-alias sengaja tidak dibuat (API key Resend hanya bisa di-scope per-domain → risiko impersonation lintas-agent).
-- **Opt-in per agent** — toggle di Settings → tab Email (`EmailAliasSection` di `DashboardProfile.tsx`); kolom `agents.email_alias_enabled`.
+- **Alias dipilih agent sendiri, SEKALI, permanen** — bukan otomatis dari slug. Form inline di bawah field Email pada Settings → Profil (`EmailAliasField` di `DashboardProfile.tsx`); `POST /api/agent/email-alias` menolak perubahan setelah terisi (`ALIAS_LOCKED`; guard race: update `.is('email_alias', null)` + unique index `lower(email_alias)`). Salah ketik = perbaikan hanya via SQL admin (`UPDATE agents SET email_alias=... WHERE slug=...`).
+- Karena tidak terikat slug, alias TETAP hidup saat agent ganti username.
+- Alias tidak boleh: reserved (`RESERVED_EMAIL_LOCAL_PARTS` di `email-alias.js`), sama dengan slug agent lain (anti-squatting), atau sudah dipakai agent lain.
 - **Local-part tak dikenal di-drop** (dicatat di `email_forward_log`, tidak diforward ke siapa pun) — termasuk balasan ke `bismillah@`.
-- Alias = slug secara dinamis: ganti slug → alias otomatis ikut, alias lama langsung mati (tidak ada provisioning yang harus dicabut). UI memperingatkan soal kartu nama tercetak.
-- `RESERVED_EMAIL_LOCAL_PARTS` (di `email-alias.js`) diblok sebagai alias DAN sebagai slug baru (dua titik validasi slug di `server.js` ikut mengecek daftar ini).
-- Kartu nama + vCard QR menampilkan alias menggantikan email pribadi saat aktif (`BusinessCardPage.tsx`).
+- `RESERVED_EMAIL_LOCAL_PARTS` juga diblok sebagai slug baru (dua titik validasi slug di `server.js`).
+- Kartu nama + vCard QR menampilkan alias menggantikan email pribadi saat sudah dibuat (`BusinessCardPage.tsx`; `/api/auth/me` expose `email_alias`).
 
 Setup manual (sekali, belum dilakukan otomatis):
 
@@ -447,7 +448,7 @@ Core tables referenced by current code/docs:
 
 | Table | Purpose |
 | --- | --- |
-| `agents` | Canonical user/agent row, login, profile, slug, CAPI config refs, legacy credentials, AWAPI key, MCP key, landing/bio config, Telegram prefs, `email_alias_enabled`. |
+| `agents` | Canonical user/agent row, login, profile, slug, CAPI config refs, legacy credentials, AWAPI key, MCP key, landing/bio config, Telegram prefs, `email_alias` (immutable, unique) + `email_alias_enabled`. |
 | `email_forward_log` | Log forwarding email alias (status forwarded/dropped_*/failed per `resend_email_id` + agent); juga guard idempotensi webhook retry. RLS on, tanpa policy (server-only). |
 | `agent_slug_history` | Slug change history/cooldown. |
 | `jamaah` | Jamaah umroh rows, owned by `agent_id`; booking id, jm_id, payment, docs, equipment, notes, raw_data. |
