@@ -23,6 +23,7 @@ import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaul
 import { buildBerangkatMendatang, computeUmrohKomisi } from './lib/laporan-stats.js';
 import { collapseBookingOutstanding } from './lib/booking-outstanding.js';
 import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate, sendOpsAlert } from './telegram-notifier.js';
+import { createResendInboundHandler, RESERVED_EMAIL_LOCAL_PARTS, ALIAS_DOMAIN } from './email-alias.js';
 import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCacheableHtmlDocument, JAMAAH_DOCUMENT_TYPES } from './lib/jamaah-document-cache.js';
 import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
@@ -426,6 +427,9 @@ app.use('/api/umrah/ocr-ktp', express.json({ limit: '16mb' }));
 // global 10mb parser consumes the body.
 app.use('/api/landing-builder/:type/hero-image', express.json({ limit: '9mb' }));
 app.use('/api/landing-builder', express.json({ limit: '250kb' }));
+// Webhook Resend Inbound butuh raw body (verifikasi signature Svix) — harus
+// terpasang SEBELUM parser JSON global di bawah
+app.use('/api/resend-inbound', express.raw({ type: '*/*', limit: '1mb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // ──────────────────────────────────────────────
@@ -2608,6 +2612,7 @@ app.post('/api/auth/login', async (req, res) => {
       website: agent.website,
       phone: agent.phone,
       email: agent.email || '',
+      email_alias_enabled: !!agent.email_alias_enabled,
       card_variant: agent.card_variant || 'default',
     },
   });
@@ -2637,7 +2642,7 @@ app.post('/api/auth/register', async (req, res) => {
   if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(cleanedSlug) && cleanedSlug.length > 1) {
     return res.status(400).json({ error: 'Slug hanya boleh huruf kecil, angka, dan strip (tidak boleh diawali/diakhiri strip)' });
   }
-  if (RESERVED_SLUGS.includes(cleanedSlug)) {
+  if (RESERVED_SLUGS.includes(cleanedSlug) || RESERVED_EMAIL_LOCAL_PARTS.includes(cleanedSlug)) {
     return res.status(400).json({ error: 'Slug ini tidak tersedia' });
   }
 
@@ -2745,6 +2750,7 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     website: agent.website,
     phone: agent.phone,
     email: agent.email || '',
+    email_alias_enabled: !!agent.email_alias_enabled,
     telegram_chat_id: agent.telegram_chat_id || '',
     card_variant: agent.card_variant || 'default',
     awapi_code: agent.awapi_code || '',
@@ -3160,7 +3166,7 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Username hanya boleh huruf kecil, angka, dan strip' });
     }
     const RESERVED_SLUGS = ['admin', 'login', 'register', 'dashboard', 'api', 'compare', 'reset-password', 'f'];
-    if (RESERVED_SLUGS.includes(cleanSlug)) {
+    if (RESERVED_SLUGS.includes(cleanSlug) || RESERVED_EMAIL_LOCAL_PARTS.includes(cleanSlug)) {
       return res.status(400).json({ error: 'Username ini tidak tersedia' });
     }
 
@@ -3521,6 +3527,93 @@ app.post('/api/telegram/webhook', async (req, res) => {
 
   } catch (err) {
     console.error('[telegram-webhook] Error:', err);
+  }
+});
+
+// === EMAIL ALIAS API (slug@alhijaz.co → email agent, via Resend Inbound) ===
+
+const emailAliasConfigured = !!(resend && process.env.RESEND_WEBHOOK_SECRET);
+if (!emailAliasConfigured) {
+  console.warn('[email-alias] Nonaktif — RESEND_API_KEY / RESEND_WEBHOOK_SECRET belum diisi');
+}
+
+// Webhook dari Resend (raw body — parser dipasang di atas, sebelum JSON global)
+app.post('/api/resend-inbound', emailAliasConfigured
+  ? createResendInboundHandler({
+      resend,
+      supabase,
+      getAgentBySlug,
+      webhookSecret: process.env.RESEND_WEBHOOK_SECRET,
+    })
+  : (_req, res) => res.status(503).json({ error: 'Email alias belum dikonfigurasi' }));
+
+// Status alias milik agent yang login
+app.get('/api/agent/email-alias', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    res.json({
+      configured: emailAliasConfigured,
+      enabled: !!agent.email_alias_enabled,
+      alias: `${agent.slug}@${ALIAS_DOMAIN}`,
+      destination: agent.email || '',
+      reserved: RESERVED_EMAIL_LOCAL_PARTS.includes(agent.slug),
+    });
+  } catch (err) {
+    console.error('[email-alias] status error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Aktifkan alias (opt-in per agent)
+app.post('/api/agent/email-alias', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!emailAliasConfigured) {
+      return res.status(503).json({ error: 'Fitur email alias belum dikonfigurasi di server' });
+    }
+    if (RESERVED_EMAIL_LOCAL_PARTS.includes(agent.slug)) {
+      return res.status(400).json({ error: 'Username ini tidak bisa dipakai sebagai alamat email' });
+    }
+    if (!agent.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agent.email)) {
+      return res.status(400).json({
+        error: 'EMAIL_REQUIRED',
+        message: 'Isi email tujuan yang valid di profil terlebih dahulu.',
+      });
+    }
+    const { error } = await supabase
+      .from('agents')
+      .update({ email_alias_enabled: true })
+      .eq('id', req.user.id);
+    if (error) throw error;
+    invalidateAgentCache();
+    if (req.user.role !== 'admin') {
+      logAnalyticsEvent(req.user.id, 'action', 'enable_email_alias', {}, getClientIpUa(req));
+    }
+    res.json({ success: true, alias: `${agent.slug}@${ALIAS_DOMAIN}` });
+  } catch (err) {
+    console.error('[email-alias] enable error:', err);
+    res.status(500).json({ error: 'Gagal mengaktifkan alias email' });
+  }
+});
+
+// Matikan alias — email berikutnya ke alamat ini di-drop
+app.delete('/api/agent/email-alias', authMiddleware, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('agents')
+      .update({ email_alias_enabled: false })
+      .eq('id', req.user.id);
+    if (error) throw error;
+    invalidateAgentCache();
+    if (req.user.role !== 'admin') {
+      logAnalyticsEvent(req.user.id, 'action', 'disable_email_alias', {}, getClientIpUa(req));
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[email-alias] disable error:', err);
+    res.status(500).json({ error: 'Gagal menonaktifkan alias email' });
   }
 });
 

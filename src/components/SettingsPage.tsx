@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { User, Send, Code, Lock, Eye, EyeOff, Loader2, LogIn } from 'lucide-react';
+import { User, Send, Code, Lock, Eye, EyeOff, Loader2, LogIn, Mail } from 'lucide-react';
 import DashboardProfile from './DashboardProfile';
-import { TelegramSection } from './DashboardProfile';
+import { TelegramSection, EmailAliasSection } from './DashboardProfile';
 import CapiPage from './CapiPage';
 import { trackEvent } from '../utils/analytics';
 import { getAuthHeaders } from './LoginPage';
@@ -19,11 +19,12 @@ interface AgentData {
   card_variant?: string;
 }
 
-type SettingsTab = 'profil' | 'telegram' | 'capi';
+type SettingsTab = 'profil' | 'telegram' | 'email' | 'capi';
 
 const TAB_CONFIG: { id: SettingsTab; label: string; icon: typeof User }[] = [
   { id: 'profil', label: 'Profil', icon: User },
   { id: 'telegram', label: 'Telegram', icon: Send },
+  { id: 'email', label: 'Email', icon: Mail },
   { id: 'capi', label: 'CAPI', icon: Code },
 ];
 
@@ -47,7 +48,7 @@ export default function SettingsPage({ agent, onUpdated, initialTab }: { agent: 
       const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
       if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'settings') {
         const sub = segments[2] as SettingsTab;
-        if (['profil', 'telegram', 'capi'].includes(sub)) {
+        if (['profil', 'telegram', 'email', 'capi'].includes(sub)) {
           setActiveTab(sub);
           return;
         }
@@ -90,6 +91,11 @@ export default function SettingsPage({ agent, onUpdated, initialTab }: { agent: 
         {activeTab === 'telegram' && (
           <div className="px-4 pt-4 pb-8">
             <TelegramSection agent={agent} />
+          </div>
+        )}
+        {activeTab === 'email' && (
+          <div className="px-4 pt-4 pb-8">
+            <EmailAliasSection />
           </div>
         )}
         {activeTab === 'capi' && (

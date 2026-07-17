@@ -49,7 +49,7 @@ function buildVCard(o: { name: string; phoneDigits: string; email: string }): st
 // Main Page Component
 // ══════════════════════════════════════
 interface BusinessCardPageProps {
-  agent: { slug: string; name: string; phone: string; email: string; photo: string; website: string; };
+  agent: { slug: string; name: string; phone: string; email: string; photo: string; website: string; email_alias_enabled?: boolean; };
 }
 
 export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
@@ -62,7 +62,8 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
   const brand = 'Alhijaz Indowisata';
   const waDigits = normalizePhoneDigits(agent.phone || '');
   const wa = formatPhoneDisplay(agent.phone || '');
-  const email = agent.email || '';
+  // Alias slug@alhijaz.co menggantikan email pribadi di kartu (dan vCard) saat aktif
+  const email = agent.email_alias_enabled && agent.slug ? `${agent.slug}@alhijaz.co` : (agent.email || '');
   const rawPhoto = agent.photo || '';
   // Foto default agent baru adalah URL ui-avatars — inisial bergaya desain kartu lebih rapi.
   const photoUrl: string | null = rawPhoto && !rawPhoto.includes('ui-avatars.com') ? rawPhoto : null;

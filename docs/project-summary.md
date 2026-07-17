@@ -194,7 +194,8 @@ Snapshot audit 2026-07-12:
 
 - Login/register/reset password.
 - Dashboard home with schedule, Telegram banner, calendar, weather, kurs, birthday, flight status.
-- Settings: profile, Telegram, CAPI.
+- Settings: profile, Telegram, Email (alias), CAPI.
+- Email alias `slug@alhijaz.co` (opt-in per agent): email masuk diteruskan ke email pribadi agent via Resend Inbound; tampil menggantikan email pribadi di kartu nama + vCard QR saat aktif. Detail di §Email Alias Agent.
 - Agent profile/photo/crop, slug cooldown, card variant, landing config.
 - Custom domain management.
 - Jamaah Umroh and Haji management.
@@ -362,6 +363,7 @@ Do not increase background sync cadence, upsert batch size, or route polling wit
 | Admin/profile | `/api/admin/*` |
 | Agent public metadata | `/api/agent/*`, `/api/agents/:slug/public` |
 | Telegram | `/api/telegram/*` |
+| Email alias | `/api/resend-inbound` (webhook Resend, raw body), `/api/agent/email-alias` |
 | CAPI | `/api/capi/:slug/*` |
 | AWAPI smoke | `/api/awapi/test` |
 | Laporan/Jamaah Umroh | `/api/laporan/*` |
@@ -416,13 +418,37 @@ Common failure shape:
 
 Some legacy-sensitive endpoints intentionally return HTTP 200 with `success:false` so proxies do not replace useful JSON with generic HTML error pages.
 
+## Email Alias Agent (slug@alhijaz.co)
+
+Forwarding email per-agent via **Resend Inbound** (bukan Cloudflare Email Routing — dipilih karena zero friksi: tidak ada verifikasi destination per agent, tidak ada limit 200 alias, dan Resend sudah dipakai untuk outbound).
+
+Arsitektur: MX apex `alhijaz.co` → Resend (catch-all seluruh domain) → webhook `email.received` → `POST /api/resend-inbound` (raw body, verifikasi Svix manual di `email-alias.js`) → lookup local-part vs `agents.slug` (via cache `getAgentBySlug`, hemat DB) → `resend.emails.receiving.get` + attachments (signed `download_url`, berlaku 1 jam) → `resend.emails.send` dengan `from: "Pengirim (email@asli)" <slug@alhijaz.co>`, `replyTo` pengirim asli, header `References`/`In-Reply-To` untuk threading Gmail.
+
+Keputusan desain (Jul 2026):
+
+- **Receive-only** — agent membalas dari email pribadinya; reply-as-alias sengaja tidak dibuat (API key Resend hanya bisa di-scope per-domain → risiko impersonation lintas-agent).
+- **Opt-in per agent** — toggle di Settings → tab Email (`EmailAliasSection` di `DashboardProfile.tsx`); kolom `agents.email_alias_enabled`.
+- **Local-part tak dikenal di-drop** (dicatat di `email_forward_log`, tidak diforward ke siapa pun) — termasuk balasan ke `bismillah@`.
+- Alias = slug secara dinamis: ganti slug → alias otomatis ikut, alias lama langsung mati (tidak ada provisioning yang harus dicabut). UI memperingatkan soal kartu nama tercetak.
+- `RESERVED_EMAIL_LOCAL_PARTS` (di `email-alias.js`) diblok sebagai alias DAN sebagai slug baru (dua titik validasi slug di `server.js` ikut mengecek daftar ini).
+- Kartu nama + vCard QR menampilkan alias menggantikan email pribadi saat aktif (`BusinessCardPage.tsx`).
+
+Setup manual (sekali, belum dilakukan otomatis):
+
+1. Dashboard Resend → domain alhijaz.co → enable receiving → pasang MX apex di Cloudflare (DNS-only, priority terendah). Tidak konflik dengan record outbound Resend (`send.alhijaz.co`).
+2. Dashboard Resend → webhook `email.received` → `https://alhijaz.co/api/resend-inbound` → simpan signing secret ke `RESEND_WEBHOOK_SECRET` (fitur nonaktif selama kosong; endpoint balas 503).
+3. Tambah DMARC: `_dmarc.alhijaz.co TXT "v=DMARC1; p=none; rua=mailto:..."`.
+
+Gotcha operasional: 1 email diforward = 2 unit kuota Resend (received + sent); free tier 3.000/bln + cap 100/hari → naik ke Pro saat adopsi tumbuh. Email >40MB gagal diforward. Retensi Resend 30 hari; `email_forward_log` adalah arsip metadata satu-satunya setelah itu. Webhook di-retry saat non-200 — idempotensi dijaga unique index `(resend_email_id, agent_id)` status `forwarded`. Edukasi agent: spam yang lolos di-delete, jangan "Report spam" (merusak reputasi jalur forwarding, peringatan eksplisit Google).
+
 ## Data Model Ringkas
 
 Core tables referenced by current code/docs:
 
 | Table | Purpose |
 | --- | --- |
-| `agents` | Canonical user/agent row, login, profile, slug, CAPI config refs, legacy credentials, AWAPI key, MCP key, landing/bio config, Telegram prefs. |
+| `agents` | Canonical user/agent row, login, profile, slug, CAPI config refs, legacy credentials, AWAPI key, MCP key, landing/bio config, Telegram prefs, `email_alias_enabled`. |
+| `email_forward_log` | Log forwarding email alias (status forwarded/dropped_*/failed per `resend_email_id` + agent); juga guard idempotensi webhook retry. RLS on, tanpa policy (server-only). |
 | `agent_slug_history` | Slug change history/cooldown. |
 | `jamaah` | Jamaah umroh rows, owned by `agent_id`; booking id, jm_id, payment, docs, equipment, notes, raw_data. |
 | `jamaah_haji` | Jamaah haji rows, owned by `agent_id`; official and legacy fields, docs, notes, payment. |
@@ -478,7 +504,8 @@ External services:
 | `GOOGLE_TTS_API_KEY` | Voice generator. |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_CHAT_ID`, `OPS_ALERT_CHAT_ID` | Telegram bot and alerts. |
 | `AIRLABS_API_KEY` | Flight status. |
-| `RESEND_API_KEY` | Password reset email. |
+| `RESEND_API_KEY` | Password reset email + kirim ulang forwarding email alias. |
+| `RESEND_WEBHOOK_SECRET` | Signing secret Svix webhook `email.received` (whsec_...). Kosong = fitur email alias nonaktif. |
 | `BUNNY_STORAGE_API_KEY`, `BUNNY_STORAGE_ZONE`, `BUNNY_STORAGE_HOSTNAME`, `BUNNY_CDN_HOSTNAME` | CDN mirroring and generated assets. |
 | `VPS_PUBLIC_IP` | Custom domain DNS verification. |
 | `PORTAL_BASE_URL` | Portal Jamaah generated link base. |
