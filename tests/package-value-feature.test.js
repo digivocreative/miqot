@@ -144,7 +144,10 @@ test('agent identity attachment is authenticated and built only from canonical a
   assert.ok(routeStart > -1);
   assert.match(route, /authMiddleware/);
   assert.match(route, /getAgentById\(req\.user\.id\)/);
-  assert.match(route, /loadAgentPhotoBuffer\(agent\.photo, agent\.slug\)/);
+  assert.match(route, /loadAgentPhotoBuffer\(hasRealPhoto \? agent\.photo : null, agent\.slug\)/);
+  // Avatar generated bukan wajah asli → jatuh ke mode tanpa foto.
+  assert.match(route, /ui-avatars/);
+  assert.match(route, /hasRealPhoto/);
   assert.match(route, /generatePackageValueAgentCardPng/);
   // Website: custom domain aktif menang atas kolom website lama.
   assert.match(route, /custom_domain_status === 'active'/);

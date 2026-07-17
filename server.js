@@ -1545,7 +1545,12 @@ app.get('/api/package-value/agent-card', authMiddleware, async (req, res) => {
     const agent = await getAgentById(req.user.id);
     if (!agent) return res.status(404).json({ error: 'Profil agent tidak ditemukan' });
 
-    const photoBuffer = await loadAgentPhotoBuffer(agent.photo, agent.slug);
+    // Avatar generated (ui-avatars dkk.) bukan wajah asli — abaikan supaya
+    // lembar aset memberi caption "jangan buat wajah", bukan menyuruh model
+    // memakai avatar huruf sebagai wajah agent. photoField null tetap
+    // mencoba fallback lokal public/agents/{slug}.jpg di dalam loader.
+    const hasRealPhoto = agent.photo && !/ui-avatars\.com|dicebear\.com/i.test(agent.photo);
+    const photoBuffer = await loadAgentPhotoBuffer(hasRealPhoto ? agent.photo : null, agent.slug);
     // Custom domain aktif lebih relevan untuk banner daripada kolom website lama.
     const website = agent.custom_domain && agent.custom_domain_status === 'active'
       ? agent.custom_domain
