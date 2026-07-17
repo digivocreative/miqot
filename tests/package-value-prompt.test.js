@@ -8,6 +8,7 @@ import {
   buildPackageValueChatBody,
   buildPackageValueContext,
   buildPackageValuePrompts,
+  directFlightFactFromRoute,
   displayPackageName,
   formatCompactMillionPrice,
   parsePackageValueResult,
@@ -90,7 +91,9 @@ test('package-like day titles are not copied into unrelated itinerary evidence',
   const flight = context.evidence.find((item) => item.id === 'I01A02');
   assert.ok(arrival);
   assert.doesNotMatch(arrival.fact, /Turkey|Istanbul/);
-  assert.match(flight.fact, /Istanbul.*pesawat Saudia/);
+  // Logistik transportasi rutin ("Melanjutkan perjalanan ... dengan pesawat")
+  // tidak lagi menjadi evidence — leg penerbangan bukan nilai plus.
+  assert.equal(flight, undefined);
 });
 
 test('prompt fails closed to brochure facts when itinerary cache is unavailable', () => {
@@ -508,27 +511,152 @@ test('parsePackageValueResult accepts the same Turkey facts when every point sta
   assert.match(result.advantages[0].sourceRef, /pesawat Saudi Arabia SV 275 menuju Istanbul/);
 });
 
-test('deterministic repair keeps fallback titles within four words', () => {
+test('deterministic repair keeps fallback titles within four words and collapses duplicate flight points', () => {
   const evidenceCatalog = [
     { id: 'I15A01', source: 'itinerary', fact: 'Hari 15 • 10:00 • Dengan pesawat Saudi Arabia SV818 jamaah kembali ke tanah air' },
     { id: 'BH01', source: 'brosur', fact: 'Hotel Makkah tier HEMAT: AL MASSA DAR AL FAYZIN' },
+    { id: 'BH02', source: 'brosur', fact: 'Hotel Madinah tier HEMAT: DURRAT AL EIMAN' },
     { id: 'B03', source: 'brosur', fact: 'Maskapai/penerbangan berangkat: SAUDIA' },
   ];
   const result = parsePackageValueResult(JSON.stringify({
     headline: 'Pulang Membawa Kenangan',
-    summary: 'Tiga fakta perjalanan yang tercantum dalam paket.',
+    summary: 'Empat fakta perjalanan yang tercantum dalam paket.',
     advantages: [
       { title: 'Penerbangan Saudi Arabia SV818 Jamaah Kembali Ke Tanah Air', benefit: 'Kembali ke tanah air dengan nyaman', description: 'Dengan pesawat Saudi Arabia SV818 jamaah kembali ke tanah air.', evidenceId: 'I15A01' },
       { title: 'Hotel Al Massa', benefit: 'Menjalani hari Makkah dari Al Massa', description: 'Menginap di Al Massa Dar Al Fayzin selama di Makkah.', evidenceId: 'BH01' },
+      { title: 'Hotel Durrat', benefit: 'Menjalani hari Madinah dari Durrat', description: 'Menginap di Durrat Al Eiman selama di Madinah.', evidenceId: 'BH02' },
       { title: 'Penerbangan Saudia', benefit: 'Memulai perjalanan udara bersama Saudia', description: 'Penerbangan berangkat menggunakan Saudia.', evidenceId: 'B03' },
     ],
   }), { itineraryAvailable: true, evidenceCatalog, allowEvidenceRewrite: true });
 
   assert.ok(result);
-  assert.equal(result.advantages[0].title, 'Penerbangan Saudi Arabia');
   assert.ok(result.advantages.every((item) => item.title.split(/\s+/).length <= 4));
+  // Keluhan "Penerbangan Saudia disebut dua kali": aspek penerbangan hanya
+  // boleh muncul SEKALI meskipun model memilih dua evidence penerbangan.
+  const flightPoints = result.advantages.filter((item) => /\b(?:pesawat|penerbangan|terbang|maskapai)\b/i
+    .test(`${item.title} ${item.benefit} ${item.description}`));
+  assert.equal(flightPoints.length, 1, 'aspek penerbangan tampil sekali saja');
   const visibleCopy = result.advantages.map(({ title, benefit, description }) => `${title} ${benefit} ${description}`).join(' ');
   assert.doesNotMatch(visibleCopy, /nyaman|tier|hemat/i);
+});
+
+test('single-segment departure route derives a grounded direct-flight fact', () => {
+  assert.equal(directFlightFactFromRoute('CGK - JED'), 'Penerbangan langsung tanpa transit Jakarta-Jeddah');
+  assert.equal(directFlightFactFromRoute('CGK-MED'), 'Penerbangan langsung tanpa transit Jakarta-Madinah');
+  assert.equal(directFlightFactFromRoute('CGK-DXB / DXB-JED'), '', 'rute transit tidak boleh diklaim direct');
+  assert.equal(directFlightFactFromRoute('CGK-JED/JED-CAI/CAI-MED'), '');
+  assert.equal(directFlightFactFromRoute(''), '');
+
+  const directContext = buildPackageValueContext({
+    ...schedule,
+    berangkat_rute: 'CGK - JED',
+  }, null, 'UHUD');
+  const b03 = directContext.evidence.find((item) => item.id === 'B03');
+  assert.match(b03.fact, /Penerbangan langsung tanpa transit Jakarta-Jeddah/);
+
+  const transitContext = buildPackageValueContext({
+    ...schedule,
+    berangkat_rute: 'CGK-DXB / DXB-JED',
+  }, null, 'UHUD');
+  const b03Transit = transitContext.evidence.find((item) => item.id === 'B03');
+  assert.doesNotMatch(b03Transit.fact, /tanpa transit/);
+});
+
+test('weak airline copy is rewritten into the direct-flight selling point when the route proves it', () => {
+  const evidenceCatalog = [
+    { id: 'B03', source: 'brosur', fact: 'Maskapai/penerbangan berangkat: SAUDIA • SV 819 • Penerbangan langsung tanpa transit Jakarta-Jeddah' },
+    { id: 'BH01', source: 'brosur', fact: 'Hotel Makkah tier HEMAT: AL MASSA DAR AL FAYZIN' },
+    { id: 'BH02', source: 'brosur', fact: 'Hotel Madinah tier HEMAT: DURRAT AL EIMAN' },
+  ];
+  const result = parsePackageValueResult(JSON.stringify({
+    headline: 'Berangkat Tanpa Ribet Transit',
+    summary: 'Terbang langsung dan hotel bernama jelas dalam satu paket.',
+    advantages: [
+      // Copy lemah + klaim tak berdasar ("nyaman") memicu rewrite deterministik.
+      { title: 'Penerbangan Saudia', benefit: 'Terbang nyaman bersama Saudia', description: 'Penerbangan berangkat menggunakan Saudia.', evidenceId: 'B03' },
+      { title: 'Hotel Al Massa', benefit: 'Menjalani hari Makkah dari Al Massa', description: 'Menginap di Al Massa Dar Al Fayzin selama di Makkah.', evidenceId: 'BH01' },
+      { title: 'Hotel Durrat', benefit: 'Menjalani hari Madinah dari Durrat', description: 'Menginap di Durrat Al Eiman selama di Madinah.', evidenceId: 'BH02' },
+    ],
+  }), { itineraryAvailable: false, evidenceCatalog, allowEvidenceRewrite: true });
+
+  assert.ok(result);
+  const flightPoint = result.advantages.find((item) => /terbang|penerbangan/i.test(item.title));
+  assert.equal(flightPoint.title, 'Terbang Langsung ke Jeddah');
+  assert.match(flightPoint.benefit, /langsung tanpa transit/i);
+});
+
+test('direct-flight claims are rejected when the route has a transit', () => {
+  const evidenceCatalog = [
+    { id: 'B03', source: 'brosur', fact: 'Maskapai/penerbangan berangkat: EMIRATES • EK 357' },
+    { id: 'BH01', source: 'brosur', fact: 'Hotel Makkah tier HEMAT: AL MASSA DAR AL FAYZIN' },
+    { id: 'BH02', source: 'brosur', fact: 'Hotel Madinah tier HEMAT: DURRAT AL EIMAN' },
+  ];
+  const result = parsePackageValueResult(JSON.stringify({
+    headline: 'Terbang Langsung ke Tanah Suci',
+    summary: 'Penerbangan tanpa transit menuju Jeddah.',
+    advantages: [
+      { title: 'Terbang Tanpa Transit', benefit: 'Penerbangan langsung tanpa transit menuju Jeddah', description: 'Penerbangan Emirates tanpa transit.', evidenceId: 'B03' },
+      { title: 'Hotel Al Massa', benefit: 'Menjalani hari Makkah dari Al Massa', description: 'Menginap di Al Massa Dar Al Fayzin selama di Makkah.', evidenceId: 'BH01' },
+      { title: 'Hotel Durrat', benefit: 'Menjalani hari Madinah dari Durrat', description: 'Menginap di Durrat Al Eiman selama di Madinah.', evidenceId: 'BH02' },
+    ],
+  }), { itineraryAvailable: false, evidenceCatalog });
+
+  assert.equal(result, null, 'klaim tanpa transit tanpa bukti rute harus ditolak');
+});
+
+test('hotel names containing room words like TRIPLE ONE are not rejected as jargon', () => {
+  const evidenceCatalog = [
+    { id: 'B03', source: 'brosur', fact: 'Maskapai/penerbangan berangkat: SAUDIA • Penerbangan langsung tanpa transit Jakarta-Jeddah' },
+    { id: 'BH01', source: 'brosur', fact: 'Hotel mekkah tier HEMAT: AL MASSA GRAND' },
+    { id: 'BH02', source: 'brosur', fact: 'Hotel madinah tier HEMAT: TRIPLE ONE' },
+  ];
+  const advantages = [
+    { title: 'Penerbangan Langsung', benefit: 'Terbang tanpa transit dari Jakarta ke Jeddah', description: 'Penerbangan langsung tanpa transit Jakarta-Jeddah.', evidenceId: 'B03' },
+    { title: 'Hotel Al Massa Grand', benefit: 'Menjalani hari Makkah dari Al Massa Grand', description: 'Menginap di Al Massa Grand selama berada di Makkah.', evidenceId: 'BH01' },
+    { title: 'Hotel Triple One', benefit: 'Menjalani hari Madinah dari Triple One', description: 'Menginap di Triple One selama berada di Madinah.', evidenceId: 'BH02' },
+  ];
+  const base = {
+    headline: 'Umrah Tanpa Transit',
+    summary: 'Terbang langsung dan hotel bernama jelas.',
+  };
+
+  const accepted = parsePackageValueResult(JSON.stringify({ ...base, advantages }), { itineraryAvailable: false, evidenceCatalog });
+  assert.ok(accepted, 'nama hotel Triple One bukan jargon kamar');
+  assert.ok(accepted.advantages.some((item) => item.title === 'Hotel Triple One'));
+
+  // Kata kamar tetap ditolak bila BUKAN bagian nama sah pada evidence poin itu.
+  const withRoomJargon = advantages.map((item, index) => (index === 1
+    ? { ...item, benefit: 'Kamar triple luas untuk keluarga' }
+    : item));
+  const rejected = parsePackageValueResult(JSON.stringify({ ...base, advantages: withRoomJargon }), { itineraryAvailable: false, evidenceCatalog });
+  assert.equal(rejected, null, 'kata kamar "triple" di luar nama hotel tetap ditolak');
+});
+
+test('brochure hedge "atau setaraf" never reaches the visible copy', () => {
+  const evidenceCatalog = [
+    { id: 'BH01', source: 'brosur', fact: 'Hotel Makkah tier HEMAT: GRAND AL MASSA ATAU SETARAF' },
+    { id: 'BH02', source: 'brosur', fact: 'Hotel Madinah tier HEMAT: DURRAT AL EIMAN' },
+    { id: 'B03', source: 'brosur', fact: 'Maskapai/penerbangan berangkat: SAUDIA • Penerbangan langsung tanpa transit Jakarta-Jeddah' },
+  ];
+  const parsedInput = JSON.stringify({
+    headline: 'Menginap Bernama, Bukan Sekadar Janji',
+    summary: 'Hotel bernama jelas dan penerbangan langsung dalam satu paket.',
+    advantages: [
+      { title: 'Hotel Grand Al Massa', benefit: 'Menginap di Grand Al Massa atau setaraf di Makkah', description: 'Hotel Makkah adalah Grand Al Massa atau setaraf.', evidenceId: 'BH01' },
+      { title: 'Hotel Durrat', benefit: 'Menjalani hari Madinah dari Durrat', description: 'Menginap di Durrat Al Eiman selama di Madinah.', evidenceId: 'BH02' },
+      { title: 'Terbang Langsung ke Jeddah', benefit: 'Penerbangan Saudia langsung tanpa transit menuju Jeddah', description: 'Rute berangkat langsung Jakarta-Jeddah tanpa transit.', evidenceId: 'B03' },
+    ],
+  });
+
+  // Fail-closed pada pass pertama: "setaraf" adalah jargon hedging brosur.
+  assert.equal(parsePackageValueResult(parsedInput, { itineraryAvailable: false, evidenceCatalog }), null);
+
+  // Jalur rewrite membangun ulang copy hotel tanpa kata "setaraf".
+  const repaired = parsePackageValueResult(parsedInput, { itineraryAvailable: false, evidenceCatalog, allowEvidenceRewrite: true });
+  assert.ok(repaired);
+  const visibleCopy = repaired.advantages.map(({ title, benefit, description }) => `${title} ${benefit} ${description}`).join(' ');
+  assert.doesNotMatch(visibleCopy, /setaraf?\b/i);
+  assert.match(visibleCopy, /Grand Al Massa/);
 });
 
 test('station-only evidence cannot be promoted into an unsupported train ride', () => {
@@ -551,7 +679,7 @@ test('station-only evidence cannot be promoted into an unsupported train ride', 
   const repaired = parsePackageValueResult(raw, { itineraryAvailable: true, evidenceCatalog, allowEvidenceRewrite: true });
   assert.ok(repaired);
   assert.equal(repaired.advantages[0].title, 'Kereta Cepat');
-  assert.equal(repaired.advantages[0].benefit, 'Perpindahan itinerary mencakup stasiun kereta cepat');
+  assert.equal(repaired.advantages[0].benefit, 'Perjalanan berlanjut lewat stasiun kereta cepat');
   assert.doesNotMatch(repaired.advantages[0].benefit, /melaju|naik|menggunakan/i);
 });
 
