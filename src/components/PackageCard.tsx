@@ -394,6 +394,7 @@ function PackageCardImpl({
   const journeySteps = useMemo(() => {
     return getPackageJourneySteps(pkg, extraHotels.map(hotel => hotel.city));
   }, [extraHotels, pkg]);
+  const isCompactJourney = journeySteps.length > 3;
 
 
 
@@ -1851,10 +1852,18 @@ _________________________
                 <p className="text-[10px] font-bold uppercase tracking-wide text-gray-700 dark:text-slate-300">Urutan perjalanan</p>
               </div>
               <div
-                className="grid items-start pb-0.5"
+                data-journey-layout={isCompactJourney ? 'compact' : 'standard'}
+                className="grid min-w-0 items-start pb-0.5"
                 style={{
                   gridTemplateColumns: journeySteps
-                    .map((_, idx) => idx < journeySteps.length - 1 ? 'minmax(max-content,1fr) clamp(56px,10vw,112px)' : 'minmax(max-content,1fr)')
+                    .map((_, idx) => {
+                      const stepColumn = isCompactJourney ? 'minmax(0,1fr)' : 'minmax(max-content,1fr)';
+                      if (idx === journeySteps.length - 1) return stepColumn;
+                      const connectorColumn = isCompactJourney
+                        ? 'minmax(14px,0.45fr)'
+                        : 'clamp(56px,10vw,112px)';
+                      return `${stepColumn} ${connectorColumn}`;
+                    })
                     .join(' '),
                 }}
               >
@@ -1876,14 +1885,18 @@ _________________________
                           {step.symbol}
                         </span>
                       </span>
-                      <span className="mt-1.5 block whitespace-nowrap px-1 text-center text-[11px] font-semibold leading-tight text-gray-800 dark:text-slate-100">
+                      <span className={`mt-1.5 block text-center font-semibold leading-tight text-gray-800 dark:text-slate-100 ${
+                        isCompactJourney
+                          ? 'w-full whitespace-normal px-0.5 text-[10px]'
+                          : 'whitespace-nowrap px-1 text-[11px]'
+                      }`}>
                         {step.label}
                       </span>
                     </div>
                     {idx < journeySteps.length - 1 && (
-                      <div className="mt-4 flex w-full items-center justify-center px-1" aria-hidden="true">
+                      <div className={`mt-4 flex w-full min-w-0 items-center justify-center ${isCompactJourney ? 'px-0' : 'px-1'}`} aria-hidden="true">
                         <span className="h-px flex-1 rounded-full bg-emerald-200 dark:bg-emerald-800/70" />
-                        <ChevronRight size={12} strokeWidth={2.2} className="mx-0.5 shrink-0 text-emerald-500 dark:text-emerald-400" />
+                        <ChevronRight size={isCompactJourney ? 10 : 12} strokeWidth={2.2} className="mx-0.5 shrink-0 text-emerald-500 dark:text-emerald-400" />
                         <span className="h-px flex-1 rounded-full bg-emerald-200 dark:bg-emerald-800/70" />
                       </div>
                     )}

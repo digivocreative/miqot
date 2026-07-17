@@ -104,7 +104,7 @@ import {
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, landingCityFromRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
-import { inferSaudiJourneyOrderFromItinerary } from './lib/journey-order.js';
+import { inferJourneyOrderFromItinerary } from './lib/journey-order.js';
 import { appendUrlVersion, buildScheduleRows, serializeScheduleRows, shouldKeepScheduleRow } from './lib/umroh-schedules.js';
 import { buildCdnMetadataUpdate, buildContentAddressedCdnPath, buildSourceDownloadCandidates, getCdnFileDecision, resolveScheduleBrochureSource } from './lib/cdn-file-sync.js';
 import {
@@ -1582,10 +1582,8 @@ function inferItineraryOrder(pkg) {
     if (firstArrival === 'JED') {
       const side = depart.slice(1, -1).map(l => label(l.to)).join(' → ');
       catatanRute = `PENTING: landing di Jeddah cuma transit sebentar (bukan langsung ke Mekkah). Setelah transit, jamaah terbang lagi ke ${side ? side + ' → ' : ''}${label(lastDepartArrival)} untuk rangkaian ibadah. Umroh baru dilakukan dari ${lastDepartArrival === 'MED' ? 'Madinah → Mekkah via jalur darat' : 'kota arrival terakhir'}.`;
-    } else if (['CAI','DXB','IST','HAK','ALY','BTS','NAV','KAY','ANK'].includes(firstArrival)) {
-      catatanRute = `Paket Plus: mampir ke ${label(firstArrival)} dulu buat tur wisata, sebelum lanjut ke ${label(lastDepartArrival)} untuk ibadah.`;
     } else {
-      catatanRute = `Transit di ${label(firstArrival)}, lalu lanjut ke ${label(lastDepartArrival)}.`;
+      catatanRute = `Transit atau persinggahan di ${label(firstArrival)}, lalu lanjut ke ${label(lastDepartArrival)}. Rute penerbangan saja tidak cukup untuk memastikan ada tur wisata.`;
     }
   }
 
@@ -1622,11 +1620,12 @@ function lookupHotelDistance(hotelName) {
 
 function buildPackageContext(pkg, itineraryCtx = null) {
   if (!pkg) return null;
-  const itineraryOrder = inferSaudiJourneyOrderFromItinerary(itineraryCtx);
+  const itineraryOrder = inferJourneyOrderFromItinerary(itineraryCtx);
+  const itinerarySaudiOrder = itineraryOrder?.filter(label => label === 'Madinah' || label === 'Umroh') || null;
   const routeOrder = inferItineraryOrder(pkg) || {};
-  const itinerarySummary = itineraryOrder?.[0] === 'Madinah'
+  const itinerarySummary = itinerarySaudiOrder?.[0] === 'Madinah'
     ? 'Madinah dulu sesuai PDF itinerary, lalu Mekkah/Umroh'
-    : itineraryOrder?.[0] === 'Umroh'
+    : itinerarySaudiOrder?.[0] === 'Umroh'
       ? 'Mekkah/Umroh dulu sesuai PDF itinerary, lalu Madinah'
       : null;
   const tiers = {};
@@ -1665,6 +1664,9 @@ function buildPackageContext(pkg, itineraryCtx = null) {
     itinerary_tersedia: Boolean(pkg.itinerary_cdn || pkg.itinerary),
     urutan_perjalanan: {
       ...routeOrder,
+      catatan_rute: itineraryOrder
+        ? `Urutan berdasarkan aktivitas harian di itinerary PDF: ${itineraryOrder.join(' → ')}. Kota pada rute penerbangan yang tidak muncul sebagai tahap wisata di urutan ini hanya transit atau persinggahan.`
+        : routeOrder.catatan_rute,
       urutan_umroh: itinerarySummary || routeOrder.urutan_umroh,
       sumber_utama: itineraryOrder ? 'itinerary_pdf' : 'rute_pesawat',
       urutan_dari_itinerary: itineraryOrder,
@@ -16336,7 +16338,7 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
         } else {
           journeyOrderById = new Map(
             (itineraryRows || [])
-              .map(row => [row.jadwal_id, inferSaudiJourneyOrderFromItinerary(row.content)])
+              .map(row => [row.jadwal_id, inferJourneyOrderFromItinerary(row.content)])
               .filter(([, order]) => Array.isArray(order) && order.length >= 2)
           );
         }

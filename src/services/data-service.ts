@@ -228,6 +228,7 @@ function transformPackage(raw: UmrohPackageRaw): UmrohPackage {
 
     // Journey order from parsed itinerary (preferred over flight-route inference)
     journeyOrder: Array.isArray(raw.journey_order) ? raw.journey_order : undefined,
+    journeyOrderSource: raw.journey_order_source === 'itinerary' ? 'itinerary' : undefined,
   };
 }
 

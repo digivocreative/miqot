@@ -1,4 +1,4 @@
-import type { UmrohPackage } from '@/types';
+import type { JourneyLabel, UmrohPackage } from '@/types';
 
 export type JourneyStepTone = 'tour' | 'madinah' | 'umroh';
 
@@ -11,7 +11,7 @@ export interface JourneyStep {
 }
 
 interface TourConfig {
-  label: string;
+  label: Exclude<JourneyLabel, 'Madinah' | 'Umroh'>;
   codes: string[];
   cities: string[];
   pattern: RegExp;
@@ -42,11 +42,14 @@ const LANDING_AIRPORT_MAP: Record<string, string> = {
 };
 
 const TOUR_CONFIGS: TourConfig[] = [
-  { label: 'Tur Dubai', codes: ['DXB'], cities: ['dubai'], pattern: /\b(DUBAI|DXB)\b/i, imageSrc: '/flags/uae.png', symbol: '🇦🇪', fallbackPlacement: 'pre' },
+  { label: 'Tur Dubai', codes: ['DXB', 'AUH'], cities: ['dubai', 'abu dhabi', 'abudhabi'], pattern: /\b(DUBAI|ABU\s*DHABI|ABUDHABI|DXB|AUH)\b/i, imageSrc: '/flags/uae.png', symbol: '🇦🇪', fallbackPlacement: 'pre' },
   { label: 'Tur Turki', codes: ['IST', 'SAW'], cities: ['istanbul', 'bursa', 'ankara', 'cappadocia'], pattern: /\b(TURKI|TURKEY|ISTANBUL|BURSA|ANKARA|CAPPADOCIA)\b/i, imageSrc: '/flags/turki.png', symbol: '🇹🇷', fallbackPlacement: 'post' },
   { label: 'Tur Mesir', codes: ['CAI', 'ALY'], cities: ['cairo', 'alexandria'], pattern: /\b(MESIR|EGYPT|CAIRO|ALEXANDRIA)\b/i, imageSrc: '/flags/mesir.png', symbol: '🇪🇬', fallbackPlacement: 'pre' },
   { label: 'Tur China', codes: ['HAK', 'PEK', 'SHA', 'CAN'], cities: ['haikou', 'beijing', 'shanghai', 'guangzhou'], pattern: /\b(CHINA|TIONGKOK|HAIKOU|BEIJING|SHANGHAI|GUANGZHOU)\b/i, imageSrc: '/flags/china.png', symbol: '🇨🇳', fallbackPlacement: 'pre' },
   { label: 'Tur Aqsha', codes: ['AMM', 'TLV'], cities: ['aqsha', 'amman', 'petra'], pattern: /\b(AQSHA|AL AQSA|AMMAN|PETRA|JORDAN|PALESTINE)\b/i, imageSrc: '/flags/palestine.svg', symbol: '🇵🇸', fallbackPlacement: 'pre' },
+  { label: 'Tur Taif', codes: [], cities: ['taif', 'thaif'], pattern: /\b(TAIF|THAIF)\b/i, imageSrc: '/flags/saudi.png', symbol: '🇸🇦', fallbackPlacement: 'post' },
+  { label: 'Ziarah Badar', codes: [], cities: ['badar', 'badr'], pattern: /\b(BADAR|BADR)\b/i, imageSrc: '/flags/saudi.png', symbol: '🇸🇦', fallbackPlacement: 'post' },
+  { label: 'Tur Red Sea', codes: [], cities: ['red sea', 'redsea'], pattern: /\b(RED\s*SEA|REDSEA|LAUT\s+MERAH)\b/i, imageSrc: '/flags/saudi.png', symbol: '🇸🇦', fallbackPlacement: 'post' },
 ];
 
 export const getRouteAirportCodes = (route?: string): string[] => {
@@ -117,19 +120,38 @@ const makeStep = (label: string, imageSrc?: string): JourneyStep => {
   return { label, imageSrc: imageSrc || '/flags/palestine.svg', imageAlt: `Bendera ${label.replace(/^Tur\s+/i, '')}`, symbol: '🌍', tone: 'tour' };
 };
 
+const makeJourneyStep = (label: JourneyLabel): JourneyStep => {
+  const tour = TOUR_CONFIGS.find(config => config.label === label);
+  if (!tour) return makeStep(label);
+  return { ...makeStep(label, tour.imageSrc), symbol: tour.symbol };
+};
+
+const getAuthoritativeItinerarySteps = (pkg: UmrohPackage): JourneyStep[] | null => {
+  if (pkg.journeyOrderSource !== 'itinerary' || !Array.isArray(pkg.journeyOrder)) return null;
+
+  const hasMadinah = pkg.journeyOrder.includes('Madinah');
+  const hasUmroh = pkg.journeyOrder.includes('Umroh');
+  if (!hasMadinah || !hasUmroh) return null;
+
+  return pkg.journeyOrder.map(makeJourneyStep);
+};
+
 export function getPackageJourneySteps(pkg: UmrohPackage, extraCityNames: string[] = []): JourneyStep[] {
+  const itinerarySteps = getAuthoritativeItinerarySteps(pkg);
+  if (itinerarySteps) return itinerarySteps;
+
   const departureLegs = getRouteLegs(pkg.keberangkatan?.rute);
   const returnCodes = getRouteAirportCodes(pkg.kepulangan?.rute);
-  const allRouteCodes = new Set([
-    ...getRouteAirportCodes(pkg.keberangkatan?.rute),
-    ...returnCodes,
-  ]);
   const extraCitySet = new Set(extraCityNames.map(city => city.toLowerCase()));
   const packageName = (pkg.nama || '').toUpperCase();
 
+  // Airport codes alone only prove that the flight passes through a city. For
+  // example, Emirates packages commonly transit at DXB without a Dubai tour.
+  // Activate a tour only when the package name or its hotel data explicitly
+  // identifies the city; route legs below are still used to place a real tour
+  // before or after the Saudi portion of the journey.
   const activeTours = TOUR_CONFIGS.filter(tour =>
     tour.cities.some(city => extraCitySet.has(city)) ||
-    tour.codes.some(code => allRouteCodes.has(code)) ||
     tour.pattern.test(packageName)
   );
 
@@ -158,10 +180,7 @@ export function getPackageJourneySteps(pkg: UmrohPackage, extraCityNames: string
   const itinerarySaudiLabels = getSaudiLabelsFromItinerary(pkg);
   const saudiLabels = itinerarySaudiLabels || getSaudiLabelsFromRoute(pkg);
   if (!saudiLabels) return [];
-  const tourStep = (tour: TourConfig): JourneyStep => ({
-    ...makeStep(tour.label, tour.imageSrc),
-    symbol: tour.symbol,
-  });
+  const tourStep = (tour: TourConfig): JourneyStep => makeJourneyStep(tour.label);
 
   return [
     ...preSaudiTours.map(tourStep),

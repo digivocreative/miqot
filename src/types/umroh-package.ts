@@ -80,6 +80,16 @@ export type PackageHotels = Record<string, HotelInfo>;
 
 export type SaudiJourneyLabel = 'Umroh' | 'Madinah';
 
+export type JourneyLabel = SaudiJourneyLabel
+  | 'Tur Dubai'
+  | 'Tur Turki'
+  | 'Tur Mesir'
+  | 'Tur China'
+  | 'Tur Aqsha'
+  | 'Tur Taif'
+  | 'Ziarah Badar'
+  | 'Tur Red Sea';
+
 // ============================================
 // Flight Types
 // ============================================
@@ -149,8 +159,10 @@ export interface UmrohPackage {
   /** Hotel information by tier */
   hotel: PackageHotels;
 
-  /** Saudi journey order inferred from parsed itinerary, when available */
-  journeyOrder?: SaudiJourneyLabel[];
+  /** Complete journey order inferred from parsed itinerary, when available */
+  journeyOrder?: JourneyLabel[];
+  /** Marks journeyOrder as authoritative rather than a legacy Saudi-only hint */
+  journeyOrderSource?: 'itinerary';
 }
 
 // ============================================
@@ -182,7 +194,8 @@ export interface UmrohPackageRaw {
   perlengkapan_harga: string;
   paket_harga: Record<string, RoomPricing>;
   paket_hotel: Record<string, Record<string, string>>;
-  journey_order?: SaudiJourneyLabel[];
+  journey_order?: JourneyLabel[];
+  journey_order_source?: 'itinerary';
 }
 
 /**

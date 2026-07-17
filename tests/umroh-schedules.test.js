@@ -146,6 +146,7 @@ test('serializeScheduleRows: uses CDN URLs and strips storage-only fields', () =
   assert.equal(rows[0].brosur, 'https://cdn/brosur.pdf?v=abcdef1234567890');
   assert.equal(rows[0].itinerary, 'https://cdn/itinerary.pdf?v=1234567890abcdef');
   assert.deepEqual(rows[0].journey_order, ['Madinah', 'Umroh']);
+  assert.equal(rows[0].journey_order_source, 'itinerary');
   assert.equal('brosur_cdn' in rows[0], false);
   assert.equal('itinerary_cdn' in rows[0], false);
   assert.equal('brosur_source_sha256' in rows[0], false);
