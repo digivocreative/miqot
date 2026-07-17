@@ -532,12 +532,16 @@ function EmailAliasField() {
         <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide">
           <Mail size={12} /> Email Alias
         </label>
-        <input
-          type="text"
-          value={status.alias}
-          disabled
-          className="w-full px-3 py-2.5 bg-gray-100 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-500 dark:text-slate-400 cursor-not-allowed"
-        />
+        <div className="relative">
+          <input
+            type="text"
+            value={status.alias}
+            readOnly
+            onFocus={e => e.target.select()}
+            className="w-full pl-3 pr-9 py-2.5 bg-gray-50 dark:bg-slate-800/40 border border-gray-200/80 dark:border-slate-700/80 rounded-xl text-sm text-gray-500 dark:text-slate-400 select-all cursor-default focus:outline-none focus:ring-1 focus:ring-gray-200 dark:focus:ring-slate-700 transition-shadow"
+          />
+          <Lock size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 dark:text-slate-600 pointer-events-none" />
+        </div>
         <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1">Alias permanen — email yang masuk diteruskan ke email kamu.</p>
       </div>
     );
