@@ -515,6 +515,7 @@ function EmailAliasField() {
   const [aliasInput, setAliasInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const fetchStatus = async () => {
     try {
@@ -551,7 +552,6 @@ function EmailAliasField() {
 
   const handleCreate = async () => {
     if (!valid || saving) return;
-    if (!confirm(`Alias ${aliasInput}@alhijaz.co hanya bisa dibuat SEKALI dan tidak bisa diganti lagi.\n\nBuat alias ini?`)) return;
     setSaving(true);
     setError('');
     try {
@@ -595,18 +595,47 @@ function EmailAliasField() {
       <button
         type="button"
         disabled={!valid || saving}
-        onClick={handleCreate}
+        onClick={() => setShowConfirm(true)}
         className={`mt-2 w-full py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 ${
           valid && !saving
             ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
             : 'bg-gray-200 dark:bg-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed'
         }`}
       >
-        {saving ? <Loader2 size={14} className="animate-spin" /> : 'Buat Alias'}
+        {saving ? <Loader2 size={14} className="animate-spin" /> : <><Mail size={14} /> Buat Email Alias</>}
       </button>
       <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1">
-        Diteruskan ke email kamu. <span className="font-semibold">Hanya bisa dibuat sekali, tidak bisa diganti.</span>
+        <span className="font-semibold">Hanya bisa dibuat sekali, tidak bisa diganti.</span>
       </p>
+
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-6" onClick={() => setShowConfirm(false)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="w-11 h-11 rounded-full bg-emerald-500/10 dark:bg-emerald-500/20 mx-auto flex items-center justify-center">
+              <Mail size={20} className="text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <p className="mt-3 text-sm font-bold text-gray-800 dark:text-white text-center">Buat Email Alias?</p>
+            <p className="mt-2 text-sm font-semibold text-emerald-600 dark:text-emerald-400 text-center break-all">{aliasInput}@alhijaz.co</p>
+            <p className="mt-2 text-xs text-gray-400 dark:text-slate-500 text-center">Alias hanya bisa dibuat sekali dan tidak bisa diganti lagi.</p>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowConfirm(false); handleCreate(); }}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95"
+              >
+                Ya, Buat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
