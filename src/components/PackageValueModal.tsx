@@ -6,24 +6,20 @@ import {
   ChevronDown,
   ClipboardCheck,
   Copy,
-  Download,
   ExternalLink,
   FileImage,
-  Gem,
   Loader2,
   MapPinned,
-  Palette,
-  Paperclip,
   RefreshCw,
   Share2,
-  Shuffle,
-  Sparkles,
+  Wand2,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getSessionAuthHeaders } from '@/utils/authUtils';
 import { trackEvent } from '@/utils/analytics';
-import { buildImageAndPromptShareData } from './brochure-prompt/buildBrochurePrompt';
+import FilterDropdown from './FilterDropdown';
+import { buildImageAndPromptShareData, DESIGN_STYLES } from './brochure-prompt/buildBrochurePrompt';
 
 interface PackageValueAdvantage {
   title: string;
@@ -70,6 +66,9 @@ const LOADING_STEPS = [
   'Meracik gaya desain…',
   'Menyusun prompt banner…',
 ];
+
+const labelCls = 'mb-1 block text-[11px] font-semibold text-gray-500 dark:text-slate-400';
+const STYLE_OPTIONS = DESIGN_STYLES.map((style) => ({ value: style.value, label: style.label }));
 
 async function copyPlainText(text: string): Promise<boolean> {
   try {
@@ -138,10 +137,11 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
   const [cached, setCached] = useState(false);
   const [loading, setLoading] = useState(false);
   const [styleLoading, setStyleLoading] = useState(false);
+  const [selectedStyle, setSelectedStyle] = useState('modern');
   const [loadingStep, setLoadingStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [promptOpen, setPromptOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(true);
   const [agentAttachment, setAgentAttachment] = useState<AgentAttachment | null>(null);
   const [attachmentLoading, setAttachmentLoading] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -159,7 +159,8 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
     setError(null);
     setCopied(false);
     setCached(false);
-    setPromptOpen(false);
+    setDetailsOpen(true);
+    setSelectedStyle('modern');
     setResolvedTier(tier);
     setIsSharing(false);
     setLoading(false);
@@ -242,7 +243,7 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
     }
   }, [agentAttachment, result?.bannerPrompt]);
 
-  const requestPackageValue = async ({ refresh = false, excludeStyle = '' } = {}) => {
+  const requestPackageValue = async ({ refresh = false, styleId = selectedStyle } = {}) => {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 50000);
     try {
@@ -250,7 +251,7 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
         method: 'POST',
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json', ...getSessionAuthHeaders() },
-        body: JSON.stringify({ jadwalId, tier, refresh, ...(excludeStyle ? { excludeStyle } : {}) }),
+        body: JSON.stringify({ jadwalId, tier, refresh, style: styleId }),
       });
       const rawBody = await response.text();
       let data: Record<string, any> = {};
@@ -285,6 +286,7 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
     });
     setResolvedTier(typeof data.tier === 'string' ? data.tier : tier);
     setCached(data.cached === true);
+    if (typeof data.result?.style?.id === 'string') setSelectedStyle(data.result.style.id);
   };
 
   const generate = async (refresh = false) => {
@@ -320,14 +322,16 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
 
   // Ganti gaya desain tanpa analisis AI ulang: hasil analisis diambil dari
   // cache server, hanya arah desain pada prompt yang dirakit ulang.
-  const changeStyle = async () => {
+  const changeStyle = async (nextStyle: string) => {
     if (loading || styleLoading || !result) return;
     const seq = requestSeqRef.current;
+    const previousStyle = selectedStyle;
+    setSelectedStyle(nextStyle);
     setStyleLoading(true);
     setError(null);
     setCopied(false);
     try {
-      const data = await requestPackageValue({ excludeStyle: result.style?.id || '' });
+      const data = await requestPackageValue({ styleId: nextStyle });
       if (seq !== requestSeqRef.current) return;
       applyResponse(data);
       trackEvent('feature', 'package_value_style_change', {
@@ -337,6 +341,7 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
       });
     } catch (err: any) {
       if (seq !== requestSeqRef.current) return;
+      setSelectedStyle(previousStyle);
       const message = err?.name === 'AbortError'
         ? 'Penggantian gaya memerlukan waktu terlalu lama. Silakan coba lagi.'
         : err?.message || 'Gagal mengganti gaya desain';
@@ -419,7 +424,7 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-[10000] flex items-center justify-center p-4"
+          className="fixed inset-0 z-[10001] flex items-center justify-center p-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -431,43 +436,34 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
             role="dialog"
             aria-modal="true"
             aria-labelledby="package-value-title"
-            className="relative flex max-h-[86vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-800"
+            className="relative flex max-h-[88vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-800"
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
           >
             <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-700">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <Gem size={16} className="shrink-0 text-purple-600 dark:text-purple-400" />
+              <div className="flex min-w-0 items-center gap-2">
+                <Wand2 size={16} className="shrink-0 text-emerald-500" />
                 <div className="min-w-0">
-                  <h2 id="package-value-title" className="text-sm font-bold leading-tight text-gray-900 dark:text-white">Nilai Plus Paket</h2>
+                  <h2 id="package-value-title" className="text-sm font-bold leading-tight text-gray-900 dark:text-white">Nilai Plus Paket (AI)</h2>
                   <p className="truncate text-[11px] text-gray-400 dark:text-slate-500">{subject}</p>
                 </div>
               </div>
               <button
                 ref={closeButtonRef}
-                aria-label="Tutup"
                 onClick={onClose}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-500 transition-colors hover:bg-gray-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                aria-label="Tutup"
               >
                 <X size={16} />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+            <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
               {loading ? (
                 <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 py-6 text-center">
-                  <div className="relative h-14 w-14">
-                    <motion.div
-                      className="absolute inset-0 rounded-full bg-gradient-to-tr from-purple-400 via-fuchsia-400 to-purple-400"
-                      animate={{ scale: [1, 1.3, 1], opacity: [0.25, 0.5, 0.25] }}
-                      transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
-                    />
-                    <div className="absolute inset-1.5 flex items-center justify-center rounded-full bg-purple-50 dark:bg-purple-900/40">
-                      <Loader2 size={22} className="animate-spin text-purple-600 dark:text-purple-400" />
-                    </div>
-                  </div>
+                  <Loader2 size={28} className="animate-spin text-emerald-500" />
                   <div role="status" aria-live="polite">
                     <AnimatePresence mode="wait">
                       <motion.p
@@ -480,19 +476,6 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
                         {LOADING_STEPS[loadingStep]}
                       </motion.p>
                     </AnimatePresence>
-                  </div>
-                  <div className="w-full rounded-xl border border-gray-100 bg-gray-50 p-4 text-left dark:border-slate-700 dark:bg-slate-900/40">
-                    <div className="h-3.5 w-3/4 animate-pulse rounded-full bg-gray-200 dark:bg-slate-700" />
-                    <div className="mt-2 h-2.5 w-full animate-pulse rounded-full bg-gray-200 dark:bg-slate-700" />
-                    {[0, 1, 2].map((row) => (
-                      <div key={row} className="mt-4 flex items-start gap-2.5">
-                        <div className="h-6 w-6 shrink-0 animate-pulse rounded-lg bg-gray-200 dark:bg-slate-700" />
-                        <div className="flex-1 space-y-1.5">
-                          <div className="h-2.5 w-1/2 animate-pulse rounded-full bg-gray-200 dark:bg-slate-700" />
-                          <div className="h-2.5 w-5/6 animate-pulse rounded-full bg-gray-200 dark:bg-slate-700" />
-                        </div>
-                      </div>
-                    ))}
                   </div>
                 </div>
               ) : error && !result ? (
@@ -508,9 +491,11 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
                   </button>
                 </div>
               ) : !result ? (
-                <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 py-6 text-center">
-                  <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-50 dark:bg-purple-900/20">
-                    <Gem size={22} className="text-purple-600 dark:text-purple-400" />
+                // State idle sengaja compact (tanpa min-h): sebelum tombol
+                // Analisis diklik, modal tidak perlu setinggi state hasil.
+                <div className="flex flex-col items-center gap-3 py-2 text-center">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 dark:bg-emerald-900/20">
+                    <Wand2 size={20} className="text-emerald-500" />
                   </span>
                   <div className="max-w-[300px]">
                     <p className="text-sm font-semibold text-gray-800 dark:text-slate-100">Temukan nilai plus paket ini</p>
@@ -522,199 +507,119 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
                     onClick={() => generate(false)}
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95"
                   >
-                    <Sparkles size={16} />
-                    Analisis Nilai Plus
+                    <Wand2 size={16} /> Analisis Nilai Plus
                   </button>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <>
                   {error && (
                     <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
                       {error} Hasil sebelumnya tetap ditampilkan.
                     </div>
                   )}
 
-                  <section aria-label="Hasil analisis nilai plus" className="overflow-hidden rounded-xl border border-gray-100 dark:border-slate-700">
-                    <div className="bg-gradient-to-r from-purple-50 to-fuchsia-50/60 px-4 py-3.5 dark:from-purple-900/20 dark:to-fuchsia-900/10">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {resolvedTier && (
-                          <span className="rounded-full bg-white/80 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-purple-600 dark:bg-slate-800/70 dark:text-purple-300">Tier {resolvedTier}</span>
-                        )}
-                        <span className="rounded-full bg-white/80 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gray-500 dark:bg-slate-800/70 dark:text-slate-300">
-                          {sourceAvailability.itinerary ? 'Brosur + Itinerary' : 'Hanya Brosur'}
-                        </span>
-                        {cached && (
-                          <span className="rounded-full bg-white/80 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gray-500 dark:bg-slate-800/70 dark:text-slate-300">Hasil Tersimpan</span>
-                        )}
-                      </div>
-                      <h3 className="mt-2 text-base font-bold leading-snug text-gray-900 dark:text-white">“{result.headline}”</h3>
-                      {result.summary && <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-slate-300">{result.summary}</p>}
-                    </div>
-
-                    <div className="divide-y divide-gray-50 bg-white dark:divide-slate-700/50 dark:bg-slate-800">
-                      {result.advantages.map((item, index) => {
-                        const SourceIcon = item.source === 'itinerary' ? MapPinned : FileImage;
-                        return (
-                          <div key={`${item.title}-${index}`} className="flex items-start gap-2.5 px-4 py-3">
-                            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${index === 0 ? 'bg-purple-600 text-white dark:bg-purple-500' : 'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400'}`}>{index + 1}</span>
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <h4 className="text-xs font-bold text-gray-900 dark:text-white">{item.title}</h4>
-                                {index === 0 && (
-                                  <span className="rounded-full bg-fuchsia-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-fuchsia-600 dark:bg-fuchsia-900/20 dark:text-fuchsia-400">Pesan Utama</span>
-                                )}
-                              </div>
-                              <p className="mt-0.5 text-xs leading-relaxed text-gray-600 dark:text-slate-300">{item.benefit || item.description}</p>
-                              <p className="mt-1 flex items-start gap-1.5 text-[10px] leading-relaxed text-gray-400 dark:text-slate-500">
-                                <SourceIcon size={12} className="mt-0.5 shrink-0" />
-                                <span>{item.benefit ? item.description : item.sourceRef}</span>
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {result.bestFor.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5 border-t border-gray-50 bg-white px-4 py-2.5 dark:border-slate-700/50 dark:bg-slate-800">
-                        <span className="text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Cocok untuk</span>
-                        {result.bestFor.map((item) => (
-                          <span key={item} className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-medium text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">{item}</span>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-
-                  <section className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-3.5 py-2.5 dark:border-slate-700 dark:bg-slate-900/40">
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-fuchsia-50 dark:bg-fuchsia-900/20">
-                        <Palette size={15} className="text-fuchsia-600 dark:text-fuchsia-400" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Gaya Desain</p>
-                        <AnimatePresence mode="wait">
-                          <motion.p
-                            key={result.style?.name || 'default'}
-                            initial={{ opacity: 0, y: 4 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -4 }}
-                            transition={{ duration: 0.15 }}
-                            className="truncate text-xs font-bold text-gray-900 dark:text-white"
-                          >
-                            {result.style?.name || 'Editorial Majalah'}
-                          </motion.p>
-                        </AnimatePresence>
-                      </div>
-                    </div>
-                    <button
-                      aria-label="Ganti gaya desain"
-                      onClick={() => void changeStyle()}
-                      disabled={styleLoading}
-                      className="flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-purple-600 transition-colors hover:bg-purple-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 dark:text-purple-400 dark:hover:bg-purple-900/20"
-                    >
-                      {styleLoading ? <Loader2 size={14} className="animate-spin" /> : <Shuffle size={14} />} Ganti Gaya
-                    </button>
-                  </section>
-
-                  <section className="overflow-hidden rounded-xl border border-gray-200 dark:border-slate-700">
+                  <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-slate-700">
                     <button
                       type="button"
-                      aria-expanded={promptOpen}
-                      onClick={() => setPromptOpen((open) => !open)}
-                      className="flex w-full items-center justify-between gap-2 bg-gray-50 px-3.5 py-2.5 text-left dark:bg-slate-900/60"
+                      aria-expanded={detailsOpen}
+                      onClick={() => setDetailsOpen((open) => !open)}
+                      className="flex w-full items-center justify-between gap-2 bg-gray-50 px-3 py-2.5 text-left dark:bg-slate-900/60"
                     >
-                      <span className="text-xs font-semibold text-gray-600 dark:text-slate-300">
-                        Prompt untuk ChatGPT
-                        <span className="block text-[10px] font-normal text-gray-400 dark:text-slate-500">Sudah berisi hook, nilai plus, dan gaya desain</span>
+                      <span className="min-w-0 text-xs font-semibold text-gray-600 dark:text-slate-300">
+                        Nilai plus yang ditonjolkan
+                        <span className="block truncate text-[10px] font-normal text-gray-400 dark:text-slate-500">
+                          {result.headline} · {result.advantages.length} poin
+                        </span>
                       </span>
-                      <ChevronDown size={16} className={`shrink-0 text-gray-400 transition-transform duration-200 dark:text-slate-500 ${promptOpen ? 'rotate-180' : ''}`} />
+                      <ChevronDown size={16} className={`shrink-0 text-gray-400 transition-transform ${detailsOpen ? 'rotate-180' : ''}`} />
                     </button>
-                    {promptOpen && (
-                      <div className="p-3">
-                        <textarea
-                          readOnly
-                          aria-label="Teks prompt banner"
-                          value={result.bannerPrompt}
-                          onFocus={(event) => event.currentTarget.select()}
-                          className="h-44 w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-[11px] leading-relaxed text-gray-700 outline-none focus:ring-2 focus:ring-emerald-500/40 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200"
-                        />
-                      </div>
-                    )}
-                  </section>
-
-                  <section className="rounded-xl border border-gray-100 p-3.5 dark:border-slate-700">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <Paperclip size={15} className="shrink-0 text-purple-600 dark:text-purple-400" />
-                        <div className="min-w-0">
-                          <h4 className="text-xs font-bold text-gray-800 dark:text-slate-100">Lampiran Identitas Agent</h4>
-                          <p className="truncate text-[10px] text-gray-400 dark:text-slate-500">Foto, nama, WhatsApp, website & logo Alhijaz — ditempel ChatGPT ke banner</p>
+                    {detailsOpen && (
+                      <div className="divide-y divide-gray-100 dark:divide-slate-700">
+                        <div className="px-3 py-3">
+                          <p className="text-sm font-bold leading-snug text-gray-900 dark:text-white">“{result.headline}”</p>
+                          {result.summary && <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-slate-400">{result.summary}</p>}
                         </div>
-                      </div>
-                      {agentAttachment && (
-                        <button
-                          onClick={downloadAgentAttachment}
-                          className="flex min-h-8 shrink-0 items-center gap-1 rounded-lg px-2 py-2 text-[11px] font-semibold text-purple-600 transition-colors hover:bg-purple-50 dark:text-purple-400 dark:hover:bg-purple-900/20"
-                        >
-                          <Download size={12} /> Unduh PNG
-                        </button>
-                      )}
-                    </div>
-
-                    {attachmentLoading ? (
-                      <div className="mt-3 aspect-[40/21] w-full animate-pulse rounded-lg bg-gray-200 dark:bg-slate-700" />
-                    ) : agentAttachment ? (
-                      <img
-                        src={agentAttachment.url}
-                        alt="Lampiran identitas agent untuk ChatGPT"
-                        className="mt-3 aspect-[40/21] w-full rounded-lg border border-gray-200 object-cover dark:border-slate-700"
-                      />
-                    ) : (
-                      <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] font-medium text-amber-700 dark:border-amber-700/50 dark:bg-amber-900/20 dark:text-amber-300">
-                        <span>{attachmentError || 'Lampiran belum tersedia.'}</span>
-                        <button
-                          onClick={() => setAttachmentRetry((value) => value + 1)}
-                          className="min-h-8 shrink-0 rounded-lg px-2.5 py-2 text-[11px] font-bold transition-colors hover:bg-amber-100 dark:hover:bg-amber-900/30"
-                        >
-                          Coba lagi
-                        </button>
+                        {result.advantages.map((item, index) => {
+                          const SourceIcon = item.source === 'itinerary' ? MapPinned : FileImage;
+                          return (
+                            <div key={`${item.title}-${index}`} className="flex items-start gap-2.5 px-3 py-2.5">
+                              <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${index === 0 ? 'bg-emerald-500 text-white' : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300'}`}>{index + 1}</span>
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{item.title}</p>
+                                <p className="mt-0.5 text-[11px] leading-relaxed text-gray-500 dark:text-slate-400">{item.benefit || item.description}</p>
+                                <p className="mt-1 flex items-start gap-1 text-[10px] leading-relaxed text-gray-400 dark:text-slate-500">
+                                  <SourceIcon size={11} className="mt-0.5 shrink-0" />
+                                  <span>{item.benefit ? item.description : item.sourceRef}</span>
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {result.bestFor.length > 0 && (
+                          <div className="px-3 py-2.5 text-[10px] text-gray-400 dark:text-slate-500">
+                            Cocok untuk: {result.bestFor.join(' · ')}
+                          </div>
+                        )}
                       </div>
                     )}
-                  </section>
+                  </div>
 
-                  <button
-                    onClick={() => generate(true)}
-                    disabled={styleLoading}
-                    className="mx-auto flex min-h-9 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-gray-500 transition-colors hover:bg-gray-50 hover:text-purple-600 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-400 dark:hover:bg-slate-700/50 dark:hover:text-purple-400"
-                  >
-                    <RefreshCw size={14} /> Analisis Ulang
-                  </button>
-                </div>
+                  <div>
+                    <span className={labelCls}>Gaya desain</span>
+                    <FilterDropdown
+                      value={selectedStyle}
+                      onChange={(value) => void changeStyle(value)}
+                      options={STYLE_OPTIONS}
+                      ariaLabel="Gaya desain banner nilai plus"
+                      variant="compact"
+                      widthClass="w-full"
+                      disabled={styleLoading}
+                      portal
+                      portalZClass="z-[10002]"
+                      searchable={false}
+                    />
+                  </div>
+
+                  <div>
+                    <span className={labelCls}>Prompt (siap salin)</span>
+                    <textarea
+                      readOnly
+                      aria-label="Teks prompt banner"
+                      value={result.bannerPrompt}
+                      onFocus={(event) => event.currentTarget.select()}
+                      className="h-40 w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-xs leading-relaxed text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200"
+                    />
+                  </div>
+
+                </>
               )}
             </div>
 
             {(result || loading) && (
-              <div className="flex gap-2 border-t border-gray-200 px-4 py-3 dark:border-slate-700">
-                <button
-                  onClick={() => void handleCopyPrompt()}
-                  disabled={loading || !result}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gray-100 py-3 text-sm font-bold text-gray-700 transition-all duration-200 hover:bg-gray-200 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-700"
-                >
-                  {copied ? <><ClipboardCheck size={17} className="text-emerald-500" /> Tersalin</> : <><Copy size={17} /> Salin Prompt</>}
-                </button>
-                <button
-                  onClick={() => void handleUseInChatGPT()}
-                  disabled={loading || !result || attachmentLoading || isSharing}
-                  className="flex flex-[1.35] items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {attachmentLoading || isSharing ? (
-                    <><Loader2 size={16} className="animate-spin" /> Menyiapkan…</>
-                  ) : canNativeShareWithFile ? (
-                    <><Share2 size={16} /> Bagikan + Lampiran</>
-                  ) : (
-                    <><ExternalLink size={16} /> Buka ChatGPT</>
-                  )}
-                </button>
+              <div className="border-t border-gray-200 px-4 py-3 dark:border-slate-700">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => void handleCopyPrompt()}
+                    disabled={loading || !result}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {copied ? <><ClipboardCheck size={17} /> Tersalin</> : <><Copy size={17} /> Salin Prompt</>}
+                  </button>
+                  <button
+                    onClick={() => void handleUseInChatGPT()}
+                    disabled={loading || !result || attachmentLoading || isSharing}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 py-3 text-sm font-bold text-emerald-700 transition-all duration-200 active:scale-95 disabled:cursor-wait disabled:opacity-70 dark:border-emerald-700/60 dark:bg-slate-700/60 dark:text-emerald-300"
+                  >
+                    {attachmentLoading || isSharing ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : canNativeShareWithFile ? (
+                      <Share2 size={16} />
+                    ) : (
+                      <ExternalLink size={16} />
+                    )}
+                    <span>{attachmentLoading || isSharing ? 'Menyiapkan...' : 'ChatGPT'}</span>
+                  </button>
+                </div>
               </div>
             )}
           </motion.div>

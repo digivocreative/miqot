@@ -1545,16 +1545,12 @@ app.get('/api/package-value/agent-card', authMiddleware, async (req, res) => {
     const agent = await getAgentById(req.user.id);
     if (!agent) return res.status(404).json({ error: 'Profil agent tidak ditemukan' });
 
-    // Avatar generated (ui-avatars dkk.) bukan wajah asli — abaikan supaya
-    // lembar aset memberi caption "jangan buat wajah", bukan menyuruh model
-    // memakai avatar huruf sebagai wajah agent. photoField null tetap
+    // Avatar generated (ui-avatars dkk.) bukan wajah asli — abaikan agar model
+    // tidak menganggap avatar huruf sebagai wajah agent. photoField null tetap
     // mencoba fallback lokal public/agents/{slug}.jpg di dalam loader.
     const hasRealPhoto = agent.photo && !/ui-avatars\.com|dicebear\.com/i.test(agent.photo);
     const photoBuffer = await loadAgentPhotoBuffer(hasRealPhoto ? agent.photo : null, agent.slug);
-    // Custom domain aktif lebih relevan untuk banner daripada kolom website lama.
-    const website = agent.custom_domain && agent.custom_domain_status === 'active'
-      ? agent.custom_domain
-      : agent.website;
+    const website = `alhijaz.co/${agent.slug}`;
     const png = await generatePackageValueAgentCardPng({
       name: agent.name,
       phone: agent.phone,
@@ -1578,15 +1574,16 @@ app.post('/api/package-value', authMiddleware, async (req, res) => {
   const jadwalId = String(req.body?.jadwalId || '').trim();
   const requestedTier = String(req.body?.tier || '').trim();
   const refresh = req.body?.refresh === true;
-  // "Ganti gaya" mengirim id gaya yang barusan tampil agar rotasi terasa nyata.
-  const excludeStyleId = typeof req.body?.excludeStyle === 'string'
-    ? req.body.excludeStyle.trim().slice(0, 40)
+  // Dropdown memakai value yang sama dengan modal Buat Ulang Brosur. Helper
+  // memvalidasi terhadap preset server; value asing jatuh ke preset aman.
+  const requestedStyleId = typeof req.body?.style === 'string'
+    ? req.body.style.trim().slice(0, 40)
     : '';
 
   if (!/^[a-z0-9_-]{1,80}$/i.test(jadwalId) || requestedTier.length > 40) {
     return res.status(400).json({ error: 'Data paket tidak valid' });
   }
-  const style = pickPackageValueStyle({ excludeId: excludeStyleId });
+  const style = pickPackageValueStyle({ preferredId: requestedStyleId });
 
   try {
     const schedule = await fetchPackageValueSchedule(jadwalId);
@@ -1659,10 +1656,38 @@ app.post('/api/package-value', authMiddleware, async (req, res) => {
     }
 
     const completion = await openaiRes.json();
-    const result = parsePackageValueResult(
+    let result = parsePackageValueResult(
       completion.choices?.[0]?.message?.content || '',
       { itineraryAvailable, evidenceCatalog: context.evidence, packageData: context.package, style },
     );
+    if (!result?.bannerPrompt) {
+      console.warn('[PackageValue] Initial result failed 3–4 unique-value validation; retrying once');
+      const repairRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_KEY}`,
+        },
+        signal: AbortSignal.timeout(45000),
+        body: JSON.stringify(buildPackageValueChatBody(prompts, { repair: true })),
+      });
+      if (repairRes.ok) {
+        const repairCompletion = await repairRes.json();
+        result = parsePackageValueResult(
+          repairCompletion.choices?.[0]?.message?.content || '',
+          {
+            itineraryAvailable,
+            evidenceCatalog: context.evidence,
+            packageData: context.package,
+            style,
+            allowEvidenceRewrite: true,
+          },
+        );
+      } else {
+        const detail = await repairRes.text();
+        console.error('[PackageValue] OpenAI repair error:', detail.substring(0, 500));
+      }
+    }
     if (!result?.bannerPrompt) return res.status(502).json({ error: 'Prompt banner belum berhasil disusun. Silakan coba lagi.' });
 
     await writePackageValueCache({

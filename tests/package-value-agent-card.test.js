@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { readFileSync } from 'node:fs';
-import { generatePackageValueAgentCardPng } from '../lib/og-generator.mjs';
+import { formatLocalPhone, generatePackageValueAgentCardPng } from '../lib/og-generator.mjs';
 
 test('agent identity sheet is a 1200x630 PNG and supports a photo fallback', async () => {
   const png = await generatePackageValueAgentCardPng({
@@ -36,23 +36,21 @@ test('agent identity sheet survives extreme inputs without throwing', async () =
   }
 });
 
-test('agent identity sheet uses labeled asset blocks so the image model extracts identity accurately', () => {
+test('agent identity sheet is intentionally plain and contains only canonical identity assets', () => {
   const source = readFileSync(new URL('../lib/og-generator.mjs', import.meta.url), 'utf8');
+  const start = source.indexOf('export async function generatePackageValueAgentCardPng');
+  const end = source.indexOf('/**\n * Generate a 1200x630 OG PNG for a portal-jamaah', start);
+  const generator = source.slice(start, end);
 
-  assert.match(source, /LEMBAR REFERENSI IDENTITAS AGENT/);
-  assert.match(source, /Lampiran untuk AI — bukan template banner/);
-  // Chip aset bernomor 01-06 sebagai checklist untuk model image-gen.
-  assert.match(source, /01 · FOTO/);
-  assert.match(source, /02 · NAMA/);
-  assert.match(source, /03 · PERAN/);
-  assert.match(source, /04 · WHATSAPP/);
-  assert.match(source, /05 · WEBSITE/);
-  assert.match(source, /06 · LOGO/);
-  // Info relevan baru: peran resmi + website; caption foto anti-halusinasi wajah.
-  assert.match(source, /Konsultan Umroh &amp; Haji — Alhijaz Indowisata/);
-  assert.match(source, /normalizeAgentWebsite/);
-  assert.match(source, /Gunakan wajah ini apa adanya/);
-  assert.match(source, /Tanpa foto — jangan buat wajah/);
-  assert.match(source, /SALIN ASET APA ADANYA/);
-  assert.match(source, /logo-alhijaz-besar\.png/);
+  assert.ok(start > -1 && end > start);
+  assert.match(generator, /fill="#FFFFFF"/);
+  assert.match(generator, /normalizeAgentWebsite/);
+  assert.match(generator, /logo-alhijaz-besar\.png/);
+  assert.doesNotMatch(generator, /linearGradient|assetLabelChip|LEMBAR REFERENSI|SALIN ASET|<rect x=/);
+  assert.doesNotMatch(generator, /const initials|Konsultan Umroh|SALIN ASET/);
+});
+
+test('agent phone is normalized to readable local groups', () => {
+  assert.equal(formatLocalPhone('0822 9000 2020'), '0822-9000-2020');
+  assert.equal(formatLocalPhone('+62 822-9000-2020'), '0822-9000-2020');
 });

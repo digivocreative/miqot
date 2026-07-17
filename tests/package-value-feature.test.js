@@ -20,33 +20,39 @@ test('Brochure AI Tools exposes Nilai Plus Paket as a third grounded action', ()
   assert.match(card, /photo: currentAgent\.photo/);
 });
 
-test('PackageValueModal puts the analysed advantages first and the prompt second', () => {
+test('PackageValueModal keeps the analysed advantages in a disclosure and the prompt always visible', () => {
   const modal = read('src/components/PackageValueModal.tsx');
 
-  // Hero hasil analisis: headline, summary, nilai plus (benefit dulu), bestFor.
-  assert.match(modal, /Hasil analisis nilai plus/);
+  // Disclosure analisis: headline, summary, nilai plus (benefit dulu), bestFor.
   assert.match(modal, /result\.headline/);
   assert.match(modal, /result\.summary/);
   assert.match(modal, /item\.benefit \|\| item\.description/);
-  assert.match(modal, /Pesan Utama/);
   assert.match(modal, /Cocok untuk/);
-  assert.match(modal, /result\.bestFor\.map/);
-  // Prompt jadi disclosure sekunder dengan textarea siap salin (tanpa scroll-trap div).
-  assert.match(modal, /Prompt untuk ChatGPT/);
-  assert.match(modal, /aria-expanded=\{promptOpen\}/);
+  assert.match(modal, /result\.advantages\.map/);
+  assert.match(modal, /result\.bestFor\.join/);
+  assert.doesNotMatch(modal, /Analisis Ulang/);
+  // Detail nilai plus mengikuti disclosure Info kontak pada modal sibling.
+  assert.match(modal, /Nilai plus yang ditonjolkan/);
+  assert.match(modal, /aria-expanded=\{detailsOpen\}/);
+  // Prompt selalu tampil sebagai textarea siap salin seperti Buat Ulang Brosur.
+  assert.match(modal, /Prompt \(siap salin\)/);
   assert.match(modal, /textarea[\s\S]*readOnly/);
   assert.doesNotMatch(modal, /<details/);
   assert.doesNotMatch(modal, /max-h-64 overflow-y-auto/);
 });
 
-test('PackageValueModal rotates design styles without re-running the AI analysis', () => {
+test('PackageValueModal uses the same compact design-style dropdown as Buat Ulang Brosur', () => {
   const modal = read('src/components/PackageValueModal.tsx');
 
-  assert.match(modal, /Gaya Desain/);
-  assert.match(modal, /Ganti Gaya/);
-  assert.match(modal, /excludeStyle: result\.style\?\.id/);
+  assert.match(modal, /Gaya desain/);
+  assert.match(modal, /import FilterDropdown/);
+  assert.match(modal, /DESIGN_STYLES/);
+  assert.match(modal, /options=\{STYLE_OPTIONS\}/);
+  assert.match(modal, /variant="compact"/);
+  assert.match(modal, /onChange=\{\(value\) => void changeStyle\(value\)\}/);
+  assert.match(modal, /style: styleId/);
   assert.match(modal, /package_value_style_change/);
-  assert.match(modal, /result\.style\?\.name/);
+  assert.doesNotMatch(modal, /excludeStyle|Shuffle/);
 });
 
 test('PackageValueModal generates a grounded banner prompt ready to copy into ChatGPT', () => {
@@ -58,34 +64,44 @@ test('PackageValueModal generates a grounded banner prompt ready to copy into Ch
   assert.match(modal, /copyPlainText\(result\.bannerPrompt\)/);
   assert.match(modal, /Salin Prompt/);
   assert.match(modal, /siap ditempel ke ChatGPT/);
-  assert.match(modal, /Hanya Brosur/);
   assert.match(modal, /fetch\('\/api\/package-value\/agent-card'/);
   assert.match(modal, /buildImageAndPromptShareData\(agentAttachment\.file, result\.bannerPrompt\)/);
-  assert.match(modal, /Bagikan \+ Lampiran/);
-  assert.match(modal, /Lampiran Identitas Agent/);
+  assert.match(modal, /'ChatGPT'/);
+  // Lampiran tetap dipersiapkan dan dikirim, tetapi tidak dipajang di modal.
+  assert.doesNotMatch(modal, /<img/);
+  assert.doesNotMatch(modal, /Unduh PNG/);
+  assert.doesNotMatch(modal, /Data acuan/);
   // Label share hanya muncul bila payload benar-benar bisa di-share file.
   assert.match(modal, /canNativeShareWithFile/);
   assert.match(modal, /navigator\.canShare/);
   assert.doesNotMatch(modal, /shareCaption|WhatsAppIcon|Bagikan WA/);
 });
 
-test('PackageValueModal follows AI Tools, loading, card, and error design-system patterns', () => {
+test('PackageValueModal uses the same popup shell and footer hierarchy as Buat Ulang Brosur', () => {
   const modal = read('src/components/PackageValueModal.tsx');
+  const brochureModal = read('src/components/BrochurePromptModal.tsx');
 
   assert.match(modal, /Loader2/);
-  assert.match(modal, /animate-spin text-purple-600 dark:text-purple-400/);
-  // Panel modal selaras sibling AI modals: max-w-md + spring.
-  assert.match(modal, /max-w-md/);
+  assert.match(modal, /animate-spin text-emerald-500/);
+  // Shell disamakan dengan Buat Ulang Brosur.
+  for (const token of ['z-[10001]', 'max-h-[88vh]', 'max-w-md', 'rounded-2xl', 'shadow-2xl']) {
+    assert.ok(modal.includes(token), `PackageValueModal harus memakai ${token}`);
+    assert.ok(brochureModal.includes(token), `BrochurePromptModal harus memakai ${token}`);
+  }
+  assert.match(modal, /Wand2 size=\{16\} className="shrink-0 text-emerald-500"/);
+  assert.match(modal, /h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100/);
+  assert.match(modal, /flex-1 space-y-4 overflow-y-auto px-4 py-4/);
   assert.match(modal, /type: 'spring', damping: 25, stiffness: 300/);
   // Block error DS.
   assert.match(modal, /rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 dark:border-red-800\/50 dark:bg-red-900\/20 dark:text-red-400/);
-  // CTA footer memakai token Primary CTA (text-sm), bukan text-xs.
+  // Footer: Salin Prompt adalah primary emerald, ChatGPT secondary emerald.
   assert.match(modal, /bg-emerald-500 py-3 text-sm font-bold text-white/);
-  // Badge memakai token DS text-[9px] uppercase tracking-wide.
-  assert.match(modal, /text-\[9px\] font-bold uppercase tracking-wide/);
-  // Tinggi state konsisten (no layout shift antar idle/loading/error).
+  assert.match(modal, /border border-emerald-200 bg-emerald-50 py-3 text-sm font-bold text-emerald-700/);
+  // Loading/error (muncul setelah klik Analisis) tingginya konsisten;
+  // state idle sengaja compact tanpa min-h agar modal tidak boros tinggi.
   const minHeights = modal.match(/min-h-\[\d+px\]/g) || [];
-  assert.ok(minHeights.length >= 3 && new Set(minHeights).size === 1, 'semua state memakai min-h yang sama');
+  assert.ok(minHeights.length >= 2 && new Set(minHeights).size === 1, 'state loading/error memakai min-h yang sama');
+  assert.match(modal, /flex flex-col items-center gap-3 py-2 text-center/, 'state idle compact tanpa min-h');
   // Backdrop bukan button (satu kontrol tutup saja) + aria dialog.
   assert.match(modal, /aria-hidden="true" className="absolute inset-0 bg-black\/50 backdrop-blur-sm"/);
   assert.match(modal, /aria-label="Tutup"/);
@@ -102,7 +118,7 @@ test('PackageValueModal summarizes stale route and proxy HTML errors', () => {
   assert.doesNotMatch(modal, /response\.json\(\)\.catch/);
 });
 
-test('package-value API is authenticated, resolves canonical data, and rotates styles server-side', () => {
+test('package-value API is authenticated, resolves canonical data, and accepts the selected shared style', () => {
   const server = read('server.js');
   const routeStart = server.indexOf("app.post('/api/package-value'");
   const routeEnd = server.indexOf("app.options('/api/package-value'", routeStart);
@@ -116,9 +132,13 @@ test('package-value API is authenticated, resolves canonical data, and rotates s
   assert.match(route, /readPackageValueCache/);
   assert.match(route, /writePackageValueCache/);
   assert.match(route, /packageData: context\.package/);
-  // Rotasi gaya: dipilih per request, exclude gaya sebelumnya, diteruskan ke parser.
-  assert.match(route, /pickPackageValueStyle\(\{ excludeId: excludeStyleId \}\)/);
-  assert.match(route, /excludeStyle/);
+  // Dropdown mengirim gaya eksplisit; helper memvalidasi preset sebelum parser.
+  assert.match(route, /requestedStyleId/);
+  assert.match(route, /pickPackageValueStyle\(\{ preferredId: requestedStyleId \}\)/);
+  assert.match(route, /buildPackageValueChatBody\(prompts, \{ repair: true \}\)/);
+  assert.match(route, /retrying once/);
+  assert.match(route, /allowEvidenceRewrite: true/);
+  assert.doesNotMatch(route, /excludeStyle/);
   assert.match(route, /style \}/);
 });
 
@@ -149,9 +169,9 @@ test('agent identity attachment is authenticated and built only from canonical a
   assert.match(route, /ui-avatars/);
   assert.match(route, /hasRealPhoto/);
   assert.match(route, /generatePackageValueAgentCardPng/);
-  // Website: custom domain aktif menang atas kolom website lama.
-  assert.match(route, /custom_domain_status === 'active'/);
-  assert.match(route, /website/);
+  // URL profil selalu kanonis agar informasi share konsisten untuk setiap agent.
+  assert.match(route, /`alhijaz\.co\/\$\{agent\.slug\}`/);
+  assert.doesNotMatch(route, /custom_domain_status|agent\.website/);
   assert.doesNotMatch(route, /req\.body|req\.query/);
   assert.match(route, /'Content-Type': 'image\/png'/);
 });
