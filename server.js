@@ -3595,8 +3595,8 @@ app.post('/api/agent/email-alias', authMiddleware, async (req, res) => {
       });
     }
     const alias = String(req.body?.alias || '').trim().toLowerCase();
-    if (alias.length < 2 || alias.length > 30 || !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(alias)) {
-      return res.status(400).json({ error: 'Alias harus 2-30 karakter: huruf kecil, angka, strip (tidak di awal/akhir)' });
+    if (!/^[a-z]{3,25}$/.test(alias)) {
+      return res.status(400).json({ error: 'Alias hanya boleh huruf, 3-25 karakter' });
     }
     if (RESERVED_EMAIL_LOCAL_PARTS.includes(alias)) {
       return res.status(400).json({ error: 'Alias ini tidak tersedia' });

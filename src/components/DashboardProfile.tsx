@@ -543,7 +543,7 @@ function EmailAliasField() {
     );
   }
 
-  const valid = aliasInput.length >= 2 && aliasInput.length <= 30 && /^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(aliasInput);
+  const valid = /^[a-z]{3,25}$/.test(aliasInput);
 
   const handleCreate = async () => {
     if (!valid || saving) return;
@@ -574,31 +574,32 @@ function EmailAliasField() {
       <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1.5 uppercase tracking-wide">
         <Mail size={12} /> Email Alias <span className="normal-case font-normal text-gray-400 dark:text-slate-500">(opsional)</span>
       </label>
-      <div className="flex items-center gap-1.5">
+      <div className="relative">
         <input
           type="text"
           value={aliasInput}
-          onChange={e => { setAliasInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')); setError(''); }}
+          onChange={e => { setAliasInput(e.target.value.toLowerCase().replace(/[^a-z]/g, '').slice(0, 25)); setError(''); }}
+          maxLength={25}
           placeholder="namakamu"
-          className="min-w-0 flex-1 px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 focus:ring-emerald-500 focus:border-emerald-500 rounded-xl text-sm focus:ring-2 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500"
+          className="w-full pl-3 pr-24 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 focus:ring-emerald-500 focus:border-emerald-500 rounded-xl text-sm focus:ring-2 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500"
         />
-        <span className="text-xs font-medium text-gray-500 dark:text-slate-400 shrink-0">@alhijaz.co</span>
-        <button
-          type="button"
-          disabled={!valid || saving}
-          onClick={handleCreate}
-          className={`shrink-0 px-3 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
-            valid && !saving
-              ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-              : 'bg-gray-200 dark:bg-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed'
-          }`}
-        >
-          {saving ? <Loader2 size={14} className="animate-spin" /> : 'Buat'}
-        </button>
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 dark:text-slate-500 pointer-events-none">@alhijaz.co</span>
       </div>
       {error && (
         <p className="text-[10px] text-red-500 dark:text-red-400 mt-1 flex items-center gap-1"><AlertCircle size={10} />{error}</p>
       )}
+      <button
+        type="button"
+        disabled={!valid || saving}
+        onClick={handleCreate}
+        className={`mt-2 w-full py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 ${
+          valid && !saving
+            ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
+            : 'bg-gray-200 dark:bg-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed'
+        }`}
+      >
+        {saving ? <Loader2 size={14} className="animate-spin" /> : 'Buat Alias'}
+      </button>
       <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1">
         Diteruskan ke email kamu. <span className="font-semibold">Hanya bisa dibuat sekali, tidak bisa diganti.</span>
       </p>
