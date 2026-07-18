@@ -132,33 +132,77 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
   const CardRenderer = RENDERERS[selectedDesign][format];
   const cardSize = CARD_SIZE[format];
 
-  const handleDownload = async () => {
-    if (!cardExportRef.current || exporting) return;
-    setExporting('download');
+  // Jalur utama: render di server (headless Chromium) — hasil PNG identik dengan
+  // preview di semua device. snapdom klien hanya fallback saat server gagal:
+  // WebKit/Safari me-raster foreignObject dgn font fallback → teks turun baris.
+  const exportServerBlob = async (): Promise<Blob> => {
+    const r = await fetch('/api/business-card/export', {
+      method: 'POST',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ design: selectedDesign, format, props: cardProps }),
+    });
+    if (!r.ok) throw new Error(`export server ${r.status}`);
+    const blob = await r.blob();
+    if (!blob.type.startsWith('image/')) throw new Error('respons bukan gambar');
+    return blob;
+  };
+
+  const exportBlob = async (): Promise<Blob> => {
     try {
+      return await exportServerBlob();
+    } catch (e) {
+      console.warn('Export server gagal, fallback snapdom:', e);
       const { snapdom } = await import('@zumer/snapdom');
       // embedFonts wajib: tanpa ini hasil export jatuh ke font sistem, bukan Inter.
       // dpr eksplisit 1: default snapdom mengalikan devicePixelRatio layar, bikin
       // resolusi hasil beda antar device (download() kebetulan memaksa 1, toBlob tidak).
-      const result = await snapdom(cardExportRef.current, { scale: 2, dpr: 1, embedFonts: true });
-      await result.download({ type: 'png', dpr: 1, filename: `kartu-nama-${agent.slug || 'agent'}-${format}` });
+      const result = await snapdom(cardExportRef.current!, { scale: 2, dpr: 1, embedFonts: true });
+      return await result.toBlob({ type: 'png', dpr: 1 });
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!cardExportRef.current || exporting || !qrDataUrl) return;
+    setExporting('download');
+    try {
+      const blob = await exportBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `kartu-nama-${agent.slug || 'agent'}-${format}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
       trackEvent('action', 'download_business_card', { theme: currentDesign.name });
     } catch (e) { console.error('Export gagal:', e); }
     finally { setExporting(null); }
   };
 
   const handleShare = async () => {
-    if (!cardExportRef.current || exporting) return;
+    if (!cardExportRef.current || exporting || !qrDataUrl) return;
     setExporting('share');
     try {
-      const { snapdom } = await import('@zumer/snapdom');
-      // dpr: 1 — samakan resolusi share dengan download di semua device (lihat handleDownload).
-      const result = await snapdom(cardExportRef.current, { scale: 2, dpr: 1, embedFonts: true });
-      const blob = await result.toBlob({ type: 'png', dpr: 1 });
+      const blob = await exportBlob();
       const file = new File([blob], `kartu-nama-${agent.slug || 'agent'}.png`, { type: 'image/png' });
       if (navigator.share) {
-        await navigator.share({ files: [file] });
-        trackEvent('action', 'share_business_card', { theme: currentDesign.name });
+        try {
+          await navigator.share({ files: [file] });
+          trackEvent('action', 'share_business_card', { theme: currentDesign.name });
+        } catch (e: any) {
+          if (e?.name === 'AbortError') return;
+          // iOS mencabut user-activation bila render server > ~5s → share ditolak.
+          // Jangan buang hasilnya: jatuhkan ke unduhan file yang sama.
+          console.warn('Share ditolak, fallback download:', e);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = file.name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 4000);
+        }
       }
     } catch (e: any) { if (e?.name !== 'AbortError') console.error('Share gagal:', e); }
     finally { setExporting(null); }

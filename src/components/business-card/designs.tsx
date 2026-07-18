@@ -137,7 +137,7 @@ function ServiceChips({ fg, bg, border, center = false }: { fg: string; bg: stri
   return (
     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: center ? 'center' : 'flex-start' }}>
       {SERVICES.map(s => (
-        <span key={s} style={{ fontFamily: fontDisplay, fontSize: 14, fontWeight: 700, color: fg, background: bg, border: `1px solid ${border}`, borderRadius: 999, padding: '7px 18px', letterSpacing: 0.8 }}>{s}</span>
+        <span key={s} style={{ fontFamily: fontDisplay, fontSize: 14, fontWeight: 700, color: fg, background: bg, border: `1px solid ${border}`, borderRadius: 999, padding: '7px 18px', letterSpacing: 0.8, whiteSpace: 'nowrap' }}>{s}</span>
       ))}
     </div>
   );
@@ -217,8 +217,8 @@ function BrandLockup({ light, markH = 34, textColor, subColor, hideText = false 
       )}
       {!hideText && (
         <div style={{ borderLeft: `1px solid ${sub}`, paddingLeft: 12 }}>
-          <div style={{ fontFamily: fontDisplay, fontSize: Math.round(markH * 0.5), fontWeight: 800, color: textColor, letterSpacing: 1.2, lineHeight: 1.15 }}>ALHIJAZ INDOWISATA</div>
-          <div style={{ fontFamily: fontDisplay, fontSize: Math.round(markH * 0.36), fontWeight: 700, color: sub, letterSpacing: 3.2, textTransform: 'uppercase', marginTop: 2 }}>Tour & Travel</div>
+          <div style={{ fontFamily: fontDisplay, fontSize: Math.round(markH * 0.5), fontWeight: 800, color: textColor, letterSpacing: 1.2, lineHeight: 1.15, whiteSpace: 'nowrap' }}>ALHIJAZ INDOWISATA</div>
+          <div style={{ fontFamily: fontDisplay, fontSize: Math.round(markH * 0.36), fontWeight: 700, color: sub, letterSpacing: 3.2, textTransform: 'uppercase', marginTop: 2, whiteSpace: 'nowrap' }}>Tour & Travel</div>
         </div>
       )}
     </div>
@@ -250,7 +250,7 @@ function ContactRow({ icon, text, iconBg, iconBorder, textColor }: {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
       <div style={{ width: 30, height: 30, borderRadius: 8, background: iconBg, border: `1px solid ${iconBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{icon}</div>
-      <span style={{ fontSize: fs, color: textColor, fontWeight: 500 }}>{text}</span>
+      <span style={{ fontSize: fs, color: textColor, fontWeight: 500, whiteSpace: 'nowrap' }}>{text}</span>
     </div>
   );
 }
@@ -344,7 +344,7 @@ function D1Contacts({ wa, email, web }: { wa: string; email: string; web: string
       {rows.map((r, i) => (
         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 15, padding: '14px 2px', borderBottom: i < rows.length - 1 ? '1px solid rgba(6,95,70,0.14)' : 'none' }}>
           <div style={{ width: 36, height: 36, borderRadius: 11, background: 'linear-gradient(135deg, #065f46, #047857)', border: '1px solid rgba(192,132,39,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 2px 6px rgba(6,95,70,0.25)' }}>{r.icon}</div>
-          <span style={{ fontSize: Math.max(Math.round((17 * 30) / Math.max(r.text.length, 29)), 14), color: '#173029', fontWeight: 600 }}>{r.text}</span>
+          <span style={{ fontSize: Math.max(Math.round((17 * 30) / Math.max(r.text.length, 29)), 14), color: '#173029', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.text}</span>
         </div>
       ))}
     </div>
@@ -356,7 +356,7 @@ function D1Chips({ center = false }: { center?: boolean }) {
   return (
     <div style={{ display: 'flex', gap: 12, justifyContent: center ? 'center' : 'flex-start' }}>
       {SERVICES.map(s => (
-        <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, fontFamily: fontDisplay, fontSize: 13, fontWeight: 800, letterSpacing: 2, textTransform: 'uppercase', color: '#065f46', background: 'linear-gradient(180deg, #ffffff, #e9f6ef)', border: '1px solid rgba(192,132,39,0.5)', borderRadius: 999, padding: '10px 20px', boxShadow: '0 2px 8px rgba(6,95,70,0.08)' }}>
+        <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, fontFamily: fontDisplay, fontSize: 13, fontWeight: 800, letterSpacing: 2, textTransform: 'uppercase', color: '#065f46', background: 'linear-gradient(180deg, #ffffff, #e9f6ef)', border: '1px solid rgba(192,132,39,0.5)', borderRadius: 999, padding: '10px 20px', boxShadow: '0 2px 8px rgba(6,95,70,0.08)', whiteSpace: 'nowrap' }}>
           <svg width="9" height="9" viewBox="0 0 10 10" style={{ flexShrink: 0 }}><rect x="2.2" y="2.2" width="5.6" height="5.6" transform="rotate(45 5 5)" fill={GOLD} /></svg>
           {s}
         </span>
@@ -383,7 +383,7 @@ function D1QrBlock({ src, caption, size = 146 }: { src: string; caption: string;
         <StarWatermark color="#059669" size={size + 66} opacity={0.26} style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
         <QRBox src={src} size={size} border={`1.5px solid ${GOLD_LIGHT}`} />
       </div>
-      <span style={{ position: 'relative', fontSize: 14, color: '#51625b', fontWeight: 600 }}>{caption}</span>
+      <span style={{ position: 'relative', fontSize: 14, color: '#51625b', fontWeight: 600, whiteSpace: 'nowrap' }}>{caption}</span>
     </div>
   );
 }
@@ -449,7 +449,7 @@ function D1Portrait({ name, role, wa, email, web, photoUrl, initials, qrDataUrl,
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 5, background: `linear-gradient(90deg, ${GOLD}, ${GOLD_PALE} 50%, ${GOLD})` }} />
       </div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '22px 44px 0' }}>
-        <div style={{ fontSize: Math.max(fitName(29, name, 28), 23), fontFamily: fontSerif, fontWeight: 800, color: '#0c231b', textAlign: 'center' }}>{name}</div>
+        <div style={{ fontSize: Math.max(fitName(29, name, 28), 23), fontFamily: fontSerif, fontWeight: 800, color: '#0c231b', textAlign: 'center', whiteSpace: 'nowrap' }}>{name}</div>
         <D1RoleRule text={role} color="#9a6d1f" line="rgba(192,132,39,0.5)" />
         <div style={{ margin: '14px 0 18px' }}><Ornament color={GOLD} width={190} /></div>
         <div style={{ width: '100%', background: 'rgba(255,255,255,0.8)', border: '1px solid rgba(192,132,39,0.38)', borderRadius: 16, padding: '6px 24px', boxShadow: '0 10px 30px rgba(6,95,70,0.09)' }}>
@@ -662,7 +662,7 @@ function D2Landscape({ name, role, wa, email, web, photoUrl, initials, qrDataUrl
         </D2Arch>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 9 }}>
           <QRBox src={qrDataUrl} size={132} border={`1.5px solid ${GOLD}`} />
-          <span style={{ fontSize: 14, color: '#a7b1c7', fontWeight: 500 }}>{qrCaption}</span>
+          <span style={{ fontSize: 14, color: '#a7b1c7', fontWeight: 500, whiteSpace: 'nowrap' }}>{qrCaption}</span>
         </div>
       </div>
     </div>
@@ -699,7 +699,7 @@ function D2Portrait({ name, role, wa, email, web, photoUrl, initials, qrDataUrl,
           <D2KaabaScene kaaba={106} w={160} />
           <QRBox src={qrDataUrl} size={138} border={`1.5px solid ${GOLD}`} />
         </div>
-        <span style={{ position: 'relative', fontSize: 14, color: '#a7b1c7', fontWeight: 500, marginTop: 10 }}>{qrCaption}</span>
+        <span style={{ position: 'relative', fontSize: 14, color: '#a7b1c7', fontWeight: 500, marginTop: 10, whiteSpace: 'nowrap' }}>{qrCaption}</span>
       </div>
     </div>
   );
@@ -766,7 +766,7 @@ function D3Role({ text, center = false }: { text: string; center?: boolean }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: center ? 'center' : 'flex-start' }}>
       {line}
-      <span style={{ fontFamily: fontDisplay, fontSize: 15, fontWeight: 800, color: '#8a5c10', letterSpacing: 3.2, textTransform: 'uppercase' }}>{text}</span>
+      <span style={{ fontFamily: fontDisplay, fontSize: 15, fontWeight: 800, color: '#8a5c10', letterSpacing: 3.2, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{text}</span>
       {center && line}
     </div>
   );
@@ -779,7 +779,7 @@ function D3Chips({ center = false }: { center?: boolean }) {
       {SERVICES.map((sv, i) => (
         <div key={sv} style={{ display: 'flex', alignItems: 'center' }}>
           {i > 0 && <div style={{ width: 5, height: 5, background: GOLD, transform: 'rotate(45deg)', opacity: 0.8, margin: '0 14px' }} />}
-          <span style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 2.2, color: '#8a5c10', background: 'linear-gradient(180deg, #fdf8ec, #f6ead0)', border: '1px solid #ddbe72', borderRadius: 8, padding: '8px 19px', boxShadow: '0 1px 4px rgba(146,100,26,0.1)' }}>{sv}</span>
+          <span style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 2.2, color: '#8a5c10', background: 'linear-gradient(180deg, #fdf8ec, #f6ead0)', border: '1px solid #ddbe72', borderRadius: 8, padding: '8px 19px', boxShadow: '0 1px 4px rgba(146,100,26,0.1)', whiteSpace: 'nowrap' }}>{sv}</span>
         </div>
       ))}
     </div>
@@ -800,7 +800,7 @@ function D3Contacts({ wa, email, web, maxWidth }: { wa: string; email: string; w
           <div style={{ width: 26, height: 26, transform: 'rotate(45deg)', background: 'linear-gradient(135deg, #fdf8ec, #f3e3bd)', border: '1px solid #d9b96a', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, margin: '5px 6px', boxShadow: '0 1px 3px rgba(146,100,26,0.15)' }}>
             <div style={{ transform: 'rotate(-45deg)', display: 'flex' }}>{r.icon}</div>
           </div>
-          <span style={{ fontSize: Math.max(Math.round((20 * 30) / Math.max(r.text.length, 30)), 15), color: '#33281a', fontWeight: 600 }}>{r.text}</span>
+          <span style={{ fontSize: Math.max(Math.round((20 * 30) / Math.max(r.text.length, 30)), 15), color: '#33281a', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.text}</span>
         </div>
       ))}
     </div>
@@ -851,7 +851,7 @@ function D3Landscape({ name, role, wa, email, web, photoUrl, initials, qrDataUrl
             <div style={{ padding: 6, border: '1px solid rgba(192,132,39,0.4)', borderRadius: 14, background: 'rgba(255,255,255,0.55)' }}>
               <QRBox src={qrDataUrl} size={132} border={`1.5px solid ${GOLD_LIGHT}`} />
             </div>
-            <span style={{ fontSize: 14, color: '#5f4e2e', fontWeight: 600 }}>{qrCaption}</span>
+            <span style={{ fontSize: 14, color: '#5f4e2e', fontWeight: 600, whiteSpace: 'nowrap' }}>{qrCaption}</span>
           </div>
         </div>
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', paddingTop: 2 }}>
@@ -886,7 +886,7 @@ function D3Portrait({ name, role, wa, email, web, photoUrl, initials, qrDataUrl,
         <div style={{ marginTop: 20 }}>
           <D3ArchNiche photoUrl={photoUrl} initials={initials} w={236} fill="#fdf6e6" />
         </div>
-        <div style={{ fontSize: Math.max(fitName(30, name, 30), 24), fontFamily: fontSerif, fontWeight: 800, color: '#20180a', marginTop: 18, textAlign: 'center' }}>{name}</div>
+        <div style={{ fontSize: Math.max(fitName(30, name, 30), 24), fontFamily: fontSerif, fontWeight: 800, color: '#20180a', marginTop: 18, textAlign: 'center', whiteSpace: 'nowrap' }}>{name}</div>
         <div style={{ marginTop: 10 }}><D3Role text={role} center /></div>
         <div style={{ marginTop: 16 }}><D3Chips center /></div>
         <div style={{ width: '100%', marginTop: 'auto', marginBottom: 'auto', background: 'linear-gradient(180deg, #fcf6e8, #f5ead0)', border: '1px solid #e2cb93', borderRadius: 14, boxShadow: '0 8px 24px rgba(146,100,26,0.1)', padding: '6px 24px', position: 'relative' }}>
@@ -897,7 +897,7 @@ function D3Portrait({ name, role, wa, email, web, photoUrl, initials, qrDataUrl,
           <div style={{ padding: 6, border: '1px solid rgba(192,132,39,0.4)', borderRadius: 15, background: 'rgba(255,255,255,0.55)' }}>
             <QRBox src={qrDataUrl} size={146} border={`1.5px solid ${GOLD_LIGHT}`} />
           </div>
-          <span style={{ fontSize: 14, color: '#5f4e2e', fontWeight: 600 }}>{qrCaption}</span>
+          <span style={{ fontSize: 14, color: '#5f4e2e', fontWeight: 600, whiteSpace: 'nowrap' }}>{qrCaption}</span>
         </div>
       </div>
     </div>
@@ -945,7 +945,7 @@ function D4Chips({ center = false }: { center?: boolean }) {
   return (
     <div style={{ display: 'flex', gap: 12, justifyContent: center ? 'center' : 'flex-start' }}>
       {SERVICES.map(s => (
-        <span key={s} style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 2.2, color: GOLD_PALE, background: 'linear-gradient(180deg, rgba(226,180,92,0.16), rgba(192,132,39,0.04))', border: '1px solid rgba(226,180,92,0.45)', borderRadius: 3, padding: '8px 18px' }}>{s}</span>
+        <span key={s} style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 2.2, color: GOLD_PALE, background: 'linear-gradient(180deg, rgba(226,180,92,0.16), rgba(192,132,39,0.04))', border: '1px solid rgba(226,180,92,0.45)', borderRadius: 3, padding: '8px 18px', whiteSpace: 'nowrap' }}>{s}</span>
       ))}
     </div>
   );
@@ -1007,10 +1007,10 @@ function D4Landscape({ name, role, wa, email, web, photoUrl, initials, qrDataUrl
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <BrandLockup light markH={33} textColor={GOLD_PALE} subColor={GOLD_LIGHT} />
           <div>
-            <div style={{ fontSize: Math.max(fitName(46, name, 22), 32), fontFamily: fontSerif, fontWeight: 800, color: GOLD_PALE, lineHeight: 1.16, textShadow: '0 2px 14px rgba(0,0,0,0.5)' }}>{name}</div>
+            <div style={{ fontSize: Math.max(fitName(46, name, 22), 32), fontFamily: fontSerif, fontWeight: 800, color: GOLD_PALE, lineHeight: 1.16, textShadow: '0 2px 14px rgba(0,0,0,0.5)', whiteSpace: 'nowrap' }}>{name}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 11 }}>
               <div style={{ width: 34, height: 2, background: `linear-gradient(90deg, ${GOLD_LIGHT}, ${GOLD})` }} />
-              <span style={{ fontFamily: fontDisplay, fontSize: 14, fontWeight: 700, color: GOLD_LIGHT, letterSpacing: 3, textTransform: 'uppercase' }}>{role}</span>
+              <span style={{ fontFamily: fontDisplay, fontSize: 14, fontWeight: 700, color: GOLD_LIGHT, letterSpacing: 3, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{role}</span>
             </div>
             <div style={{ marginTop: 18 }}><D4Chips /></div>
           </div>
@@ -1020,7 +1020,7 @@ function D4Landscape({ name, role, wa, email, web, photoUrl, initials, qrDataUrl
           <Avatar url={photoUrl} initials={initials} size={130} bg="linear-gradient(135deg, #2a2210, #1a1408)" border="3px solid rgba(226,180,92,0.55)" textColor={GOLD_LIGHT} fontSize={44} ring={GOLD} shadow="0 8px 32px rgba(0,0,0,0.5)" />
           <D4Rule width={140} style={{ margin: '16px 0' }} />
           <QRBox src={qrDataUrl} size={138} border={`1.5px solid ${GOLD}`} bg="#fffdf5" />
-          <span style={{ fontSize: 14, color: '#b7a678', fontWeight: 500, marginTop: 10 }}>{qrCaption}</span>
+          <span style={{ fontSize: 14, color: '#b7a678', fontWeight: 500, marginTop: 10, whiteSpace: 'nowrap' }}>{qrCaption}</span>
         </D4DoorPanel>
       </div>
     </div>
@@ -1038,15 +1038,15 @@ function D4Portrait({ name, role, wa, email, web, photoUrl, initials, qrDataUrl,
         <BrandLockup light markH={29} textColor={GOLD_PALE} subColor={GOLD_LIGHT} />
         <D4DoorPanel width={472} style={{ marginTop: 20, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '42px 18px 30px' }}>
           <Avatar url={photoUrl} initials={initials} size={138} bg="linear-gradient(135deg, #2a2210, #1a1408)" border="3px solid rgba(226,180,92,0.55)" textColor={GOLD_LIGHT} fontSize={46} ring={GOLD} shadow="0 8px 32px rgba(0,0,0,0.5)" />
-          <div style={{ fontSize: Math.max(fitName(31, name, 24), 22), fontFamily: fontSerif, fontWeight: 800, color: GOLD_PALE, marginTop: 18, textAlign: 'center', textShadow: '0 2px 12px rgba(0,0,0,0.5)' }}>{name}</div>
-          <div style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 700, color: GOLD_LIGHT, letterSpacing: 2.6, textTransform: 'uppercase', marginTop: 8 }}>{role}</div>
+          <div style={{ fontSize: Math.max(fitName(31, name, 24), 22), fontFamily: fontSerif, fontWeight: 800, color: GOLD_PALE, marginTop: 18, textAlign: 'center', textShadow: '0 2px 12px rgba(0,0,0,0.5)', whiteSpace: 'nowrap' }}>{name}</div>
+          <div style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 700, color: GOLD_LIGHT, letterSpacing: 2.6, textTransform: 'uppercase', marginTop: 8, whiteSpace: 'nowrap' }}>{role}</div>
           <D4Rule width={220} style={{ margin: '15px 0 0' }} />
           <div style={{ width: '86%', marginTop: 'auto', marginBottom: 'auto' }}>
             <Contacts wa={wa} email={email} web={web} iconColor={GOLD_LIGHT} iconBg="linear-gradient(135deg, rgba(226,180,92,0.2), rgba(192,132,39,0.05))" iconBorder="rgba(226,180,92,0.45)" textColor="#e9ddbd" gap={13} />
             <div style={{ marginTop: 20 }}><D4Chips center /></div>
           </div>
           <QRBox src={qrDataUrl} size={146} border={`1.5px solid ${GOLD}`} bg="#fffdf5" />
-          <span style={{ fontSize: 14, color: '#b7a678', fontWeight: 500, marginTop: 9 }}>{qrCaption}</span>
+          <span style={{ fontSize: 14, color: '#b7a678', fontWeight: 500, marginTop: 9, whiteSpace: 'nowrap' }}>{qrCaption}</span>
         </D4DoorPanel>
       </div>
     </div>
@@ -1124,7 +1124,7 @@ function D5Chips({ center = false }: { center?: boolean }) {
   return (
     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: center ? 'center' : 'flex-start' }}>
       {SERVICES.map(s => (
-        <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, fontFamily: fontDisplay, fontSize: 13.5, fontWeight: 800, letterSpacing: 1.6, textTransform: 'uppercase', color: '#8f0a07', background: '#ffffff', border: `1px solid ${GOLD_LIGHT}`, borderRadius: 999, padding: '9px 20px', boxShadow: '0 1px 5px rgba(165,12,9,0.08)' }}>
+        <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, fontFamily: fontDisplay, fontSize: 13.5, fontWeight: 800, letterSpacing: 1.6, textTransform: 'uppercase', color: '#8f0a07', background: '#ffffff', border: `1px solid ${GOLD_LIGHT}`, borderRadius: 999, padding: '9px 20px', boxShadow: '0 1px 5px rgba(165,12,9,0.08)', whiteSpace: 'nowrap' }}>
           <svg width="9" height="9" viewBox="0 0 10 10"><rect x="1.8" y="1.8" width="6.4" height="6.4" transform="rotate(45 5 5)" fill={GOLD} /></svg>
           {s}
         </span>
@@ -1146,7 +1146,7 @@ function D5Contacts({ wa, email, web }: { wa: string; email: string; web: string
       {rows.map((r, i) => (
         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 2px', borderBottom: i < rows.length - 1 ? '1px solid rgba(192,132,39,0.3)' : 'none' }}>
           <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#ffffff', border: `1px solid ${GOLD_LIGHT}`, boxShadow: '0 1px 4px rgba(165,12,9,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{r.icon}</div>
-          <span style={{ fontSize: Math.max(Math.min(19, Math.floor(440 / Math.max(r.text.length, 1))), 14), color: '#3b211d', fontWeight: 600 }}>{r.text}</span>
+          <span style={{ fontSize: Math.max(Math.min(19, Math.floor(440 / Math.max(r.text.length, 1))), 14), color: '#3b211d', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.text}</span>
         </div>
       ))}
     </div>
@@ -1249,7 +1249,7 @@ function D5Portrait({ name, role, wa, email, web, photoUrl, initials, qrDataUrl,
             <Avatar url={photoUrl} initials={initials} size={138} bg="rgba(255,255,255,0.14)" border="3px solid rgba(255,255,255,0.65)" textColor="white" fontSize={46} ring={GOLD_LIGHT} shadow="0 8px 32px rgba(0,0,0,0.35)" />
           </div>
         </div>
-        <div style={{ fontSize: Math.max(fitName(30, name, 32), 24), fontFamily: fontSerif, fontWeight: 800, color: 'white', marginTop: 14, textAlign: 'center', padding: '0 30px' }}>{name}</div>
+        <div style={{ fontSize: Math.max(fitName(30, name, 32), 24), fontFamily: fontSerif, fontWeight: 800, color: 'white', marginTop: 14, textAlign: 'center', padding: '0 30px', whiteSpace: 'nowrap' }}>{name}</div>
         <div style={{ marginTop: 9 }}><D5RoleRule text={role} /></div>
         <div style={{ marginTop: 16 }}><D5Band length={240} thickness={12} /></div>
         <div style={{ alignSelf: 'stretch', flex: 1, margin: '18px 36px 40px', position: 'relative', background: '#fffdfa', backgroundImage: `${starPattern(RED, 0.035)}, linear-gradient(180deg, #fffefd 0%, #fdf3ec 100%)`, backgroundSize: '72px 72px, cover', border: `1px solid ${GOLD_LIGHT}`, borderRadius: 14, boxShadow: '0 10px 36px rgba(0,0,0,0.28)', padding: '24px 32px 22px', display: 'flex', flexDirection: 'column' }}>
@@ -1262,7 +1262,7 @@ function D5Portrait({ name, role, wa, email, web, photoUrl, initials, qrDataUrl,
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
               <QRBox src={qrDataUrl} size={148} border={`1.5px solid ${GOLD_LIGHT}`} />
-              <span style={{ fontSize: 13.5, color: '#7a544b', fontWeight: 600 }}>{qrCaption}</span>
+              <span style={{ fontSize: 13.5, color: '#7a544b', fontWeight: 600, whiteSpace: 'nowrap' }}>{qrCaption}</span>
             </div>
           </div>
         </div>

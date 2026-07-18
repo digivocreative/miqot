@@ -25,6 +25,7 @@ import { collapseBookingOutstanding } from './lib/booking-outstanding.js';
 import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate, sendOpsAlert } from './telegram-notifier.js';
 import { createResendInboundHandler, RESERVED_EMAIL_LOCAL_PARTS, ALIAS_DOMAIN } from './email-alias.js';
 import { getBirthdaysForAgent } from './lib/birthdays.js';
+import { handleCardExport } from './lib/card-export.js';
 import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCacheableHtmlDocument, JAMAAH_DOCUMENT_TYPES } from './lib/jamaah-document-cache.js';
 import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { syncCalendar, enrichKeberangkatanWithKumpul, enrichCalendarPaxJamaah } from './calendar-api.js';
@@ -4318,6 +4319,11 @@ app.get('/api/config/server-ip', (_req, res) => {
 });
 
 // GET /api/agent/custom-domain — return config agent yang login
+// POST /api/business-card/export — render kartu nama di headless Chromium server-side
+// agar hasil export identik dengan preview di semua device (snapdom WebKit me-render
+// font fallback → teks turun baris). Props dikirim klien = persis props preview.
+app.post('/api/business-card/export', authMiddleware, handleCardExport);
+
 app.get('/api/agent/custom-domain', authMiddleware, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
