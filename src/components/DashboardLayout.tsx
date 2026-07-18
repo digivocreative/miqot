@@ -5,14 +5,14 @@ import {
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
   BarChart3, Loader2, Sparkles,
   CalendarRange, TrendingUp, Mic, CreditCard,
-  DollarSign, ChevronRight, Globe, Share2, FileImage, Bot,
+  DollarSign, ChevronRight, Globe, Share2, FileImage, Bot, MessagesSquare,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
 import type { Birthday } from './BirthdayWidget';
 import { trackEvent } from '../utils/analytics';
 import JamaahEditSkeleton from './JamaahEditSkeleton';
-import { isLandingBuilderEnabledForAgent } from '../lib/landingBuilderAccess';
+import { isCommunityEnabledForAgent } from '../lib/communityAccess';
 
 function getLocalStorageItem(key: string): string | null {
   try {
@@ -44,7 +44,6 @@ const AIToolsPage = lazy(() => import('./AIToolsPage'));
 const VoiceOverPage = lazy(() => import('./VoiceOverPage'));
 const BusinessCardPage = lazy(() => import('./BusinessCardPage'));
 const LandingPagePage = lazy(() => import('./LandingPagePage'));
-const LandingPageEditorPage = lazy(() => import('./landing-builder/LandingPageEditorPage'));
 const CustomDomainPage = lazy(() => import('./CustomDomainPage'));
 const HajiPlusPage = lazy(() => import('./HajiPlusPage'));
 const HajiPlusExportPage = lazy(() => import('./HajiPlusExportPage'));
@@ -53,6 +52,7 @@ const BrochureSchedulePage = lazy(() => import('./BrochureSchedulePage'));
 const McpIntegrationPage = lazy(() => import('./McpIntegrationPage'));
 const UmrahRegisterPage = lazy(() => import('./UmrahRegisterPage'));
 const JamaahEditPage = lazy(() => import('./JamaahEditPage'));
+const KomunitasPage = lazy(() => import('./KomunitasPage'));
 // Home widgets — only mounted on the home tab; split out of the initial chunk
 // so a deep-link to a non-home dashboard route doesn't pay for them.
 const UpcomingSchedule = lazy(() => import('./UpcomingSchedule'));
@@ -65,7 +65,7 @@ const BirthdayWidget = lazy(() => import('./BirthdayWidget'));
 const ShareKursModal = lazy(() => import('./ShareKursModal'));
 const BirthdayDetailSheet = lazy(() => import('./BirthdayDetailSheet'));
 
-type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools';
+type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'komunitas';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
@@ -76,6 +76,7 @@ const SLUG_TO_TAB: Record<string, TabId> = {
   settings: 'settings',
   analytics: 'analytics',
   'ai-tools': 'ai-tools',
+  komunitas: 'komunitas',
 };
 
 const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
@@ -86,6 +87,7 @@ const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
   settings: 'settings',
   analytics: 'analytics',
   'ai-tools': 'ai-tools',
+  komunitas: 'komunitas',
 };
 
 function getTabFromPath(): TabId {
@@ -141,14 +143,6 @@ function getAIToolsSubFromPath(): string | null {
     if (segments.length >= 4 && segments[2] === 'landing-page' && segments[3] === 'custom-domain') {
       return 'landing-page/custom-domain';
     }
-    if (
-      segments.length >= 5 &&
-      segments[2] === 'landing-page' &&
-      (segments[3] === 'umroh' || segments[3] === 'haji') &&
-      segments[4] === 'editor'
-    ) {
-      return `landing-page/${segments[3]}/editor`;
-    }
     return segments[2];
   }
   return null;
@@ -163,12 +157,11 @@ const TAB_TITLES: Record<TabId, string> = {
   statistik: 'Statistik',
   analytics: 'Analytics',
   'ai-tools': 'Tools',
+  komunitas: 'Komunitas',
 };
 
 function getCurrentDocumentTitle(): string {
   const sub = getAIToolsSubFromPath();
-  if (sub === 'landing-page/umroh/editor') return 'Editor Landing Page Umroh';
-  if (sub === 'landing-page/haji/editor') return 'Editor Landing Page Haji';
   if (sub === 'landing-page') return 'Landing Page';
   if (sub === 'landing-page/custom-domain') return 'Custom Domain';
   return TAB_TITLES[getTabFromPath()] || 'Dashboard';
@@ -246,6 +239,18 @@ const MENU_CARDS: MenuCard[] = [
     iconShadow: 'shadow-lg shadow-rose-500/30 dark:shadow-rose-900/40',
     hoverShadow: 'hover:shadow-rose-300/40 dark:hover:shadow-rose-900/30',
     iconAnim: 'animate-icon-wiggle',
+  },
+  {
+    id: 'komunitas', label: 'Komunitas', desc: 'Ruang berbagi agent',
+    icon: MessagesSquare, color: 'text-teal-600 dark:text-teal-400',
+    bgLight: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20',
+    borderLight: 'border-teal-100', borderDark: 'dark:border-teal-800/40',
+    cardBg: 'bg-gradient-to-br from-teal-50 via-white to-cyan-100/70 dark:from-teal-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-teal-200/70 dark:border-teal-800/40',
+    iconBg: 'bg-gradient-to-br from-teal-400 to-cyan-600 dark:from-teal-500 dark:to-cyan-700',
+    iconShadow: 'shadow-lg shadow-teal-500/30 dark:shadow-teal-900/40',
+    hoverShadow: 'hover:shadow-teal-300/40 dark:hover:shadow-teal-900/30',
+    iconAnim: 'animate-icon-breathe',
   },
   {
     id: 'ai-tools', label: 'Tools', desc: 'Voice over & AI lainnya',
@@ -447,11 +452,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   useEffect(() => {
     window.history.replaceState({ tab: activeTab }, '', window.location.pathname + window.location.search + window.location.hash);
     const aiSub = getAIToolsSubFromPath();
-    document.title = (activeTab === 'ai-tools' && aiSub === 'landing-page/umroh/editor')
-      ? 'Editor Landing Page Umroh'
-      : (activeTab === 'ai-tools' && aiSub === 'landing-page/haji/editor')
-      ? 'Editor Landing Page Haji'
-      : (activeTab === 'ai-tools' && aiSub === 'voice-over')
+    document.title = (activeTab === 'ai-tools' && aiSub === 'voice-over')
       ? 'Voice Over'
       : (activeTab === 'ai-tools' && aiSub === 'business-card')
       ? 'Kartu Nama'
@@ -511,38 +512,21 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   };
 
   const isAdmin = agentData.role === 'admin';
-  const visibleCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly);
+  const communityEnabled = isCommunityEnabledForAgent(agentData.slug);
+  const visibleCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly && (c.id !== 'komunitas' || communityEnabled));
   const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly) : [];
 
-  const landingEditorSub = activeTab === 'ai-tools' ? getAIToolsSubFromPath() : null;
-  const landingEditorType = landingEditorSub === 'landing-page/umroh/editor'
-    ? 'umroh'
-    : landingEditorSub === 'landing-page/haji/editor'
-    ? 'haji'
-    : null;
-  const landingBuilderEnabled = isLandingBuilderEnabledForAgent(agentData.slug);
-
   useEffect(() => {
-    if (!landingEditorType || landingBuilderEnabled) return;
-    navigatePath(`/dashboard/ai-tools/landing-page/${landingEditorType}`, { replace: true });
-  }, [landingBuilderEnabled, landingEditorType, navigatePath]);
+    if (activeTab === 'komunitas' && !communityEnabled) {
+      navigatePath('/dashboard', { replace: true });
+    }
+  }, [activeTab, communityEnabled, navigatePath]);
 
-  if (landingEditorType && !landingBuilderEnabled) {
+  if (activeTab === 'komunitas' && !communityEnabled) {
     return (
       <div className="fixed inset-0 bg-gray-100 dark:bg-slate-950 flex items-center justify-center">
         <Loader2 size={24} className="animate-spin text-emerald-500" />
       </div>
-    );
-  }
-  if (landingEditorType) {
-    return (
-      <Suspense fallback={<div className="fixed inset-0 z-[8000] bg-gray-100 dark:bg-slate-950 flex items-center justify-center"><Loader2 size={24} className="animate-spin text-emerald-500" /></div>}>
-        <LandingPageEditorPage
-          type={landingEditorType}
-          agent={{ slug: agentData.slug, name: agentData.name, phone: agentData.phone, photo: agentData.photo }}
-          onNavigate={navigatePath}
-        />
-      </Suspense>
     );
   }
 
@@ -758,6 +742,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               photo: agentData.photo || '',
               website: agentData.website || '',
             }} displayMode={brosurDisplayMode} />
+          )}
+          {activeTab === 'komunitas' && communityEnabled && (
+            <KomunitasPage agent={{
+              slug: agentData.slug,
+              name: agentData.name,
+              photo: agentData.photo,
+              role: agentData.role,
+            }} />
           )}
           {activeTab === 'agents' && isAdmin && (
             <div className="px-4 pt-4">

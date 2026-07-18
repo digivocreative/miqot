@@ -610,10 +610,6 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
-      '/api/landing-builder': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
       '/api/bio': {
         target: 'http://localhost:3000',
         changeOrigin: true,

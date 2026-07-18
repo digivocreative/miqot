@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Plane, Compass, Save, Upload, RotateCcw,
   Loader2, AlertCircle, CheckCircle2, ImageIcon, UserCircle, Globe, X,
-  PencilLine, Clock3, ChevronRight, Eye,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
@@ -13,7 +12,6 @@ import CustomDomainTrigger from './CustomDomainTrigger';
 import { useCustomDomain } from '../hooks/useCustomDomain';
 import { getAgentPublicUrl } from '../lib/agentUrls';
 import { isCustomDomainEnabledForAgent } from '../lib/customDomainAccess';
-import { isLandingBuilderEnabledForAgent } from '../lib/landingBuilderAccess';
 
 const TITLE_LIMIT = 60;
 const DESC_LIMIT = 160;
@@ -94,7 +92,6 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
   useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_landing_page'); mountTracked.current = true; } }, []);
 
   const customDomainEnabled = isCustomDomainEnabledForAgent(agent.slug);
-  const landingBuilderEnabled = isLandingBuilderEnabledForAgent(agent.slug);
   const { config: customDomainConfig, loading: customDomainLoading } = useCustomDomain({ enabled: customDomainEnabled });
   const agentForUrl = useMemo(() => ({
     slug: agent.slug,
@@ -228,21 +225,6 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
 
   const updateField = (type: LandingType, key: 'title' | 'description', value: string) => {
     setDraft(prev => prev ? { ...prev, [type]: { ...prev[type], [key]: value } } : prev);
-  };
-
-  const openEditor = (type: LandingType) => {
-    if (textDirty) {
-      showToast('Simpan perubahan SEO sebelum membuka editor', 'error');
-      return;
-    }
-    const parent = `/dashboard/ai-tools/landing-page/${type}`;
-    const editorPath = `${parent}/editor`;
-    if (onNavigate) {
-      onNavigate(editorPath, { state: { landingEditorParent: parent } });
-    } else {
-      window.history.pushState({ landingEditorParent: parent }, '', editorPath);
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    }
   };
 
   const handleSave = async () => {
@@ -438,9 +420,6 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
             url={getAgentPublicUrl(agentForUrl, '/umroh')}
             copyAriaLabel="Salin link umroh"
           />
-          {landingBuilderEnabled && (
-            <LandingBuilderEntryCard type="umroh" agentSlug={agent.slug} onEdit={() => openEditor('umroh')} />
-          )}
           <LandingCard
             type="umroh"
             accent="emerald"
@@ -467,9 +446,6 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
             url={getAgentPublicUrl(agentForUrl, '/haji')}
             copyAriaLabel="Salin link haji"
           />
-          {landingBuilderEnabled && (
-            <LandingBuilderEntryCard type="haji" agentSlug={agent.slug} onEdit={() => openEditor('haji')} />
-          )}
           <LandingCard
             type="haji"
             accent="amber"
@@ -553,102 +529,6 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
       )}
     </div>
   );
-}
-
-function LandingBuilderEntryCard({
-  type,
-  agentSlug,
-  onEdit,
-}: {
-  type: LandingType;
-  agentSlug: string;
-  onEdit: () => void;
-}) {
-  const [status, setStatus] = useState<
-    | { kind: 'loading' }
-    | { kind: 'ready'; publishedAt: string | null; dirty: boolean }
-    | { kind: 'error' }
-  >({ kind: 'loading' });
-
-  useEffect(() => {
-    let alive = true;
-    fetch(`/api/landing-builder/${type}`, { headers: getAuthHeaders() })
-      .then(async (res) => {
-        const body = await res.json();
-        if (!res.ok || !body.success) throw new Error('failed');
-        if (alive) setStatus({
-          kind: 'ready',
-          publishedAt: body.data?.published_at || null,
-          dirty: body.data?.has_unpublished_changes === true,
-        });
-      })
-      .catch(() => { if (alive) setStatus({ kind: 'error' }); });
-    return () => { alive = false; };
-  }, [type]);
-
-  const previewUrl = `/${encodeURIComponent(agentSlug)}/${type}?editor-card=1`;
-  const typeLabel = type === 'umroh' ? 'Umroh' : 'Haji';
-
-  return (
-    <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      <div className="border-b border-gray-50 px-4 py-2.5 dark:border-slate-700/50 flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-slate-300">Editor halaman aktif</h3>
-          <p className="mt-0.5 text-[10px] font-medium text-gray-400 dark:text-slate-500">Edit konten tanpa membuat halaman baru</p>
-        </div>
-        <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wide ${
-          status.kind === 'ready' && status.dirty
-            ? 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400'
-            : status.kind === 'ready'
-              ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400'
-              : 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-300'
-        }`}>
-          {status.kind === 'loading' ? 'Memuat' : status.kind === 'error' ? 'Status gagal' : status.dirty ? 'Ada draft' : 'Aktif'}
-        </span>
-      </div>
-      <div className="p-4">
-        <div className="relative h-44 overflow-hidden rounded-xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-900" aria-label={`Preview landing page ${typeLabel}`}>
-          <iframe
-            title={`Preview aktif landing page ${typeLabel}`}
-            src={previewUrl}
-            sandbox="allow-same-origin"
-            loading="lazy"
-            tabIndex={-1}
-            className="pointer-events-none absolute left-0 top-0 h-[200%] w-[200%] origin-top-left scale-50 bg-white"
-          />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/20 to-transparent" />
-          <div className="absolute bottom-2 left-2 rounded-lg bg-white/90 px-2 py-1 text-[9px] font-bold text-gray-700 shadow-sm backdrop-blur dark:bg-slate-900/90 dark:text-slate-200 flex items-center gap-1">
-            <Eye size={10} /> Halaman yang sedang aktif
-          </div>
-        </div>
-        <div className="mt-3 flex items-center gap-2 text-[10px] text-gray-500 dark:text-slate-400">
-          <Clock3 size={12} />
-          <span>{status.kind === 'loading'
-            ? 'Memuat status editor…'
-            : status.kind === 'error'
-              ? 'Status editor tidak dapat dimuat'
-              : status.publishedAt
-                ? `Dipublish ${formatBuilderDate(status.publishedAt)}`
-                : 'Halaman aktif masih memakai desain awal'}</span>
-        </div>
-        <button
-          type="button"
-          onClick={onEdit}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95"
-        >
-          <PencilLine size={16} />
-          Edit Landing Page {typeLabel}
-          <ChevronRight size={15} />
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function formatBuilderDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 function CustomDomainComingSoonAlert({

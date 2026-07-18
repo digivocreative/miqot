@@ -5,7 +5,6 @@
  * WhatsApp links with agent-specific links, injects sticky agent bar.
  */
 import { replaceFaIcons, rewriteAssetsToCdn, LANDING_FONT_CSS, SVG_FA_CSS, FONT_PRELOAD_HTML } from './fa-icons';
-import { applyLandingBuilderToHtml } from '../../lib/landing-builder.js';
 
 export const AGENTS: Record<string, { name: string; phone: string; website: string; photo: string }> = {
   'bagas':       { name: 'Bagas Pramudita',     phone: '6287878573311', website: 'alhijaz.co',                  photo: '/agents/bagas.jpg' },
@@ -99,7 +98,6 @@ interface AgentOverride {
     title?: string | null;
     description?: string | null;
     og_image_url?: string | null;
-    builder?: Record<string, unknown> | null;
   };
 }
 
@@ -111,7 +109,7 @@ function escapeHtmlAttr(s: string): string {
     .replace(/>/g, '&gt;');
 }
 
-async function generateHTML(slug: string, agentOverride?: AgentOverride, preview = false): Promise<string> {
+async function generateHTML(slug: string, agentOverride?: AgentOverride): Promise<string> {
   const agent = AGENTS[slug];
   const phone = agentOverride?.phone || agent?.phone || DEFAULT_PHONE;
   const agentName = agentOverride?.name || agent?.name || slug.charAt(0).toUpperCase() + slug.slice(1);
@@ -150,10 +148,6 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride, preview
   html = html.replace(/https:\/\/wa\.me\/\d+\?text=([^"]*)/g, waBase + '&text=$1');
   //    Bare link (no text param): add default umroh text
   html = html.replace(/https:\/\/wa\.me\/\d+(?=["'])/g, waBase + '&text=Assalamualaikum%2C%20Saya%20mau%20tanya%20Paket%20Umroh%20di%20Alhijaz');
-
-  if (agentOverride?.landing?.builder) {
-    html = applyLandingBuilderToHtml(html, 'umroh', agentOverride.landing.builder, { phone, preview });
-  }
 
   // 2. Update <title>, og:title, meta description, and og:image using landing config (or defaults)
   const customTitle = agentOverride?.landing?.title;
@@ -252,11 +246,8 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride, preview
     + '<' + '/head>'
   );
 
-  // Preserve the active-page default (voucher hidden) until an agent explicitly
-  // enables it in the builder. The legacy HTML stays untouched when enabled.
-  if (!agentOverride?.landing?.builder?.optional_program_visible) {
-    html = html.replace(/<section[^>]*elementor-element-defd89e[\s\S]*?<\/section>\s*(?=\s*<section)/, '');
-  }
+  // 4. Remove voucher promo section (element defd89e)
+  html = html.replace(/<section[^>]*elementor-element-defd89e[\s\S]*?<\/section>\s*(?=\s*<section)/, '');
 
   // 5. Remove "Konsultasi via WA (Fast Response)" sticky bar from original page
   html = html.replace(/<div class="heading-wa">[\s\S]*?<\/div>\s*<\/div>/g, '');
@@ -354,12 +345,10 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride, preview
     + '})();'
     + '</sc' + 'ript>';
 
-  if (!preview) {
-    html = html.replace('</body>', stickyBarHtml + '\n' + capiScript + '\n</body>');
+  html = html.replace('</body>', stickyBarHtml + '\n' + capiScript + '\n</body>');
 
-    // Add padding-bottom to body so sticky bar doesn't overlap content.
-    html = html.replace(/<body /, '<body style="padding-bottom:76px" ');
-  }
+  // 6. Add padding-bottom to body so sticky bar doesn't overlap content
+  html = html.replace(/<body /, '<body style="padding-bottom:76px" ');
 
   // ═══════════════════════════════════════════════════
   // 8b. BUNNY CDN REWRITE (env-gated; tanpa env tetap self-hosted/relatif)
@@ -380,12 +369,11 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride, preview
   return html;
 }
 
-export const onRequest = async (context: { params: { slug: string }; request: Request; preview?: boolean }) => {
+export const onRequest = async (context: { params: { slug: string }; request: Request }) => {
   const slug = (context.params.slug || '').toLowerCase();
   const agentOverride = (context as any).agentOverride as AgentOverride | undefined;
-  const preview = context.preview === true;
-  return new Response(await generateHTML(slug, agentOverride, preview), {
+  return new Response(await generateHTML(slug, agentOverride), {
     status: 200,
-    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': preview ? 'private, no-store' : 'public, max-age=3600' },
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
   });
 };

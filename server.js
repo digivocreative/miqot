@@ -59,7 +59,7 @@ import {
   calendarJamForEvent,
   normalizeCalendarJam,
 } from './lib/calendar-jam.js';
-import { requireLandingBuilderAccess } from './lib/landing-builder-access.js';
+import { requireCommunityAccess } from './lib/community-access.js';
 import {
   computeFallbackFlightState,
   hasReliableFlightTimes,
@@ -139,17 +139,6 @@ import { mirrorTopPartnerPhotos, normalizeBunnyDownloadUrl } from './lib/top-par
 import { evaluateDbProbe, freshDbHealthState, DEFAULT_DB_HEALTH_CONFIG } from './lib/db-health.js';
 import { freshCircuitState, recordDbOutcome, isCircuitOpen, nextBackoffMs, isDbConnectivityError, DEFAULT_CIRCUIT_CONFIG } from './lib/db-circuit.js';
 import { resolveJamaahUpsertBatch, jamaahUpsertKey, partitionChangedJamaahRows } from './lib/jamaah-upsert.js';
-import {
-  getLandingBuilderDefaults,
-  getLandingBuilderState,
-  normalizeLandingBuilderDocument,
-  validateLandingBuilderDocument,
-} from './lib/landing-builder.js';
-import {
-  applyLandingContentOverrides,
-  extractLandingContentManifest,
-  validateLandingOverrideCapabilities,
-} from './lib/landing-builder-content.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
 import cron from 'node-cron';
@@ -423,11 +412,12 @@ app.use('/dev-mcp', express.json({ limit: '256kb' }));
 // routes before the tighter global parser so the UI's documented limit works.
 app.use('/api/umrah/register', express.json({ limit: '16mb' }));
 app.use('/api/umrah/ocr-ktp', express.json({ limit: '16mb' }));
-// Landing builder documents are structured and intentionally small. Mount the
-// upload exception first, then cap every other builder mutation before the
-// global 10mb parser consumes the body.
-app.use('/api/landing-builder/:type/hero-image', express.json({ limit: '9mb' }));
-app.use('/api/landing-builder', express.json({ limit: '250kb' }));
+// Community payload caps must run before the global parser. Keep the more
+// specific mutation paths first so their tighter limits take precedence.
+app.use('/api/community/photo', express.json({ limit: '9mb' }));
+app.use('/api/community/posts/:id/reaction', express.json({ limit: '2kb' }));
+app.use('/api/community/posts/:id/comments', express.json({ limit: '8kb' }));
+app.use('/api/community/posts', express.json({ limit: '32kb' }));
 // Webhook Resend Inbound butuh raw body (verifikasi signature Svix) — harus
 // terpasang SEBELUM parser JSON global di bawah
 app.use('/api/resend-inbound', express.raw({ type: '*/*', limit: '1mb' }));
@@ -1299,18 +1289,14 @@ async function getScheduleDetailMap() {
 // Raw description from /public/{umroh,haji-plus}.html — read once at boot.
 // Shown to agents as placeholder text so they see the literal fallback the public page serves.
 let rawLandingDescription = { umroh: '', haji: '' };
-let landingBuilderTemplateHtml = { umroh: '', haji: '' };
 try {
   const extractDescription = (html) => {
     const m = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']*)["']/i);
     return m ? m[1] : '';
   };
-  const umrohHtml = readFileSync(resolve(__dirname, 'public/umroh.html'), 'utf-8');
-  const hajiHtml = readFileSync(resolve(__dirname, 'public/haji-plus.html'), 'utf-8');
-  landingBuilderTemplateHtml = { umroh: umrohHtml, haji: hajiHtml };
   rawLandingDescription = {
-    umroh: extractDescription(umrohHtml),
-    haji: extractDescription(hajiHtml),
+    umroh: extractDescription(readFileSync(resolve(__dirname, 'public/umroh.html'), 'utf-8')),
+    haji: extractDescription(readFileSync(resolve(__dirname, 'public/haji-plus.html'), 'utf-8')),
   };
 } catch (e) {
   console.warn('[LandingConfig] Could not read raw HTML descriptions:', e.message);
@@ -1335,25 +1321,16 @@ function getDefaultLandingConfig(agent) {
 function mergeLandingConfig(agent) {
   const defaults = getDefaultLandingConfig(agent);
   const custom = agent?.landing_config || {};
-  const umrohBuilder = custom.umroh?.builder;
-  const hajiBuilder = custom.haji?.builder;
   return {
     umroh: {
       title: custom.umroh?.title || defaults.umroh.title,
       description: custom.umroh?.description ?? defaults.umroh.description,
       og_image_url: custom.umroh?.og_image_url ?? defaults.umroh.og_image_url,
-      // No stored publication means "serve the original Elementor markup".
-      builder: umrohBuilder?.published
-        ? getLandingBuilderState('umroh', umrohBuilder).published
-        : null,
     },
     haji: {
       title: custom.haji?.title || defaults.haji.title,
       description: custom.haji?.description ?? defaults.haji.description,
       og_image_url: custom.haji?.og_image_url ?? defaults.haji.og_image_url,
-      builder: hajiBuilder?.published
-        ? getLandingBuilderState('haji', hajiBuilder).published
-        : null,
     },
   };
 }
@@ -1372,8 +1349,7 @@ function landingCacheEpoch(slug) {
 
 function setLandingCacheIfCurrent(cache, slug, epoch, html) {
   if (landingCacheEpoch(slug) !== epoch) return false;
-  const ttl = html.includes('class="alhijaz-featured-package"') ? 5 * 60 * 1000 : null;
-  cache.set(slug, { html, ts: Date.now(), ttl });
+  cache.set(slug, { html, ts: Date.now() });
   return true;
 }
 
@@ -3779,15 +3755,10 @@ app.put('/api/landing-config', authMiddleware, express.json({ limit: '100kb' }),
 });
 
 // ──────────────────────────────────────────────
-// Landing Page Builder API
-// Draft and published documents live inside agents.landing_config JSONB so the
-// feature remains backward-compatible with the existing SEO configuration.
+// Landing config write helpers
+// Serialized read-merge-write over agents.landing_config JSONB so concurrent
+// saves (SEO text vs OG image upload) never clobber each other.
 // ──────────────────────────────────────────────
-
-function landingBuilderType(raw) {
-  const type = String(raw || '').toLowerCase();
-  return type === 'umroh' || type === 'haji' ? type : null;
-}
 
 async function readLatestLandingConfig(agentId) {
   const { data, error } = await supabase
@@ -3835,126 +3806,6 @@ async function updateLandingConfig(agent, updater) {
   });
 }
 
-async function writeLandingBuilder(agent, type, updateBuilder) {
-  let builder;
-  const merged = await updateLandingConfig(agent, (latest) => {
-    const current = latest[type]?.builder || {};
-    builder = updateBuilder(current);
-    return {
-      ...latest,
-      [type]: {
-        ...(latest[type] || {}),
-        builder,
-      },
-    };
-  });
-  return { merged, builder };
-}
-
-function landingBuilderRequestError(message, status = 400) {
-  return Object.assign(new Error(message), { status });
-}
-
-function packageAnchorPrice(paket) {
-  const prices = [];
-  for (const tier of Object.values(paket?.paket_harga || {})) {
-    if (!tier || typeof tier !== 'object') continue;
-    for (const value of [tier.Quard, tier.Triple, tier.Double]) {
-      if (value === null || value === undefined || value === '') continue;
-      const numeric = typeof value === 'number'
-        ? value
-        : Number(String(value).replace(/[^0-9]/g, ''));
-      if (Number.isFinite(numeric) && numeric > 0) prices.push(numeric);
-    }
-  }
-  return prices.length ? Math.min(...prices) : null;
-}
-
-function jakartaDateKey(date = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(date);
-}
-
-function isSellableLandingPackage(paket) {
-  const seat = paket?.seat_sisa === null || paket?.seat_sisa === undefined
-    ? null
-    : Number(paket.seat_sisa);
-  if (Number.isFinite(seat) && seat <= 0) return false;
-  const departure = String(paket?.berangkat_tgl || '').slice(0, 10);
-  return !departure || departure >= jakartaDateKey();
-}
-
-function landingPackageSnapshot(paket) {
-  const seat = paket?.seat_sisa === null || paket?.seat_sisa === undefined
-    ? null
-    : Number(paket.seat_sisa);
-  return {
-    jadwal_id: String(paket.jadwal_id || ''),
-    year_code: String(paket.year_code || ''),
-    name: String(paket.jadwal_nama || paket.nama || ''),
-    departure_date: String(paket.berangkat_tgl || ''),
-    airline: String(paket.maskapai || ''),
-    price: packageAnchorPrice(paket),
-    seat_remaining: Number.isFinite(seat) && seat >= 0 ? Math.round(seat) : null,
-    image_url: paket.brosur_cdn
-      ? appendUrlVersion(paket.brosur_cdn, paket.brosur_source_sha256)
-      : (paket.brosur || null),
-  };
-}
-
-async function resolveLandingBuilderPackage(type, document, { strict = true } = {}) {
-  if (type !== 'umroh' || !document.featured_package) return document;
-  const selected = document.featured_package;
-  let paket;
-  try {
-    paket = await getJadwalById(selected.jadwal_id, selected.year_code, { throwOnError: true });
-  } catch {
-    if (!strict) return document;
-    throw landingBuilderRequestError('Data jadwal sedang tidak tersedia. Coba lagi sebentar.', 503);
-  }
-  if (!paket || !isSellableLandingPackage(paket)) {
-    if (!strict) return { ...document, featured_package: null };
-    throw landingBuilderRequestError('Paket unggulan sudah tidak aktif. Silakan pilih paket lain.');
-  }
-  return normalizeLandingBuilderDocument(type, {
-    ...document,
-    featured_package: landingPackageSnapshot(paket),
-  });
-}
-
-async function validateLandingBuilderRequest(type, body) {
-  const validation = validateLandingBuilderDocument(type, body?.document ?? body);
-  if (!validation.ok) throw landingBuilderRequestError(validation.error);
-  const capabilityError = validateLandingOverrideCapabilities(
-    landingBuilderTemplateHtml[type],
-    validation.data,
-  );
-  if (capabilityError) throw landingBuilderRequestError(capabilityError);
-  return resolveLandingBuilderPackage(type, validation.data, { strict: true });
-}
-
-async function refreshLandingBuilderStatePackages(type, state) {
-  const [draft, published] = await Promise.all([
-    resolveLandingBuilderPackage(type, state.draft, { strict: false }),
-    resolveLandingBuilderPackage(type, state.published, { strict: false }),
-  ]);
-  return {
-    ...state,
-    draft,
-    published,
-    has_unpublished_changes: JSON.stringify(draft) !== JSON.stringify(published),
-  };
-}
-
-async function refreshLandingConfigForRender(type, landing) {
-  if (!landing?.builder) return landing;
-  return {
-    ...landing,
-    builder: await resolveLandingBuilderPackage(type, landing.builder, { strict: false }),
-  };
-}
-
 function hasExpectedImageSignature(buffer, mime) {
   if (mime === 'image/jpeg') {
     return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
@@ -3968,157 +3819,6 @@ function hasExpectedImageSignature(buffer, mime) {
     && buffer.toString('ascii', 0, 4) === 'RIFF'
     && buffer.toString('ascii', 8, 12) === 'WEBP';
 }
-
-app.get('/api/landing-builder/:type', authMiddleware, async (req, res) => {
-  try {
-    const type = landingBuilderType(req.params.type);
-    if (!type) return res.status(400).json({ error: 'Jenis landing page tidak valid' });
-    const agent = await getAgentById(req.user.id);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    if (!requireLandingBuilderAccess(agent, res)) return;
-    const state = await refreshLandingBuilderStatePackages(
-      type,
-      getLandingBuilderState(type, agent.landing_config?.[type]?.builder),
-    );
-    const landing = {
-      ...mergeLandingConfig(agent)[type],
-      builder: state.draft,
-    };
-    const previewHtml = type === 'umroh'
-      ? await generateUmrohPage(agent.slug, { landing, preview: true })
-      : await generateHajiPage(agent.slug, { landing, preview: true });
-    res.json({
-      success: true,
-      data: state,
-      defaults: getLandingBuilderDefaults(type),
-      content_manifest: extractLandingContentManifest(previewHtml),
-      public_path: `/${agent.slug}/${type}`,
-    });
-  } catch (err) {
-    console.error('[landing-builder] GET error:', err);
-    res.status(500).json({ error: 'Gagal memuat editor landing page' });
-  }
-});
-
-app.put('/api/landing-builder/:type/draft', authMiddleware, express.json({ limit: '250kb' }), async (req, res) => {
-  try {
-    const type = landingBuilderType(req.params.type);
-    if (!type) return res.status(400).json({ error: 'Jenis landing page tidak valid' });
-    const agent = await getAgentById(req.user.id);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    if (!requireLandingBuilderAccess(agent, res)) return;
-    const document = await validateLandingBuilderRequest(type, req.body);
-    const clientUpdatedAt = Number.isFinite(Number(req.body?.client_updated_at))
-      ? Number(req.body.client_updated_at)
-      : Date.now();
-    const { builder } = await writeLandingBuilder(agent, type, (current) => {
-      const currentRevision = Number(current.draft_client_updated_at) || 0;
-      if (clientUpdatedAt < currentRevision) return current;
-      return {
-        ...current,
-        schema_version: 2,
-        draft: document,
-        draft_updated_at: new Date().toISOString(),
-        draft_client_updated_at: clientUpdatedAt,
-      };
-    });
-    res.json({ success: true, data: getLandingBuilderState(type, builder) });
-  } catch (err) {
-    console.error('[landing-builder] draft save error:', err);
-    res.status(err.status || 500).json({ error: err.status ? err.message : 'Gagal menyimpan draft' });
-  }
-});
-
-app.post('/api/landing-builder/:type/publish', authMiddleware, express.json({ limit: '250kb' }), async (req, res) => {
-  try {
-    const type = landingBuilderType(req.params.type);
-    if (!type) return res.status(400).json({ error: 'Jenis landing page tidak valid' });
-    const agent = await getAgentById(req.user.id);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    if (!requireLandingBuilderAccess(agent, res)) return;
-    const document = await validateLandingBuilderRequest(type, req.body);
-    const clientUpdatedAt = Number.isFinite(Number(req.body?.client_updated_at))
-      ? Number(req.body.client_updated_at)
-      : Date.now();
-    const now = new Date().toISOString();
-    const { builder } = await writeLandingBuilder(agent, type, (current) => ({
-      ...current,
-      schema_version: 2,
-      draft: document,
-      published: document,
-      draft_updated_at: now,
-      draft_client_updated_at: clientUpdatedAt,
-      published_at: now,
-    }));
-    invalidateLandingCaches(agent.slug);
-    res.json({ success: true, data: getLandingBuilderState(type, builder) });
-  } catch (err) {
-    console.error('[landing-builder] publish error:', err);
-    res.status(err.status || 500).json({ error: err.status ? err.message : 'Gagal memublikasikan landing page' });
-  }
-});
-
-app.post('/api/landing-builder/:type/preview', authMiddleware, express.json({ limit: '250kb' }), async (req, res) => {
-  try {
-    const type = landingBuilderType(req.params.type);
-    if (!type) return res.status(400).json({ error: 'Jenis landing page tidak valid' });
-    const agent = await getAgentById(req.user.id);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    if (!requireLandingBuilderAccess(agent, res)) return;
-    const document = await validateLandingBuilderRequest(type, req.body);
-    const landing = {
-      ...mergeLandingConfig(agent)[type],
-      builder: document,
-    };
-    const html = type === 'umroh'
-      ? await generateUmrohPage(agent.slug, { landing, preview: true })
-      : await generateHajiPage(agent.slug, { landing, preview: true });
-    res.set({ 'Cache-Control': 'private, no-store' }).json({
-      success: true,
-      html,
-      content_manifest: extractLandingContentManifest(html),
-    });
-  } catch (err) {
-    console.error('[landing-builder] preview error:', err);
-    res.status(err.status || 500).json({ error: err.status ? err.message : 'Gagal membuat preview' });
-  }
-});
-
-app.post('/api/landing-builder/:type/hero-image', authMiddleware, express.json({ limit: '9mb' }), async (req, res) => {
-  try {
-    const type = landingBuilderType(req.params.type);
-    if (!type) return res.status(400).json({ error: 'Jenis landing page tidak valid' });
-    const agent = await getAgentById(req.user.id);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    if (!requireLandingBuilderAccess(agent, res)) return;
-    const { image_data, mime, data } = req.body || {};
-    const payload = typeof image_data === 'string'
-      ? image_data
-      : (typeof mime === 'string' && typeof data === 'string' ? `data:${mime};base64,${data}` : '');
-    const match = payload
-      ? payload.match(/^data:(image\/(?:jpeg|png|webp));base64,([a-z0-9+/=]+)$/i)
-      : null;
-    if (!match) return res.status(400).json({ error: 'Format gambar tidak valid' });
-    const buffer = Buffer.from(match[2], 'base64');
-    if (!buffer.length || buffer.length > 6 * 1024 * 1024) {
-      return res.status(400).json({ error: 'Ukuran gambar maksimal 6MB' });
-    }
-    if (!hasExpectedImageSignature(buffer, match[1].toLowerCase())) {
-      return res.status(400).json({ error: 'Isi file gambar tidak valid' });
-    }
-    const ext = match[1] === 'image/png' ? 'png' : match[1] === 'image/webp' ? 'webp' : 'jpg';
-    const fileName = `landing-builder/${agent.slug}-${type}-${Date.now()}.${ext}`;
-    const { error: uploadError } = await supabase.storage
-      .from('agent-photos')
-      .upload(fileName, buffer, { contentType: match[1], upsert: true, cacheControl: '31536000' });
-    if (uploadError) throw uploadError;
-    const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(fileName);
-    res.json({ success: true, url: urlData.publicUrl });
-  } catch (err) {
-    console.error('[landing-builder] hero upload error:', err);
-    res.status(500).json({ error: 'Gagal mengunggah gambar hero' });
-  }
-});
 
 // POST /api/landing-config/og-image — upload custom OG image to Supabase Storage
 app.post('/api/landing-config/og-image', authMiddleware, express.json({ limit: '6mb' }), async (req, res) => {
@@ -4235,6 +3935,465 @@ app.delete('/api/landing-config/og-image', authMiddleware, express.json({ limit:
   } catch (err) {
     console.error('[landing-config] OG delete error:', err);
     res.status(500).json({ error: 'Gagal menghapus gambar' });
+  }
+});
+
+// ──────────────────────────────────────────────
+// Ruang Komunitas API — gated to the Nikita pilot agent
+// ──────────────────────────────────────────────
+
+const COMMUNITY_POST_TYPES = ['closing', 'tips', 'tanya', 'foto', 'sorotan'];
+const COMMUNITY_USER_POST_TYPES = ['closing', 'tips', 'tanya', 'foto'];
+const COMMUNITY_REACTION_TYPES = ['suka', 'selamat', 'aamiin'];
+const COMMUNITY_UUID_REGEX = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+const COMMUNITY_ISO_TIMESTAMP_REGEX = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/i;
+
+function communityAuthorProfile(value) {
+  const author = Array.isArray(value) ? value[0] : value;
+  return {
+    name: author?.name ?? null,
+    slug: author?.slug ?? null,
+    photo: author?.photo ?? null,
+  };
+}
+
+function isCommunityUuid(value) {
+  return typeof value === 'string' && COMMUNITY_UUID_REGEX.test(value);
+}
+
+function normalizeCommunityCursor(value) {
+  if (typeof value !== 'string') return null;
+  const normalizedValue = value.trim();
+  const match = COMMUNITY_ISO_TIMESTAMP_REGEX.exec(normalizedValue);
+  if (!match) return null;
+  const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number);
+  const offsetHour = Number(match[7] || 0);
+  const offsetMinute = Number(match[8] || 0);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (
+    year < 1
+    || month < 1 || month > 12
+    || day < 1 || day > daysInMonth
+    || hour > 23 || minute > 59 || second > 59
+    || offsetHour > 14 || offsetMinute > 59
+    || (offsetHour === 14 && offsetMinute !== 0)
+  ) return null;
+  const timestamp = Date.parse(normalizedValue);
+  // Preserve Postgres microsecond precision from the feed cursor.
+  return Number.isNaN(timestamp) ? null : normalizedValue;
+}
+
+async function loadActiveCommunityPost(postId, columns = 'id') {
+  const { data, error } = await supabase
+    .from('community_posts')
+    .select(columns)
+    .eq('id', postId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const type = typeof req.query.type === 'string' ? req.query.type.trim() : '';
+    if (req.query.type !== undefined && !COMMUNITY_POST_TYPES.includes(type)) {
+      return res.status(400).json({ error: 'Jenis posting tidak valid' });
+    }
+
+    const before = req.query.before === undefined
+      ? ''
+      : normalizeCommunityCursor(req.query.before);
+    if (req.query.before !== undefined && !before) {
+      return res.status(400).json({ error: 'Cursor feed tidak valid' });
+    }
+
+    let postsQuery = supabase
+      .from('community_posts')
+      .select('id, agent_id, type, body, photo_url, is_system, created_at, agent:agents!community_posts_agent_id_fkey(name, slug, photo)')
+      .is('deleted_at', null);
+    if (type) postsQuery = postsQuery.eq('type', type);
+    if (before) postsQuery = postsQuery.lt('created_at', before);
+    postsQuery = postsQuery
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    const { data: posts, error: postsError } = await postsQuery;
+    if (postsError) throw postsError;
+
+    const postIds = (posts || []).map(post => post.id);
+    // Keep feed loading at exactly three bulk queries, including an empty page.
+    const lookupPostIds = postIds.length > 0
+      ? postIds
+      : ['00000000-0000-0000-0000-000000000000'];
+    const [reactionResult, commentResult] = await Promise.all([
+      supabase
+        .from('community_post_reactions')
+        .select('post_id, agent_id, reaction')
+        .in('post_id', lookupPostIds),
+      supabase
+        .from('community_post_comments')
+        .select('post_id')
+        .in('post_id', lookupPostIds)
+        .is('deleted_at', null),
+    ]);
+    if (reactionResult.error) throw reactionResult.error;
+    if (commentResult.error) throw commentResult.error;
+
+    const reactionCounts = new Map(postIds.map(postId => [postId, {
+      suka: 0,
+      selamat: 0,
+      aamiin: 0,
+    }]));
+    const myReactions = new Map(postIds.map(postId => [postId, new Set()]));
+    for (const row of reactionResult.data || []) {
+      const counts = reactionCounts.get(row.post_id);
+      if (!counts || !COMMUNITY_REACTION_TYPES.includes(row.reaction)) continue;
+      counts[row.reaction] += 1;
+      if (row.agent_id === req.user.id) myReactions.get(row.post_id).add(row.reaction);
+    }
+
+    const commentCounts = new Map(postIds.map(postId => [postId, 0]));
+    for (const row of commentResult.data || []) {
+      if (!commentCounts.has(row.post_id)) continue;
+      commentCounts.set(row.post_id, commentCounts.get(row.post_id) + 1);
+    }
+
+    const data = (posts || []).map(post => ({
+      id: post.id,
+      type: post.type,
+      body: post.body,
+      photo_url: post.photo_url,
+      is_system: post.is_system,
+      created_at: post.created_at,
+      author: communityAuthorProfile(post.agent),
+      reactions: reactionCounts.get(post.id),
+      my_reactions: COMMUNITY_REACTION_TYPES.filter(reaction => myReactions.get(post.id)?.has(reaction)),
+      comment_count: commentCounts.get(post.id) || 0,
+      is_own: post.agent_id === agent.id,
+    }));
+    const nextCursor = data.length < 20 ? null : data[data.length - 1].created_at;
+
+    res.json({ success: true, data, next_cursor: nextCursor });
+  } catch (err) {
+    console.error('[community] feed error:', err);
+    res.status(500).json({ error: 'Gagal memuat feed komunitas' });
+  }
+});
+
+app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' }), async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const type = req.body?.type;
+    if (!COMMUNITY_USER_POST_TYPES.includes(type)) {
+      return res.status(400).json({ error: 'Jenis posting tidak valid' });
+    }
+
+    const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
+    const bodyLength = Array.from(body).length;
+    if (bodyLength < 1 || bodyLength > 2000) {
+      return res.status(400).json({ error: 'Isi posting wajib 1–2000 karakter' });
+    }
+
+    let photoUrl = null;
+    if (req.body?.photo_url !== undefined) {
+      if (typeof req.body.photo_url !== 'string') {
+        return res.status(400).json({ error: 'URL foto tidak valid' });
+      }
+      photoUrl = req.body.photo_url.trim();
+      const { data: publicUrlData } = supabase.storage
+        .from('agent-photos')
+        .getPublicUrl('community/');
+      if (!publicUrlData?.publicUrl || !photoUrl.startsWith(publicUrlData.publicUrl)) {
+        return res.status(400).json({ error: 'URL foto tidak valid' });
+      }
+    }
+
+    const { data: createdPost, error: insertError } = await supabase
+      .from('community_posts')
+      .insert({
+        agent_id: agent.id,
+        type,
+        body,
+        photo_url: photoUrl,
+        is_system: false,
+      })
+      .select('id, type, body, photo_url, is_system, created_at')
+      .single();
+    if (insertError) throw insertError;
+
+    const data = {
+      ...createdPost,
+      author: communityAuthorProfile(agent),
+      reactions: { suka: 0, selamat: 0, aamiin: 0 },
+      my_reactions: [],
+      comment_count: 0,
+      is_own: true,
+    };
+    res.status(201).json({ success: true, data });
+  } catch (err) {
+    console.error('[community] create post error:', err);
+    res.status(500).json({ error: 'Gagal membuat postingan' });
+  }
+});
+
+app.post('/api/community/photo', authMiddleware, express.json({ limit: '9mb' }), async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const imageData = typeof req.body?.image_data === 'string' ? req.body.image_data : '';
+    const match = imageData
+      ? imageData.match(/^data:(image\/(?:jpeg|png|webp));base64,([a-z0-9+/=]+)$/i)
+      : null;
+    if (!match) return res.status(400).json({ error: 'Format gambar tidak valid' });
+
+    const mime = match[1].toLowerCase();
+    const buffer = Buffer.from(match[2], 'base64');
+    if (!buffer.length || buffer.length > 6 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Ukuran gambar maksimal 6MB' });
+    }
+    if (!hasExpectedImageSignature(buffer, mime)) {
+      return res.status(400).json({ error: 'Isi file gambar tidak valid' });
+    }
+
+    const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+    const fileName = `community/${agent.slug}-${Date.now()}.${ext}`;
+    const { error: uploadError } = await supabase.storage
+      .from('agent-photos')
+      .upload(fileName, buffer, {
+        contentType: mime,
+        cacheControl: '31536000',
+        upsert: true,
+      });
+    if (uploadError) throw uploadError;
+
+    const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(fileName);
+    res.json({ success: true, url: urlData.publicUrl });
+  } catch (err) {
+    console.error('[community] photo upload error:', err);
+    res.status(500).json({ error: 'Gagal mengunggah foto komunitas' });
+  }
+});
+
+app.post('/api/community/posts/:id/reaction', authMiddleware, express.json({ limit: '2kb' }), async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const { reaction, active } = req.body || {};
+    if (!COMMUNITY_REACTION_TYPES.includes(reaction) || typeof active !== 'boolean') {
+      return res.status(400).json({ error: 'Data reaksi tidak valid' });
+    }
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+    }
+
+    const post = await loadActiveCommunityPost(req.params.id);
+    if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+
+    if (active) {
+      const { error } = await supabase
+        .from('community_post_reactions')
+        .upsert({
+          post_id: post.id,
+          agent_id: agent.id,
+          reaction,
+        }, {
+          onConflict: 'post_id,agent_id,reaction',
+          ignoreDuplicates: true,
+        });
+      if (error) throw error;
+    } else {
+      const { error } = await supabase
+        .from('community_post_reactions')
+        .delete()
+        .eq('post_id', post.id)
+        .eq('agent_id', agent.id)
+        .eq('reaction', reaction);
+      if (error) throw error;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[community] reaction error:', err);
+    res.status(500).json({ error: 'Gagal memperbarui reaksi' });
+  }
+});
+
+app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+    }
+    const post = await loadActiveCommunityPost(req.params.id);
+    if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+
+    const { data: comments, error } = await supabase
+      .from('community_post_comments')
+      .select('id, agent_id, body, created_at, agent:agents(name, slug, photo)')
+      .eq('post_id', post.id)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(100);
+    if (error) throw error;
+
+    const data = (comments || []).map(comment => ({
+      id: comment.id,
+      body: comment.body,
+      created_at: comment.created_at,
+      author: communityAuthorProfile(comment.agent),
+      is_own: comment.agent_id === agent.id,
+    }));
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[community] load comments error:', err);
+    res.status(500).json({ error: 'Gagal memuat komentar' });
+  }
+});
+
+app.post('/api/community/posts/:id/comments', authMiddleware, express.json({ limit: '8kb' }), async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
+    const bodyLength = Array.from(body).length;
+    if (bodyLength < 1 || bodyLength > 1000) {
+      return res.status(400).json({ error: 'Isi komentar wajib 1–1000 karakter' });
+    }
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+    }
+
+    const post = await loadActiveCommunityPost(req.params.id);
+    if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+
+    const { data: createdComment, error } = await supabase
+      .from('community_post_comments')
+      .insert({
+        post_id: post.id,
+        agent_id: agent.id,
+        body,
+      })
+      .select('id, body, created_at')
+      .single();
+    if (error) throw error;
+
+    const data = {
+      ...createdComment,
+      author: communityAuthorProfile(agent),
+      is_own: true,
+    };
+    res.status(201).json({ success: true, data });
+  } catch (err) {
+    console.error('[community] create comment error:', err);
+    res.status(500).json({ error: 'Gagal menambahkan komentar' });
+  }
+});
+
+app.delete('/api/community/posts/:id', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+    }
+    const post = await loadActiveCommunityPost(req.params.id, 'id, agent_id');
+    if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+    if (post.agent_id !== agent.id && agent.role !== 'admin') {
+      return res.status(403).json({ error: 'Anda tidak boleh menghapus postingan ini' });
+    }
+
+    const { error } = await supabase
+      .from('community_posts')
+      .update({
+        deleted_at: new Date().toISOString(),
+        deleted_by: agent.id,
+      })
+      .eq('id', post.id)
+      .is('deleted_at', null);
+    if (error) throw error;
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[community] delete post error:', err);
+    res.status(500).json({ error: 'Gagal menghapus postingan' });
+  }
+});
+
+app.delete('/api/community/comments/:id', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Komentar tidak ditemukan' });
+    }
+    const { data: comment, error: findError } = await supabase
+      .from('community_post_comments')
+      .select('id, agent_id')
+      .eq('id', req.params.id)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (findError) throw findError;
+    if (!comment) return res.status(404).json({ error: 'Komentar tidak ditemukan' });
+    if (comment.agent_id !== agent.id && agent.role !== 'admin') {
+      return res.status(403).json({ error: 'Anda tidak boleh menghapus komentar ini' });
+    }
+
+    const { error: updateError } = await supabase
+      .from('community_post_comments')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', comment.id)
+      .is('deleted_at', null);
+    if (updateError) throw updateError;
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[community] delete comment error:', err);
+    res.status(500).json({ error: 'Gagal menghapus komentar' });
+  }
+});
+
+app.post('/api/community/posts/:id/report', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+    }
+    const post = await loadActiveCommunityPost(req.params.id);
+    if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+
+    const { error } = await supabase
+      .from('community_post_reports')
+      .insert({ post_id: post.id, agent_id: agent.id });
+    if (error && error.code !== '23505') throw error;
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[community] report error:', err);
+    res.status(500).json({ error: 'Gagal melaporkan postingan' });
   }
 });
 
@@ -16862,30 +17021,20 @@ app.get(['/itinerary/{*path}', '/brosur/{*path}'], async (req, res) => {
 const umrohLandingCache = new Map();
 const UMROH_CACHE_TTL = 3600_000; // 1 hour
 
-async function generateUmrohPage(slug, options = {}) {
+async function generateUmrohPage(slug) {
   const mod = await import('./functions/umroh-landing.mjs');
   const agent = await getAgentBySlug(slug);
-  const landing = agent
-    ? await refreshLandingConfigForRender('umroh', options.landing || mergeLandingConfig(agent).umroh)
-    : null;
   const result = await mod.onRequest({
     params: { slug },
     request: new Request('http://localhost/' + slug + '/umroh'),
-    preview: options.preview === true,
     agentOverride: agent ? {
       name: agent.name,
       phone: agent.phone,
       photo: agent.photo,
-      landing,
+      landing: mergeLandingConfig(agent).umroh,
     } : undefined,
   });
-  const html = await result.text();
-  return applyLandingContentOverrides(
-    html,
-    landing?.builder?.content_overrides,
-    landing?.builder?.component_overrides,
-    { preview: options.preview === true },
-  );
+  return result.text();
 }
 
 (async () => {
@@ -17003,30 +17152,20 @@ const hajiLandingCache = new Map(); // slug → { html, ts }
 const HAJI_CACHE_TTL = 3600_000;    // 1 hour
 
 // Helper: generate haji page for a slug using Supabase agent data
-async function generateHajiPage(slug, options = {}) {
+async function generateHajiPage(slug) {
   const mod = await import('./functions/haji-landing.mjs');
   const agent = await getAgentBySlug(slug);
-  const landing = agent
-    ? await refreshLandingConfigForRender('haji', options.landing || mergeLandingConfig(agent).haji)
-    : null;
   const result = await mod.onRequest({
     params: { slug },
     request: new Request('http://localhost/' + slug + '/haji'),
-    preview: options.preview === true,
     agentOverride: agent ? {
       name: agent.name,
       phone: agent.phone,
       photo: agent.photo,
-      landing,
+      landing: mergeLandingConfig(agent).haji,
     } : undefined,
   });
-  const html = await result.text();
-  return applyLandingContentOverrides(
-    html,
-    landing?.builder?.content_overrides,
-    landing?.builder?.component_overrides,
-    { preview: options.preview === true },
-  );
+  return result.text();
 }
 
 // Pre-load cache for ALL agents from Supabase on startup

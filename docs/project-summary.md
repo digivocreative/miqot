@@ -72,7 +72,7 @@ Catatan:
 | Flow | Entry point | Modul utama | Output |
 | --- | --- | --- | --- |
 | Public jadwal paket | `/`, `/:slug`, `/:slug/:jadwalId` | `src/App.tsx`, `src/services/data-service.ts`, `/api/api-get/*`, `/api/schedules/:yearCode` | Paket umroh, filter, CTA WhatsApp, analytics public. |
-| Landing agent | `/:slug/umroh`, `/:slug/haji`, `/:slug/bio`, `/dashboard/ai-tools/landing-page/:type` | `functions/[slug]/*`, SSR injection di `server.js`, `LandingPagePage.tsx`, `src/components/landing-builder/`, bio editor | SEO/OG page agent, visual landing builder, Link Bio, custom domain context. |
+| Landing agent | `/:slug/umroh`, `/:slug/haji`, `/:slug/bio`, `/dashboard/ai-tools/landing-page/:type` | `functions/[slug]/*`, SSR injection di `server.js`, `LandingPagePage.tsx`, bio editor | SEO/OG page agent, Link Bio, custom domain context. |
 | Dashboard | `/dashboard/*` | `DashboardLayout.tsx`, lazy-loaded feature pages | Tools agent/admin, jamaah, statistik, AI tools, settings. |
 | Sync jamaah umroh | `/api/laporan/sync`, background loop | `awapi-client.js`, `laporan-api.js`, sync helpers in `lib/` | Upsert `jamaah`, payment provenance, notification, CAPI Purchase. |
 | Pendaftaran umrah | `/dashboard/jamaah/daftar`, `/api/umrah/*` | `UmrahRegisterPage.tsx`, `server.js`, `laporan-api.js`, Playwright fallback | Submit jamaah baru/tambah jamaah ke legacy Alhijaz. |
@@ -101,7 +101,6 @@ Catatan:
 ├── dev-mcp.js                        # Dev-MCP: MCP developer-tool (docs/struktur/kode) + OAuth single-user
 ├── deploy-webhook.js                 # GitHub webhook deploy listener
 ├── lib/og-generator.mjs              # Generator OG Top Partner dan flight share
-├── lib/landing-builder*.js           # Validasi, access gate, dan transform visual landing builder
 ├── vite.config.ts                    # Vite, PWA, dev plugins, manual chunks
 ├── tailwind.config.js                # Tailwind tokens and animations
 ├── src/
@@ -109,7 +108,6 @@ Catatan:
 │   ├── App.tsx                       # Public package listing
 │   ├── index.css                     # Global CSS and custom animations
 │   ├── components/                   # 100+ component files and feature folders
-│   │   └── landing-builder/          # Editor visual landing Umroh/Haji
 │   ├── data/                         # Agent/package metadata helpers
 │   ├── hooks/                        # Shared frontend hooks
 │   ├── lib/                          # Frontend helper modules
@@ -209,20 +207,8 @@ Snapshot audit 2026-07-12:
 - Voice-over script and audio generation.
 - Simulasi Haji Plus and Haji Plus export.
 - Business card generator (5 desain × landscape/portrait; QR bisa diarahkan ke halaman web agent atau vCard "simpan kontak"; teks URL pakai custom domain bila aktif).
-- Visual Landing Page Builder Umroh/Haji untuk agent yang mendapat akses.
 - MCP integration key management.
 - Admin agent management and analytics.
-
-### Landing Page Builder
-
-Visual editor berada di `/dashboard/ai-tools/landing-page/:type`, dengan `type` bernilai `umroh` atau `haji`.
-
-- Access gate saat ini dibatasi ke agent slug `nikita` oleh `lib/landing-builder-access.js`; backend tetap memvalidasi akses pada setiap route, bukan hanya menyembunyikan menu frontend.
-- Editor mendukung draft terpisah dari versi published, autosave sekitar 800 ms setelah perubahan, preview sekitar 300 ms, undo/redo, restore published, dan publish eksplisit.
-- Preview dapat dilihat dalam mode desktop, tablet, atau mobile. Teks, gambar, dan section dapat dipilih langsung dari iframe preview untuk membuka inspector terkait.
-- Hero, konten, paket unggulan, dan program dapat diedit. Kontak/WhatsApp dikunci dan selalu diturunkan dari profil agent.
-- Upload hero menggunakan storage Bunny pada path `landing-builder/...`; konfigurasi draft/published disimpan di `agents.landing_config`.
-- Surface API utama: `GET /api/landing-builder/:type`, `PUT /api/landing-builder/:type/draft`, serta `POST` untuk `preview`, `publish`, dan `hero-image`.
 
 ### Nilai Plus Paket (AI Tools brosur)
 
@@ -375,7 +361,7 @@ Do not increase background sync cadence, upsert batch size, or route polling wit
 | AI | `/api/ai-copy`, `/api/ask-ai/*`, `/api/ai-tools/*`, `/api/package-value`, `/api/package-value/agent-card` |
 | Analytics | `/api/analytics/*` |
 | Weather/Kurs | `/api/weather/*`, `/api/kurs*` |
-| Landing/Bio/Domain | `/api/landing-config`, `/api/landing-builder/:type/*`, `/api/bio/*`, `/api/agent/custom-domain` |
+| Landing/Bio/Domain | `/api/landing-config`, `/api/bio/*`, `/api/agent/custom-domain` |
 | Portal Jamaah | `/api/portal/jamaah/*` |
 | MCP | `/mcp`, `/api/mcp-key` |
 | Dev-MCP | `/dev-mcp`, `/oauth/dev/*`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server` |
@@ -616,7 +602,6 @@ Don't:
 - Dashboard dan `/f/:code` kini memakai shared status presentation serta `FlightRouteLine`; perubahan status atau animasi harus dilakukan pada modul shared.
 - Header flight share tidak lagi menampilkan badge status duplikat. Status tunggal berada di hero, sementara OG image dinamis menampilkan fakta itinerary yang aman dicache.
 - Filter publik selain `SEMUA DATA` hanya memproses paket yang masih memiliki kursi; opsi filter sekunder berasal dari subset tersedia yang sama.
-- Landing Page Builder Umroh/Haji memiliki draft/published lifecycle, preview interaktif, dan access gate backend untuk agent yang diizinkan.
 - Rahmah July Zam-zam selection persists in `booking_persiapan` through the public tour-leader prep API.
 - `src/main.tsx` already has stale-build and stuck-SW escape hatches; preserve them.
 - `docs/project-summary.md` and `docs/DESIGN-SYSTEM.md` were refreshed from current source structure and route audit.
