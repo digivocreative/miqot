@@ -1,7 +1,7 @@
-// Utilitas bersama untuk desain brosur alternatif (Zamrud Royal, Boarding
-// Pass, Senja Haramain). Helper inti (format tanggal/harga/pill/dsb) tetap
+// Utilitas bersama untuk desain brosur alternatif (Boarding Pass, Serambi
+// Nabawi, Tasbih Hijau). Helper inti (format tanggal/harga/pill/dsb) tetap
 // milik BrochureScheduleTemplate — file ini hanya menampung logika yang KHUSUS
-// desain baru agar tidak menempel di template klasik.
+// desain alternatif agar tidak menempel di template klasik.
 import type { BrochureAgent, BrochureMonth, BrochurePackage } from '../BrochureScheduleTemplate';
 
 // Prop kontrak seragam semua desain (klasik memakai superset-nya sendiri).

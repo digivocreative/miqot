@@ -1,18 +1,21 @@
 // Registry desain Brosur Jadwal. Klasik (BrochureScheduleTemplate) tetap
-// default; tiga desain baru bersifat OPSI yang dipilih agent via picker di
+// default; desain lain bersifat OPSI yang dipilih agent via picker di
 // BrochureSchedulePage (persist localStorage 'brosurDesignId'). Berlaku untuk
 // preview + export gambar bulanan; katalog PDF selalu klasik (raster-safe).
+// Zamrud Royal & Senja Haramain (gelap) dicabut 18 Jul 2026 — user prefer
+// desain terang; id lama di localStorage jatuh kembali ke 'classic' via
+// normalizeBrochureDesignId.
 import type { ComponentType } from 'react';
 import {
   BrochureScheduleTemplate,
   type BrochureAgent,
   type BrochureMonth,
 } from '../BrochureScheduleTemplate';
-import { ZamrudRoyalTemplate } from './ZamrudRoyalTemplate';
 import { BoardingPassTemplate } from './BoardingPassTemplate';
-import { SenjaHaramainTemplate } from './SenjaHaramainTemplate';
+import { SerambiNabawiTemplate } from './SerambiNabawiTemplate';
+import { TasbihHijauTemplate } from './TasbihHijauTemplate';
 
-export type BrochureDesignId = 'classic' | 'zamrud' | 'boarding' | 'senja';
+export type BrochureDesignId = 'classic' | 'boarding' | 'serambi' | 'tasbih';
 
 // Prop yang dikirim halaman ke desain terpilih. `variant` (winter otomatis
 // saat filter Musim Dingin) hanya berefek pada klasik; desain lain punya
@@ -41,22 +44,22 @@ export const BROCHURE_DESIGNS: ReadonlyArray<BrochureDesignDef> = [
     Component: BrochureScheduleTemplate,
   },
   {
-    id: 'zamrud',
-    label: 'Zamrud Royal',
-    swatch: 'linear-gradient(135deg, #07301F 0%, #0B4330 55%, #E8C36B 100%)',
-    Component: ZamrudRoyalTemplate,
-  },
-  {
     id: 'boarding',
     label: 'Boarding Pass',
     swatch: 'linear-gradient(135deg, #C8102E 0%, #C8102E 42%, #F4F6F8 42%, #F4F6F8 72%, #1E3A8A 72%)',
     Component: BoardingPassTemplate,
   },
   {
-    id: 'senja',
-    label: 'Senja Haramain',
-    swatch: 'linear-gradient(180deg, #2C1656 0%, #8E3059 48%, #F5A85C 100%)',
-    Component: SenjaHaramainTemplate,
+    id: 'serambi',
+    label: 'Serambi Nabawi',
+    swatch: 'linear-gradient(135deg, #FFFFFF 0%, #F7F1E4 45%, #C9A24B 100%)',
+    Component: SerambiNabawiTemplate,
+  },
+  {
+    id: 'tasbih',
+    label: 'Tasbih Hijau',
+    swatch: 'linear-gradient(135deg, #FFFFFF 0%, #EAF6F0 40%, #0E8A5F 75%, #D9A83C 100%)',
+    Component: TasbihHijauTemplate,
   },
 ];
 
