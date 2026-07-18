@@ -28,6 +28,7 @@ import {
   landingIata,
   monthAbbrFromIso,
   promoChipLabel,
+  stripDurationWord,
   stripPromoWord,
   yearFromIso,
   type BrochureDesignTemplateProps,
@@ -61,16 +62,18 @@ function PlaneIcon({ size = 20, color = RED }: { size?: number; color?: string }
 
 function TicketRow({ p, ticketH, displayMode }: { p: BrochurePackage; ticketH: number; displayMode: 'hari' | 'seat' }) {
   const chip = promoChipLabel(p);
-  const packageName = stripPromoWord(cleanPackageDisplayName(p.nama), chip);
+  const packageName = stripDurationWord(stripPromoWord(cleanPackageDisplayName(p.nama), chip));
   const pills = detectPackagePills(p.nama, p.umrohDulu);
   const tripDays = p.hari ?? countTripDays(p.berangkat_tgl, p.pulang_tgl);
   const dest = landingIata(p.landing);
   const isSoldOut = !!p.soldOut;
   const seat = p.seatSisa;
   const seatCritical = typeof seat === 'number' && seat > 0 && seat <= 5;
-  // Konsep tiket menampilkan durasi DAN sisa seat sekaligus — toggle HARI/SEAT
-  // hanya menentukan mana yang tampil saat data seat tidak tersedia.
-  const showSeat = !isSoldOut && (typeof seat === 'number' || displayMode === 'seat');
+  // Toggle HARI/SEAT eksklusif (selaras desain lain): mode 'hari' → chip durasi
+  // di baris rute; mode 'seat' → badge sisa seat di blok harga. Tidak pernah
+  // keduanya dalam satu brosur.
+  const showDuration = displayMode !== 'seat' && !!tripDays;
+  const showSeat = displayMode === 'seat' && !isSoldOut;
 
   const stubBg = isSoldOut
     ? 'linear-gradient(150deg, #6B7686 0%, #475060 100%)'
@@ -138,7 +141,7 @@ function TicketRow({ p, ticketH, displayMode }: { p: BrochurePackage; ticketH: n
               color: isSoldOut ? '#8B95A5' : '#334155',
             }}>{p.maskapai}</span>
           )}
-          {tripDays && (
+          {showDuration && (
             <span style={{
               display: 'inline-flex', alignItems: 'center', padding: '3.5px 10px 4.5px', borderRadius: 7,
               border: `1.5px solid ${isSoldOut ? '#AAB2BF' : RED}`, color: isSoldOut ? '#8B95A5' : RED,
@@ -175,7 +178,7 @@ function TicketRow({ p, ticketH, displayMode }: { p: BrochurePackage; ticketH: n
               } : {
                 fontSize: 13, fontWeight: 600, color: '#64748B', letterSpacing: 0.3,
               }}>
-                {typeof seat === 'number' ? `SISA ${seat} SEAT${seatCritical ? '!' : ''}` : 'SISA -'}
+                {typeof seat === 'number' ? `SISA ${seat} SEAT${seatCritical ? '!' : ''}` : 'SISA - SEAT'}
               </span>
             )}
           </>

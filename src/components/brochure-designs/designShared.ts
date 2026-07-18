@@ -48,6 +48,19 @@ export function stripPromoWord(name: string, chip: 'PROMO' | 'HEMAT' | null): st
   return stripped || name;
 }
 
+// Nama paket dari sumber kadang membawa durasi tertulis "11 HARI" (varian
+// "11HR" sudah di-strip cleanPackageDisplayName). Desain baru menampilkan
+// durasi/seat di kolom-chip khusus yang ikut toggle, jadi kata durasi di judul
+// dibuang agar mode SEAT benar-benar bebas kata "HARI". Klasik tidak diubah.
+export function stripDurationWord(name: string): string {
+  const stripped = name
+    .replace(/\b\d+\s*HARI\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s*\+\s*$/, '')
+    .trim();
+  return stripped || name;
+}
+
 // Kota landing (dari server: arrival terakhir penerbangan berangkat) → kode
 // IATA untuk baris rute desain Boarding Pass. Kota tak dikenal → null
 // (baris rute disembunyikan, chip maskapai/durasi tetap tampil).

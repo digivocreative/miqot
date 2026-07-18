@@ -2,9 +2,11 @@
 // sabit + bintang, siluet Nabawi di ufuk, baris paket berupa kartu kaca
 // (glassmorphism). Opsi desain tambahan; katalog PDF tetap template klasik.
 //
-// Catatan export: backdrop-filter belum tentu bertahan melewati capture
-// modern-screenshot (SVG foreignObject), jadi tiap kartu diberi under-layer
-// ungu translusen — teks putih tetap terbaca dengan atau tanpa blur.
+// Catatan export: backdrop-filter TIDAK bertahan melewati capture
+// modern-screenshot (SVG foreignObject) — diverifikasi pixel-diff 18 Jul 2026.
+// Karena preview wajib identik dgn hasil export (WYSIWYG), desain ini sengaja
+// TANPA backdrop-filter: efek "kaca" datang dari under-layer ungu translusen
+// (kontras teks aman) + border putih; jangan tambahkan blur di sini.
 import { Check } from 'lucide-react';
 import WhatsAppIcon from '../bio/WhatsAppIcon';
 import {
@@ -31,6 +33,7 @@ import {
 import {
   monthAbbrFromIso,
   promoChipLabel,
+  stripDurationWord,
   stripPromoWord,
   type BrochureDesignTemplateProps,
 } from './designShared';
@@ -126,7 +129,7 @@ export function SenjaHaramainTemplate({ month, agent, displayMode = 'hari' }: Br
         </div>
         <div style={{
           display: 'inline-flex', alignItems: 'center', marginTop: 14, padding: '10px 25px 11px', borderRadius: 999,
-          background: 'rgba(255,255,255,0.16)', border: '1.5px solid rgba(255,255,255,0.5)', backdropFilter: 'blur(10px)',
+          background: 'rgba(255,255,255,0.16)', border: '1.5px solid rgba(255,255,255,0.5)',
           color: '#fff', fontSize: 23, fontWeight: 900, lineHeight: 1, letterSpacing: 0.5,
           boxShadow: '0 10px 26px rgba(10,4,28,0.25)',
         }}>{landingUrl}</div>
@@ -149,7 +152,7 @@ export function SenjaHaramainTemplate({ month, agent, displayMode = 'hari' }: Br
       <div style={{ position: 'relative', zIndex: 2, margin: '0 50px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {month.packages.map(p => {
           const chip = promoChipLabel(p);
-          const packageName = stripPromoWord(cleanPackageDisplayName(p.nama), chip);
+          const packageName = stripDurationWord(stripPromoWord(cleanPackageDisplayName(p.nama), chip));
           const pills = detectPackagePills(p.nama, p.umrohDulu);
           const tripDays = p.hari ?? countTripDays(p.berangkat_tgl, p.pulang_tgl);
           const cellValue = displayMode === 'seat' ? (p.seatSisa == null ? '-' : p.seatSisa) : (tripDays || '-');
@@ -164,7 +167,6 @@ export function SenjaHaramainTemplate({ month, agent, displayMode = 'hari' }: Br
               height: cardH, padding: '0 16px', borderRadius: 18,
               background: isSoldOut ? GLASS_SO : isHighlighted ? GLASS_HI : GLASS_BASE,
               border: `1px solid ${isSoldOut ? 'rgba(255,255,255,0.15)' : isHighlighted ? 'rgba(255,205,120,0.85)' : 'rgba(255,255,255,0.32)'}`,
-              backdropFilter: 'blur(16px) saturate(1.25)',
               boxShadow: isHighlighted
                 ? `inset 5px 0 0 ${AMBER}, 0 12px 28px rgba(16,6,38,0.28)`
                 : '0 12px 28px rgba(16,6,38,0.28)',
@@ -242,7 +244,6 @@ export function SenjaHaramainTemplate({ month, agent, displayMode = 'hari' }: Br
           margin: '10px 50px 0', position: 'relative', zIndex: 2,
           border: '1.5px dashed rgba(255,255,255,0.45)', borderRadius: 14,
           background: 'linear-gradient(rgba(255,255,255,0.12), rgba(255,255,255,0.12)), linear-gradient(rgba(38,20,62,0.25), rgba(38,20,62,0.25))',
-          backdropFilter: 'blur(10px)',
           color: 'rgba(255,255,255,0.92)', fontWeight: 700, fontSize: 19, textAlign: 'center', padding: 11,
         }}>
           + {month.truncatedCount} paket lainnya — hubungi {agent.name?.trim() || 'kami'}
@@ -253,8 +254,7 @@ export function SenjaHaramainTemplate({ month, agent, displayMode = 'hari' }: Br
       <div style={{
         position: 'absolute', left: 50, right: 50, bottom: 46, zIndex: 3,
         display: 'flex', alignItems: 'center', gap: 22, padding: '18px 26px', borderRadius: 24,
-        background: 'rgba(26,11,48,0.58)', border: '1.5px solid rgba(255,255,255,0.32)',
-        backdropFilter: 'blur(18px) saturate(1.2)',
+        background: 'rgba(26,11,48,0.72)', border: '1.5px solid rgba(255,255,255,0.32)',
         boxShadow: '0 24px 50px rgba(10,4,28,0.45)',
       }}>
         <div style={{ position: 'relative', width: 114, height: 114, flexShrink: 0 }}>

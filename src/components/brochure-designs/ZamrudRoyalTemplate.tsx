@@ -30,6 +30,7 @@ import {
 import {
   monthAbbrFromIso,
   promoChipLabel,
+  stripDurationWord,
   stripPromoWord,
   type BrochureDesignTemplateProps,
 } from './designShared';
@@ -179,7 +180,7 @@ export function ZamrudRoyalTemplate({ month, agent, displayMode = 'hari' }: Broc
 
         {month.packages.map((p, i) => {
           const chip = promoChipLabel(p);
-          const packageName = stripPromoWord(cleanPackageDisplayName(p.nama), chip);
+          const packageName = stripDurationWord(stripPromoWord(cleanPackageDisplayName(p.nama), chip));
           const pills = detectPackagePills(p.nama, p.umrohDulu);
           const tripDays = p.hari ?? countTripDays(p.berangkat_tgl, p.pulang_tgl);
           const cellValue = displayMode === 'seat' ? (p.seatSisa == null ? '-' : p.seatSisa) : (tripDays || '-');
