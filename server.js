@@ -41,7 +41,7 @@ import {
   shouldUseBrowserUmrahSubmit,
 } from './lib/umrah-submit-orchestrator.js';
 import { buildScheduleFlightMap, buildJamaahFlightIndex, jamaahForFlightCard } from './lib/flight-jamaah.js';
-import { mergeFlightEntriesByTourLeader } from './lib/flight-entry-merge.js';
+import { compareFlightDepartureTimestamp, mergeFlightEntriesByTourLeader } from './lib/flight-entry-merge.js';
 import {
   parseFlightSegmentsFromCalendar,
   parseRouteLegs,
@@ -415,6 +415,7 @@ app.use('/api/umrah/ocr-ktp', express.json({ limit: '16mb' }));
 // Community payload caps must run before the global parser. Keep the more
 // specific mutation paths first so their tighter limits take precedence.
 app.use('/api/community/photo', express.json({ limit: '9mb' }));
+app.use('/api/community/read', express.json({ limit: '2kb' }));
 app.use('/api/community/posts/:id/reaction', express.json({ limit: '2kb' }));
 app.use('/api/community/posts/:id/comments', express.json({ limit: '8kb' }));
 app.use('/api/community/posts', express.json({ limit: '32kb' }));
@@ -3939,14 +3940,15 @@ app.delete('/api/landing-config/og-image', authMiddleware, express.json({ limit:
 });
 
 // ──────────────────────────────────────────────
-// Ruang Komunitas API — gated to the Nikita pilot agent
+// Teras API — gated to the Nikita pilot agent
 // ──────────────────────────────────────────────
 
-const COMMUNITY_POST_TYPES = ['closing', 'tips', 'tanya', 'foto', 'sorotan'];
-const COMMUNITY_USER_POST_TYPES = ['closing', 'tips', 'tanya', 'foto'];
 const COMMUNITY_REACTION_TYPES = ['suka', 'selamat', 'aamiin'];
 const COMMUNITY_UUID_REGEX = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const COMMUNITY_ISO_TIMESTAMP_REGEX = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/i;
+const communityReactionMutationQueues = new Map();
+const COMMUNITY_TEASER_CACHE_TTL_MS = 60_000;
+let communityTeaserSharedCache = { data: null, expiresAt: 0 };
 
 function communityAuthorProfile(value) {
   const author = Array.isArray(value) ? value[0] : value;
@@ -3964,8 +3966,18 @@ function isCommunityUuid(value) {
 function normalizeCommunityCursor(value) {
   if (typeof value !== 'string') return null;
   const normalizedValue = value.trim();
-  const match = COMMUNITY_ISO_TIMESTAMP_REGEX.exec(normalizedValue);
+  const separatorIndex = normalizedValue.lastIndexOf('|');
+  const createdAt = separatorIndex === -1
+    ? normalizedValue
+    : normalizedValue.slice(0, separatorIndex);
+  const postId = separatorIndex === -1
+    ? null
+    : normalizedValue.slice(separatorIndex + 1);
+  if (separatorIndex !== -1 && !isCommunityUuid(postId)) return null;
+
+  const match = COMMUNITY_ISO_TIMESTAMP_REGEX.exec(createdAt);
   if (!match) return null;
+
   const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number);
   const offsetHour = Number(match[7] || 0);
   const offsetMinute = Number(match[8] || 0);
@@ -3978,9 +3990,8 @@ function normalizeCommunityCursor(value) {
     || offsetHour > 14 || offsetMinute > 59
     || (offsetHour === 14 && offsetMinute !== 0)
   ) return null;
-  const timestamp = Date.parse(normalizedValue);
-  // Preserve Postgres microsecond precision from the feed cursor.
-  return Number.isNaN(timestamp) ? null : normalizedValue;
+
+  return Number.isNaN(Date.parse(createdAt)) ? null : { createdAt, postId };
 }
 
 async function loadActiveCommunityPost(postId, columns = 'id') {
@@ -3994,19 +4005,147 @@ async function loadActiveCommunityPost(postId, columns = 'id') {
   return data;
 }
 
+async function withCommunityReactionMutationLock(postId, agentId, mutation) {
+  const lockKey = `${postId}:${agentId}`;
+  const previousMutation = communityReactionMutationQueues.get(lockKey) || Promise.resolve();
+  let releaseMutation;
+  const currentMutation = new Promise(resolve => {
+    releaseMutation = resolve;
+  });
+  communityReactionMutationQueues.set(lockKey, currentMutation);
+
+  await previousMutation;
+  try {
+    return await mutation();
+  } finally {
+    releaseMutation();
+    if (communityReactionMutationQueues.get(lockKey) === currentMutation) {
+      communityReactionMutationQueues.delete(lockKey);
+    }
+  }
+}
+
+async function loadCommunityTeaserSharedData() {
+  const now = Date.now();
+  if (communityTeaserSharedCache.data && communityTeaserSharedCache.expiresAt > now) {
+    return communityTeaserSharedCache.data;
+  }
+
+  const wibDate = new Date(now + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const startOfTodayWib = `${wibDate}T00:00:00+07:00`;
+  const [latestResult, todayResult] = await Promise.all([
+    supabase
+      .from('community_posts')
+      .select('id, body, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, photo)')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(12),
+    supabase
+      .from('community_posts')
+      .select('id', { count: 'exact', head: true })
+      .is('deleted_at', null)
+      .gte('created_at', startOfTodayWib),
+  ]);
+  if (latestResult.error) throw latestResult.error;
+  if (todayResult.error) throw todayResult.error;
+
+  const latestPosts = latestResult.data || [];
+  const latestPost = latestPosts[0];
+  const latestAuthor = latestPost ? communityAuthorProfile(latestPost.agent) : null;
+  const recentAvatars = [];
+  const recentAgentIds = new Set();
+  for (const post of latestPosts) {
+    if (recentAgentIds.has(post.agent_id)) continue;
+    recentAgentIds.add(post.agent_id);
+    const author = communityAuthorProfile(post.agent);
+    recentAvatars.push({ name: author.name, photo: author.photo });
+    if (recentAvatars.length === 3) break;
+  }
+
+  const data = {
+    latest: latestPost ? {
+      author: { name: latestAuthor.name, photo: latestAuthor.photo },
+      body_snippet: Array.from(String(latestPost.body || '')).slice(0, 120).join(''),
+      created_at: latestPost.created_at,
+    } : null,
+    today_count: Number(todayResult.count) || 0,
+    recent_avatars: recentAvatars,
+  };
+  communityTeaserSharedCache = {
+    data,
+    expiresAt: Date.now() + COMMUNITY_TEASER_CACHE_TTL_MS,
+  };
+  return data;
+}
+
+app.get('/api/community/teaser', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const sharedData = await loadCommunityTeaserSharedData();
+    const { data: readState, error: readError } = await supabase
+      .from('community_reads')
+      .select('last_seen_at')
+      .eq('agent_id', agent.id)
+      .maybeSingle();
+    if (readError) throw readError;
+
+    let unreadQuery = supabase
+      .from('community_posts')
+      .select('id', { count: 'exact', head: true })
+      .is('deleted_at', null)
+      .neq('agent_id', agent.id);
+    if (readState?.last_seen_at) {
+      unreadQuery = unreadQuery.gt('created_at', readState.last_seen_at);
+    }
+    const { count: unreadCount, error: unreadError } = await unreadQuery;
+    if (unreadError) throw unreadError;
+
+    res.json({
+      success: true,
+      data: {
+        ...sharedData,
+        unread_count: Math.min(99, Math.max(0, Number(unreadCount) || 0)),
+      },
+    });
+  } catch (err) {
+    console.error('[community] teaser error:', err);
+    res.status(500).json({ error: 'Gagal memuat Jendela Teras' });
+  }
+});
+
+app.post('/api/community/read', authMiddleware, express.json({ limit: '2kb' }), async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const { error } = await supabase
+      .from('community_reads')
+      .upsert({
+        agent_id: agent.id,
+        last_seen_at: new Date().toISOString(),
+      }, { onConflict: 'agent_id' });
+    if (error) throw error;
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[community] read error:', err);
+    res.status(500).json({ error: 'Gagal memperbarui status baca Teras' });
+  }
+});
+
 app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     if (!requireCommunityAccess(agent, res)) return;
 
-    const type = typeof req.query.type === 'string' ? req.query.type.trim() : '';
-    if (req.query.type !== undefined && !COMMUNITY_POST_TYPES.includes(type)) {
-      return res.status(400).json({ error: 'Jenis posting tidak valid' });
-    }
-
     const before = req.query.before === undefined
-      ? ''
+      ? null
       : normalizeCommunityCursor(req.query.before);
     if (req.query.before !== undefined && !before) {
       return res.status(400).json({ error: 'Cursor feed tidak valid' });
@@ -4014,74 +4153,91 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
 
     let postsQuery = supabase
       .from('community_posts')
-      .select('id, agent_id, type, body, photo_url, is_system, created_at, agent:agents!community_posts_agent_id_fkey(name, slug, photo)')
+      .select('id, body, photo_url, is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)')
       .is('deleted_at', null);
-    if (type) postsQuery = postsQuery.eq('type', type);
-    if (before) postsQuery = postsQuery.lt('created_at', before);
+    if (before?.postId) {
+      postsQuery = postsQuery.or(
+        `created_at.lt.${before.createdAt},and(created_at.eq.${before.createdAt},id.lt.${before.postId})`,
+      );
+    } else if (before) {
+      // Keep accepting the original timestamp-only cursor for older clients.
+      postsQuery = postsQuery.lt('created_at', before.createdAt);
+    }
     postsQuery = postsQuery
       .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
       .limit(20);
 
     const { data: posts, error: postsError } = await postsQuery;
     if (postsError) throw postsError;
 
     const postIds = (posts || []).map(post => post.id);
-    // Keep feed loading at exactly three bulk queries, including an empty page.
-    const lookupPostIds = postIds.length > 0
-      ? postIds
-      : ['00000000-0000-0000-0000-000000000000'];
-    const [reactionResult, commentResult] = await Promise.all([
-      supabase
-        .from('community_post_reactions')
-        .select('post_id, agent_id, reaction')
-        .in('post_id', lookupPostIds),
-      supabase
-        .from('community_post_comments')
-        .select('post_id')
-        .in('post_id', lookupPostIds)
-        .is('deleted_at', null),
-    ]);
-    if (reactionResult.error) throw reactionResult.error;
-    if (commentResult.error) throw commentResult.error;
+    let reactionRows = [];
+    let commentRows = [];
+    if (postIds.length > 0) {
+      const [reactionResult, commentResult] = await Promise.all([
+        supabase
+          .from('community_post_reactions')
+          .select('post_id, reaction, agent_id, agent:agents(name)')
+          .in('post_id', postIds),
+        supabase
+          .from('community_post_comments')
+          .select('post_id')
+          .in('post_id', postIds)
+          .is('deleted_at', null),
+      ]);
+      if (reactionResult.error) throw reactionResult.error;
+      if (commentResult.error) throw commentResult.error;
+      reactionRows = reactionResult.data || [];
+      commentRows = commentResult.data || [];
+    }
 
     const reactionCounts = new Map(postIds.map(postId => [postId, {
       suka: 0,
       selamat: 0,
       aamiin: 0,
     }]));
-    const myReactions = new Map(postIds.map(postId => [postId, new Set()]));
-    for (const row of reactionResult.data || []) {
+    const myReactions = new Map(postIds.map(postId => [postId, null]));
+    const reactionSampleNames = new Map(postIds.map(postId => [postId, null]));
+    for (const row of reactionRows) {
       const counts = reactionCounts.get(row.post_id);
       if (!counts || !COMMUNITY_REACTION_TYPES.includes(row.reaction)) continue;
       counts[row.reaction] += 1;
-      if (row.agent_id === req.user.id) myReactions.get(row.post_id).add(row.reaction);
+      if (row.agent_id === req.user.id) {
+        myReactions.set(row.post_id, row.reaction);
+      } else if (!reactionSampleNames.get(row.post_id)) {
+        const sampleName = communityAuthorProfile(row.agent).name;
+        if (sampleName) reactionSampleNames.set(row.post_id, sampleName);
+      }
     }
 
     const commentCounts = new Map(postIds.map(postId => [postId, 0]));
-    for (const row of commentResult.data || []) {
+    for (const row of commentRows) {
       if (!commentCounts.has(row.post_id)) continue;
       commentCounts.set(row.post_id, commentCounts.get(row.post_id) + 1);
     }
 
     const data = (posts || []).map(post => ({
       id: post.id,
-      type: post.type,
       body: post.body,
       photo_url: post.photo_url,
       is_system: post.is_system,
       created_at: post.created_at,
       author: communityAuthorProfile(post.agent),
       reactions: reactionCounts.get(post.id),
-      my_reactions: COMMUNITY_REACTION_TYPES.filter(reaction => myReactions.get(post.id)?.has(reaction)),
+      my_reaction: myReactions.get(post.id),
+      reaction_sample_name: reactionSampleNames.get(post.id),
       comment_count: commentCounts.get(post.id) || 0,
       is_own: post.agent_id === agent.id,
     }));
-    const nextCursor = data.length < 20 ? null : data[data.length - 1].created_at;
+    const nextCursor = data.length < 20
+      ? null
+      : `${data[data.length - 1].created_at}|${data[data.length - 1].id}`;
 
     res.json({ success: true, data, next_cursor: nextCursor });
   } catch (err) {
     console.error('[community] feed error:', err);
-    res.status(500).json({ error: 'Gagal memuat feed komunitas' });
+    res.status(500).json({ error: 'Gagal memuat feed Teras' });
   }
 });
 
@@ -4091,15 +4247,14 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     if (!requireCommunityAccess(agent, res)) return;
 
-    const type = req.body?.type;
-    if (!COMMUNITY_USER_POST_TYPES.includes(type)) {
-      return res.status(400).json({ error: 'Jenis posting tidak valid' });
-    }
-
     const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
     const bodyLength = Array.from(body).length;
     if (bodyLength < 1 || bodyLength > 2000) {
       return res.status(400).json({ error: 'Isi posting wajib 1–2000 karakter' });
+    }
+    const clientId = req.body?.client_id;
+    if (clientId !== undefined && !isCommunityUuid(clientId)) {
+      return res.status(400).json({ error: 'ID kiriman tidak valid' });
     }
 
     let photoUrl = null;
@@ -4111,29 +4266,69 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       const { data: publicUrlData } = supabase.storage
         .from('agent-photos')
         .getPublicUrl('community/');
-      if (!publicUrlData?.publicUrl || !photoUrl.startsWith(publicUrlData.publicUrl)) {
+      let isCommunityPhotoUrl = false;
+      if (publicUrlData?.publicUrl && photoUrl.startsWith(publicUrlData.publicUrl)) {
+        try {
+          const publicUrlPrefix = new URL(publicUrlData.publicUrl);
+          const candidateUrl = new URL(photoUrl);
+          isCommunityPhotoUrl = candidateUrl.origin === publicUrlPrefix.origin
+            && candidateUrl.pathname.startsWith(publicUrlPrefix.pathname);
+        } catch {
+          isCommunityPhotoUrl = false;
+        }
+      }
+      if (!isCommunityPhotoUrl) {
         return res.status(400).json({ error: 'URL foto tidak valid' });
       }
     }
 
-    const { data: createdPost, error: insertError } = await supabase
+    const postPayload = {
+      ...(clientId ? { id: clientId } : {}),
+      agent_id: agent.id,
+      body,
+      photo_url: photoUrl,
+      is_system: false,
+    };
+    let { data: createdPost, error: insertError } = await supabase
       .from('community_posts')
-      .insert({
-        agent_id: agent.id,
-        type,
-        body,
-        photo_url: photoUrl,
-        is_system: false,
-      })
-      .select('id, type, body, photo_url, is_system, created_at')
+      .insert(postPayload)
+      .select('id, body, photo_url, is_system, created_at')
       .single();
+
+    // Compatibility for installations that already ran the pre-final Teras draft,
+    // where `type` was NOT NULL. The final reconciliation migration removes it;
+    // until that migration is applied, keep the obsolete value entirely server-side.
+    if (insertError?.code === '23502' && /column "type"/i.test(insertError.message || '')) {
+      ({ data: createdPost, error: insertError } = await supabase
+        .from('community_posts')
+        .insert({ ...postPayload, type: photoUrl ? 'foto' : 'tips' })
+        .select('id, body, photo_url, is_system, created_at')
+        .single());
+    }
+    if (insertError?.code === '23505' && clientId) {
+      const { data: existingPost, error: existingError } = await supabase
+        .from('community_posts')
+        .select('id, body, photo_url, is_system, created_at')
+        .eq('id', clientId)
+        .eq('agent_id', agent.id)
+        .is('deleted_at', null)
+        .maybeSingle();
+      if (existingError) throw existingError;
+      if (existingPost && existingPost.body === body && existingPost.photo_url === photoUrl) {
+        createdPost = existingPost;
+        insertError = null;
+      } else {
+        return res.status(409).json({ error: 'ID kiriman sudah digunakan' });
+      }
+    }
     if (insertError) throw insertError;
 
     const data = {
       ...createdPost,
       author: communityAuthorProfile(agent),
       reactions: { suka: 0, selamat: 0, aamiin: 0 },
-      my_reactions: [],
+      my_reaction: null,
+      reaction_sample_name: null,
       comment_count: 0,
       is_own: true,
     };
@@ -4151,6 +4346,10 @@ app.post('/api/community/photo', authMiddleware, express.json({ limit: '9mb' }),
     if (!requireCommunityAccess(agent, res)) return;
 
     const imageData = typeof req.body?.image_data === 'string' ? req.body.image_data : '';
+    const uploadId = req.body?.upload_id;
+    if (uploadId !== undefined && !isCommunityUuid(uploadId)) {
+      return res.status(400).json({ error: 'ID unggahan tidak valid' });
+    }
     const match = imageData
       ? imageData.match(/^data:(image\/(?:jpeg|png|webp));base64,([a-z0-9+/=]+)$/i)
       : null;
@@ -4166,7 +4365,7 @@ app.post('/api/community/photo', authMiddleware, express.json({ limit: '9mb' }),
     }
 
     const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
-    const fileName = `community/${agent.slug}-${Date.now()}.${ext}`;
+    const fileName = `community/${agent.slug}-${uploadId || Date.now()}.${ext}`;
     const { error: uploadError } = await supabase.storage
       .from('agent-photos')
       .upload(fileName, buffer, {
@@ -4180,7 +4379,7 @@ app.post('/api/community/photo', authMiddleware, express.json({ limit: '9mb' }),
     res.json({ success: true, url: urlData.publicUrl });
   } catch (err) {
     console.error('[community] photo upload error:', err);
-    res.status(500).json({ error: 'Gagal mengunggah foto komunitas' });
+    res.status(500).json({ error: 'Gagal mengunggah foto' });
   }
 });
 
@@ -4190,9 +4389,9 @@ app.post('/api/community/posts/:id/reaction', authMiddleware, express.json({ lim
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     if (!requireCommunityAccess(agent, res)) return;
 
-    const { reaction, active } = req.body || {};
-    if (!COMMUNITY_REACTION_TYPES.includes(reaction) || typeof active !== 'boolean') {
-      return res.status(400).json({ error: 'Data reaksi tidak valid' });
+    const reaction = req.body?.reaction;
+    if (reaction !== null && !COMMUNITY_REACTION_TYPES.includes(reaction)) {
+      return res.status(400).json({ error: 'Reaksi tidak valid' });
     }
     if (!isCommunityUuid(req.params.id)) {
       return res.status(404).json({ error: 'Postingan tidak ditemukan' });
@@ -4201,27 +4400,49 @@ app.post('/api/community/posts/:id/reaction', authMiddleware, express.json({ lim
     const post = await loadActiveCommunityPost(req.params.id);
     if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
 
-    if (active) {
-      const { error } = await supabase
+    await withCommunityReactionMutationLock(post.id, agent.id, async () => {
+      if (reaction === null) {
+        const { error } = await supabase
+          .from('community_post_reactions')
+          .delete()
+          .eq('post_id', post.id)
+          .eq('agent_id', agent.id);
+        if (error) throw error;
+        return;
+      }
+
+      let { error } = await supabase
         .from('community_post_reactions')
         .upsert({
           post_id: post.id,
           agent_id: agent.id,
           reaction,
-        }, {
-          onConflict: 'post_id,agent_id,reaction',
-          ignoreDuplicates: true,
-        });
+          created_at: new Date().toISOString(),
+        }, { onConflict: 'post_id,agent_id' });
+
+      // Compatibility for the draft schema whose PK included `reaction`.
+      // The process-local lock also keeps concurrent tabs on one server from
+      // interleaving the temporary delete/insert fallback. The reconciliation
+      // migration remains the cross-instance database-level guarantee.
+      if (error?.code === '42P10') {
+        const { error: deleteError } = await supabase
+          .from('community_post_reactions')
+          .delete()
+          .eq('post_id', post.id)
+          .eq('agent_id', agent.id);
+        if (deleteError) throw deleteError;
+        const fallbackResult = await supabase
+          .from('community_post_reactions')
+          .insert({
+            post_id: post.id,
+            agent_id: agent.id,
+            reaction,
+            created_at: new Date().toISOString(),
+          });
+        error = fallbackResult.error;
+      }
       if (error) throw error;
-    } else {
-      const { error } = await supabase
-        .from('community_post_reactions')
-        .delete()
-        .eq('post_id', post.id)
-        .eq('agent_id', agent.id)
-        .eq('reaction', reaction);
-      if (error) throw error;
-    }
+    });
 
     res.json({ success: true });
   } catch (err) {
@@ -4276,6 +4497,10 @@ app.post('/api/community/posts/:id/comments', authMiddleware, express.json({ lim
     if (bodyLength < 1 || bodyLength > 1000) {
       return res.status(400).json({ error: 'Isi komentar wajib 1–1000 karakter' });
     }
+    const clientId = req.body?.client_id;
+    if (clientId !== undefined && !isCommunityUuid(clientId)) {
+      return res.status(400).json({ error: 'ID komentar tidak valid' });
+    }
     if (!isCommunityUuid(req.params.id)) {
       return res.status(404).json({ error: 'Postingan tidak ditemukan' });
     }
@@ -4283,15 +4508,33 @@ app.post('/api/community/posts/:id/comments', authMiddleware, express.json({ lim
     const post = await loadActiveCommunityPost(req.params.id);
     if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
 
-    const { data: createdComment, error } = await supabase
+    let { data: createdComment, error } = await supabase
       .from('community_post_comments')
       .insert({
+        ...(clientId ? { id: clientId } : {}),
         post_id: post.id,
         agent_id: agent.id,
         body,
       })
       .select('id, body, created_at')
       .single();
+    if (error?.code === '23505' && clientId) {
+      const { data: existingComment, error: existingError } = await supabase
+        .from('community_post_comments')
+        .select('id, body, created_at')
+        .eq('id', clientId)
+        .eq('post_id', post.id)
+        .eq('agent_id', agent.id)
+        .is('deleted_at', null)
+        .maybeSingle();
+      if (existingError) throw existingError;
+      if (existingComment && existingComment.body === body) {
+        createdComment = existingComment;
+        error = null;
+      } else {
+        return res.status(409).json({ error: 'ID komentar sudah digunakan' });
+      }
+    }
     if (error) throw error;
 
     const data = {
@@ -4315,11 +4558,17 @@ app.delete('/api/community/posts/:id', authMiddleware, async (req, res) => {
     if (!isCommunityUuid(req.params.id)) {
       return res.status(404).json({ error: 'Postingan tidak ditemukan' });
     }
-    const post = await loadActiveCommunityPost(req.params.id, 'id, agent_id');
+    const { data: post, error: findError } = await supabase
+      .from('community_posts')
+      .select('id, agent_id, deleted_at')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (findError) throw findError;
     if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
     if (post.agent_id !== agent.id && agent.role !== 'admin') {
       return res.status(403).json({ error: 'Anda tidak boleh menghapus postingan ini' });
     }
+    if (post.deleted_at) return res.json({ success: true });
 
     const { error } = await supabase
       .from('community_posts')
@@ -4349,15 +4598,15 @@ app.delete('/api/community/comments/:id', authMiddleware, async (req, res) => {
     }
     const { data: comment, error: findError } = await supabase
       .from('community_post_comments')
-      .select('id, agent_id')
+      .select('id, agent_id, deleted_at')
       .eq('id', req.params.id)
-      .is('deleted_at', null)
       .maybeSingle();
     if (findError) throw findError;
     if (!comment) return res.status(404).json({ error: 'Komentar tidak ditemukan' });
     if (comment.agent_id !== agent.id && agent.role !== 'admin') {
       return res.status(403).json({ error: 'Anda tidak boleh menghapus komentar ini' });
     }
+    if (comment.deleted_at) return res.json({ success: true });
 
     const { error: updateError } = await supabase
       .from('community_post_comments')
@@ -10345,7 +10594,9 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
             _mergeCardKey: segment.segmentCount > 1 ? cardJourneyKey : null,
             _segmentIndex: segment.segmentIndex,
             _segmentCount: segment.segmentCount,
-            _depUTC: segment.times?.depUTC || null,
+            _depUTC: Number.isFinite(Number(flightBase.depTs)) && Number(flightBase.depTs) > 0
+              ? Number(flightBase.depTs) * 1000
+              : segment.times?.depUTC || null,
             _arrUTC: segment.times?.arrUTC || null,
             _stopoverCity: segment.tourStopover ? segment.route?.arr || null : null,
             _stopoverCityName: segment.tourStopover ? segment.route?.arrCity || airportCity(segment.route?.arr) : null,
@@ -10439,19 +10690,14 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
 
     const mergedFlights = mergeFlightEntriesByTourLeader(flights);
 
-    // Sort: en-route first, then delayed, scheduled, landed, cancelled
-    // Sort: newest date first, then by status priority within same date
+    // Sort by the real departure instant across airport timezones. Status and
+    // group number are deterministic tie-breakers only for the same instant.
     const statusOrder = { 'en-route': 0, 'delayed': 1, 'unverified': 2, 'scheduled': 3, 'landed': 4, 'cancelled': 5 };
     mergedFlights.sort((a, b) => {
-      const dateA = a.depScheduled || a.id;
-      const dateB = b.depScheduled || b.id;
-      // Compare dates descending (newest first)
-      if (dateA > dateB) return -1;
-      if (dateA < dateB) return 1;
-      // Same date: sort by status
+      const byDeparture = compareFlightDepartureTimestamp(a, b);
+      if (byDeparture !== 0) return byDeparture;
       const byStatus = (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
       if (byStatus !== 0) return byStatus;
-      // Kloter se-flight (waktu & status sama): nomor grup naik
       return String(a.group || '').localeCompare(String(b.group || ''), undefined, { numeric: true });
     });
 

@@ -9,6 +9,7 @@ import { summarizeFlightShareGroup } from '../lib/flightShareSummary';
 import { selectActiveFlightSegment } from '../lib/flightActiveSegment';
 import { getFlightStatusPresentation } from '../lib/flightStatusPresentation';
 import FlightRouteLine from './FlightRouteLine';
+import { compareFlightDepartureTimestamp } from '../../lib/flight-entry-merge.js';
 
 const FlightMap = lazy(() => import('./FlightMap'));
 
@@ -45,6 +46,7 @@ interface FlightSegmentData {
   arrDate?: string;
   isLive?: boolean;
   trackingSource?: string;
+  departureTimestamp?: number | null;
 }
 
 interface FlightData extends FlightSegmentData {
@@ -137,12 +139,9 @@ function groupFlights(flights: FlightData[]): FlightData[][] {
     map.get(key)!.push(f);
   }
   const grouped = Array.from(map.values());
-  // Sort groups by departure date then time ascending
-  grouped.sort((a, b) => {
-    const dateA = `${flightCardDateKey(a[0])} ${formatTime(a[0].depActual || a[0].depScheduled)}`;
-    const dateB = `${flightCardDateKey(b[0])} ${formatTime(b[0].depActual || b[0].depScheduled)}`;
-    return dateA.localeCompare(dateB);
-  });
+  // Airport clocks are local. Use the canonical UTC instant so, for example,
+  // 17:30 CGK (10:30Z) appears before 17:30 JED (14:30Z).
+  grouped.sort((a, b) => compareFlightDepartureTimestamp(a[0], b[0]));
   return grouped;
 }
 

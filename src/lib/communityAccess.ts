@@ -1,5 +1,5 @@
-const COMMUNITY_AGENT_SLUG = 'nikita';
+const COMMUNITY_AGENT_SLUGS = new Set(['nikita', 'bagas']);
 
 export function isCommunityEnabledForAgent(slug?: string | null): boolean {
-  return String(slug || '').trim().toLowerCase() === COMMUNITY_AGENT_SLUG;
+  return COMMUNITY_AGENT_SLUGS.has(String(slug || '').trim().toLowerCase());
 }

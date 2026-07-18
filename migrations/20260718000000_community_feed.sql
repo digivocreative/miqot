@@ -1,10 +1,10 @@
 CREATE TABLE IF NOT EXISTS community_posts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('closing','tips','tanya','foto','sorotan')),
   body TEXT NOT NULL CHECK (char_length(body) BETWEEN 1 AND 2000),
   photo_url TEXT,
   is_system BOOLEAN NOT NULL DEFAULT false,
+  pinned_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ,
   deleted_by UUID REFERENCES agents(id)
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS community_post_reactions (
   agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   reaction TEXT NOT NULL CHECK (reaction IN ('suka','selamat','aamiin')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (post_id, agent_id, reaction)
+  PRIMARY KEY (post_id, agent_id)
 );
 
 CREATE TABLE IF NOT EXISTS community_post_comments (

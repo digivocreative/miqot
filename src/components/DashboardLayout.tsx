@@ -52,11 +52,11 @@ const BrochureSchedulePage = lazy(() => import('./BrochureSchedulePage'));
 const McpIntegrationPage = lazy(() => import('./McpIntegrationPage'));
 const UmrahRegisterPage = lazy(() => import('./UmrahRegisterPage'));
 const JamaahEditPage = lazy(() => import('./JamaahEditPage'));
-const KomunitasPage = lazy(() => import('./KomunitasPage'));
+const TerasPage = lazy(() => import('./TerasPage'));
 // Home widgets — only mounted on the home tab; split out of the initial chunk
 // so a deep-link to a non-home dashboard route doesn't pay for them.
+const TerasCard = lazy(() => import('./TerasCard'));
 const UpcomingSchedule = lazy(() => import('./UpcomingSchedule'));
-const CalendarInsight = lazy(() => import('./CalendarInsight'));
 const TelegramConnectBanner = lazy(() => import('./TelegramConnectBanner'));
 const FlightStatusCard = lazy(() => import('./FlightStatusCard'));
 const CuacaWidget = lazy(() => import('./CuacaWidget'));
@@ -65,7 +65,7 @@ const BirthdayWidget = lazy(() => import('./BirthdayWidget'));
 const ShareKursModal = lazy(() => import('./ShareKursModal'));
 const BirthdayDetailSheet = lazy(() => import('./BirthdayDetailSheet'));
 
-type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'komunitas';
+type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'teras';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
@@ -76,7 +76,7 @@ const SLUG_TO_TAB: Record<string, TabId> = {
   settings: 'settings',
   analytics: 'analytics',
   'ai-tools': 'ai-tools',
-  komunitas: 'komunitas',
+  teras: 'teras',
 };
 
 const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
@@ -87,7 +87,7 @@ const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
   settings: 'settings',
   analytics: 'analytics',
   'ai-tools': 'ai-tools',
-  komunitas: 'komunitas',
+  teras: 'teras',
 };
 
 function getTabFromPath(): TabId {
@@ -157,7 +157,7 @@ const TAB_TITLES: Record<TabId, string> = {
   statistik: 'Statistik',
   analytics: 'Analytics',
   'ai-tools': 'Tools',
-  komunitas: 'Komunitas',
+  teras: 'Teras',
 };
 
 function getCurrentDocumentTitle(): string {
@@ -241,7 +241,7 @@ const MENU_CARDS: MenuCard[] = [
     iconAnim: 'animate-icon-wiggle',
   },
   {
-    id: 'komunitas', label: 'Komunitas', desc: 'Ruang berbagi agent',
+    id: 'teras', label: 'Teras', desc: 'Ruang berbagi agent',
     icon: MessagesSquare, color: 'text-teal-600 dark:text-teal-400',
     bgLight: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20',
     borderLight: 'border-teal-100', borderDark: 'dark:border-teal-800/40',
@@ -251,6 +251,7 @@ const MENU_CARDS: MenuCard[] = [
     iconShadow: 'shadow-lg shadow-teal-500/30 dark:shadow-teal-900/40',
     hoverShadow: 'hover:shadow-teal-300/40 dark:hover:shadow-teal-900/30',
     iconAnim: 'animate-icon-breathe',
+    hidden: true,
   },
   {
     id: 'ai-tools', label: 'Tools', desc: 'Voice over & AI lainnya',
@@ -512,17 +513,17 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   };
 
   const isAdmin = agentData.role === 'admin';
-  const communityEnabled = isCommunityEnabledForAgent(agentData.slug);
-  const visibleCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly && (c.id !== 'komunitas' || communityEnabled));
+  const terasEnabled = isCommunityEnabledForAgent(agentData.slug);
+  const visibleCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly && (c.id !== 'teras' || terasEnabled));
   const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly) : [];
 
   useEffect(() => {
-    if (activeTab === 'komunitas' && !communityEnabled) {
+    if (activeTab === 'teras' && !terasEnabled) {
       navigatePath('/dashboard', { replace: true });
     }
-  }, [activeTab, communityEnabled, navigatePath]);
+  }, [activeTab, terasEnabled, navigatePath]);
 
-  if (activeTab === 'komunitas' && !communityEnabled) {
+  if (activeTab === 'teras' && !terasEnabled) {
     return (
       <div className="fixed inset-0 bg-gray-100 dark:bg-slate-950 flex items-center justify-center">
         <Loader2 size={24} className="animate-spin text-emerald-500" />
@@ -743,8 +744,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               website: agentData.website || '',
             }} displayMode={brosurDisplayMode} />
           )}
-          {activeTab === 'komunitas' && communityEnabled && (
-            <KomunitasPage agent={{
+          {activeTab === 'teras' && terasEnabled && (
+            <TerasPage agent={{
               slug: agentData.slug,
               name: agentData.name,
               photo: agentData.photo,
@@ -970,13 +971,17 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               window.history.replaceState({}, '', '/dashboard/settings/telegram');
             }}
           />
-
-          {/* ── AI Insight Alert Bar ── */}
-          <CalendarInsight onNavigate={(tab) => navigateTab(tab as TabId)} />
         </Suspense>
 
         {/* ── Feature Cards Grid ── */}
         <div className="grid grid-cols-3 gap-3">
+          {terasEnabled && (
+            <div className="col-span-3">
+              <Suspense fallback={<div className="h-[88px] animate-pulse rounded-2xl border border-gray-100 bg-white dark:border-slate-700 dark:bg-slate-800" />}>
+                <TerasCard onOpen={() => navigateTab('teras')} />
+              </Suspense>
+            </div>
+          )}
           {visibleCards.map(renderMenuCard)}
         </div>
 

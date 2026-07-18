@@ -1,6 +1,54 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeFlightEntriesByTourLeader } from '../lib/flight-entry-merge.js';
+import {
+  compareFlightDepartureTimestamp,
+  departureTimestampMs,
+  mergeFlightEntriesByTourLeader,
+} from '../lib/flight-entry-merge.js';
+
+test('flight order compares absolute departure time across CGK and JED', () => {
+  const sv819 = {
+    flightNumber: 'SV 819',
+    eventDate: '2026-07-18',
+    depCode: 'CGK',
+    depScheduled: '17:30',
+    _depUTC: Date.parse('2026-07-18T10:30:00Z'),
+  };
+  const sv816 = {
+    flightNumber: 'SV 816',
+    eventDate: '2026-07-18',
+    depCode: 'JED',
+    depScheduled: '17:30',
+    _depUTC: Date.parse('2026-07-18T14:30:00Z'),
+  };
+
+  assert.equal(departureTimestampMs(sv819), Date.parse('2026-07-18T10:30:00Z'));
+  assert.equal(departureTimestampMs(sv816), Date.parse('2026-07-18T14:30:00Z'));
+  assert.ok(compareFlightDepartureTimestamp(sv819, sv816) < 0);
+  assert.deepEqual([sv816, sv819].sort(compareFlightDepartureTimestamp), [sv819, sv816]);
+});
+
+test('provider epoch takes precedence and is normalized from seconds to milliseconds', () => {
+  const providerEpoch = Date.parse('2026-07-18T10:35:00Z') / 1000;
+  assert.equal(
+    departureTimestampMs({
+      depTs: providerEpoch,
+      _depUTC: Date.parse('2026-07-18T10:30:00Z'),
+    }),
+    providerEpoch * 1000,
+  );
+});
+
+test('equal absolute departures stay tied even when airport clocks differ', () => {
+  const departureTimestamp = Date.parse('2026-07-18T10:30:00Z');
+  assert.equal(
+    compareFlightDepartureTimestamp(
+      { departureTimestamp, eventDate: '2026-07-18', depScheduled: '17:30' },
+      { departureTimestamp, eventDate: '2026-07-18', depScheduled: '13:30' },
+    ),
+    0,
+  );
+});
 
 test('transit segments from the same TL/event merge into one card without double pax or jamaah', () => {
   const firstDepUTC = Date.parse('2026-07-01T17:40:00Z');
@@ -65,10 +113,15 @@ test('transit segments from the same TL/event merge into one card without double
   assert.equal(merged[0].depCode, 'JED');
   assert.equal(merged[0].arrCode, 'DXB');
   assert.equal(merged[0].duration, 170);
+  assert.equal(merged[0].departureTimestamp, firstDepUTC);
   assert.equal(merged[0].pax, 28);
   assert.equal(merged[0].jamaah.length, 1);
   assert.equal(merged[0].transitLabel, 'Menuju Dubai');
   assert.equal(merged[0].segments.length, 2);
+  assert.deepEqual(
+    merged[0].segments.map(segment => segment.departureTimestamp),
+    [firstDepUTC, secondDepUTC],
+  );
   assert.deepEqual(
     merged[0].segments.map(s => ({
       flightNumber: s.flightNumber,

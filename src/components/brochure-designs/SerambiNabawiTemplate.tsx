@@ -104,8 +104,23 @@ export function SerambiNabawiTemplate({ month, agent, displayMode = 'hari' }: Br
   const landingUrl = landingUrlForAgent(agent);
   const agentName = agent.name || 'Alhijaz';
 
-  // "September 2026" → nama bulan Title-case + tahun terpisah.
-  const monthName = month.label.replace(/\s*\d{4}\s*$/, '').trim().toLowerCase();
+  // "September 2026" → nama bulan uppercase + tahun terpisah. Halaman
+  // hasil filter dibuat dengan `year: 0`, jadi ambil tahun dari label atau
+  // tanggal keberangkatan agar angka 0 tidak ikut tercetak di brosur.
+  const monthName = month.label.replace(/\s*\d{4}\s*$/, '').trim().toUpperCase();
+  const labelYear = month.label.match(/\b(?:19|20)\d{2}\b/)?.[0];
+  const departureYears = [...new Set(
+    month.packages
+      .map(p => (/^\d{4}-\d{2}-\d{2}$/.test(p.berangkat_tgl) ? p.berangkat_tgl.slice(0, 4) : ''))
+      .filter(Boolean),
+  )].sort();
+  const displayYear = labelYear
+    || (month.year >= 1900 ? String(month.year) : '')
+    || (departureYears.length === 1
+      ? departureYears[0]
+      : departureYears.length > 1
+        ? `${departureYears[0]}–${departureYears[departureYears.length - 1]}`
+        : '');
   const monthFontSize = monthName.length >= 10 ? 96 : 108;
 
   const n = month.packages.length;
@@ -173,7 +188,9 @@ export function SerambiNabawiTemplate({ month, agent, displayMode = 'hari' }: Br
           fontWeight: 800,
           lineHeight: 0.95,
           marginTop: 10,
-          textTransform: 'capitalize',
+          letterSpacing: '0.045em',
+          textIndent: '0.045em',
+          textTransform: 'uppercase',
           backgroundImage: FOIL,
           backgroundClip: 'text',
           WebkitBackgroundClip: 'text',
@@ -181,10 +198,30 @@ export function SerambiNabawiTemplate({ month, agent, displayMode = 'hari' }: Br
           WebkitTextFillColor: 'transparent',
           filter: 'drop-shadow(0 2px 2px rgba(122,90,21,0.22))',
         }}>{monthName}</div>
-        <div style={{
-          marginTop: 8, fontSize: 30, fontWeight: 700, letterSpacing: '0.35em',
-          textIndent: '0.35em', color: '#7A6A4A', fontVariantNumeric: 'lining-nums',
-        }}>— {month.year} —</div>
+        {displayYear && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
+            marginTop: 10,
+          }}>
+            <div style={{ width: 66, height: 1, background: `linear-gradient(90deg, transparent, ${GOLD_MID})` }} />
+            <Diamond size={6} color={GOLD_DARK} />
+            <div style={{
+              padding: '7px 18px 7px 24px',
+              borderRadius: 999,
+              border: `1px solid ${GOLD_LIGHT}`,
+              background: 'linear-gradient(180deg, #FFFDF8 0%, #F7EBCB 100%)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.9), 0 4px 12px rgba(184,146,47,0.12)',
+              color: '#7A5A15',
+              fontSize: 26,
+              fontWeight: 800,
+              lineHeight: 1,
+              letterSpacing: '0.24em',
+              fontVariantNumeric: 'lining-nums',
+            }}>{displayYear}</div>
+            <Diamond size={6} color={GOLD_DARK} />
+            <div style={{ width: 66, height: 1, background: `linear-gradient(90deg, ${GOLD_MID}, transparent)` }} />
+          </div>
+        )}
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 12, marginTop: 14,
           padding: '12px 28px', borderRadius: 999, background: '#FFFFFF',
