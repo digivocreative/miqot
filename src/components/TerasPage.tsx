@@ -7,7 +7,6 @@ import {
   type ChangeEvent,
   type FormEvent,
   type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
@@ -17,20 +16,16 @@ import {
   ChevronLeft,
   ChevronRight,
   Flag,
-  HandHeart,
+  Heart,
   Image as ImageIcon,
   Loader2,
   Maximize2,
   MessageCircle,
   MoreHorizontal,
-  PartyPopper,
-  Send,
   Sparkles,
-  ThumbsUp,
   Trash2,
   Users,
   X,
-  type LucideIcon,
 } from 'lucide-react';
 import { handleAgentPhotoError } from '../lib/agent-photo';
 import { getAuthHeaders } from './LoginPage';
@@ -126,43 +121,14 @@ interface MediaViewerState {
   direction: number;
 }
 
-interface ReactionStyle {
-  label: string;
-  icon: LucideIcon;
-  solidClass: string;
-  textClass: string;
-}
-
-const REACTION_TYPES: ReactionType[] = ['suka', 'selamat', 'aamiin'];
 const REQUEST_TIMEOUT_MS = 20_000;
 const MEDIA_UPLOAD_TIMEOUT_MS = 120_000;
 const MAX_COMMUNITY_MEDIA = 4;
-const COMPOSER_PROMPT = 'Mau sharing apa nih?';
+const COMPOSER_PROMPT = 'Apa yang baru, Bu?';
 const MAX_COMMUNITY_SOURCE_IMAGE_BYTES = 16 * 1024 * 1024;
 const MAX_COMMUNITY_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_COMMUNITY_VIDEO_BYTES = 24 * 1024 * 1024;
 const SUPPORTED_VIDEO_TYPES = new Set(['video/mp4', 'video/quicktime', 'video/webm']);
-const REACTION_STYLES: Record<ReactionType, ReactionStyle> = {
-  suka: {
-    label: 'Suka',
-    icon: ThumbsUp,
-    solidClass: 'bg-emerald-500',
-    textClass: 'text-emerald-600 dark:text-emerald-400',
-  },
-  selamat: {
-    label: 'Selamat',
-    icon: PartyPopper,
-    solidClass: 'bg-amber-500',
-    textClass: 'text-amber-600 dark:text-amber-400',
-  },
-  aamiin: {
-    label: 'Aamiin',
-    icon: HandHeart,
-    solidClass: 'bg-teal-500',
-    textClass: 'text-teal-600 dark:text-teal-400',
-  },
-};
-
 function getInitials(name: string): string {
   return String(name || 'Agent')
     .trim()
@@ -393,17 +359,20 @@ function AgentAvatar({
 function PostSkeleton({ withMedia = false }: { withMedia?: boolean }) {
   return (
     <div className="animate-pulse border-b border-gray-100 bg-white motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900">
-      <div className="flex items-center gap-3 px-4 pt-4">
-        <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-slate-700" />
-        <div className="flex flex-1 items-center gap-2">
-          <div className="h-3 w-28 rounded bg-gray-200 dark:bg-slate-700" />
-          <div className="h-2.5 w-12 rounded bg-gray-100 dark:bg-slate-700/70" />
+      <div className="relative flex items-start gap-3 px-4 pt-4">
+        <div className="h-10 w-10 shrink-0 rounded-full bg-gray-200 dark:bg-slate-700" />
+        <div className="min-w-0 flex-1 pb-4">
+          <div className="flex items-center gap-2 pr-10">
+            <div className="h-3 w-28 rounded bg-gray-200 dark:bg-slate-700" />
+            <div className="h-2.5 w-12 rounded bg-gray-100 dark:bg-slate-700/70" />
+          </div>
+          <div className="mt-2 space-y-2">
+            <div className="h-3.5 w-full rounded bg-gray-100 dark:bg-slate-700/70" />
+            <div className="h-3.5 w-5/6 rounded bg-gray-100 dark:bg-slate-700/70" />
+            <div className="h-3.5 w-2/3 rounded bg-gray-100 dark:bg-slate-700/70" />
+          </div>
         </div>
-      </div>
-      <div className="ml-[68px] space-y-2 px-4 py-4 pl-0">
-        <div className="h-3 w-full rounded bg-gray-100 dark:bg-slate-700/70" />
-        <div className="h-3 w-5/6 rounded bg-gray-100 dark:bg-slate-700/70" />
-        <div className="h-3 w-2/3 rounded bg-gray-100 dark:bg-slate-700/70" />
+        <div className="absolute right-2 top-0 h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
       </div>
       {withMedia && (
         <div data-teras-skeleton-media className="ml-[68px] mr-4 aspect-[4/5] max-h-[34rem] rounded-2xl bg-gray-100 dark:bg-slate-800" />
@@ -614,20 +583,6 @@ function CommentSkeleton() {
   );
 }
 
-function socialProofLabel(post: CommunityPost): string {
-  const total = REACTION_TYPES.reduce((sum, reaction) => sum + post.reactions[reaction], 0);
-  if (total <= 0) return '';
-  if (post.my_reaction) {
-    return total === 1 ? 'Anda' : `Anda dan ${total - 1} lainnya`;
-  }
-  if (post.reaction_sample_name) {
-    return total === 1
-      ? post.reaction_sample_name
-      : `${post.reaction_sample_name} dan ${total - 1} lainnya`;
-  }
-  return String(total);
-}
-
 export default function TerasPage({ agent }: { agent: TerasAgent }) {
   const reduceMotion = useReducedMotion();
   const [posts, setPosts] = useState<CommunityPost[]>([]);
@@ -649,7 +604,6 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
   const [reportingPostId, setReportingPostId] = useState<string | null>(null);
-  const [pickerOpenPostId, setPickerOpenPostId] = useState<string | null>(null);
   const [menuOpensUp, setMenuOpensUp] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [mediaViewer, setMediaViewer] = useState<MediaViewerState | null>(null);
@@ -675,9 +629,6 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const focusMenuOnOpenRef = useRef(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
-  const likeButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
-  const focusPickerOnOpenRef = useRef(false);
   const feedControllerRef = useRef<AbortController | null>(null);
   const commentControllersRef = useRef<Map<string, AbortController>>(new Map());
   const commentRequestIdsRef = useRef<Map<string, string>>(new Map());
@@ -689,9 +640,6 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
   const mediaViewerTriggerRef = useRef<HTMLElement | null>(null);
   const postsRef = useRef<CommunityPost[]>([]);
   const pendingCreatedPostsRef = useRef<Map<string, CommunityPost>>(new Map());
-  const longPressTimerRef = useRef<number | null>(null);
-  const longPressFiredRef = useRef(false);
-
   const restoreComposerPageState = useCallback((restoreFocus = true) => {
     const state = composerPageStateRef.current;
     if (!state) return;
@@ -902,7 +850,6 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
 
   useEffect(() => () => {
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
-    if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
     composerControllerRef.current?.abort();
     restoreComposerPageState(false);
     composerMediaRef.current.forEach(item => {
@@ -912,33 +859,8 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
     commentControllersRef.current.clear();
   }, [restoreComposerPageState]);
 
-  const openReactionPicker = useCallback((postId: string, focusFirst: boolean) => {
-    focusPickerOnOpenRef.current = focusFirst;
-    setMenuOpenPostId(null);
-    setPickerOpenPostId(postId);
-  }, []);
-
-  const closeReactionPicker = useCallback((postId?: string, restoreFocus = false) => {
-    setPickerOpenPostId(null);
-    focusPickerOnOpenRef.current = false;
-    longPressFiredRef.current = false;
-    if (restoreFocus && postId) {
-      window.requestAnimationFrame(() => likeButtonRefs.current.get(postId)?.focus());
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!pickerOpenPostId || !focusPickerOnOpenRef.current) return;
-    const animationFrame = window.requestAnimationFrame(() => {
-      pickerRef.current?.querySelector<HTMLButtonElement>('[role="menuitemradio"]')?.focus();
-      focusPickerOnOpenRef.current = false;
-    });
-    return () => window.cancelAnimationFrame(animationFrame);
-  }, [pickerOpenPostId]);
-
   const openPostMenu = useCallback((postId: string, focusFirst: boolean) => {
     focusMenuOnOpenRef.current = focusFirst;
-    setPickerOpenPostId(null);
     setConfirmDeletePostId(null);
     const triggerRect = menuButtonRefs.current.get(postId)?.getBoundingClientRect();
     if (triggerRect) {
@@ -1016,21 +938,17 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
   }, [confirmDeletePostId]);
 
   useEffect(() => {
-    if (!menuOpenPostId && !pickerOpenPostId) return;
+    if (!menuOpenPostId) return;
 
     const handleOutsidePointer = (event: globalThis.PointerEvent) => {
       const target = event.target as Node;
-      if (menuOpenPostId && menuRef.current && !menuRef.current.contains(target)) {
+      if (menuRef.current && !menuRef.current.contains(target)) {
         closePostMenu();
-      }
-      if (pickerOpenPostId && pickerRef.current && !pickerRef.current.contains(target)) {
-        closeReactionPicker();
       }
     };
     const handleEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      if (menuOpenPostId) closePostMenu(menuOpenPostId, true);
-      if (pickerOpenPostId) closeReactionPicker(pickerOpenPostId, true);
+      closePostMenu(menuOpenPostId, true);
     };
 
     document.addEventListener('pointerdown', handleOutsidePointer);
@@ -1039,7 +957,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
       document.removeEventListener('pointerdown', handleOutsidePointer);
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [closePostMenu, closeReactionPicker, menuOpenPostId, pickerOpenPostId]);
+  }, [closePostMenu, menuOpenPostId]);
 
   const resetComposer = useCallback(() => {
     composerMediaRef.current.forEach(item => {
@@ -1340,7 +1258,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
     await fetchFeed(nextCursor, true, controller.signal);
   };
 
-  const updateReaction = async (postId: string, nextReaction: ReactionType | null) => {
+  const updateReaction = async (postId: string, nextReaction: 'suka' | null) => {
     if (reactionPendingRef.current.has(postId)) return;
     const snapshot = postsRef.current.find(post => post.id === postId);
     if (!snapshot) return;
@@ -1383,71 +1301,9 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
     }
   };
 
-  const clearLongPressTimer = () => {
-    if (longPressTimerRef.current !== null) {
-      window.clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  };
-
-  const startLongPress = (postId: string, event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0 || reactionPendingRef.current.has(postId)) return;
-    clearLongPressTimer();
-    longPressFiredRef.current = false;
-    longPressTimerRef.current = window.setTimeout(() => {
-      longPressTimerRef.current = null;
-      longPressFiredRef.current = true;
-      openReactionPicker(postId, false);
-    }, 420);
-  };
-
   const handleLikeClick = (post: CommunityPost) => {
-    if (longPressFiredRef.current) {
-      longPressFiredRef.current = false;
-      return;
-    }
-    closeReactionPicker();
-    const nextReaction: ReactionType | null = post.my_reaction ? null : 'suka';
+    const nextReaction: 'suka' | null = post.my_reaction ? null : 'suka';
     void updateReaction(post.id, nextReaction);
-  };
-
-  const handleLikeKeyDown = (event: KeyboardEvent<HTMLButtonElement>, postId: string) => {
-    if (reactionPendingRef.current.has(postId)) {
-      event.preventDefault();
-      return;
-    }
-    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-    event.preventDefault();
-    openReactionPicker(postId, true);
-  };
-
-  const handlePickerKeyDown = (event: KeyboardEvent<HTMLDivElement>, postId: string) => {
-    if (event.key === 'Tab') {
-      event.preventDefault();
-      closeReactionPicker(postId, true);
-      return;
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      closeReactionPicker(postId, true);
-      return;
-    }
-
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    const buttons = Array.from(
-      pickerRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') || [],
-    );
-    if (buttons.length === 0) return;
-
-    event.preventDefault();
-    const activeIndex = Math.max(0, buttons.indexOf(document.activeElement as HTMLButtonElement));
-    const nextIndex = event.key === 'Home'
-      ? 0
-      : event.key === 'End'
-        ? buttons.length - 1
-        : (activeIndex + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
-    buttons[nextIndex]?.focus();
   };
 
   const loadComments = async (postId: string) => {
@@ -1695,26 +1551,17 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                 type="button"
                 onClick={closeComposer}
                 disabled={composerBusy}
-                aria-label="Tutup buat kiriman"
-                title="Tutup"
-                className="flex h-11 w-11 items-center justify-center justify-self-start rounded-xl bg-gray-100 text-gray-600 transition-all active:scale-95 disabled:opacity-45 dark:bg-slate-800 dark:text-slate-300"
+                className="min-h-11 min-w-11 justify-self-start px-1 text-[13px] font-semibold text-gray-600 transition-colors disabled:opacity-45 dark:text-slate-300"
               >
-                <X size={18} />
+                Batal
               </button>
               <h2 id="teras-composer-title" className="text-center text-sm font-bold text-gray-900 dark:text-white">Buat Kiriman</h2>
-              <button
-                type="submit"
-                disabled={!composerCanSubmit}
-                aria-label="Kirim kiriman"
-                className="flex min-h-11 min-w-[72px] items-center justify-center justify-self-end rounded-full bg-emerald-500 px-4 py-2 text-[12px] font-extrabold text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-45 dark:bg-emerald-500 dark:shadow-emerald-950/40"
-              >
-                {composerBusy ? <Loader2 size={15} className="animate-spin" /> : 'KIRIM'}
-              </button>
+              <span aria-hidden="true" />
             </div>
           </header>
 
           <div className="flex-1 overflow-x-hidden overflow-y-auto">
-            <div className="mx-auto w-full max-w-2xl px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
+            <div className="mx-auto w-full max-w-2xl px-4 pb-4 pt-4">
               <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
                 <div className="flex flex-col items-center">
                   <AgentAvatar name={agent.name} photo={agent.photo} />
@@ -1723,7 +1570,6 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
 
                 <div className="min-w-0">
                   <p className="truncate text-[13px] font-bold text-gray-900 dark:text-white">{agent.name}</p>
-                  <p className="mt-0.5 text-[10px] text-gray-500 dark:text-slate-400">Tampil untuk pengguna Teras</p>
 
                   <textarea
                     autoFocus
@@ -1825,6 +1671,22 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
 
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="shrink-0 border-t border-gray-100 bg-white/95 dark:border-slate-700/50 dark:bg-slate-900/95">
+            <div className="mx-auto flex w-full max-w-2xl items-center gap-3 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+              <span className="flex-1 text-[11px] font-medium text-gray-500 dark:text-slate-400">
+                Tampil untuk semua agent Alhijaz
+              </span>
+              <button
+                type="submit"
+                disabled={!composerCanSubmit}
+                aria-label="Kirim kiriman"
+                className="flex min-h-11 min-w-[72px] items-center justify-center rounded-full bg-emerald-500 px-4 py-2 text-[12px] font-extrabold text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-45 dark:bg-emerald-500 dark:shadow-emerald-950/40"
+              >
+                {composerBusy ? <Loader2 size={15} className="animate-spin" /> : 'KIRIM'}
+              </button>
             </div>
           </div>
         </motion.form>
@@ -2026,13 +1888,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
             const commentsOpen = !!commentPanel?.open;
             const commentInputLength = Array.from(commentPanel?.input.trim() || '').length;
             const canDeletePost = post.is_own || agent.role === 'admin';
-            const totalReactions = REACTION_TYPES.reduce((sum, reaction) => sum + post.reactions[reaction], 0);
-            const reactionSummary = REACTION_TYPES
-              .filter(reaction => post.reactions[reaction] > 0)
-              .sort((left, right) => post.reactions[right] - post.reactions[left])
-              .slice(0, 3);
-            const activeReactionStyle = post.my_reaction ? REACTION_STYLES[post.my_reaction] : null;
-            const ActiveReactionIcon = activeReactionStyle?.icon || ThumbsUp;
+            const totalReactions = post.reactions.suka + post.reactions.selamat + post.reactions.aamiin;
             const reactionIsBusy = reactionBusy.has(post.id);
             const postMedia = normalizePostMedia(post);
             const authorName = post.author.name || (post.is_system ? 'Miqot' : 'Agent');
@@ -2047,6 +1903,14 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                     : 'border-gray-100 dark:border-slate-800'
                 }`}
               >
+                {commentsOpen && (
+                  <div
+                    data-thread-connector
+                    aria-hidden="true"
+                    className="pointer-events-none absolute bottom-4 left-[35px] top-[60px] w-px bg-gray-200 dark:bg-slate-700"
+                  />
+                )}
+
                 {post.is_system && (
                   <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-emerald-500/[0.07] to-transparent" />
                 )}
@@ -2061,24 +1925,33 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                   )}
 
                   <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <p className="min-w-0 truncate text-[13px] font-bold text-gray-900 dark:text-white">{authorName}</p>
+                    <div className={`flex min-w-0 items-center gap-1.5 ${post.is_system ? '' : 'pr-10'}`}>
+                      <p className="min-w-0 truncate text-[14px] font-bold text-gray-900 dark:text-white">{authorName}</p>
                       {post.is_system && (
                         <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
                           <Sparkles size={9} />
                           Sorotan
                         </span>
                       )}
-                      <time dateTime={post.created_at} className="shrink-0 text-[10px] font-medium text-gray-500 dark:text-slate-400">
+                      <span className="flex-1" />
+                      <time dateTime={post.created_at} className="shrink-0 text-[12px] font-medium text-gray-500 dark:text-slate-400">
                         {timeAgo(post.created_at)}
                       </time>
                     </div>
+
+                    <p
+                      data-post-body
+                      className="mt-1.5 whitespace-pre-wrap break-words text-base leading-[1.5] text-gray-800 dark:text-slate-200"
+                    >
+                      {!post.is_system && <span aria-hidden="true" className="float-right h-6 w-11" />}
+                      {post.body}
+                    </p>
                   </div>
 
                   {!post.is_system && (
                     <div
                       ref={menuOpenPostId === post.id ? menuRef : undefined}
-                      className="relative shrink-0"
+                      className="absolute right-2 top-0 z-20 shrink-0"
                     >
                       <button
                         ref={element => {
@@ -2174,10 +2047,6 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                   )}
                 </div>
 
-                <p className="relative ml-[68px] mr-4 whitespace-pre-wrap break-words pt-2 text-[14px] leading-[1.45] text-gray-800 dark:text-slate-200">
-                  {post.body}
-                </p>
-
                 {postMedia.length > 0 && (
                   <div className="ml-[68px] mr-4">
                     <PostMediaRail
@@ -2188,122 +2057,27 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                   </div>
                 )}
 
-                {(totalReactions > 0 || post.comment_count > 0) && (
-                  <div className="relative ml-[68px] mr-4 flex items-center justify-between gap-3 py-2">
-                    <div className="flex min-w-0 items-center">
-                      {reactionSummary.length > 0 && (
-                        <div className="mr-2 flex shrink-0 pl-1.5">
-                          {reactionSummary.map(reaction => {
-                            const style = REACTION_STYLES[reaction];
-                            const Icon = style.icon;
-                            return (
-                              <span
-                                key={reaction}
-                                className={`-ml-1.5 flex h-[19px] w-[19px] items-center justify-center rounded-full border-2 border-white text-white dark:border-slate-800 ${style.solidClass}`}
-                                title={`${style.label}: ${post.reactions[reaction]}`}
-                              >
-                                <Icon size={10} />
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {totalReactions > 0 && (
-                        <span className="truncate text-[11px] font-medium text-gray-500 dark:text-slate-400">{socialProofLabel(post)}</span>
-                      )}
-                    </div>
-                    {post.comment_count > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => toggleComments(post.id)}
-                        aria-expanded={commentsOpen}
-                        aria-controls={`teras-comments-${post.id}`}
-                        className="flex min-h-11 shrink-0 items-center rounded-lg px-2 text-[11px] font-medium text-gray-500 transition-colors active:bg-gray-50 dark:text-slate-400 dark:active:bg-slate-900"
-                      >
-                        {post.comment_count} komentar
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                <div className="relative ml-[68px] mr-4 flex items-center gap-1 border-t border-gray-50 py-1 dark:border-slate-800">
-                  <div
-                    className="relative"
+                <div className="relative ml-[68px] mr-4 mt-1 flex items-center gap-1 py-1">
+                  <button
+                    type="button"
+                    aria-disabled={reactionIsBusy}
+                    aria-label="Suka"
+                    title="Suka"
+                    aria-pressed={!!post.my_reaction}
+                    onClick={() => {
+                      if (!reactionIsBusy) handleLikeClick(post);
+                    }}
+                    className={`flex min-h-11 select-none touch-manipulation items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/50 dark:active:bg-slate-900 ${reactionIsBusy ? 'opacity-60' : ''} ${
+                      post.my_reaction
+                        ? 'text-rose-500 dark:text-rose-400'
+                        : 'text-gray-500 dark:text-slate-400'
+                    }`}
                   >
-                    <button
-                      ref={element => {
-                        if (element) likeButtonRefs.current.set(post.id, element);
-                        else likeButtonRefs.current.delete(post.id);
-                      }}
-                      type="button"
-                      aria-disabled={reactionIsBusy}
-                      aria-label={activeReactionStyle?.label || 'Suka'}
-                      title={activeReactionStyle?.label || 'Suka'}
-                      aria-pressed={!!post.my_reaction}
-                      aria-haspopup="menu"
-                      aria-expanded={pickerOpenPostId === post.id}
-                      aria-controls={`teras-reaction-picker-${post.id}`}
-                      onPointerDown={event => startLongPress(post.id, event)}
-                      onPointerUp={clearLongPressTimer}
-                      onPointerLeave={clearLongPressTimer}
-                      onPointerCancel={clearLongPressTimer}
-                      onClick={() => {
-                        if (!reactionIsBusy) handleLikeClick(post);
-                      }}
-                      onKeyDown={event => handleLikeKeyDown(event, post.id)}
-                      onContextMenu={event => event.preventDefault()}
-                      className={`flex h-11 w-11 select-none touch-manipulation items-center justify-center rounded-full transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:active:bg-slate-900 ${reactionIsBusy ? 'opacity-60' : ''} ${
-                        activeReactionStyle
-                          ? activeReactionStyle.textClass
-                          : 'text-gray-500 dark:text-slate-400'
-                      }`}
-                    >
-                      {reactionIsBusy
-                        ? <Loader2 size={16} className="animate-spin" />
-                        : <ActiveReactionIcon size={16} />}
-                    </button>
-
-                    <AnimatePresence>
-                      {pickerOpenPostId === post.id && (
-                        <motion.div
-                          ref={pickerRef}
-                          id={`teras-reaction-picker-${post.id}`}
-                          role="menu"
-                          aria-label="Pilih reaksi"
-                          onKeyDown={event => handlePickerKeyDown(event, post.id)}
-                          className="absolute bottom-full left-0 z-30 mb-2 flex gap-1.5 rounded-full border border-gray-100 bg-white px-2 py-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-800"
-                          initial={{ opacity: 0, scale: 0.82, y: 8 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.9, y: 5 }}
-                          transition={reduceMotion ? { duration: 0 } : { duration: 0.18 }}
-                          style={{ transformOrigin: 'bottom left' }}
-                        >
-                          {REACTION_TYPES.map(reaction => {
-                            const style = REACTION_STYLES[reaction];
-                            const Icon = style.icon;
-                            const active = post.my_reaction === reaction;
-                            return (
-                              <button
-                                key={reaction}
-                                type="button"
-                                onClick={() => {
-                                  closeReactionPicker(post.id, true);
-                                  void updateReaction(post.id, active ? null : reaction);
-                                }}
-                                role="menuitemradio"
-                                aria-checked={active}
-                                aria-label={active ? `Hapus reaksi ${style.label}` : `Pilih reaksi ${style.label}`}
-                                title={style.label}
-                                className={`flex h-11 w-11 items-center justify-center rounded-full text-white shadow-sm transition-transform active:scale-90 ${style.solidClass} ${active ? 'ring-2 ring-gray-900 ring-offset-2 dark:ring-white dark:ring-offset-slate-800' : ''}`}
-                              >
-                                <Icon size={19} />
-                              </button>
-                            );
-                          })}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
+                    {reactionIsBusy
+                      ? <Loader2 size={19} className="animate-spin" />
+                      : <Heart size={19} fill={post.my_reaction ? 'currentColor' : 'none'} />}
+                    {totalReactions > 0 && <span className="tabular-nums">{totalReactions}</span>}
+                  </button>
 
                   <button
                     type="button"
@@ -2312,26 +2086,39 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                     aria-controls={`teras-comments-${post.id}`}
                     aria-label="Komentari"
                     title="Komentari"
-                    className={`flex h-11 w-11 items-center justify-center rounded-full transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:active:bg-slate-900 ${
+                    className={`flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:active:bg-slate-900 ${
                       commentsOpen
                         ? 'text-emerald-600 dark:text-emerald-400'
                         : 'text-gray-500 dark:text-slate-400'
                     }`}
                   >
-                    <MessageCircle size={16} />
+                    <MessageCircle size={19} />
+                    {post.comment_count > 0 && <span className="tabular-nums">{post.comment_count}</span>}
                   </button>
                 </div>
+
+                {!commentsOpen && post.comment_count > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => toggleComments(post.id)}
+                    aria-expanded="false"
+                    aria-controls={`teras-comments-${post.id}`}
+                    className="ml-[68px] mr-4 flex min-h-11 items-center text-[12.5px] font-medium text-gray-500 transition-colors active:text-gray-700 dark:text-slate-400 dark:active:text-slate-200"
+                  >
+                    {post.comment_count} balasan
+                  </button>
+                )}
 
                 {commentsOpen && commentPanel && (
                   <div
                     id={`teras-comments-${post.id}`}
                     aria-busy={commentPanel.sending}
-                    className="ml-[68px] mr-4 min-w-0 pb-4"
+                    className="min-w-0 px-4 pb-4"
                   >
                     {commentPanel.loading ? (
                       <CommentSkeleton />
                     ) : commentPanel.error && !commentPanel.loaded ? (
-                      <div role="alert" className="mt-2 min-w-0 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 [overflow-wrap:anywhere] dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
+                      <div role="alert" className="ml-[52px] mt-2 min-w-0 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 [overflow-wrap:anywhere] dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
                         <p className="min-w-0 [overflow-wrap:anywhere]">{commentPanel.error}</p>
                         <button
                           type="button"
@@ -2343,38 +2130,39 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                       </div>
                     ) : (
                       <>
-                        <div className="space-y-2.5 pt-2">
+                        <div className="space-y-3 pt-2">
                           {commentPanel.comments.length === 0 ? (
                             <p className="py-2 text-center text-[11px] text-gray-500 dark:text-slate-400">Belum ada komentar.</p>
                           ) : commentPanel.comments.map(comment => {
                             const canDeleteComment = comment.is_own || agent.role === 'admin';
                             return (
-                              <div key={comment.id} className="flex items-start gap-2">
-                                <AgentAvatar name={comment.author.name || 'Agent'} photo={comment.author.photo} size="comment" />
+                              <div key={comment.id} className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
+                                <div className="justify-self-center">
+                                  <AgentAvatar name={comment.author.name || 'Agent'} photo={comment.author.photo} size="comment" />
+                                </div>
                                 <div className="min-w-0 flex-1">
-                                  <div className="inline-block max-w-full rounded-2xl border border-gray-100 bg-gray-100 px-3 py-1.5 dark:border-slate-700/50 dark:bg-slate-900">
-                                    <div className="flex items-start gap-1">
-                                      <div className="min-w-0 flex-1">
-                                        <p className="truncate text-[11px] font-bold text-gray-800 dark:text-slate-200">{comment.author.name || 'Agent'}</p>
-                                        <p className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300">{comment.body}</p>
-                                      </div>
-                                      {canDeleteComment && (
-                                        <button
-                                          type="button"
-                                          disabled={deletingCommentId === comment.id}
-                                          onClick={() => void deleteComment(post.id, comment.id)}
-                                          aria-label="Hapus komentar"
-                                          title="Hapus komentar"
-                                          className="-mr-2 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors active:bg-white active:text-red-500 disabled:opacity-50 dark:text-slate-400 dark:active:bg-slate-800 dark:active:text-red-400"
-                                        >
-                                          {deletingCommentId === comment.id
-                                            ? <Loader2 size={12} className="animate-spin" />
-                                            : <Trash2 size={12} />}
-                                        </button>
-                                      )}
-                                    </div>
+                                  <div className="flex min-w-0 items-center gap-1.5">
+                                    <p className="min-w-0 truncate text-[13px] font-bold text-gray-800 dark:text-slate-200">{comment.author.name || 'Agent'}</p>
+                                    <span className="flex-1" />
+                                    <time dateTime={comment.created_at} className="shrink-0 text-[11px] font-medium text-gray-500 dark:text-slate-400">
+                                      {timeAgo(comment.created_at)}
+                                    </time>
+                                    {canDeleteComment && (
+                                      <button
+                                        type="button"
+                                        disabled={deletingCommentId === comment.id}
+                                        onClick={() => void deleteComment(post.id, comment.id)}
+                                        aria-label="Hapus komentar"
+                                        title="Hapus komentar"
+                                        className="-my-3 -mr-2 flex min-h-11 min-w-11 shrink-0 items-center justify-center text-gray-500 transition-colors active:text-red-500 disabled:opacity-50 dark:text-slate-400 dark:active:text-red-400"
+                                      >
+                                        {deletingCommentId === comment.id
+                                          ? <Loader2 size={13} className="animate-spin" />
+                                          : <Trash2 size={13} />}
+                                      </button>
+                                    )}
                                   </div>
-                                  <p className="ml-3 mt-0.5 text-[10px] font-semibold text-gray-500 dark:text-slate-400">{timeAgo(comment.created_at)}</p>
+                                  <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300">{comment.body}</p>
                                 </div>
                               </div>
                             );
@@ -2382,37 +2170,41 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                         </div>
 
                         {commentPanel.error && (
-                          <p role="alert" className="mt-2 min-w-0 text-[10px] font-medium text-red-500 [overflow-wrap:anywhere] dark:text-red-400">{commentPanel.error}</p>
+                          <p role="alert" className="ml-[52px] mt-2 min-w-0 text-[10px] font-medium text-red-500 [overflow-wrap:anywhere] dark:text-red-400">{commentPanel.error}</p>
                         )}
 
                         <p role="status" aria-live="polite" className="sr-only">
                           {commentPanel.sending ? 'Sedang mengirim komentar.' : ''}
                         </p>
 
-                        <div className="mt-3 flex items-center gap-2">
-                          <AgentAvatar name={agent.name} photo={agent.photo} size="comment" />
-                          <input
-                            type="text"
-                            value={commentPanel.input}
-                            readOnly={commentPanel.sending}
-                            aria-disabled={commentPanel.sending}
-                            onChange={event => updateCommentInput(post.id, event.target.value)}
-                            onKeyDown={event => handleCommentKeyDown(event, post.id)}
-                            aria-label="Tulis komentar"
-                            placeholder="Tulis komentar..."
-                            maxLength={1000}
-                            className="min-h-11 min-w-0 flex-1 rounded-full border border-gray-200 bg-white px-3 py-2 text-base text-gray-800 outline-none placeholder:text-gray-500 read-only:opacity-60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 sm:text-[12px] dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-emerald-500"
-                          />
-                          <button
-                            type="button"
-                            disabled={commentPanel.sending || commentInputLength < 1 || commentInputLength > 1000}
-                            onClick={() => void sendComment(post.id)}
-                            aria-label="Kirim komentar"
-                            title="Kirim komentar"
-                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-45 dark:bg-emerald-500 dark:shadow-emerald-950/40"
-                          >
-                            {commentPanel.sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                          </button>
+                        <div className="mt-3 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
+                          <div className="justify-self-center pt-2">
+                            <AgentAvatar name={agent.name} photo={agent.photo} size="comment" />
+                          </div>
+                          <div className="flex min-w-0 items-center gap-2 border-b border-gray-200 pb-2 dark:border-slate-700">
+                            <input
+                              type="text"
+                              value={commentPanel.input}
+                              readOnly={commentPanel.sending}
+                              aria-disabled={commentPanel.sending}
+                              onChange={event => updateCommentInput(post.id, event.target.value)}
+                              onKeyDown={event => handleCommentKeyDown(event, post.id)}
+                              aria-label="Tulis komentar"
+                              placeholder={`Balas ke ${authorName}…`}
+                              maxLength={1000}
+                              className="min-h-11 min-w-0 flex-1 bg-transparent py-2 text-[13.5px] text-gray-800 outline-none placeholder:text-gray-500 read-only:opacity-60 dark:text-white dark:placeholder:text-slate-400"
+                            />
+                            <button
+                              type="button"
+                              disabled={commentPanel.sending || commentInputLength < 1 || commentInputLength > 1000}
+                              onClick={() => void sendComment(post.id)}
+                              aria-label="Kirim komentar"
+                              title="Kirim komentar"
+                              className="flex min-h-11 shrink-0 items-center justify-center px-2 text-[12.5px] font-extrabold text-emerald-600 transition-colors disabled:opacity-40 dark:text-emerald-400"
+                            >
+                              {commentPanel.sending ? <Loader2 size={14} className="animate-spin" /> : 'Kirim'}
+                            </button>
+                          </div>
                         </div>
                       </>
                     )}

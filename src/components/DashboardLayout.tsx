@@ -46,17 +46,20 @@ function TerasPageSkeleton() {
           key={item}
           className="animate-pulse border-b border-gray-100 bg-white motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900"
         >
-          <div className="flex items-center gap-3 px-4 pt-4">
+          <div className="relative flex items-start gap-3 px-4 pt-4">
             <div className="h-10 w-10 shrink-0 rounded-full bg-gray-200 dark:bg-slate-700" />
-            <div className="flex flex-1 items-center gap-2">
-              <div className="h-3 w-28 rounded bg-gray-200 dark:bg-slate-700" />
-              <div className="h-2.5 w-12 rounded bg-gray-100 dark:bg-slate-700/70" />
+            <div className="min-w-0 flex-1 pb-4">
+              <div className="flex items-center gap-2 pr-10">
+                <div className="h-3 w-28 rounded bg-gray-200 dark:bg-slate-700" />
+                <div className="h-2.5 w-12 rounded bg-gray-100 dark:bg-slate-700/70" />
+              </div>
+              <div className="mt-2 space-y-2">
+                <div className="h-3.5 w-full rounded bg-gray-100 dark:bg-slate-700/70" />
+                <div className="h-3.5 w-5/6 rounded bg-gray-100 dark:bg-slate-700/70" />
+                <div className="h-3.5 w-2/3 rounded bg-gray-100 dark:bg-slate-700/70" />
+              </div>
             </div>
-          </div>
-          <div className="ml-[68px] space-y-2 px-4 py-4 pl-0">
-            <div className="h-3 w-full rounded bg-gray-100 dark:bg-slate-700/70" />
-            <div className="h-3 w-5/6 rounded bg-gray-100 dark:bg-slate-700/70" />
-            <div className="h-3 w-2/3 rounded bg-gray-100 dark:bg-slate-700/70" />
+            <div className="absolute right-2 top-0 h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
           </div>
           {item === 0 && (
             <div data-teras-skeleton-media className="ml-[68px] mr-4 aspect-[4/5] max-h-[34rem] rounded-2xl bg-gray-100 dark:bg-slate-800" />

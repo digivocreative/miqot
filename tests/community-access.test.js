@@ -291,6 +291,24 @@ test('dashboard registers the gated Jendela Teras card and read tracking', () =>
   assert.doesNotMatch(cardSource, /setInterval\s*\(/);
 });
 
+test('Teras Threads presentation uses a single Heart reaction and the new composer prompt', () => {
+  const pageSource = readFileSync(
+    new URL('../src/components/TerasPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(pageSource, /'Apa yang baru, Bu\?'/);
+  assert.match(
+    pageSource,
+    /import\s*\{[\s\S]*?\bHeart\b[\s\S]*?\}\s*from 'lucide-react'/,
+  );
+  assert.doesNotMatch(pageSource, /PartyPopper|HandHeart|startLongPress|menuitemradio/);
+  assert.match(
+    pageSource,
+    /const nextReaction: 'suka' \| null = post\.my_reaction \? null : 'suka'/,
+  );
+});
+
 test('Vite proxies community API to local Express before the generic API fallback', () => {
   const viteSource = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
   const communityProxyIndex = viteSource.indexOf("'/api/community':");

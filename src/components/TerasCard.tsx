@@ -156,7 +156,7 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
       onClick={onOpen}
       aria-label="Teras"
       aria-busy={state.status === 'loading'}
-      className="min-h-[88px] w-full rounded-2xl border border-teal-200/70 bg-gradient-to-br from-teal-50 via-white to-cyan-100/70 p-3 text-left shadow-sm transition active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:border-teal-800/40 dark:from-teal-950/40 dark:via-slate-800 dark:to-slate-800 dark:focus-visible:ring-offset-slate-950"
+      className="group min-h-[88px] w-full rounded-2xl border border-teal-200/70 bg-gradient-to-br from-teal-50 via-white to-cyan-100/70 p-3 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:border-teal-800/40 dark:from-teal-950/40 dark:via-slate-800 dark:to-slate-800 dark:focus-visible:ring-offset-slate-950"
     >
       {state.status === 'loading' ? (
         <div className="animate-pulse" aria-label="Memuat Jendela Teras" aria-busy="true">
@@ -170,8 +170,8 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
       ) : (
         <>
           <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-cyan-600 text-white shadow-lg shadow-teal-500/30 dark:from-teal-500 dark:to-cyan-700 dark:shadow-teal-900/40">
-              <MessagesSquare size={17} />
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-cyan-600 text-white shadow-lg shadow-teal-500/30 transition-transform duration-200 group-hover:scale-110 group-hover:rotate-3 dark:from-teal-500 dark:to-cyan-700 dark:shadow-teal-900/40">
+              <MessagesSquare size={17} className="animate-icon-breathe" />
             </span>
             <span className="text-sm font-extrabold text-gray-900 dark:text-white">Teras</span>
             {unreadCount > 0 && (

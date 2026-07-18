@@ -9,7 +9,7 @@ import { createServer } from 'vite';
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const ONE_PIXEL_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 const LANDSCAPE_SVG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#0f766e"/></svg>')}`;
-const COMPOSER_PROMPT = 'Mau sharing apa nih?';
+const COMPOSER_PROMPT = 'Apa yang baru, Bu?';
 
 let viteServer;
 let browser;
@@ -759,7 +759,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
-  test('post chrome is compact, keeps time beside the author, and uses icon-only actions', { timeout: 30_000 }, async () => {
+  test('post chrome keeps time at the right edge and shows Threads-style action counts', { timeout: 30_000 }, async () => {
     const agent = makeAgent({ name: 'Nikita Test Dengan Nama Sangat Panjang' });
     const createdAt = new Date(Date.now() - 125_000).toISOString();
     const api = createCommunityApi({
@@ -769,6 +769,8 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
           id: 'compact-text',
           body: 'Teks ringkas',
           created_at: createdAt,
+          reactions: { suka: 2, selamat: 3, aamiin: 1 },
+          comment_count: 4,
           is_own: true,
           author: {
             name: agent.name,
@@ -805,17 +807,25 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       const author = textArticle.getByText(agent.name, { exact: true });
       const relativeTime = textArticle.getByText('2 menit', { exact: true });
-      const [authorBox, timeBox] = await Promise.all([
+      const textBody = textArticle.locator('[data-post-body]');
+      const [authorBox, timeBox, bodyBox] = await Promise.all([
         author.boundingBox(),
         relativeTime.boundingBox(),
+        textBody.boundingBox(),
       ]);
-      assert.ok(authorBox && timeBox, 'nama dan waktu harus dapat diukur');
+      assert.ok(authorBox && timeBox && bodyBox, 'nama, waktu, dan isi post harus dapat diukur');
       assert.ok(
         Math.abs((authorBox.y + authorBox.height / 2) - (timeBox.y + timeBox.height / 2)) <= 3,
         'waktu harus satu baris dengan nama',
       );
       assert.ok(timeBox.x >= authorBox.x + authorBox.width, 'waktu harus berada di kanan nama');
-      assert.ok(timeBox.x - (authorBox.x + authorBox.width) <= 16, 'jarak nama dan waktu harus tetap kompak');
+      assert.ok(timeBox.x >= 250, 'waktu harus terdorong ke ujung kanan baris nama');
+      assert.ok(timeBox.x + timeBox.width <= 305, 'waktu tidak boleh bertabrakan dengan menu post');
+      assert.ok(Math.abs(bodyBox.x - authorBox.x) <= 1, 'isi post harus sejajar dengan nama agent');
+      assert.ok(bodyBox.y - (authorBox.y + authorBox.height) <= 10,
+        'isi post harus langsung mengikuti nama tanpa ruang vertikal berlebih');
+      assert.ok(bodyBox.width >= 270 && bodyBox.x + bodyBox.width <= 345,
+        'isi post harus tetap memakai lebar kolom penuh pada viewport 360px');
 
       const [textStyle, mediaStyle] = await Promise.all([
         textArticle.getByText('Teks ringkas', { exact: true }).evaluate(element => {
@@ -828,8 +838,8 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         }),
       ]);
       assert.deepEqual(textStyle, mediaStyle, 'tipografi text-only dan post bermedia harus identik');
-      assert.equal(textStyle.fontSize, '14px');
-      assert.ok(parseFloat(textStyle.lineHeight) <= 21, 'line-height post harus tetap kompak');
+      assert.equal(textStyle.fontSize, '16px');
+      assert.ok(parseFloat(textStyle.lineHeight) <= 24, 'line-height post harus tetap nyaman dan kompak');
 
       const landscapeImage = mediaArticle.getByRole('img', { name: 'Foto kiriman Agent Lain' });
       await landscapeImage.waitFor();
@@ -837,13 +847,19 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const landscapeBox = await landscapeImage.boundingBox();
       assert.ok(landscapeBox && landscapeBox.width / landscapeBox.height > 1.7,
         'media tunggal landscape harus mempertahankan rasio intrinsik, bukan dipotong ke 4:5');
+      assert.ok(Math.abs(landscapeBox.x - bodyBox.x) <= 2,
+        'media harus tetap sejajar dengan kolom isi post');
 
       const likeButton = textArticle.getByRole('button', { name: 'Suka', exact: true });
       const commentButton = textArticle.getByRole('button', { name: 'Komentari', exact: true });
-      assert.equal((await likeButton.innerText()).trim(), '');
-      assert.equal((await commentButton.innerText()).trim(), '');
-      assert.equal(await likeButton.locator('svg').count(), 1);
-      assert.equal(await commentButton.locator('svg').count(), 1);
+      assert.equal((await likeButton.innerText()).trim(), '6');
+      assert.equal((await commentButton.innerText()).trim(), '4');
+      assert.equal(await likeButton.locator('svg.lucide-heart').count(), 1);
+      assert.equal(await commentButton.locator('svg.lucide-message-circle').count(), 1);
+      await textArticle.getByRole('button', { name: '4 balasan', exact: true }).waitFor();
+      const likeBox = await likeButton.boundingBox();
+      assert.ok(likeBox && Math.abs(likeBox.x - bodyBox.x) <= 1,
+        'aksi post harus tetap sejajar dengan isi post');
       for (const button of [likeButton, commentButton]) {
         const box = await button.boundingBox();
         assert.ok(box && box.width >= 44 && box.height >= 44, 'aksi ikon harus memiliki hit-area minimal 44px');
@@ -947,9 +963,8 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.ok(counterBox && fullscreenBox && counterBox.x + counterBox.width < fullscreenBox.x,
         'counter rail tidak boleh menutupi tombol fullscreen video terakhir');
 
-      const countButton = article.getByRole('button', { name: '12345 komentar' });
-      const countBox = await countButton.boundingBox();
-      assert.ok(countBox && countBox.height >= 44 && countBox.x + countBox.width <= 345);
+      assert.doesNotMatch(await article.innerText(), /Nama Reaktor Yang Juga Sangat Panjang|12345 komentar/,
+        'ringkasan engagement tidak perlu ditampilkan di feed');
 
       const menuButton = article.getByRole('button', { name: 'Buka menu kiriman' });
       await menuButton.press('ArrowDown');
@@ -966,7 +981,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await menu.waitFor({ state: 'detached' });
       await app.page.waitForFunction(element => document.activeElement === element, await menuButton.elementHandle());
 
-      await app.page.setViewportSize({ width: 360, height: 320 });
+      await app.page.setViewportSize({ width: 360, height: 260 });
       await menuButton.evaluate(element => {
         window.scrollTo({
           top: window.scrollY + element.getBoundingClientRect().top - (window.innerHeight - 56),
@@ -980,7 +995,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         menuButton.boundingBox(),
       ]);
       assert.ok(shortMenuBox && shortTriggerBox);
-      assert.ok(shortMenuBox.y >= 0 && shortMenuBox.y + shortMenuBox.height <= 320,
+      assert.ok(shortMenuBox.y >= 0 && shortMenuBox.y + shortMenuBox.height <= 260,
         'menu post harus tetap utuh di viewport pendek');
       assert.ok(shortMenuBox.y + shortMenuBox.height <= shortTriggerBox.y + 1,
         'menu post harus berbalik ke atas ketika ruang bawah tidak cukup');
@@ -988,18 +1003,8 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await app.page.setViewportSize({ width: 360, height: 800 });
 
       const likeButton = article.getByRole('button', { name: 'Suka', exact: true });
-      await likeButton.press('ArrowDown');
-      const picker = app.page.getByRole('menu', { name: 'Pilih reaksi' });
-      await picker.waitFor();
-      const pickerBox = await picker.boundingBox();
-      assert.ok(pickerBox && pickerBox.x >= 0 && pickerBox.x + pickerBox.width <= 360);
-      await app.page.keyboard.press('End');
-      assert.equal(
-        await picker.getByRole('menuitemradio', { name: 'Pilih reaksi Aamiin' }).evaluate(element => document.activeElement === element),
-        true,
-      );
-      await app.page.keyboard.press('Escape');
-      await picker.waitFor({ state: 'detached' });
+      assert.equal((await likeButton.innerText()).trim(), String(12345 + 678 + 90));
+      assert.equal(await app.page.getByRole('menu', { name: 'Pilih reaksi' }).count(), 0);
 
       const visibleButtons = article.locator('button:visible');
       for (let index = 0; index < await visibleButtons.count(); index += 1) {
@@ -1099,18 +1104,25 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
-  test('tap and long-press reactions send exact values and a failed optimistic change rolls back', { timeout: 30_000 }, async () => {
+  test('Heart sends only suka/null, keeps legacy totals, ignores long-press, and rolls back failures', { timeout: 30_000 }, async () => {
     let failedReactionRoute;
+    let reactionAttempt = 0;
     const api = createCommunityApi({
-      posts: [makePost({ id: 'reaction-post', body: 'Uji reaksi' })],
+      posts: [makePost({
+        id: 'reaction-post',
+        body: 'Uji reaksi',
+        reactions: { suka: 1, selamat: 2, aamiin: 3 },
+      })],
       onRequest: ({ record, route }) => {
         if (
           record.method === 'POST'
           && record.pathname === '/api/community/posts/reaction-post/reaction'
-          && record.body?.reaction === 'aamiin'
         ) {
-          failedReactionRoute = route;
-          return true;
+          reactionAttempt += 1;
+          if (reactionAttempt === 3 && record.body?.reaction === 'suka') {
+            failedReactionRoute = route;
+            return true;
+          }
         }
         return false;
       },
@@ -1118,26 +1130,10 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     const app = await openApp({ api });
     try {
       const article = app.page.locator('article').filter({ hasText: 'Uji reaksi' });
-      const reactionButton = article.locator('button[aria-controls^="teras-reaction-picker-"]');
+      const reactionButton = article.getByRole('button', { name: 'Suka', exact: true });
       await article.waitFor();
-
-      await reactionButton.click();
-      await app.page.waitForFunction(() => (
-        document.querySelector('button[aria-controls^="teras-reaction-picker-"]')?.getAttribute('aria-pressed') === 'true'
-      ));
-      await article.getByText('Anda', { exact: true }).waitFor();
-      await app.page.waitForFunction(() => (
-        document.querySelector('button[aria-controls^="teras-reaction-picker-"]')?.getAttribute('aria-disabled') === 'false'
-      ));
-
-      await reactionButton.click();
-      await app.page.waitForFunction(() => (
-        document.querySelector('button[aria-controls^="teras-reaction-picker-"]')?.getAttribute('aria-pressed') === 'false'
-      ));
-      await app.page.waitForFunction(() => {
-        const button = document.querySelector('button[aria-controls^="teras-reaction-picker-"]');
-        return button instanceof HTMLButtonElement && button.getAttribute('aria-disabled') === 'false';
-      });
+      assert.equal((await reactionButton.innerText()).trim(), '6', 'reaksi lama harus dihitung dalam total Heart');
+      assert.equal(await reactionButton.getAttribute('aria-pressed'), 'false');
 
       await reactionButton.dispatchEvent('pointerdown', {
         button: 0,
@@ -1146,7 +1142,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         pointerType: 'touch',
         isPrimary: true,
       });
-      await app.page.waitForTimeout(450);
+      await app.page.waitForTimeout(500);
       await reactionButton.dispatchEvent('pointerup', {
         button: 0,
         buttons: 0,
@@ -1154,37 +1150,37 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         pointerType: 'touch',
         isPrimary: true,
       });
-      const picker = app.page.getByRole('menu', { name: 'Pilih reaksi' });
-      await picker.waitFor();
-      assert.equal(
-        matchingRequests(api, 'POST', '/api/community/posts/reaction-post/reaction').length,
-        2,
-        'long-press sendiri tidak boleh mengirim reaksi',
-      );
+      assert.equal(await app.page.getByRole('menu', { name: 'Pilih reaksi' }).count(), 0);
+      assert.equal(matchingRequests(api, 'POST', '/api/community/posts/reaction-post/reaction').length, 0,
+        'long-press sendiri tidak boleh membuka picker atau mengirim reaksi');
 
-      await picker.getByRole('menuitemradio', { name: 'Pilih reaksi Selamat' }).click();
-      await article.getByRole('button', { name: 'Selamat', exact: true }).waitFor();
-      await app.page.waitForFunction(() => (
-        document.activeElement === document.querySelector('button[aria-controls^="teras-reaction-picker-"]')
-      ));
-      await app.page.waitForFunction(() => {
-        const button = document.querySelector('button[aria-controls^="teras-reaction-picker-"]');
-        return button instanceof HTMLButtonElement && button.getAttribute('aria-disabled') === 'false';
-      });
+      await reactionButton.click();
+      await app.page.waitForFunction(button => (
+        button.getAttribute('aria-pressed') === 'true'
+        && button.getAttribute('aria-disabled') === 'false'
+        && button.textContent?.trim() === '7'
+      ), await reactionButton.elementHandle());
+      assert.equal(await reactionButton.locator('svg.lucide-heart').getAttribute('fill'), 'currentColor');
 
-      const selectedButton = article.locator('button[aria-controls^="teras-reaction-picker-"]');
-      await selectedButton.press('ArrowDown');
-      const keyboardPicker = app.page.getByRole('menu', { name: 'Pilih reaksi' });
-      await keyboardPicker.waitFor();
-      await keyboardPicker.getByRole('menuitemradio', { name: 'Pilih reaksi Aamiin' }).click();
-      await article.getByRole('button', { name: 'Aamiin', exact: true }).waitFor();
-      await app.page.waitForFunction(() => (
-        document.activeElement === document.querySelector('button[aria-controls^="teras-reaction-picker-"]')
-      ));
-      assert.ok(failedReactionRoute, 'request Aamiin harus tertahan agar optimistic state dapat diuji');
+      await reactionButton.click();
+      await app.page.waitForFunction(button => (
+        button.getAttribute('aria-pressed') === 'false'
+        && button.getAttribute('aria-disabled') === 'false'
+        && button.textContent?.trim() === '6'
+      ), await reactionButton.elementHandle());
+
+      await reactionButton.click();
+      await app.page.waitForFunction(button => (
+        button.getAttribute('aria-pressed') === 'true' && button.textContent?.trim() === '7'
+      ), await reactionButton.elementHandle());
+      assert.ok(failedReactionRoute, 'request suka ketiga harus tertahan agar rollback optimistic dapat diuji');
 
       await responseJson(failedReactionRoute, { success: false, error: 'Reaksi gagal' }, 500);
-      await article.getByRole('button', { name: 'Selamat', exact: true }).waitFor();
+      await app.page.waitForFunction(button => (
+        button.getAttribute('aria-pressed') === 'false'
+        && button.getAttribute('aria-disabled') === 'false'
+        && button.textContent?.trim() === '6'
+      ), await reactionButton.elementHandle());
       await app.page.getByText('Reaksi gagal', { exact: true }).waitFor();
 
       const reactionBodies = matchingRequests(api, 'POST', '/api/community/posts/reaction-post/reaction')
@@ -1192,15 +1188,14 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.deepEqual(reactionBodies, [
         { reaction: 'suka' },
         { reaction: null },
-        { reaction: 'selamat' },
-        { reaction: 'aamiin' },
+        { reaction: 'suka' },
       ]);
     } finally {
       await app.close();
     }
   });
 
-  test('comments load once, Enter appends a server comment, and deleting it decrements the count', { timeout: 30_000 }, async () => {
+  test('comments load once, Enter appends a server comment, and deleting removes it', { timeout: 30_000 }, async () => {
     let pendingCommentRoute;
     const post = makePost({
       id: 'comments-post',
@@ -1223,11 +1218,18 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     const app = await openApp({ api });
     try {
       const article = app.page.locator('article').filter({ hasText: 'Uji komentar' });
-      await article.getByRole('button', { name: 'Komentari', exact: true }).click();
-      await article.getByText('Komentar dari server', { exact: true }).waitFor();
+      await article.getByRole('button', { name: '1 balasan', exact: true }).click();
+      const serverComment = article.getByText('Komentar dari server', { exact: true });
+      await serverComment.waitFor();
+      assert.equal(await article.locator('[data-thread-connector]').count(), 1,
+        'garis thread harus muncul saat panel balasan terbuka');
+      assert.doesNotMatch(await serverComment.evaluate(element => element.parentElement?.className || ''), /rounded|bg-|border/,
+        'isi balasan harus flat tanpa bubble');
       assert.equal(matchingRequests(api, 'GET', '/api/community/posts/comments-post/comments').length, 1);
 
       await article.getByRole('button', { name: 'Komentari', exact: true }).click();
+      assert.equal(await article.locator('[data-thread-connector]').count(), 0);
+      await article.getByRole('button', { name: '1 balasan', exact: true }).waitFor();
       await article.getByRole('button', { name: 'Komentari', exact: true }).click();
       await article.getByText('Komentar dari server', { exact: true }).waitFor();
       assert.equal(
@@ -1237,6 +1239,11 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       );
 
       const input = article.getByRole('textbox', { name: 'Tulis komentar' });
+      assert.equal(await input.getAttribute('placeholder'), 'Balas ke Agent Lain…');
+      assert.doesNotMatch(await input.getAttribute('class'), /rounded|border-gray|bg-white/,
+        'input balasan harus transparan tanpa kapsul');
+      const sendCommentButton = article.getByRole('button', { name: 'Kirim komentar' });
+      assert.equal((await sendCommentButton.innerText()).trim(), 'Kirim');
       await input.fill('Komentar baru');
       await input.press('Enter');
       const commentStatus = article.getByRole('status').filter({ hasText: 'Sedang mengirim komentar.' });
@@ -1256,7 +1263,6 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         }),
       });
       await article.getByText('Komentar baru', { exact: true }).waitFor();
-      await article.getByRole('button', { name: '2 komentar', exact: true }).waitFor();
       assert.equal(await input.evaluate(element => document.activeElement === element), true,
         'fokus input komentar harus tetap siap untuk komentar berikutnya');
       const commentRequest = matchingRequests(api, 'POST', '/api/community/posts/comments-post/comments')[0];
@@ -1266,8 +1272,9 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       app.page.once('dialog', dialog => dialog.accept());
       await article.getByRole('button', { name: 'Hapus komentar' }).click();
       await article.getByText('Komentar baru', { exact: true }).waitFor({ state: 'detached' });
-      await article.getByRole('button', { name: '1 komentar', exact: true }).waitFor();
       assert.equal(matchingRequests(api, 'DELETE', '/api/community/comments/created-comment-1').length, 1);
+      await article.getByRole('button', { name: 'Komentari', exact: true }).click();
+      await article.getByRole('button', { name: '1 balasan', exact: true }).waitFor();
     } finally {
       await app.close();
     }
@@ -1408,7 +1415,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.ok(dialogMetrics.scrollWidth <= dialogMetrics.clientWidth + 1);
 
       composerApp.page.once('dialog', confirmation => confirmation.accept());
-      await dialog.getByRole('button', { name: 'Tutup buat kiriman' }).click();
+      await dialog.getByRole('button', { name: 'Batal', exact: true }).click();
       await dialog.waitFor({ state: 'detached' });
     } finally {
       await Promise.all(opened.map(instance => instance.close()));
@@ -1517,12 +1524,24 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       const textarea = dialog.getByPlaceholder(COMPOSER_PROMPT);
       const attachment = dialog.getByRole('button', { name: 'Tambahkan foto atau video' });
-      const [dialogBox, textareaBox, attachmentBox] = await Promise.all([
+      const cancelButton = dialog.getByRole('button', { name: 'Batal', exact: true });
+      const audienceMessage = dialog.getByText('Tampil untuk semua agent Alhijaz', { exact: true });
+      const sendButton = dialog.getByRole('button', { name: 'Kirim kiriman' });
+      const [dialogBox, textareaBox, attachmentBox, cancelBox, audienceBox, sendBox] = await Promise.all([
         dialog.boundingBox(),
         textarea.boundingBox(),
         attachment.boundingBox(),
+        cancelButton.boundingBox(),
+        audienceMessage.boundingBox(),
+        sendButton.boundingBox(),
       ]);
-      assert.ok(dialogBox && textareaBox && attachmentBox, 'geometri composer harus dapat diukur');
+      assert.ok(
+        dialogBox && textareaBox && attachmentBox && cancelBox && audienceBox && sendBox,
+        'geometri composer harus dapat diukur',
+      );
+      assert.ok(cancelBox.y < textareaBox.y, 'Batal harus berada di header composer');
+      assert.ok(sendBox.y > attachmentBox.y + attachmentBox.height, 'tombol kirim harus berada di bar bawah');
+      assert.ok(audienceBox.y >= sendBox.y, 'pesan audience harus berada bersama tombol kirim');
       assert.ok(
         attachmentBox.y > textareaBox.y + textareaBox.height / 2,
         `tombol media harus berada setelah area tulis: ${JSON.stringify({ textareaBox, attachmentBox })}`,
@@ -1538,8 +1557,8 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await attachment.focus();
       await app.page.keyboard.press('Tab');
       assert.equal(
-        await app.page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
-        'Tutup buat kiriman',
+        await app.page.evaluate(() => document.activeElement?.textContent?.trim()),
+        'Batal',
       );
       await app.page.keyboard.press('Shift+Tab');
       assert.equal(
