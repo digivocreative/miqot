@@ -56,7 +56,7 @@ test('every community API route uses the Teras feature gate', () => {
   const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 
   assert.ok(
-    (serverSource.match(/if \(!requireCommunityAccess\(agent, res\)\) return;/g)?.length ?? 0) >= 11,
+    (serverSource.match(/if \(!requireCommunityAccess\(agent, res\)\) return;/g)?.length ?? 0) >= 12,
   );
 
   for (const [label, declaration] of [
@@ -64,6 +64,7 @@ test('every community API route uses the Teras feature gate', () => {
     ['POST /api/community/read', /app\.post\('\/api\/community\/read'/],
     ['GET /api/community/feed', /app\.get\('\/api\/community\/feed'/],
     ['POST /api/community/posts', /app\.post\('\/api\/community\/posts'/],
+    ['POST /api/community/media', /app\.post\('\/api\/community\/media'/],
     ['POST /api/community/photo', /app\.post\('\/api\/community\/photo'/],
     ['POST /api/community/posts/:id/reaction', /app\.post\('\/api\/community\/posts\/:id\/reaction'/],
     ['GET /api/community/posts/:id/comments', /app\.get\('\/api\/community\/posts\/:id\/comments'/],
@@ -81,12 +82,23 @@ test('every community API route uses the Teras feature gate', () => {
       ? followingSource
       : followingSource.slice(0, nextRouteIndex);
 
+    if (label === 'POST /api/community/media') {
+      assert.match(routeSource, /^, authMiddleware, prepareCommunityMediaUpload, parseCommunityMediaBody/);
+      continue;
+    }
+
     assert.match(
       routeSource,
       /const agent = await getAgentById\(req\.user\.id\);\s*if \(!agent\) return res\.status\(404\)\.json\(\{ error: 'Agent not found' \}\);\s*if \(!requireCommunityAccess\(agent, res\)\) return;/,
       `${label} harus memuat agent canonical dan menggunakan gate Teras`,
     );
   }
+
+  assert.match(
+    serverSource,
+    /async function prepareCommunityMediaUpload[\s\S]*?const agent = await getAgentById\(req\.user\.id\);[\s\S]*?if \(!agent\) return res\.status\(404\)[\s\S]*?if \(!requireCommunityAccess\(agent, res\)\) return;/,
+    'middleware upload media harus memuat agent canonical dan menggunakan gate Teras sebelum body diparse',
+  );
 
   assert.match(
     serverSource,
@@ -117,6 +129,32 @@ test('community reads migration creates a gated per-agent read cursor table', ()
   );
   assert.match(migrationSource, /ALTER TABLE community_reads ENABLE ROW LEVEL SECURITY;/i);
   assert.match(migrationSource, /NOTIFY pgrst, 'reload schema';/i);
+});
+
+test('community media migration is additive, bounded, and backfills legacy photos', () => {
+  const migrationSource = readFileSync(
+    new URL('../migrations/20260720000000_community_post_media.sql', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(
+    migrationSource,
+    /ALTER TABLE community_posts\s+ADD COLUMN IF NOT EXISTS media JSONB NOT NULL DEFAULT '\[\]'::jsonb/i,
+  );
+  assert.match(
+    migrationSource,
+    /CREATE OR REPLACE FUNCTION community_post_media_is_valid\(value JSONB\)[\s\S]*?jsonb_typeof\(value\) <> 'array'[\s\S]*?jsonb_array_length\(value\) > 4[\s\S]*?item->>'type' NOT IN \('image', 'video'\)[\s\S]*?jsonb_typeof\(item->'url'\) IS DISTINCT FROM 'string'/i,
+  );
+  assert.match(
+    migrationSource,
+    /DROP CONSTRAINT IF EXISTS community_posts_media_shape_check[\s\S]*?ADD CONSTRAINT community_posts_media_shape_check[\s\S]*?CHECK \(community_post_media_is_valid\(media\)\)/i,
+  );
+  assert.match(
+    migrationSource,
+    /jsonb_build_object\(\s*'type', 'image',\s*'url', photo_url\s*\)[\s\S]*?media = '\[\]'::jsonb/i,
+  );
+  assert.match(migrationSource, /NOTIFY pgrst, 'reload schema';/i);
+  assert.doesNotMatch(migrationSource, /DROP COLUMN\s+photo_url/i);
 });
 
 test('dashboard Teras UI uses the same two-agent feature gate', () => {
@@ -240,6 +278,14 @@ test('dashboard registers the gated Jendela Teras card and read tracking', () =>
     layoutSource,
     /\{terasEnabled && \(\s*<div className="col-span-3">[\s\S]*?<TerasCard onOpen=\{\(\) => navigateTab\('teras'\)\} \/>/,
   );
+  assert.match(
+    layoutSource,
+    /function TerasPageSkeleton\(\)[\s\S]*?aria-label="Memuat halaman Teras"/,
+  );
+  assert.match(
+    layoutSource,
+    /activeTab === 'teras'\s*\? <TerasPageSkeleton \/>/,
+  );
   assert.match(pageSource, /\/api\/community\/read/);
   assert.match(cardSource, /\/api\/community\/teaser/);
   assert.doesNotMatch(cardSource, /setInterval\s*\(/);
@@ -269,17 +315,20 @@ test('community mutations preserve idempotency keys and handle retry conflicts',
   );
   const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
   const postRouteStart = serverSource.indexOf("app.post('/api/community/posts',");
+  const mediaRouteStart = serverSource.indexOf("app.post('/api/community/media',");
   const photoRouteStart = serverSource.indexOf("app.post('/api/community/photo',");
   const reactionRouteStart = serverSource.indexOf("app.post('/api/community/posts/:id/reaction',");
   const commentRouteStart = serverSource.indexOf("app.post('/api/community/posts/:id/comments',");
   const deletePostRouteStart = serverSource.indexOf("app.delete('/api/community/posts/:id',");
 
-  assert.ok(postRouteStart >= 0 && photoRouteStart > postRouteStart);
+  assert.ok(postRouteStart >= 0 && mediaRouteStart > postRouteStart);
+  assert.ok(mediaRouteStart >= 0 && photoRouteStart > mediaRouteStart);
   assert.ok(photoRouteStart >= 0 && reactionRouteStart > photoRouteStart);
   assert.ok(reactionRouteStart >= 0 && commentRouteStart > reactionRouteStart);
   assert.ok(commentRouteStart >= 0 && deletePostRouteStart > commentRouteStart);
 
-  const postRouteSource = serverSource.slice(postRouteStart, photoRouteStart);
+  const postRouteSource = serverSource.slice(postRouteStart, mediaRouteStart);
+  const mediaRouteSource = serverSource.slice(mediaRouteStart, photoRouteStart);
   const photoRouteSource = serverSource.slice(photoRouteStart, reactionRouteStart);
   const reactionRouteSource = serverSource.slice(reactionRouteStart, commentRouteStart);
   const commentRouteSource = serverSource.slice(commentRouteStart, deletePostRouteStart);
@@ -288,8 +337,14 @@ test('community mutations preserve idempotency keys and handle retry conflicts',
     pageSource,
     /composerRequestIdRef\.current \|\| window\.crypto\.randomUUID\(\)[\s\S]*?composerRequestIdRef\.current = requestId/,
   );
-  assert.match(pageSource, /image_data: composerPhoto\.dataUrl, upload_id: requestId/);
-  assert.match(pageSource, /body,\s*client_id: requestId,\s*\.\.\.\(photoUrl/);
+  assert.match(
+    pageSource,
+    /mapWithConcurrency\(mediaSnapshot, 2,[\s\S]*?'\/api\/community\/media'[\s\S]*?'X-Upload-ID': item\.uploadId[\s\S]*?body: item\.uploadBlob/,
+  );
+  assert.match(
+    pageSource,
+    /body,\s*client_id: requestId,\s*\.\.\.\(uploadedMedia\.length > 0 \? \{ media: uploadedMedia \} : \{\}\)[\s\S]*?photo_url: legacyPhotoUrl/,
+  );
   assert.match(
     pageSource,
     /commentRequestIdsRef\.current\.get\(postId\) \|\| window\.crypto\.randomUUID\(\)[\s\S]*?commentRequestIdsRef\.current\.set\(postId, requestId\)[\s\S]*?JSON\.stringify\(\{ body, client_id: requestId \}\)/,
@@ -297,7 +352,28 @@ test('community mutations preserve idempotency keys and handle retry conflicts',
 
   assert.match(
     postRouteSource,
-    /const clientId = req\.body\?\.client_id;[\s\S]*?isCommunityUuid\(clientId\)[\s\S]*?\.insert\(postPayload\)[\s\S]*?insertError\?\.code === '23505' && clientId[\s\S]*?existingPost\.body === body && existingPost\.photo_url === photoUrl[\s\S]*?status\(409\)\.json\(\{ error: 'ID kiriman sudah digunakan' \}\)/,
+    /const clientId = req\.body\?\.client_id;[\s\S]*?isCommunityUuid\(clientId\)[\s\S]*?normalizeCommunityMediaInput[\s\S]*?const photoUrl = media\.find[\s\S]*?\.insert\(postPayload\)[\s\S]*?Migrasi media Teras belum diterapkan[\s\S]*?insertError\?\.code === '23505' && clientId[\s\S]*?communityMediaEquals\(existingMedia, media\)[\s\S]*?status\(409\)\.json\(\{ error: 'ID kiriman sudah digunakan' \}\)/,
+  );
+  assert.match(
+    mediaRouteSource,
+    /req\.communityAgent[\s\S]*?hasExpectedCommunityMediaSignature\(buffer, mime\)[\s\S]*?createHash\('sha256'\)[\s\S]*?`community\/\$\{agent\.slug\}-\$\{uploadId\}-\$\{contentHash\}\.\$\{mediaConfig\.ext\}`[\s\S]*?upsert:\s*false[\s\S]*?isCommunityStorageConflict\(uploadError\)[\s\S]*?success: true, url: urlData\.publicUrl, type: mediaConfig\.type/,
+  );
+  assert.match(
+    serverSource,
+    /async function prepareCommunityMediaUpload[\s\S]*?req\.get\('X-Upload-ID'\)[\s\S]*?COMMUNITY_MEDIA_MIME_TYPES\[mime\][\s\S]*?COMMUNITY_MEDIA_RATE_MAX_UPLOADS[\s\S]*?COMMUNITY_MEDIA_RATE_MAX_BYTES/,
+  );
+  assert.match(serverSource, /const expectedAgentPath = `\$\{expectedPrefix\.pathname\}\$\{agentSlug\}-`/);
+  assert.match(serverSource, /if \(!\['42703', 'PGRST204'\]\.includes\(code\)\) return false/);
+  assert.match(serverSource, /COMMUNITY_MAX_MEDIA_ITEMS = 4/);
+  assert.match(serverSource, /COMMUNITY_IMAGE_MAX_BYTES = 6 \* 1024 \* 1024/);
+  assert.match(serverSource, /COMMUNITY_VIDEO_MAX_BYTES = 24 \* 1024 \* 1024/);
+  assert.match(
+    serverSource,
+    /'image\/jpeg'[\s\S]*?'image\/png'[\s\S]*?'image\/webp'[\s\S]*?'video\/mp4'[\s\S]*?'video\/quicktime'[\s\S]*?'video\/webm'/,
+  );
+  assert.match(
+    serverSource,
+    /buildPostsQuery = \(includeMedia\)[\s\S]*?isCommunityMediaSchemaMissing\(postsError\)[\s\S]*?buildPostsQuery\(false\)[\s\S]*?normalizeStoredCommunityMedia\(post\.media, post\.photo_url\)/,
   );
   assert.match(
     photoRouteSource,

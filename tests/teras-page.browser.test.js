@@ -8,6 +8,8 @@ import { createServer } from 'vite';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const ONE_PIXEL_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+const LANDSCAPE_SVG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#0f766e"/></svg>')}`;
+const COMPOSER_PROMPT = 'Mau sharing apa nih?';
 
 let viteServer;
 let browser;
@@ -35,6 +37,7 @@ function makePost(overrides = {}) {
     id: 'post-1',
     body: 'Kiriman awal Teras',
     photo_url: null,
+    media: [],
     is_system: false,
     created_at: '2026-07-18T08:00:00.000Z',
     author: {
@@ -115,7 +118,14 @@ function createCommunityApi({
       pathname: url.pathname,
       search: url.search,
       authorization: request.headers().authorization || '',
-      body: parseRequestBody(request),
+      contentType: request.headers()['content-type'] || '',
+      uploadId: request.headers()['x-upload-id'] || '',
+      body: (request.headers()['content-type'] || '').includes('application/json')
+        ? parseRequestBody(request)
+        : null,
+      bodyBuffer: (request.headers()['content-type'] || '').includes('application/json')
+        ? null
+        : request.postDataBuffer(),
     };
     api.requests.push(record);
 
@@ -162,6 +172,7 @@ function createCommunityApi({
         id: `created-${api.createSequence}`,
         body: record.body?.body || '',
         photo_url: record.body?.photo_url || null,
+        media: clone(record.body?.media || []),
         created_at: new Date(Date.parse('2026-07-18T09:00:00.000Z') + api.createSequence * 1000).toISOString(),
         author: {
           name: api.agent.name,
@@ -177,6 +188,16 @@ function createCommunityApi({
 
     if (record.method === 'POST' && record.pathname === '/api/community/photo') {
       await responseJson(route, { success: true, url: 'https://cdn.example.test/community/photo.jpg' });
+      return;
+    }
+
+    if (record.method === 'POST' && record.pathname === '/api/community/media') {
+      const extension = record.contentType.startsWith('video/') ? 'mp4' : 'jpg';
+      await responseJson(route, {
+        success: true,
+        type: record.contentType.startsWith('video/') ? 'video' : 'image',
+        url: `https://cdn.example.test/community/media-${api.requests.filter(item => item.pathname === '/api/community/media').length}.${extension}`,
+      });
       return;
     }
 
@@ -251,20 +272,22 @@ async function openApp({
   api = createCommunityApi({ agent }),
   waitForTeras = true,
   installClock = false,
+  darkMode = false,
+  viewport = { width: 360, height: 800 },
 } = {}) {
   const context = await browser.newContext({
     serviceWorkers: 'block',
-    viewport: { width: 390, height: 844 },
+    viewport,
   });
   const page = await context.newPage();
   const session = { token: 'browser-test-token', user: agent };
 
   try {
-    await page.addInitScript(({ storedSession }) => {
+    await page.addInitScript(({ storedSession, storedDarkMode }) => {
       window.localStorage.setItem('auth_session', JSON.stringify(storedSession));
-      window.localStorage.setItem('darkMode', 'false');
+      window.localStorage.setItem('darkMode', String(storedDarkMode));
       window.sessionStorage.setItem('agentation-session-toolbar-hidden', '1');
-    }, { storedSession: session });
+    }, { storedSession: session, storedDarkMode: darkMode });
 
     if (installClock) await page.clock.install();
 
@@ -295,7 +318,7 @@ async function openApp({
     });
     if (waitForTeras) {
       await page.getByRole('button', {
-        name: 'Apa yang ingin Anda bagikan, Bu?',
+        name: COMPOSER_PROMPT,
         exact: true,
       }).waitFor({ timeout: 30_000 });
     }
@@ -322,12 +345,12 @@ function matchingRequests(api, method, pathname) {
 
 async function submitTextPost(page, body) {
   await page.getByRole('button', {
-    name: 'Apa yang ingin Anda bagikan, Bu?',
+    name: COMPOSER_PROMPT,
     exact: true,
   }).click();
   const dialog = page.getByRole('dialog', { name: 'Buat Kiriman' });
   await dialog.waitFor();
-  await dialog.getByPlaceholder('Apa yang ingin Anda bagikan?').fill(body);
+  await dialog.getByPlaceholder(COMPOSER_PROMPT).fill(body);
   await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
   await dialog.waitFor({ state: 'detached', timeout: 10_000 });
 }
@@ -422,8 +445,13 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     });
     const app = await openApp({ api });
     try {
-      await app.page.getByLabel('Memuat kiriman').waitFor();
+      const loadingFeed = app.page.getByLabel('Memuat kiriman');
+      await loadingFeed.waitFor();
       assert.ok(initialFeedRoute, 'initial feed request harus tertahan');
+      const mediaSkeleton = loadingFeed.locator('[data-teras-skeleton-media]');
+      assert.equal(await mediaSkeleton.count(), 1, 'skeleton pertama harus mencadangkan ruang media');
+      const mediaSkeletonBox = await mediaSkeleton.boundingBox();
+      assert.ok(mediaSkeletonBox && mediaSkeletonBox.x >= 67 && mediaSkeletonBox.x + mediaSkeletonBox.width <= 345);
 
       await submitTextPost(app.page, 'Kiriman A');
       await submitTextPost(app.page, 'Kiriman B');
@@ -451,9 +479,12 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
-  test('photo trigger opens the picker, resizes to JPEG, uploads once, and creates the post with the same idempotency key', { timeout: 30_000 }, async () => {
+  test('media trigger opens the picker, resizes a photo to JPEG, and keeps upload and post idempotency keys separate', { timeout: 30_000 }, async () => {
     const api = createCommunityApi();
-    const app = await openApp({ api });
+    const app = await openApp({
+      api,
+      viewport: { width: 400, height: 816 },
+    });
     try {
       const sourcePhoto = await sharp({
         create: {
@@ -464,7 +495,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         },
       }).png().toBuffer();
       const fileChooserPromise = app.page.waitForEvent('filechooser');
-      await app.page.getByRole('button', { name: 'Bagikan foto' }).click();
+      await app.page.getByRole('button', { name: 'Tambahkan foto atau video' }).click();
       const fileChooser = await fileChooserPromise;
       await fileChooser.setFiles({
         name: 'teras-source.png',
@@ -474,32 +505,53 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
       await dialog.waitFor();
-      await dialog.getByAltText('Pratinjau foto kiriman').waitFor();
-      await dialog.getByPlaceholder('Apa yang ingin Anda bagikan?').fill('Kiriman dengan foto');
+      const preview = dialog.getByAltText('Pratinjau foto kiriman');
+      await preview.waitFor();
+      const textarea = dialog.getByLabel('Isi kiriman');
+      const attachment = dialog.getByRole('button', { name: 'Tambahkan foto atau video' });
+      const [textareaBox, attachmentBox, previewBox] = await Promise.all([
+        textarea.boundingBox(),
+        attachment.boundingBox(),
+        preview.boundingBox(),
+      ]);
+      assert.ok(textareaBox && attachmentBox && previewBox, 'geometri composer dengan media harus dapat diukur');
+      assert.ok(
+        Math.abs(attachmentBox.y - (textareaBox.y + textareaBox.height)) < 40,
+        'setelah media dipilih, tombol tambah media harus tetap dekat dengan area tulis',
+      );
+      assert.ok(
+        attachmentBox.y + attachmentBox.height <= previewBox.y + 4,
+        'toolbar media harus berada sebelum preview agar tidak terdorong ke bawah',
+      );
+      assert.equal(await dialog.getByText('1/4', { exact: true }).count(), 1);
+      await dialog.getByPlaceholder(COMPOSER_PROMPT).fill('Kiriman dengan foto');
       const sendButton = dialog.getByRole('button', { name: 'Kirim kiriman' });
       await sendButton.waitFor({ state: 'visible' });
       await app.page.waitForFunction(button => !button.disabled, await sendButton.elementHandle());
       await sendButton.click();
       await dialog.waitFor({ state: 'detached', timeout: 10_000 });
 
-      const photoRequests = matchingRequests(api, 'POST', '/api/community/photo');
+      const mediaRequests = matchingRequests(api, 'POST', '/api/community/media');
       const postRequests = matchingRequests(api, 'POST', '/api/community/posts');
-      assert.equal(photoRequests.length, 1);
+      assert.equal(mediaRequests.length, 1);
       assert.equal(postRequests.length, 1);
-      assert.equal(photoRequests[0].authorization, 'Bearer browser-test-token');
+      assert.equal(mediaRequests[0].authorization, 'Bearer browser-test-token');
       assert.equal(postRequests[0].authorization, 'Bearer browser-test-token');
-      assert.match(photoRequests[0].body.image_data, /^data:image\/jpeg;base64,/);
-      assert.match(photoRequests[0].body.upload_id, /^[0-9a-f-]{36}$/i);
-      assert.equal(postRequests[0].body.client_id, photoRequests[0].body.upload_id);
+      assert.equal(mediaRequests[0].contentType, 'image/jpeg');
+      assert.match(mediaRequests[0].uploadId, /^[0-9a-f-]{36}$/i);
+      assert.notEqual(postRequests[0].body.client_id, mediaRequests[0].uploadId);
       assert.equal(postRequests[0].body.body, 'Kiriman dengan foto');
-      assert.equal(postRequests[0].body.photo_url, 'https://cdn.example.test/community/photo.jpg');
+      assert.equal(postRequests[0].body.photo_url, 'https://cdn.example.test/community/media-1.jpg');
+      assert.deepEqual(postRequests[0].body.media, [{
+        type: 'image',
+        url: 'https://cdn.example.test/community/media-1.jpg',
+      }]);
       assert.ok(
-        api.requests.indexOf(photoRequests[0]) < api.requests.indexOf(postRequests[0]),
+        api.requests.indexOf(mediaRequests[0]) < api.requests.indexOf(postRequests[0]),
         'foto harus selesai diunggah sebelum post dibuat',
       );
 
-      const encodedJpeg = photoRequests[0].body.image_data.split(',')[1];
-      const resizedMetadata = await sharp(Buffer.from(encodedJpeg, 'base64')).metadata();
+      const resizedMetadata = await sharp(mediaRequests[0].bodyBuffer).metadata();
       assert.equal(resizedMetadata.format, 'jpeg');
       assert.equal(resizedMetadata.width, 1600);
       assert.equal(resizedMetadata.height, 800);
@@ -508,7 +560,540 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await createdArticle.waitFor();
       const renderedPhoto = createdArticle.getByRole('img', { name: 'Foto kiriman Nikita Test' });
       await renderedPhoto.waitFor();
-      assert.equal(await renderedPhoto.getAttribute('src'), 'https://cdn.example.test/community/photo.jpg');
+      assert.equal(await renderedPhoto.getAttribute('src'), 'https://cdn.example.test/community/media-1.jpg');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('multiple uploads keep selection order when responses finish out of order and render side by side', { timeout: 30_000 }, async () => {
+    const pendingMediaRoutes = {};
+    const api = createCommunityApi({
+      onRequest: async ({ record, route }) => {
+        if (record.method !== 'POST' || record.pathname !== '/api/community/media') return false;
+        const stats = await sharp(record.bodyBuffer).stats();
+        const [red, green, blue] = stats.channels;
+        const selection = green.mean > red.mean && green.mean > blue.mean ? 'first' : 'second';
+        pendingMediaRoutes[selection] = route;
+        if (!pendingMediaRoutes.first || !pendingMediaRoutes.second) return true;
+
+        await responseJson(pendingMediaRoutes.second, {
+          success: true,
+          type: 'image',
+          url: 'https://cdn.example.test/community/second.jpg',
+        });
+        await responseJson(pendingMediaRoutes.first, {
+          success: true,
+          type: 'image',
+          url: 'https://cdn.example.test/community/first.jpg',
+        });
+        return true;
+      },
+    });
+    const app = await openApp({ api });
+    try {
+      const [firstPhoto, secondPhoto] = await Promise.all([
+        sharp({
+          create: { width: 900, height: 1200, channels: 3, background: { r: 18, g: 121, b: 92 } },
+        }).png().toBuffer(),
+        sharp({
+          create: { width: 900, height: 1200, channels: 3, background: { r: 124, g: 58, b: 237 } },
+        }).png().toBuffer(),
+      ]);
+      const fileChooserPromise = app.page.waitForEvent('filechooser');
+      await app.page.getByRole('button', { name: 'Tambahkan foto atau video' }).click();
+      const fileChooser = await fileChooserPromise;
+      await fileChooser.setFiles([
+        { name: 'first.png', mimeType: 'image/png', buffer: firstPhoto },
+        { name: 'second.png', mimeType: 'image/png', buffer: secondPhoto },
+      ]);
+
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.getByAltText('Pratinjau foto 1').waitFor();
+      await dialog.getByAltText('Pratinjau foto 2').waitFor();
+      await dialog.getByPlaceholder(COMPOSER_PROMPT).fill('Dua foto berurutan');
+      const sendButton = dialog.getByRole('button', { name: 'Kirim kiriman' });
+      await app.page.waitForFunction(button => !button.disabled, await sendButton.elementHandle());
+      await sendButton.click();
+      await dialog.waitFor({ state: 'detached', timeout: 10_000 });
+
+      const uploads = matchingRequests(api, 'POST', '/api/community/media');
+      const postRequest = matchingRequests(api, 'POST', '/api/community/posts')[0];
+      assert.equal(uploads.length, 2);
+      assert.equal(new Set(uploads.map(upload => upload.uploadId)).size, 2);
+      assert.ok(uploads.every(upload => upload.contentType === 'image/jpeg'));
+      assert.ok(uploads.every(upload => upload.uploadId !== postRequest.body.client_id));
+      assert.deepEqual(postRequest.body.media, [
+        { type: 'image', url: 'https://cdn.example.test/community/first.jpg' },
+        { type: 'image', url: 'https://cdn.example.test/community/second.jpg' },
+      ]);
+
+      const article = app.page.locator('article').filter({ hasText: 'Dua foto berurutan' });
+      const firstRendered = article.getByRole('img', { name: 'Foto 1 dari 2 kiriman Nikita Test' });
+      const secondRendered = article.getByRole('img', { name: 'Foto 2 dari 2 kiriman Nikita Test' });
+      await firstRendered.waitFor();
+      const [firstBox, secondBox] = await Promise.all([
+        firstRendered.boundingBox(),
+        secondRendered.boundingBox(),
+      ]);
+      assert.ok(firstBox && secondBox);
+      assert.ok(Math.abs(firstBox.y - secondBox.y) < 1, 'dua media harus sejajar vertikal');
+      assert.ok(secondBox.x > firstBox.x + firstBox.width, 'media kedua harus berada di sisi kanan');
+      assert.ok(Math.abs(firstBox.width - secondBox.width) < 1, 'dua media harus berbagi lebar secara seimbang');
+      assert.equal(
+        await app.page.evaluate(() => document.documentElement.scrollWidth === document.documentElement.clientWidth),
+        true,
+        'dua media berdampingan tidak boleh membuat viewport mobile overflow',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('video selection uploads the original binary and creates a native video media post', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi();
+    const app = await openApp({ api });
+    try {
+      const sourceVideo = Buffer.concat([
+        Buffer.from([0x00, 0x00, 0x00, 0x18]),
+        Buffer.from('ftypisom'),
+        Buffer.alloc(16),
+      ]);
+      const fileChooserPromise = app.page.waitForEvent('filechooser');
+      await app.page.getByRole('button', { name: 'Tambahkan foto atau video' }).click();
+      const fileChooser = await fileChooserPromise;
+      await fileChooser.setFiles({
+        name: 'clip.mp4',
+        mimeType: 'video/mp4',
+        buffer: sourceVideo,
+      });
+
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.getByLabel('Pratinjau video 1').waitFor();
+      await dialog.getByPlaceholder(COMPOSER_PROMPT).fill('Video singkat perjalanan');
+      await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
+      await dialog.waitFor({ state: 'detached', timeout: 10_000 });
+
+      const upload = matchingRequests(api, 'POST', '/api/community/media')[0];
+      const postRequest = matchingRequests(api, 'POST', '/api/community/posts')[0];
+      assert.equal(upload.contentType, 'video/mp4');
+      assert.deepEqual(upload.bodyBuffer, sourceVideo);
+      assert.deepEqual(postRequest.body.media, [{
+        type: 'video',
+        url: 'https://cdn.example.test/community/media-1.mp4',
+      }]);
+      assert.equal(postRequest.body.photo_url, undefined);
+
+      const createdArticle = app.page.locator('article').filter({ hasText: 'Video singkat perjalanan' });
+      const renderedVideo = createdArticle.getByLabel('Video 1 dari 1 kiriman Nikita Test');
+      await renderedVideo.waitFor();
+      assert.equal(await renderedVideo.getAttribute('controls'), '');
+      assert.equal(await renderedVideo.getAttribute('playsinline'), '');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('Threads-style feed fills the wide column and mixed media carousel stays fluid without page overflow', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      posts: [makePost({
+        id: 'mixed-media-post',
+        body: 'Dokumentasi perjalanan hari ini',
+        media: [
+          { type: 'image', url: ONE_PIXEL_PNG },
+          { type: 'video', url: 'https://cdn.example.test/community/clip.mp4' },
+          { type: 'image', url: ONE_PIXEL_PNG },
+        ],
+      })],
+    });
+    const app = await openApp({
+      api,
+      viewport: { width: 714, height: 875 },
+    });
+    try {
+      const article = app.page.locator('article').filter({ hasText: 'Dokumentasi perjalanan hari ini' });
+      await article.waitFor();
+      const articleBox = await article.boundingBox();
+      assert.ok(articleBox && articleBox.width >= 650, 'feed Teras harus memakai kolom lebar, bukan kartu 512px');
+
+      const rail = article.getByRole('region', { name: '3 media. Geser ke samping untuk melihat semuanya.' });
+      await rail.waitFor();
+      const geometry = await rail.evaluate(element => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+      }));
+      assert.ok(geometry.scrollWidth > geometry.clientWidth, 'tiga media harus dapat digeser horizontal');
+
+      const video = article.getByLabel('Video 2 dari 3 kiriman Agent Lain', { exact: true });
+      assert.equal(await video.getAttribute('controls'), '');
+      assert.equal(await video.getAttribute('playsinline'), '');
+      assert.equal(await video.getAttribute('autoplay'), null);
+
+      await video.focus();
+      const mediaScrollBeforeVideoKey = await rail.evaluate(element => element.scrollLeft);
+      await app.page.keyboard.press('ArrowRight');
+      assert.equal(
+        await rail.evaluate(element => element.scrollLeft),
+        mediaScrollBeforeVideoKey,
+        'panah pada kontrol video tidak boleh mengganti slide carousel',
+      );
+
+      await rail.evaluate(element => element.scrollTo({ left: 0, behavior: 'auto' }));
+      await article.getByText('1/3', { exact: true }).waitFor();
+      const pageScrollBeforeCarouselKey = await app.page.evaluate(() => window.scrollY);
+      await rail.focus();
+      await app.page.keyboard.press('ArrowRight');
+      await article.getByText('2/3', { exact: true }).waitFor();
+      assert.equal(
+        await app.page.evaluate(() => window.scrollY),
+        pageScrollBeforeCarouselKey,
+        'navigasi carousel tidak boleh menggeser halaman secara vertikal',
+      );
+      assert.equal(
+        await app.page.evaluate(() => document.documentElement.scrollWidth === document.documentElement.clientWidth),
+        true,
+        'carousel tidak boleh membuat halaman ikut overflow horizontal',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('post chrome is compact, keeps time beside the author, and uses icon-only actions', { timeout: 30_000 }, async () => {
+    const agent = makeAgent({ name: 'Nikita Test Dengan Nama Sangat Panjang' });
+    const createdAt = new Date(Date.now() - 125_000).toISOString();
+    const api = createCommunityApi({
+      agent,
+      posts: [
+        makePost({
+          id: 'compact-text',
+          body: 'Teks ringkas',
+          created_at: createdAt,
+          is_own: true,
+          author: {
+            name: agent.name,
+            slug: agent.slug,
+            photo: agent.photo,
+          },
+        }),
+        makePost({
+          id: 'compact-media',
+          body: 'Teks dengan media',
+          created_at: createdAt,
+          media: [{ type: 'image', url: LANDSCAPE_SVG }],
+        }),
+      ],
+    });
+    const app = await openApp({
+      agent,
+      api,
+      viewport: { width: 360, height: 800 },
+    });
+    try {
+      const textArticle = app.page.locator('article').filter({ hasText: 'Teks ringkas' });
+      const mediaArticle = app.page.locator('article').filter({ hasText: 'Teks dengan media' });
+      await textArticle.waitFor();
+      await mediaArticle.waitFor();
+
+      assert.doesNotMatch(await textArticle.innerText(), /\(Anda\)/);
+      assert.equal(await textArticle.locator('svg.lucide-globe').count(), 0);
+      assert.equal(
+        await textArticle.locator('[data-thread-connector], div[aria-hidden="true"].absolute.w-px').count(),
+        0,
+        'post top-level tidak boleh memiliki garis thread tanpa relasi reply',
+      );
+
+      const author = textArticle.getByText(agent.name, { exact: true });
+      const relativeTime = textArticle.getByText('2 menit', { exact: true });
+      const [authorBox, timeBox] = await Promise.all([
+        author.boundingBox(),
+        relativeTime.boundingBox(),
+      ]);
+      assert.ok(authorBox && timeBox, 'nama dan waktu harus dapat diukur');
+      assert.ok(
+        Math.abs((authorBox.y + authorBox.height / 2) - (timeBox.y + timeBox.height / 2)) <= 3,
+        'waktu harus satu baris dengan nama',
+      );
+      assert.ok(timeBox.x >= authorBox.x + authorBox.width, 'waktu harus berada di kanan nama');
+      assert.ok(timeBox.x - (authorBox.x + authorBox.width) <= 16, 'jarak nama dan waktu harus tetap kompak');
+
+      const [textStyle, mediaStyle] = await Promise.all([
+        textArticle.getByText('Teks ringkas', { exact: true }).evaluate(element => {
+          const style = getComputedStyle(element);
+          return { fontSize: style.fontSize, lineHeight: style.lineHeight, fontWeight: style.fontWeight };
+        }),
+        mediaArticle.getByText('Teks dengan media', { exact: true }).evaluate(element => {
+          const style = getComputedStyle(element);
+          return { fontSize: style.fontSize, lineHeight: style.lineHeight, fontWeight: style.fontWeight };
+        }),
+      ]);
+      assert.deepEqual(textStyle, mediaStyle, 'tipografi text-only dan post bermedia harus identik');
+      assert.equal(textStyle.fontSize, '14px');
+      assert.ok(parseFloat(textStyle.lineHeight) <= 21, 'line-height post harus tetap kompak');
+
+      const landscapeImage = mediaArticle.getByRole('img', { name: 'Foto kiriman Agent Lain' });
+      await landscapeImage.waitFor();
+      await app.page.waitForFunction(image => image.complete && image.naturalWidth > 0, await landscapeImage.elementHandle());
+      const landscapeBox = await landscapeImage.boundingBox();
+      assert.ok(landscapeBox && landscapeBox.width / landscapeBox.height > 1.7,
+        'media tunggal landscape harus mempertahankan rasio intrinsik, bukan dipotong ke 4:5');
+
+      const likeButton = textArticle.getByRole('button', { name: 'Suka', exact: true });
+      const commentButton = textArticle.getByRole('button', { name: 'Komentari', exact: true });
+      assert.equal((await likeButton.innerText()).trim(), '');
+      assert.equal((await commentButton.innerText()).trim(), '');
+      assert.equal(await likeButton.locator('svg').count(), 1);
+      assert.equal(await commentButton.locator('svg').count(), 1);
+      for (const button of [likeButton, commentButton]) {
+        const box = await button.boundingBox();
+        assert.ok(box && box.width >= 44 && box.height >= 44, 'aksi ikon harus memiliki hit-area minimal 44px');
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('360px dark layout contains long content, four media, menus, and all touch targets', { timeout: 30_000 }, async () => {
+    const agent = makeAgent({ role: 'admin' });
+    const longToken = `DETAIL_${'TANPAJEDA'.repeat(90)}`;
+    const createdAt = new Date(Date.now() - 3_600_000).toISOString();
+    const api = createCommunityApi({
+      agent,
+      posts: [
+        makePost({
+          id: 'four-media-layout',
+          body: longToken,
+          created_at: createdAt,
+          author: {
+            name: 'Nama Agent Sangat Panjang Untuk Menguji Header Mobile Tiga Ratus Enam Puluh',
+            slug: 'agent-panjang',
+            photo: null,
+          },
+          media: [
+            { type: 'image', url: ONE_PIXEL_PNG },
+            { type: 'image', url: ONE_PIXEL_PNG },
+            { type: 'image', url: ONE_PIXEL_PNG },
+            { type: 'video', url: 'https://cdn.example.test/community/final-clip.mp4' },
+          ],
+          reactions: { suka: 12345, selamat: 678, aamiin: 90 },
+          reaction_sample_name: 'Nama Reaktor Yang Juga Sangat Panjang',
+          comment_count: 12345,
+        }),
+        makePost({
+          id: 'system-layout',
+          body: 'Sorotan sistem tetap ringkas pada layar kecil',
+          created_at: createdAt,
+          is_system: true,
+          author: { name: null, slug: null, photo: null },
+        }),
+      ],
+    });
+    const app = await openApp({
+      agent,
+      api,
+      darkMode: true,
+      viewport: { width: 360, height: 800 },
+    });
+    try {
+      await app.page.waitForFunction(() => document.documentElement.classList.contains('dark'));
+      const root = app.page.locator('[data-teras-root]');
+      const rootBox = await root.boundingBox();
+      assert.ok(rootBox && rootBox.x >= -1 && rootBox.x + rootBox.width <= 361);
+
+      for (const button of [
+        app.page.getByRole('button', { name: 'Kembali ke dashboard' }),
+        app.page.getByRole('button', { name: 'Gunakan mode terang' }),
+        app.page.getByRole('button', { name: COMPOSER_PROMPT, exact: true }),
+        app.page.getByRole('button', { name: 'Tambahkan foto atau video' }),
+      ]) {
+        const box = await button.boundingBox();
+        assert.ok(box && box.width >= 44 && box.height >= 44, 'chrome Teras harus memiliki hit-area 44px');
+      }
+
+      const article = app.page.locator('[data-post-id="four-media-layout"]');
+      const body = article.getByText(longToken, { exact: true });
+      const bodyMetrics = await body.evaluate(element => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        right: element.getBoundingClientRect().right,
+      }));
+      assert.ok(bodyMetrics.scrollWidth <= bodyMetrics.clientWidth + 1, 'token panjang harus membungkus di body post');
+      assert.ok(bodyMetrics.right <= 344.5);
+
+      const rail = article.getByRole('region', { name: '4 media. Geser ke samping untuk melihat semuanya.' });
+      const railBox = await rail.boundingBox();
+      const railMetrics = await rail.evaluate(element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }));
+      assert.ok(railBox && railBox.x >= 67 && railBox.x + railBox.width <= 345);
+      assert.ok(railMetrics.scrollWidth > railMetrics.clientWidth, 'empat media harus tetap berupa rail yang dapat digeser');
+
+      await rail.focus();
+      await app.page.keyboard.press('ArrowRight');
+      await app.page.keyboard.press('ArrowRight');
+      await app.page.keyboard.press('ArrowRight');
+      const lastCounter = article.getByRole('status', { name: 'Media 4 dari 4' });
+      await lastCounter.waitFor();
+      await app.page.waitForFunction((element) => {
+        const slides = element.querySelectorAll('[data-media-slide]');
+        const lastSlide = slides.item(slides.length - 1);
+        return lastSlide
+          ? Math.abs(lastSlide.getBoundingClientRect().left - element.getBoundingClientRect().left) <= 2
+          : false;
+      }, await rail.elementHandle());
+      const fullscreenButton = article.getByRole('button', { name: /Buka video 4 dari 4 .* layar penuh/ });
+      const [counterBox, fullscreenBox] = await Promise.all([
+        lastCounter.boundingBox(),
+        fullscreenButton.boundingBox(),
+      ]);
+      assert.ok(counterBox && fullscreenBox && counterBox.x + counterBox.width < fullscreenBox.x,
+        'counter rail tidak boleh menutupi tombol fullscreen video terakhir');
+
+      const countButton = article.getByRole('button', { name: '12345 komentar' });
+      const countBox = await countButton.boundingBox();
+      assert.ok(countBox && countBox.height >= 44 && countBox.x + countBox.width <= 345);
+
+      const menuButton = article.getByRole('button', { name: 'Buka menu kiriman' });
+      await menuButton.press('ArrowDown');
+      const menu = article.getByRole('menu', { name: 'Menu kiriman' });
+      await menu.waitFor();
+      const menuBox = await menu.boundingBox();
+      assert.ok(menuBox && menuBox.x >= 0 && menuBox.x + menuBox.width <= 360);
+      await app.page.keyboard.press('End');
+      assert.equal(
+        await menu.getByRole('menuitem', { name: 'Hapus' }).evaluate(element => document.activeElement === element),
+        true,
+      );
+      await app.page.keyboard.press('Tab');
+      await menu.waitFor({ state: 'detached' });
+      await app.page.waitForFunction(element => document.activeElement === element, await menuButton.elementHandle());
+
+      await app.page.setViewportSize({ width: 360, height: 320 });
+      await menuButton.evaluate(element => {
+        window.scrollTo({
+          top: window.scrollY + element.getBoundingClientRect().top - (window.innerHeight - 56),
+          behavior: 'auto',
+        });
+      });
+      await menuButton.click();
+      const flippedMenu = article.getByRole('menu', { name: 'Menu kiriman' });
+      const [shortMenuBox, shortTriggerBox] = await Promise.all([
+        flippedMenu.boundingBox(),
+        menuButton.boundingBox(),
+      ]);
+      assert.ok(shortMenuBox && shortTriggerBox);
+      assert.ok(shortMenuBox.y >= 0 && shortMenuBox.y + shortMenuBox.height <= 320,
+        'menu post harus tetap utuh di viewport pendek');
+      assert.ok(shortMenuBox.y + shortMenuBox.height <= shortTriggerBox.y + 1,
+        'menu post harus berbalik ke atas ketika ruang bawah tidak cukup');
+      await app.page.keyboard.press('Escape');
+      await app.page.setViewportSize({ width: 360, height: 800 });
+
+      const likeButton = article.getByRole('button', { name: 'Suka', exact: true });
+      await likeButton.press('ArrowDown');
+      const picker = app.page.getByRole('menu', { name: 'Pilih reaksi' });
+      await picker.waitFor();
+      const pickerBox = await picker.boundingBox();
+      assert.ok(pickerBox && pickerBox.x >= 0 && pickerBox.x + pickerBox.width <= 360);
+      await app.page.keyboard.press('End');
+      assert.equal(
+        await picker.getByRole('menuitemradio', { name: 'Pilih reaksi Aamiin' }).evaluate(element => document.activeElement === element),
+        true,
+      );
+      await app.page.keyboard.press('Escape');
+      await picker.waitFor({ state: 'detached' });
+
+      const visibleButtons = article.locator('button:visible');
+      for (let index = 0; index < await visibleButtons.count(); index += 1) {
+        const box = await visibleButtons.nth(index).boundingBox();
+        assert.ok(box && box.width >= 44 && box.height >= 44, `target sentuh post ke-${index + 1} harus minimal 44px`);
+      }
+
+      const systemArticle = app.page.locator('[data-post-id="system-layout"]');
+      const systemBadge = systemArticle.getByText('Sorotan', { exact: true });
+      const systemTime = systemArticle.locator('time');
+      const [badgeBox, systemTimeBox] = await Promise.all([systemBadge.boundingBox(), systemTime.boundingBox()]);
+      assert.ok(badgeBox && systemTimeBox);
+      assert.ok(Math.abs((badgeBox.y + badgeBox.height / 2) - (systemTimeBox.y + systemTimeBox.height / 2)) <= 3);
+
+      assert.equal(
+        await app.page.evaluate(() => document.documentElement.scrollWidth === document.documentElement.clientWidth),
+        true,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('media opens an animated full-screen viewer with navigation and focus restoration', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      posts: [makePost({
+        id: 'viewer-post',
+        body: 'Galeri layar penuh',
+        media: [
+          { type: 'image', url: ONE_PIXEL_PNG },
+          { type: 'video', url: 'https://cdn.example.test/community/viewer.mp4' },
+          { type: 'image', url: ONE_PIXEL_PNG },
+        ],
+      })],
+    });
+    const app = await openApp({
+      api,
+      viewport: { width: 360, height: 800 },
+    });
+    try {
+      const article = app.page.locator('article').filter({ hasText: 'Galeri layar penuh' });
+      const trigger = article.getByRole('button', {
+        name: 'Buka foto 1 dari 3 kiriman Agent Lain layar penuh',
+      });
+      const triggerHandle = await trigger.elementHandle();
+      assert.ok(triggerHandle, 'trigger viewer harus tersedia');
+      const pageRoot = app.page.locator('[data-teras-root]');
+      const appRoot = app.page.locator('#root');
+      await trigger.click();
+
+      const viewer = app.page.getByRole('dialog', { name: 'Media kiriman Agent Lain' });
+      await viewer.waitFor();
+      assert.equal(await viewer.getAttribute('aria-modal'), 'true');
+      assert.equal(await app.page.evaluate(() => document.body.style.overflow), 'hidden');
+      assert.equal(await pageRoot.getAttribute('aria-hidden'), 'true');
+      assert.equal(await appRoot.getAttribute('aria-hidden'), 'true');
+      assert.equal(await appRoot.evaluate(element => element.inert), true);
+      await app.page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Tutup media');
+
+      const viewerBox = await viewer.boundingBox();
+      assert.ok(viewerBox, 'viewer harus dapat diukur');
+      assert.ok(Math.abs(viewerBox.x) <= 1 && Math.abs(viewerBox.y) <= 1);
+      assert.ok(Math.abs(viewerBox.width - 360) <= 1 && Math.abs(viewerBox.height - 800) <= 1);
+      const viewportMeta = await app.page.locator('meta[name="viewport"]').getAttribute('content');
+      assert.doesNotMatch(viewportMeta || '', /maximum-scale|user-scalable\s*=\s*no/i);
+      const fullImage = viewer.getByRole('img', { name: 'Foto 1 layar penuh dari kiriman Agent Lain' });
+      await fullImage.waitFor();
+      assert.equal(await fullImage.evaluate(element => getComputedStyle(element).objectFit), 'contain');
+      await viewer.getByText('1/3', { exact: true }).waitFor();
+
+      await viewer.getByRole('button', { name: 'Media layar penuh berikutnya' }).click();
+      await viewer.getByText('2/3', { exact: true }).waitFor();
+      const fullVideo = viewer.getByLabel('Video 2 layar penuh dari kiriman Agent Lain');
+      await fullVideo.waitFor();
+      assert.equal(await fullVideo.getAttribute('controls'), '');
+      assert.equal(await fullVideo.getAttribute('playsinline'), '');
+      assert.equal(await fullVideo.getAttribute('autoplay'), null);
+      await fullVideo.focus();
+      await app.page.keyboard.press('ArrowRight');
+      assert.equal(await viewer.getByText('2/3', { exact: true }).count(), 1, 'panah pada video tidak boleh mengganti media');
+
+      await app.page.keyboard.press('Escape');
+      await viewer.waitFor({ state: 'detached' });
+      assert.equal(await app.page.evaluate(() => document.body.style.overflow), '');
+      assert.equal(await pageRoot.getAttribute('aria-hidden'), null);
+      assert.equal(await appRoot.getAttribute('aria-hidden'), null);
+      assert.equal(await appRoot.evaluate(element => element.inert), false);
+      await app.page.waitForFunction(element => document.activeElement === element, triggerHandle);
+
+      await trigger.click();
+      await viewer.waitFor();
+      await viewer.click({ position: { x: 180, y: 120 } });
+      await viewer.waitFor({ state: 'detached' });
+      await app.page.waitForFunction(element => document.activeElement === element, triggerHandle);
     } finally {
       await app.close();
     }
@@ -616,6 +1201,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
   });
 
   test('comments load once, Enter appends a server comment, and deleting it decrements the count', { timeout: 30_000 }, async () => {
+    let pendingCommentRoute;
     const post = makePost({
       id: 'comments-post',
       body: 'Uji komentar',
@@ -625,6 +1211,13 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       posts: [post],
       comments: {
         'comments-post': [makeComment({ body: 'Komentar dari server' })],
+      },
+      onRequest: ({ record, route }) => {
+        if (record.method === 'POST' && record.pathname === '/api/community/posts/comments-post/comments') {
+          pendingCommentRoute = route;
+          return true;
+        }
+        return false;
       },
     });
     const app = await openApp({ api });
@@ -646,8 +1239,26 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const input = article.getByRole('textbox', { name: 'Tulis komentar' });
       await input.fill('Komentar baru');
       await input.press('Enter');
+      const commentStatus = article.getByRole('status').filter({ hasText: 'Sedang mengirim komentar.' });
+      await commentStatus.waitFor();
+      assert.ok(pendingCommentRoute, 'request komentar harus tertahan untuk menguji status sibuk');
+      assert.equal(await input.getAttribute('readonly'), '');
+      assert.equal(await input.getAttribute('aria-disabled'), 'true');
+      assert.equal(await input.evaluate(element => document.activeElement === element), true,
+        'fokus input komentar harus bertahan selama request');
+      await responseJson(pendingCommentRoute, {
+        success: true,
+        data: makeComment({
+          id: 'created-comment-1',
+          body: 'Komentar baru',
+          author: { name: api.agent.name, slug: api.agent.slug, photo: api.agent.photo },
+          is_own: true,
+        }),
+      });
       await article.getByText('Komentar baru', { exact: true }).waitFor();
       await article.getByRole('button', { name: '2 komentar', exact: true }).waitFor();
+      assert.equal(await input.evaluate(element => document.activeElement === element), true,
+        'fokus input komentar harus tetap siap untuk komentar berikutnya');
       const commentRequest = matchingRequests(api, 'POST', '/api/community/posts/comments-post/comments')[0];
       assert.equal(commentRequest.body.body, 'Komentar baru');
       assert.match(commentRequest.body.client_id, /^[0-9a-f-]{36}$/i);
@@ -732,16 +1343,164 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
+  test('360px error and empty states wrap safely instead of hiding horizontal overflow', { timeout: 30_000 }, async () => {
+    const longError = `ERROR_${'TOKENPANJANGTANPAJEDA'.repeat(60)}`;
+    const opened = [];
+    try {
+      const feedApi = createCommunityApi({
+        onRequest: async ({ record, route }) => {
+          if (record.method !== 'GET' || record.pathname !== '/api/community/feed') return false;
+          await responseJson(route, { success: false, error: longError }, 500);
+          return true;
+        },
+      });
+      const feedApp = await openApp({ api: feedApi, viewport: { width: 360, height: 800 } });
+      opened.push(feedApp);
+      const feedAlert = feedApp.page.getByRole('alert').filter({ hasText: longError });
+      await feedAlert.waitFor();
+      const feedMessage = feedAlert.getByText(longError, { exact: true });
+      const feedMetrics = await feedMessage.evaluate(element => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        right: element.getBoundingClientRect().right,
+      }));
+      assert.ok(feedMetrics.scrollWidth <= feedMetrics.clientWidth + 1);
+      assert.ok(feedMetrics.right <= 344.5);
+      const retryBox = await feedAlert.getByRole('button', { name: 'Coba Lagi' }).boundingBox();
+      assert.ok(retryBox && retryBox.height >= 44);
+
+      const emptyApp = await openApp({
+        api: createCommunityApi(),
+        viewport: { width: 360, height: 800 },
+      });
+      opened.push(emptyApp);
+      const emptyState = emptyApp.page.getByText('Belum ada kiriman di Teras.', { exact: true });
+      await emptyState.waitFor();
+      const emptyBox = await emptyState.boundingBox();
+      assert.ok(emptyBox && emptyBox.x >= 0 && emptyBox.x + emptyBox.width <= 360);
+
+      const composerApi = createCommunityApi({
+        onRequest: async ({ record, route }) => {
+          if (record.method !== 'POST' || record.pathname !== '/api/community/posts') return false;
+          await responseJson(route, { success: false, error: longError }, 500);
+          return true;
+        },
+      });
+      const composerApp = await openApp({ api: composerApi, viewport: { width: 360, height: 800 } });
+      opened.push(composerApp);
+      await composerApp.page.getByRole('button', { name: COMPOSER_PROMPT, exact: true }).click();
+      const dialog = composerApp.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.getByPlaceholder(COMPOSER_PROMPT).fill('Uji error panjang');
+      await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
+      const composerAlert = dialog.getByRole('alert').filter({ hasText: longError });
+      await composerAlert.waitFor();
+      const composerMetrics = await composerAlert.evaluate(element => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        right: element.getBoundingClientRect().right,
+      }));
+      assert.ok(composerMetrics.scrollWidth <= composerMetrics.clientWidth + 1);
+      assert.ok(composerMetrics.right <= 344.5);
+      const dialogMetrics = await dialog.evaluate(element => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+      }));
+      assert.ok(dialogMetrics.scrollWidth <= dialogMetrics.clientWidth + 1);
+
+      composerApp.page.once('dialog', confirmation => confirmation.accept());
+      await dialog.getByRole('button', { name: 'Tutup buat kiriman' }).click();
+      await dialog.waitFor({ state: 'detached' });
+    } finally {
+      await Promise.all(opened.map(instance => instance.close()));
+    }
+  });
+
+  test('360px composer keeps an accessible focus target while media upload is busy', { timeout: 30_000 }, async () => {
+    let heldMediaRoute;
+    const api = createCommunityApi({
+      onRequest: ({ record, route }) => {
+        if (record.method !== 'POST' || record.pathname !== '/api/community/media') return false;
+        heldMediaRoute = route;
+        return true;
+      },
+    });
+    const app = await openApp({ api, viewport: { width: 360, height: 800 } });
+    try {
+      const sourcePhoto = await sharp({
+        create: {
+          width: 320,
+          height: 320,
+          channels: 3,
+          background: { r: 16, g: 185, b: 129 },
+        },
+      }).png().toBuffer();
+      const chooserPromise = app.page.waitForEvent('filechooser');
+      await app.page.getByRole('button', { name: 'Tambahkan foto atau video' }).click();
+      const chooser = await chooserPromise;
+      await chooser.setFiles({ name: 'busy.png', mimeType: 'image/png', buffer: sourcePhoto });
+
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.getByAltText('Pratinjau foto kiriman').waitFor();
+      await app.page.waitForFunction(
+        element => getComputedStyle(element).transform === 'none',
+        await dialog.elementHandle(),
+      );
+      await dialog.getByPlaceholder(COMPOSER_PROMPT).fill('Uji fokus saat upload');
+      const sendButton = dialog.getByRole('button', { name: 'Kirim kiriman' });
+      await app.page.waitForFunction(button => !button.disabled, await sendButton.elementHandle());
+
+      const visibleButtons = dialog.locator('button:visible');
+      for (let index = 0; index < await visibleButtons.count(); index += 1) {
+        const button = visibleButtons.nth(index);
+        const box = await button.boundingBox();
+        const identity = await button.evaluate(element => ({
+          label: element.getAttribute('aria-label'),
+          text: element.textContent?.trim(),
+        }));
+        assert.ok(
+          box && box.width >= 44 && box.height >= 44,
+          `target sentuh composer harus minimal 44px: ${JSON.stringify({ identity, box })}`,
+        );
+      }
+
+      await sendButton.click();
+      await app.page.waitForFunction(() => Boolean(document.querySelector('[role="dialog"][aria-busy="true"]')));
+      assert.ok(heldMediaRoute, 'upload media harus tertahan untuk menguji state busy');
+      const busyStatus = dialog.getByRole('status');
+      await busyStatus.getByText('Sedang mengirim kiriman. Mohon tunggu.', { exact: true }).waitFor();
+      const statusHandle = await busyStatus.elementHandle();
+      assert.ok(statusHandle);
+      await app.page.waitForFunction(element => document.activeElement === element, statusHandle);
+      await app.page.keyboard.press('Tab');
+      assert.equal(await busyStatus.evaluate(element => document.activeElement === element), true);
+      await app.page.keyboard.press('Shift+Tab');
+      assert.equal(await busyStatus.evaluate(element => document.activeElement === element), true);
+
+      await responseJson(heldMediaRoute, {
+        success: true,
+        type: 'image',
+        url: 'https://cdn.example.test/community/busy.jpg',
+      });
+      await dialog.waitFor({ state: 'detached', timeout: 10_000 });
+    } finally {
+      await app.close();
+    }
+  });
+
   test('composer is a focus-trapped modal, confirms draft discard, and restores page focus', { timeout: 30_000 }, async () => {
-    const app = await openApp({ api: createCommunityApi() });
+    const app = await openApp({
+      api: createCommunityApi(),
+      viewport: { width: 400, height: 816 },
+    });
     try {
       const trigger = app.page.getByRole('button', {
-        name: 'Apa yang ingin Anda bagikan, Bu?',
+        name: COMPOSER_PROMPT,
         exact: true,
       });
       const triggerHandle = await trigger.elementHandle();
       assert.ok(triggerHandle, 'trigger composer harus tersedia');
-      const pageRoot = trigger.locator('xpath=ancestor::section/parent::div');
+      const pageRoot = app.page.locator('[data-teras-root]');
+      const appRoot = app.page.locator('#root');
       const pageRootHandle = await pageRoot.elementHandle();
       assert.ok(pageRootHandle, 'root halaman Teras harus tersedia');
       await trigger.focus();
@@ -751,10 +1510,31 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await dialog.waitFor();
       assert.equal(await dialog.getAttribute('aria-modal'), 'true');
       assert.equal(await pageRootHandle.evaluate(element => element.getAttribute('aria-hidden')), 'true');
+      assert.equal(await appRoot.getAttribute('aria-hidden'), 'true');
+      assert.equal(await appRoot.evaluate(element => element.inert), true);
       assert.equal(await app.page.evaluate(() => document.body.style.overflow), 'hidden');
       await app.page.waitForFunction(() => document.activeElement?.tagName === 'TEXTAREA');
 
-      const attachment = dialog.getByRole('button', { name: 'Foto / Video' });
+      const textarea = dialog.getByPlaceholder(COMPOSER_PROMPT);
+      const attachment = dialog.getByRole('button', { name: 'Tambahkan foto atau video' });
+      const [dialogBox, textareaBox, attachmentBox] = await Promise.all([
+        dialog.boundingBox(),
+        textarea.boundingBox(),
+        attachment.boundingBox(),
+      ]);
+      assert.ok(dialogBox && textareaBox && attachmentBox, 'geometri composer harus dapat diukur');
+      assert.ok(
+        attachmentBox.y > textareaBox.y + textareaBox.height / 2,
+        `tombol media harus berada setelah area tulis: ${JSON.stringify({ textareaBox, attachmentBox })}`,
+      );
+      assert.ok(
+        Math.abs(attachmentBox.y - (textareaBox.y + textareaBox.height)) < 40,
+        `tombol media harus tetap dekat dengan area tulis seperti Threads: ${JSON.stringify({ textareaBox, attachmentBox })}`,
+      );
+      assert.ok(
+        dialogBox.y + dialogBox.height - (attachmentBox.y + attachmentBox.height) > 300,
+        `tombol media tidak boleh dipin ke dasar composer mobile: ${JSON.stringify({ dialogBox, attachmentBox })}`,
+      );
       await attachment.focus();
       await app.page.keyboard.press('Tab');
       assert.equal(
@@ -762,17 +1542,22 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         'Tutup buat kiriman',
       );
       await app.page.keyboard.press('Shift+Tab');
-      assert.equal(await app.page.evaluate(() => document.activeElement?.textContent?.trim()), 'Foto / Video');
+      assert.equal(
+        await app.page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
+        'Tambahkan foto atau video',
+      );
 
       await app.page.keyboard.press('Escape');
       await dialog.waitFor({ state: 'detached' });
       await app.page.waitForFunction(element => document.activeElement === element, triggerHandle);
       assert.equal(await pageRootHandle.evaluate(element => element.getAttribute('aria-hidden')), null);
+      assert.equal(await appRoot.getAttribute('aria-hidden'), null);
+      assert.equal(await appRoot.evaluate(element => element.inert), false);
       assert.equal(await app.page.evaluate(() => document.body.style.overflow), '');
 
       await trigger.click();
       dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
-      await dialog.getByPlaceholder('Apa yang ingin Anda bagikan?').fill('Draft belum dikirim');
+      await dialog.getByPlaceholder(COMPOSER_PROMPT).fill('Draft belum dikirim');
 
       app.page.once('dialog', confirmation => confirmation.dismiss());
       await app.page.keyboard.press('Escape');

@@ -10,15 +10,17 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Flag,
-  Globe,
   HandHeart,
   Image as ImageIcon,
   Loader2,
+  Maximize2,
   MessageCircle,
   MoreHorizontal,
   PartyPopper,
@@ -34,6 +36,7 @@ import { handleAgentPhotoError } from '../lib/agent-photo';
 import { getAuthHeaders } from './LoginPage';
 
 type ReactionType = 'suka' | 'selamat' | 'aamiin';
+type CommunityMediaType = 'image' | 'video';
 
 interface TerasAgent {
   slug: string;
@@ -58,6 +61,7 @@ interface CommunityPost {
   id: string;
   body: string;
   photo_url: string | null;
+  media?: CommunityMedia[];
   is_system: boolean;
   created_at: string;
   author: CommunityAuthor;
@@ -66,6 +70,11 @@ interface CommunityPost {
   reaction_sample_name: string | null;
   comment_count: number;
   is_own: boolean;
+}
+
+interface CommunityMedia {
+  type: CommunityMediaType;
+  url: string;
 }
 
 interface CommunityComment {
@@ -86,9 +95,14 @@ interface CommentPanelState {
   error: string | null;
 }
 
-interface ComposerPhoto {
-  dataUrl: string;
+interface ComposerMedia {
+  id: string;
+  uploadId: string;
+  type: CommunityMediaType;
+  previewUrl: string;
+  uploadBlob: Blob;
   status: 'processing' | 'ready' | 'uploading' | 'error';
+  url?: string;
   error?: string;
 }
 
@@ -105,6 +119,13 @@ interface ToastState {
   tone: 'success' | 'error';
 }
 
+interface MediaViewerState {
+  media: CommunityMedia[];
+  index: number;
+  authorName: string;
+  direction: number;
+}
+
 interface ReactionStyle {
   label: string;
   icon: LucideIcon;
@@ -114,7 +135,13 @@ interface ReactionStyle {
 
 const REACTION_TYPES: ReactionType[] = ['suka', 'selamat', 'aamiin'];
 const REQUEST_TIMEOUT_MS = 20_000;
-const PHOTO_UPLOAD_TIMEOUT_MS = 120_000;
+const MEDIA_UPLOAD_TIMEOUT_MS = 120_000;
+const MAX_COMMUNITY_MEDIA = 4;
+const COMPOSER_PROMPT = 'Mau sharing apa nih?';
+const MAX_COMMUNITY_SOURCE_IMAGE_BYTES = 16 * 1024 * 1024;
+const MAX_COMMUNITY_IMAGE_BYTES = 6 * 1024 * 1024;
+const MAX_COMMUNITY_VIDEO_BYTES = 24 * 1024 * 1024;
+const SUPPORTED_VIDEO_TYPES = new Set(['video/mp4', 'video/quicktime', 'video/webm']);
 const REACTION_STYLES: Record<ReactionType, ReactionStyle> = {
   suka: {
     label: 'Suka',
@@ -223,9 +250,9 @@ function readFileAsDataUrl(file: File): Promise<string> {
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') resolve(reader.result);
-      else reject(new Error('Foto tidak dapat dibaca'));
+      else reject(new Error('Media tidak dapat dibaca'));
     };
-    reader.onerror = () => reject(new Error('Foto tidak dapat dibaca'));
+    reader.onerror = () => reject(new Error('Media tidak dapat dibaca'));
     reader.readAsDataURL(file);
   });
 }
@@ -267,6 +294,49 @@ function resizeCommunityPhoto(source: string): Promise<string> {
 function dataUrlBytes(dataUrl: string): number {
   const base64 = dataUrl.split(',')[1] || '';
   return Math.ceil((base64.length * 3) / 4);
+}
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [metadata, base64 = ''] = dataUrl.split(',');
+  const mime = metadata.match(/^data:([^;]+);base64$/)?.[1];
+  if (!mime || !base64) throw new Error('Foto tidak dapat diproses');
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: mime });
+}
+
+function normalizePostMedia(post: CommunityPost): CommunityMedia[] {
+  const media = Array.isArray(post.media)
+    ? post.media.filter(item => (
+      !!item
+      && (item.type === 'image' || item.type === 'video')
+      && typeof item.url === 'string'
+      && item.url.length > 0
+    )).slice(0, MAX_COMMUNITY_MEDIA)
+    : [];
+  if (media.length > 0) return media;
+  return post.photo_url ? [{ type: 'image', url: post.photo_url }] : [];
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(values[index], index);
+    }
+  });
+  const settledWorkers = await Promise.allSettled(workers);
+  const failedWorker = settledWorkers.find(result => result.status === 'rejected');
+  if (failedWorker?.status === 'rejected') throw failedWorker.reason;
+  return results;
 }
 
 function emptyCommentPanel(open = true): CommentPanelState {
@@ -320,25 +390,213 @@ function AgentAvatar({
   );
 }
 
-function PostSkeleton() {
+function PostSkeleton({ withMedia = false }: { withMedia?: boolean }) {
   return (
-    <div className="animate-pulse overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      <div className="flex items-center gap-3 px-3.5 pt-3">
+    <div className="animate-pulse border-b border-gray-100 bg-white motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex items-center gap-3 px-4 pt-4">
         <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-slate-700" />
-        <div className="flex-1 space-y-2">
+        <div className="flex flex-1 items-center gap-2">
           <div className="h-3 w-28 rounded bg-gray-200 dark:bg-slate-700" />
-          <div className="h-2.5 w-20 rounded bg-gray-100 dark:bg-slate-700/70" />
+          <div className="h-2.5 w-12 rounded bg-gray-100 dark:bg-slate-700/70" />
         </div>
       </div>
-      <div className="space-y-2 px-3.5 py-4">
+      <div className="ml-[68px] space-y-2 px-4 py-4 pl-0">
         <div className="h-3 w-full rounded bg-gray-100 dark:bg-slate-700/70" />
         <div className="h-3 w-5/6 rounded bg-gray-100 dark:bg-slate-700/70" />
         <div className="h-3 w-2/3 rounded bg-gray-100 dark:bg-slate-700/70" />
       </div>
-      <div className="mx-3.5 flex border-t border-gray-50 py-2.5 dark:border-slate-700/50">
-        <div className="mx-auto h-4 w-16 rounded bg-gray-100 dark:bg-slate-900" />
-        <div className="mx-auto h-4 w-20 rounded bg-gray-100 dark:bg-slate-900" />
+      {withMedia && (
+        <div data-teras-skeleton-media className="ml-[68px] mr-4 aspect-[4/5] max-h-[34rem] rounded-2xl bg-gray-100 dark:bg-slate-800" />
+      )}
+      <div className="ml-[68px] mr-4 flex gap-1 border-t border-gray-50 py-1 dark:border-slate-800">
+        <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
+        <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
       </div>
+    </div>
+  );
+}
+
+function PostMediaRail({
+  media,
+  authorName,
+  onOpen,
+}: {
+  media: CommunityMedia[];
+  authorName: string;
+  onOpen: (index: number, trigger: HTMLElement) => void;
+}) {
+  const railRef = useRef<HTMLDivElement>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const reduceMotion = useReducedMotion();
+  const mediaSignature = media.map(item => `${item.type}:${item.url}`).join('|');
+
+  useEffect(() => {
+    setActiveIndex(0);
+    if (railRef.current) railRef.current.scrollLeft = 0;
+  }, [mediaSignature]);
+
+  const scrollToIndex = (index: number) => {
+    const boundedIndex = Math.max(0, Math.min(media.length - 1, index));
+    const rail = railRef.current;
+    const item = rail?.querySelectorAll<HTMLElement>('[data-media-slide]').item(boundedIndex);
+    if (rail && item) {
+      const targetLeft = rail.scrollLeft
+        + item.getBoundingClientRect().left
+        - rail.getBoundingClientRect().left;
+      rail.scrollTo({ left: targetLeft, behavior: reduceMotion ? 'auto' : 'smooth' });
+    }
+    setActiveIndex(boundedIndex);
+  };
+
+  const updateActiveIndex = () => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const railLeft = rail.getBoundingClientRect().left;
+    let closestIndex = 0;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    rail.querySelectorAll<HTMLElement>('[data-media-slide]').forEach((child, index) => {
+      const distance = Math.abs(child.getBoundingClientRect().left - railLeft);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestIndex = index;
+      }
+    });
+    setActiveIndex(closestIndex);
+  };
+
+  const renderMedia = (item: CommunityMedia, index: number, preserveIntrinsicRatio = false) => {
+    const positionLabel = media.length === 1 ? '' : ` ${index + 1} dari ${media.length}`;
+    if (item.type === 'video') {
+      return (
+        <div className={`relative w-full ${preserveIntrinsicRatio ? '' : 'h-full'}`}>
+          <video
+            src={item.url}
+            controls
+            playsInline
+            preload="metadata"
+            aria-label={`Video ${index + 1} dari ${media.length} kiriman ${authorName}`}
+            className={`${preserveIntrinsicRatio ? 'block max-h-[34rem]' : 'h-full'} w-full bg-black object-contain`}
+          />
+          <button
+            type="button"
+            onClick={event => onOpen(index, event.currentTarget)}
+            aria-label={`Buka video${positionLabel} kiriman ${authorName} layar penuh`}
+            aria-haspopup="dialog"
+            title="Buka layar penuh"
+            className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-full bg-black/60 text-white shadow-md backdrop-blur-sm transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          >
+            <Maximize2 size={18} />
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={event => onOpen(index, event.currentTarget)}
+        aria-label={`Buka foto${positionLabel} kiriman ${authorName} layar penuh`}
+        aria-haspopup="dialog"
+        className={`group block w-full overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/70 ${preserveIntrinsicRatio ? '' : 'h-full'}`}
+      >
+        <img
+          src={item.url}
+          alt={media.length === 1
+            ? `Foto kiriman ${authorName}`
+            : `Foto ${index + 1} dari ${media.length} kiriman ${authorName}`}
+          loading="lazy"
+          className={`${preserveIntrinsicRatio ? 'block max-h-[34rem] object-contain' : 'h-full object-cover'} w-full bg-gray-100 transition-transform duration-300 group-active:scale-[0.985] motion-reduce:transition-none dark:bg-slate-950`}
+        />
+      </button>
+    );
+  };
+
+  if (media.length === 1) {
+    return (
+      <div className="mt-2.5 max-h-[34rem] overflow-hidden rounded-2xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950">
+        {renderMedia(media[0], 0, true)}
+      </div>
+    );
+  }
+
+  if (media.length === 2) {
+    return (
+      <div className="mt-2.5 grid grid-cols-2 gap-1.5" role="group" aria-label={`2 media kiriman ${authorName} ditampilkan berdampingan`}>
+        {media.map((item, index) => (
+          <div
+            key={`${item.type}-${item.url}-${index}`}
+            className="aspect-[4/5] max-h-[34rem] overflow-hidden rounded-2xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950"
+          >
+            {renderMedia(item, index)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative mt-2.5" aria-label={`Media kiriman ${authorName}, ${media.length} item`}>
+      <div
+        ref={railRef}
+        role="region"
+        tabIndex={0}
+        aria-roledescription="carousel"
+        aria-label={`${media.length} media. Geser ke samping untuk melihat semuanya.`}
+        onScroll={updateActiveIndex}
+        onKeyDown={event => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            scrollToIndex(activeIndex - 1);
+          } else if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            scrollToIndex(activeIndex + 1);
+          }
+        }}
+        className="flex snap-x snap-mandatory gap-1.5 overflow-x-auto overscroll-x-contain scroll-smooth rounded-2xl outline-none motion-reduce:scroll-auto [scrollbar-width:none] focus-visible:ring-2 focus-visible:ring-emerald-500/60 [&::-webkit-scrollbar]:hidden"
+      >
+        {media.map((item, index) => (
+          <div
+            key={`${item.type}-${item.url}-${index}`}
+            data-media-slide
+            className="aspect-[4/5] max-h-[34rem] shrink-0 snap-start overflow-hidden rounded-2xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950"
+            style={{ flexBasis: '82%' }}
+          >
+            {renderMedia(item, index)}
+          </div>
+        ))}
+        <div aria-hidden="true" className="w-[18%] shrink-0" />
+      </div>
+
+      <span
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        aria-label={`Media ${activeIndex + 1} dari ${media.length}`}
+        className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/65 px-2 py-1 text-[10px] font-bold tabular-nums text-white backdrop-blur-sm"
+      >
+        {activeIndex + 1}/{media.length}
+      </span>
+      <>
+          <button
+            type="button"
+            onClick={() => scrollToIndex(activeIndex - 1)}
+            disabled={activeIndex === 0}
+            aria-label="Media sebelumnya"
+            className="absolute left-2 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white shadow-md backdrop-blur-sm transition-all hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-0 sm:flex"
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToIndex(activeIndex + 1)}
+            disabled={activeIndex === media.length - 1}
+            aria-label="Media berikutnya"
+            className="absolute right-2 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white shadow-md backdrop-blur-sm transition-all hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-0 sm:flex"
+          >
+            <ChevronRight size={18} />
+          </button>
+      </>
     </div>
   );
 }
@@ -347,7 +605,7 @@ function CommentSkeleton() {
   return (
     <div className="space-y-2.5 py-2" aria-label="Memuat komentar" aria-busy="true">
       {[0, 1].map(item => (
-        <div key={item} className="flex animate-pulse items-start gap-2">
+        <div key={item} className="flex animate-pulse items-start gap-2 motion-reduce:animate-none">
           <div className="h-7 w-7 rounded-full bg-gray-200 dark:bg-slate-700" />
           <div className="h-12 flex-1 rounded-2xl bg-gray-100 dark:bg-slate-900" />
         </div>
@@ -371,6 +629,7 @@ function socialProofLabel(post: CommunityPost): string {
 }
 
 export default function TerasPage({ agent }: { agent: TerasAgent }) {
+  const reduceMotion = useReducedMotion();
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -379,7 +638,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerBody, setComposerBody] = useState('');
-  const [composerPhoto, setComposerPhoto] = useState<ComposerPhoto | null>(null);
+  const [composerMedia, setComposerMedia] = useState<ComposerMedia[]>([]);
   const [composerBusy, setComposerBusy] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
 
@@ -391,17 +650,28 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
   const [reportingPostId, setReportingPostId] = useState<string | null>(null);
   const [pickerOpenPostId, setPickerOpenPostId] = useState<string | null>(null);
+  const [menuOpensUp, setMenuOpensUp] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [mediaViewer, setMediaViewer] = useState<MediaViewerState | null>(null);
+  const [mediaViewerVisible, setMediaViewerVisible] = useState(false);
 
   const pageRootRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerFormRef = useRef<HTMLFormElement>(null);
+  const composerStatusRef = useRef<HTMLDivElement>(null);
   const composerTriggerRef = useRef<HTMLElement | null>(null);
   const composerControllerRef = useRef<AbortController | null>(null);
   const composerRequestIdRef = useRef<string | null>(null);
   const closeComposerRef = useRef<() => void>(() => {});
-  const composerExitTimerRef = useRef<number | null>(null);
-  const pageAriaHiddenBeforeComposerRef = useRef<string | null | undefined>(undefined);
+  const composerPageStateRef = useRef<{
+    previousOverflow: string;
+    trigger: HTMLElement | null;
+    pageRoot: HTMLDivElement | null;
+    previousPageAriaHidden: string | null;
+    appRoot: HTMLElement | null;
+    previousAppAriaHidden: string | null;
+    previousAppInert: boolean;
+  } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const focusMenuOnOpenRef = useRef(false);
@@ -414,15 +684,37 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
   const reactionPendingRef = useRef<Set<string>>(new Set());
   const commentSendingRef = useRef<Set<string>>(new Set());
   const toastTimerRef = useRef<number | null>(null);
-  const photoJobRef = useRef(0);
+  const composerMediaRef = useRef<ComposerMedia[]>([]);
+  const mediaViewerDialogRef = useRef<HTMLDivElement>(null);
+  const mediaViewerTriggerRef = useRef<HTMLElement | null>(null);
   const postsRef = useRef<CommunityPost[]>([]);
   const pendingCreatedPostsRef = useRef<Map<string, CommunityPost>>(new Map());
   const longPressTimerRef = useRef<number | null>(null);
   const longPressFiredRef = useRef(false);
 
+  const restoreComposerPageState = useCallback((restoreFocus = true) => {
+    const state = composerPageStateRef.current;
+    if (!state) return;
+    composerPageStateRef.current = null;
+    document.body.style.overflow = state.previousOverflow;
+    if (state.previousPageAriaHidden === null) state.pageRoot?.removeAttribute('aria-hidden');
+    else state.pageRoot?.setAttribute('aria-hidden', state.previousPageAriaHidden);
+    if (state.previousAppAriaHidden === null) state.appRoot?.removeAttribute('aria-hidden');
+    else state.appRoot?.setAttribute('aria-hidden', state.previousAppAriaHidden);
+    if (state.appRoot) state.appRoot.inert = state.previousAppInert;
+    if (composerTriggerRef.current === state.trigger) composerTriggerRef.current = null;
+    if (restoreFocus && state.trigger?.isConnected) {
+      window.requestAnimationFrame(() => state.trigger?.focus());
+    }
+  }, []);
+
   useEffect(() => {
     postsRef.current = posts;
   }, [posts]);
+
+  useEffect(() => {
+    composerMediaRef.current = composerMedia;
+  }, [composerMedia]);
 
   const showToast = useCallback((message: string, tone: ToastState['tone']) => {
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
@@ -430,8 +722,108 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
     toastTimerRef.current = window.setTimeout(() => {
       setToast(null);
       toastTimerRef.current = null;
-    }, 2500);
+    }, tone === 'error' ? 5000 : 2500);
   }, []);
+
+  const openMediaViewer = useCallback((
+    media: CommunityMedia[],
+    index: number,
+    authorName: string,
+    trigger: HTMLElement,
+  ) => {
+    mediaViewerTriggerRef.current = trigger;
+    setMediaViewer({
+      media: media.slice(),
+      index: Math.max(0, Math.min(media.length - 1, index)),
+      authorName,
+      direction: 0,
+    });
+    setMediaViewerVisible(true);
+  }, []);
+
+  const closeMediaViewer = useCallback(() => {
+    setMediaViewerVisible(false);
+  }, []);
+
+  const navigateMediaViewer = useCallback((direction: number) => {
+    setMediaViewer(current => {
+      if (!current) return current;
+      const nextIndex = Math.max(0, Math.min(current.media.length - 1, current.index + direction));
+      if (nextIndex === current.index) return current;
+      return { ...current, index: nextIndex, direction };
+    });
+  }, []);
+
+  const mediaViewerOpen = mediaViewer !== null;
+
+  useLayoutEffect(() => {
+    if (!mediaViewerOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const pageRoot = pageRootRef.current;
+    const previousAriaHidden = pageRoot?.getAttribute('aria-hidden') ?? null;
+    const appRoot = document.getElementById('root');
+    const previousAppAriaHidden = appRoot?.getAttribute('aria-hidden') ?? null;
+    const previousAppInert = appRoot?.inert ?? false;
+    const trigger = mediaViewerTriggerRef.current;
+    document.body.style.overflow = 'hidden';
+    pageRoot?.setAttribute('aria-hidden', 'true');
+    appRoot?.setAttribute('aria-hidden', 'true');
+    if (appRoot) appRoot.inert = true;
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      mediaViewerDialogRef.current?.querySelector<HTMLButtonElement>('[data-media-viewer-close]')?.focus();
+    });
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMediaViewer();
+        return;
+      }
+      if (event.target instanceof HTMLVideoElement) return;
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        navigateMediaViewer(-1);
+        return;
+      }
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        navigateMediaViewer(1);
+        return;
+      }
+      if (event.key !== 'Tab' || !mediaViewerDialogRef.current) return;
+
+      const focusable = Array.from(mediaViewerDialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), video[controls], [tabindex]:not([tabindex="-1"])',
+      )).filter(element => element.getAttribute('aria-hidden') !== 'true');
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      if (previousAriaHidden === null) pageRoot?.removeAttribute('aria-hidden');
+      else pageRoot?.setAttribute('aria-hidden', previousAriaHidden);
+      if (previousAppAriaHidden === null) appRoot?.removeAttribute('aria-hidden');
+      else appRoot?.setAttribute('aria-hidden', previousAppAriaHidden);
+      if (appRoot) appRoot.inert = previousAppInert;
+      window.requestAnimationFrame(() => {
+        if (trigger?.isConnected) trigger.focus();
+        if (mediaViewerTriggerRef.current === trigger) mediaViewerTriggerRef.current = null;
+      });
+    };
+  }, [closeMediaViewer, mediaViewerOpen, navigateMediaViewer]);
 
   const fetchFeed = useCallback(async (
     before: string | null,
@@ -511,12 +903,14 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
   useEffect(() => () => {
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
     if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
-    if (composerExitTimerRef.current !== null) window.clearTimeout(composerExitTimerRef.current);
     composerControllerRef.current?.abort();
-    photoJobRef.current += 1;
+    restoreComposerPageState(false);
+    composerMediaRef.current.forEach(item => {
+      if (item.previewUrl.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl);
+    });
     commentControllersRef.current.forEach(controller => controller.abort());
     commentControllersRef.current.clear();
-  }, []);
+  }, [restoreComposerPageState]);
 
   const openReactionPicker = useCallback((postId: string, focusFirst: boolean) => {
     focusPickerOnOpenRef.current = focusFirst;
@@ -546,17 +940,63 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
     focusMenuOnOpenRef.current = focusFirst;
     setPickerOpenPostId(null);
     setConfirmDeletePostId(null);
+    const triggerRect = menuButtonRefs.current.get(postId)?.getBoundingClientRect();
+    if (triggerRect) {
+      const spaceBelow = window.innerHeight - triggerRect.bottom;
+      setMenuOpensUp(spaceBelow < 128 && triggerRect.top > spaceBelow);
+    } else {
+      setMenuOpensUp(false);
+    }
     setMenuOpenPostId(postId);
   }, []);
 
   const closePostMenu = useCallback((postId?: string, restoreFocus = false) => {
     setMenuOpenPostId(null);
     setConfirmDeletePostId(null);
+    setMenuOpensUp(false);
     focusMenuOnOpenRef.current = false;
     if (restoreFocus && postId) {
       window.requestAnimationFrame(() => menuButtonRefs.current.get(postId)?.focus());
     }
   }, []);
+
+  useLayoutEffect(() => {
+    if (!menuOpenPostId) return;
+    const updatePlacement = () => {
+      const triggerRect = menuButtonRefs.current.get(menuOpenPostId)?.getBoundingClientRect();
+      if (!triggerRect) return;
+      const spaceBelow = window.innerHeight - triggerRect.bottom;
+      setMenuOpensUp(spaceBelow < 128 && triggerRect.top > spaceBelow);
+    };
+    updatePlacement();
+    window.addEventListener('resize', updatePlacement);
+    window.addEventListener('scroll', updatePlacement, true);
+    return () => {
+      window.removeEventListener('resize', updatePlacement);
+      window.removeEventListener('scroll', updatePlacement, true);
+    };
+  }, [menuOpenPostId]);
+
+  const handlePostMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>, postId: string) => {
+    if (event.key === 'Tab' || event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closePostMenu(postId, true);
+      return;
+    }
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+
+    const buttons = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('button:not([disabled])') || []);
+    if (buttons.length === 0) return;
+    event.preventDefault();
+    const activeIndex = Math.max(0, buttons.indexOf(document.activeElement as HTMLButtonElement));
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? buttons.length - 1
+        : (activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[nextIndex]?.focus();
+  };
 
   useEffect(() => {
     if (!menuOpenPostId || !focusMenuOnOpenRef.current || confirmDeletePostId) return;
@@ -602,10 +1042,13 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
   }, [closePostMenu, closeReactionPicker, menuOpenPostId, pickerOpenPostId]);
 
   const resetComposer = useCallback(() => {
-    photoJobRef.current += 1;
+    composerMediaRef.current.forEach(item => {
+      if (item.previewUrl.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl);
+    });
+    composerMediaRef.current = [];
     setComposerOpen(false);
     setComposerBody('');
-    setComposerPhoto(null);
+    setComposerMedia([]);
     setComposerError(null);
     composerRequestIdRef.current = null;
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -613,26 +1056,31 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
 
   const closeComposer = useCallback(() => {
     if (composerBusy) return;
-    if ((composerBody.trim() || composerPhoto) && !window.confirm('Buang draft kiriman ini?')) return;
+    if ((composerBody.trim() || composerMedia.length > 0) && !window.confirm('Buang draft kiriman ini?')) return;
     resetComposer();
-  }, [composerBody, composerBusy, composerPhoto, resetComposer]);
+  }, [composerBody, composerBusy, composerMedia.length, resetComposer]);
   closeComposerRef.current = closeComposer;
 
   useLayoutEffect(() => {
     if (!composerOpen) return;
-    const previousOverflow = document.body.style.overflow;
     const trigger = composerTriggerRef.current;
-    if (composerExitTimerRef.current !== null) {
-      window.clearTimeout(composerExitTimerRef.current);
-      composerExitTimerRef.current = null;
-    }
-    if (pageAriaHiddenBeforeComposerRef.current === undefined) {
-      pageAriaHiddenBeforeComposerRef.current = pageRootRef.current?.getAttribute('aria-hidden') ?? null;
-    }
+    const appRoot = document.getElementById('root');
+    const pageRoot = pageRootRef.current;
+    composerPageStateRef.current = {
+      previousOverflow: document.body.style.overflow,
+      trigger,
+      pageRoot,
+      previousPageAriaHidden: pageRoot?.getAttribute('aria-hidden') ?? null,
+      appRoot,
+      previousAppAriaHidden: appRoot?.getAttribute('aria-hidden') ?? null,
+      previousAppInert: appRoot?.inert ?? false,
+    };
 
-    composerFormRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
     document.body.style.overflow = 'hidden';
-    pageRootRef.current?.setAttribute('aria-hidden', 'true');
+    pageRoot?.setAttribute('aria-hidden', 'true');
+    appRoot?.setAttribute('aria-hidden', 'true');
+    if (appRoot) appRoot.inert = true;
+    composerFormRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
 
     const handleComposerKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -659,18 +1107,21 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
     };
     document.addEventListener('keydown', handleComposerKeyDown);
     return () => {
-      document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleComposerKeyDown);
-      composerExitTimerRef.current = window.setTimeout(() => {
-        const previousAriaHidden = pageAriaHiddenBeforeComposerRef.current;
-        if (previousAriaHidden === null) pageRootRef.current?.removeAttribute('aria-hidden');
-        else if (previousAriaHidden !== undefined) pageRootRef.current?.setAttribute('aria-hidden', previousAriaHidden);
-        pageAriaHiddenBeforeComposerRef.current = undefined;
-        composerExitTimerRef.current = null;
-        if (trigger?.isConnected) trigger.focus();
-      }, 300);
     };
   }, [composerOpen]);
+
+  useEffect(() => {
+    if (!composerOpen) return;
+    const focusFrame = window.requestAnimationFrame(() => {
+      if (composerBusy) {
+        composerStatusRef.current?.focus();
+      } else if (document.activeElement === composerStatusRef.current) {
+        composerFormRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+      }
+    });
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [composerBusy, composerOpen]);
 
   const openComposer = (openPhotoPicker = false) => {
     composerTriggerRef.current = document.activeElement instanceof HTMLElement
@@ -681,43 +1132,106 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
     if (openPhotoPicker) fileInputRef.current?.click();
   };
 
-  const removeComposerPhoto = () => {
-    photoJobRef.current += 1;
+  const removeComposerMedia = (mediaId: string) => {
     composerRequestIdRef.current = null;
-    setComposerPhoto(null);
-    setComposerError(null);
+    const removed = composerMediaRef.current.find(item => item.id === mediaId);
+    if (removed?.previewUrl.startsWith('blob:')) URL.revokeObjectURL(removed.previewUrl);
+    setComposerMedia(current => {
+      const next = current.filter(item => item.id !== mediaId);
+      composerMediaRef.current = next;
+      return next;
+    });
+    setComposerError(current => removed?.status === 'error' ? null : current);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handlePhotoSelection = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleMediaSelection = async (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files || []);
     event.target.value = '';
-    if (!file) return;
+    if (selectedFiles.length === 0) return;
 
-    const job = photoJobRef.current + 1;
-    photoJobRef.current = job;
-    composerRequestIdRef.current = null;
-    setComposerError(null);
-    setComposerPhoto({ dataUrl: '', status: 'processing' });
-
-    let preview = '';
-    try {
-      preview = await readFileAsDataUrl(file);
-      if (photoJobRef.current !== job) return;
-      setComposerPhoto({ dataUrl: preview, status: 'processing' });
-
-      const resized = await resizeCommunityPhoto(preview);
-      if (photoJobRef.current !== job) return;
-      if (dataUrlBytes(resized) > 6 * 1024 * 1024) {
-        throw new Error('Ukuran foto masih lebih dari 6MB');
-      }
-      setComposerPhoto({ dataUrl: resized, status: 'ready' });
-    } catch (photoError) {
-      if (photoJobRef.current !== job) return;
-      const message = errorMessage(photoError, 'Foto tidak dapat diproses');
-      setComposerPhoto(preview ? { dataUrl: preview, status: 'error', error: message } : null);
-      setComposerError(message);
+    const availableSlots = Math.max(0, MAX_COMMUNITY_MEDIA - composerMediaRef.current.length);
+    if (availableSlots === 0) {
+      setComposerError(`Maksimal ${MAX_COMMUNITY_MEDIA} foto atau video per kiriman`);
+      return;
     }
+
+    composerRequestIdRef.current = null;
+    const validationErrors: string[] = [];
+    const additions: ComposerMedia[] = [];
+
+    for (const file of selectedFiles.slice(0, availableSlots)) {
+      const mime = file.type.toLowerCase();
+      const isImage = mime.startsWith('image/');
+      const isVideo = SUPPORTED_VIDEO_TYPES.has(mime);
+      if (!isImage && !isVideo) {
+        validationErrors.push(`${file.name}: format tidak didukung`);
+        continue;
+      }
+      if (isImage && file.size > MAX_COMMUNITY_SOURCE_IMAGE_BYTES) {
+        validationErrors.push(`${file.name}: foto awal maksimal 16MB`);
+        continue;
+      }
+      if (isVideo && file.size > MAX_COMMUNITY_VIDEO_BYTES) {
+        validationErrors.push(`${file.name}: video maksimal 24MB`);
+        continue;
+      }
+
+      additions.push({
+        id: window.crypto.randomUUID(),
+        uploadId: window.crypto.randomUUID(),
+        type: isImage ? 'image' : 'video',
+        previewUrl: URL.createObjectURL(file),
+        uploadBlob: file,
+        status: isImage ? 'processing' : 'ready',
+      });
+    }
+
+    if (selectedFiles.length > availableSlots) {
+      validationErrors.push(`Hanya ${MAX_COMMUNITY_MEDIA} media pertama yang dapat dipilih`);
+    }
+    if (additions.length === 0) {
+      setComposerError(validationErrors[0] || 'Media tidak dapat diproses');
+      return;
+    }
+
+    setComposerMedia(current => {
+      const next = [...current, ...additions];
+      composerMediaRef.current = next;
+      return next;
+    });
+    setComposerError(validationErrors.length > 0 ? validationErrors.join('. ') : null);
+
+    await mapWithConcurrency(additions.filter(item => item.type === 'image'), 1, async item => {
+      const sourceFile = item.uploadBlob as File;
+      try {
+        const source = await readFileAsDataUrl(sourceFile);
+        const resized = await resizeCommunityPhoto(source);
+        if (dataUrlBytes(resized) > MAX_COMMUNITY_IMAGE_BYTES) {
+          throw new Error('Ukuran foto setelah diproses masih lebih dari 6MB');
+        }
+        const uploadBlob = dataUrlToBlob(resized);
+        if (!composerMediaRef.current.some(currentItem => currentItem.id === item.id)) return;
+        setComposerMedia(current => {
+          const next = current.map(currentItem => currentItem.id === item.id
+            ? { ...currentItem, uploadBlob, status: 'ready' as const, error: undefined }
+            : currentItem);
+          composerMediaRef.current = next;
+          return next;
+        });
+      } catch (photoError) {
+        const message = errorMessage(photoError, 'Foto tidak dapat diproses');
+        if (!composerMediaRef.current.some(currentItem => currentItem.id === item.id)) return;
+        setComposerMedia(current => {
+          const next = current.map(currentItem => currentItem.id === item.id
+            ? { ...currentItem, status: 'error' as const, error: message }
+            : currentItem);
+          composerMediaRef.current = next;
+          return next;
+        });
+        setComposerError(message);
+      }
+    });
   };
 
   const handleCreatePost = async (event: FormEvent) => {
@@ -725,8 +1239,10 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
     const body = composerBody.trim();
     const bodyLength = Array.from(body).length;
     if (bodyLength < 1 || bodyLength > 2000 || composerBusy) return;
-    if (composerPhoto && composerPhoto.status !== 'ready') {
-      setComposerError(composerPhoto.error || 'Tunggu foto selesai diproses');
+    const mediaSnapshot = composerMediaRef.current;
+    const unavailableMedia = mediaSnapshot.find(item => item.status !== 'ready');
+    if (unavailableMedia) {
+      setComposerError(unavailableMedia.error || 'Tunggu media selesai diproses');
       return;
     }
 
@@ -738,23 +1254,39 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
     setComposerBusy(true);
     setComposerError(null);
     try {
-      let photoUrl: string | undefined;
-      if (composerPhoto) {
-        setComposerPhoto(current => current ? { ...current, status: 'uploading' } : current);
+      const uploadedMedia = await mapWithConcurrency(mediaSnapshot, 2, async item => {
+        if (item.url) return { type: item.type, url: item.url } satisfies CommunityMedia;
+
+        setComposerMedia(current => current.map(currentItem => currentItem.id === item.id
+          ? { ...currentItem, status: 'uploading' as const }
+          : currentItem));
         const upload = await requestJson<never>(
-          '/api/community/photo',
+          '/api/community/media',
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-            body: JSON.stringify({ image_data: composerPhoto.dataUrl, upload_id: requestId }),
+            headers: {
+              'Content-Type': item.uploadBlob.type,
+              'X-Upload-ID': item.uploadId,
+              ...getAuthHeaders(),
+            },
+            body: item.uploadBlob,
             signal: controller.signal,
           },
-          'Gagal mengunggah foto',
-          PHOTO_UPLOAD_TIMEOUT_MS,
+          `Gagal mengunggah ${item.type === 'video' ? 'video' : 'foto'}`,
+          MEDIA_UPLOAD_TIMEOUT_MS,
         );
-        if (typeof upload.url !== 'string' || !upload.url) throw new Error('URL foto tidak tersedia');
-        photoUrl = upload.url;
-      }
+        if (typeof upload.url !== 'string' || !upload.url) throw new Error('URL media tidak tersedia');
+        setComposerMedia(current => {
+          const next = current.map(currentItem => currentItem.id === item.id
+            ? { ...currentItem, status: 'ready' as const, url: upload.url, error: undefined }
+            : currentItem);
+          composerMediaRef.current = next;
+          return next;
+        });
+        return { type: item.type, url: upload.url } satisfies CommunityMedia;
+      });
+
+      const legacyPhotoUrl = uploadedMedia.find(item => item.type === 'image')?.url;
 
       const created = await requestJson<CommunityPost>(
         '/api/community/posts',
@@ -764,7 +1296,8 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
           body: JSON.stringify({
             body,
             client_id: requestId,
-            ...(photoUrl ? { photo_url: photoUrl } : {}),
+            ...(uploadedMedia.length > 0 ? { media: uploadedMedia } : {}),
+            ...(legacyPhotoUrl ? { photo_url: legacyPhotoUrl } : {}),
           }),
           signal: controller.signal,
         },
@@ -782,7 +1315,13 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
     } catch (createError) {
       if (createError instanceof Error && createError.name === 'AbortError') return;
       const message = errorMessage(createError, 'Gagal membuat kiriman');
-      setComposerPhoto(current => current ? { ...current, status: 'ready', error: message } : current);
+      setComposerMedia(current => {
+        const next = current.map(item => item.status === 'uploading'
+          ? { ...item, status: 'ready' as const, error: message }
+          : item);
+        composerMediaRef.current = next;
+        return next;
+      });
       setComposerError(message);
       showToast(message, 'error');
     } finally {
@@ -1121,10 +1660,10 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
   const composerCanSubmit = composerBodyLength >= 1
     && composerBodyLength <= 2000
     && !composerBusy
-    && (!composerPhoto || composerPhoto.status === 'ready');
+    && composerMedia.every(item => item.status === 'ready');
 
   const composerSheet = typeof document === 'undefined' ? null : createPortal(
-    <AnimatePresence>
+    <AnimatePresence onExitComplete={() => restoreComposerPageState(true)}>
       {composerOpen && (
         <motion.form
           ref={composerFormRef}
@@ -1132,23 +1671,33 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
           onSubmit={handleCreatePost}
           role="dialog"
           aria-modal="true"
+          aria-busy={composerBusy}
           aria-labelledby="teras-composer-title"
           tabIndex={-1}
           className="fixed inset-0 z-50 flex h-[100dvh] min-h-[100dvh] flex-col bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950"
-          initial={{ opacity: 0, y: '100%' }}
+          initial={{ opacity: 0, y: 36 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: '100%' }}
-          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+          exit={{ opacity: 0, y: 28 }}
+          transition={reduceMotion ? { duration: 0 } : { duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
         >
+          <div
+            ref={composerStatusRef}
+            role="status"
+            aria-live="polite"
+            tabIndex={composerBusy ? 0 : -1}
+            className="sr-only"
+          >
+            {composerBusy ? 'Sedang mengirim kiriman. Mohon tunggu.' : ''}
+          </div>
           <header className="sticky top-0 z-10 border-b border-gray-100 bg-white/95 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/95">
-            <div className="mx-auto grid w-full max-w-lg grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-3">
+            <div className="mx-auto grid w-full max-w-2xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
               <button
                 type="button"
                 onClick={closeComposer}
                 disabled={composerBusy}
                 aria-label="Tutup buat kiriman"
                 title="Tutup"
-                className="flex h-9 w-9 items-center justify-center justify-self-start rounded-xl bg-gray-100 text-gray-600 transition-all active:scale-95 disabled:opacity-45 dark:bg-slate-800 dark:text-slate-300"
+                className="flex h-11 w-11 items-center justify-center justify-self-start rounded-xl bg-gray-100 text-gray-600 transition-all active:scale-95 disabled:opacity-45 dark:bg-slate-800 dark:text-slate-300"
               >
                 <X size={18} />
               </button>
@@ -1157,88 +1706,124 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                 type="submit"
                 disabled={!composerCanSubmit}
                 aria-label="Kirim kiriman"
-                className="flex min-h-9 min-w-[72px] items-center justify-center justify-self-end rounded-full bg-emerald-500 px-4 py-2 text-[12px] font-extrabold text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-45 dark:bg-emerald-500 dark:shadow-emerald-950/40"
+                className="flex min-h-11 min-w-[72px] items-center justify-center justify-self-end rounded-full bg-emerald-500 px-4 py-2 text-[12px] font-extrabold text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-45 dark:bg-emerald-500 dark:shadow-emerald-950/40"
               >
                 {composerBusy ? <Loader2 size={15} className="animate-spin" /> : 'KIRIM'}
               </button>
             </div>
           </header>
 
-          <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto flex min-h-full w-full max-w-lg flex-col px-4 pt-4">
-              <div className="flex items-center gap-3">
-                <AgentAvatar name={agent.name} photo={agent.photo} />
+          <div className="flex-1 overflow-x-hidden overflow-y-auto">
+            <div className="mx-auto w-full max-w-2xl px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
+              <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
+                <div className="flex flex-col items-center">
+                  <AgentAvatar name={agent.name} photo={agent.photo} />
+                  <div aria-hidden="true" className="mt-2 min-h-12 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
+                </div>
+
                 <div className="min-w-0">
                   <p className="truncate text-[13px] font-bold text-gray-900 dark:text-white">{agent.name}</p>
-                  <p className="mt-0.5 text-[10px] text-gray-400 dark:text-slate-500">Tampil untuk semua agent Alhijaz</p>
-                </div>
-              </div>
+                  <p className="mt-0.5 text-[10px] text-gray-500 dark:text-slate-400">Tampil untuk pengguna Teras</p>
 
-              <textarea
-                autoFocus
-                value={composerBody}
-                onChange={event => {
-                  composerRequestIdRef.current = null;
-                  setComposerBody(event.target.value);
-                }}
-                disabled={composerBusy}
-                maxLength={2100}
-                placeholder="Apa yang ingin Anda bagikan?"
-                className="mt-4 min-h-[140px] w-full resize-none bg-transparent text-[17px] leading-relaxed text-gray-900 outline-none placeholder:text-gray-400 disabled:opacity-60 dark:text-white dark:placeholder:text-slate-500"
-              />
-
-              {composerBodyLength > 2000 && (
-                <p className="mb-2 text-[10px] font-medium text-red-500 dark:text-red-400">Isi kiriman maksimal 2000 karakter</p>
-              )}
-
-              {composerPhoto && (
-                <div className="relative mb-4 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                  {composerPhoto.dataUrl ? (
-                    <img src={composerPhoto.dataUrl} alt="Pratinjau foto kiriman" className="max-h-[420px] w-full object-contain" />
-                  ) : (
-                    <div className="flex h-48 items-center justify-center bg-gray-100 dark:bg-slate-900">
-                      <Loader2 size={22} className="animate-spin text-violet-500 dark:text-violet-400" />
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={removeComposerPhoto}
+                  <textarea
+                    autoFocus
+                    aria-label="Isi kiriman"
+                    value={composerBody}
+                    onChange={event => {
+                      composerRequestIdRef.current = null;
+                      setComposerBody(event.target.value);
+                    }}
                     disabled={composerBusy}
-                    aria-label="Hapus foto"
-                    title="Hapus foto"
-                    className="absolute right-2 top-2 flex h-[30px] w-[30px] items-center justify-center rounded-full bg-black/55 text-white transition-all active:scale-95 disabled:opacity-50"
-                  >
-                    <X size={15} />
-                  </button>
-                  {(composerPhoto.status === 'processing' || composerPhoto.status === 'uploading') && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/35 text-white">
-                      <div className="flex items-center gap-2 rounded-full bg-black/55 px-3 py-2 text-[11px] font-semibold">
-                        <Loader2 size={14} className="animate-spin" />
-                        {composerPhoto.status === 'uploading' ? 'Mengunggah foto' : 'Memproses foto'}
-                      </div>
+                    maxLength={2100}
+                    placeholder={COMPOSER_PROMPT}
+                    className="mt-2 min-h-[104px] w-full resize-none bg-transparent text-[17px] leading-relaxed text-gray-900 outline-none placeholder:text-gray-500 disabled:opacity-60 dark:text-white dark:placeholder:text-slate-400"
+                  />
+
+                  {composerBodyLength > 2000 && (
+                    <p className="mb-2 text-[10px] font-medium text-red-500 dark:text-red-400">Isi kiriman maksimal 2000 karakter</p>
+                  )}
+
+                  <div className="flex min-h-11 items-center gap-1 pb-1">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={composerBusy || composerMedia.length >= MAX_COMMUNITY_MEDIA}
+                      aria-label="Tambahkan foto atau video"
+                      title="Tambahkan foto atau video"
+                      className="flex h-11 w-11 items-center justify-center rounded-full text-gray-500 transition-colors active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:text-slate-400 dark:active:bg-slate-800"
+                    >
+                      <ImageIcon size={22} />
+                    </button>
+                    {composerMedia.length > 0 && (
+                      <span className="rounded-full bg-gray-100 px-2 py-1 text-[10px] font-semibold tabular-nums text-gray-500 dark:bg-slate-800 dark:text-slate-400">
+                        {composerMedia.length}/{MAX_COMMUNITY_MEDIA}
+                      </span>
+                    )}
+                  </div>
+
+                  {composerMedia.length > 0 && (
+                    <div
+                      role="group"
+                      className="mb-3 flex snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain rounded-2xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                      aria-label={`${composerMedia.length} media kiriman dipilih`}
+                    >
+                      {composerMedia.map((item, index) => (
+                        <div
+                          key={item.id}
+                          className="relative aspect-[4/5] max-h-[420px] shrink-0 snap-start overflow-hidden rounded-2xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950"
+                          style={{ flexBasis: composerMedia.length === 1 ? '100%' : '78%' }}
+                        >
+                          {item.type === 'video' ? (
+                            <video
+                              src={item.previewUrl}
+                              controls
+                              playsInline
+                              preload="metadata"
+                              aria-label={`Pratinjau video ${index + 1}`}
+                              className="h-full w-full bg-black object-contain"
+                            />
+                          ) : (
+                            <img
+                              src={item.previewUrl}
+                              alt={composerMedia.length === 1 ? 'Pratinjau foto kiriman' : `Pratinjau foto ${index + 1}`}
+                              className="h-full w-full object-cover"
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeComposerMedia(item.id)}
+                            disabled={composerBusy}
+                            aria-label={`Hapus ${item.type === 'video' ? 'video' : 'foto'} ${index + 1}`}
+                            title="Hapus media"
+                            className="absolute right-1 top-1 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/60 text-white shadow-sm backdrop-blur-sm transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"
+                          >
+                            <X size={15} />
+                          </button>
+                          {(item.status === 'processing' || item.status === 'uploading') && (
+                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 text-white">
+                              <div className="flex items-center gap-2 rounded-full bg-black/60 px-3 py-2 text-[11px] font-semibold backdrop-blur-sm">
+                                <Loader2 size={14} className="animate-spin" />
+                                {item.status === 'uploading' ? 'Mengunggah media' : 'Memproses foto'}
+                              </div>
+                            </div>
+                          )}
+                          {item.status === 'error' && (
+                            <div className="pointer-events-none absolute inset-x-2 bottom-2 min-w-0 rounded-xl bg-red-600/90 px-3 py-2 text-[10px] font-semibold text-white shadow-sm [overflow-wrap:anywhere]">
+                              {item.error || 'Media tidak dapat diproses'}
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
-                </div>
-              )}
 
-              {composerError && (
-                <div role="alert" aria-live="assertive" className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
-                  {composerError}
-                </div>
-              )}
+                  {composerError && (
+                    <div role="alert" aria-live="assertive" className="mb-3 min-w-0 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 [overflow-wrap:anywhere] dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
+                      {composerError}
+                    </div>
+                  )}
 
-              <div className="mt-auto pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={composerBusy}
-                  className="flex min-h-11 w-full items-center gap-3 rounded-xl border border-gray-200 bg-white px-3.5 text-[12px] font-bold text-gray-700 shadow-sm transition-colors active:bg-gray-50 disabled:opacity-45 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:active:bg-slate-700"
-                >
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-900/20 dark:text-violet-400">
-                    <ImageIcon size={17} />
-                  </span>
-                  Foto / Video
-                </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1248,35 +1833,160 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
     document.body,
   );
 
+  const mediaViewerSheet = typeof document === 'undefined' ? null : createPortal(
+    <AnimatePresence
+      onExitComplete={() => {
+        if (!mediaViewerVisible) setMediaViewer(null);
+      }}
+    >
+      {mediaViewer && mediaViewerVisible && (
+        <motion.div
+          ref={mediaViewerDialogRef}
+          key="teras-media-viewer"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Media kiriman ${mediaViewer.authorName}`}
+          tabIndex={-1}
+          className="fixed inset-0 z-[90] flex h-[100dvh] w-screen flex-col overflow-hidden bg-black/95 text-white"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={reduceMotion ? { duration: 0 } : { duration: 0.22 }}
+        >
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between bg-gradient-to-b from-black/70 to-transparent px-4 pb-8 pt-[max(1rem,env(safe-area-inset-top))]">
+            <span aria-live="polite" className="rounded-full bg-black/45 px-3 py-1.5 text-xs font-bold tabular-nums backdrop-blur-sm">
+              {mediaViewer.index + 1}/{mediaViewer.media.length}
+            </span>
+            <button
+              type="button"
+              data-media-viewer-close
+              onClick={closeMediaViewer}
+              aria-label="Tutup media"
+              title="Tutup"
+              className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-sm transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            >
+              <X size={21} />
+            </button>
+          </div>
+
+          <div
+            className="flex min-h-0 flex-1 items-center justify-center px-3 pb-16 pt-16"
+            onClick={event => {
+              if (event.target === event.currentTarget) closeMediaViewer();
+            }}
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={`${mediaViewer.index}-${mediaViewer.media[mediaViewer.index]?.url}`}
+                className="flex h-full w-full items-center justify-center"
+                onClick={event => {
+                  const target = event.target;
+                  if (target instanceof Element && target.closest('img, video')) return;
+                  closeMediaViewer();
+                }}
+                initial={reduceMotion ? false : {
+                  opacity: 0,
+                  x: mediaViewer.direction * 42,
+                  scale: 0.975,
+                }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={reduceMotion ? { opacity: 0 } : {
+                  opacity: 0,
+                  x: mediaViewer.direction * -42,
+                  scale: 0.985,
+                }}
+                transition={reduceMotion ? { duration: 0 } : { duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              >
+                {mediaViewer.media[mediaViewer.index]?.type === 'video' ? (
+                  <video
+                    src={mediaViewer.media[mediaViewer.index].url}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    aria-label={`Video ${mediaViewer.index + 1} layar penuh dari kiriman ${mediaViewer.authorName}`}
+                    className="max-h-full max-w-full rounded-xl bg-black object-contain shadow-2xl"
+                  />
+                ) : (
+                  <motion.img
+                    src={mediaViewer.media[mediaViewer.index]?.url}
+                    alt={`Foto ${mediaViewer.index + 1} layar penuh dari kiriman ${mediaViewer.authorName}`}
+                    draggable={false}
+                    drag={mediaViewer.media.length > 1 ? 'x' : false}
+                    dragConstraints={{ left: 0, right: 0 }}
+                    dragElastic={0.16}
+                    onDragEnd={(_event, info) => {
+                      if (Math.abs(info.offset.x) < 60) return;
+                      navigateMediaViewer(info.offset.x < 0 ? 1 : -1);
+                    }}
+                    className="max-h-full max-w-full select-none rounded-xl object-contain shadow-2xl [touch-action:pan-y_pinch-zoom]"
+                  />
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {mediaViewer.media.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={() => navigateMediaViewer(-1)}
+                disabled={mediaViewer.index === 0}
+                aria-label="Media layar penuh sebelumnya"
+                className="absolute left-2 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-sm transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-0"
+              >
+                <ChevronLeft size={22} />
+              </button>
+              <button
+                type="button"
+                onClick={() => navigateMediaViewer(1)}
+                disabled={mediaViewer.index === mediaViewer.media.length - 1}
+                aria-label="Media layar penuh berikutnya"
+                className="absolute right-2 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-sm transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-0"
+              >
+                <ChevronRight size={22} />
+              </button>
+            </>
+          )}
+
+          <p className="pointer-events-none absolute inset-x-16 bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 truncate text-center text-xs font-medium text-white/75">
+            Kiriman {mediaViewer.authorName}
+          </p>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
+  );
+
   return (
     <>
-      <div ref={pageRootRef} className="space-y-3 px-4 pb-8 pt-4">
+      <div ref={pageRootRef} data-teras-root className="w-full overflow-x-hidden bg-white pb-8 dark:bg-slate-900">
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/mp4,video/quicktime,video/webm"
+        multiple
         className="hidden"
         aria-hidden="true"
         tabIndex={-1}
-        onChange={handlePhotoSelection}
+        onChange={handleMediaSelection}
       />
 
-      <section className="rounded-2xl border border-gray-100 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <section className="border-b border-gray-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center gap-2.5">
           <AgentAvatar name={agent.name} photo={agent.photo} />
           <button
             type="button"
             onClick={() => openComposer(false)}
-            className="min-h-10 flex-1 rounded-full border border-gray-200 bg-gray-100 px-3.5 py-2.5 text-left text-[13px] text-gray-400 transition-colors active:bg-gray-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500 dark:active:bg-slate-950"
+            className="min-h-11 flex-1 rounded-full border border-gray-200 bg-white px-3.5 py-2.5 text-left text-[13px] text-gray-500 transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:active:bg-slate-950"
           >
-            Apa yang ingin Anda bagikan, Bu?
+            {COMPOSER_PROMPT}
           </button>
           <button
             type="button"
             onClick={() => openComposer(true)}
-            aria-label="Bagikan foto"
-            title="Bagikan foto"
-            className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600 transition-all active:scale-95 dark:bg-violet-900/20 dark:text-violet-400"
+            aria-label="Tambahkan foto atau video"
+            title="Tambahkan foto atau video"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-500 transition-all active:scale-95 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:active:bg-slate-800"
           >
             <ImageIcon size={18} />
           </button>
@@ -1284,33 +1994,33 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
       </section>
 
       {loading ? (
-        <div className="space-y-3" aria-label="Memuat kiriman" aria-busy="true">
-          <PostSkeleton />
+        <div aria-label="Memuat kiriman" aria-busy="true">
+          <PostSkeleton withMedia />
           <PostSkeleton />
           <PostSkeleton />
         </div>
       ) : error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
-          <div className="flex items-start gap-2">
+        <div role="alert" aria-live="assertive" className="mx-4 mt-4 min-w-0 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
+          <div className="flex min-w-0 items-start gap-2">
             <AlertCircle size={15} className="mt-0.5 shrink-0" />
-            <p className="flex-1">{error}</p>
+            <p className="min-w-0 flex-1 [overflow-wrap:anywhere]">{error}</p>
           </div>
           <button
             type="button"
             onClick={refreshFeed}
-            className="mt-3 min-h-9 rounded-xl bg-red-500 px-4 text-xs font-bold text-white shadow-md shadow-red-500/20 transition-all active:scale-95 dark:bg-red-500 dark:shadow-red-950/40"
+            className="mt-3 min-h-11 rounded-xl bg-red-500 px-4 text-xs font-bold text-white shadow-md shadow-red-500/20 transition-all active:scale-95 dark:bg-red-500 dark:shadow-red-950/40"
           >
             Coba Lagi
           </button>
         </div>
       ) : posts.length === 0 ? (
-        <div className="rounded-2xl border border-gray-100 bg-white px-5 py-9 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div className="border-b border-gray-100 bg-white px-5 py-12 text-center dark:border-slate-800 dark:bg-slate-900">
           <Users size={36} className="mx-auto mb-3 text-gray-300 dark:text-slate-600" />
           <p className="text-sm font-semibold text-gray-600 dark:text-slate-300">Belum ada kiriman di Teras.</p>
-          <p className="mt-1 text-[12px] text-gray-400 dark:text-slate-500">Jadilah yang pertama berbagi.</p>
+          <p className="mt-1 text-[12px] text-gray-500 dark:text-slate-400">Jadilah yang pertama berbagi.</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div>
           {posts.map(post => {
             const commentPanel = commentPanels[post.id];
             const commentsOpen = !!commentPanel?.open;
@@ -1324,23 +2034,24 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
             const activeReactionStyle = post.my_reaction ? REACTION_STYLES[post.my_reaction] : null;
             const ActiveReactionIcon = activeReactionStyle?.icon || ThumbsUp;
             const reactionIsBusy = reactionBusy.has(post.id);
-            const shortText = !post.photo_url && Array.from(post.body).length <= 90;
+            const postMedia = normalizePostMedia(post);
             const authorName = post.author.name || (post.is_system ? 'Miqot' : 'Agent');
 
             return (
               <article
                 key={post.id}
-                className={`relative overflow-hidden rounded-2xl border bg-white shadow-sm dark:bg-slate-800 ${
+                data-post-id={post.id}
+                className={`relative border-b bg-white dark:bg-slate-900 ${
                   post.is_system
-                    ? 'border-emerald-500/30 dark:border-emerald-500/30'
-                    : 'border-gray-100 dark:border-slate-700'
+                    ? 'border-emerald-500/25 dark:border-emerald-500/25'
+                    : 'border-gray-100 dark:border-slate-800'
                 }`}
               >
                 {post.is_system && (
                   <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-emerald-500/[0.07] to-transparent" />
                 )}
 
-                <div className="relative flex items-start gap-3 px-3.5 pt-3">
+                <div className="relative flex items-start gap-3 px-4 pt-4">
                   {post.is_system ? (
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-sm shadow-emerald-500/20">
                       <Sparkles size={16} />
@@ -1350,25 +2061,18 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                   )}
 
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <p className="truncate text-[13px] font-bold text-gray-900 dark:text-white">
-                        {authorName}
-                        {post.is_own && (
-                          <span className="ml-1 text-[12px] font-medium text-gray-400 dark:text-slate-500">(Anda)</span>
-                        )}
-                      </p>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <p className="min-w-0 truncate text-[13px] font-bold text-gray-900 dark:text-white">{authorName}</p>
                       {post.is_system && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
                           <Sparkles size={9} />
                           Sorotan
                         </span>
                       )}
+                      <time dateTime={post.created_at} className="shrink-0 text-[10px] font-medium text-gray-500 dark:text-slate-400">
+                        {timeAgo(post.created_at)}
+                      </time>
                     </div>
-                    <p className="mt-0.5 flex items-center gap-1 text-[10px] font-medium text-gray-400 dark:text-slate-500">
-                      <span>{timeAgo(post.created_at)}</span>
-                      <span aria-hidden="true">·</span>
-                      <Globe size={10} />
-                    </p>
                   </div>
 
                   {!post.is_system && (
@@ -1397,13 +2101,19 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                         aria-haspopup="menu"
                         aria-expanded={menuOpenPostId === post.id}
                         aria-controls={`teras-post-menu-${post.id}`}
-                        className="flex h-[30px] w-[30px] items-center justify-center rounded-lg text-gray-400 transition-colors active:bg-gray-100 dark:text-slate-500 dark:active:bg-slate-700"
+                        className="flex h-11 w-11 items-center justify-center rounded-full text-gray-500 transition-colors active:bg-gray-100 dark:text-slate-400 dark:active:bg-slate-700"
                       >
                         <MoreHorizontal size={17} />
                       </button>
 
                       {menuOpenPostId === post.id && (
-                        <div id={`teras-post-menu-${post.id}`} role="menu" aria-label="Menu kiriman" className="absolute right-0 top-8 z-20 w-44 overflow-hidden rounded-xl border border-gray-100 bg-white p-1.5 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                        <div
+                          id={`teras-post-menu-${post.id}`}
+                          role="menu"
+                          aria-label="Menu kiriman"
+                          onKeyDown={event => handlePostMenuKeyDown(event, post.id)}
+                          className={`absolute right-0 z-20 w-44 overflow-hidden rounded-xl border border-gray-100 bg-white p-1.5 shadow-lg dark:border-slate-700 dark:bg-slate-800 ${menuOpensUp ? 'bottom-12' : 'top-12'}`}
+                        >
                           {confirmDeletePostId === post.id ? (
                             <div className="p-2">
                               <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">Hapus kiriman ini?</p>
@@ -1416,7 +2126,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                                     focusMenuOnOpenRef.current = true;
                                     setConfirmDeletePostId(null);
                                   }}
-                                  className="min-h-9 flex-1 rounded-lg bg-gray-100 px-2 text-[11px] font-semibold text-gray-600 disabled:opacity-50 dark:bg-slate-700 dark:text-slate-300"
+                                  className="min-h-11 flex-1 rounded-lg bg-gray-100 px-2 text-[11px] font-semibold text-gray-600 disabled:opacity-50 dark:bg-slate-700 dark:text-slate-300"
                                 >
                                   Batal
                                 </button>
@@ -1425,7 +2135,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                                   disabled={deletingPostId === post.id}
                                   onClick={() => void deletePost(post.id)}
                                   aria-label="Konfirmasi hapus kiriman"
-                                  className="flex min-h-9 flex-1 items-center justify-center rounded-lg bg-red-500 px-2 text-[11px] font-bold text-white disabled:opacity-50 dark:bg-red-500"
+                                  className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-red-500 px-2 text-[11px] font-bold text-white disabled:opacity-50 dark:bg-red-500"
                                 >
                                   {deletingPostId === post.id ? <Loader2 size={13} className="animate-spin" /> : 'Hapus'}
                                 </button>
@@ -1439,7 +2149,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                                   role="menuitem"
                                   disabled={reportingPostId === post.id}
                                   onClick={() => void reportPost(post.id)}
-                                  className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs font-semibold text-gray-600 transition-colors active:bg-gray-50 disabled:opacity-50 dark:text-slate-300 dark:active:bg-slate-700"
+                                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs font-semibold text-gray-600 transition-colors active:bg-gray-50 disabled:opacity-50 dark:text-slate-300 dark:active:bg-slate-700"
                                 >
                                   {reportingPostId === post.id ? <Loader2 size={14} className="animate-spin" /> : <Flag size={14} />}
                                   Laporkan
@@ -1450,7 +2160,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                                   type="button"
                                   role="menuitem"
                                   onClick={() => setConfirmDeletePostId(post.id)}
-                                  className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs font-semibold text-red-600 transition-colors active:bg-red-50 dark:text-red-400 dark:active:bg-red-900/20"
+                                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs font-semibold text-red-600 transition-colors active:bg-red-50 dark:text-red-400 dark:active:bg-red-900/20"
                                 >
                                   <Trash2 size={14} />
                                   Hapus
@@ -1464,25 +2174,22 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                   )}
                 </div>
 
-                <p className={`relative whitespace-pre-wrap break-words px-3.5 pt-2 text-gray-700 dark:text-slate-300 ${
-                  shortText
-                    ? 'text-[17px] font-medium leading-snug text-gray-900 dark:text-white'
-                    : 'text-[13px] leading-relaxed'
-                }`}>
+                <p className="relative ml-[68px] mr-4 whitespace-pre-wrap break-words pt-2 text-[14px] leading-[1.45] text-gray-800 dark:text-slate-200">
                   {post.body}
                 </p>
 
-                {post.photo_url && (
-                  <img
-                    src={post.photo_url}
-                    alt={`Foto kiriman ${authorName}`}
-                    loading="lazy"
-                    className="mt-2.5 max-h-72 w-full bg-gray-100 object-cover dark:bg-slate-900"
-                  />
+                {postMedia.length > 0 && (
+                  <div className="ml-[68px] mr-4">
+                    <PostMediaRail
+                      media={postMedia}
+                      authorName={authorName}
+                      onOpen={(index, trigger) => openMediaViewer(postMedia, index, authorName, trigger)}
+                    />
+                  </div>
                 )}
 
                 {(totalReactions > 0 || post.comment_count > 0) && (
-                  <div className="relative flex items-center justify-between gap-3 px-3.5 py-2">
+                  <div className="relative ml-[68px] mr-4 flex items-center justify-between gap-3 py-2">
                     <div className="flex min-w-0 items-center">
                       {reactionSummary.length > 0 && (
                         <div className="mr-2 flex shrink-0 pl-1.5">
@@ -1509,7 +2216,9 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                       <button
                         type="button"
                         onClick={() => toggleComments(post.id)}
-                        className="flex min-h-9 shrink-0 items-center rounded-lg px-2 text-[11px] font-medium text-gray-500 transition-colors active:bg-gray-50 dark:text-slate-400 dark:active:bg-slate-900"
+                        aria-expanded={commentsOpen}
+                        aria-controls={`teras-comments-${post.id}`}
+                        className="flex min-h-11 shrink-0 items-center rounded-lg px-2 text-[11px] font-medium text-gray-500 transition-colors active:bg-gray-50 dark:text-slate-400 dark:active:bg-slate-900"
                       >
                         {post.comment_count} komentar
                       </button>
@@ -1517,9 +2226,9 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                   </div>
                 )}
 
-                <div className="relative mx-3.5 flex border-t border-gray-50 dark:border-slate-700/50">
+                <div className="relative ml-[68px] mr-4 flex items-center gap-1 border-t border-gray-50 py-1 dark:border-slate-800">
                   <div
-                    className="relative flex-1"
+                    className="relative"
                   >
                     <button
                       ref={element => {
@@ -1528,6 +2237,8 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                       }}
                       type="button"
                       aria-disabled={reactionIsBusy}
+                      aria-label={activeReactionStyle?.label || 'Suka'}
+                      title={activeReactionStyle?.label || 'Suka'}
                       aria-pressed={!!post.my_reaction}
                       aria-haspopup="menu"
                       aria-expanded={pickerOpenPostId === post.id}
@@ -1541,7 +2252,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                       }}
                       onKeyDown={event => handleLikeKeyDown(event, post.id)}
                       onContextMenu={event => event.preventDefault()}
-                      className={`flex min-h-10 w-full select-none touch-manipulation items-center justify-center gap-1.5 rounded-lg py-2.5 text-[12.5px] font-bold transition-colors active:bg-gray-50 dark:active:bg-slate-900 ${reactionIsBusy ? 'opacity-60' : ''} ${
+                      className={`flex h-11 w-11 select-none touch-manipulation items-center justify-center rounded-full transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:active:bg-slate-900 ${reactionIsBusy ? 'opacity-60' : ''} ${
                         activeReactionStyle
                           ? activeReactionStyle.textClass
                           : 'text-gray-500 dark:text-slate-400'
@@ -1550,7 +2261,6 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                       {reactionIsBusy
                         ? <Loader2 size={16} className="animate-spin" />
                         : <ActiveReactionIcon size={16} />}
-                      {activeReactionStyle?.label || 'Suka'}
                     </button>
 
                     <AnimatePresence>
@@ -1565,7 +2275,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                           initial={{ opacity: 0, scale: 0.82, y: 8 }}
                           animate={{ opacity: 1, scale: 1, y: 0 }}
                           exit={{ opacity: 0, scale: 0.9, y: 5 }}
-                          transition={{ duration: 0.18 }}
+                          transition={reduceMotion ? { duration: 0 } : { duration: 0.18 }}
                           style={{ transformOrigin: 'bottom left' }}
                         >
                           {REACTION_TYPES.map(reaction => {
@@ -1584,7 +2294,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                                 aria-checked={active}
                                 aria-label={active ? `Hapus reaksi ${style.label}` : `Pilih reaksi ${style.label}`}
                                 title={style.label}
-                                className={`flex h-[42px] w-[42px] items-center justify-center rounded-full text-white shadow-sm transition-transform active:scale-90 ${style.solidClass} ${active ? 'ring-2 ring-gray-900 ring-offset-2 dark:ring-white dark:ring-offset-slate-800' : ''}`}
+                                className={`flex h-11 w-11 items-center justify-center rounded-full text-white shadow-sm transition-transform active:scale-90 ${style.solidClass} ${active ? 'ring-2 ring-gray-900 ring-offset-2 dark:ring-white dark:ring-offset-slate-800' : ''}`}
                               >
                                 <Icon size={19} />
                               </button>
@@ -1599,28 +2309,34 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                     type="button"
                     onClick={() => toggleComments(post.id)}
                     aria-expanded={commentsOpen}
-                    className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg py-2.5 text-[12.5px] font-bold transition-colors active:bg-gray-50 dark:active:bg-slate-900 ${
+                    aria-controls={`teras-comments-${post.id}`}
+                    aria-label="Komentari"
+                    title="Komentari"
+                    className={`flex h-11 w-11 items-center justify-center rounded-full transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:active:bg-slate-900 ${
                       commentsOpen
                         ? 'text-emerald-600 dark:text-emerald-400'
                         : 'text-gray-500 dark:text-slate-400'
                     }`}
                   >
                     <MessageCircle size={16} />
-                    Komentari
                   </button>
                 </div>
 
                 {commentsOpen && commentPanel && (
-                  <div className="px-3.5 pb-3.5">
+                  <div
+                    id={`teras-comments-${post.id}`}
+                    aria-busy={commentPanel.sending}
+                    className="ml-[68px] mr-4 min-w-0 pb-4"
+                  >
                     {commentPanel.loading ? (
                       <CommentSkeleton />
                     ) : commentPanel.error && !commentPanel.loaded ? (
-                      <div className="mt-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
-                        <p>{commentPanel.error}</p>
+                      <div role="alert" className="mt-2 min-w-0 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 [overflow-wrap:anywhere] dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
+                        <p className="min-w-0 [overflow-wrap:anywhere]">{commentPanel.error}</p>
                         <button
                           type="button"
                           onClick={() => void loadComments(post.id)}
-                          className="mt-2 min-h-9 rounded-lg bg-red-500 px-3 font-bold text-white dark:bg-red-500"
+                          className="mt-2 min-h-11 rounded-lg bg-red-500 px-3 font-bold text-white dark:bg-red-500"
                         >
                           Coba Lagi
                         </button>
@@ -1629,7 +2345,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                       <>
                         <div className="space-y-2.5 pt-2">
                           {commentPanel.comments.length === 0 ? (
-                            <p className="py-2 text-center text-[11px] text-gray-400 dark:text-slate-500">Belum ada komentar.</p>
+                            <p className="py-2 text-center text-[11px] text-gray-500 dark:text-slate-400">Belum ada komentar.</p>
                           ) : commentPanel.comments.map(comment => {
                             const canDeleteComment = comment.is_own || agent.role === 'admin';
                             return (
@@ -1640,7 +2356,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                                     <div className="flex items-start gap-1">
                                       <div className="min-w-0 flex-1">
                                         <p className="truncate text-[11px] font-bold text-gray-800 dark:text-slate-200">{comment.author.name || 'Agent'}</p>
-                                        <p className="whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-gray-700 dark:text-slate-300">{comment.body}</p>
+                                        <p className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300">{comment.body}</p>
                                       </div>
                                       {canDeleteComment && (
                                         <button
@@ -1649,7 +2365,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                                           onClick={() => void deleteComment(post.id, comment.id)}
                                           aria-label="Hapus komentar"
                                           title="Hapus komentar"
-                                          className="-mr-2 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors active:bg-white active:text-red-500 disabled:opacity-50 dark:text-slate-500 dark:active:bg-slate-800 dark:active:text-red-400"
+                                          className="-mr-2 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors active:bg-white active:text-red-500 disabled:opacity-50 dark:text-slate-400 dark:active:bg-slate-800 dark:active:text-red-400"
                                         >
                                           {deletingCommentId === comment.id
                                             ? <Loader2 size={12} className="animate-spin" />
@@ -1658,7 +2374,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                                       )}
                                     </div>
                                   </div>
-                                  <p className="ml-3 mt-0.5 text-[9px] font-semibold text-gray-400 dark:text-slate-500">{timeAgo(comment.created_at)}</p>
+                                  <p className="ml-3 mt-0.5 text-[10px] font-semibold text-gray-500 dark:text-slate-400">{timeAgo(comment.created_at)}</p>
                                 </div>
                               </div>
                             );
@@ -1666,21 +2382,26 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                         </div>
 
                         {commentPanel.error && (
-                          <p className="mt-2 text-[10px] font-medium text-red-500 dark:text-red-400">{commentPanel.error}</p>
+                          <p role="alert" className="mt-2 min-w-0 text-[10px] font-medium text-red-500 [overflow-wrap:anywhere] dark:text-red-400">{commentPanel.error}</p>
                         )}
+
+                        <p role="status" aria-live="polite" className="sr-only">
+                          {commentPanel.sending ? 'Sedang mengirim komentar.' : ''}
+                        </p>
 
                         <div className="mt-3 flex items-center gap-2">
                           <AgentAvatar name={agent.name} photo={agent.photo} size="comment" />
                           <input
                             type="text"
                             value={commentPanel.input}
-                            disabled={commentPanel.sending}
+                            readOnly={commentPanel.sending}
+                            aria-disabled={commentPanel.sending}
                             onChange={event => updateCommentInput(post.id, event.target.value)}
                             onKeyDown={event => handleCommentKeyDown(event, post.id)}
                             aria-label="Tulis komentar"
                             placeholder="Tulis komentar..."
                             maxLength={1000}
-                            className="min-h-9 min-w-0 flex-1 rounded-full border border-gray-200 bg-white px-3 py-2 text-[12px] text-gray-800 outline-none placeholder:text-gray-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-emerald-500"
+                            className="min-h-11 min-w-0 flex-1 rounded-full border border-gray-200 bg-white px-3 py-2 text-base text-gray-800 outline-none placeholder:text-gray-500 read-only:opacity-60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 sm:text-[12px] dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-emerald-500"
                           />
                           <button
                             type="button"
@@ -1688,7 +2409,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                             onClick={() => void sendComment(post.id)}
                             aria-label="Kirim komentar"
                             title="Kirim komentar"
-                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-45 dark:bg-emerald-500 dark:shadow-emerald-950/40"
+                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-45 dark:bg-emerald-500 dark:shadow-emerald-950/40"
                           >
                             {commentPanel.sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                           </button>
@@ -1706,7 +2427,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
               type="button"
               disabled={loadingMore}
               onClick={() => void handleLoadMore()}
-              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-[12px] font-bold text-gray-500 shadow-sm transition-colors active:bg-gray-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:active:bg-slate-900"
+              className="mx-4 mt-4 flex min-h-11 items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-4 text-[12px] font-bold text-gray-500 transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:active:bg-slate-800"
             >
               {loadingMore && <Loader2 size={15} className="animate-spin" />}
               Muat Lebih Banyak
@@ -1718,21 +2439,23 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
       </div>
 
       {composerSheet}
+      {mediaViewerSheet}
 
       <AnimatePresence>
         {toast && (
           <motion.div
-            role="status"
-            aria-live="polite"
-            className="fixed bottom-6 left-1/2 z-[70] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-[12px] font-semibold text-gray-700 shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            role={toast.tone === 'error' ? 'alert' : 'status'}
+            aria-live={toast.tone === 'error' ? 'assertive' : 'polite'}
+            className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 z-[70] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-start gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-[12px] font-semibold text-gray-700 shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
+            transition={reduceMotion ? { duration: 0 } : { duration: 0.18 }}
           >
             {toast.tone === 'success'
               ? <CheckCircle2 size={15} className="shrink-0 text-emerald-500 dark:text-emerald-400" />
               : <AlertCircle size={15} className="shrink-0 text-red-500 dark:text-red-400" />}
-            <span className="truncate">{toast.message}</span>
+            <span className="min-w-0 [overflow-wrap:anywhere]">{toast.message}</span>
           </motion.div>
         )}
       </AnimatePresence>

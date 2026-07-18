@@ -30,6 +30,47 @@ function setLocalStorageItem(key: string, value: string): void {
   }
 }
 
+function TerasPageSkeleton() {
+  return (
+    <div className="w-full bg-white pb-8 dark:bg-slate-900" aria-label="Memuat halaman Teras" aria-busy="true">
+      <div className="animate-pulse border-b border-gray-100 bg-white px-4 py-3 motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center gap-2.5">
+          <div className="h-10 w-10 shrink-0 rounded-full bg-gray-200 dark:bg-slate-700" />
+          <div className="h-11 flex-1 rounded-full border border-gray-100 bg-white dark:border-slate-700 dark:bg-slate-900" />
+          <div className="h-11 w-11 shrink-0 rounded-full bg-gray-100 dark:bg-slate-800" />
+        </div>
+      </div>
+
+      {[0, 1, 2].map(item => (
+        <div
+          key={item}
+          className="animate-pulse border-b border-gray-100 bg-white motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900"
+        >
+          <div className="flex items-center gap-3 px-4 pt-4">
+            <div className="h-10 w-10 shrink-0 rounded-full bg-gray-200 dark:bg-slate-700" />
+            <div className="flex flex-1 items-center gap-2">
+              <div className="h-3 w-28 rounded bg-gray-200 dark:bg-slate-700" />
+              <div className="h-2.5 w-12 rounded bg-gray-100 dark:bg-slate-700/70" />
+            </div>
+          </div>
+          <div className="ml-[68px] space-y-2 px-4 py-4 pl-0">
+            <div className="h-3 w-full rounded bg-gray-100 dark:bg-slate-700/70" />
+            <div className="h-3 w-5/6 rounded bg-gray-100 dark:bg-slate-700/70" />
+            <div className="h-3 w-2/3 rounded bg-gray-100 dark:bg-slate-700/70" />
+          </div>
+          {item === 0 && (
+            <div data-teras-skeleton-media className="ml-[68px] mr-4 aspect-[4/5] max-h-[34rem] rounded-2xl bg-gray-100 dark:bg-slate-800" />
+          )}
+          <div className="ml-[68px] mr-4 flex gap-1 border-t border-gray-50 py-1 dark:border-slate-800">
+            <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
+            <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Heavy sub-pages are code-split: each becomes its own chunk, fetched on-demand
 // the first time its tab renders. This keeps the initial bundle (and the JS that
 // must be parsed on every reload) small. lazy/Suspense imported at top.
@@ -537,11 +578,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     const jamaahSub = activeTab === 'jamaah' ? getSubTabFromPath() : null;
     const isJamaahEdit = activeTab === 'jamaah' && jamaahSub === 'edit';
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 transition-colors">
+      <div className={`min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 transition-colors dark:from-slate-900 dark:to-slate-950 ${activeTab === 'teras' ? 'flex min-h-[100dvh] flex-col' : ''}`}>
         {/* Sub-page header */}
-        <header className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50">
-          <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
+        <header className={`sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90 ${activeTab === 'teras' ? 'shrink-0' : ''}`}>
+          <div className={`${activeTab === 'teras' ? 'max-w-2xl pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]' : 'max-w-lg py-3'} mx-auto flex items-center gap-3 px-4`}>
             <button
+              type="button"
+              aria-label="Kembali ke dashboard"
+              title="Kembali ke dashboard"
               onClick={() => {
                 // Jamaah sub-pages → back to /dashboard/jamaah list
                 if (activeTab === 'jamaah' && (jamaahSub === 'daftar' || jamaahSub === 'edit')) {
@@ -575,7 +619,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 }
                 navigateTab('home');
               }}
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-all active:scale-95"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100/80 text-gray-600 transition-all hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
             >
               <ChevronLeft size={18} strokeWidth={2.5} />
             </button>
@@ -666,8 +710,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
             {/* Dark mode toggle */}
             <button
+              type="button"
               onClick={() => setIsDarkMode(p => !p)}
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors active:scale-95 shrink-0"
+              aria-label={isDarkMode ? 'Gunakan mode terang' : 'Gunakan mode gelap'}
+              title={isDarkMode ? 'Gunakan mode terang' : 'Gunakan mode gelap'}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
             >
               {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
             </button>
@@ -730,8 +777,17 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         )}
 
         {/* Sub-page content */}
-        <main className="max-w-lg mx-auto">
-          <Suspense fallback={isJamaahEdit ? <JamaahEditSkeleton /> : <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-emerald-500" /></div>}>
+        <main className={`${activeTab === 'teras'
+          ? 'mx-auto w-full max-w-2xl flex-1 bg-white sm:border-x sm:border-gray-100 dark:bg-slate-900 dark:sm:border-slate-800'
+          : 'max-w-lg mx-auto'
+        }`}>
+          <Suspense fallback={
+            isJamaahEdit
+              ? <JamaahEditSkeleton />
+              : activeTab === 'teras'
+                ? <TerasPageSkeleton />
+                : <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-emerald-500" /></div>
+          }>
           {activeTab === 'settings' && (
             <SettingsPage agent={agentData} onUpdated={refreshAgent} initialTab={getSettingsTabFromPath()} />
           )}

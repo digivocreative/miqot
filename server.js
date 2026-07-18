@@ -3946,6 +3946,25 @@ app.delete('/api/landing-config/og-image', authMiddleware, express.json({ limit:
 const COMMUNITY_REACTION_TYPES = ['suka', 'selamat', 'aamiin'];
 const COMMUNITY_UUID_REGEX = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const COMMUNITY_ISO_TIMESTAMP_REGEX = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/i;
+const COMMUNITY_MAX_MEDIA_ITEMS = 4;
+const COMMUNITY_IMAGE_MAX_BYTES = 6 * 1024 * 1024;
+const COMMUNITY_VIDEO_MAX_BYTES = 24 * 1024 * 1024;
+const COMMUNITY_MEDIA_RATE_WINDOW_MS = 10 * 60 * 1000;
+const COMMUNITY_MEDIA_RATE_MAX_UPLOADS = 12;
+const COMMUNITY_MEDIA_RATE_MAX_BYTES = 192 * 1024 * 1024;
+const COMMUNITY_MEDIA_MIME_TYPES = Object.freeze({
+  'image/jpeg': { type: 'image', ext: 'jpg', maxBytes: COMMUNITY_IMAGE_MAX_BYTES },
+  'image/png': { type: 'image', ext: 'png', maxBytes: COMMUNITY_IMAGE_MAX_BYTES },
+  'image/webp': { type: 'image', ext: 'webp', maxBytes: COMMUNITY_IMAGE_MAX_BYTES },
+  'video/mp4': { type: 'video', ext: 'mp4', maxBytes: COMMUNITY_VIDEO_MAX_BYTES },
+  'video/quicktime': { type: 'video', ext: 'mov', maxBytes: COMMUNITY_VIDEO_MAX_BYTES },
+  'video/webm': { type: 'video', ext: 'webm', maxBytes: COMMUNITY_VIDEO_MAX_BYTES },
+});
+const communityMediaBodyParser = express.raw({
+  type: () => true,
+  limit: COMMUNITY_VIDEO_MAX_BYTES,
+});
+const communityMediaUploadWindows = new Map();
 const communityReactionMutationQueues = new Map();
 const COMMUNITY_TEASER_CACHE_TTL_MS = 60_000;
 let communityTeaserSharedCache = { data: null, expiresAt: 0 };
@@ -3961,6 +3980,171 @@ function communityAuthorProfile(value) {
 
 function isCommunityUuid(value) {
   return typeof value === 'string' && COMMUNITY_UUID_REGEX.test(value);
+}
+
+function isCommunityMediaSchemaMissing(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || error?.details || '');
+  if (!['42703', 'PGRST204'].includes(code)) return false;
+  return /\bmedia\b/i.test(message)
+    && /community_posts|schema cache|column|field/i.test(message)
+    && /does not exist|could not find|schema cache/i.test(message);
+}
+
+function normalizeStoredCommunityMedia(value, photoUrl = null) {
+  const normalized = [];
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      if (!['image', 'video'].includes(item.type) || typeof item.url !== 'string') continue;
+      const url = item.url.trim();
+      if (!url) continue;
+      normalized.push({ type: item.type, url });
+      if (normalized.length === COMMUNITY_MAX_MEDIA_ITEMS) break;
+    }
+  }
+  if (normalized.length > 0) return normalized;
+  const legacyPhotoUrl = typeof photoUrl === 'string' ? photoUrl.trim() : '';
+  return legacyPhotoUrl ? [{ type: 'image', url: legacyPhotoUrl }] : [];
+}
+
+function normalizeCommunityMediaInput(value, publicUrlPrefix, agentSlug) {
+  if (!Array.isArray(value) || value.length > COMMUNITY_MAX_MEDIA_ITEMS) return null;
+
+  let expectedPrefix;
+  try {
+    expectedPrefix = new URL(publicUrlPrefix);
+  } catch {
+    return null;
+  }
+  const expectedAgentPath = `${expectedPrefix.pathname}${agentSlug}-`;
+
+  const normalized = [];
+  const seenUrls = new Set();
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    if (!['image', 'video'].includes(item.type) || typeof item.url !== 'string') return null;
+
+    const url = item.url.trim();
+    let candidate;
+    try {
+      candidate = new URL(url);
+    } catch {
+      return null;
+    }
+    if (
+      candidate.origin !== expectedPrefix.origin
+      || !candidate.pathname.startsWith(expectedAgentPath)
+      || candidate.search
+      || candidate.hash
+    ) return null;
+
+    const path = candidate.pathname.toLowerCase();
+    const hasExpectedExtension = item.type === 'image'
+      ? /\.(?:jpe?g|png|webp)$/.test(path)
+      : /\.(?:mp4|mov|webm)$/.test(path);
+    if (!hasExpectedExtension || seenUrls.has(url)) return null;
+
+    seenUrls.add(url);
+    normalized.push({ type: item.type, url });
+  }
+  return normalized;
+}
+
+function communityMediaEquals(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  return left.every((item, index) => (
+    item?.type === right[index]?.type && item?.url === right[index]?.url
+  ));
+}
+
+function hasExpectedCommunityMediaSignature(buffer, mime) {
+  if (mime.startsWith('image/')) return hasExpectedImageSignature(buffer, mime);
+  if (mime === 'video/webm') {
+    return buffer.length >= 4
+      && buffer[0] === 0x1a
+      && buffer[1] === 0x45
+      && buffer[2] === 0xdf
+      && buffer[3] === 0xa3
+      && buffer.subarray(0, Math.min(buffer.length, 256)).includes(Buffer.from('webm'));
+  }
+  if (!['video/mp4', 'video/quicktime'].includes(mime) || buffer.length < 12) return false;
+  if (buffer.toString('ascii', 4, 8) !== 'ftyp') return false;
+  const majorBrand = buffer.toString('ascii', 8, 12);
+  if (mime === 'video/quicktime') return majorBrand === 'qt  ';
+  return /^(?:isom|iso[2-9]|mp4[12]|avc1|dash|M4V |MSNV|3g[p2][4-9])$/.test(majorBrand);
+}
+
+function isCommunityStorageConflict(error) {
+  return Number(error?.statusCode || error?.status) === 409
+    || /already exists|duplicate/i.test(String(error?.message || error?.error || ''));
+}
+
+async function prepareCommunityMediaUpload(req, res, next) {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const uploadId = req.get('X-Upload-ID');
+    if (!isCommunityUuid(uploadId)) {
+      return res.status(400).json({ error: 'ID unggahan tidak valid' });
+    }
+
+    const mime = String(req.get('Content-Type') || '').split(';', 1)[0].trim().toLowerCase();
+    const mediaConfig = COMMUNITY_MEDIA_MIME_TYPES[mime];
+    if (!mediaConfig) {
+      return res.status(415).json({ error: 'Format media tidak didukung' });
+    }
+
+    const contentLengthHeader = req.get('Content-Length');
+    const contentLength = contentLengthHeader === undefined ? null : Number(contentLengthHeader);
+    if (contentLength !== null && (!Number.isSafeInteger(contentLength) || contentLength < 1)) {
+      return res.status(400).json({ error: 'Ukuran media tidak valid' });
+    }
+    if (contentLength !== null && contentLength > mediaConfig.maxBytes) {
+      const maxSize = mediaConfig.type === 'image' ? '6MB' : '24MB';
+      return res.status(413).json({ error: `Ukuran ${mediaConfig.type === 'image' ? 'gambar' : 'video'} maksimal ${maxSize}` });
+    }
+
+    const now = Date.now();
+    const reservedBytes = contentLength ?? mediaConfig.maxBytes;
+    let windowState = communityMediaUploadWindows.get(agent.id);
+    if (!windowState || windowState.resetAt <= now) {
+      windowState = { count: 0, bytes: 0, resetAt: now + COMMUNITY_MEDIA_RATE_WINDOW_MS };
+    }
+    if (
+      windowState.count >= COMMUNITY_MEDIA_RATE_MAX_UPLOADS
+      || windowState.bytes + reservedBytes > COMMUNITY_MEDIA_RATE_MAX_BYTES
+    ) {
+      res.set('Retry-After', String(Math.max(1, Math.ceil((windowState.resetAt - now) / 1000))));
+      return res.status(429).json({ error: 'Terlalu banyak unggahan media. Coba lagi beberapa menit.' });
+    }
+    windowState.count += 1;
+    windowState.bytes += reservedBytes;
+    communityMediaUploadWindows.set(agent.id, windowState);
+
+    req.communityAgent = agent;
+    req.communityMediaConfig = mediaConfig;
+    req.communityMediaMime = mime;
+    req.communityUploadId = uploadId;
+    return next();
+  } catch (err) {
+    console.error('[community] media authorization error:', err);
+    return res.status(500).json({ error: 'Gagal memvalidasi unggahan media' });
+  }
+}
+
+function parseCommunityMediaBody(req, res, next) {
+  communityMediaBodyParser(req, res, error => {
+    if (!error) return next();
+    if (error.type === 'entity.too.large') {
+      const maxSize = req.communityMediaConfig?.type === 'image' ? '6MB' : '24MB';
+      const mediaLabel = req.communityMediaConfig?.type === 'image' ? 'gambar' : 'video';
+      return res.status(413).json({ error: `Ukuran ${mediaLabel} maksimal ${maxSize}` });
+    }
+    return next(error);
+  });
 }
 
 function normalizeCommunityCursor(value) {
@@ -4151,24 +4335,29 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       return res.status(400).json({ error: 'Cursor feed tidak valid' });
     }
 
-    let postsQuery = supabase
-      .from('community_posts')
-      .select('id, body, photo_url, is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)')
-      .is('deleted_at', null);
-    if (before?.postId) {
-      postsQuery = postsQuery.or(
-        `created_at.lt.${before.createdAt},and(created_at.eq.${before.createdAt},id.lt.${before.postId})`,
-      );
-    } else if (before) {
-      // Keep accepting the original timestamp-only cursor for older clients.
-      postsQuery = postsQuery.lt('created_at', before.createdAt);
-    }
-    postsQuery = postsQuery
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: false })
-      .limit(20);
+    const buildPostsQuery = (includeMedia) => {
+      let query = supabase
+        .from('community_posts')
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .is('deleted_at', null);
+      if (before?.postId) {
+        query = query.or(
+          `created_at.lt.${before.createdAt},and(created_at.eq.${before.createdAt},id.lt.${before.postId})`,
+        );
+      } else if (before) {
+        // Keep accepting the original timestamp-only cursor for older clients.
+        query = query.lt('created_at', before.createdAt);
+      }
+      return query
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(20);
+    };
 
-    const { data: posts, error: postsError } = await postsQuery;
+    let { data: posts, error: postsError } = await buildPostsQuery(true);
+    if (isCommunityMediaSchemaMissing(postsError)) {
+      ({ data: posts, error: postsError } = await buildPostsQuery(false));
+    }
     if (postsError) throw postsError;
 
     const postIds = (posts || []).map(post => post.id);
@@ -4217,19 +4406,23 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       commentCounts.set(row.post_id, commentCounts.get(row.post_id) + 1);
     }
 
-    const data = (posts || []).map(post => ({
-      id: post.id,
-      body: post.body,
-      photo_url: post.photo_url,
-      is_system: post.is_system,
-      created_at: post.created_at,
-      author: communityAuthorProfile(post.agent),
-      reactions: reactionCounts.get(post.id),
-      my_reaction: myReactions.get(post.id),
-      reaction_sample_name: reactionSampleNames.get(post.id),
-      comment_count: commentCounts.get(post.id) || 0,
-      is_own: post.agent_id === agent.id,
-    }));
+    const data = (posts || []).map(post => {
+      const media = normalizeStoredCommunityMedia(post.media, post.photo_url);
+      return {
+        id: post.id,
+        body: post.body,
+        photo_url: post.photo_url || media.find(item => item.type === 'image')?.url || null,
+        media,
+        is_system: post.is_system,
+        created_at: post.created_at,
+        author: communityAuthorProfile(post.agent),
+        reactions: reactionCounts.get(post.id),
+        my_reaction: myReactions.get(post.id),
+        reaction_sample_name: reactionSampleNames.get(post.id),
+        comment_count: commentCounts.get(post.id) || 0,
+        is_own: post.agent_id === agent.id,
+      };
+    });
     const nextCursor = data.length < 20
       ? null
       : `${data[data.length - 1].created_at}|${data[data.length - 1].id}`;
@@ -4257,64 +4450,99 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       return res.status(400).json({ error: 'ID kiriman tidak valid' });
     }
 
-    let photoUrl = null;
-    if (req.body?.photo_url !== undefined) {
+    const { data: publicUrlData } = supabase.storage
+      .from('agent-photos')
+      .getPublicUrl('community/');
+    if (!publicUrlData?.publicUrl) throw new Error('Public URL media Teras tidak tersedia');
+
+    const hasMediaPayload = req.body?.media !== undefined;
+    let media;
+    if (hasMediaPayload) {
+      media = normalizeCommunityMediaInput(req.body.media, publicUrlData.publicUrl, agent.slug);
+      if (!media) {
+        return res.status(400).json({ error: 'Media kiriman tidak valid atau melebihi 4 item' });
+      }
+    } else if (req.body?.photo_url !== undefined) {
       if (typeof req.body.photo_url !== 'string') {
         return res.status(400).json({ error: 'URL foto tidak valid' });
       }
-      photoUrl = req.body.photo_url.trim();
-      const { data: publicUrlData } = supabase.storage
-        .from('agent-photos')
-        .getPublicUrl('community/');
-      let isCommunityPhotoUrl = false;
-      if (publicUrlData?.publicUrl && photoUrl.startsWith(publicUrlData.publicUrl)) {
-        try {
-          const publicUrlPrefix = new URL(publicUrlData.publicUrl);
-          const candidateUrl = new URL(photoUrl);
-          isCommunityPhotoUrl = candidateUrl.origin === publicUrlPrefix.origin
-            && candidateUrl.pathname.startsWith(publicUrlPrefix.pathname);
-        } catch {
-          isCommunityPhotoUrl = false;
-        }
-      }
-      if (!isCommunityPhotoUrl) {
-        return res.status(400).json({ error: 'URL foto tidak valid' });
-      }
+      media = normalizeCommunityMediaInput(
+        [{ type: 'image', url: req.body.photo_url }],
+        publicUrlData.publicUrl,
+        agent.slug,
+      );
+      if (!media) return res.status(400).json({ error: 'URL foto tidak valid' });
+    } else {
+      media = [];
     }
+    const photoUrl = media.find(item => item.type === 'image')?.url || null;
+    const requiresMediaSchema = media.length > 1 || media.some(item => item.type === 'video');
 
-    const postPayload = {
+    const basePostPayload = {
       ...(clientId ? { id: clientId } : {}),
       agent_id: agent.id,
       body,
       photo_url: photoUrl,
       is_system: false,
     };
-    let { data: createdPost, error: insertError } = await supabase
-      .from('community_posts')
-      .insert(postPayload)
-      .select('id, body, photo_url, is_system, created_at')
-      .single();
+    let includeMediaColumn = true;
+    let includeObsoleteType = false;
+    let createdPost = null;
+    let insertError = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const postPayload = {
+        ...basePostPayload,
+        ...(includeMediaColumn ? { media } : {}),
+        ...(includeObsoleteType ? { type: media.length > 0 ? 'foto' : 'tips' } : {}),
+      };
+      const insertResult = await supabase
+        .from('community_posts')
+        .insert(postPayload)
+        .select(`id, body, photo_url, ${includeMediaColumn ? 'media, ' : ''}is_system, created_at`)
+        .single();
+      createdPost = insertResult.data;
+      insertError = insertResult.error;
 
-    // Compatibility for installations that already ran the pre-final Teras draft,
-    // where `type` was NOT NULL. The final reconciliation migration removes it;
-    // until that migration is applied, keep the obsolete value entirely server-side.
-    if (insertError?.code === '23502' && /column "type"/i.test(insertError.message || '')) {
-      ({ data: createdPost, error: insertError } = await supabase
-        .from('community_posts')
-        .insert({ ...postPayload, type: photoUrl ? 'foto' : 'tips' })
-        .select('id, body, photo_url, is_system, created_at')
-        .single());
+      if (includeMediaColumn && isCommunityMediaSchemaMissing(insertError)) {
+        if (requiresMediaSchema) {
+          return res.status(503).json({ error: 'Migrasi media Teras belum diterapkan' });
+        }
+        includeMediaColumn = false;
+        continue;
+      }
+      // Compatibility for installations that already ran the pre-final Teras
+      // draft, where `type` was NOT NULL. Keep that obsolete value server-side.
+      if (
+        !includeObsoleteType
+        && insertError?.code === '23502'
+        && /column "type"/i.test(insertError.message || '')
+      ) {
+        includeObsoleteType = true;
+        continue;
+      }
+      break;
     }
+
     if (insertError?.code === '23505' && clientId) {
-      const { data: existingPost, error: existingError } = await supabase
+      const loadExistingPost = includeMedia => supabase
         .from('community_posts')
-        .select('id, body, photo_url, is_system, created_at')
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}is_system, created_at`)
         .eq('id', clientId)
         .eq('agent_id', agent.id)
         .is('deleted_at', null)
         .maybeSingle();
+      let { data: existingPost, error: existingError } = await loadExistingPost(true);
+      if (isCommunityMediaSchemaMissing(existingError)) {
+        ({ data: existingPost, error: existingError } = await loadExistingPost(false));
+      }
       if (existingError) throw existingError;
-      if (existingPost && existingPost.body === body && existingPost.photo_url === photoUrl) {
+      const existingMedia = normalizeStoredCommunityMedia(existingPost?.media, existingPost?.photo_url);
+      if (
+        existingPost
+        && existingPost.body === body
+        && existingPost.photo_url === photoUrl
+        && communityMediaEquals(existingMedia, media)
+      ) {
         createdPost = existingPost;
         insertError = null;
       } else {
@@ -4325,6 +4553,8 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
 
     const data = {
       ...createdPost,
+      photo_url: photoUrl,
+      media,
       author: communityAuthorProfile(agent),
       reactions: { suka: 0, selamat: 0, aamiin: 0 },
       my_reaction: null,
@@ -4336,6 +4566,41 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
   } catch (err) {
     console.error('[community] create post error:', err);
     res.status(500).json({ error: 'Gagal membuat postingan' });
+  }
+});
+
+app.post('/api/community/media', authMiddleware, prepareCommunityMediaUpload, parseCommunityMediaBody, async (req, res) => {
+  try {
+    const agent = req.communityAgent;
+    const uploadId = req.communityUploadId;
+    const mime = req.communityMediaMime;
+    const mediaConfig = req.communityMediaConfig;
+
+    const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    if (!buffer.length || buffer.length > mediaConfig.maxBytes) {
+      const maxSize = mediaConfig.type === 'image' ? '6MB' : '24MB';
+      return res.status(400).json({ error: `Ukuran ${mediaConfig.type === 'image' ? 'gambar' : 'video'} maksimal ${maxSize}` });
+    }
+    if (!hasExpectedCommunityMediaSignature(buffer, mime)) {
+      return res.status(400).json({ error: 'Isi file media tidak valid' });
+    }
+
+    const contentHash = crypto.createHash('sha256').update(buffer).digest('hex');
+    const fileName = `community/${agent.slug}-${uploadId}-${contentHash}.${mediaConfig.ext}`;
+    const { error: uploadError } = await supabase.storage
+      .from('agent-photos')
+      .upload(fileName, buffer, {
+        contentType: mime,
+        cacheControl: '31536000',
+        upsert: false,
+      });
+    if (uploadError && !isCommunityStorageConflict(uploadError)) throw uploadError;
+
+    const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(fileName);
+    res.json({ success: true, url: urlData.publicUrl, type: mediaConfig.type });
+  } catch (err) {
+    console.error('[community] media upload error:', err);
+    res.status(500).json({ error: 'Gagal mengunggah media' });
   }
 });
 
