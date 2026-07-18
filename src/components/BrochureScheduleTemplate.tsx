@@ -135,7 +135,7 @@ export const BROCHURE_FONT_FACE_CSS = BROCHURE_LOCAL_FONTS.map(font => (
   `@font-face{font-family:'${font.family}';font-style:${font.style};font-weight:${font.weight};font-display:swap;src:url('${font.src}') format('woff2');}`
 )).join('\n');
 
-const MONTH_ABBR_ID = ['JAN','FEB','MAR','APR','MEI','JUN','JUL','AGT','SEP','OKT','NOV','DES'];
+export const MONTH_ABBR_ID = ['JAN','FEB','MAR','APR','MEI','JUN','JUL','AGT','SEP','OKT','NOV','DES'];
 const MONTH_FULL_ID = ['JANUARI','FEBRUARI','MARET','APRIL','MEI','JUNI','JULI','AGUSTUS','SEPTEMBER','OKTOBER','NOVEMBER','DESEMBER'];
 const BRAND_RED = '#C8102E';
 const DEEP_RED = '#870018';
@@ -342,7 +342,7 @@ function Snowflake({ spec }: { spec: SnowflakeSpec }) {
 const TABLE_COLUMNS = '104px 444px 88px 140px 172px';
 const PACKAGE_NAME_FONT_SIZE = 25;
 
-function formatHargaJt(harga: number): string {
+export function formatHargaJt(harga: number): string {
   // Round to nearest 100k juta-precision (e.g. 33_950_000 → 34.0, 33_949_999 → 33.9).
   const jt = Math.round(harga / 100_000) / 10;
   return jt.toFixed(1);
@@ -357,7 +357,7 @@ function formatTglID(iso: string): string {
   return `${String(d.getUTCDate()).padStart(2, '0')} ${MONTH_ABBR_ID[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
-function formatDepartureDay(iso: string): string {
+export function formatDepartureDay(iso: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '-';
   const d = new Date(`${iso}T00:00:00.000Z`);
   if (Number.isNaN(d.getTime())) return '-';
@@ -365,7 +365,7 @@ function formatDepartureDay(iso: string): string {
   return String(d.getUTCDate());
 }
 
-function formatPhoneDisplay(rawPhone: string): string {
+export function formatPhoneDisplay(rawPhone: string): string {
   // normalizeWaNumber returns 62-prefixed digits (e.g. "6282290002").
   // Brochure displays the local 0-prefixed grouping: "0822-9000-20".
   const norm = normalizeWaNumber(rawPhone);
@@ -376,7 +376,7 @@ function formatPhoneDisplay(rawPhone: string): string {
   return `${local.slice(0, 4)}-${local.slice(4, 8)}-${local.slice(8)}`;
 }
 
-function avatarFallback(name: string): string {
+export function avatarFallback(name: string): string {
   const initials = String(name || 'A')
     .trim()
     .split(/\s+/)
@@ -396,7 +396,7 @@ function cleanWebsite(website: string): string {
     .toLowerCase();
 }
 
-function landingUrlForAgent(agent: BrochureAgent): string {
+export function landingUrlForAgent(agent: BrochureAgent): string {
   const slug = (agent.slug || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase();
   if (slug) return `alhijaz.co/${slug}`;
 
@@ -422,7 +422,7 @@ function starCount(stars: number | null | undefined): number {
 
 // Phrases below are surfaced as pills under the package name; strip them from
 // the title so they don't appear twice. Keep this list aligned with PILL_TAGS.
-function cleanPackageDisplayName(name: string): string {
+export function cleanPackageDisplayName(name: string): string {
   const cleaned = String(name || '')
     .replace(/\bMIX\s+(?:PAKET\s+)?(?:RAHMAH\s*&\s*UHUD|UHUD\s*&\s*RAHMAH|RAHMAH\s+UHUD|UHUD\s+RAHMAH)\b/gi, '')
     .replace(/\b\d+\s*HR\b/gi, '')
@@ -452,7 +452,7 @@ function cleanPackageDisplayName(name: string): string {
 }
 
 // Order of definitions = display order of pills under the title.
-type PillTag = { label: string; pattern: RegExp; bg: string; fg: string };
+export type PillTag = { label: string; pattern: RegExp; bg: string; fg: string };
 const UMROH_DULU_PILL: PillTag = {
   label: 'Umroh Dulu',
   pattern: /\b(?:UMR[OA]H|MEK+AH)\s+DULU\b/i,
@@ -466,7 +466,7 @@ const PILL_TAGS: ReadonlyArray<PillTag> = [
   { label: '2x Jumatan',      pattern: /\bJUM['‘’]?ATAIN\b/i,    bg: DARK_RED,  fg: '#FFFFFF' },
 ];
 
-function detectPackagePills(rawName: string, umrohDulu?: boolean): PillTag[] {
+export function detectPackagePills(rawName: string, umrohDulu?: boolean): PillTag[] {
   const s = String(rawName || '');
   const pills = PILL_TAGS.filter(t => t.pattern.test(s));
   if (umrohDulu && !pills.some(p => p.label === UMROH_DULU_PILL.label)) {
@@ -479,11 +479,11 @@ function detectPackagePills(rawName: string, umrohDulu?: boolean): PillTag[] {
 
 // PROMO via flag API (promo='1') ATAU kata di nama; HEMAT hanya via nama —
 // API tidak punya flag tersendiri untuk HEMAT.
-function isHighlightedPackage(p: BrochurePackage): boolean {
+export function isHighlightedPackage(p: BrochurePackage): boolean {
   return p.isPromo === true || /\b(PROMO|HEMAT)\b/i.test(p.nama);
 }
 
-function countTripDays(berangkat: string, pulang: string): number | null {
+export function countTripDays(berangkat: string, pulang: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(berangkat) || !/^\d{4}-\d{2}-\d{2}$/.test(pulang)) return null;
   const start = new Date(`${berangkat}T00:00:00.000Z`);
   const end = new Date(`${pulang}T00:00:00.000Z`);

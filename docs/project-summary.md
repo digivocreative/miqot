@@ -203,7 +203,7 @@ Snapshot audit 2026-07-12:
 - Statistik umroh/haji and admin trend/ranking.
 - Kalkulasi package price and quotation PDF.
 - Compare package.
-- Brosur Jadwal monthly export/catalog.
+- Brosur Jadwal monthly export/catalog. 4 opsi desain via chip picker (persist localStorage `brosurDesignId`): Klasik (default, merah-emas; varian winter otomatis utk filter Musim Dingin) + 3 alternatif di `src/components/brochure-designs/` — Zamrud Royal (hijau zamrud+emas), Boarding Pass (tiket pesawat: stub tanggal, rute CGK✈landing, barcode, sisa seat), Senja Haramain (gradasi maghrib + kartu kaca). Opsi berlaku utk preview/export gambar; katalog PDF selalu Klasik (rasterSafe).
 - Nilai Plus Paket: prompt ad-creative grounded dari brosur+itinerary dengan rotasi 10 gaya desain + lampiran lembar identitas agent (lihat seksi di bawah).
 - Kurs share image.
 - Voice-over script and audio generation.

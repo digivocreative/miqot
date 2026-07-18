@@ -30,6 +30,7 @@ import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { CatalogLoadingModal } from './CatalogLoadingModal';
 import { CatalogCoverPicker } from './CatalogCoverPicker';
 import { getCatalogCover, DEFAULT_COVER_ID } from '@/lib/catalogCovers';
+import { BROCHURE_DESIGNS, getBrochureDesign, normalizeBrochureDesignId, type BrochureDesignId } from './brochure-designs';
 
 const EXPORT_MIME = 'image/jpeg';
 const EXPORT_EXT = 'jpg';
@@ -350,6 +351,19 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     setCatalogMode(mode);
     setCoverPickerOpen(true);
   };
+
+  // ── Desain brosur: klasik default + 3 desain alternatif (opsi, dipilih via
+  // chip picker). Berlaku untuk preview & export gambar bulanan; katalog PDF
+  // tetap klasik (lihat catalog stage di bawah). ──
+  const [designId, setDesignId] = useState<BrochureDesignId>(() => {
+    try { return normalizeBrochureDesignId(localStorage.getItem('brosurDesignId')); }
+    catch { return 'classic'; }
+  });
+  const selectDesign = (id: BrochureDesignId) => {
+    setDesignId(id);
+    try { localStorage.setItem('brosurDesignId', id); } catch { /* private mode: ignore */ }
+  };
+  const DesignTemplate = getBrochureDesign(designId).Component;
   const [catalogMeta, setCatalogMeta] = useState<{ summary: Array<{ label: string; count: number }>; dateLabel: string }>({ summary: [], dateLabel: '' });
   // Loading-modal result (success/error) shown after the busy phase ends.
   const [catalogResult, setCatalogResult] = useState<{ status: 'success' | 'error'; message?: string } | null>(null);
@@ -664,6 +678,10 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         document.fonts.load(`800 20px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
         document.fonts.load(`900 40px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
         document.fonts.load(`800 150px "${BROCHURE_PLAYFAIR_FONT}"`).catch(() => null),
+        // Desain alternatif: judul Playfair (Zamrud) / Bebas (Boarding) / Montserrat (Senja).
+        document.fonts.load(`800 102px "${BROCHURE_PLAYFAIR_FONT}"`).catch(() => null),
+        document.fonts.load(`400 114px "${BROCHURE_BEBAS_FONT}"`).catch(() => null),
+        document.fonts.load(`900 88px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
       ]);
       await document.fonts.ready;
       // iOS Safari sometimes resolves `fonts.ready` while individual FontFace entries
@@ -956,12 +974,12 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     exportPageRefs.current = exportPageRefs.current.slice(0, activeImagePages.length);
   }, [pageKeys, activeImagePages]);
 
-  // HARI/SEAT switch changes the rendered brochure, so cached export blobs (keyed
-  // by page.key only) are stale — drop them so the next download/share re-captures
-  // in the current mode.
+  // HARI/SEAT switch dan ganti desain mengubah render brosur, sedangkan cache
+  // export hanya di-key page.key — drop agar download/share berikutnya
+  // re-capture sesuai mode + desain aktif.
   useEffect(() => {
     exportCacheRef.current.clear();
-  }, [displayMode]);
+  }, [displayMode, designId]);
 
   // Surface the underlying error in the toast so iPhone users — who can't open
   // a console — still have a starting point for diagnosis. Truncate to keep
@@ -1226,6 +1244,34 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         </div>
       </div>
 
+      {/* Picker desain brosur — Klasik default + 3 desain alternatif (opsi).
+          Pilihan tersimpan di localStorage dan berlaku utk preview + export
+          gambar; katalog PDF tetap klasik. */}
+      <div className="px-4 pt-3">
+        <div className="flex items-center gap-2">
+          <span className="shrink-0 text-[11px] font-black uppercase tracking-wide text-gray-400 dark:text-slate-500">Desain</span>
+          <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+            {BROCHURE_DESIGNS.map(d => (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => selectDesign(d.id)}
+                aria-pressed={designId === d.id}
+                disabled={catalogBusy || busy !== null}
+                className={`shrink-0 inline-flex items-center gap-1.5 h-8 rounded-full border pl-1.5 pr-3 text-[11px] font-bold transition-all duration-200 active:scale-[0.98] disabled:opacity-60 ${
+                  designId === d.id
+                    ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600 text-emerald-700 dark:text-emerald-300 shadow-sm'
+                    : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300'
+                }`}
+              >
+                <span aria-hidden="true" className="h-5 w-5 rounded-full border border-black/10 dark:border-white/15" style={{ background: d.swatch }} />
+                <span className="whitespace-nowrap">{d.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <CatalogLoadingModal
         open={catalogBusy || catalogResult !== null}
         status={catalogResult ? catalogResult.status : 'loading'}
@@ -1310,7 +1356,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                         transformOrigin: 'top left',
                       }}
                     >
-                      <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} displayMode={displayMode} />
+                      <DesignTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} displayMode={displayMode} />
                     </div>
                   </div>
 
@@ -1437,7 +1483,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
             ref={(node) => { exportPageRefs.current[index] = node; }}
             style={{ width: BROCHURE_W, height: BROCHURE_H }}
           >
-            <BrochureScheduleTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} displayMode={displayMode} />
+            <DesignTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} displayMode={displayMode} />
           </div>
         ))}
       </div>
@@ -1459,6 +1505,9 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
             <BrochureCatalogCover agent={agent} months={catalogMeta.summary} cover={getCatalogCover(coverId)} />
           )}
           {catalogStage?.kind === 'page' && (
+            /* Katalog PDF selalu memakai template klasik: mode rasterSafe-nya
+               menjamin hasil identik antar engine; desain alternatif memakai
+               efek (clip-text, mask, backdrop-filter) yang tidak raster-safe. */
             <BrochureScheduleTemplate
               month={catalogStage.page}
               agent={agent}
