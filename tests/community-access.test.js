@@ -309,6 +309,17 @@ test('Teras Threads presentation uses a single Heart reaction and the new compos
   );
 });
 
+test('Teras thread rail uses a continuous grid instead of an absolute connector', () => {
+  const pageSource = readFileSync(
+    new URL('../src/components/TerasPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.doesNotMatch(pageSource, /ml-\[68px\]/);
+  assert.doesNotMatch(pageSource, /left-\[35px\]/);
+  assert.match(pageSource, /grid-cols-\[40px_minmax\(0,1fr\)\]/);
+});
+
 test('Vite proxies community API to local Express before the generic API fallback', () => {
   const viteSource = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
   const communityProxyIndex = viteSource.indexOf("'/api/community':");

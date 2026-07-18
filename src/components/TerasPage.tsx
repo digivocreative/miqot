@@ -358,10 +358,11 @@ function AgentAvatar({
 
 function PostSkeleton({ withMedia = false }: { withMedia?: boolean }) {
   return (
-    <div className="animate-pulse border-b border-gray-100 bg-white motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900">
-      <div className="relative flex items-start gap-3 px-4 pt-4">
+    <div className="relative animate-pulse border-b border-gray-100 bg-white px-4 py-4 motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900">
+      <div className="absolute right-2 top-0 h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
+      <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
         <div className="h-10 w-10 shrink-0 rounded-full bg-gray-200 dark:bg-slate-700" />
-        <div className="min-w-0 flex-1 pb-4">
+        <div className="min-w-0">
           <div className="flex items-center gap-2 pr-10">
             <div className="h-3 w-28 rounded bg-gray-200 dark:bg-slate-700" />
             <div className="h-2.5 w-12 rounded bg-gray-100 dark:bg-slate-700/70" />
@@ -371,15 +372,14 @@ function PostSkeleton({ withMedia = false }: { withMedia?: boolean }) {
             <div className="h-3.5 w-5/6 rounded bg-gray-100 dark:bg-slate-700/70" />
             <div className="h-3.5 w-2/3 rounded bg-gray-100 dark:bg-slate-700/70" />
           </div>
+          {withMedia && (
+            <div data-teras-skeleton-media className="mt-3 aspect-[4/5] max-h-[34rem] rounded-2xl bg-gray-100 dark:bg-slate-800" />
+          )}
+          <div className="mt-1 flex gap-1 border-t border-gray-50 py-1 dark:border-slate-800">
+            <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
+            <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
+          </div>
         </div>
-        <div className="absolute right-2 top-0 h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
-      </div>
-      {withMedia && (
-        <div data-teras-skeleton-media className="ml-[68px] mr-4 aspect-[4/5] max-h-[34rem] rounded-2xl bg-gray-100 dark:bg-slate-800" />
-      )}
-      <div className="ml-[68px] mr-4 flex gap-1 border-t border-gray-50 py-1 dark:border-slate-800">
-        <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
-        <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
       </div>
     </div>
   );
@@ -1897,34 +1897,129 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
               <article
                 key={post.id}
                 data-post-id={post.id}
-                className={`relative border-b bg-white dark:bg-slate-900 ${
+                className={`relative border-b bg-white px-4 py-4 dark:bg-slate-900 ${
                   post.is_system
                     ? 'border-emerald-500/25 dark:border-emerald-500/25'
                     : 'border-gray-100 dark:border-slate-800'
                 }`}
               >
-                {commentsOpen && (
-                  <div
-                    data-thread-connector
-                    aria-hidden="true"
-                    className="pointer-events-none absolute bottom-4 left-[35px] top-[60px] w-px bg-gray-200 dark:bg-slate-700"
-                  />
-                )}
-
                 {post.is_system && (
                   <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-emerald-500/[0.07] to-transparent" />
                 )}
 
-                <div className="relative flex items-start gap-3 px-4 pt-4">
-                  {post.is_system ? (
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-sm shadow-emerald-500/20">
-                      <Sparkles size={16} />
-                    </div>
-                  ) : (
-                    <AgentAvatar name={authorName} photo={post.author.photo} />
-                  )}
+                {!post.is_system && (
+                  <div
+                    ref={menuOpenPostId === post.id ? menuRef : undefined}
+                    className="absolute right-2 top-0 z-20 shrink-0"
+                  >
+                    <button
+                      ref={element => {
+                        if (element) menuButtonRefs.current.set(post.id, element);
+                        else menuButtonRefs.current.delete(post.id);
+                      }}
+                      type="button"
+                      onClick={() => {
+                        if (menuOpenPostId === post.id) closePostMenu();
+                        else openPostMenu(post.id, false);
+                      }}
+                      onKeyDown={event => {
+                        if (!['Enter', ' ', 'ArrowDown'].includes(event.key)) return;
+                        event.preventDefault();
+                        if (menuOpenPostId === post.id) closePostMenu(post.id, true);
+                        else openPostMenu(post.id, true);
+                      }}
+                      aria-label="Buka menu kiriman"
+                      title="Menu kiriman"
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpenPostId === post.id}
+                      aria-controls={`teras-post-menu-${post.id}`}
+                      className="flex h-11 w-11 items-center justify-center rounded-full text-gray-500 transition-colors active:bg-gray-100 dark:text-slate-400 dark:active:bg-slate-700"
+                    >
+                      <MoreHorizontal size={17} />
+                    </button>
 
-                  <div className="min-w-0 flex-1">
+                    {menuOpenPostId === post.id && (
+                      <div
+                        id={`teras-post-menu-${post.id}`}
+                        role="menu"
+                        aria-label="Menu kiriman"
+                        onKeyDown={event => handlePostMenuKeyDown(event, post.id)}
+                        className={`absolute right-0 z-20 w-44 overflow-hidden rounded-xl border border-gray-100 bg-white p-1.5 shadow-lg dark:border-slate-700 dark:bg-slate-800 ${menuOpensUp ? 'bottom-12' : 'top-12'}`}
+                      >
+                        {confirmDeletePostId === post.id ? (
+                          <div className="p-2">
+                            <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">Hapus kiriman ini?</p>
+                            <div className="mt-2 flex gap-1.5">
+                              <button
+                                type="button"
+                                disabled={deletingPostId === post.id}
+                                data-delete-cancel
+                                onClick={() => {
+                                  focusMenuOnOpenRef.current = true;
+                                  setConfirmDeletePostId(null);
+                                }}
+                                className="min-h-11 flex-1 rounded-lg bg-gray-100 px-2 text-[11px] font-semibold text-gray-600 disabled:opacity-50 dark:bg-slate-700 dark:text-slate-300"
+                              >
+                                Batal
+                              </button>
+                              <button
+                                type="button"
+                                disabled={deletingPostId === post.id}
+                                onClick={() => void deletePost(post.id)}
+                                aria-label="Konfirmasi hapus kiriman"
+                                className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-red-500 px-2 text-[11px] font-bold text-white disabled:opacity-50 dark:bg-red-500"
+                              >
+                                {deletingPostId === post.id ? <Loader2 size={13} className="animate-spin" /> : 'Hapus'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {!post.is_own && (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                disabled={reportingPostId === post.id}
+                                onClick={() => void reportPost(post.id)}
+                                className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs font-semibold text-gray-600 transition-colors active:bg-gray-50 disabled:opacity-50 dark:text-slate-300 dark:active:bg-slate-700"
+                              >
+                                {reportingPostId === post.id ? <Loader2 size={14} className="animate-spin" /> : <Flag size={14} />}
+                                Laporkan
+                              </button>
+                            )}
+                            {canDeletePost && (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => setConfirmDeletePostId(post.id)}
+                                className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs font-semibold text-red-600 transition-colors active:bg-red-50 dark:text-red-400 dark:active:bg-red-900/20"
+                              >
+                                <Trash2 size={14} />
+                                Hapus
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
+                  <div className="flex flex-col items-center">
+                    {post.is_system ? (
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-sm shadow-emerald-500/20">
+                        <Sparkles size={16} />
+                      </div>
+                    ) : (
+                      <AgentAvatar name={authorName} photo={post.author.photo} />
+                    )}
+                    {commentsOpen && (
+                      <div aria-hidden="true" className="mt-1.5 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
+                    )}
+                  </div>
+
+                  <div className="min-w-0">
                     <div className={`flex min-w-0 items-center gap-1.5 ${post.is_system ? '' : 'pr-10'}`}>
                       <p className="min-w-0 truncate text-[14px] font-bold text-gray-900 dark:text-white">{authorName}</p>
                       {post.is_system && (
@@ -1941,179 +2036,81 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
 
                     <p
                       data-post-body
-                      className="mt-1.5 whitespace-pre-wrap break-words text-base leading-[1.5] text-gray-800 dark:text-slate-200"
+                      className="mt-1.5 whitespace-pre-wrap break-words text-[15px] leading-[1.5] text-gray-800 dark:text-slate-200"
                     >
                       {!post.is_system && <span aria-hidden="true" className="float-right h-6 w-11" />}
                       {post.body}
                     </p>
-                  </div>
 
-                  {!post.is_system && (
-                    <div
-                      ref={menuOpenPostId === post.id ? menuRef : undefined}
-                      className="absolute right-2 top-0 z-20 shrink-0"
-                    >
+                    {postMedia.length > 0 && (
+                      <div>
+                        <PostMediaRail
+                          media={postMedia}
+                          authorName={authorName}
+                          onOpen={(index, trigger) => openMediaViewer(postMedia, index, authorName, trigger)}
+                        />
+                      </div>
+                    )}
+
+                    <div className="relative mt-1 flex items-center gap-1 py-1">
                       <button
-                        ref={element => {
-                          if (element) menuButtonRefs.current.set(post.id, element);
-                          else menuButtonRefs.current.delete(post.id);
-                        }}
                         type="button"
+                        aria-disabled={reactionIsBusy}
+                        aria-label="Suka"
+                        title="Suka"
+                        aria-pressed={!!post.my_reaction}
                         onClick={() => {
-                          if (menuOpenPostId === post.id) closePostMenu();
-                          else openPostMenu(post.id, false);
+                          if (!reactionIsBusy) handleLikeClick(post);
                         }}
-                        onKeyDown={event => {
-                          if (!['Enter', ' ', 'ArrowDown'].includes(event.key)) return;
-                          event.preventDefault();
-                          if (menuOpenPostId === post.id) closePostMenu(post.id, true);
-                          else openPostMenu(post.id, true);
-                        }}
-                        aria-label="Buka menu kiriman"
-                        title="Menu kiriman"
-                        aria-haspopup="menu"
-                        aria-expanded={menuOpenPostId === post.id}
-                        aria-controls={`teras-post-menu-${post.id}`}
-                        className="flex h-11 w-11 items-center justify-center rounded-full text-gray-500 transition-colors active:bg-gray-100 dark:text-slate-400 dark:active:bg-slate-700"
+                        className={`flex min-h-11 select-none touch-manipulation items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/50 dark:active:bg-slate-900 ${reactionIsBusy ? 'opacity-60' : ''} ${
+                          post.my_reaction
+                            ? 'text-rose-500 dark:text-rose-400'
+                            : 'text-gray-500 dark:text-slate-400'
+                        }`}
                       >
-                        <MoreHorizontal size={17} />
+                        {reactionIsBusy
+                          ? <Loader2 size={19} className="animate-spin" />
+                          : <Heart size={19} fill={post.my_reaction ? 'currentColor' : 'none'} />}
+                        {totalReactions > 0 && <span className="tabular-nums">{totalReactions}</span>}
                       </button>
 
-                      {menuOpenPostId === post.id && (
-                        <div
-                          id={`teras-post-menu-${post.id}`}
-                          role="menu"
-                          aria-label="Menu kiriman"
-                          onKeyDown={event => handlePostMenuKeyDown(event, post.id)}
-                          className={`absolute right-0 z-20 w-44 overflow-hidden rounded-xl border border-gray-100 bg-white p-1.5 shadow-lg dark:border-slate-700 dark:bg-slate-800 ${menuOpensUp ? 'bottom-12' : 'top-12'}`}
-                        >
-                          {confirmDeletePostId === post.id ? (
-                            <div className="p-2">
-                              <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">Hapus kiriman ini?</p>
-                              <div className="mt-2 flex gap-1.5">
-                                <button
-                                  type="button"
-                                  disabled={deletingPostId === post.id}
-                                  data-delete-cancel
-                                  onClick={() => {
-                                    focusMenuOnOpenRef.current = true;
-                                    setConfirmDeletePostId(null);
-                                  }}
-                                  className="min-h-11 flex-1 rounded-lg bg-gray-100 px-2 text-[11px] font-semibold text-gray-600 disabled:opacity-50 dark:bg-slate-700 dark:text-slate-300"
-                                >
-                                  Batal
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={deletingPostId === post.id}
-                                  onClick={() => void deletePost(post.id)}
-                                  aria-label="Konfirmasi hapus kiriman"
-                                  className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-red-500 px-2 text-[11px] font-bold text-white disabled:opacity-50 dark:bg-red-500"
-                                >
-                                  {deletingPostId === post.id ? <Loader2 size={13} className="animate-spin" /> : 'Hapus'}
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              {!post.is_own && (
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  disabled={reportingPostId === post.id}
-                                  onClick={() => void reportPost(post.id)}
-                                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs font-semibold text-gray-600 transition-colors active:bg-gray-50 disabled:opacity-50 dark:text-slate-300 dark:active:bg-slate-700"
-                                >
-                                  {reportingPostId === post.id ? <Loader2 size={14} className="animate-spin" /> : <Flag size={14} />}
-                                  Laporkan
-                                </button>
-                              )}
-                              {canDeletePost && (
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  onClick={() => setConfirmDeletePostId(post.id)}
-                                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs font-semibold text-red-600 transition-colors active:bg-red-50 dark:text-red-400 dark:active:bg-red-900/20"
-                                >
-                                  <Trash2 size={14} />
-                                  Hapus
-                                </button>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggleComments(post.id)}
+                        aria-expanded={commentsOpen}
+                        aria-controls={`teras-comments-${post.id}`}
+                        aria-label="Komentari"
+                        title="Komentari"
+                        className={`flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:active:bg-slate-900 ${
+                          commentsOpen
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-gray-500 dark:text-slate-400'
+                        }`}
+                      >
+                        <MessageCircle size={19} />
+                        {post.comment_count > 0 && <span className="tabular-nums">{post.comment_count}</span>}
+                      </button>
                     </div>
-                  )}
-                </div>
 
-                {postMedia.length > 0 && (
-                  <div className="ml-[68px] mr-4">
-                    <PostMediaRail
-                      media={postMedia}
-                      authorName={authorName}
-                      onOpen={(index, trigger) => openMediaViewer(postMedia, index, authorName, trigger)}
-                    />
+                    {!commentsOpen && post.comment_count > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => toggleComments(post.id)}
+                        aria-expanded="false"
+                        aria-controls={`teras-comments-${post.id}`}
+                        className="flex min-h-11 items-center text-[12.5px] font-medium text-gray-500 transition-colors active:text-gray-700 dark:text-slate-400 dark:active:text-slate-200"
+                      >
+                        {post.comment_count} balasan
+                      </button>
+                    )}
                   </div>
-                )}
-
-                <div className="relative ml-[68px] mr-4 mt-1 flex items-center gap-1 py-1">
-                  <button
-                    type="button"
-                    aria-disabled={reactionIsBusy}
-                    aria-label="Suka"
-                    title="Suka"
-                    aria-pressed={!!post.my_reaction}
-                    onClick={() => {
-                      if (!reactionIsBusy) handleLikeClick(post);
-                    }}
-                    className={`flex min-h-11 select-none touch-manipulation items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/50 dark:active:bg-slate-900 ${reactionIsBusy ? 'opacity-60' : ''} ${
-                      post.my_reaction
-                        ? 'text-rose-500 dark:text-rose-400'
-                        : 'text-gray-500 dark:text-slate-400'
-                    }`}
-                  >
-                    {reactionIsBusy
-                      ? <Loader2 size={19} className="animate-spin" />
-                      : <Heart size={19} fill={post.my_reaction ? 'currentColor' : 'none'} />}
-                    {totalReactions > 0 && <span className="tabular-nums">{totalReactions}</span>}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => toggleComments(post.id)}
-                    aria-expanded={commentsOpen}
-                    aria-controls={`teras-comments-${post.id}`}
-                    aria-label="Komentari"
-                    title="Komentari"
-                    className={`flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:active:bg-slate-900 ${
-                      commentsOpen
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-gray-500 dark:text-slate-400'
-                    }`}
-                  >
-                    <MessageCircle size={19} />
-                    {post.comment_count > 0 && <span className="tabular-nums">{post.comment_count}</span>}
-                  </button>
                 </div>
-
-                {!commentsOpen && post.comment_count > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => toggleComments(post.id)}
-                    aria-expanded="false"
-                    aria-controls={`teras-comments-${post.id}`}
-                    className="ml-[68px] mr-4 flex min-h-11 items-center text-[12.5px] font-medium text-gray-500 transition-colors active:text-gray-700 dark:text-slate-400 dark:active:text-slate-200"
-                  >
-                    {post.comment_count} balasan
-                  </button>
-                )}
 
                 {commentsOpen && commentPanel && (
                   <div
                     id={`teras-comments-${post.id}`}
                     aria-busy={commentPanel.sending}
-                    className="min-w-0 px-4 pb-4"
+                    className="min-w-0"
                   >
                     {commentPanel.loading ? (
                       <CommentSkeleton />
@@ -2130,44 +2127,46 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                       </div>
                     ) : (
                       <>
-                        <div className="space-y-3 pt-2">
-                          {commentPanel.comments.length === 0 ? (
-                            <p className="py-2 text-center text-[11px] text-gray-500 dark:text-slate-400">Belum ada komentar.</p>
-                          ) : commentPanel.comments.map(comment => {
-                            const canDeleteComment = comment.is_own || agent.role === 'admin';
-                            return (
-                              <div key={comment.id} className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
-                                <div className="justify-self-center">
-                                  <AgentAvatar name={comment.author.name || 'Agent'} photo={comment.author.photo} size="comment" />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex min-w-0 items-center gap-1.5">
-                                    <p className="min-w-0 truncate text-[13px] font-bold text-gray-800 dark:text-slate-200">{comment.author.name || 'Agent'}</p>
-                                    <span className="flex-1" />
-                                    <time dateTime={comment.created_at} className="shrink-0 text-[11px] font-medium text-gray-500 dark:text-slate-400">
-                                      {timeAgo(comment.created_at)}
-                                    </time>
-                                    {canDeleteComment && (
-                                      <button
-                                        type="button"
-                                        disabled={deletingCommentId === comment.id}
-                                        onClick={() => void deleteComment(post.id, comment.id)}
-                                        aria-label="Hapus komentar"
-                                        title="Hapus komentar"
-                                        className="-my-3 -mr-2 flex min-h-11 min-w-11 shrink-0 items-center justify-center text-gray-500 transition-colors active:text-red-500 disabled:opacity-50 dark:text-slate-400 dark:active:text-red-400"
-                                      >
-                                        {deletingCommentId === comment.id
-                                          ? <Loader2 size={13} className="animate-spin" />
-                                          : <Trash2 size={13} />}
-                                      </button>
-                                    )}
-                                  </div>
-                                  <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300">{comment.body}</p>
-                                </div>
+                        {commentPanel.comments.length === 0 ? (
+                          <div className="mt-3 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
+                            <div aria-hidden="true" />
+                            <p className="min-w-0 py-1 text-[11px] text-gray-500 dark:text-slate-400">Belum ada komentar.</p>
+                          </div>
+                        ) : commentPanel.comments.map(comment => {
+                          const canDeleteComment = comment.is_own || agent.role === 'admin';
+                          return (
+                            <div key={comment.id} className="mt-3 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
+                              <div className="flex flex-col items-center">
+                                <AgentAvatar name={comment.author.name || 'Agent'} photo={comment.author.photo} size="comment" />
+                                <div aria-hidden="true" className="mt-1.5 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
                               </div>
-                            );
-                          })}
-                        </div>
+                              <div className="min-w-0">
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                  <p className="min-w-0 truncate text-[13px] font-bold text-gray-800 dark:text-slate-200">{comment.author.name || 'Agent'}</p>
+                                  <span className="flex-1" />
+                                  <time dateTime={comment.created_at} className="shrink-0 text-[11px] font-medium text-gray-500 dark:text-slate-400">
+                                    {timeAgo(comment.created_at)}
+                                  </time>
+                                  {canDeleteComment && (
+                                    <button
+                                      type="button"
+                                      disabled={deletingCommentId === comment.id}
+                                      onClick={() => void deleteComment(post.id, comment.id)}
+                                      aria-label="Hapus komentar"
+                                      title="Hapus komentar"
+                                      className="-my-3 -mr-2 flex min-h-11 min-w-11 shrink-0 items-center justify-center text-gray-500 transition-colors active:text-red-500 disabled:opacity-50 dark:text-slate-400 dark:active:text-red-400"
+                                    >
+                                      {deletingCommentId === comment.id
+                                        ? <Loader2 size={13} className="animate-spin" />
+                                        : <Trash2 size={13} />}
+                                    </button>
+                                  )}
+                                </div>
+                                <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300">{comment.body}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
 
                         {commentPanel.error && (
                           <p role="alert" className="ml-[52px] mt-2 min-w-0 text-[10px] font-medium text-red-500 [overflow-wrap:anywhere] dark:text-red-400">{commentPanel.error}</p>
@@ -2178,7 +2177,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                         </p>
 
                         <div className="mt-3 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
-                          <div className="justify-self-center pt-2">
+                          <div className="flex justify-center pt-2">
                             <AgentAvatar name={agent.name} photo={agent.photo} size="comment" />
                           </div>
                           <div className="flex min-w-0 items-center gap-2 border-b border-gray-200 pb-2 dark:border-slate-700">
