@@ -4884,7 +4884,8 @@ async function loadTerasNotificationSources(agent, { since, limit }) {
   const mentions = (mentionResult.error ? [] : (mentionResult.data || []))
     .map(row => {
       const source = row.comment_id ? row.comment : row.post;
-      if (!source || source.deleted_at) return null; // hide mentions on deleted content
+      // deleting a post doesn't cascade to its comments, so a comment mention needs its parent post checked too
+      if (!source || source.deleted_at || row.post?.deleted_at) return null; // hide mentions on deleted content
       return {
         id: row.id,
         post_id: row.post_id,
