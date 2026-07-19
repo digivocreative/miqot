@@ -39,6 +39,7 @@ export function useTerasNotifications(enabled: boolean) {
   const requestIdRef = useRef(0);
   const mountedRef = useRef(true);
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
     };
@@ -92,6 +93,7 @@ export function useTerasNotifications(enabled: boolean) {
     } catch {
       if (isStale()) return;
       setError('Gagal memuat notifikasi.');
+      return;
     } finally {
       if (!isStale()) setLoading(false);
     }
