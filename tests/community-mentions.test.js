@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractCommunityMentions } from '../lib/community-mentions.js';
+import { extractCommunityMentions, unrecordedMentionRows } from '../lib/community-mentions.js';
 
 const MEMBERS = ['nikita', 'bagas', 'agent-lain'];
 
@@ -83,4 +83,19 @@ test('accepts a Set of allowed slugs', () => {
     extractCommunityMentions('@bagas @nikita', new Set(['bagas']), null),
     ['bagas'],
   );
+});
+
+test('unrecordedMentionRows keeps only targets not already recorded', () => {
+  const rows = [
+    { mentioned_agent_id: 'a', post_id: 'p', comment_id: null },
+    { mentioned_agent_id: 'b', post_id: 'p', comment_id: null },
+  ];
+  assert.deepEqual(
+    unrecordedMentionRows(rows, ['a']),
+    [{ mentioned_agent_id: 'b', post_id: 'p', comment_id: null }],
+    'a re-POSTed (same client_id) body must not re-notify an already-recorded target',
+  );
+  assert.deepEqual(unrecordedMentionRows(rows, ['a', 'b']), []);
+  assert.deepEqual(unrecordedMentionRows(rows, []), rows);
+  assert.deepEqual(unrecordedMentionRows(rows, null), rows, 'missing existing set is treated as none');
 });
