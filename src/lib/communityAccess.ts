@@ -1,5 +1,6 @@
-const COMMUNITY_AGENT_SLUGS = new Set(['nikita', 'bagas']);
-
+// Sisi klien dari lib/community-access.js — Teras terbuka untuk semua agent
+// yang punya slug (yaitu semua agent yang bisa login). Dipertahankan sebagai
+// helper supaya gate-nya tetap satu tempat kalau nanti dibatasi lagi.
 export function isCommunityEnabledForAgent(slug?: string | null): boolean {
-  return COMMUNITY_AGENT_SLUGS.has(String(slug || '').trim().toLowerCase());
+  return Boolean(String(slug || '').trim());
 }

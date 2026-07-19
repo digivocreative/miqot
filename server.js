@@ -60,7 +60,7 @@ import {
   calendarJamForEvent,
   normalizeCalendarJam,
 } from './lib/calendar-jam.js';
-import { requireCommunityAccess, communityMemberSlugs } from './lib/community-access.js';
+import { requireCommunityAccess } from './lib/community-access.js';
 import {
   extractCommunityMentions,
   unrecordedMentionRows,
@@ -159,6 +159,7 @@ import { freshCircuitState, recordDbOutcome, isCircuitOpen, nextBackoffMs, isDbC
 import { resolveJamaahUpsertBatch, jamaahUpsertKey, partitionChangedJamaahRows } from './lib/jamaah-upsert.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
+import dnsCallback from 'dns';
 import cron from 'node-cron';
 import util from 'node:util';
 
@@ -3990,25 +3991,27 @@ let communityFeedHeadCache = { entry: null, expiresAt: 0 };
 const COMMUNITY_MEMBERS_CACHE_TTL_MS = 60_000;
 let communityMembersCache = { rows: null, expiresAt: 0 };
 
-// Resolve the Teras allowlist slugs to agent rows once, cached briefly. Used by
-// the /members endpoint (safe subset), by mention recording (slug→id), and by
-// the Telegram nudge (chat id + prefs). Returns [] on error so the caller can
-// degrade to "no mentions" rather than failing the request.
+// Anggota Teras = semua agent (fitur sudah dibuka, bukan allowlist lagi).
+// Di-cache singkat karena dipakai oleh /members endpoint (subset aman),
+// mention recording (slug→id), dan Telegram nudge (chat id + prefs).
+// Returns [] on error so the caller can degrade to "no mentions" rather than
+// failing the request.
 async function loadCommunityMembers() {
   const now = Date.now();
   if (communityMembersCache.rows && communityMembersCache.expiresAt > now) {
     return communityMembersCache.rows;
   }
-  const slugs = communityMemberSlugs();
   const { data, error } = await supabase
     .from('agents')
     .select('id, slug, name, photo, phone, telegram_chat_id, notification_prefs')
-    .in('slug', slugs);
+    .not('slug', 'is', null)
+    .not('name', 'is', null)
+    .order('name', { ascending: true });
   if (error) {
     console.error('[community] load members error:', error.message);
     return communityMembersCache.rows || [];
   }
-  const rows = data || [];
+  const rows = (data || []).filter(row => String(row.slug || '').trim() && String(row.name || '').trim());
   communityMembersCache = { rows, expiresAt: now + COMMUNITY_MEMBERS_CACHE_TTL_MS };
   return rows;
 }
@@ -4585,16 +4588,32 @@ const LINK_PREVIEW_TIMEOUT_MS = 5000;
 const LINK_PREVIEW_MAX_BYTES = 512 * 1024;
 const LINK_PREVIEW_MAX_REDIRECTS = 3;
 
-// Catatan keamanan (TOCTOU / DNS-rebinding): fungsi ini me-resolve host lalu
-// memvalidasi alamatnya, tapi fetch() di bawah melakukan resolve DNS-nya
-// sendiri (undici) — celah waktu ini bisa dieksploitasi via DNS rebinding
-// (DNS otoritatif attacker menjawab IP publik saat validasi, lalu IP privat
-// mis. 169.254.169.254 saat fetch sebenarnya). Risiko ini DITERIMA (bukan
-// diperbaiki) karena endpoint ini dibalik authMiddleware + requireCommunityAccess,
-// dan keanggotaan Teras dibatasi 2 agent (lihat COMMUNITY_AGENT_SLUGS di
-// lib/community-access.js) — eksploitasi butuh jadi salah satu dari mereka atau
-// membobol akunnya. Jika endpoint ini dibuka ke audiens lebih luas, perbaikannya:
-// pin koneksi ke IP yang sudah divalidasi via custom undici dispatcher/lookup.
+// Anti DNS-rebinding: validasi alamat dilakukan DI DALAM lookup yang dipakai
+// undici untuk connect, bukan di langkah terpisah sebelum fetch(). Dengan
+// begitu tidak ada celah TOCTOU — alamat yang divalidasi persis alamat yang
+// disambungi. (Sebelumnya risiko ini diterima karena Teras cuma 2 anggota;
+// sekarang fitur terbuka untuk semua agent, jadi harus ditutup beneran.)
+function pinnedPreviewLookup(hostname, options, callback) {
+  dnsCallback.lookup(hostname, { ...options, all: true }, (err, addresses) => {
+    if (err) return callback(err);
+    const records = Array.isArray(addresses) ? addresses : [addresses];
+    if (!records.length || records.some(rec => isBlockedAddress(rec.address))) {
+      const blocked = new Error(`Blocked address for link preview: ${hostname}`);
+      blocked.code = 'EACCES';
+      return callback(blocked);
+    }
+    if (options?.all) return callback(null, records);
+    return callback(null, records[0].address, records[0].family);
+  });
+}
+
+const linkPreviewDispatcher = new Agent({
+  connect: { family: 4, lookup: pinnedPreviewLookup },
+  connectTimeout: LINK_PREVIEW_TIMEOUT_MS,
+});
+
+// Saringan lapis pertama (skema/host literal/hostname jelas-jelas privat).
+// Pengecekan yang mengikat tetap ada di pinnedPreviewLookup saat connect.
 async function assertHostAllowed(urlString) {
   if (!isAllowedPreviewUrl(urlString)) return false;
   const host = new URL(urlString).hostname;
@@ -4620,6 +4639,7 @@ async function fetchLinkPreviewHtml(startUrl) {
         method: 'GET',
         redirect: 'manual',
         signal: controller.signal,
+        dispatcher: linkPreviewDispatcher,
         headers: {
           'User-Agent': 'AlhijazTerasBot/1.0 (+link-preview)',
           'Accept': 'text/html,application/xhtml+xml',

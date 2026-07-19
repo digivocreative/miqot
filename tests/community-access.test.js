@@ -6,20 +6,19 @@ import {
   requireCommunityAccess,
 } from '../lib/community-access.js';
 
-test('Teras is enabled only for Nikita and Bagas', () => {
+test('Teras is enabled for every agent with a slug', () => {
   assert.equal(isCommunityEnabledForAgent('nikita'), true);
-  assert.equal(isCommunityEnabledForAgent(' Nikita '), true);
   assert.equal(isCommunityEnabledForAgent('bagas'), true);
-  assert.equal(isCommunityEnabledForAgent(' BAGAS '), true);
-  assert.equal(isCommunityEnabledForAgent({ slug: 'nikita', role: 'admin' }), true);
-  assert.equal(isCommunityEnabledForAgent({ slug: 'bagas', role: 'agent' }), true);
-  assert.equal(isCommunityEnabledForAgent({ slug: 'admin-lain', role: 'admin' }), false);
-  assert.equal(isCommunityEnabledForAgent('agent-lain'), false);
+  assert.equal(isCommunityEnabledForAgent('agent-lain'), true);
+  assert.equal(isCommunityEnabledForAgent({ slug: 'admin-lain', role: 'admin' }), true);
+  assert.equal(isCommunityEnabledForAgent({ slug: 'yenita', role: 'agent' }), true);
+  // Tanpa slug tetap ditolak — itu bukan agent yang bisa dirujuk di Teras.
   assert.equal(isCommunityEnabledForAgent({}), false);
+  assert.equal(isCommunityEnabledForAgent('   '), false);
   assert.equal(isCommunityEnabledForAgent(undefined), false);
 });
 
-test('Teras access guard allows Nikita and Bagas without writing a response', () => {
+test('Teras access guard allows agents without writing a response', () => {
   let statusCalls = 0;
   const response = {
     status() {
@@ -29,11 +28,11 @@ test('Teras access guard allows Nikita and Bagas without writing a response', ()
   };
 
   assert.equal(requireCommunityAccess({ slug: 'nikita', role: 'admin' }, response), true);
-  assert.equal(requireCommunityAccess({ slug: 'bagas', role: 'agent' }, response), true);
+  assert.equal(requireCommunityAccess({ slug: 'agent-lain', role: 'agent' }, response), true);
   assert.equal(statusCalls, 0);
 });
 
-test('Teras access guard returns 403 for other agents', () => {
+test('Teras access guard returns 403 when the agent has no slug', () => {
   let responseStatus = 0;
   let responseBody = null;
   const response = {
@@ -47,7 +46,7 @@ test('Teras access guard returns 403 for other agents', () => {
     },
   };
 
-  assert.equal(requireCommunityAccess({ slug: 'agent-lain' }, response), false);
+  assert.equal(requireCommunityAccess({ slug: '' }, response), false);
   assert.equal(responseStatus, 403);
   assert.deepEqual(responseBody, { error: 'Fitur Teras belum tersedia untuk agent ini' });
 });
@@ -156,7 +155,7 @@ test('community media migration is additive, bounded, and backfills legacy photo
   assert.doesNotMatch(migrationSource, /DROP COLUMN\s+photo_url/i);
 });
 
-test('dashboard Teras UI uses the same two-agent feature gate', () => {
+test('dashboard Teras UI uses the same feature gate as the server', () => {
   const layoutSource = readFileSync(
     new URL('../src/components/DashboardLayout.tsx', import.meta.url),
     'utf8',
@@ -171,10 +170,9 @@ test('dashboard Teras UI uses the same two-agent feature gate', () => {
     /isCommunityEnabledForAgent[\s\S]*c\.id !== 'teras' \|\| terasEnabled/,
   );
   assert.match(layoutSource, /activeTab === 'teras' && !terasEnabled/);
-  assert.match(
-    accessSource,
-    /COMMUNITY_AGENT_SLUGS = new Set\(\['nikita', 'bagas'\]\)/,
-  );
+  // Gate klien tidak boleh punya allowlist slug lagi — Teras terbuka untuk semua agent.
+  assert.doesNotMatch(accessSource, /COMMUNITY_AGENT_SLUGS/);
+  assert.doesNotMatch(accessSource, /'nikita'|'bagas'/);
 });
 
 test('frontend community gate executes after TypeScript transpilation', async (t) => {
@@ -202,10 +200,10 @@ test('frontend community gate executes after TypeScript transpilation', async (t
   const frontendAccess = await import(moduleUrl);
 
   assert.equal(frontendAccess.isCommunityEnabledForAgent('nikita'), true);
-  assert.equal(frontendAccess.isCommunityEnabledForAgent(' NIKITA '), true);
-  assert.equal(frontendAccess.isCommunityEnabledForAgent('bagas'), true);
-  assert.equal(frontendAccess.isCommunityEnabledForAgent(' BAGAS '), true);
-  assert.equal(frontendAccess.isCommunityEnabledForAgent('agent-lain'), false);
+  assert.equal(frontendAccess.isCommunityEnabledForAgent('agent-lain'), true);
+  assert.equal(frontendAccess.isCommunityEnabledForAgent('yenita'), true);
+  assert.equal(frontendAccess.isCommunityEnabledForAgent(''), false);
+  assert.equal(frontendAccess.isCommunityEnabledForAgent('   '), false);
   assert.equal(frontendAccess.isCommunityEnabledForAgent(null), false);
 });
 
