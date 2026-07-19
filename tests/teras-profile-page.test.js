@@ -8,8 +8,11 @@ const read = path => readFileSync(join(rootPath, path), 'utf8');
 
 test('header profil menampilkan nama, slug, dan WhatsApp hanya bila nomor bisa dinormalisasi', () => {
   const header = read('src/components/TerasProfileHeader.tsx');
-  assert.match(header, /@\{slug\}/);
+  assert.match(header, />@<\/span>\{slug\}/);
   assert.match(header, /https:\/\/wa\.me\/\$\{waNumber\}/);
+  // Tombol memakai glyph WhatsApp bersama, bukan salinan path ke sekian.
+  assert.match(header, /import WhatsAppIcon from '\.\/bio\/WhatsAppIcon';/);
+  assert.match(header, /<WhatsAppIcon size=\{15\} \/>/);
   // Nomor di DB tidak dinormalisasi kecuali lewat /api/auth/register, jadi
   // "0812-3456-7890" harus lewat helper kanonik yang sama dengan seluruh call
   // site wa.me lain — replace(/\D/g,'') menghasilkan wa.me/081234567890 yang mati.
@@ -26,7 +29,11 @@ test('foto profil memakai penanganan error foto bersama, bukan <img> telanjang',
   assert.match(header, /onError=\{event => handleAgentPhotoError\(/);
   // Fallback inisial hanya dipakai setelah retry di handleAgentPhotoError habis.
   assert.match(header, /\(\) => setPhotoFailed\(true\),/);
-  assert.match(header, /photo && !photoFailed \?/);
+  assert.match(header, /const showPhoto = photo && !photoFailed;/);
+  // Sampul buram memakai kondisi yang sama, jadi foto gagal muat tidak
+  // meninggalkan sampul rusak di belakang avatar inisial.
+  const coverAndAvatar = header.match(/showPhoto \?/g) || [];
+  assert.equal(coverAndAvatar.length, 2, 'sampul dan avatar harus dijaga kondisi yang sama');
 });
 
 test('inisial header profil memakai helper bersama (tidak menyalin logika TerasPage)', () => {

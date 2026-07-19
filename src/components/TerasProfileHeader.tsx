@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import WhatsAppIcon from './bio/WhatsAppIcon';
 import { getAgentInitials, handleAgentPhotoError } from '../lib/agent-photo';
 import type { MentionMember } from '../lib/communityMentions';
 import { normalizeWaNumber } from '../utils/phone';
@@ -33,41 +34,66 @@ export function TerasProfileHeader({
     setPhotoFailed(!photo);
   }, [photo]);
 
+  const showPhoto = photo && !photoFailed;
+
   return (
     <section
       data-teras-profile-header
-      className="mb-3 flex items-center gap-4 border-b border-gray-100 bg-white px-4 py-5 dark:border-slate-800 dark:bg-slate-900"
+      className="mb-3 border-b border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-900"
     >
-      {photo && !photoFailed ? (
-        <img
-          src={photo}
-          alt={name}
-          className="h-20 w-20 shrink-0 rounded-full object-cover"
-          onError={event => handleAgentPhotoError(
-            event.currentTarget,
-            name,
-            80,
-            () => setPhotoFailed(true),
+      {/* Sampul = foto agent itu sendiri, diburamkan. Tiap profil jadi punya
+          warna khasnya sendiri tanpa aset tambahan; agent tanpa foto dapat
+          gradien emerald yang sama dengan avatar inisialnya. */}
+      <div className="relative h-24 overflow-hidden" aria-hidden="true">
+        {showPhoto ? (
+          <img
+            src={photo}
+            alt=""
+            className="absolute inset-0 h-full w-full scale-125 object-cover opacity-60 blur-2xl dark:opacity-40"
+          />
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-br from-emerald-200 to-emerald-50 dark:from-emerald-900/50 dark:to-slate-900" />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-white dark:to-slate-900" />
+      </div>
+
+      {/* `relative` wajib: sampul di atas juga positioned, dan tanpa ini ia
+          melukis di atas separuh avatar yang menjorok ke dalam sampul. */}
+      <div className="relative px-4 pb-4">
+        <div className="-mt-11 flex items-end justify-between gap-3">
+          {showPhoto ? (
+            <img
+              src={photo}
+              alt={name}
+              className="h-20 w-20 shrink-0 rounded-full object-cover ring-4 ring-white dark:ring-slate-900"
+              onError={event => handleAgentPhotoError(
+                event.currentTarget,
+                name,
+                80,
+                () => setPhotoFailed(true),
+              )}
+            />
+          ) : (
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xl font-bold text-emerald-700 ring-4 ring-white dark:bg-emerald-900/40 dark:text-emerald-300 dark:ring-slate-900">
+              <span aria-hidden="true">{getAgentInitials(name)}</span>
+            </div>
           )}
-        />
-      ) : (
-        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xl font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-          <span aria-hidden="true">{getAgentInitials(name)}</span>
+          {waNumber ? (
+            <a
+              href={`https://wa.me/${waNumber}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mb-1 inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
+            >
+              <WhatsAppIcon size={15} />
+              Chat WhatsApp
+            </a>
+          ) : null}
         </div>
-      )}
-      <div className="min-w-0 flex-1">
-        <h1 className="truncate text-lg font-bold text-gray-900 dark:text-white">{name}</h1>
-        <p className="truncate text-sm text-gray-500 dark:text-slate-400">@{slug}</p>
-        {waNumber ? (
-          <a
-            href={`https://wa.me/${waNumber}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-500 px-3.5 py-1.5 text-[13px] font-semibold text-white transition hover:bg-emerald-600"
-          >
-            WhatsApp
-          </a>
-        ) : null}
+        <h1 className="mt-3 truncate text-xl font-bold tracking-tight text-gray-900 dark:text-white">{name}</h1>
+        <p className="truncate text-sm text-gray-500 dark:text-slate-400">
+          <span className="text-emerald-600 dark:text-emerald-400">@</span>{slug}
+        </p>
       </div>
     </section>
   );
@@ -84,13 +110,16 @@ export function TerasProfileHeaderSkeleton() {
       data-teras-profile-header-skeleton
       aria-label="Memuat profil"
       aria-busy="true"
-      className="mb-3 flex animate-pulse items-center gap-4 border-b border-gray-100 bg-white px-4 py-5 motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900"
+      className="mb-3 animate-pulse border-b border-gray-100 bg-white motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900"
     >
-      <div className="h-20 w-20 shrink-0 rounded-full bg-gray-100 dark:bg-slate-800" />
-      <div className="min-w-0 flex-1 space-y-2">
-        <div className="h-4 w-40 max-w-full rounded bg-gray-100 dark:bg-slate-800" />
-        <div className="h-3 w-24 max-w-full rounded bg-gray-100 dark:bg-slate-800" />
-        <div className="h-7 w-28 rounded-full bg-gray-100 dark:bg-slate-800" />
+      <div className="h-24 bg-gray-100 dark:bg-slate-800" />
+      <div className="relative px-4 pb-4">
+        <div className="-mt-11 flex items-end justify-between gap-3">
+          <div className="h-20 w-20 shrink-0 rounded-full bg-gray-200 ring-4 ring-white dark:bg-slate-700 dark:ring-slate-900" />
+          <div className="mb-1 h-9 w-36 rounded-full bg-gray-100 dark:bg-slate-800" />
+        </div>
+        <div className="mt-3 h-5 w-40 max-w-full rounded bg-gray-100 dark:bg-slate-800" />
+        <div className="mt-1.5 h-3.5 w-24 max-w-full rounded bg-gray-100 dark:bg-slate-800" />
       </div>
     </section>
   );
