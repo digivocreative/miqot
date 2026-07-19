@@ -63,6 +63,13 @@ import { requireCommunityAccess, communityMemberSlugs } from './lib/community-ac
 import { extractCommunityMentions, COMMUNITY_MENTION_LIMIT } from './lib/community-mentions.js';
 import { isTerasShortCode, communityShortCodeBounds } from './lib/teras-share.js';
 import {
+  firstUrlInText,
+  isBlockedAddress,
+  isAllowedPreviewUrl,
+  parseOpenGraph,
+  sanitizeLinkPreview,
+} from './lib/community-link-preview.js';
+import {
   computeFallbackFlightState,
   hasReliableFlightTimes,
   scheduledSnapshotDisplayStatus,
@@ -4511,6 +4518,104 @@ function bumpCommunityFeedHead(post) {
     expiresAt: Date.now() + COMMUNITY_FEED_HEAD_CACHE_TTL_MS,
   };
 }
+
+const LINK_PREVIEW_TIMEOUT_MS = 5000;
+const LINK_PREVIEW_MAX_BYTES = 512 * 1024;
+const LINK_PREVIEW_MAX_REDIRECTS = 3;
+
+async function assertHostAllowed(urlString) {
+  if (!isAllowedPreviewUrl(urlString)) return false;
+  const host = new URL(urlString).hostname;
+  // Bila host IP literal, isAllowedPreviewUrl sudah menyaring; resolve hostname.
+  try {
+    const records = await dns.lookup(host, { all: true });
+    if (!records.length) return false;
+    return records.every(rec => !isBlockedAddress(rec.address));
+  } catch {
+    return false;
+  }
+}
+
+async function fetchLinkPreviewHtml(startUrl) {
+  let currentUrl = startUrl;
+  for (let hop = 0; hop <= LINK_PREVIEW_MAX_REDIRECTS; hop += 1) {
+    if (!(await assertHostAllowed(currentUrl))) return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LINK_PREVIEW_TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(currentUrl, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'AlhijazTerasBot/1.0 (+link-preview)',
+          'Accept': 'text/html,application/xhtml+xml',
+        },
+      });
+    } catch {
+      clearTimeout(timer);
+      return null;
+    }
+    if (res.status >= 300 && res.status < 400) {
+      clearTimeout(timer);
+      const location = res.headers.get('location');
+      if (!location) return null;
+      currentUrl = new URL(location, currentUrl).toString();
+      continue;
+    }
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !/text\/html/i.test(contentType)) {
+      clearTimeout(timer);
+      return null;
+    }
+    // Baca maksimal LINK_PREVIEW_MAX_BYTES.
+    const reader = res.body?.getReader();
+    if (!reader) { clearTimeout(timer); return null; }
+    const chunks = [];
+    let received = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        received += value.length;
+        chunks.push(value);
+        if (received >= LINK_PREVIEW_MAX_BYTES) { await reader.cancel(); break; }
+      }
+    } catch {
+      clearTimeout(timer);
+      return null;
+    }
+    clearTimeout(timer);
+    const buffer = Buffer.concat(chunks.map(c => Buffer.from(c)));
+    return { html: buffer.toString('utf8'), finalUrl: currentUrl };
+  }
+  return null; // terlalu banyak redirect
+}
+
+app.get('/api/community/link-preview', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const rawUrl = typeof req.query?.url === 'string' ? req.query.url.trim() : '';
+    if (!rawUrl || !isAllowedPreviewUrl(rawUrl)) {
+      return res.status(400).json({ error: 'URL tidak valid' });
+    }
+
+    const fetched = await fetchLinkPreviewHtml(rawUrl);
+    if (!fetched) return res.json({ data: null });
+
+    const parsed = parseOpenGraph(fetched.html, fetched.finalUrl);
+    // url yang disimpan = URL yang diminta user (bukan hasil redirect internal).
+    const snapshot = parsed ? sanitizeLinkPreview({ ...parsed, url: rawUrl }) : null;
+    return res.json({ data: snapshot });
+  } catch (err) {
+    console.error('[community] link-preview error:', err);
+    return res.json({ data: null });
+  }
+});
 
 app.get('/api/community/members', dbLoadShedGuard, authMiddleware, async (req, res) => {
   try {
