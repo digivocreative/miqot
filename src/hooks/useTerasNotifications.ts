@@ -14,7 +14,9 @@ interface Envelope<T> {
 async function getJson<T>(url: string): Promise<T | null> {
   const response = await fetch(url, { headers: getAuthHeaders() });
   const payload = (await response.json()) as Envelope<T>;
-  if (!response.ok || payload.success === false) return null;
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.error ?? `Request failed: ${response.status}`);
+  }
   return payload.data ?? null;
 }
 
@@ -30,6 +32,17 @@ export function useTerasNotifications(enabled: boolean) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const openRef = useRef(false);
+  // Bumped on every openPanel() call (and on closePanel) so a stale in-flight
+  // fetch can recognize it's no longer the latest request and skip its state
+  // updates — guards against both the close-then-reopen race and updates
+  // after unmount racing with the mountedRef check below.
+  const requestIdRef = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const checkHead = useCallback(async () => {
     if (!enabled || document.visibilityState !== 'visible') return;
@@ -56,23 +69,33 @@ export function useTerasNotifications(enabled: boolean) {
   }, [enabled, checkHead]);
 
   const closePanel = useCallback(() => {
+    // Invalidate any in-flight openPanel() fetch so its response can't land
+    // after the user has already closed the panel.
+    requestIdRef.current += 1;
     openRef.current = false;
     setOpen(false);
   }, []);
 
   const openPanel = useCallback(async () => {
+    if (!enabled) return;
+    const requestId = (requestIdRef.current += 1);
+    const isStale = () => !mountedRef.current || requestIdRef.current !== requestId;
+
     openRef.current = true;
     setOpen(true);
     setLoading(true);
     setError(null);
     try {
       const data = await getJson<{ items: TerasNotification[] }>('/api/community/notifications');
+      if (isStale()) return;
       setItems(Array.isArray(data?.items) ? data.items : []);
     } catch {
+      if (isStale()) return;
       setError('Gagal memuat notifikasi.');
     } finally {
-      setLoading(false);
+      if (!isStale()) setLoading(false);
     }
+    if (isStale()) return;
     // Opening the panel clears the badge; the server stamps the watermark. A
     // failed stamp is not rolled back — the next head poll corrects it.
     setUnread(0);
@@ -81,7 +104,7 @@ export function useTerasNotifications(enabled: boolean) {
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: '{}',
     }).catch(() => {});
-  }, []);
+  }, [enabled]);
 
   return {
     unread,
