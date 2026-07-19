@@ -38,6 +38,36 @@ test('isAllowedPreviewUrl rejects non-http, localhost, bare host, private IP lit
   assert.equal(isAllowedPreviewUrl('not a url'), false);
 });
 
+test('isAllowedPreviewUrl blocks IPv6-embedded-IPv4 SSRF bypasses', () => {
+  // Node's WHATWG URL parser normalizes these bracketed literals into
+  // hex-group IPv6 form before isBlockedAddress ever sees them, e.g.
+  // "[::127.0.0.1]" -> hostname "[::7f00:1]". All must still be blocked.
+  for (const url of [
+    'http://[::127.0.0.1]/',           // -> [::7f00:1]     IPv4-compatible loopback
+    'http://[::169.254.169.254]/',     // -> [::a9fe:a9fe]  cloud metadata endpoint
+    'http://[::192.168.1.1]/',         // -> [::c0a8:101]   RFC1918 private
+    'http://[64:ff9b::192.168.1.1]/',  // -> [64:ff9b::c0a8:101] NAT64 well-known prefix
+    'http://[::ffff:127.0.0.1]/',      // -> [::ffff:7f00:1] IPv4-mapped loopback
+    'http://[fe80::1]/',               // link-local
+    'http://[fc00::1]/',               // unique-local
+    'http://[fec0::1]/',               // site-local (deprecated)
+  ]) {
+    assert.equal(isAllowedPreviewUrl(url), false, `${url} harus diblokir`);
+  }
+});
+
+test('isAllowedPreviewUrl allows legitimate public IPv6 literals', () => {
+  assert.equal(isAllowedPreviewUrl('http://[2606:4700:4700::1111]/'), true);
+  assert.equal(isAllowedPreviewUrl('http://[::ffff:8.8.8.8]/'), true);
+});
+
+test('isBlockedAddress evaluates normalized IPv6-embedded-IPv4 hex forms directly', () => {
+  for (const ip of ['::a9fe:a9fe', '::7f00:1', '64:ff9b::c0a8:101']) {
+    assert.equal(isBlockedAddress(ip), true, `${ip} harus diblokir`);
+  }
+  assert.equal(isBlockedAddress('2606:4700:4700::1111'), false);
+});
+
 test('parseOpenGraph reads og tags and resolves relative image', () => {
   const html = `<html><head>
     <meta property="og:title" content="Judul Berita">
