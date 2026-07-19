@@ -8,6 +8,7 @@ export interface MentionMember {
   slug: string;
   name: string;
   photo: string | null;
+  phone?: string | null;
 }
 
 // `@` must not follow an alphanumeric, `.`, `_`, or `@` (rules out emails and

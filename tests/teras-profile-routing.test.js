@@ -32,5 +32,10 @@ test('DashboardLayout memetakan /teras/<slug> ke tab teras dengan profileSlug', 
 
 test('tombol back dari profil kembali ke feed Teras', () => {
   const layout = read('src/components/DashboardLayout.tsx');
-  assert.match(layout, /navigatePath\('\/dashboard\/teras'/);
+  // Harus gagal kalau `terasProfileSlug` dicabut dari kondisi ini — sebelum Task 4
+  // baris ini sudah ada untuk terasPostId (back dari post detail) saja.
+  assert.match(
+    layout,
+    /if \(terasPostId \|\| terasProfileSlug\) \{\s*\n\s*if \(window\.history\.state\?\.terasFromFeed\) window\.history\.back\(\);\s*\n\s*else navigatePath\('\/dashboard\/teras'/,
+  );
 });
