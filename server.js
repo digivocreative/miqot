@@ -66,6 +66,11 @@ import {
   unrecordedMentionRows,
   COMMUNITY_MENTION_LIMIT,
 } from './lib/community-mentions.js';
+import {
+  mergeNotifications,
+  countUnreadNotifications,
+  NOTIFICATION_LIMIT,
+} from './lib/community-notifications.js';
 import { isTerasShortCode, communityShortCodeBounds } from './lib/teras-share.js';
 import {
   isBlockedAddress,
@@ -4786,6 +4791,179 @@ app.post('/api/community/mentions/seen', authMiddleware, express.json({ limit: '
   } catch (err) {
     console.error('[community] mentions seen error:', err);
     res.status(500).json({ error: 'Gagal memperbarui sebutan' });
+  }
+});
+
+const TERAS_NOTIF_SEEN_KEY = 'teras_notif_seen_at';
+// Head polling reads at most this many rows per source; the badge caps at 99
+// anyway, so a bigger window would only cost bandwidth.
+const NOTIFICATION_SCAN_LIMIT = 120;
+
+// Read the watermark straight from the row, not from the TTL agent cache —
+// a stale cache here would make the badge reappear right after it was cleared.
+async function readTerasNotifSeenAt(agentId) {
+  const { data, error } = await supabase
+    .from('agents')
+    .select('notification_prefs')
+    .eq('id', agentId)
+    .single();
+  if (error) throw error;
+  const value = (data?.notification_prefs || {})[TERAS_NOTIF_SEEN_KEY];
+  return typeof value === 'string' && value ? value : null;
+}
+
+async function writeTerasNotifSeenAt(agentId, iso) {
+  const { data, error } = await supabase
+    .from('agents')
+    .select('notification_prefs')
+    .eq('id', agentId)
+    .single();
+  if (error) throw error;
+  const merged = { ...(data?.notification_prefs || {}), [TERAS_NOTIF_SEEN_KEY]: iso };
+  const { error: updateError } = await supabase
+    .from('agents')
+    .update({ notification_prefs: merged })
+    .eq('id', agentId);
+  if (updateError) throw updateError;
+}
+
+// Fetch the three sources in parallel. `since` narrows every source to rows
+// newer than the watermark (badge path); pass null to fetch the latest N
+// regardless (list path). Mentions tolerate a missing table so the bell still
+// works on an environment where the mention migration was never applied.
+async function loadTerasNotificationSources(agent, { since, limit }) {
+  const mentionQuery = supabase
+    .from('community_mentions')
+    .select(`id, post_id, comment_id, created_at,
+      author:agents!community_mentions_author_agent_id_fkey(name, photo),
+      post:community_posts!community_mentions_post_id_fkey(body, deleted_at),
+      comment:community_post_comments!community_mentions_comment_id_fkey(body, deleted_at)`)
+    .eq('mentioned_agent_id', agent.id)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  const commentQuery = supabase
+    .from('community_post_comments')
+    .select(`id, post_id, created_at, body,
+      author:agents(name, photo),
+      post:community_posts!inner(agent_id, deleted_at)`)
+    .eq('post.agent_id', agent.id)
+    .neq('agent_id', agent.id)
+    .is('deleted_at', null)
+    .is('post.deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  const reactionQuery = supabase
+    .from('community_post_reactions')
+    .select(`post_id, agent_id, created_at,
+      author:agents(name, photo),
+      post:community_posts!inner(agent_id, body, deleted_at)`)
+    .eq('post.agent_id', agent.id)
+    .neq('agent_id', agent.id)
+    .is('post.deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (since) {
+    mentionQuery.gt('created_at', since);
+    commentQuery.gt('created_at', since);
+    reactionQuery.gt('created_at', since);
+  }
+
+  const [mentionResult, commentResult, reactionResult] = await Promise.all([
+    mentionQuery, commentQuery, reactionQuery,
+  ]);
+
+  if (mentionResult.error && !isCommunityMentionSchemaMissing(mentionResult.error)) {
+    throw mentionResult.error;
+  }
+  if (commentResult.error) throw commentResult.error;
+  if (reactionResult.error) throw reactionResult.error;
+
+  const mentions = (mentionResult.error ? [] : (mentionResult.data || []))
+    .map(row => {
+      const source = row.comment_id ? row.comment : row.post;
+      if (!source || source.deleted_at) return null; // hide mentions on deleted content
+      return {
+        id: row.id,
+        post_id: row.post_id,
+        comment_id: row.comment_id,
+        created_at: row.created_at,
+        actor: communityAuthorProfile(row.author),
+        snippet: communityMentionSnippet(source.body, 140),
+      };
+    })
+    .filter(Boolean);
+
+  const comments = (commentResult.data || []).map(row => ({
+    id: row.id,
+    post_id: row.post_id,
+    created_at: row.created_at,
+    actor: communityAuthorProfile(row.author),
+    snippet: communityMentionSnippet(row.body, 140),
+  }));
+
+  const reactions = (reactionResult.data || []).map(row => ({
+    post_id: row.post_id,
+    agent_id: row.agent_id,
+    created_at: row.created_at,
+    actor: communityAuthorProfile(row.author),
+    snippet: communityMentionSnippet(row.post?.body, 140),
+  }));
+
+  return { mentions, comments, reactions };
+}
+
+app.get('/api/community/notifications/head', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const seenAt = await readTerasNotifSeenAt(agent.id);
+    const sources = await loadTerasNotificationSources(agent, {
+      since: seenAt,
+      limit: NOTIFICATION_SCAN_LIMIT,
+    });
+    res.json({ success: true, data: { unread_count: countUnreadNotifications(sources) } });
+  } catch (err) {
+    console.error('[community] notifications head error:', err);
+    res.status(500).json({ error: 'Gagal memeriksa notifikasi' });
+  }
+});
+
+app.get('/api/community/notifications', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const seenAt = await readTerasNotifSeenAt(agent.id);
+    const sources = await loadTerasNotificationSources(agent, {
+      since: null,
+      limit: NOTIFICATION_LIMIT,
+    });
+    res.json({
+      success: true,
+      data: { items: mergeNotifications(sources, seenAt, NOTIFICATION_LIMIT), seen_at: seenAt },
+    });
+  } catch (err) {
+    console.error('[community] notifications list error:', err);
+    res.status(500).json({ error: 'Gagal memuat notifikasi' });
+  }
+});
+
+app.post('/api/community/notifications/seen', authMiddleware, express.json({ limit: '1kb' }), async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+    await writeTerasNotifSeenAt(agent.id, new Date().toISOString());
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[community] notifications seen error:', err);
+    res.status(500).json({ error: 'Gagal memperbarui notifikasi' });
   }
 });
 
