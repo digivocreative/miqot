@@ -1,6 +1,6 @@
 # Miqot / Alhijaz Umroh Schedule
 
-Aplikasi fullstack Alhijaz untuk katalog paket publik, landing page agent, dashboard operasional, data jamaah Umroh/Haji, Portal Jamaah, flight tracking, analytics, Telegram, dan AI tools.
+Aplikasi fullstack Alhijaz untuk katalog paket publik, landing page agent, dashboard operasional, data jamaah Umroh/Haji, Portal Jamaah, Teras (komunitas agent), flight tracking, analytics, Telegram, dan AI tools.
 
 Production memakai React 18 + TypeScript + Vite pada frontend, Express 5 pada backend, dan Supabase PostgreSQL sebagai data store utama. `server.js` menjadi boundary produksi untuk API, static SPA, public metadata/OG, serta background jobs.
 

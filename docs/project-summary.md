@@ -1,8 +1,8 @@
 # Alhijaz Indowisata - Project Summary
 
-Terakhir diperbarui: 2026-07-12
+Terakhir diperbarui: 2026-07-19
 
-Dokumen ini adalah peta kerja untuk repo `miqot` / `alhijaz-umroh-schedule`. Isinya dibuat dari audit struktur repo, route backend, modul frontend, migrasi, test, dan flow operasional yang aktif pada 2026-07-12.
+Dokumen ini adalah peta kerja untuk repo `miqot` / `alhijaz-umroh-schedule`. Isinya dibuat dari audit struktur repo, route backend, modul frontend, migrasi, test, dan flow operasional yang aktif pada 2026-07-12, ditambah audit fitur Teras (komunitas agent) pada 2026-07-19.
 
 ## Cara Pakai Cepat
 
@@ -24,15 +24,15 @@ Saat menambah fitur besar, update bagian:
 
 | Area | Status |
 | --- | --- |
-| Produk | Public package listing, landing agent, dashboard agent/admin, jamaah umroh/haji, Portal Jamaah, AI tools, flight tracking, analytics, Telegram notification, MCP assistant. |
+| Produk | Public package listing, landing agent, dashboard agent/admin, jamaah umroh/haji, Portal Jamaah, Teras (feed komunitas antar-agent), AI tools, flight tracking, analytics, Telegram notification, MCP assistant. |
 | Arsitektur | Fullstack monolith: React/Vite SPA + Express 5 backend dalam satu repo. Express juga serve SPA, public SSR-like pages, API, cron/background jobs, proxy, and MCP. |
-| Runtime utama | `server.js` (~18k lines), `laporan-api.js`, `awapi-client.js`, `haji-api.js`, `calendar-api.js`, `telegram-notifier.js`, `mcp-server.js`. |
+| Runtime utama | `server.js` (~21.5k lines), `laporan-api.js`, `awapi-client.js`, `haji-api.js`, `calendar-api.js`, `telegram-notifier.js`, `mcp-server.js`. |
 | Frontend utama | `src/main.tsx`, `src/App.tsx`, `src/components/DashboardLayout.tsx`, `JamaahPage.tsx`, `UmrahRegisterPage.tsx`, `PackageCard.tsx`, `DashboardProfile.tsx`, Portal Jamaah folder. |
 | Data utama | Supabase PostgreSQL. `agents.id` UUID adalah identitas canonical. `slug` hanya identitas URL dan bisa berubah. |
 | Auth | Custom JWT untuk dashboard. Portal Jamaah memakai magic link + cookie. MCP memakai bearer key agent-scoped. |
 | Upstream | `jadwal.alhijaz.co`, legacy internal `115.124.86.220/aiw`, AWAPI official, AirLabs, Bank Mandiri, OpenAI, Google TTS, Telegram, Bunny CDN. |
 | Deploy | VPS Ubuntu via systemd `miqot.service`; webhook deploy menarik repo, build, lalu restart service. |
-| Test | 106 file `node:test`; fokus pure/business logic, generator, dan source guards. Tidak ada e2e full browser suite. |
+| Test | 126 file `node:test`; fokus pure/business logic, generator, dan source guards. 5 file `*.browser.test.js` (Playwright Chromium + Vite dev server) meng-cover permukaan Teras; e2e browser di luar itu masih manual. |
 
 ## Command Cepat
 
@@ -74,6 +74,7 @@ Catatan:
 | Public jadwal paket | `/`, `/:slug`, `/:slug/:jadwalId` | `src/App.tsx`, `src/services/data-service.ts`, `/api/api-get/*`, `/api/schedules/:yearCode` | Paket umroh, filter, CTA WhatsApp, analytics public. |
 | Landing agent | `/:slug/umroh`, `/:slug/haji`, `/:slug/bio`, `/dashboard/ai-tools/landing-page/:type` | `functions/[slug]/*`, SSR injection di `server.js`, `LandingPagePage.tsx`, bio editor | SEO/OG page agent, Link Bio, custom domain context. |
 | Dashboard | `/dashboard/*` | `DashboardLayout.tsx`, lazy-loaded feature pages | Tools agent/admin, jamaah, statistik, AI tools, settings. |
+| Teras (komunitas agent) | `/dashboard/teras`, `/dashboard/teras/post/:id`, `/teras/:slugAtauKode` | `TerasPage.tsx`, `TerasCard.tsx`, `TerasProfileHeader.tsx`, `NotificationBell.tsx`, `useTerasNotifications`, `/api/community/*`, `lib/community-*.js`, `lib/teras-*.js` | Feed antar-agent, detail post, profil publik agent, share link, mention, media, link preview, notifikasi bell + Telegram. |
 | Sync jamaah umroh | `/api/laporan/sync`, background loop | `awapi-client.js`, `laporan-api.js`, sync helpers in `lib/` | Upsert `jamaah`, payment provenance, notification, CAPI Purchase. |
 | Pendaftaran umrah | `/dashboard/jamaah/daftar`, `/api/umrah/*` | `UmrahRegisterPage.tsx`, `server.js`, `laporan-api.js`, Playwright fallback | Submit jamaah baru/tambah jamaah ke legacy Alhijaz. |
 | Sync jamaah haji | `/api/haji/sync`, background loop | `awapi-client.js`, `haji-api.js`, `lib/haji-stats.js` | Upsert `jamaah_haji`, docs, stats. |
@@ -140,15 +141,15 @@ PWA is enabled only on `alhijaz.co`, `localhost`, and `127.0.0.1`. Custom domain
 
 ## Source Inventory
 
-Snapshot audit 2026-07-12:
+Snapshot audit 2026-07-19:
 
 | Area | Count / note |
 | --- | --- |
-| `src` TS/TSX/CSS files | 212 |
-| Test files | 106 `*.test.js` |
-| SQL migrations | 13 files under `migrations/` |
-| Backend route declarations | 120+ `app.get/post/put/delete` declarations in `server.js` |
-| Largest file | `server.js` (~18k lines) |
+| `src` TS/TSX/CSS files | 229 |
+| Test files | 126 `*.test.js` (5 di antaranya `*.browser.test.js` Playwright) |
+| SQL migrations | 22 files under `migrations/` |
+| Backend route declarations | 170+ `app.get/post/put/delete` declarations in `server.js` |
+| Largest file | `server.js` (~21.5k lines) |
 | Critical large frontend files | `PackageCard`, `DashboardProfile`, `JamaahPage`, `UmrahRegisterPage`, `KalkulasiPage`, `HajiPage`, `AskAIModal`, `StatistikPage`. |
 
 ## Tech Stack
@@ -207,8 +208,41 @@ Snapshot audit 2026-07-12:
 - Voice-over script and audio generation.
 - Simulasi Haji Plus and Haji Plus export.
 - Business card generator (5 desain × landscape/portrait; QR bisa diarahkan ke halaman web agent atau vCard "simpan kontak"; teks URL pakai custom domain bila aktif).
+- Teras: feed komunitas antar-agent (detail di seksi Teras di bawah).
 - MCP integration key management.
 - Admin agent management and analytics.
+
+### Teras (Komunitas Agent)
+
+Feed komunitas ala Threads untuk sesama agent. Mulanya pilot allowlist slug (nikita); sejak 2026-07-19 terbuka untuk **semua agent login** — gate efektifnya tinggal `authMiddleware`, tetapi helper `lib/community-access.js` + `src/lib/communityAccess.ts` sengaja dipertahankan sebagai satu titik keputusan bila kelak dibatasi lagi (mis. per-role).
+
+Surface & routing:
+
+- Tab "Teras" di dashboard (`/dashboard/teras`, lazy `TerasPage.tsx`), detail post `/dashboard/teras/post/:id`.
+- Profil publik agent `/teras/<slug>` dan share link post `/teras/<kode-8-hex>` (`lib/teras-share.js`). Keduanya diparse `src/lib/terasRoutes.ts`; bentuk kode share **menang** atas slug karena sudah beredar di WhatsApp lebih dulu. Keduanya dirender di dalam shell dashboard; pengunjung belum login diarahkan ke login dengan tujuan tersimpan (`teras_share_next`).
+- Slug `teras` masuk `RESERVED_SPA_SLUGS`; slug agent berbentuk kode share juga ditolak validasi slug.
+
+Komposer & konten post:
+
+- Teks dengan clamp tampilan, URL di body otomatis jadi tautan (`lib/teras-linkify.js`, dipakai FE dan server); URL yang sudah diwakili kartu preview disembunyikan dari teks.
+- Media post/komentar: maksimum 10 item, gambar ≤ 3MB, video ≤ 20MB — batas disinkron di **tiga titik**: klien, `server.js` (`COMMUNITY_MAX_MEDIA_ITEMS` dkk), dan constraint DB. Upload via `POST /api/community/media` ke Bunny CDN path `community/` (fallback Supabase Storage bila Bunny belum dikonfigurasi); video dapat poster pratinjau via media fragment.
+- Quote post ala Threads (`quoted_post_id`).
+- Link preview ala Threads: metadata di kolom `community_posts.link_preview` (jsonb), diambil saat compose lewat proxy `GET /api/community/link-preview` dengan guard anti-SSRF (blokir IP privat, termasuk IPv6-embedded/6to4 IPv4) di `lib/community-link-preview.js`.
+- Mention `@slug` antar-agent: helper murni dua sisi (`lib/community-mentions.js` + `src/lib/communityMentions.ts`), maksimum 10 mention/post, pill mention dirender klien dari daftar `/members` dan menautkan ke profil. Pencatatan idempoten (read-then-insert karena partial unique index tidak bisa dipakai `on_conflict`); mention baru juga dikirim sebagai notifikasi Telegram ke agent tersebut dengan link detail post.
+
+Notifikasi:
+
+- Bell di header dashboard (`NotificationBell.tsx` + hook `useTerasNotifications`), agregasi **mention + komentar + reaksi** pada post milik agent (`lib/community-notifications.js`).
+- Endpoint: `GET /api/community/notifications[/head]`, `POST /api/community/notifications/seen` (watermark; tanpa watermark semua item dihitung unread). Kegagalan muat tidak menandai terbaca dan tampil sebagai galat di panel.
+
+Data & operasional:
+
+- Tabel: `community_posts` (+ `media` jsonb, `quoted_post_id`, `link_preview`, `pinned_at`), `community_post_reactions`, `community_post_comments` (+ `media`), `community_post_reports`, `community_reads`, `community_mentions` (unique parsial level post vs komentar).
+- **DDL diterapkan manual** dengan menempel SQL `migrations/2026071x-2x_community_*.sql` di Supabase SQL Editor (tidak ada pipeline migrasi otomatis). Endpoint post/komentar mengembalikan **503 "Migrasi ... Teras belum diterapkan"** bila kolom media/quote/mention belum ada — itu sinyal migrasi tertinggal, bukan bug kode.
+- Feed mode profil memakai `GET /api/community/feed?agent=<slug>`; identitas profil dari `GET /api/community/members`. `POST /api/community/read` menyimpan watermark baca feed untuk teaser unread (`TerasCard` di dashboard home via `/api/community/teaser`).
+- Moderasi ringan: report post, hapus post/komentar milik sendiri, pin (`pinned_at`).
+- Rate limit upload media per-agent (window in-memory di `server.js`).
+- Test: `tests/community-*.test.js`, `tests/teras-*.test.js`, termasuk 5 browser test Playwright (feed, profil, bell).
 
 ### Nilai Plus Paket (AI Tools brosur)
 
@@ -363,6 +397,7 @@ Do not increase background sync cadence, upsert batch size, or route polling wit
 | Weather/Kurs | `/api/weather/*`, `/api/kurs*` |
 | Landing/Bio/Domain | `/api/landing-config`, `/api/bio/*`, `/api/agent/custom-domain` |
 | Portal Jamaah | `/api/portal/jamaah/*` |
+| Teras/Community | `/api/community/*` (teaser, read, feed[/head], posts + reaction/comments/report, media, members, notifications[/head, /seen], link-preview) |
 | MCP | `/mcp`, `/api/mcp-key` |
 | Dev-MCP | `/dev-mcp`, `/oauth/dev/*`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server` |
 | Top Partner | `/api/top-partner` |
@@ -450,6 +485,8 @@ Core tables referenced by current code/docs:
 | `ai_credits`, `ask_ai_cache` | AI usage/cache. |
 | `jamaah_portal_tokens`, `jamaah_portal_sessions`, `booking_persiapan` | Portal Jamaah auth plus JSON preparation/Zam-zam choices per booking and jamaah. |
 | `jamaah_document_cache` | Cached printable document HTML/PDF proxy source. |
+| `community_posts`, `community_post_reactions`, `community_post_comments`, `community_post_reports` | Feed Teras: post (media/quote/link_preview/pinned), reaksi, komentar (media), laporan. RLS on, akses via service role. |
+| `community_reads`, `community_mentions` | Watermark baca feed per agent; inbox mention (unique parsial post/komentar, unread via `read_at`). |
 | `weather_cache`, `kurs_cache`, `top_partners_cache` | Server-side external data cache. |
 | `haji_plus_stats` | Haji Plus stats source. |
 
@@ -464,6 +501,7 @@ Recent committed migrations:
 - MCP key columns.
 - Calendar pax fields.
 - Top Partner cache.
+- Teras community feed: posts/reactions/comments/reports, reads, media post+komentar, quote, mentions, link preview (additive-only; diterapkan manual via Supabase SQL Editor).
 
 ## Environment
 
@@ -588,12 +626,21 @@ Don't:
 | Legacy umrah integration | `node --check laporan-api.js`, `node --test tests/umrah-register-session-retry.test.js`, manual submit smoke |
 | Sync/payment logic | Related `tests/*sync*`, `jamaah-payment*`, `booking-outstanding*`, `awapi*` tests |
 | Frontend dashboard | `npm run build:spa`, browser smoke on target route |
+| Teras/community | `node --test tests/community-*.test.js tests/teras-*.test.js` (browser test butuh Playwright Chromium), `npm run build:spa` |
 | Landing pages | `npm run verify:landing`, check OG/public URL |
 | Flight status/share | `node --test tests/flight-*.test.js`, `npm run build`, cek meta `/f/:code`, header/cache/dimensi `/og/flight/:code.png`, dan visual PNG |
 | Design-only change | `npm run build:spa` if class/component code changed; docs-only can use `git diff --check` |
 | Production deploy | build, restart `miqot.service`, check `systemctl is-active`, then relevant endpoint smoke |
 
-## Current Audit Notes (2026-07-12)
+## Current Audit Notes (2026-07-19)
+
+- Teras terbuka untuk semua agent login; allowlist pilot sudah dicabut tetapi titik keputusan akses tetap satu di `lib/community-access.js`.
+- `/teras/<kode-share>` menang atas `/teras/<slug>` profil; jangan ubah prioritas parsing di `src/lib/terasRoutes.ts` karena kode share sudah beredar.
+- Migrasi Teras diterapkan manual (Supabase SQL Editor). Respons 503 "Migrasi ... Teras belum diterapkan" berarti kolom DB tertinggal dari kode, bukan bug.
+- Batas media Teras (10 item, gambar 3MB, video 20MB) harus diubah serentak di klien, `server.js`, dan constraint DB.
+- Notifikasi bell tidak menandai terbaca saat fetch gagal; `seen` memakai watermark eksplisit.
+
+Catatan audit 2026-07-12 yang masih berlaku:
 
 - Pendaftaran umrah memakai browser/reCAPTCHA sebagai jalur utama ketika password legacy tersedia; direct multipart adalah jalur terbatas tanpa saved password.
 - Add-jamaah must use `id_umroh.id_jadwal`; sending only `id_umroh` can target stale/zero-seat booking state.
