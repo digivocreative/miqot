@@ -1,6 +1,7 @@
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import Plyr from 'plyr';
 import 'plyr/dist/plyr.css';
+import { videoPreviewSrc, videoPreviewFallbackSrc } from '../lib/videoPoster';
 
 interface PlyrVideoProps {
   src: string;
@@ -39,6 +40,10 @@ export default function PlyrVideo({ src, ariaLabel, mode, minWidth, className, s
   const startTimeRef = useRef(startTime);
   const autoPlayRef = useRef(autoPlay);
   const startMutedRef = useRef(startMuted);
+  // Sekali fragment poster ditolak browser, pakai URL polos seterusnya untuk
+  // src ini — preview kembali hitam, tapi videonya tetap bisa diputar.
+  const [posterFragmentFailed, setPosterFragmentFailed] = useState(false);
+  useEffect(() => { setPosterFragmentFailed(false); }, [src]);
 
   useEffect(() => {
     const element = videoRef.current;
@@ -81,16 +86,24 @@ export default function PlyrVideo({ src, ariaLabel, mode, minWidth, className, s
 
   return (
     <div
+      // Penanda "ini area media, bukan latar" — Plyr menumpuk poster & kontrol
+      // di atas <video>, jadi klik di area video sering tidak mengenai elemen
+      // <video> itu sendiri. Media viewer memakai atribut ini untuk memutuskan
+      // klik mana yang menutup popup.
+      data-media-content="video"
       className={`teras-plyr teras-plyr-${mode}${className ? ` ${className}` : ''}`}
       style={minWidth ? ({ '--teras-plyr-minw': minWidth } as CSSProperties) : undefined}
     >
       <video
         ref={videoRef}
-        src={src}
+        src={posterFragmentFailed ? src : videoPreviewSrc(src)}
         playsInline
         preload="metadata"
         controls
         aria-label={ariaLabel}
+        onError={() => {
+          if (!posterFragmentFailed && videoPreviewFallbackSrc(src)) setPosterFragmentFailed(true);
+        }}
       />
     </div>
   );
