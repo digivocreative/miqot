@@ -139,6 +139,55 @@ test('stripUrlFromBody: an occurrence glued to preceding text (no boundary) is l
   );
 });
 
+// `.` / `?` / `:` are ambiguous: each is a legitimate mid-URL character
+// (file extension, query string, port) as well as ordinary sentence
+// punctuation right after a URL. continuesUrl must only treat a RUN of these
+// as "still part of the URL" when a genuine URL-continuation character
+// immediately follows the run — otherwise a trailing "?" or ":" right after
+// the pasted URL (an entirely ordinary way to post: "sudah lihat <link>?")
+// makes stripUrlFromBody refuse to remove it, so the raw URL stays visible
+// in the body alongside the preview card.
+test('stripUrlFromBody: removes the URL even when followed by a trailing "?", ":", or "..." with nothing URL-like after', () => {
+  assert.equal(
+    stripUrlFromBody('sudah lihat https://x.id/a?', 'https://x.id/a'),
+    'sudah lihat ?',
+  );
+  assert.equal(
+    stripUrlFromBody('link https://x.id/a: keren', 'https://x.id/a'),
+    'link : keren',
+  );
+  assert.equal(
+    stripUrlFromBody('akhir https://x.id/a...', 'https://x.id/a'),
+    'akhir ...',
+  );
+  assert.equal(
+    stripUrlFromBody('ini https://x.id/a?!', 'https://x.id/a'),
+    'ini ?!',
+  );
+});
+
+test('stripUrlFromBody: regression guards for the ambiguous-trailing-char rule', () => {
+  // A trailing "." followed by a real URL-continuation char (here "html")
+  // still belongs to the URL — the whole thing must be removed, not just
+  // the part before the dot.
+  assert.equal(
+    stripUrlFromBody('ini https://x.id/a.html juga', 'https://x.id/a.html'),
+    'ini juga',
+  );
+  // A "?" followed by more query-string characters ("q=1") still belongs to
+  // the URL.
+  assert.equal(
+    stripUrlFromBody('x https://x.id/a?q=1 y', 'https://x.id/a?q=1'),
+    'x y',
+  );
+  // Prefix-corruption guard: removing the shorter URL must not touch a
+  // longer, different URL that merely starts with the same characters.
+  assert.equal(
+    stripUrlFromBody('a https://x.id/a dan https://x.id/abc', 'https://x.id/a'),
+    'a dan https://x.id/abc',
+  );
+});
+
 // Boundary invariant: firstUrlInText (server-side link-preview detector,
 // lib/community-link-preview.js) MUST agree, on every body, with what the
 // renderer actually linkifies (linkifySegments) — otherwise the server
