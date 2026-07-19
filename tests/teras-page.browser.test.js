@@ -273,6 +273,7 @@ async function openApp({
   installClock = false,
   darkMode = false,
   viewport = { width: 360, height: 800 },
+  initScript = null,
 } = {}) {
   const context = await browser.newContext({
     serviceWorkers: 'block',
@@ -287,6 +288,10 @@ async function openApp({
       window.localStorage.setItem('darkMode', String(storedDarkMode));
       window.sessionStorage.setItem('agentation-session-toolbar-hidden', '1');
     }, { storedSession: session, storedDarkMode: darkMode });
+
+    // Extra page setup that must land before app scripts (e.g. faking browser
+    // capabilities the UI probes on mount).
+    if (initScript) await page.addInitScript(initScript);
 
     if (installClock) await page.clock.install();
 
@@ -837,6 +842,123 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
+  test('isi kiriman panjang dibatasi 4 baris dengan tombol Selengkapnya', { timeout: 30_000 }, async () => {
+    const agent = makeAgent();
+    const longBody = Array.from({ length: 6 }, (_, index) =>
+      `Baris ${index + 1}: konten panjang nih konten panjang nih konten panjang nih.`).join('\n');
+    // Tiga paragraf: dengan jarak penuh tidak muat 4 baris, jadi jaraknya
+    // dipersempit — tetap ada, supaya strukturnya jujur.
+    const spacedBody = ['Paragraf satu.', 'Paragraf dua.', 'Paragraf tiga.'].join('\n\n');
+    // Dua paragraf: muat dengan jarak penuh, jadi tidak boleh dipersempit.
+    const roomyBody = ['Paragraf awal.', 'Paragraf akhir.'].join('\n\n');
+    const api = createCommunityApi({
+      agent,
+      posts: [
+        makePost({ id: 'panjang', body: longBody }),
+        makePost({ id: 'berjarak', body: spacedBody }),
+        makePost({ id: 'lega', body: roomyBody }),
+        makePost({ id: 'pendek', body: 'Teks ringkas' }),
+      ],
+    });
+    const app = await openApp({ agent, api, viewport: { width: 360, height: 800 } });
+    try {
+      const longArticle = app.page.locator('article').filter({ hasText: 'Baris 1:' });
+      const shortArticle = app.page.locator('article').filter({ hasText: 'Teks ringkas' });
+      await longArticle.waitFor();
+      await shortArticle.waitFor();
+
+      assert.equal(
+        await shortArticle.locator('[data-post-body-toggle]').count(),
+        0,
+        'kiriman pendek tidak boleh menampilkan tombol Selengkapnya',
+      );
+
+      const toggle = longArticle.locator('[data-post-body-toggle]');
+      await toggle.waitFor();
+      assert.equal((await toggle.innerText()).trim(), 'Selengkapnya');
+
+      const body = longArticle.locator('[data-post-body]');
+      const collapsedHeight = (await body.boundingBox())?.height ?? 0;
+      const lineHeight = await body.evaluate(element => parseFloat(getComputedStyle(element).lineHeight));
+      assert.ok(
+        collapsedHeight > 0 && collapsedHeight <= lineHeight * 4 + 1,
+        `isi kiriman terlipat harus maksimal 4 baris (${collapsedHeight}px vs ${lineHeight * 4}px)`,
+      );
+
+      await toggle.click();
+      assert.equal((await toggle.innerText()).trim(), 'Lebih sedikit');
+      const expandedHeight = (await body.boundingBox())?.height ?? 0;
+      assert.ok(
+        expandedHeight > collapsedHeight + lineHeight,
+        'isi kiriman harus tampil penuh setelah Selengkapnya diklik',
+      );
+      assert.equal(
+        await app.page.locator('article').count(),
+        4,
+        'klik Selengkapnya tidak boleh membuka halaman detail kiriman',
+      );
+
+      await toggle.click();
+      assert.equal((await toggle.innerText()).trim(), 'Selengkapnya');
+      assert.equal(
+        (await body.boundingBox())?.height ?? 0,
+        collapsedHeight,
+        'kiriman harus bisa dilipat kembali',
+      );
+
+      // Isyarat terpotong: baris terakhir dibuat memudar hanya saat terlipat.
+      assert.equal(await body.getAttribute('data-post-body-faded'), 'true');
+      const collapsedMask = await body.evaluate(element =>
+        getComputedStyle(element).webkitMaskImage || getComputedStyle(element).maskImage);
+      assert.match(String(collapsedMask), /gradient/,
+        'baris terakhir kiriman terlipat harus memudar');
+      assert.equal(
+        await shortArticle.locator('[data-post-body][data-post-body-faded="true"]').count(),
+        0,
+        'kiriman yang tidak terpotong tidak boleh memudar',
+      );
+
+      // Tiga paragraf: jarak dipersempit tapi tetap ada, dan kembali penuh saat dibuka.
+      const spacedArticle = app.page.locator('article').filter({ hasText: 'Paragraf satu.' });
+      const spacedBodyLocator = spacedArticle.locator('[data-post-body]');
+      const spacedToggle = spacedArticle.locator('[data-post-body-toggle]');
+      await spacedToggle.waitFor();
+      assert.equal(await spacedBodyLocator.getAttribute('data-post-body-compact'), 'true');
+      const spacedCollapsed = (await spacedBodyLocator.boundingBox())?.height ?? 0;
+      const fullSpacedHeight = lineHeight * 3 + lineHeight * 2;
+      assert.ok(
+        spacedCollapsed > lineHeight * 3 + 1,
+        `jarak antar-paragraf harus tetap terlihat saat terlipat (${spacedCollapsed}px)`,
+      );
+      assert.ok(
+        spacedCollapsed < fullSpacedHeight - 1,
+        `jarak antar-paragraf harus dipersempit saat terlipat (${spacedCollapsed}px vs ${fullSpacedHeight}px)`,
+      );
+      await spacedToggle.click();
+      const spacedExpanded = (await spacedBodyLocator.boundingBox())?.height ?? 0;
+      assert.ok(
+        Math.abs(spacedExpanded - fullSpacedHeight) <= 1,
+        `jarak paragraf asli harus kembali penuh setelah dibuka (${spacedExpanded}px vs ${fullSpacedHeight}px)`,
+      );
+
+      // Dua paragraf yang muat: jarak asli dipertahankan, tanpa tombol.
+      const roomyArticle = app.page.locator('article').filter({ hasText: 'Paragraf awal.' });
+      const roomyBodyLocator = roomyArticle.locator('[data-post-body]');
+      assert.equal(await roomyBodyLocator.getAttribute('data-post-body-compact'), 'false');
+      assert.equal(
+        await roomyArticle.locator('[data-post-body-toggle]').count(),
+        0,
+        'kiriman yang muat dengan jarak penuh tidak boleh menampilkan tombol',
+      );
+      assert.ok(
+        Math.abs(((await roomyBodyLocator.boundingBox())?.height ?? 0) - lineHeight * 3) <= 1,
+        'dua paragraf yang muat harus memakai jarak satu baris penuh',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
   test('post chrome keeps time at the right edge and shows Threads-style action counts', { timeout: 30_000 }, async () => {
     const agent = makeAgent({ name: 'Nikita Test Dengan Nama Sangat Panjang' });
     const createdAt = new Date(Date.now() - 125_000).toISOString();
@@ -1189,12 +1311,22 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await viewer.getByText('2/3', { exact: true }).waitFor();
       const fullVideo = viewer.getByLabel('Video 2 layar penuh dari kiriman Agent Lain');
       await fullVideo.waitFor();
-      assert.equal(await fullVideo.getAttribute('controls'), '');
+      // Plyr mencopot atribut controls native dan memasang kontrolnya sendiri.
+      assert.equal(await fullVideo.getAttribute('controls'), null);
+      assert.equal(
+        await viewer.locator('[data-media-content="video"] .plyr__controls [data-plyr="play"]').count(),
+        1,
+        'kontrol Plyr harus terpasang di viewer',
+      );
       assert.equal(await fullVideo.getAttribute('playsinline'), '');
       assert.equal(await fullVideo.getAttribute('autoplay'), null);
-      await fullVideo.focus();
+      // Fokus mendarat di kontrol Plyr, bukan di <video>: Plyr mencopot atribut
+      // controls sehingga elemen videonya sendiri tidak dapat difokus. Saat fokus
+      // ada di dalam player, panah milik Plyr (seek) — Plyr menahan propagasinya
+      // sehingga viewer tidak ikut berpindah media.
+      await viewer.locator('[data-media-content="video"] .plyr__controls [data-plyr="play"]').focus();
       await app.page.keyboard.press('ArrowRight');
-      assert.equal(await viewer.getByText('2/3', { exact: true }).count(), 1, 'panah pada video tidak boleh mengganti media');
+      assert.equal(await viewer.getByText('2/3', { exact: true }).count(), 1, 'panah di dalam player tidak boleh mengganti media');
 
       await app.page.keyboard.press('Escape');
       await viewer.waitFor({ state: 'detached' });
@@ -1209,6 +1341,39 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await viewer.click({ position: { x: 180, y: 120 } });
       await viewer.waitFor({ state: 'detached' });
       await app.page.waitForFunction(element => document.activeElement === element, triggerHandle);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('full-screen viewer stays open when the video player area is clicked', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      posts: [makePost({
+        id: 'viewer-video-post',
+        body: 'Video layar penuh',
+        media: [{ type: 'video', url: 'https://cdn.example.test/community/viewer.mp4' }],
+      })],
+    });
+    const app = await openApp({ api, viewport: { width: 360, height: 800 } });
+    try {
+      const article = app.page.locator('article').filter({ hasText: 'Video layar penuh' });
+      await article.getByRole('button', { name: /Buka video.*layar penuh/ }).click();
+      const viewer = app.page.getByRole('dialog', { name: 'Media kiriman Agent Lain' });
+      await viewer.waitFor();
+
+      // Plyr menumpuk poster & kontrolnya di atas <video>, jadi klik "di area
+      // videonya" justru mendarat di .plyr__poster, bukan di elemen <video>.
+      // Viewer hanya boleh tertutup lewat latar hitam atau tombol tutup.
+      const posterBox = await viewer.locator('.plyr__poster').boundingBox();
+      assert.ok(posterBox, 'poster Plyr harus dapat diukur');
+      await app.page.mouse.click(posterBox.x + 10, posterBox.y + 10);
+      // Viewer punya animasi keluar ~0.22s — tunggu lebih lama dari itu, kalau
+      // tidak elemen yang sedang beranimasi keluar terbaca sebagai "masih ada".
+      await app.page.waitForTimeout(900);
+      assert.equal(await viewer.count(), 1, 'klik di area video tidak boleh menutup viewer');
+
+      await viewer.getByRole('button', { name: 'Tutup media' }).click();
+      await viewer.waitFor({ state: 'detached' });
     } finally {
       await app.close();
     }
@@ -1798,7 +1963,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
-  test('Bagikan shares a short /teras/<code> link via Web Share, with a copy fallback', { timeout: 30_000 }, async () => {
+  test('Bagikan opens a dialog showing the short /teras/<code> link before copying', { timeout: 30_000 }, async () => {
     const fullId = '9fc969b0-2465-4ae0-bbba-56e606a84914';
     const api = createCommunityApi({
       posts: [makePost({ id: fullId, body: 'Kiriman untuk dibagikan' })],
@@ -1811,21 +1976,39 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const shareButton = app.page.getByRole('button', { name: 'Bagikan' }).first();
       await shareButton.waitFor();
 
-      // Primary path: Web Share API receives the short, dashboard-less URL.
+      // Clicking must NOT copy or share straight away — it opens a dialog first.
       await app.page.evaluate(() => {
+        window.__copied = [];
         window.__shared = [];
-        navigator.share = data => {
-          window.__shared.push(data);
+        navigator.clipboard.writeText = text => {
+          window.__copied.push(text);
           return Promise.resolve();
         };
       });
       await shareButton.click();
-      const shared = await app.page.evaluate(() => window.__shared);
-      assert.equal(shared.length, 1, 'navigator.share dipanggil sekali');
-      assert.match(shared[0].url, /^https?:\/\/[^/]+\/teras\/9fc969b0$/,
-        'URL share = /teras/<8 hex pertama id>, tanpa /dashboard');
 
-      // Sharing is client-only — it must not hit any API endpoint.
+      const dialog = app.page.getByRole('dialog', { name: 'Bagikan kiriman' });
+      await dialog.waitFor();
+      assert.deepEqual(
+        await app.page.evaluate(() => window.__copied),
+        [],
+        'membuka popup tidak boleh langsung menyalin',
+      );
+
+      // The dialog shows the link itself, readable before any action.
+      const linkField = dialog.getByLabel('Link kiriman');
+      const shownLink = await linkField.inputValue();
+      assert.match(shownLink, /^https?:\/\/[^/]+\/teras\/9fc969b0$/,
+        'popup menampilkan /teras/<8 hex pertama id>, tanpa /dashboard');
+
+      // Copy happens only when the user presses Salin inside the dialog.
+      await dialog.getByRole('button', { name: 'Salin link' }).click();
+      await app.page.getByText('Link disalin', { exact: true }).waitFor();
+      const copied = await app.page.evaluate(() => window.__copied);
+      assert.deepEqual(copied, [shownLink], 'tombol Salin menyalin link yang tampil');
+      await dialog.getByRole('button', { name: 'Tersalin' }).waitFor();
+
+      // Sharing is client-only — it must not mutate anything server-side.
       assert.equal(
         api.requests.filter(r => r.pathname.startsWith('/api/community/posts/')
           && r.method !== 'GET').length,
@@ -1833,20 +2016,49 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         'Bagikan tidak melakukan mutasi server',
       );
 
-      // Fallback path: no Web Share → copy to clipboard + toast.
-      await app.page.evaluate(() => {
-        delete navigator.share;
-        window.__copied = [];
-        navigator.clipboard.writeText = text => {
-          window.__copied.push(text);
+      // Escape closes the dialog and returns focus to the trigger.
+      await app.page.keyboard.press('Escape');
+      await dialog.waitFor({ state: 'detached' });
+      assert.equal(
+        await app.page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
+        'Bagikan',
+        'fokus kembali ke tombol Bagikan setelah popup ditutup',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('share dialog offers the OS share sheet only when Web Share exists', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      posts: [makePost({ id: '9fc969b0-2465-4ae0-bbba-56e606a84914', body: 'Kiriman share sheet' })],
+    });
+    // navigator.share must exist before the page scripts run, since the button
+    // is rendered from a capability check made on mount.
+    const app = await openApp({
+      api,
+      waitForTeras: false,
+      initScript: () => {
+        window.__shared = [];
+        navigator.share = data => {
+          window.__shared.push(data);
           return Promise.resolve();
         };
-      });
-      await shareButton.click();
-      await app.page.getByText('Link disalin', { exact: true }).waitFor();
-      const copied = await app.page.evaluate(() => window.__copied);
-      assert.equal(copied.length, 1);
-      assert.match(copied[0], /\/teras\/9fc969b0$/);
+      },
+    });
+    try {
+      await app.page.getByText('Kiriman share sheet', { exact: true }).waitFor({ timeout: 30_000 });
+      await app.page.getByRole('button', { name: 'Bagikan' }).first().click();
+
+      const dialog = app.page.getByRole('dialog', { name: 'Bagikan kiriman' });
+      await dialog.waitFor();
+      await dialog.getByRole('button', { name: 'Bagikan lewat aplikasi lain' }).click();
+
+      const shared = await app.page.evaluate(() => window.__shared);
+      assert.equal(shared.length, 1, 'navigator.share dipanggil sekali');
+      assert.match(shared[0].url, /\/teras\/9fc969b0$/);
+      // A completed native share closes the dialog.
+      await dialog.waitFor({ state: 'detached' });
     } finally {
       await app.close();
     }

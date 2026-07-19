@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
-import { ChevronRight, Coffee, MessagesSquare } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { AtSign, ChevronRight, Coffee, MessagesSquare } from 'lucide-react';
 import { handleAgentPhotoError } from '../lib/agent-photo';
+import { MentionText } from './MentionText';
+import type { MentionMember } from '../lib/communityMentions';
 import { getAuthHeaders } from './LoginPage';
 
 interface TeaserAvatar {
@@ -12,6 +14,7 @@ interface TerasTeaserData {
   latest: {
     author: TeaserAvatar;
     body_snippet: string;
+    mentions: MentionMember[];
     created_at: string;
   } | null;
   today_count: number;
@@ -90,6 +93,11 @@ function normalizeTeaserData(value: unknown): TerasTeaserData {
         photo: typeof source.latest.author?.photo === 'string' ? source.latest.author.photo : null,
       },
       body_snippet: typeof source.latest.body_snippet === 'string' ? source.latest.body_snippet : '',
+      mentions: Array.isArray(source.latest.mentions)
+        ? source.latest.mentions
+          .filter(mention => typeof mention?.slug === 'string' && typeof mention?.name === 'string')
+          .map(mention => ({ slug: mention.slug, name: mention.name, photo: null }))
+        : [],
       created_at: typeof source.latest.created_at === 'string' ? source.latest.created_at : '',
     }
     : null;
@@ -149,6 +157,11 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
   const data = state.status === 'data' ? state.data : null;
   const latest = data?.latest || null;
   const unreadCount = data?.unread_count || 0;
+  const mentionBySlug = useMemo(
+    () => new Map((latest?.mentions || []).map(member => [member.slug.toLowerCase(), member])),
+    [latest],
+  );
+  const hasMention = mentionBySlug.size > 0;
 
   return (
     <button
@@ -199,8 +212,27 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
             {latest ? (
               <>
                 <TeaserAvatar avatar={latest.author} size="latest" />
-                <p className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-gray-500 dark:text-slate-400">
-                  <b className="font-bold text-gray-900 dark:text-white">{latest.author.name || 'Agent'}</b>&nbsp;{latest.body_snippet}
+                {/* Preview yang memuat @mention dibedakan: penanda @ + latar emerald
+                    tipis, karena pill mention-nya sendiri bisa terpotong ellipsis. */}
+                {hasMention && (
+                  <AtSign
+                    size={13}
+                    className="shrink-0 text-emerald-600 dark:text-emerald-400"
+                    aria-label="Ada sebutan"
+                  />
+                )}
+                <p
+                  className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] ${
+                    hasMention
+                      ? 'rounded-md bg-emerald-50/80 px-1.5 py-0.5 text-emerald-900/80 dark:bg-emerald-500/10 dark:text-emerald-100/80'
+                      : 'text-gray-500 dark:text-slate-400'
+                  }`}
+                >
+                  <b className={`font-bold ${hasMention ? 'text-emerald-950 dark:text-white' : 'text-gray-900 dark:text-white'}`}>
+                    {latest.author.name || 'Agent'}
+                  </b>
+                  &nbsp;
+                  <MentionText body={latest.body_snippet} memberBySlug={mentionBySlug} />
                 </p>
                 <span className="flex-none text-[11px] font-semibold text-gray-400 dark:text-slate-500">
                   {data?.today_count ?? 0} hari ini

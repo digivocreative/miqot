@@ -18,6 +18,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Flag,
   AtSign,
   Heart,
@@ -36,6 +37,7 @@ import {
   X,
 } from 'lucide-react';
 import { handleAgentPhotoError } from '../lib/agent-photo';
+import { videoPreviewSrc, videoPreviewFallbackSrc } from '../lib/videoPoster';
 import { terasShareUrl, isTerasShortCode } from '../../lib/teras-share.js';
 import PlyrVideo from './PlyrVideo';
 import { getAuthHeaders } from './LoginPage';
@@ -627,7 +629,7 @@ function QuotedPostCard({
               {item.type === 'video' ? (
                 <>
                   <video
-                    src={item.url}
+                    src={videoPreviewSrc(item.url)}
                     preload="metadata"
                     muted
                     playsInline
@@ -653,6 +655,154 @@ function QuotedPostCard({
         </div>
       )}
     </div>
+  );
+}
+
+// Body kiriman dibatasi 4 baris di feed. Batasnya pakai max-height ber-em
+// (bukan line-clamp) supaya `float-right` spacer tombol "···" tetap berperilaku
+// normal — di dalam display:-webkit-box float jadi kacau.
+const POST_BODY_COLLAPSED_MAX_HEIGHT = 'calc(1.5em * 4)';
+// Baris terakhir dibuat memudar sebagai isyarat masih ada lanjutan. Pakai mask,
+// bukan overlay gradient, supaya tidak perlu tahu warna latar (mode terang/gelap
+// dan latar sorotan berbeda-beda).
+const POST_BODY_FADE_MASK = 'linear-gradient(to bottom, #000 calc(100% - 1.5em), transparent 100%)';
+
+// Jarak antar-paragraf: penuh (setara satu baris kosong, seperti teks aslinya)
+// saat terbuka, dipersempit saat terlipat. Baris kosong penuh memakan seperempat
+// jatah preview; mempersempitnya menjaga struktur paragraf tetap terbaca tanpa
+// membuang baris. Nilai dalam em relatif ke font-size body.
+const POST_BODY_PARAGRAPH_GAP_EM = 1.5;
+const POST_BODY_PARAGRAPH_GAP_COMPACT_EM = 0.5;
+
+const POST_BODY_TOGGLE_DURATION = 0.26;
+
+/** Pecah body jadi paragraf pada baris kosong; ganti baris tunggal tetap di dalam paragraf. */
+function splitParagraphs(body: string): string[] {
+  return body.split(/(?:[ \t]*\r?\n){2,}/);
+}
+
+function PostBody({
+  body,
+  memberBySlug,
+  reserveMenuSpace,
+  clamp,
+}: {
+  body: string;
+  memberBySlug: Map<string, MentionMember>;
+  reserveMenuSpace: boolean;
+  clamp: boolean;
+}) {
+  const reduceMotion = useReducedMotion();
+  const [openedByUser, setOpenedByUser] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  // Tinggi isi penuh (dengan jarak paragraf penuh) dan tinggi satu baris, dipakai
+  // sebagai titik akhir animasi buka/tutup — max-height tidak bisa dianimasikan
+  // ke `none`, jadi keduanya harus berupa angka px hasil ukur.
+  const [metrics, setMetrics] = useState<{ line: number; full: number } | null>(null);
+  const bodyRef = useRef<HTMLParagraphElement>(null);
+  // Halaman detail selalu tampil penuh; batas 4 baris hanya untuk feed.
+  const expanded = openedByUser || !clamp;
+  const paragraphs = useMemo(() => splitParagraphs(body), [body]);
+  // Jarak dipersempit hanya kalau isinya memang tidak muat — kiriman pendek
+  // berparagraf banyak tetap tampil dengan jarak aslinya.
+  const compact = !expanded && overflowing;
+  const faded = compact;
+
+  useLayoutEffect(() => {
+    const node = bodyRef.current;
+    if (!node || !clamp) return;
+    const measure = () => {
+      const style = getComputedStyle(node);
+      const line = parseFloat(style.lineHeight);
+      // Ukur terhadap tinggi versi jarak-penuh, bukan yang sedang tampil: kalau
+      // yang terukur sedang dipersempit, tambahkan kembali selisih jaraknya.
+      // Tanpa ini keputusannya melingkar — dipersempit jadi muat, muat jadi
+      // tidak dipersempit, lalu bolak-balik.
+      const gapDeficit = compact
+        ? (paragraphs.length - 1)
+          * parseFloat(style.fontSize)
+          * (POST_BODY_PARAGRAPH_GAP_EM - POST_BODY_PARAGRAPH_GAP_COMPACT_EM)
+        : 0;
+      const full = Math.ceil(node.scrollHeight + gapDeficit);
+      // Bandingkan sebelum set: observer ikut menyala sepanjang animasi, dan
+      // state baru tiap frame akan memutus animasinya.
+      setMetrics(prev => (prev && prev.line === line && prev.full === full ? prev : { line, full }));
+      // Saat terbuka, clientHeight sudah selebar isinya; mengukur ulang di situ
+      // akan menghapus tombolnya dan kiriman tidak bisa dilipat lagi.
+      if (!expanded) setOverflowing(full - node.clientHeight > 1);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [paragraphs, expanded, compact, clamp]);
+
+  const collapsedHeight = (metrics?.line ?? 0) * 4;
+  const bodyClassName = 'mt-1.5 whitespace-pre-wrap break-words text-[15px] leading-[1.5] text-gray-800 dark:text-slate-200';
+  const bodyContent = (
+    <>
+      {reserveMenuSpace && <span aria-hidden="true" className="float-right h-6 w-11" />}
+      {paragraphs.map((paragraph, index) => (
+        <span
+          key={index}
+          className="block transition-[margin-top] duration-[260ms] ease-out motion-reduce:transition-none"
+          style={index === 0 ? undefined : {
+            marginTop: `${compact ? POST_BODY_PARAGRAPH_GAP_COMPACT_EM : POST_BODY_PARAGRAPH_GAP_EM}em`,
+          }}
+        >
+          <MentionText body={paragraph} memberBySlug={memberBySlug} />
+        </span>
+      ))}
+    </>
+  );
+
+  if (!clamp) {
+    return (
+      <p data-post-body data-post-body-expanded="true" data-post-body-faded="false" data-post-body-compact="false" className={bodyClassName}>
+        {bodyContent}
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <motion.p
+        ref={bodyRef}
+        data-post-body
+        data-post-body-expanded={expanded ? 'true' : 'false'}
+        data-post-body-faded={faded ? 'true' : 'false'}
+        data-post-body-compact={compact ? 'true' : 'false'}
+        initial={false}
+        // Sebelum hasil ukur pertama masuk, pakai batas berbasis em supaya tidak
+        // ada kedipan tinggi nol pada paint pertama.
+        animate={metrics ? { maxHeight: expanded ? metrics.full : collapsedHeight } : {}}
+        transition={reduceMotion ? { duration: 0 } : { duration: POST_BODY_TOGGLE_DURATION, ease: [0.22, 1, 0.36, 1] }}
+        style={{
+          overflow: 'hidden',
+          maxHeight: metrics ? undefined : POST_BODY_COLLAPSED_MAX_HEIGHT,
+          maskImage: faded ? POST_BODY_FADE_MASK : undefined,
+          WebkitMaskImage: faded ? POST_BODY_FADE_MASK : undefined,
+        }}
+        className={bodyClassName}
+      >
+        {bodyContent}
+      </motion.p>
+      {overflowing && (
+        <button
+          type="button"
+          data-post-body-toggle
+          aria-expanded={expanded}
+          onClick={event => {
+            event.stopPropagation();
+            setOpenedByUser(value => !value);
+          }}
+          className="mt-0.5 text-[13px] font-bold text-teal-600 transition-colors hover:text-teal-700 dark:text-teal-400 dark:hover:text-teal-300"
+        >
+          {expanded ? 'Lebih sedikit' : 'Selengkapnya'}
+        </button>
+      )}
+    </>
   );
 }
 
@@ -954,10 +1104,12 @@ function TypingPrompt({ prompts }: { prompts: string[] }) {
 export default function TerasPage({
   agent,
   postId,
+  profileSlug,
   onNavigate,
 }: {
   agent: TerasAgent;
   postId: string | null;
+  profileSlug?: string | null;
   onNavigate: (path: string, opts?: { replace?: boolean; state?: Record<string, unknown> }) => void;
 }) {
   const reduceMotion = useReducedMotion();
@@ -1102,27 +1254,37 @@ export default function TerasPage({
     }, tone === 'error' ? 5000 : 2500);
   }, []);
 
-  // Bagikan: link pendek "/teras/<code>" (lihat lib/teras-share). Di HP →
-  // share sheet native (pilih WhatsApp → grup); di desktop → salin ke clipboard.
-  const sharePost = useCallback(async (post: CommunityPost) => {
-    const url = terasShareUrl(post.id, window.location.origin);
+  // Bagikan: klik ikon → popup berisi link pendek "/teras/<code>" (lihat
+  // lib/teras-share) yang bisa dibaca dulu, lalu Salin / buka share sheet OS.
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
+  const shareTriggerRef = useRef<HTMLElement | null>(null);
+  const shareDialogRef = useRef<HTMLDivElement | null>(null);
+  const [canNativeShare] = useState(
+    () => typeof navigator !== 'undefined' && typeof navigator.share === 'function',
+  );
 
-    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-      try {
-        await navigator.share({ url });
-        return; // sheet native = umpan balik yang cukup, tak perlu toast
-      } catch (shareError) {
-        // Batal oleh user (AbortError) → diam. Error lain → jatuh ke salin link.
-        if ((shareError as Error)?.name === 'AbortError') return;
-      }
-    }
+  const openShareDialog = useCallback((post: CommunityPost, trigger: HTMLElement | null) => {
+    shareTriggerRef.current = trigger;
+    setShareCopied(false);
+    setShareUrl(terasShareUrl(post.id, window.location.origin));
+  }, []);
 
+  const closeShareDialog = useCallback(() => {
+    setShareUrl(null);
+    const trigger = shareTriggerRef.current;
+    shareTriggerRef.current = null;
+    if (trigger) window.requestAnimationFrame(() => trigger.focus());
+  }, []);
+
+  const copyShareLink = useCallback(async () => {
+    if (!shareUrl) return;
     try {
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
+        await navigator.clipboard.writeText(shareUrl);
       } else {
         const helper = document.createElement('textarea');
-        helper.value = url;
+        helper.value = shareUrl;
         helper.setAttribute('readonly', '');
         helper.style.position = 'fixed';
         helper.style.opacity = '0';
@@ -1132,11 +1294,32 @@ export default function TerasPage({
         document.body.removeChild(helper);
         if (!ok) throw new Error('execCommand copy failed');
       }
+      setShareCopied(true);
       showToast('Link disalin', 'success');
     } catch {
       showToast('Gagal menyalin link', 'error');
     }
-  }, [showToast]);
+  }, [shareUrl, showToast]);
+
+  const shareLinkNatively = useCallback(async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.share({ url: shareUrl });
+      closeShareDialog();
+    } catch (shareError) {
+      // Batal oleh user (AbortError) → popup tetap terbuka, tanpa error.
+      if ((shareError as Error)?.name === 'AbortError') return;
+      showToast('Gagal membuka menu bagikan', 'error');
+    }
+  }, [shareUrl, closeShareDialog, showToast]);
+
+  // Buka popup → fokus ke sheet-nya (bukan field link, agar tak ada ring
+  // mencolok) supaya Escape langsung bekerja dan pembaca layar mengumumkannya.
+  useEffect(() => {
+    if (!shareUrl) return;
+    const frame = window.requestAnimationFrame(() => shareDialogRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [shareUrl]);
 
   const openMediaViewer = useCallback((
     media: CommunityMedia[],
@@ -1258,6 +1441,7 @@ export default function TerasPage({
     try {
       const params = new URLSearchParams();
       if (before) params.set('before', before);
+      if (profileSlug) params.set('agent', profileSlug);
       const query = params.toString();
       const payload = await requestJson<CommunityPost[]>(
         `/api/community/feed${query ? `?${query}` : ''}`,
@@ -1304,7 +1488,7 @@ export default function TerasPage({
         else setLoading(false);
       }
     }
-  }, [showToast]);
+  }, [profileSlug, showToast]);
 
   const refreshFeed = useCallback(() => {
     feedControllerRef.current?.abort();
@@ -2768,6 +2952,90 @@ export default function TerasPage({
     document.body,
   );
 
+  const shareSheet = typeof document === 'undefined' ? null : createPortal(
+    <AnimatePresence>
+      {shareUrl && (
+        <motion.div
+          key="teras-share-backdrop"
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 sm:items-center sm:p-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={reduceMotion ? { duration: 0 } : { duration: 0.16, ease: 'easeOut' }}
+          onClick={closeShareDialog}
+        >
+          <motion.div
+            ref={shareDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="teras-share-title"
+            tabIndex={-1}
+            onClick={event => event.stopPropagation()}
+            onKeyDown={event => {
+              if (event.key !== 'Escape') return;
+              event.preventDefault();
+              event.stopPropagation();
+              closeShareDialog();
+            }}
+            initial={reduceMotion ? { opacity: 0 } : { y: '100%' }}
+            animate={reduceMotion ? { opacity: 1 } : { y: 0 }}
+            exit={reduceMotion ? { opacity: 0 } : { y: '100%' }}
+            transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 420, damping: 38 }}
+            className="w-full overflow-hidden rounded-t-[26px] bg-white pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_40px_rgba(0,0,0,0.18)] dark:bg-slate-900 sm:max-w-sm sm:rounded-[26px] sm:pb-2 sm:shadow-[0_18px_50px_rgba(0,0,0,0.5)]"
+          >
+            <div className="flex justify-center pb-1 pt-3">
+              <span aria-hidden="true" className="h-1 w-9 rounded-full bg-gray-300 dark:bg-slate-700" />
+            </div>
+            <h2
+              id="teras-share-title"
+              className="px-5 pb-3 pt-1 text-center text-[13px] font-bold text-gray-900 dark:text-white"
+            >
+              Bagikan kiriman
+            </h2>
+
+            <div className="px-4">
+              <input
+                type="text"
+                readOnly
+                value={shareUrl}
+                aria-label="Link kiriman"
+                onFocus={event => event.currentTarget.select()}
+                className="w-full select-all rounded-2xl bg-gray-100 px-4 py-3 text-[12.5px] font-medium text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 dark:bg-slate-800 dark:text-slate-300 dark:focus-visible:ring-slate-600"
+              />
+              <p className="px-1 pt-2 text-[11px] leading-snug text-gray-400 dark:text-slate-500">
+                Hanya agent yang sudah masuk yang bisa membuka link ini.
+              </p>
+            </div>
+
+            <div className="px-2 pt-2">
+              <button
+                type="button"
+                onClick={() => { void copyShareLink(); }}
+                className="flex min-h-[52px] w-full items-center gap-3.5 rounded-2xl px-3 text-left text-[14.5px] font-semibold text-gray-900 transition-colors hover:bg-gray-100 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/50 dark:text-white dark:hover:bg-slate-800 dark:active:bg-slate-800"
+              >
+                {shareCopied
+                  ? <CheckCircle2 size={20} className="shrink-0 text-emerald-500 dark:text-emerald-400" />
+                  : <Copy size={20} className="shrink-0 text-gray-500 dark:text-slate-400" />}
+                {shareCopied ? 'Tersalin' : 'Salin link'}
+              </button>
+              {canNativeShare && (
+                <button
+                  type="button"
+                  onClick={() => { void shareLinkNatively(); }}
+                  className="flex min-h-[52px] w-full items-center gap-3.5 rounded-2xl px-3 text-left text-[14.5px] font-semibold text-gray-900 transition-colors hover:bg-gray-100 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/50 dark:text-white dark:hover:bg-slate-800 dark:active:bg-slate-800"
+                >
+                  <Share2 size={20} className="shrink-0 text-gray-500 dark:text-slate-400" />
+                  Bagikan lewat aplikasi lain
+                </button>
+              )}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
+  );
+
   const mediaViewerSheet = typeof document === 'undefined' ? null : createPortal(
     <AnimatePresence
       onExitComplete={() => {
@@ -2816,7 +3084,7 @@ export default function TerasPage({
                 className="flex h-full w-full items-center justify-center"
                 onClick={event => {
                   const target = event.target;
-                  if (target instanceof Element && target.closest('img, video')) return;
+                  if (target instanceof Element && target.closest('img, video, [data-media-content]')) return;
                   closeMediaViewer();
                 }}
                 custom={mediaViewer.direction}
@@ -3038,7 +3306,7 @@ export default function TerasPage({
 
       <AnimatePresence>
         {!isDetailView && hasNewPosts && (
-          <div className="pointer-events-none fixed inset-x-0 top-[max(4.75rem,calc(env(safe-area-inset-top)+4.25rem))] z-40 flex justify-center">
+          <div className="pointer-events-none fixed inset-x-0 top-[max(3.375rem,calc(env(safe-area-inset-top)+3rem))] z-40 flex justify-center">
             <motion.button
               type="button"
               initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -12 }}
@@ -3300,13 +3568,12 @@ export default function TerasPage({
                       </time>
                     </div>
 
-                    <p
-                      data-post-body
-                      className="mt-1.5 whitespace-pre-wrap break-words text-[15px] leading-[1.5] text-gray-800 dark:text-slate-200"
-                    >
-                      {!post.is_system && <span aria-hidden="true" className="float-right h-6 w-11" />}
-                      <MentionText body={post.body} memberBySlug={memberBySlug} />
-                    </p>
+                    <PostBody
+                      body={post.body}
+                      memberBySlug={memberBySlug}
+                      reserveMenuSpace={!post.is_system}
+                      clamp={!isDetailView}
+                    />
 
                     {postMedia.length > 0 && (
                       <div>
@@ -3456,9 +3723,10 @@ export default function TerasPage({
 
                       <motion.button
                         type="button"
-                        onClick={() => { void sharePost(post); }}
+                        onClick={event => openShareDialog(post, event.currentTarget)}
+                        aria-haspopup="dialog"
                         aria-label="Bagikan"
-                        title="Bagikan ke grup WhatsApp"
+                        title="Bagikan"
                         whileTap={reduceMotion ? undefined : { scale: 0.9 }}
                         transition={{ type: 'spring', stiffness: 520, damping: 26 }}
                         className="flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
@@ -3547,7 +3815,7 @@ export default function TerasPage({
                                         {item.type === 'video' ? (
                                           <>
                                             <video
-                                              src={item.url}
+                                              src={videoPreviewSrc(item.url)}
                                               playsInline
                                               muted
                                               preload="metadata"
@@ -3666,7 +3934,15 @@ export default function TerasPage({
                                   >
                                     {item.type === 'video' ? (
                                       <video
-                                        src={item.previewUrl}
+                                        src={videoPreviewSrc(item.previewUrl)}
+                                        onError={event => {
+                                          // Fragment poster ditolak — mundur ke blob URL polos
+                                          // supaya videonya tetap bisa diputar.
+                                          const fallback = videoPreviewFallbackSrc(item.previewUrl);
+                                          if (fallback && event.currentTarget.src !== fallback) {
+                                            event.currentTarget.src = fallback;
+                                          }
+                                        }}
                                         playsInline
                                         muted
                                         preload="metadata"
@@ -3761,6 +4037,7 @@ export default function TerasPage({
       </div>
 
       {composerSheet}
+      {shareSheet}
       {mediaViewerSheet}
 
       <AnimatePresence>
