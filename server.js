@@ -4829,10 +4829,10 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       }
     }
 
-    const buildPostsQuery = (includeMedia, includeQuote) => {
+    const buildPostsQuery = (includeMedia, includeQuote, includeLinkPreview) => {
       let query = supabase
         .from('community_posts')
-        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .is('deleted_at', null);
       if (profileMember) {
         query = query.eq('agent_id', profileMember.id);
@@ -4853,16 +4853,21 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
 
     let includeMedia = true;
     let includeQuote = true;
+    let includeLinkPreview = true;
     let posts = null;
     let postsError = null;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      ({ data: posts, error: postsError } = await buildPostsQuery(includeMedia, includeQuote));
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      ({ data: posts, error: postsError } = await buildPostsQuery(includeMedia, includeQuote, includeLinkPreview));
       if (includeMedia && isCommunityMediaSchemaMissing(postsError)) {
         includeMedia = false;
         continue;
       }
       if (includeQuote && isCommunityQuoteSchemaMissing(postsError)) {
         includeQuote = false;
+        continue;
+      }
+      if (includeLinkPreview && isCommunityLinkPreviewSchemaMissing(postsError)) {
+        includeLinkPreview = false;
         continue;
       }
       break;
@@ -4966,6 +4971,7 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
         quoted_post: includeQuote && post.quoted_post_id
           ? communityQuotedPostPayload(quotedById.get(post.quoted_post_id))
           : null,
+        link_preview: includeLinkPreview ? communityLinkPreviewPayload(post) : null,
         is_own: post.agent_id === agent.id,
       };
     });
@@ -5001,25 +5007,30 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       return query.gte('id', lo).lte('id', hi).order('created_at', { ascending: true }).limit(1);
     };
 
-    const buildPostQuery = (includeMedia, includeQuote) => applyPostIdFilter(
+    const buildPostQuery = (includeMedia, includeQuote, includeLinkPreview) => applyPostIdFilter(
       supabase
         .from('community_posts')
-        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .is('deleted_at', null),
     ).maybeSingle();
 
     let includeMedia = true;
     let includeQuote = true;
+    let includeLinkPreview = true;
     let post = null;
     let postError = null;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      ({ data: post, error: postError } = await buildPostQuery(includeMedia, includeQuote));
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      ({ data: post, error: postError } = await buildPostQuery(includeMedia, includeQuote, includeLinkPreview));
       if (includeMedia && isCommunityMediaSchemaMissing(postError)) {
         includeMedia = false;
         continue;
       }
       if (includeQuote && isCommunityQuoteSchemaMissing(postError)) {
         includeQuote = false;
+        continue;
+      }
+      if (includeLinkPreview && isCommunityLinkPreviewSchemaMissing(postError)) {
+        includeLinkPreview = false;
         continue;
       }
       break;
@@ -5098,6 +5109,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
         comment_count: (commentResult.data || []).length,
         quote_count: quoteCount,
         quoted_post: post.quoted_post_id ? quotedPost : null,
+        link_preview: includeLinkPreview ? communityLinkPreviewPayload(post) : null,
         is_own: post.agent_id === agent.id,
       },
     });
