@@ -68,6 +68,17 @@ test('isBlockedAddress evaluates normalized IPv6-embedded-IPv4 hex forms directl
   assert.equal(isBlockedAddress('2606:4700:4700::1111'), false);
 });
 
+test('isAllowedPreviewUrl blocks 6to4-embedded IPv4 (2002::/16) SSRF bypass', () => {
+  assert.equal(isAllowedPreviewUrl('http://[2002:c0a8:101::]/'), false); // 192.168.1.1
+  assert.equal(isAllowedPreviewUrl('http://[2002:7f00:1::]/'), false);   // 127.0.0.1
+  assert.equal(isAllowedPreviewUrl('http://[2002:a9fe:a9fe::]/'), false); // 169.254.169.254
+});
+
+test('isBlockedAddress evaluates 6to4-embedded IPv4 directly', () => {
+  assert.equal(isBlockedAddress('2002:c0a8:101::'), true);   // 192.168.1.1
+  assert.equal(isBlockedAddress('2002:0808:0808::'), false); // 8.8.8.8 public
+});
+
 test('parseOpenGraph reads og tags and resolves relative image', () => {
   const html = `<html><head>
     <meta property="og:title" content="Judul Berita">
