@@ -27,9 +27,12 @@ test('sampul profil dekoratif: kisi khatam & foto buram tidak dibacakan pembaca 
   const header = read('src/components/TerasProfileHeader.tsx');
   assert.match(header, /function KhatamLattice\(\)/);
   assert.match(header, /<KhatamLattice \/>/);
-  // Pola dan foto sampul murni dekorasi: alt kosong pada <img> sampul dan
-  // aria-hidden pada pita + SVG, supaya identitas dibacakan sekali saja.
-  assert.match(header, /<div className="relative h-16 overflow-hidden" aria-hidden="true">/);
+  // Pola dan foto latar murni dekorasi: alt kosong pada <img> latar dan
+  // aria-hidden pada lapisan + SVG, supaya identitas dibacakan sekali saja.
+  assert.match(header, /<div className="absolute inset-0" aria-hidden="true">/);
+  // Kisi membawa mask gradasinya sendiri — melebur ke latar, bukan strip
+  // wallpaper dengan tepi keras.
+  assert.match(header, /mask="url\(#teras-khatam-mask\)"/);
   const lattice = header.slice(header.indexOf('function KhatamLattice'), header.indexOf('export function TerasProfileHeader'));
   assert.match(lattice, /aria-hidden="true"/);
 });

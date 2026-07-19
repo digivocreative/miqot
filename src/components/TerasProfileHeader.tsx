@@ -7,8 +7,9 @@ import { normalizeWaNumber } from '../utils/phone';
 
 /**
  * Khatam — the eight-point star formed by two crossed squares, the motif that
- * runs through mosque tilework. Drawn as a repeating stroke lattice so the
- * cover carries the community's own vernacular instead of a generic texture.
+ * runs through mosque tilework. The lattice carries its own gradient mask
+ * (strong at the far right, dissolving toward the text) so it reads as a wash
+ * over the background instead of a wallpaper strip with a hard edge.
  */
 function KhatamLattice() {
   return (
@@ -23,8 +24,16 @@ function KhatamLattice() {
             <rect x="5.5" y="5.5" width="11" height="11" transform="rotate(45 11 11)" />
           </g>
         </pattern>
+        <linearGradient id="teras-khatam-fade" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#fff" stopOpacity="0.1" />
+          <stop offset="0.5" stopColor="#fff" stopOpacity="0.45" />
+          <stop offset="1" stopColor="#fff" stopOpacity="1" />
+        </linearGradient>
+        <mask id="teras-khatam-mask">
+          <rect width="100%" height="100%" fill="url(#teras-khatam-fade)" />
+        </mask>
       </defs>
-      <rect width="100%" height="100%" fill="url(#teras-khatam)" />
+      <rect width="100%" height="100%" fill="url(#teras-khatam)" mask="url(#teras-khatam-mask)" />
     </svg>
   );
 }
@@ -63,61 +72,61 @@ export function TerasProfileHeader({
   return (
     <section
       data-teras-profile-header
-      className="mb-3 border-b border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-900"
+      className="relative mb-3 overflow-hidden border-b border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-900"
     >
-      {/* Sampul = foto agent itu sendiri (diburamkan, jadi tiap profil punya
-          warna khasnya sendiri tanpa aset tambahan) di bawah kisi khatam. */}
-      <div className="relative h-16 overflow-hidden" aria-hidden="true">
+      {/* Satu lembar latar di belakang seluruh baris — bukan pita sampul
+          terpisah. Urutan lapis: foto agent diburamkan (warna khas per
+          profil), kisi khatam yang memudar ke arah teks, lalu gradasi yang
+          melebur keduanya ke permukaan kartu. */}
+      <div className="absolute inset-0" aria-hidden="true">
         {showPhoto ? (
           <img
             src={photo}
             alt=""
-            className="absolute inset-0 h-full w-full scale-125 object-cover opacity-60 blur-2xl dark:opacity-40"
+            className="absolute inset-0 h-full w-full scale-150 object-cover opacity-50 blur-3xl dark:opacity-35"
           />
         ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-emerald-200 to-emerald-50 dark:from-emerald-900/50 dark:to-slate-900" />
+          <div className="absolute inset-0 bg-gradient-to-r from-emerald-200/70 to-emerald-50 dark:from-emerald-900/40 dark:to-slate-900" />
         )}
         <KhatamLattice />
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-white dark:to-slate-900" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/35 to-white dark:from-transparent dark:via-slate-900/45 dark:to-slate-900" />
       </div>
 
-      {/* `relative` wajib: sampul di atas juga positioned, dan tanpa ini ia
-          melukis di atas separuh avatar yang menjorok ke dalam sampul. */}
-      <div className="relative px-4 pb-4">
-        <div className="-mt-8 flex items-end justify-between gap-3">
-          {showPhoto ? (
-            <img
-              src={photo}
-              alt={name}
-              className="h-16 w-16 shrink-0 rounded-full object-cover ring-4 ring-white dark:ring-slate-900"
-              onError={event => handleAgentPhotoError(
-                event.currentTarget,
-                name,
-                80,
-                () => setPhotoFailed(true),
-              )}
-            />
-          ) : (
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-lg font-bold text-emerald-700 ring-4 ring-white dark:bg-emerald-900/40 dark:text-emerald-300 dark:ring-slate-900">
-              <span aria-hidden="true">{getAgentInitials(name)}</span>
-            </div>
-          )}
-          {waNumber ? (
-            <a
-              href={`https://wa.me/${waNumber}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mb-1 inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
-            >
-              <WhatsAppIcon size={15} />
-              Chat WhatsApp
-            </a>
-          ) : null}
+      <div className="relative flex items-center gap-3 px-4 py-4">
+        {showPhoto ? (
+          <img
+            src={photo}
+            alt={name}
+            className="h-14 w-14 shrink-0 rounded-full object-cover ring-2 ring-white/90 dark:ring-slate-900/90"
+            onError={event => handleAgentPhotoError(
+              event.currentTarget,
+              name,
+              80,
+              () => setPhotoFailed(true),
+            )}
+          />
+        ) : (
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-base font-bold text-emerald-700 ring-2 ring-white/90 dark:bg-emerald-900/40 dark:text-emerald-300 dark:ring-slate-900/90">
+            <span aria-hidden="true">{getAgentInitials(name)}</span>
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-lg font-bold tracking-tight text-gray-900 dark:text-white">{name}</h1>
+          <p className="truncate text-sm text-gray-500 dark:text-slate-400">
+            <span className="text-emerald-600 dark:text-emerald-400">@</span>{slug}
+          </p>
         </div>
-        <h1 className="mt-3 truncate text-xl font-bold tracking-tight text-gray-900 dark:text-white">{name}</h1>
-        <p className="truncate text-sm text-gray-500 dark:text-slate-400">
-          <span className="text-emerald-600 dark:text-emerald-400">@</span>{slug}
-        </p>
+        {waNumber ? (
+          <a
+            href={`https://wa.me/${waNumber}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
+          >
+            <WhatsAppIcon size={15} />
+            Chat WhatsApp
+          </a>
+        ) : null}
       </div>
     </section>
   );
@@ -136,14 +145,13 @@ export function TerasProfileHeaderSkeleton() {
       aria-busy="true"
       className="mb-3 animate-pulse border-b border-gray-100 bg-white motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900"
     >
-      <div className="h-16 bg-gray-100 dark:bg-slate-800" />
-      <div className="relative px-4 pb-4">
-        <div className="-mt-8 flex items-end justify-between gap-3">
-          <div className="h-16 w-16 shrink-0 rounded-full bg-gray-200 ring-4 ring-white dark:bg-slate-700 dark:ring-slate-900" />
-          <div className="mb-1 h-9 w-36 rounded-full bg-gray-100 dark:bg-slate-800" />
+      <div className="flex items-center gap-3 px-4 py-4">
+        <div className="h-14 w-14 shrink-0 rounded-full bg-gray-200 dark:bg-slate-700" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="h-4 w-36 max-w-full rounded bg-gray-100 dark:bg-slate-800" />
+          <div className="h-3 w-20 max-w-full rounded bg-gray-100 dark:bg-slate-800" />
         </div>
-        <div className="mt-3 h-5 w-40 max-w-full rounded bg-gray-100 dark:bg-slate-800" />
-        <div className="mt-1.5 h-3.5 w-24 max-w-full rounded bg-gray-100 dark:bg-slate-800" />
+        <div className="h-9 w-32 shrink-0 rounded-full bg-gray-100 dark:bg-slate-800" />
       </div>
     </section>
   );
