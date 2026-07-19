@@ -13,6 +13,10 @@ test('header profil menampilkan nama, slug, dan WhatsApp hanya bila nomor bisa d
   // Tombol memakai glyph WhatsApp bersama, bukan salinan path ke sekian.
   assert.match(header, /import WhatsAppIcon from '\.\/bio\/WhatsAppIcon';/);
   assert.match(header, /<WhatsAppIcon size=\{15\} \/>/);
+  // Teks tombol pendek ("Chat") + ikon aria-hidden, jadi nama aksesibelnya
+  // wajib menyebut saluran & tujuan — kalau tidak, pembaca layar hanya
+  // mendengar "Chat" tanpa konteks.
+  assert.match(header, /aria-label=\{`Chat WhatsApp \$\{name\}`\}/);
   // Nomor di DB tidak dinormalisasi kecuali lewat /api/auth/register, jadi
   // "0812-3456-7890" harus lewat helper kanonik yang sama dengan seluruh call
   // site wa.me lain — replace(/\D/g,'') menghasilkan wa.me/081234567890 yang mati.

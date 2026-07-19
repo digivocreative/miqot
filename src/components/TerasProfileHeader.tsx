@@ -121,10 +121,14 @@ export function TerasProfileHeader({
             href={`https://wa.me/${waNumber}`}
             target="_blank"
             rel="noopener noreferrer"
+            // Teks tampil sengaja pendek; ikon WhatsApp aria-hidden, jadi nama
+            // aksesibel harus menyebut salurannya (pola sama dengan call site
+            // wa.me lain: StatistikPage, RahmahJuliLandingPage).
+            aria-label={`Chat WhatsApp ${name}`}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
           >
             <WhatsAppIcon size={15} />
-            Chat WhatsApp
+            Chat
           </a>
         ) : null}
       </div>
