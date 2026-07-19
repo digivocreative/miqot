@@ -6,6 +6,30 @@ import type { MentionMember } from '../lib/communityMentions';
 import { normalizeWaNumber } from '../utils/phone';
 
 /**
+ * Khatam — the eight-point star formed by two crossed squares, the motif that
+ * runs through mosque tilework. Drawn as a repeating stroke lattice so the
+ * cover carries the community's own vernacular instead of a generic texture.
+ */
+function KhatamLattice() {
+  return (
+    <svg
+      className="absolute inset-0 h-full w-full text-emerald-800/25 dark:text-emerald-300/20"
+      aria-hidden="true"
+    >
+      <defs>
+        <pattern id="teras-khatam" width="22" height="22" patternUnits="userSpaceOnUse">
+          <g fill="none" stroke="currentColor" strokeWidth="0.8">
+            <rect x="5.5" y="5.5" width="11" height="11" />
+            <rect x="5.5" y="5.5" width="11" height="11" transform="rotate(45 11 11)" />
+          </g>
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#teras-khatam)" />
+    </svg>
+  );
+}
+
+/**
  * Identity card at the top of /teras/<slug>. Kept separate from TerasPage so
  * the profile chrome stays readable next to the feed logic.
  *
@@ -41,10 +65,9 @@ export function TerasProfileHeader({
       data-teras-profile-header
       className="mb-3 border-b border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-900"
     >
-      {/* Sampul = foto agent itu sendiri, diburamkan. Tiap profil jadi punya
-          warna khasnya sendiri tanpa aset tambahan; agent tanpa foto dapat
-          gradien emerald yang sama dengan avatar inisialnya. */}
-      <div className="relative h-24 overflow-hidden" aria-hidden="true">
+      {/* Sampul = foto agent itu sendiri (diburamkan, jadi tiap profil punya
+          warna khasnya sendiri tanpa aset tambahan) di bawah kisi khatam. */}
+      <div className="relative h-16 overflow-hidden" aria-hidden="true">
         {showPhoto ? (
           <img
             src={photo}
@@ -54,18 +77,19 @@ export function TerasProfileHeader({
         ) : (
           <div className="absolute inset-0 bg-gradient-to-br from-emerald-200 to-emerald-50 dark:from-emerald-900/50 dark:to-slate-900" />
         )}
+        <KhatamLattice />
         <div className="absolute inset-0 bg-gradient-to-b from-transparent to-white dark:to-slate-900" />
       </div>
 
       {/* `relative` wajib: sampul di atas juga positioned, dan tanpa ini ia
           melukis di atas separuh avatar yang menjorok ke dalam sampul. */}
       <div className="relative px-4 pb-4">
-        <div className="-mt-11 flex items-end justify-between gap-3">
+        <div className="-mt-8 flex items-end justify-between gap-3">
           {showPhoto ? (
             <img
               src={photo}
               alt={name}
-              className="h-20 w-20 shrink-0 rounded-full object-cover ring-4 ring-white dark:ring-slate-900"
+              className="h-16 w-16 shrink-0 rounded-full object-cover ring-4 ring-white dark:ring-slate-900"
               onError={event => handleAgentPhotoError(
                 event.currentTarget,
                 name,
@@ -74,7 +98,7 @@ export function TerasProfileHeader({
               )}
             />
           ) : (
-            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xl font-bold text-emerald-700 ring-4 ring-white dark:bg-emerald-900/40 dark:text-emerald-300 dark:ring-slate-900">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-lg font-bold text-emerald-700 ring-4 ring-white dark:bg-emerald-900/40 dark:text-emerald-300 dark:ring-slate-900">
               <span aria-hidden="true">{getAgentInitials(name)}</span>
             </div>
           )}
@@ -112,10 +136,10 @@ export function TerasProfileHeaderSkeleton() {
       aria-busy="true"
       className="mb-3 animate-pulse border-b border-gray-100 bg-white motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900"
     >
-      <div className="h-24 bg-gray-100 dark:bg-slate-800" />
+      <div className="h-16 bg-gray-100 dark:bg-slate-800" />
       <div className="relative px-4 pb-4">
-        <div className="-mt-11 flex items-end justify-between gap-3">
-          <div className="h-20 w-20 shrink-0 rounded-full bg-gray-200 ring-4 ring-white dark:bg-slate-700 dark:ring-slate-900" />
+        <div className="-mt-8 flex items-end justify-between gap-3">
+          <div className="h-16 w-16 shrink-0 rounded-full bg-gray-200 ring-4 ring-white dark:bg-slate-700 dark:ring-slate-900" />
           <div className="mb-1 h-9 w-36 rounded-full bg-gray-100 dark:bg-slate-800" />
         </div>
         <div className="mt-3 h-5 w-40 max-w-full rounded bg-gray-100 dark:bg-slate-800" />

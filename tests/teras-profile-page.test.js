@@ -23,6 +23,17 @@ test('header profil menampilkan nama, slug, dan WhatsApp hanya bila nomor bisa d
   assert.match(header, /\{waNumber \? \(/);
 });
 
+test('sampul profil dekoratif: kisi khatam & foto buram tidak dibacakan pembaca layar', () => {
+  const header = read('src/components/TerasProfileHeader.tsx');
+  assert.match(header, /function KhatamLattice\(\)/);
+  assert.match(header, /<KhatamLattice \/>/);
+  // Pola dan foto sampul murni dekorasi: alt kosong pada <img> sampul dan
+  // aria-hidden pada pita + SVG, supaya identitas dibacakan sekali saja.
+  assert.match(header, /<div className="relative h-16 overflow-hidden" aria-hidden="true">/);
+  const lattice = header.slice(header.indexOf('function KhatamLattice'), header.indexOf('export function TerasProfileHeader'));
+  assert.match(lattice, /aria-hidden="true"/);
+});
+
 test('foto profil memakai penanganan error foto bersama, bukan <img> telanjang', () => {
   const header = read('src/components/TerasProfileHeader.tsx');
   assert.match(header, /import \{ getAgentInitials, handleAgentPhotoError \} from '\.\.\/lib\/agent-photo';/);
