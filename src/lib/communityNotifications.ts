@@ -1,7 +1,7 @@
 export type TerasNotificationType = 'mention' | 'comment' | 'reaction';
 
 export interface TerasNotificationActor {
-  name: string;
+  name: string | null;
   photo?: string | null;
 }
 

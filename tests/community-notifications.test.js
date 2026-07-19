@@ -88,3 +88,46 @@ test('treats items with undefined created_at as unread when watermark is missing
 
   assert.deepEqual(items.map(i => i.unread), [true], 'item dengan created_at undefined harus unread saat seenAt null');
 });
+
+test('a comment that is also a mention appears once, as the mention', () => {
+  // bagas membalas postingan nikita dengan "@nikita mantap" -> satu baris komentar
+  // DAN satu baris mention (comment_id = komentar itu). Harus jadi satu notifikasi.
+  const items = mergeNotifications({
+    mentions: [{ id: 'm1', post_id: 'p1', comment_id: 'c1', created_at: '2026-07-19T10:00:00Z', actor: actor('Bagas'), snippet: '@nikita mantap' }],
+    comments: [{ id: 'c1', post_id: 'p1', created_at: '2026-07-19T10:00:00Z', actor: actor('Bagas'), snippet: '@nikita mantap' }],
+    reactions: [],
+  }, null);
+
+  assert.equal(items.length, 1, 'komentar yang sudah terwakili mention tidak boleh muncul dua kali');
+  assert.equal(items[0].type, 'mention');
+  assert.equal(items[0].id, 'mention:m1');
+});
+
+test('a comment without a matching mention still appears as a comment', () => {
+  const items = mergeNotifications({
+    mentions: [{ id: 'm1', post_id: 'p1', comment_id: 'c1', created_at: '2026-07-19T10:00:00Z', actor: actor('Bagas'), snippet: '@nikita mantap' }],
+    comments: [
+      { id: 'c1', post_id: 'p1', created_at: '2026-07-19T10:00:00Z', actor: actor('Bagas'), snippet: '@nikita mantap' },
+      { id: 'c2', post_id: 'p1', created_at: '2026-07-19T11:00:00Z', actor: actor('Rina'), snippet: 'setuju' },
+    ],
+    reactions: [],
+  }, null);
+
+  assert.equal(items.length, 2);
+  assert.deepEqual(items.map(i => i.type).sort(), ['comment', 'mention']);
+  const comment = items.find(i => i.type === 'comment');
+  assert.equal(comment.id, 'comment:c2');
+});
+
+test('badge counts a mentioning comment once, not twice', () => {
+  const count = countUnreadNotifications({
+    mentions: [{ id: 'm1', post_id: 'p1', comment_id: 'c1', created_at: '2026-07-19T10:00:00Z' }],
+    comments: [
+      { id: 'c1', post_id: 'p1', created_at: '2026-07-19T10:00:00Z' },
+      { id: 'c2', post_id: 'p1', created_at: '2026-07-19T11:00:00Z' },
+    ],
+    reactions: [],
+  });
+
+  assert.equal(count, 2, '1 mention (terwakili c1) + 1 komentar murni (c2)');
+});

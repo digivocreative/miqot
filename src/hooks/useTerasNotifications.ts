@@ -86,10 +86,12 @@ export function useTerasNotifications(enabled: boolean) {
     setOpen(true);
     setLoading(true);
     setError(null);
+    let fetchedAt: string | undefined;
     try {
-      const data = await getJson<{ items: TerasNotification[] }>('/api/community/notifications');
+      const data = await getJson<{ items: TerasNotification[]; fetched_at?: string }>('/api/community/notifications');
       if (isStale()) return;
       setItems(Array.isArray(data?.items) ? data.items : []);
+      fetchedAt = data?.fetched_at;
     } catch {
       if (isStale()) return;
       setError('Gagal memuat notifikasi.');
@@ -98,13 +100,15 @@ export function useTerasNotifications(enabled: boolean) {
       if (!isStale()) setLoading(false);
     }
     if (isStale()) return;
-    // Opening the panel clears the badge; the server stamps the watermark. A
+    // Opening the panel clears the badge; the server stamps the watermark
+    // using the fetch-time stamp we hand back here, so anything that arrived
+    // between fetch and this call stays unread instead of a blind spot. A
     // failed stamp is not rolled back — the next head poll corrects it.
     setUnread(0);
     void fetch('/api/community/notifications/seen', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-      body: '{}',
+      body: JSON.stringify(fetchedAt ? { seen_at: fetchedAt } : {}),
     }).catch(() => {});
   }, [enabled]);
 
