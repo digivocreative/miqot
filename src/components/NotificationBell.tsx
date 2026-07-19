@@ -4,11 +4,11 @@ import { useEffect } from 'react';
 import { handleAgentPhotoError } from '../lib/agent-photo';
 import { formatNotificationText, timeAgo, type TerasNotification } from '../lib/communityNotifications';
 
-const TYPE_ICON = {
+const TYPE_ICON: Record<string, typeof Bell> = {
   mention: AtSign,
   comment: MessageCircle,
   reaction: Heart,
-} as const;
+};
 
 function initials(name: string): string {
   return name
@@ -18,6 +18,17 @@ function initials(name: string): string {
     .map(part => part[0]?.toUpperCase() || '')
     .join('') || '?';
 }
+
+// Mirrors the three dark-mode toggle button contexts in DashboardLayout.tsx exactly,
+// so the bell always matches its neighboring toggle:
+//  - compact: sub-page header when compacted (Teras tab)      → h-8 w-8 rounded-lg, icon 14
+//  - header:  sub-page header, non-compact (default)          → h-11 w-11 rounded-xl, icon 16
+//  - home:    home/card-grid header                           → w-9 h-9 rounded-xl, icon 16
+const SIZE_CLASSES: Record<'compact' | 'header' | 'home', { button: string; icon: number }> = {
+  compact: { button: 'h-8 w-8 rounded-lg', icon: 14 },
+  header: { button: 'h-11 w-11 rounded-xl', icon: 16 },
+  home: { button: 'w-9 h-9 rounded-xl', icon: 16 },
+};
 
 function ActorAvatar({ name, photo }: { name: string; photo?: string | null }) {
   return (
@@ -37,7 +48,7 @@ function ActorAvatar({ name, photo }: { name: string; photo?: string | null }) {
 }
 
 export default function NotificationBell({
-  compact,
+  size = 'header',
   unread,
   open,
   items,
@@ -47,7 +58,9 @@ export default function NotificationBell({
   onClose,
   onOpenPost,
 }: {
-  compact?: boolean;
+  /** Matches the neighboring dark-mode toggle's context. Defaults to 'header'
+   * (the standalone sub-page header size) since that's the most common placement. */
+  size?: 'compact' | 'header' | 'home';
   unread: number;
   open: boolean;
   items: TerasNotification[];
@@ -57,6 +70,7 @@ export default function NotificationBell({
   onClose: () => void;
   onOpenPost: (postId: string) => void;
 }) {
+  const { button: sizeButtonClass, icon: iconSize } = SIZE_CLASSES[size];
   useEffect(() => {
     if (!open) return;
     const handleEscape = (event: KeyboardEvent) => {
@@ -74,9 +88,9 @@ export default function NotificationBell({
         aria-label="Notifikasi"
         aria-expanded={open}
         title="Notifikasi"
-        className={`relative flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700 ${compact ? 'h-8 w-8 rounded-lg' : 'h-9 w-9 rounded-xl'}`}
+        className={`relative flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700 ${sizeButtonClass}`}
       >
-        <Bell size={compact ? 14 : 16} />
+        <Bell size={iconSize} />
         {unread > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold leading-none text-white">
             {unread > 9 ? '9+' : unread}
@@ -118,8 +132,8 @@ export default function NotificationBell({
                 <p className="px-4 py-6 text-center text-[12px] text-gray-400 dark:text-slate-500">Belum ada notifikasi.</p>
               ) : (
                 items.map(item => {
-                  const TypeIcon = TYPE_ICON[item.type];
-                  const actorName = item.actor?.name || 'Seseorang';
+                  const TypeIcon = TYPE_ICON[item.type] || Bell;
+                  const actorName = item.actor?.name?.trim() || 'Seseorang';
                   return (
                     <button
                       key={item.id}
