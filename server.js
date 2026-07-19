@@ -63,7 +63,6 @@ import { requireCommunityAccess, communityMemberSlugs } from './lib/community-ac
 import { extractCommunityMentions, COMMUNITY_MENTION_LIMIT } from './lib/community-mentions.js';
 import { isTerasShortCode, communityShortCodeBounds } from './lib/teras-share.js';
 import {
-  firstUrlInText,
   isBlockedAddress,
   isAllowedPreviewUrl,
   parseOpenGraph,
@@ -4523,6 +4522,16 @@ const LINK_PREVIEW_TIMEOUT_MS = 5000;
 const LINK_PREVIEW_MAX_BYTES = 512 * 1024;
 const LINK_PREVIEW_MAX_REDIRECTS = 3;
 
+// Catatan keamanan (TOCTOU / DNS-rebinding): fungsi ini me-resolve host lalu
+// memvalidasi alamatnya, tapi fetch() di bawah melakukan resolve DNS-nya
+// sendiri (undici) — celah waktu ini bisa dieksploitasi via DNS rebinding
+// (DNS otoritatif attacker menjawab IP publik saat validasi, lalu IP privat
+// mis. 169.254.169.254 saat fetch sebenarnya). Risiko ini DITERIMA (bukan
+// diperbaiki) karena endpoint ini dibalik authMiddleware + requireCommunityAccess,
+// dan keanggotaan Teras dibatasi 2 agent (lihat COMMUNITY_AGENT_SLUGS di
+// lib/community-access.js) — eksploitasi butuh jadi salah satu dari mereka atau
+// membobol akunnya. Jika endpoint ini dibuka ke audiens lebih luas, perbaikannya:
+// pin koneksi ke IP yang sudah divalidasi via custom undici dispatcher/lookup.
 async function assertHostAllowed(urlString) {
   if (!isAllowedPreviewUrl(urlString)) return false;
   const host = new URL(urlString).hostname;
@@ -4560,6 +4569,7 @@ async function fetchLinkPreviewHtml(startUrl) {
     if (res.status >= 300 && res.status < 400) {
       clearTimeout(timer);
       const location = res.headers.get('location');
+      res.body?.cancel().catch(() => {});
       if (!location) return null;
       currentUrl = new URL(location, currentUrl).toString();
       continue;
@@ -4567,6 +4577,7 @@ async function fetchLinkPreviewHtml(startUrl) {
     const contentType = res.headers.get('content-type') || '';
     if (!res.ok || !/text\/html/i.test(contentType)) {
       clearTimeout(timer);
+      res.body?.cancel().catch(() => {});
       return null;
     }
     // Baca maksimal LINK_PREVIEW_MAX_BYTES.
