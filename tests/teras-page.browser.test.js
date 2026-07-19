@@ -873,12 +873,24 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         'kiriman pendek tidak boleh menampilkan tombol Selengkapnya',
       );
 
+      // Tinggi body dianimasikan, jadi ukur setelah nilainya berhenti berubah.
+      const settledHeight = async locator => {
+        let last = -1;
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+          const height = (await locator.boundingBox())?.height ?? 0;
+          if (Math.abs(height - last) < 0.5) return height;
+          last = height;
+          await app.page.waitForTimeout(25);
+        }
+        return last;
+      };
+
       const toggle = longArticle.locator('[data-post-body-toggle]');
       await toggle.waitFor();
       assert.equal((await toggle.innerText()).trim(), 'Selengkapnya');
 
       const body = longArticle.locator('[data-post-body]');
-      const collapsedHeight = (await body.boundingBox())?.height ?? 0;
+      const collapsedHeight = await settledHeight(body);
       const lineHeight = await body.evaluate(element => parseFloat(getComputedStyle(element).lineHeight));
       assert.ok(
         collapsedHeight > 0 && collapsedHeight <= lineHeight * 4 + 1,
@@ -887,10 +899,17 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       await toggle.click();
       assert.equal((await toggle.innerText()).trim(), 'Lebih sedikit');
-      const expandedHeight = (await body.boundingBox())?.height ?? 0;
+      // Sesaat setelah diklik tingginya harus masih di tengah jalan — bukan
+      // langsung melompat ke tinggi penuh.
+      const midHeight = (await body.boundingBox())?.height ?? 0;
+      const expandedHeight = await settledHeight(body);
       assert.ok(
         expandedHeight > collapsedHeight + lineHeight,
         'isi kiriman harus tampil penuh setelah Selengkapnya diklik',
+      );
+      assert.ok(
+        midHeight >= collapsedHeight - 1 && midHeight < expandedHeight - 1,
+        `buka/tutup harus dianimasikan, bukan melompat (${midHeight}px antara ${collapsedHeight}px dan ${expandedHeight}px)`,
       );
       assert.equal(
         await app.page.locator('article').count(),
@@ -901,7 +920,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await toggle.click();
       assert.equal((await toggle.innerText()).trim(), 'Selengkapnya');
       assert.equal(
-        (await body.boundingBox())?.height ?? 0,
+        await settledHeight(body),
         collapsedHeight,
         'kiriman harus bisa dilipat kembali',
       );
@@ -924,7 +943,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const spacedToggle = spacedArticle.locator('[data-post-body-toggle]');
       await spacedToggle.waitFor();
       assert.equal(await spacedBodyLocator.getAttribute('data-post-body-compact'), 'true');
-      const spacedCollapsed = (await spacedBodyLocator.boundingBox())?.height ?? 0;
+      const spacedCollapsed = await settledHeight(spacedBodyLocator);
       const fullSpacedHeight = lineHeight * 3 + lineHeight * 2;
       assert.ok(
         spacedCollapsed > lineHeight * 3 + 1,
@@ -935,7 +954,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         `jarak antar-paragraf harus dipersempit saat terlipat (${spacedCollapsed}px vs ${fullSpacedHeight}px)`,
       );
       await spacedToggle.click();
-      const spacedExpanded = (await spacedBodyLocator.boundingBox())?.height ?? 0;
+      const spacedExpanded = await settledHeight(spacedBodyLocator);
       assert.ok(
         Math.abs(spacedExpanded - fullSpacedHeight) <= 1,
         `jarak paragraf asli harus kembali penuh setelah dibuka (${spacedExpanded}px vs ${fullSpacedHeight}px)`,
@@ -951,7 +970,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         'kiriman yang muat dengan jarak penuh tidak boleh menampilkan tombol',
       );
       assert.ok(
-        Math.abs(((await roomyBodyLocator.boundingBox())?.height ?? 0) - lineHeight * 3) <= 1,
+        Math.abs((await settledHeight(roomyBodyLocator)) - lineHeight * 3) <= 1,
         'dua paragraf yang muat harus memakai jarak satu baris penuh',
       );
     } finally {
@@ -1633,6 +1652,52 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       const systemArticle = app.page.locator('article').filter({ hasText: 'Sorotan sistem' });
       assert.equal(await systemArticle.getByRole('button', { name: 'Buka menu kiriman' }).count(), 0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('konfirmasi hapus menutupi post di bawahnya, bukan tertimpa tombol menunya', { timeout: 30_000 }, async () => {
+    const agent = makeAgent();
+    const own = overrides => makePost({
+      is_own: true,
+      author: { name: agent.name, slug: agent.slug, photo: agent.photo },
+      ...overrides,
+    });
+    const api = createCommunityApi({
+      agent,
+      posts: [
+        own({ id: 'post-atas', body: 'Kiriman atas' }),
+        own({ id: 'post-bawah', body: 'Kiriman bawah' }),
+      ],
+    });
+    const app = await openApp({ agent, api });
+    try {
+      const topArticle = app.page.locator('article').filter({ hasText: 'Kiriman atas' });
+      await topArticle.getByRole('button', { name: 'Buka menu kiriman' }).click();
+      await topArticle.getByRole('menuitem', { name: 'Hapus' }).click();
+      const menu = topArticle.getByRole('menu', { name: 'Menu kiriman' });
+      await menu.getByRole('button', { name: 'Konfirmasi hapus kiriman' }).waitFor();
+
+      const bottomButton = app.page.locator('article')
+        .filter({ hasText: 'Kiriman bawah' })
+        .getByRole('button', { name: 'Buka menu kiriman' });
+      const [menuBox, buttonBox] = await Promise.all([menu.boundingBox(), bottomButton.boundingBox()]);
+      assert.ok(menuBox && buttonBox, 'menu dan tombol post bawah harus terlihat');
+      const point = {
+        x: buttonBox.x + buttonBox.width / 2,
+        y: buttonBox.y + buttonBox.height / 2,
+      };
+      assert.ok(
+        point.x >= menuBox.x && point.x <= menuBox.x + menuBox.width
+        && point.y >= menuBox.y && point.y <= menuBox.y + menuBox.height,
+        'prasyarat: menu harus membuka ke bawah dan menimpa tombol menu post berikutnya');
+
+      const covered = await menu.evaluate((element, at) => {
+        const hit = document.elementFromPoint(at.x, at.y);
+        return Boolean(hit && element.contains(hit));
+      }, point);
+      assert.equal(covered, true, 'menu konfirmasi harus berada di atas tombol menu post di bawahnya');
     } finally {
       await app.close();
     }

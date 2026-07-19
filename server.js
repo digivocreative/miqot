@@ -4707,93 +4707,6 @@ app.get('/api/community/members', dbLoadShedGuard, authMiddleware, async (req, r
   }
 });
 
-app.get('/api/community/mentions/head', dbLoadShedGuard, authMiddleware, async (req, res) => {
-  try {
-    const agent = await getAgentById(req.user.id);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    if (!requireCommunityAccess(agent, res)) return;
-    const { count, error } = await supabase
-      .from('community_mentions')
-      .select('id', { count: 'exact', head: true })
-      .eq('mentioned_agent_id', agent.id)
-      .is('seen_at', null);
-    if (error) {
-      if (isCommunityMentionSchemaMissing(error)) {
-        return res.json({ success: true, data: { unread_count: 0 } });
-      }
-      throw error;
-    }
-    res.json({
-      success: true,
-      data: { unread_count: Math.min(99, Math.max(0, Number(count) || 0)) },
-    });
-  } catch (err) {
-    console.error('[community] mentions head error:', err);
-    res.status(500).json({ error: 'Gagal memuat notifikasi sebutan' });
-  }
-});
-
-app.get('/api/community/mentions', dbLoadShedGuard, authMiddleware, async (req, res) => {
-  try {
-    const agent = await getAgentById(req.user.id);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    if (!requireCommunityAccess(agent, res)) return;
-    const { data, error } = await supabase
-      .from('community_mentions')
-      .select(`id, post_id, comment_id, created_at, seen_at,
-        author:agents!community_mentions_author_agent_id_fkey(name, photo),
-        post:community_posts!community_mentions_post_id_fkey(body, deleted_at),
-        comment:community_post_comments!community_mentions_comment_id_fkey(body, deleted_at)`)
-      .eq('mentioned_agent_id', agent.id)
-      .order('created_at', { ascending: false })
-      .limit(50);
-    if (error) {
-      if (isCommunityMentionSchemaMissing(error)) {
-        return res.json({ success: true, data: [] });
-      }
-      throw error;
-    }
-    const items = (data || []).map(row => {
-      const source = row.comment_id ? row.comment : row.post;
-      if (!source || source.deleted_at) return null; // hide mentions on deleted content
-      return {
-        id: row.id,
-        post_id: row.post_id,
-        comment_id: row.comment_id,
-        author: communityAuthorProfile(row.author),
-        snippet: communityMentionSnippet(source.body, 140),
-        created_at: row.created_at,
-        seen_at: row.seen_at,
-      };
-    }).filter(Boolean);
-    res.json({ success: true, data: items });
-  } catch (err) {
-    console.error('[community] mentions list error:', err);
-    res.status(500).json({ error: 'Gagal memuat sebutan' });
-  }
-});
-
-app.post('/api/community/mentions/seen', authMiddleware, express.json({ limit: '4kb' }), async (req, res) => {
-  try {
-    const agent = await getAgentById(req.user.id);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    if (!requireCommunityAccess(agent, res)) return;
-    let query = supabase
-      .from('community_mentions')
-      .update({ seen_at: new Date().toISOString() })
-      .eq('mentioned_agent_id', agent.id)
-      .is('seen_at', null);
-    const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(isCommunityUuid) : null;
-    if (ids && ids.length) query = query.in('id', ids);
-    const { error } = await query;
-    if (error && !isCommunityMentionSchemaMissing(error)) throw error;
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[community] mentions seen error:', err);
-    res.status(500).json({ error: 'Gagal memperbarui sebutan' });
-  }
-});
-
 const TERAS_NOTIF_SEEN_KEY = 'teras_notif_seen_at';
 // Head polling reads at most this many rows per source; the badge caps at 99
 // anyway, so a bigger window would only cost bandwidth.
@@ -4936,6 +4849,10 @@ app.get('/api/community/notifications/head', dbLoadShedGuard, authMiddleware, as
 
 app.get('/api/community/notifications', dbLoadShedGuard, authMiddleware, async (req, res) => {
   try {
+    // Stamped before the three source queries run, so the client can later
+    // report exactly what "seen" covers — anything born between this stamp
+    // and the /seen call stays unread instead of falling into a blind spot.
+    const fetchedAt = new Date().toISOString();
     const agent = await getAgentById(req.user.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     if (!requireCommunityAccess(agent, res)) return;
@@ -4947,7 +4864,7 @@ app.get('/api/community/notifications', dbLoadShedGuard, authMiddleware, async (
     });
     res.json({
       success: true,
-      data: { items: mergeNotifications(sources, seenAt, NOTIFICATION_LIMIT), seen_at: seenAt },
+      data: { items: mergeNotifications(sources, seenAt, NOTIFICATION_LIMIT), seen_at: seenAt, fetched_at: fetchedAt },
     });
   } catch (err) {
     console.error('[community] notifications list error:', err);
@@ -4955,12 +4872,32 @@ app.get('/api/community/notifications', dbLoadShedGuard, authMiddleware, async (
   }
 });
 
+// Resolves the watermark to write on /seen: prefer the client-supplied
+// fetch-time stamp (closes the list-then-seen blind window), but never accept
+// a future value and never move the watermark backward.
+function resolveTerasNotifSeenAt(rawSeenAt, previousSeenAt) {
+  const nowIso = new Date().toISOString();
+  let candidate = nowIso;
+  if (typeof rawSeenAt === 'string' && rawSeenAt) {
+    const parsed = new Date(rawSeenAt);
+    if (!Number.isNaN(parsed.getTime())) {
+      candidate = parsed.getTime() > Date.now() ? nowIso : parsed.toISOString();
+    }
+  }
+  if (previousSeenAt && new Date(previousSeenAt).getTime() > new Date(candidate).getTime()) {
+    return previousSeenAt;
+  }
+  return candidate;
+}
+
 app.post('/api/community/notifications/seen', authMiddleware, express.json({ limit: '1kb' }), async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     if (!requireCommunityAccess(agent, res)) return;
-    await writeTerasNotifSeenAt(agent.id, new Date().toISOString());
+    const previousSeenAt = await readTerasNotifSeenAt(agent.id);
+    const seenAt = resolveTerasNotifSeenAt(req.body?.seen_at, previousSeenAt);
+    await writeTerasNotifSeenAt(agent.id, seenAt);
     res.json({ success: true });
   } catch (err) {
     console.error('[community] notifications seen error:', err);

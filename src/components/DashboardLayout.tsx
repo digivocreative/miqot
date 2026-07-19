@@ -13,6 +13,9 @@ import type { Birthday } from './BirthdayWidget';
 import { trackEvent } from '../utils/analytics';
 import JamaahEditSkeleton from './JamaahEditSkeleton';
 import { isCommunityEnabledForAgent } from '../lib/communityAccess';
+import { parseTerasPath } from '../lib/terasRoutes';
+import NotificationBell from './NotificationBell';
+import { useTerasNotifications } from '../hooks/useTerasNotifications';
 
 function getLocalStorageItem(key: string): string | null {
   try {
@@ -47,7 +50,11 @@ function TerasPageSkeleton() {
           data-teras-skeleton-post
           className="relative animate-pulse border-b border-gray-100 bg-white px-4 py-3 motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900"
         >
-          <div className="absolute right-2 top-0 h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
+          {/* Stands in for the "…" menu button, which is transparent at rest — a
+              filled circle here reads as a second agent photo while loading. */}
+          <div className="absolute right-2 top-0 flex h-11 w-11 items-center justify-center">
+            <div className="h-1 w-4 rounded-full bg-gray-100 dark:bg-slate-800" />
+          </div>
           <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
             <div className="h-10 w-10 shrink-0 rounded-full bg-gray-200 dark:bg-slate-700" />
             <div className="min-w-0">
@@ -141,6 +148,7 @@ function getTabFromPath(): TabId {
   if (segments.length >= 2 && segments[0] === 'dashboard') {
     return SLUG_TO_TAB[segments[1]] || 'home';
   }
+  if (parseTerasPath(window.location.pathname)?.kind === 'profile') return 'teras';
   return 'home';
 }
 
@@ -151,6 +159,11 @@ function getTerasPostIdFromPath(): string | null {
     return decodeURIComponent(segments[3]);
   }
   return null;
+}
+
+function getTerasProfileSlugFromPath(): string | null {
+  const route = parseTerasPath(window.location.pathname);
+  return route?.kind === 'profile' ? route.slug : null;
 }
 
 function getSubTabFromPath(): 'umroh' | 'haji' | 'daftar' | 'edit' {
@@ -219,6 +232,7 @@ function getCurrentDocumentTitle(): string {
   if (sub === 'landing-page') return 'Landing Page';
   if (sub === 'landing-page/custom-domain') return 'Custom Domain';
   if (getTerasPostIdFromPath()) return 'Kiriman';
+  if (getTerasProfileSlugFromPath()) return 'Teras';
   return TAB_TITLES[getTabFromPath()] || 'Dashboard';
 }
 
@@ -510,6 +524,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     const aiSub = getAIToolsSubFromPath();
     document.title = (activeTab === 'teras' && getTerasPostIdFromPath())
       ? 'Kiriman'
+      : (activeTab === 'teras' && getTerasProfileSlugFromPath())
+      ? 'Teras'
       : (activeTab === 'ai-tools' && aiSub === 'voice-over')
       ? 'Voice Over'
       : (activeTab === 'ai-tools' && aiSub === 'business-card')
@@ -571,16 +587,44 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
   const isAdmin = agentData.role === 'admin';
   const terasEnabled = isCommunityEnabledForAgent(agentData.slug);
+  const notifications = useTerasNotifications(terasEnabled);
+  const openNotificationPost = (postId: string) => {
+    navigatePath(`/dashboard/teras/post/${encodeURIComponent(postId)}`);
+  };
   const visibleCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly && (c.id !== 'teras' || terasEnabled));
   const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly) : [];
 
+  // Link /teras/<slug> pasti beredar antar-agent lewat WhatsApp. Agent yang
+  // login tapi bukan anggota Teras harus melihat pesan "tidak tersedia"
+  // (spec profil publik Teras), bukan dilempar diam-diam ke /dashboard —
+  // itu justru jalan buntu tanpa penjelasan. Rute /dashboard/teras sendiri
+  // (satu cabang kode yang sama) sengaja dibiarkan seperti semula: redirect.
+  const terasProfileRouteSlug = activeTab === 'teras' ? getTerasProfileSlugFromPath() : null;
+
   useEffect(() => {
-    if (activeTab === 'teras' && !terasEnabled) {
+    if (activeTab === 'teras' && !terasEnabled && !terasProfileRouteSlug) {
       navigatePath('/dashboard', { replace: true });
     }
-  }, [activeTab, terasEnabled, navigatePath]);
+  }, [activeTab, terasEnabled, terasProfileRouteSlug, navigatePath]);
 
   if (activeTab === 'teras' && !terasEnabled) {
+    if (terasProfileRouteSlug) {
+      return (
+        <div className="fixed inset-0 flex flex-col items-center justify-center gap-3 bg-gray-100 px-6 text-center dark:bg-slate-950">
+          <h1 className="text-base font-bold text-gray-800 dark:text-white">Halaman ini tidak tersedia</h1>
+          <p className="max-w-xs text-sm text-gray-500 dark:text-slate-400">
+            Profil Teras hanya bisa dibuka oleh anggota Teras.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigatePath('/dashboard')}
+            className="mt-1 min-h-11 rounded-xl bg-emerald-500 px-5 text-xs font-bold text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95"
+          >
+            Kembali ke Dashboard
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="fixed inset-0 bg-gray-100 dark:bg-slate-950 flex items-center justify-center">
         <Loader2 size={24} className="animate-spin text-emerald-500" />
@@ -594,18 +638,21 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     const jamaahSub = activeTab === 'jamaah' ? getSubTabFromPath() : null;
     const isJamaahEdit = activeTab === 'jamaah' && jamaahSub === 'edit';
     const terasPostId = activeTab === 'teras' ? getTerasPostIdFromPath() : null;
+    const terasProfileSlug = activeTab === 'teras' ? getTerasProfileSlugFromPath() : null;
+    // Teras: header dipadatkan agar feed dapat ruang layar lebih banyak
+    const compactHeader = activeTab === 'teras';
     return (
       <div className={`min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 transition-colors dark:from-slate-900 dark:to-slate-950 ${activeTab === 'teras' ? 'flex min-h-[100dvh] flex-col' : ''}`}>
         {/* Sub-page header */}
         <header className={`sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90 ${activeTab === 'teras' ? 'shrink-0' : ''}`}>
-          <div className={`${activeTab === 'teras' ? 'max-w-2xl pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]' : 'max-w-lg py-3'} mx-auto flex items-center gap-3 px-4`}>
+          <div className={`${compactHeader ? 'max-w-2xl gap-2 pb-1.5 pt-[max(0.375rem,env(safe-area-inset-top))]' : 'max-w-lg gap-3 py-3'} mx-auto flex items-center px-4`}>
             <button
               type="button"
-              aria-label={terasPostId ? 'Kembali ke Teras' : 'Kembali ke dashboard'}
-              title={terasPostId ? 'Kembali ke Teras' : 'Kembali ke dashboard'}
+              aria-label={(terasPostId || terasProfileSlug) ? 'Kembali ke Teras' : 'Kembali ke dashboard'}
+              title={(terasPostId || terasProfileSlug) ? 'Kembali ke Teras' : 'Kembali ke dashboard'}
               onClick={() => {
-                // Detail kiriman Teras → kembali ke feed (header = breadcrumb)
-                if (terasPostId) {
+                // Detail kiriman Teras / profil agent → kembali ke feed (header = breadcrumb)
+                if (terasPostId || terasProfileSlug) {
                   if (window.history.state?.terasFromFeed) window.history.back();
                   else navigatePath('/dashboard/teras', { replace: true });
                   return;
@@ -642,9 +689,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 }
                 navigateTab('home');
               }}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100/80 text-gray-600 transition-all hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
+              className={`flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-600 transition-all hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700 ${compactHeader ? 'h-8 w-8 rounded-lg' : 'h-11 w-11 rounded-xl'}`}
             >
-              <ChevronLeft size={18} strokeWidth={2.5} />
+              <ChevronLeft size={compactHeader ? 16 : 18} strokeWidth={2.5} />
             </button>
             <div className="flex items-center gap-2 flex-1 min-w-0">
               {(() => {
@@ -684,17 +731,17 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     </>
                   );
                 }
-                if (terasPostId) {
+                if (terasPostId || terasProfileSlug) {
                   return (
                     <>
                       {activeCard && (
-                        <div className={`w-8 h-8 rounded-lg ${activeCard.bgLight} ${activeCard.bgDark} flex items-center justify-center border ${activeCard.borderLight} ${activeCard.borderDark}`}>
-                          <activeCard.icon size={16} className={activeCard.color} />
+                        <div className={`w-7 h-7 rounded-lg ${activeCard.bgLight} ${activeCard.bgDark} flex items-center justify-center border ${activeCard.borderLight} ${activeCard.borderDark}`}>
+                          <activeCard.icon size={14} className={activeCard.color} />
                         </div>
                       )}
                       <div className="min-w-0">
-                        <p className="text-[10px] font-medium text-gray-400 dark:text-slate-500 truncate">Teras</p>
-                        <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">Kiriman</h1>
+                        <p className="text-[9px] font-medium leading-tight text-gray-400 dark:text-slate-500 truncate">Teras</p>
+                        <h1 className="text-[13px] font-bold leading-tight text-gray-800 dark:text-white truncate">{terasPostId ? 'Kiriman' : 'Profil'}</h1>
                       </div>
                     </>
                   );
@@ -713,11 +760,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 return (
                   <>
                     {activeCard && (
-                      <div className={`w-8 h-8 rounded-lg ${activeCard.bgLight} ${activeCard.bgDark} flex items-center justify-center border ${activeCard.borderLight} ${activeCard.borderDark}`}>
-                        <activeCard.icon size={16} className={activeCard.color} />
+                      <div className={`${compactHeader ? 'w-7 h-7' : 'w-8 h-8'} rounded-lg ${activeCard.bgLight} ${activeCard.bgDark} flex items-center justify-center border ${activeCard.borderLight} ${activeCard.borderDark}`}>
+                        <activeCard.icon size={compactHeader ? 14 : 16} className={activeCard.color} />
                       </div>
                     )}
-                    <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">{activeCard?.label}</h1>
+                    <h1 className={`${compactHeader ? 'text-[13px]' : 'text-sm'} font-bold text-gray-800 dark:text-white truncate`}>{activeCard?.label}</h1>
                   </>
                 );
               })()}
@@ -746,15 +793,29 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               </div>
             )}
 
+            {terasEnabled && (
+              <NotificationBell
+                size={compactHeader ? 'compact' : 'header'}
+                unread={notifications.unread}
+                open={notifications.open}
+                items={notifications.items}
+                loading={notifications.loading}
+                error={notifications.error}
+                onOpen={notifications.openPanel}
+                onClose={notifications.closePanel}
+                onOpenPost={openNotificationPost}
+              />
+            )}
+
             {/* Dark mode toggle */}
             <button
               type="button"
               onClick={() => setIsDarkMode(p => !p)}
               aria-label={isDarkMode ? 'Gunakan mode terang' : 'Gunakan mode gelap'}
               title={isDarkMode ? 'Gunakan mode terang' : 'Gunakan mode gelap'}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
+              className={`flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700 ${compactHeader ? 'h-8 w-8 rounded-lg' : 'h-11 w-11 rounded-xl'}`}
             >
-              {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
+              {isDarkMode ? <Sun size={compactHeader ? 14 : 16} /> : <Moon size={compactHeader ? 14 : 16} />}
             </button>
           </div>
         </header>
@@ -847,6 +908,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 role: agentData.role,
               }}
               postId={terasPostId}
+              profileSlug={terasProfileSlug}
               onNavigate={navigatePath}
             />
           )}
@@ -1042,6 +1104,19 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             </div>
           </div>
           <div className="flex items-center gap-1">
+            {terasEnabled && (
+              <NotificationBell
+                size="home"
+                unread={notifications.unread}
+                open={notifications.open}
+                items={notifications.items}
+                loading={notifications.loading}
+                error={notifications.error}
+                onOpen={notifications.openPanel}
+                onClose={notifications.closePanel}
+                onOpenPost={openNotificationPost}
+              />
+            )}
             <button
               onClick={() => setIsDarkMode(p => !p)}
               className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors active:scale-95"

@@ -20,7 +20,6 @@ import {
   ChevronRight,
   Copy,
   Flag,
-  AtSign,
   Heart,
   Image as ImageIcon,
   Loader2,
@@ -36,15 +35,18 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { handleAgentPhotoError } from '../lib/agent-photo';
+import { getAgentInitials, handleAgentPhotoError } from '../lib/agent-photo';
 import { videoPreviewSrc, videoPreviewFallbackSrc } from '../lib/videoPoster';
+import { timeAgo } from '../lib/communityNotifications';
 import { terasShareUrl, isTerasShortCode } from '../../lib/teras-share.js';
+import { isModifiedClick, terasProfilePath } from '../lib/terasRoutes';
 import { firstUrl, stripUrlFromBody } from '../../lib/teras-linkify.js';
 import PlyrVideo from './PlyrVideo';
 import { getAuthHeaders } from './LoginPage';
 import { MentionText } from './MentionText';
 import { MentionAutocomplete } from './MentionAutocomplete';
 import { MentionHighlightLayer } from './MentionHighlightLayer';
+import { TerasProfileHeader, TerasProfileHeaderSkeleton } from './TerasProfileHeader';
 import {
   extractMentionSlugs,
   detectMentionQuery,
@@ -180,20 +182,9 @@ interface CommunityFeedHead {
   latest_created_at: string;
 }
 
-interface MentionInboxItem {
-  id: string;
-  post_id: string;
-  comment_id: string | null;
-  author: CommunityAuthor;
-  snippet: string;
-  created_at: string;
-  seen_at: string | null;
-}
-
 const REQUEST_TIMEOUT_MS = 20_000;
 const MEDIA_UPLOAD_TIMEOUT_MS = 120_000;
 const FEED_HEAD_POLL_INTERVAL_MS = 20_000;
-const MENTION_HEAD_POLL_INTERVAL_MS = 30_000;
 const MAX_COMMUNITY_MEDIA = 10;
 const COMPOSER_PROMPTS = [
   'Apa yang baru hari ini?',
@@ -226,20 +217,10 @@ const MEDIA_VIEWER_SLIDE_VARIANTS = {
     scale: 0.96,
   }),
 };
-function getInitials(name: string): string {
-  return String(name || 'Agent')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(word => word.charAt(0))
-    .join('')
-    .toUpperCase() || 'A';
-}
-
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
+
 async function requestJson<T>(
   url: string,
   init: RequestInit,
@@ -284,27 +265,6 @@ async function requestJson<T>(
     window.clearTimeout(timeoutId);
     upstreamSignal?.removeEventListener('abort', abortFromUpstream);
   }
-}
-
-function timeAgo(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '';
-
-  const elapsed = Math.max(0, Date.now() - date.getTime());
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-
-  if (elapsed < minute) return 'Baru saja';
-  if (elapsed < hour) return `${Math.floor(elapsed / minute)} menit`;
-  if (elapsed < day) return `${Math.floor(elapsed / hour)} jam`;
-  if (elapsed <= 7 * day) return `${Math.floor(elapsed / day)} hari`;
-
-  return new Intl.DateTimeFormat('id-ID', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  }).format(date).replace(/\./g, '');
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -447,7 +407,7 @@ function AgentAvatar({
           )}
         />
       ) : (
-        <span aria-hidden="true">{getInitials(name)}</span>
+        <span aria-hidden="true">{getAgentInitials(name)}</span>
       )}
     </div>
   );
@@ -456,7 +416,11 @@ function AgentAvatar({
 function PostSkeleton({ withMedia = false }: { withMedia?: boolean }) {
   return (
     <div data-teras-skeleton-post className="relative animate-pulse border-b border-gray-100 bg-white px-4 py-3 motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900">
-      <div className="absolute right-2 top-0 h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
+      {/* Stands in for the "…" menu button, which is transparent at rest — a
+          filled circle here reads as a second agent photo while loading. */}
+      <div className="absolute right-2 top-0 flex h-11 w-11 items-center justify-center">
+        <div className="h-1 w-4 rounded-full bg-gray-100 dark:bg-slate-800" />
+      </div>
       <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
         <div className="h-10 w-10 shrink-0 rounded-full bg-gray-200 dark:bg-slate-700" />
         <div className="min-w-0">
@@ -626,7 +590,7 @@ function QuotedPostCard({
                     muted
                     playsInline
                     aria-hidden="true"
-                    className="h-full w-auto min-w-[6rem] max-w-[60vw] bg-black object-contain"
+                    className="block h-full w-auto max-w-[60vw] bg-black object-contain"
                   />
                   <span className="absolute inset-0 flex items-center justify-center">
                     <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white">
@@ -653,7 +617,9 @@ function QuotedPostCard({
 // Body kiriman dibatasi 4 baris di feed. Batasnya pakai max-height ber-em
 // (bukan line-clamp) supaya `float-right` spacer tombol "···" tetap berperilaku
 // normal — di dalam display:-webkit-box float jadi kacau.
-const POST_BODY_COLLAPSED_MAX_HEIGHT = 'calc(1.5em * 4)';
+const POST_BODY_LINE_EM = 1.5;
+const POST_BODY_COLLAPSED_LINES = 4;
+const POST_BODY_COLLAPSED_MAX_HEIGHT = `calc(${POST_BODY_LINE_EM}em * ${POST_BODY_COLLAPSED_LINES})`;
 // Baris terakhir dibuat memudar sebagai isyarat masih ada lanjutan. Pakai mask,
 // bukan overlay gradient, supaya tidak perlu tahu warna latar (mode terang/gelap
 // dan latar sorotan berbeda-beda).
@@ -666,7 +632,10 @@ const POST_BODY_FADE_MASK = 'linear-gradient(to bottom, #000 calc(100% - 1.5em),
 const POST_BODY_PARAGRAPH_GAP_EM = 1.5;
 const POST_BODY_PARAGRAPH_GAP_COMPACT_EM = 0.5;
 
-const POST_BODY_TOGGLE_DURATION = 0.26;
+// Kelas transisi bersama untuk tinggi body dan jarak paragraf: keduanya harus
+// bergerak dengan durasi dan easing yang sama, kalau tidak jarak paragraf
+// menyentak duluan dan tingginya terjun mendadak.
+const POST_BODY_TRANSITION = 'duration-[260ms] ease-out motion-reduce:transition-none';
 
 /** Pecah body jadi paragraf pada baris kosong; ganti baris tunggal tetap di dalam paragraf. */
 function splitParagraphs(body: string): string[] {
@@ -678,19 +647,20 @@ function PostBody({
   memberBySlug,
   reserveMenuSpace,
   clamp,
+  openProfile,
 }: {
   body: string;
   memberBySlug: Map<string, MentionMember>;
   reserveMenuSpace: boolean;
   clamp: boolean;
+  openProfile?: (slug: string) => void;
 }) {
-  const reduceMotion = useReducedMotion();
   const [openedByUser, setOpenedByUser] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
-  // Tinggi isi penuh (dengan jarak paragraf penuh) dan tinggi satu baris, dipakai
-  // sebagai titik akhir animasi buka/tutup — max-height tidak bisa dianimasikan
-  // ke `none`, jadi keduanya harus berupa angka px hasil ukur.
-  const [metrics, setMetrics] = useState<{ line: number; full: number } | null>(null);
+  // Tinggi terlipat (4 baris) dan tinggi isi penuh dengan jarak paragraf penuh,
+  // dipakai sebagai dua titik akhir animasi buka/tutup — max-height tidak bisa
+  // dianimasikan ke `none`, jadi keduanya harus berupa angka px hasil ukur.
+  const [metrics, setMetrics] = useState<{ collapsed: number; full: number } | null>(null);
   const bodyRef = useRef<HTMLParagraphElement>(null);
   // Halaman detail selalu tampil penuh; batas 4 baris hanya untuk feed.
   const expanded = openedByUser || !clamp;
@@ -705,32 +675,35 @@ function PostBody({
     if (!node || !clamp) return;
     const measure = () => {
       const style = getComputedStyle(node);
-      const line = parseFloat(style.lineHeight);
-      // Ukur terhadap tinggi versi jarak-penuh, bukan yang sedang tampil: kalau
-      // yang terukur sedang dipersempit, tambahkan kembali selisih jaraknya.
-      // Tanpa ini keputusannya melingkar — dipersempit jadi muat, muat jadi
-      // tidak dipersempit, lalu bolak-balik.
-      const gapDeficit = compact
-        ? (paragraphs.length - 1)
-          * parseFloat(style.fontSize)
-          * (POST_BODY_PARAGRAPH_GAP_EM - POST_BODY_PARAGRAPH_GAP_COMPACT_EM)
-        : 0;
-      const full = Math.ceil(node.scrollHeight + gapDeficit);
-      // Bandingkan sebelum set: observer ikut menyala sepanjang animasi, dan
-      // state baru tiap frame akan memutus animasinya.
-      setMetrics(prev => (prev && prev.line === line && prev.full === full ? prev : { line, full }));
-      // Saat terbuka, clientHeight sudah selebar isinya; mengukur ulang di situ
-      // akan menghapus tombolnya dan kiriman tidak bisa dilipat lagi.
-      if (!expanded) setOverflowing(full - node.clientHeight > 1);
+      const fontSize = parseFloat(style.fontSize);
+      // Diturunkan dari font-size, bukan dari lineHeight terukur, supaya nilainya
+      // identik dengan POST_BODY_COLLAPSED_MAX_HEIGHT yang dipakai sebelum ukuran
+      // pertama masuk — kalau beda, tingginya bergeser sepersekian piksel.
+      const collapsed = fontSize * POST_BODY_LINE_EM * POST_BODY_COLLAPSED_LINES;
+      // Tinggi penuh dihitung dari tinggi tiap paragraf (tanpa margin) ditambah
+      // jarak penuh, bukan dari scrollHeight. scrollHeight ikut bergerak selama
+      // transisi jarak paragraf, dan hasil ukur di tengah transisi akan mematok
+      // target animasi yang salah.
+      let content = 0;
+      for (const child of Array.from(node.children)) {
+        if (child instanceof HTMLElement && child.dataset.postParagraph !== undefined) {
+          content += child.getBoundingClientRect().height;
+        }
+      }
+      const full = Math.ceil(content + (paragraphs.length - 1) * fontSize * POST_BODY_PARAGRAPH_GAP_EM);
+      setMetrics(prev => (prev && prev.collapsed === collapsed && prev.full === full ? prev : { collapsed, full }));
+      // Dibandingkan dengan tinggi target 4 baris, bukan clientHeight saat ini:
+      // di tengah animasi clientHeight sedang bergerak, dan memakainya membuat
+      // tombol lenyap begitu animasi menutup dimulai.
+      setOverflowing(full - collapsed > 1);
     };
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [paragraphs, expanded, compact, clamp]);
+  }, [paragraphs, clamp]);
 
-  const collapsedHeight = (metrics?.line ?? 0) * 4;
   const bodyClassName = 'mt-1.5 whitespace-pre-wrap break-words text-[15px] leading-[1.5] text-gray-800 dark:text-slate-200';
   const bodyContent = (
     <>
@@ -738,12 +711,13 @@ function PostBody({
       {paragraphs.map((paragraph, index) => (
         <span
           key={index}
-          className="block transition-[margin-top] duration-[260ms] ease-out motion-reduce:transition-none"
+          data-post-paragraph
+          className={`block ${POST_BODY_TRANSITION} [transition-property:margin-top]`}
           style={index === 0 ? undefined : {
             marginTop: `${compact ? POST_BODY_PARAGRAPH_GAP_COMPACT_EM : POST_BODY_PARAGRAPH_GAP_EM}em`,
           }}
         >
-          <MentionText body={paragraph} memberBySlug={memberBySlug} linkify />
+          <MentionText body={paragraph} memberBySlug={memberBySlug} linkify onOpenProfile={openProfile} />
         </span>
       ))}
     </>
@@ -759,27 +733,28 @@ function PostBody({
 
   return (
     <>
-      <motion.p
+      {/* Animasi pakai transisi CSS, bukan framer-motion: dengan framer, buka/tutup
+          ketiga dan seterusnya melompat tanpa frame antara (terukur di tes probe).
+          Transisi CSS selalu jalan setiap nilainya berubah, apa pun pola render
+          React-nya, dan tidak membebani thread utama tiap frame. */}
+      <p
         ref={bodyRef}
         data-post-body
         data-post-body-expanded={expanded ? 'true' : 'false'}
         data-post-body-faded={faded ? 'true' : 'false'}
         data-post-body-compact={compact ? 'true' : 'false'}
-        initial={false}
-        // Sebelum hasil ukur pertama masuk, pakai batas berbasis em supaya tidak
-        // ada kedipan tinggi nol pada paint pertama.
-        animate={metrics ? { maxHeight: expanded ? metrics.full : collapsedHeight } : {}}
-        transition={reduceMotion ? { duration: 0 } : { duration: POST_BODY_TOGGLE_DURATION, ease: [0.22, 1, 0.36, 1] }}
         style={{
           overflow: 'hidden',
-          maxHeight: metrics ? undefined : POST_BODY_COLLAPSED_MAX_HEIGHT,
+          // Sebelum hasil ukur pertama masuk, pakai batas berbasis em supaya tidak
+          // ada kedipan pada paint pertama.
+          maxHeight: metrics ? `${expanded ? metrics.full : metrics.collapsed}px` : POST_BODY_COLLAPSED_MAX_HEIGHT,
           maskImage: faded ? POST_BODY_FADE_MASK : undefined,
           WebkitMaskImage: faded ? POST_BODY_FADE_MASK : undefined,
         }}
-        className={bodyClassName}
+        className={`${bodyClassName} ${POST_BODY_TRANSITION} [transition-property:max-height]`}
       >
         {bodyContent}
-      </motion.p>
+      </p>
       {overflowing && (
         <button
           type="button"
@@ -1128,6 +1103,10 @@ export default function TerasPage({
   const noPreviewUrlsRef = useRef<Set<string>>(new Set());
 
   const [mentionMembers, setMentionMembers] = useState<MentionMember[]>([]);
+  // Roster masih jalan? Identitas halaman profil bergantung pada /members,
+  // jadi mode profil butuh membedakan "belum tahu" (skeleton) dari "sudah tahu
+  // dan slug ini memang tidak ada di roster" (header fallback dari slug).
+  const [membersLoading, setMembersLoading] = useState(true);
   // One popover at a time. context = 'composer' or a postId (comment bar).
   const [mentionState, setMentionState] = useState<
     { context: string; query: string; start: number; index: number } | null
@@ -1137,6 +1116,35 @@ export default function TerasPage({
     [mentionMembers],
   );
   const memberSlugs = useMemo(() => mentionMembers.map(member => member.slug), [mentionMembers]);
+
+  // Server (/api/community/feed) lowercase-kan agent query param dan slug
+  // anggota sebelum dibandingkan, jadi pencarian di sini juga harus case-
+  // insensitive — pakai memberBySlug yang sudah dibangun dengan key
+  // toLowerCase() supaya slug beda kapital tidak diam-diam gagal cocok di
+  // sini (header/title kosong) sementara feed di server tetap berhasil.
+  const profileMember = profileSlug
+    ? memberBySlug.get(profileSlug.toLowerCase()) || null
+    : null;
+
+  // Feed 404 ('Agent tidak ditemukan di Teras') + tidak ketemu di roster =
+  // slug ini memang bukan agent Teras — bukan sekadar roster yang lambat/
+  // gagal. Beda dengan kasus fallback biasa (roster gagal tapi feed sukses),
+  // di sini header/judul tidak boleh mengarang identitas dari slug URL;
+  // spec minta hanya pesan error yang tampil.
+  const profileNotFound = !!profileSlug && !!error && !profileMember;
+
+  // Judul dokumen tidak boleh mangkrak di "Teras" saat roster gagal/lambat —
+  // slug adalah identitas minimal yang selalu kita punya dari URL. Tapi kalau
+  // sudah pasti agent-nya tidak ada (profileNotFound), jangan pernah pakai
+  // slug sebagai judul fabrikasi — balik ke judul default "Teras".
+  useEffect(() => {
+    if (!profileSlug) return;
+    if (profileNotFound) {
+      document.title = 'Teras';
+      return;
+    }
+    document.title = `${profileMember?.name || profileSlug} — Teras`;
+  }, [profileMember, profileSlug, profileNotFound]);
 
   const [commentPanels, setCommentPanels] = useState<Record<string, CommentPanelState>>({});
   const [reactionBusy, setReactionBusy] = useState<Set<string>>(new Set());
@@ -1155,10 +1163,6 @@ export default function TerasPage({
   const [detailFetchTick, setDetailFetchTick] = useState(0);
   const [likePopId, setLikePopId] = useState<string | null>(null);
   const [hasNewPosts, setHasNewPosts] = useState(false);
-  const [mentionUnread, setMentionUnread] = useState(0);
-  const [mentionInboxOpen, setMentionInboxOpen] = useState(false);
-  const [mentionInbox, setMentionInbox] = useState<MentionInboxItem[]>([]);
-  const [mentionInboxLoading, setMentionInboxLoading] = useState(false);
 
   const pageRootRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1318,6 +1322,11 @@ export default function TerasPage({
     return () => window.cancelAnimationFrame(frame);
   }, [shareUrl]);
 
+  const openProfile = useCallback((slug: string) => {
+    if (!slug) return;
+    onNavigate(terasProfilePath(slug), { state: { terasFromFeed: true } });
+  }, [onNavigate]);
+
   const openMediaViewer = useCallback((
     media: CommunityMedia[],
     index: number,
@@ -1326,13 +1335,17 @@ export default function TerasPage({
     resume?: MediaResume,
   ) => {
     mediaViewerTriggerRef.current = trigger;
+    const safeIndex = Math.max(0, Math.min(media.length - 1, index));
     setMediaViewer({
       media: media.slice(),
-      index: Math.max(0, Math.min(media.length - 1, index)),
+      index: safeIndex,
       authorName,
       direction: 0,
       startTime: resume?.time ?? 0,
-      autoPlay: resume?.playing ?? false,
+      // Dengan resume (pemutar inline di feed), ikuti state pemutar asalnya.
+      // Tanpa resume — thumbnail kutipan/komentar yang tidak bisa diputar di
+      // tempat — kliknya sendiri sudah gestur "mau nonton", jadi langsung putar.
+      autoPlay: resume ? !!resume.playing : media[safeIndex]?.type === 'video',
       muted: resume?.muted ?? false,
     });
     setMediaViewerVisible(true);
@@ -1450,12 +1463,24 @@ export default function TerasPage({
       const serverPosts = payload.data || [];
       const serverIds = new Set(serverPosts.map(post => post.id));
       serverIds.forEach(id => pendingCreatedPostsRef.current.delete(id));
-      const pendingPosts = Array.from(pendingCreatedPostsRef.current.values())
-        .filter(post => !serverIds.has(post.id))
-        .sort((left, right) => {
-          const timeDifference = new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
-          return timeDifference || right.id.localeCompare(left.id);
-        });
+      // Mode profil: respons feed sudah discope ke satu agent, sedangkan
+      // pendingCreatedPostsRef berisi kiriman kita sendiri yang belum
+      // dikonfirmasi feed umum. Entri hanya dihapus saat server yang
+      // mengembalikannya, jadi tanpa guard ini kiriman kita nyangkut di profil
+      // orang lain lintas navigasi dan menutupi empty state "Belum ada kiriman".
+      // Tapi guard itu tidak boleh berlaku di profil kita sendiri — kalau
+      // begitu, kiriman yang baru saja kita buat jadi hilang sesaat setelah
+      // posting sampai respons `?agent=<kita>` menyusul, padahal itu justru
+      // staleness yang pendingCreatedPostsRef ada untuk menutupi.
+      const isOtherAgentProfile = !!profileSlug && profileSlug.toLowerCase() !== agent.slug.toLowerCase();
+      const pendingPosts = isOtherAgentProfile
+        ? []
+        : Array.from(pendingCreatedPostsRef.current.values())
+          .filter(post => !serverIds.has(post.id))
+          .sort((left, right) => {
+            const timeDifference = new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+            return timeDifference || right.id.localeCompare(left.id);
+          });
 
       setPosts(current => {
         const detailOnlyIds = detailOnlyIdsRef.current;
@@ -1475,9 +1500,15 @@ export default function TerasPage({
       if (!append) feedLoadedRef.current = true;
     } catch (fetchError) {
       if (fetchError instanceof Error && fetchError.name === 'AbortError') return;
+      // Mode profil: agent yang tidak ada di Teras membuat server membalas 404
+      // dengan pesan 'Agent tidak ditemukan di Teras'. pendingCreatedPostsRef
+      // bisa saja masih berisi post dari feed utama (belum dikonfirmasi server)
+      // saat user pindah ke /teras/<slug> — kalau begitu kondisi di bawah akan
+      // salah mengira ada konten lama dan menampilkan toast, padahal ini
+      // pemuatan pertama halaman profil dan harus selalu layar penuh.
       const message = errorMessage(fetchError, 'Gagal memuat kiriman Teras');
       if (append) showToast(message, 'error');
-      else if (postsRef.current.length > 0 || pendingCreatedPostsRef.current.size > 0) showToast(message, 'error');
+      else if (!profileSlug && (postsRef.current.length > 0 || pendingCreatedPostsRef.current.size > 0)) showToast(message, 'error');
       else setError(message);
     } finally {
       if (!signal?.aborted) {
@@ -1485,7 +1516,7 @@ export default function TerasPage({
         else setLoading(false);
       }
     }
-  }, [profileSlug, showToast]);
+  }, [agent.slug, profileSlug, showToast]);
 
   const refreshFeed = useCallback(() => {
     feedControllerRef.current?.abort();
@@ -1515,6 +1546,7 @@ export default function TerasPage({
   // tanpa reload. Error sengaja senyap: load-shed 503 / jaringan putus bukan
   // hal yang perlu diberitahukan lewat toast setiap 20 detik.
   const checkForNewPosts = useCallback(async () => {
+    if (profileSlug) return;
     if (document.visibilityState !== 'visible') return;
     if (!feedLoadedRef.current) return;
     try {
@@ -1531,7 +1563,7 @@ export default function TerasPage({
     } catch {
       // Senyap (lihat komentar di atas).
     }
-  }, []);
+  }, [profileSlug]);
 
   useEffect(() => {
     const interval = window.setInterval(() => { void checkForNewPosts(); }, FEED_HEAD_POLL_INTERVAL_MS);
@@ -1544,59 +1576,6 @@ export default function TerasPage({
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [checkForNewPosts]);
-
-  // Unread @mention badge — same light-polling contract as the feed head.
-  const checkMentionUnread = useCallback(async () => {
-    if (document.visibilityState !== 'visible') return;
-    try {
-      const payload = await requestJson<{ unread_count: number }>(
-        '/api/community/mentions/head',
-        { headers: getAuthHeaders() },
-        'Gagal memeriksa sebutan',
-      );
-      const count = payload.data?.unread_count;
-      if (typeof count === 'number') setMentionUnread(count);
-    } catch {
-      // Senyap — sama seperti polling feed head.
-    }
-  }, []);
-
-  useEffect(() => {
-    void checkMentionUnread();
-    const interval = window.setInterval(() => { void checkMentionUnread(); }, MENTION_HEAD_POLL_INTERVAL_MS);
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') void checkMentionUnread();
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => {
-      window.clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [checkMentionUnread]);
-
-  const openMentionInbox = useCallback(async () => {
-    setMentionInboxOpen(true);
-    setMentionInboxLoading(true);
-    try {
-      const payload = await requestJson<MentionInboxItem[]>(
-        '/api/community/mentions',
-        { headers: getAuthHeaders() },
-        'Gagal memuat sebutan',
-      );
-      setMentionInbox(Array.isArray(payload.data) ? payload.data : []);
-    } catch {
-      setMentionInbox([]);
-    } finally {
-      setMentionInboxLoading(false);
-    }
-    // Opening the inbox clears the badge; server marks all as seen.
-    setMentionUnread(0);
-    void fetch('/api/community/mentions/seen', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-      body: '{}',
-    }).catch(() => {});
-  }, []);
 
   useEffect(() => () => {
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
@@ -1881,6 +1860,13 @@ export default function TerasPage({
   }, [composerBody, composerOpen, composerMedia.length, composerQuote, composerDismissedUrl, composerLinkPreview]);
 
   const openComposer = (openPhotoPicker = false) => {
+    // Mode profil (/teras/<slug>) tidak punya composer sheet (lihat guard
+    // `composerOpen && !profileSlug` di composerSheet). Blokir di sini, satu
+    // titik masuk untuk semua jalur (tombol composer & Quote di post card),
+    // supaya composerOpen tidak PERNAH bisa jadi true tanpa sheet-nya —
+    // state "setengah terbuka" (app inert + terkunci scroll, tanpa modal
+    // yang bisa diklik) jadi mustahil terjadi, bukan cuma dicegah di render.
+    if (profileSlug) return;
     composerTriggerRef.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
@@ -1890,6 +1876,7 @@ export default function TerasPage({
   };
 
   const openQuoteComposer = (post: CommunityPost) => {
+    if (profileSlug) return;
     composerRequestIdRef.current = null;
     setComposerQuote({
       available: true,
@@ -2653,6 +2640,10 @@ export default function TerasPage({
         if (Array.isArray(payload.data)) setMentionMembers(payload.data);
       } catch {
         /* silent — mentions simply render as plain text without the roster */
+      } finally {
+        // Selesai (sukses maupun gagal): mode profil berhenti menampilkan
+        // skeleton identitas dan jatuh ke header fallback berbasis slug.
+        if (!controller.signal.aborted) setMembersLoading(false);
       }
     })();
     return () => controller.abort();
@@ -2739,7 +2730,7 @@ export default function TerasPage({
 
   const composerSheet = typeof document === 'undefined' ? null : createPortal(
     <AnimatePresence onExitComplete={() => restoreComposerPageState(true)}>
-      {composerOpen && (
+      {composerOpen && !profileSlug && (
         <motion.form
           ref={composerFormRef}
           key="teras-composer"
@@ -3233,106 +3224,42 @@ export default function TerasPage({
         onChange={handleCommentMediaSelection}
       />
 
-      {!isDetailView && (
+      {/* Di mode profil seluruh strip komposer tidak dirender — kalau hanya
+          isinya yang di-guard, yang tersisa adalah pita kosong tipis di atas
+          header profil. */}
+      {!isDetailView && !profileSlug && (
       <section className="border-b border-gray-100 bg-white px-4 py-2 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center gap-2.5">
-          <AgentAvatar name={agent.name} photo={agent.photo} />
-          <div className="flex min-h-11 min-w-0 flex-1 items-center rounded-full border border-gray-200 bg-white pr-1 transition-colors dark:border-slate-700 dark:bg-slate-900">
-            <button
-              type="button"
-              onClick={() => openComposer(false)}
-              className="min-h-11 min-w-0 flex-1 rounded-l-full px-3.5 py-2.5 text-left text-[13px] text-gray-500 transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:active:bg-slate-950"
-            >
-              <span className="sr-only">Buat kiriman baru</span>
-              <TypingPrompt prompts={COMPOSER_PROMPTS} />
-            </button>
-            <button
-              type="button"
-              onClick={() => openComposer(true)}
-              aria-label="Tambahkan foto atau video"
-              title="Tambahkan foto atau video"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-all hover:text-emerald-600 active:scale-95 active:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:text-emerald-400"
-            >
-              <ImageIcon size={18} strokeWidth={1.8} />
-            </button>
-          </div>
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => { if (mentionInboxOpen) setMentionInboxOpen(false); else void openMentionInbox(); }}
-              aria-label="Sebutan untukmu"
-              aria-expanded={mentionInboxOpen}
-              title="Sebutan untukmu"
-              className="relative flex h-11 w-11 items-center justify-center rounded-full text-gray-500 transition-colors hover:text-emerald-600 active:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400"
-            >
-              <AtSign size={20} strokeWidth={1.9} />
-              {mentionUnread > 0 && (
-                <span className="absolute right-0.5 top-0.5 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold leading-none text-white">
-                  {mentionUnread > 9 ? '9+' : mentionUnread}
-                </span>
-              )}
-            </button>
-            {mentionInboxOpen && (
-              <>
+          {!profileSlug && (
+            <>
+              <AgentAvatar name={agent.name} photo={agent.photo} />
+              <div className="flex min-h-11 min-w-0 flex-1 items-center rounded-full border border-gray-200 bg-white pr-1 transition-colors dark:border-slate-700 dark:bg-slate-900">
                 <button
                   type="button"
-                  aria-hidden="true"
-                  tabIndex={-1}
-                  onClick={() => setMentionInboxOpen(false)}
-                  className="fixed inset-0 z-40 cursor-default"
-                />
-                <div
-                  role="dialog"
-                  aria-label="Sebutan untukmu"
-                  className="absolute right-0 top-full z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+                  onClick={() => openComposer(false)}
+                  className="min-h-11 min-w-0 flex-1 rounded-l-full px-3.5 py-2.5 text-left text-[13px] text-gray-500 transition-colors active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:active:bg-slate-950"
                 >
-                  <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5 dark:border-slate-800">
-                    <p className="text-[13px] font-bold text-gray-900 dark:text-white">Sebutan untukmu</p>
-                    <button
-                      type="button"
-                      onClick={() => setMentionInboxOpen(false)}
-                      aria-label="Tutup"
-                      className="text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-slate-200"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                  <div className="max-h-80 overflow-y-auto overscroll-contain">
-                    {mentionInboxLoading ? (
-                      <p className="px-4 py-6 text-center text-[12px] text-gray-400 dark:text-slate-500">Memuat…</p>
-                    ) : mentionInbox.length === 0 ? (
-                      <p className="px-4 py-6 text-center text-[12px] text-gray-400 dark:text-slate-500">Belum ada yang menyebutmu.</p>
-                    ) : (
-                      mentionInbox.map(item => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => { setMentionInboxOpen(false); openPostDetail(item.post_id); }}
-                          className={`flex w-full items-start gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-slate-800/60 ${item.seen_at ? '' : 'bg-emerald-50/60 dark:bg-emerald-900/15'}`}
-                        >
-                          <AgentAvatar name={item.author.name || 'Agent'} photo={item.author.photo} size="comment" />
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-[12.5px] leading-snug text-gray-700 dark:text-slate-200">
-                              <span className="font-bold text-gray-900 dark:text-white">{item.author.name || 'Seseorang'}</span>
-                              {item.comment_id ? ' membalas menyebutmu' : ' menyebutmu'}
-                            </span>
-                            <span className="mt-0.5 block truncate text-[11.5px] text-gray-500 dark:text-slate-400">{item.snippet}</span>
-                            <span className="mt-0.5 block text-[10.5px] text-gray-400 dark:text-slate-500">{timeAgo(item.created_at)}</span>
-                          </span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+                  <span className="sr-only">Buat kiriman baru</span>
+                  <TypingPrompt prompts={COMPOSER_PROMPTS} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openComposer(true)}
+                  aria-label="Tambahkan foto atau video"
+                  title="Tambahkan foto atau video"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-all hover:text-emerald-600 active:scale-95 active:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:text-emerald-400"
+                >
+                  <ImageIcon size={18} strokeWidth={1.8} />
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </section>
       )}
 
       <AnimatePresence>
-        {!isDetailView && hasNewPosts && (
+        {!isDetailView && hasNewPosts && !profileSlug && (
           <div className="pointer-events-none fixed inset-x-0 top-[max(3.375rem,calc(env(safe-area-inset-top)+3rem))] z-40 flex justify-center">
             <motion.button
               type="button"
@@ -3381,6 +3308,21 @@ export default function TerasPage({
         )
       )}
 
+      {/* Identitas profil selalu dirender: skeleton selama roster /members
+          masih jalan, lalu header — dari data anggota bila ketemu, atau dari
+          slug URL saja bila roster gagal (catch-nya sengaja diam) atau slug
+          tidak ada di roster. Tanpa ini halaman tampil tanpa nama sama sekali.
+          Kecuali profileNotFound: feed sudah memastikan 404, jadi tidak ada
+          identitas (nyata maupun fallback slug) yang boleh dirender di atas
+          pesan error — hanya "Agent tidak ditemukan di Teras" di bawah. */}
+      {profileSlug && !profileNotFound ? (
+        membersLoading && !profileMember ? (
+          <TerasProfileHeaderSkeleton />
+        ) : (
+          <TerasProfileHeader member={profileMember} slug={profileSlug} />
+        )
+      ) : null}
+
       {!isDetailView && (loading ? (
         <div aria-label="Memuat kiriman" aria-busy="true">
           <PostSkeleton withMedia />
@@ -3402,11 +3344,18 @@ export default function TerasPage({
           </button>
         </div>
       ) : feedPosts.length === 0 ? (
-        <div className="border-b border-gray-100 bg-white px-5 py-12 text-center dark:border-slate-800 dark:bg-slate-900">
-          <Users size={36} className="mx-auto mb-3 text-gray-300 dark:text-slate-600" />
-          <p className="text-sm font-semibold text-gray-600 dark:text-slate-300">Belum ada kiriman di Teras.</p>
-          <p className="mt-1 text-[12px] text-gray-500 dark:text-slate-400">Jadilah yang pertama berbagi.</p>
-        </div>
+        // Cabang ini sudah berada di dalam `!loading && !error &&
+        // feedPosts.length === 0`, jadi profileSlug adalah satu-satunya
+        // pembeda yang tersisa antara empty state profil dan feed umum.
+        profileSlug ? (
+          <p className="px-4 py-10 text-center text-sm text-gray-500 dark:text-slate-400">Belum ada kiriman</p>
+        ) : (
+          <div className="border-b border-gray-100 bg-white px-5 py-12 text-center dark:border-slate-800 dark:bg-slate-900">
+            <Users size={36} className="mx-auto mb-3 text-gray-300 dark:text-slate-600" />
+            <p className="text-sm font-semibold text-gray-600 dark:text-slate-300">Belum ada kiriman di Teras.</p>
+            <p className="mt-1 text-[12px] text-gray-500 dark:text-slate-400">Jadilah yang pertama berbagi.</p>
+          </div>
+        )
       ) : null)}
 
       {(isDetailView ? detailPost !== null : !loading && !error && feedPosts.length > 0) && (
@@ -3421,6 +3370,7 @@ export default function TerasPage({
             const likePopped = likePopId === post.id && !!post.my_reaction && !reduceMotion;
             const postMedia = normalizePostMedia(post);
             const authorName = post.author.name || (post.is_system ? 'Miqot' : 'Agent');
+            const authorSlug = post.is_system ? null : post.author.slug;
 
             return (
               <article
@@ -3448,7 +3398,11 @@ export default function TerasPage({
                 {!post.is_system && (
                   <div
                     ref={menuOpenPostId === post.id ? menuRef : undefined}
-                    className="absolute right-2 top-0 z-20 shrink-0"
+                    // Kontainer ini absolute + z-index, jadi ia sendiri sebuah stacking
+                    // context: z-index menu di dalamnya tidak pernah dibandingkan dengan
+                    // post lain. Semua post duduk di z-20, sehingga post di bawah menang
+                    // karena urutan DOM dan tombolnya menembus popup. Naikkan yang terbuka.
+                    className={`absolute right-2 top-0 shrink-0 ${menuOpenPostId === post.id ? 'z-30' : 'z-20'}`}
                   >
                     <button
                       ref={element => {
@@ -3471,9 +3425,15 @@ export default function TerasPage({
                       aria-haspopup="menu"
                       aria-expanded={menuOpenPostId === post.id}
                       aria-controls={`teras-post-menu-${post.id}`}
-                      className="flex h-11 w-11 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 active:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700 dark:active:bg-slate-700"
+                      className="group flex h-11 w-11 items-center justify-center rounded-full text-gray-500 dark:text-slate-400"
                     >
-                      <MoreHorizontal size={17} />
+                      <span
+                        className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors group-hover:bg-gray-100 group-active:bg-gray-100 dark:group-hover:bg-slate-700 dark:group-active:bg-slate-700 ${
+                          menuOpenPostId === post.id ? 'bg-gray-100 dark:bg-slate-700' : ''
+                        }`}
+                      >
+                        <MoreHorizontal size={17} />
+                      </span>
                     </button>
 
                     <AnimatePresence initial={false}>
@@ -3561,6 +3521,19 @@ export default function TerasPage({
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-sm shadow-emerald-500/20">
                         <Sparkles size={16} />
                       </div>
+                    ) : authorSlug ? (
+                      <a
+                        href={terasProfilePath(authorSlug)}
+                        onClick={event => {
+                          if (isModifiedClick(event)) return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          openProfile(authorSlug);
+                        }}
+                        aria-label={`Lihat profil ${authorName}`}
+                      >
+                        <AgentAvatar name={authorName} photo={post.author.photo} />
+                      </a>
                     ) : (
                       <AgentAvatar name={authorName} photo={post.author.photo} />
                     )}
@@ -3582,7 +3555,22 @@ export default function TerasPage({
 
                   <div data-post-content className="min-w-0">
                     <div className={`flex min-w-0 items-center gap-1.5 ${post.is_system ? '' : 'pr-10'}`}>
-                      <p className="min-w-0 truncate text-[14px] font-bold text-gray-900 dark:text-white">{authorName}</p>
+                      {authorSlug ? (
+                        <a
+                          href={terasProfilePath(authorSlug)}
+                          onClick={event => {
+                            if (isModifiedClick(event)) return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openProfile(authorSlug);
+                          }}
+                          className="min-w-0 truncate text-[14px] font-bold text-gray-900 hover:underline dark:text-white"
+                        >
+                          {authorName}
+                        </a>
+                      ) : (
+                        <p className="min-w-0 truncate text-[14px] font-bold text-gray-900 dark:text-white">{authorName}</p>
+                      )}
                       {post.is_system && (
                         <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
                           <Sparkles size={9} />
@@ -3613,6 +3601,7 @@ export default function TerasPage({
                           memberBySlug={memberBySlug}
                           reserveMenuSpace={!post.is_system}
                           clamp={!isDetailView}
+                          openProfile={openProfile}
                         />
                       ) : null;
                     })()}
@@ -3815,15 +3804,47 @@ export default function TerasPage({
                           </div>
                         ) : commentPanel.comments.map(comment => {
                           const canDeleteComment = comment.is_own || agent.role === 'admin';
+                          const commentAuthorName = comment.author.name || 'Agent';
+                          const commentAuthorSlug = comment.author.slug;
                           return (
                             <div key={comment.id} data-comment-row className="mt-2 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
                               <div className="flex flex-col items-center">
-                                <AgentAvatar name={comment.author.name || 'Agent'} photo={comment.author.photo} size="comment" />
+                                {commentAuthorSlug ? (
+                                  <a
+                                    href={terasProfilePath(commentAuthorSlug)}
+                                    onClick={event => {
+                                      if (isModifiedClick(event)) return;
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      openProfile(commentAuthorSlug);
+                                    }}
+                                    aria-label={`Lihat profil ${commentAuthorName}`}
+                                  >
+                                    <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="comment" />
+                                  </a>
+                                ) : (
+                                  <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="comment" />
+                                )}
                                 <div data-thread-rail="comment" aria-hidden="true" className="mt-1.5 -mb-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
                               </div>
                               <div className="min-w-0">
                                 <div className="flex min-w-0 items-center gap-1.5">
-                                  <p className="min-w-0 truncate text-[13px] font-bold text-gray-800 dark:text-slate-200">{comment.author.name || 'Agent'}</p>
+                                  {commentAuthorSlug ? (
+                                    <a
+                                      href={terasProfilePath(commentAuthorSlug)}
+                                      onClick={event => {
+                                        if (isModifiedClick(event)) return;
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        openProfile(commentAuthorSlug);
+                                      }}
+                                      className="min-w-0 truncate text-[13px] font-bold text-gray-800 hover:underline dark:text-slate-200"
+                                    >
+                                      {commentAuthorName}
+                                    </a>
+                                  ) : (
+                                    <p className="min-w-0 truncate text-[13px] font-bold text-gray-800 dark:text-slate-200">{commentAuthorName}</p>
+                                  )}
                                   <span className="flex-1" />
                                   <time dateTime={comment.created_at} className="shrink-0 text-[11px] font-medium text-gray-500 dark:text-slate-400">
                                     {timeAgo(comment.created_at)}
@@ -3843,7 +3864,7 @@ export default function TerasPage({
                                     </button>
                                   )}
                                 </div>
-                                <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300"><MentionText body={comment.body} memberBySlug={memberBySlug} linkify /></p>
+                                <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300"><MentionText body={comment.body} memberBySlug={memberBySlug} linkify onOpenProfile={openProfile} /></p>
                                 {(comment.media?.length ?? 0) > 0 && (
                                   <div className="mt-1.5 flex snap-x gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                     {(comment.media || []).map((item, index) => (
@@ -3861,7 +3882,7 @@ export default function TerasPage({
                                               playsInline
                                               muted
                                               preload="metadata"
-                                              className="h-36 w-auto min-w-[5rem] max-w-[70vw] bg-black object-contain"
+                                              className="block h-36 w-auto max-w-[70vw] bg-black object-contain"
                                             />
                                             <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center">
                                               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
@@ -3989,7 +4010,7 @@ export default function TerasPage({
                                         muted
                                         preload="metadata"
                                         aria-label={`Pratinjau video komentar ${index + 1}`}
-                                        className="h-full w-auto min-w-[5rem] max-w-[60vw] bg-black object-contain"
+                                        className="block h-full w-auto max-w-[60vw] bg-black object-contain"
                                       />
                                     ) : (
                                       <img
