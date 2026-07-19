@@ -1,6 +1,6 @@
 import { toMentionSegments, type MentionMember, type MentionSegment } from '../lib/communityMentions';
 import { linkifySegments } from '../../lib/teras-linkify.js';
-import { terasProfilePath } from '../lib/terasRoutes';
+import { isModifiedClick, terasProfilePath } from '../lib/terasRoutes';
 
 /**
  * Render a post/comment body with `@slug` tokens shown as pills of the member's
@@ -36,7 +36,8 @@ function renderMentionPill(
       href={terasProfilePath(segment.slug)}
       className={`${className} hover:underline`}
       onClick={event => {
-        // Klik di dalam kartu post juga membuka detail post; jangan dua-duanya.
+        // A click inside a post card also opens the post detail; don't let both fire.
+        if (isModifiedClick(event)) return;
         event.preventDefault();
         event.stopPropagation();
         onOpenProfile(segment.slug);
