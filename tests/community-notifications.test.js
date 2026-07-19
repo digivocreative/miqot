@@ -78,3 +78,13 @@ test('tolerates missing sources', () => {
   assert.deepEqual(mergeNotifications({}, null), []);
   assert.equal(countUnreadNotifications({}), 0);
 });
+
+test('treats items with undefined created_at as unread when watermark is missing', () => {
+  const items = mergeNotifications({
+    mentions: [{ id: 'm1', post_id: 'p1', created_at: undefined, actor: actor('Rina'), snippet: 's' }],
+    comments: [],
+    reactions: [],
+  }, null);
+
+  assert.deepEqual(items.map(i => i.unread), [true], 'item dengan created_at undefined harus unread saat seenAt null');
+});
