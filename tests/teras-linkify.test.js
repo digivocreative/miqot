@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { linkifySegments, stripUrlFromBody } from '../lib/teras-linkify.js';
+import { linkifySegments, firstUrl, stripUrlFromBody } from '../lib/teras-linkify.js';
+import { firstUrlInText } from '../lib/community-link-preview.js';
 
 test('linkifySegments: text without a URL is a single text segment', () => {
   assert.deepEqual(linkifySegments('halo dunia'), [{ type: 'text', value: 'halo dunia' }]);
@@ -136,4 +137,32 @@ test('stripUrlFromBody: an occurrence glued to preceding text (no boundary) is l
     stripUrlFromBody('cekhttps://x.id/a checked', 'https://x.id/a'),
     'cekhttps://x.id/a checked',
   );
+});
+
+// Boundary invariant: firstUrlInText (server-side link-preview detector,
+// lib/community-link-preview.js) MUST agree, on every body, with what the
+// renderer actually linkifies (linkifySegments) — otherwise the server
+// fetches OG metadata for a URL the client renders/strips differently, and a
+// preview card + a raw, un-hidden URL end up on screen together. Previously
+// three independent regexes disagreed on ordinary sentences; this test
+// pins the invariant so a future edit to either side can't silently
+// reintroduce the split.
+test('firstUrlInText agrees with linkifySegments\' first link href (single source of truth)', () => {
+  const bodies = [
+    'sudah lihat https://x.id/a?',
+    'link https://x.id/a: keren',
+    'nested https://x.id/f(o)o lanjut',
+    'lihat https://id.wikipedia.org/wiki/Haji_(disambiguasi) ya',
+    'halo dunia tanpa url',
+    'https://a.id lalu https://b.id',
+    'lihat https://x.id/a.',
+    '(https://x.id/a)',
+    'cek https://x.com/@bagas dong',
+    'cek HTTPS://x.id/a ya',
+  ];
+  for (const body of bodies) {
+    const expected = linkifySegments(body).find(segment => segment.type === 'link')?.href ?? null;
+    assert.equal(firstUrlInText(body), expected, `firstUrlInText harus sepakat dengan linkifySegments untuk: ${JSON.stringify(body)}`);
+    assert.equal(firstUrl(body), expected, `firstUrl harus sepakat dengan linkifySegments untuk: ${JSON.stringify(body)}`);
+  }
 });

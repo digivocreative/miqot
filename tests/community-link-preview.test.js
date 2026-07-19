@@ -79,21 +79,44 @@ test('isBlockedAddress evaluates 6to4-embedded IPv4 directly', () => {
   assert.equal(isBlockedAddress('2002:0808:0808::'), false); // 8.8.8.8 public
 });
 
-test('parseOpenGraph reads og tags and resolves relative image', () => {
+test('isAllowedPreviewUrl blocks IPv4-translated (::ffff:0:0/96) and local-use NAT64 (64:ff9b:1::/48) SSRF bypasses', () => {
+  for (const url of [
+    'http://[::ffff:0:127.0.0.1]/',    // -> [::ffff:0:7f00:1] IPv4-translated loopback
+    'http://[64:ff9b:1::a9fe:a9fe]/',  // local-use NAT64, cloud metadata endpoint
+  ]) {
+    assert.equal(isAllowedPreviewUrl(url), false, `${url} harus diblokir`);
+  }
+});
+
+test('isBlockedAddress evaluates IPv4-translated and local-use-NAT64 hex forms directly', () => {
+  assert.equal(isBlockedAddress('::ffff:0:7f00:1'), true);
+  assert.equal(isBlockedAddress('64:ff9b:1::a9fe:a9fe'), true);
+});
+
+test('isBlockedAddress/isAllowedPreviewUrl block benchmarking (198.18.0.0/15) and IETF protocol assignments (192.0.0.0/24)', () => {
+  assert.equal(isBlockedAddress('198.18.0.1'), true);
+  assert.equal(isBlockedAddress('198.19.255.254'), true);
+  assert.equal(isBlockedAddress('192.0.0.5'), true);
+  assert.equal(isAllowedPreviewUrl('http://198.18.0.1/'), false);
+  assert.equal(isAllowedPreviewUrl('http://192.0.0.5/'), false);
+  // Neighbouring, still-public ranges must stay allowed.
+  assert.equal(isBlockedAddress('198.20.0.1'), false);
+  assert.equal(isBlockedAddress('192.0.2.1'), false); // TEST-NET-1 documentation range, not blocked by this rule
+});
+
+test('parseOpenGraph reads og tags and resolves relative image (og:site_name / og:url are NOT extracted — attacker-controlled)', () => {
   const html = `<html><head>
     <meta property="og:title" content="Judul Berita">
     <meta property="og:description" content="Ringkasan berita.">
     <meta property="og:image" content="/img/thumb.jpg">
     <meta property="og:site_name" content="detikcom">
-    <meta property="og:url" content="https://www.detik.com/canonical">
+    <meta property="og:url" content="https://evil.example/phish">
   </head></html>`;
   assert.deepEqual(parseOpenGraph(html, 'https://www.detik.com/a/b'), {
     url: 'https://www.detik.com/a/b',
-    canonical_url: 'https://www.detik.com/canonical',
     title: 'Judul Berita',
     description: 'Ringkasan berita.',
     image: 'https://www.detik.com/img/thumb.jpg',
-    site_name: 'detikcom',
   });
 });
 
@@ -119,17 +142,41 @@ test('sanitizeLinkPreview trims, caps length, drops non-https image, requires ur
     title: 'T'.repeat(500),
     description: 'D'.repeat(500),
     image: 'https://x.id/i.png',
-    site_name: 'S'.repeat(300),
     junk: 'buang',
   });
   assert.equal(cleaned.url, 'https://x.id/a');
   assert.equal(cleaned.title.length, 200);
   assert.equal(cleaned.description.length, 300);
-  assert.equal(cleaned.site_name.length, 100);
   assert.equal('junk' in cleaned, false);
 
   assert.equal(sanitizeLinkPreview({ url: 'https://x.id', image: 'http://x.id/i.png' }), null,
     'image http (non-https) dibuang; tanpa title/image lain → null');
   assert.equal(sanitizeLinkPreview({ title: 'T' }), null, 'tanpa url → null');
   assert.equal(sanitizeLinkPreview(null), null);
+});
+
+test('sanitizeLinkPreview no longer persists canonical_url or site_name (attacker-controlled og:url / og:site_name spoofing)', () => {
+  const cleaned = sanitizeLinkPreview({
+    url: 'https://x.id/a',
+    title: 'Judul',
+    canonical_url: 'https://evil.example/phish',
+    site_name: 'detik.com',
+  });
+  assert.equal('canonical_url' in cleaned, false);
+  assert.equal('site_name' in cleaned, false);
+});
+
+test('sanitizeLinkPreview rejects an image pointing at a private/loopback address (SSRF) even over https', () => {
+  const withPrivateImage = sanitizeLinkPreview({ url: 'https://x.id/a', title: 'T', image: 'https://192.168.1.1/admin/reboot' });
+  assert.equal(withPrivateImage.image, undefined, 'private-IP https image harus dibuang');
+
+  const withLocalhostImage = sanitizeLinkPreview({ url: 'https://x.id/a', title: 'T', image: 'https://localhost:8080/x.png' });
+  assert.equal(withLocalhostImage.image, undefined, 'localhost https image harus dibuang');
+
+  // Image-only candidate with a blocked image and no title/other image must
+  // yield no usable card at all.
+  assert.equal(sanitizeLinkPreview({ url: 'https://x.id/a', image: 'https://127.0.0.1/x.png' }), null);
+
+  const withLegitImage = sanitizeLinkPreview({ url: 'https://x.id/a', title: 'T', image: 'https://x.id/thumb.png' });
+  assert.equal(withLegitImage.image, 'https://x.id/thumb.png', 'gambar https publik yang sah harus tetap lolos');
 });

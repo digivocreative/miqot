@@ -3,4 +3,5 @@ export type LinkifySegment =
   | { type: 'link'; value: string; href: string };
 
 export function linkifySegments(text: string): LinkifySegment[];
+export function firstUrl(text: string | null | undefined): string | null;
 export function stripUrlFromBody(body: string, url: string | null | undefined): string;

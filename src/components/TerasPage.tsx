@@ -39,7 +39,7 @@ import {
 import { handleAgentPhotoError } from '../lib/agent-photo';
 import { videoPreviewSrc, videoPreviewFallbackSrc } from '../lib/videoPoster';
 import { terasShareUrl, isTerasShortCode } from '../../lib/teras-share.js';
-import { stripUrlFromBody } from '../../lib/teras-linkify.js';
+import { firstUrl, stripUrlFromBody } from '../../lib/teras-linkify.js';
 import PlyrVideo from './PlyrVideo';
 import { getAuthHeaders } from './LoginPage';
 import { MentionText } from './MentionText';
@@ -110,11 +110,9 @@ interface QuotedPostPreview {
 
 interface LinkPreview {
   url: string;
-  canonical_url?: string;
   title?: string;
   description?: string;
   image?: string;
-  site_name?: string;
 }
 
 interface CommunityComment {
@@ -242,17 +240,6 @@ function getInitials(name: string): string {
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
-
-// Salinan ringan dari `firstUrlInText` (lib/community-link-preview.js) — modul
-// `lib/` itu server-side dan tidak ada preseden impor lintas-folder ke FE, jadi
-// util deteksi URL pertama di body composer diduplikasi di sini secara sengaja.
-const FE_URL_RE = /\bhttps?:\/\/[^\s<>"')]+/i;
-function firstUrlInBody(text: string): string | null {
-  const match = text.match(FE_URL_RE);
-  if (!match) return null;
-  return match[0].replace(/[.,;:!?)\]}'"]+$/, '') || null;
-}
-
 async function requestJson<T>(
   url: string,
   init: RequestInit,
@@ -499,14 +486,18 @@ type PostMediaFit = 'natural' | 'height' | 'cover';
 
 function LinkPreviewCard({ preview }: { preview: LinkPreview }) {
   const [imageBroken, setImageBroken] = useState(false);
-  const href = preview.canonical_url || preview.url;
-  let domain = preview.site_name;
-  if (!domain) {
-    try {
-      domain = new URL(preview.url).hostname.replace(/^www\./, '');
-    } catch {
-      domain = preview.url;
-    }
+  // href & domain label are ALWAYS derived from `preview.url` — the URL the
+  // member actually pasted and the server validated with isAllowedPreviewUrl
+  // — never from fields the fetched site controls (og:url / og:site_name).
+  // Otherwise a page can claim `site_name: "detik.com"` while its `og:url`
+  // points at an attacker domain, and the card would display "detik.com"
+  // while navigating somewhere else entirely.
+  const href = preview.url;
+  let domain;
+  try {
+    domain = new URL(preview.url).hostname.replace(/^www\./, '');
+  } catch {
+    domain = preview.url;
   }
   const showImage = !!preview.image && !imageBroken;
 
@@ -1836,7 +1827,7 @@ export default function TerasPage({
       setComposerLinkLoading(false);
       return;
     }
-    const url = firstUrlInBody(composerBody);
+    const url = firstUrl(composerBody);
     if (!url || url === composerDismissedUrl) {
       setComposerLinkPreview(null);
       setComposerLinkLoading(false);

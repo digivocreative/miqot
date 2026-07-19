@@ -5384,10 +5384,15 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       photo_url: photoUrl,
       is_system: false,
       ...(quotedPostId ? { quoted_post_id: quotedPostId } : {}),
-      ...(linkPreview ? { link_preview: linkPreview } : {}),
     };
     let includeMediaColumn = true;
     let includeObsoleteType = false;
+    // A link preview is decorative — on a deployment where the migration
+    // hasn't been applied yet, the post must still succeed (with
+    // link_preview: null in the response), same graceful-degradation pattern
+    // as includeMediaColumn/includeObsoleteType below. It must never block
+    // posting.
+    let includeLinkPreview = !!linkPreview;
     let createdPost = null;
     let insertError = null;
     for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -5395,6 +5400,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
         ...basePostPayload,
         ...(includeMediaColumn ? { media } : {}),
         ...(includeObsoleteType ? { type: media.length > 0 ? 'foto' : 'tips' } : {}),
+        ...(includeLinkPreview ? { link_preview: linkPreview } : {}),
       };
       const insertResult = await supabase
         .from('community_posts')
@@ -5414,8 +5420,9 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       if (quotedPostId && isCommunityQuoteSchemaMissing(insertError)) {
         return res.status(503).json({ error: 'Migrasi quote Teras belum diterapkan' });
       }
-      if (linkPreview && isCommunityLinkPreviewSchemaMissing(insertError)) {
-        return res.status(503).json({ error: 'Migrasi link preview Teras belum diterapkan' });
+      if (includeLinkPreview && isCommunityLinkPreviewSchemaMissing(insertError)) {
+        includeLinkPreview = false;
+        continue;
       }
       // Compatibility for installations that already ran the pre-final Teras
       // draft, where `type` was NOT NULL. Keep that obsolete value server-side.
@@ -5477,7 +5484,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       comment_count: 0,
       quote_count: 0,
       quoted_post: quotedPostId ? communityQuotedPostPayload(quotedPostRow) : null,
-      link_preview: linkPreview,
+      link_preview: includeLinkPreview ? linkPreview : null,
       is_own: true,
     };
     res.status(201).json({ success: true, data });
