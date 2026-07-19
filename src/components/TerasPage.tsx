@@ -240,6 +240,16 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+// Salinan ringan dari `firstUrlInText` (lib/community-link-preview.js) — modul
+// `lib/` itu server-side dan tidak ada preseden impor lintas-folder ke FE, jadi
+// util deteksi URL pertama di body composer diduplikasi di sini secara sengaja.
+const FE_URL_RE = /\bhttps?:\/\/[^\s<>"')]+/i;
+function firstUrlInBody(text: string): string | null {
+  const match = text.match(FE_URL_RE);
+  if (!match) return null;
+  return match[0].replace(/[.,;:!?)\]}'"]+$/, '') || null;
+}
+
 async function requestJson<T>(
   url: string,
   init: RequestInit,
@@ -963,6 +973,10 @@ export default function TerasPage({
   const [composerBusy, setComposerBusy] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [composerQuote, setComposerQuote] = useState<QuotedPostPreview | null>(null);
+  const [composerLinkPreview, setComposerLinkPreview] = useState<LinkPreview | null>(null);
+  const [composerLinkLoading, setComposerLinkLoading] = useState(false);
+  const [composerDismissedUrl, setComposerDismissedUrl] = useState<string | null>(null);
+  const linkPreviewControllerRef = useRef<AbortController | null>(null);
 
   const [mentionMembers, setMentionMembers] = useState<MentionMember[]>([]);
   // One popover at a time. context = 'composer' or a postId (comment bar).
@@ -1524,6 +1538,10 @@ export default function TerasPage({
     setComposerMedia([]);
     setComposerError(null);
     setComposerQuote(null);
+    setComposerLinkPreview(null);
+    setComposerLinkLoading(false);
+    setComposerDismissedUrl(null);
+    linkPreviewControllerRef.current?.abort();
     composerRequestIdRef.current = null;
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
@@ -1610,6 +1628,51 @@ export default function TerasPage({
     });
     return () => window.cancelAnimationFrame(focusFrame);
   }, [composerBusy, composerOpen]);
+
+  // Deteksi URL pertama di body composer & ambil pratinjaunya (debounce ~600ms).
+  // composerLinkLoading sengaja TIDAK ada di deps: ia hanya berubah di dalam efek
+  // ini, jadi memasukkannya akan memicu re-run tanpa alasan baru. composerLinkPreview
+  // ADA di deps supaya efek bereaksi setelah fetch selesai, tapi itu tidak berputar
+  // tanpa henti: begitu preview tersimpan, run berikutnya langsung match di cabang
+  // dedupe (composerLinkPreview.url === url) dan berhenti tanpa setState lagi.
+  useEffect(() => {
+    if (!composerOpen) return;
+    // Prioritas: bila ada media atau quote, jangan tampilkan preview.
+    if (composerMedia.length > 0 || composerQuote) {
+      setComposerLinkPreview(null);
+      setComposerLinkLoading(false);
+      return;
+    }
+    const url = firstUrlInBody(composerBody);
+    if (!url || url === composerDismissedUrl) {
+      setComposerLinkPreview(null);
+      setComposerLinkLoading(false);
+      return;
+    }
+    if (composerLinkPreview && composerLinkPreview.url === url) return; // sudah diambil
+    let cancelled = false;
+    setComposerLinkLoading(true);
+    const timer = window.setTimeout(async () => {
+      linkPreviewControllerRef.current?.abort();
+      const controller = new AbortController();
+      linkPreviewControllerRef.current = controller;
+      try {
+        const result = await requestJson<LinkPreview | null>(
+          `/api/community/link-preview?url=${encodeURIComponent(url)}`,
+          { headers: { ...getAuthHeaders() }, signal: controller.signal },
+          'Gagal memuat pratinjau tautan',
+        );
+        if (cancelled) return;
+        setComposerLinkPreview(result.data ?? null);
+      } catch (previewError) {
+        if (previewError instanceof Error && previewError.name === 'AbortError') return;
+        if (!cancelled) setComposerLinkPreview(null);
+      } finally {
+        if (!cancelled) setComposerLinkLoading(false);
+      }
+    }, 600);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [composerBody, composerOpen, composerMedia.length, composerQuote, composerDismissedUrl, composerLinkPreview]);
 
   const openComposer = (openPhotoPicker = false) => {
     composerTriggerRef.current = document.activeElement instanceof HTMLElement
@@ -1903,6 +1966,9 @@ export default function TerasPage({
             ...(uploadedMedia.length > 0 ? { media: uploadedMedia } : {}),
             ...(legacyPhotoUrl ? { photo_url: legacyPhotoUrl } : {}),
             ...(composerQuote?.id ? { quoted_post_id: composerQuote.id } : {}),
+            ...(composerLinkPreview && uploadedMedia.length === 0 && !composerQuote
+              ? { link_preview: composerLinkPreview }
+              : {}),
             ...(postMentions.length ? { mentions: postMentions } : {}),
           }),
           signal: controller.signal,
@@ -2664,6 +2730,26 @@ export default function TerasPage({
                   )}
 
                   {composerQuote && <QuotedPostCard quoted={composerQuote} />}
+
+                  {composerLinkLoading && !composerLinkPreview && (
+                    <div className="mt-2 h-16 animate-pulse rounded-xl bg-gray-100 dark:bg-slate-800" />
+                  )}
+                  {composerLinkPreview && composerMedia.length === 0 && !composerQuote && (
+                    <div className="relative">
+                      <LinkPreviewCard preview={composerLinkPreview} />
+                      <button
+                        type="button"
+                        aria-label="Buang pratinjau tautan"
+                        onClick={() => {
+                          setComposerDismissedUrl(composerLinkPreview.url);
+                          setComposerLinkPreview(null);
+                        }}
+                        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
 
                   {composerError && (
                     <div role="alert" aria-live="assertive" className="mb-3 min-w-0 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 [overflow-wrap:anywhere] dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
