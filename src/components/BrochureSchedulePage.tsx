@@ -1,7 +1,6 @@
 // src/components/BrochureSchedulePage.tsx
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import type { Options as ModernScreenshotOptions } from 'modern-screenshot';
 import { Download, Share2, Loader2, FileDown, Check, Wand2, ChevronDown } from 'lucide-react';
 import FilterDropdown from './FilterDropdown';
 import {
@@ -31,6 +30,7 @@ import { CatalogLoadingModal } from './CatalogLoadingModal';
 import { CatalogCoverPicker } from './CatalogCoverPicker';
 import { getCatalogCover, DEFAULT_COVER_ID } from '@/lib/catalogCovers';
 import { BROCHURE_DESIGNS, getBrochureDesign, normalizeBrochureDesignId, type BrochureDesignId } from './brochure-designs';
+import { captureStableDom } from '../utils/stableDomCapture';
 
 const EXPORT_MIME = 'image/jpeg';
 const EXPORT_EXT = 'jpg';
@@ -44,38 +44,22 @@ const EXPORT_SCALE = 1;
 // quality offsets the larger dimensions to keep the overall file manageable.
 const CATALOG_SCALE = 1.5;
 const CATALOG_JPEG_QUALITY = 0.9;
-const EXPORT_CACHE_LIMIT = 3;
 const PACKAGES_PER_IMAGE = 10;
-
-let embeddedBrochureFontCssPromise: Promise<string> | null = null;
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-  return btoa(binary);
-}
-
-function getEmbeddedBrochureFontCss(): Promise<string> {
-  if (!embeddedBrochureFontCssPromise) {
-    embeddedBrochureFontCssPromise = Promise.all(BROCHURE_LOCAL_FONTS.map(async font => {
-      const res = await fetch(font.src, { cache: 'force-cache' });
-      if (!res.ok) throw new Error(`font-load-failed:${font.src}`);
-      const dataUrl = `data:font/woff2;base64,${arrayBufferToBase64(await res.arrayBuffer())}`;
-      return `@font-face{font-family:'${font.family}';font-style:${font.style};font-weight:${font.weight};font-display:block;src:url('${dataUrl}') format('woff2');}`;
-    })).then(lines => lines.join('\n'));
-  }
-  return embeddedBrochureFontCssPromise;
-}
 
 interface ExportedImage {
   blob: Blob;
   ext: string;
   mime: string;
+}
+
+interface CanonicalPreview {
+  image: ExportedImage;
+  renderKey: string;
+}
+
+interface CanonicalPreviewError {
+  message: string;
+  renderKey: string;
 }
 
 interface BrochureSchedulePageProps {
@@ -320,15 +304,16 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const [previewScale, setPreviewScale] = useState(0);
   const exportPageRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const [busy, setBusy] = useState<null | { kind: 'share' | 'download'; pageIndex: number }>(null);
+  const [canonicalPreviews, setCanonicalPreviews] = useState<Array<CanonicalPreview | null>>([]);
+  const [previewErrors, setPreviewErrors] = useState<Array<CanonicalPreviewError | null>>([]);
+  const [previewRetryNonce, setPreviewRetryNonce] = useState(0);
+  const previewGenerationRef = useRef(0);
+  const [busy, setBusy] = useState<null | { kind: 'share'; pageIndex: number }>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [promptPageIndex, setPromptPageIndex] = useState<number | null>(null);
   const [saveMenuPageIndex, setSaveMenuPageIndex] = useState<number | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveMenuRef = useRef<HTMLDivElement | null>(null);
-  // Export blobs are intentionally kept outside React state. They can be large,
-  // and state updates would re-render every preview card for no UI benefit.
-  const exportCacheRef = useRef<Map<string, ExportedImage>>(new Map());
 
   // ── "Unduh Katalog" (multi-page PDF) state ──
   // Catalog export can use either the active on-screen filter or the legacy
@@ -467,14 +452,14 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     }
   }, [availableValues, filterValue]);
 
-  // Compute preview scale once container is in DOM (after loading flips off).
-  // useLayoutEffect runs synchronously before paint, so we never paint at the wrong scale.
+  // The actual brochure DOM remains the preview. Scale the authored 1080px
+  // canvas into the available card width without rasterizing the UI first.
   useLayoutEffect(() => {
     if (loading) return;
-    function recompute() {
-      const w = previewContainerRef.current?.clientWidth;
-      if (w && w > 0) setPreviewScale(w / BROCHURE_W);
-    }
+    const recompute = () => {
+      const width = previewContainerRef.current?.clientWidth;
+      if (width && width > 0) setPreviewScale(width / BROCHURE_W);
+    };
     recompute();
     window.addEventListener('resize', recompute);
     return () => window.removeEventListener('resize', recompute);
@@ -521,16 +506,6 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
-
-  useEffect(() => {
-    if (loading || !months.length) return;
-    const timer = window.setTimeout(() => {
-      getEmbeddedBrochureFontCss().catch(err => {
-        console.warn('[brosur] font prewarm failed:', err);
-      });
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [loading, months.length]);
 
   // Resolve the current filter into:
   //   - filterLabel: human-readable subtitle that ends up on the brochure title row
@@ -705,24 +680,26 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     }
   }
 
-  function rememberExport(pageKey: string, image: ExportedImage) {
-    const cache = exportCacheRef.current;
-    cache.set(pageKey, image);
-    while (cache.size > EXPORT_CACHE_LIMIT) {
-      const oldest = cache.keys().next().value;
-      if (!oldest) break;
-      cache.delete(oldest);
-    }
-  }
-
   async function waitForImages(target: HTMLElement) {
     const images = Array.from(target.querySelectorAll('img'));
-    await Promise.all(images.map(img => {
-      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+    await Promise.all(images.map(async img => {
+      if (img.complete) {
+        try { await img.decode?.(); } catch { /* broken image is handled by the template fallback */ }
+        return;
+      }
       return new Promise<void>(resolve => {
-        const done = () => resolve();
-        img.addEventListener('load', done, { once: true });
-        img.addEventListener('error', done, { once: true });
+        let settled = false;
+        const done = () => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          img.removeEventListener('load', done);
+          img.removeEventListener('error', done);
+          resolve();
+        };
+        const timer = window.setTimeout(done, 10_000);
+        img.addEventListener('load', done);
+        img.addEventListener('error', done);
       });
     }));
   }
@@ -757,70 +734,34 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     });
   }
 
-  // Rasterize a single full-size brochure node to a canvas. Shared by the
-  // per-image export (captureBlob) and the catalog PDF builder so both go
-  // through the exact same font/image-wait + blank-detection + retry path.
+  // Rasterize the same full-size DOM node used by the live preview. Fonts are
+  // embedded from deterministic local sources before the SVG is painted.
   async function captureCanvasFromElement(target: HTMLElement, scale: number = EXPORT_SCALE): Promise<HTMLCanvasElement> {
     await waitForFonts();
     await waitForImages(target);
     await waitForNextPaint();
     await waitForNextPaint();
 
-    const { domToCanvas } = await import('modern-screenshot');
-    let fontCss = '';
-    try {
-      fontCss = await getEmbeddedBrochureFontCss();
-    } catch (err) {
-      console.warn('[brosur] embedded font css failed:', err);
-      fontCss = Array.from(target.querySelectorAll('style'))
-        .map(style => style.textContent || '')
-        .filter(Boolean)
-        .join('\n');
-    }
-    const captureOptions: ModernScreenshotOptions = {
-      scale,
+    const { canvas, attempts, converged } = await captureStableDom(target, {
       width: BROCHURE_W,
       height: BROCHURE_H,
-      type: EXPORT_MIME,
-      quality: EXPORT_QUALITY,
+      scale,
       backgroundColor: '#FFFFFF',
-      font: {
-        cssText: fontCss,
-        preferredFormat: 'woff2',
-      },
-      timeout: 15_000,
-      fetch: {
-        requestInit: { cache: 'force-cache' },
-      },
-      features: {
-        copyScrollbar: false,
-        removeAbnormalAttributes: true,
-        removeControlCharacter: true,
-        fixSvgXmlDecode: true,
-      },
-    };
-    let lastError: unknown = null;
-
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const canvas = await domToCanvas(target, captureOptions);
-        if (canvas.width !== BROCHURE_W * scale || canvas.height !== BROCHURE_H * scale) {
-          console.warn('[brosur] unexpected canvas size:', canvas.width, canvas.height);
-        }
-        if (isMostlyBlank(canvas)) {
-          throw new Error('blank-export');
-        }
-        return canvas;
-      } catch (err) {
-        lastError = err;
-        console.warn(`[brosur] capture attempt ${attempt + 1} failed:`, err);
-        await waitForFonts();
-        await waitForImages(target);
-        await waitForNextPaint();
-      }
+      localFonts: BROCHURE_LOCAL_FONTS,
+      // Every brochure font has a TTF source for SVG rasterization, including
+      // Playfair. A single prepared capture is therefore deterministic and
+      // keeps export readiness responsive on Safari.
+      maxAttempts: 1,
+      minimumAttempts: 1,
+    });
+    const expectedW = Math.round(BROCHURE_W * scale);
+    const expectedH = Math.round(BROCHURE_H * scale);
+    if (canvas.width !== expectedW || canvas.height !== expectedH) {
+      throw new Error(`unexpected-canvas-size:${canvas.width}x${canvas.height}`);
     }
-
-    throw lastError ?? new Error('capture-failed');
+    if (isMostlyBlank(canvas)) throw new Error('blank-export');
+    if (!converged) console.warn(`[brosur] renderer did not converge after ${attempts} attempts; canonical bitmap retained`);
+    return canvas;
   }
 
   async function captureBlob(pageIndex: number): Promise<ExportedImage | null> {
@@ -833,13 +774,8 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
 
   async function buildPromptReferenceFile(pageIndex: number): Promise<File | null> {
     if (!exportLabel) return null;
-    const page = activeImagePages[pageIndex];
-    if (!page) return null;
-
-    const cached = exportCacheRef.current.get(page.key);
-    const image = cached || await captureBlob(pageIndex);
+    const image = canonicalImageAt(pageIndex);
     if (!image) return null;
-    if (!cached) rememberExport(page.key, image);
 
     const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext);
     return new File([image.blob], filename, { type: image.mime });
@@ -903,7 +839,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     setCatalogProgress({ done: 0, total });
 
     // Render the current catalogStage into the off-screen node, then capture it.
-    // flushSync guarantees the DOM is committed before modern-screenshot reads it.
+    // flushSync guarantees the DOM is committed before the canonical renderer reads it.
     const renderAndCapture = async (stage: CatalogStage): Promise<HTMLCanvasElement> => {
       flushSync(() => setCatalogStage(stage));
       const el = catalogStageRef.current;
@@ -970,22 +906,83 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   }
 
   const pageKeys = activeImagePages.map(p => p.key).join('|');
+  // Tie every prepared export to the exact input that produced it. This keeps
+  // a previous filter/design Blob from being downloadable after the live
+  // preview has already changed.
+  const canonicalRenderKey = useMemo(() => JSON.stringify({
+    pages: activeImagePages,
+    designId,
+    displayMode,
+    showFullDate,
+    brochureVariant,
+    agent,
+  }), [activeImagePages, designId, displayMode, showFullDate, brochureVariant, agent]);
+  const previewReady = previewScale > 0;
+
+  function canonicalImageAt(pageIndex: number): ExportedImage | null {
+    const preview = canonicalPreviews[pageIndex];
+    return preview?.renderKey === canonicalRenderKey ? preview.image : null;
+  }
+
   useEffect(() => {
-    const valid = new Set(activeImagePages.map(p => p.key));
-    for (const key of exportCacheRef.current.keys()) {
-      if (!valid.has(key)) {
-        exportCacheRef.current.delete(key);
-      }
-    }
     exportPageRefs.current = exportPageRefs.current.slice(0, activeImagePages.length);
   }, [pageKeys, activeImagePages]);
 
-  // HARI/SEAT switch dan ganti desain mengubah render brosur, sedangkan cache
-  // export hanya di-key page.key — drop agar download/share berikutnya
-  // re-capture sesuai mode + desain aktif.
+  // Prepare one JPEG for every visible page in the background. The live DOM
+  // remains visible immediately; download/share then reuse this Blob byte-for-
+  // byte instead of triggering a second, potentially different capture.
   useEffect(() => {
-    exportCacheRef.current.clear();
-  }, [displayMode, designId]);
+    const generation = ++previewGenerationRef.current;
+    let cancelled = false;
+
+    if (loading || !previewReady || activeImagePages.length === 0) {
+      setCanonicalPreviews([]);
+      setPreviewErrors([]);
+      return () => { cancelled = true; };
+    }
+
+    setCanonicalPreviews(Array.from({ length: activeImagePages.length }, () => null));
+    setPreviewErrors(Array.from({ length: activeImagePages.length }, () => null));
+
+    (async () => {
+      // Let the live preview DOM commit the newly selected design first.
+      await waitForNextPaint();
+      await waitForNextPaint();
+
+      for (let pageIndex = 0; pageIndex < activeImagePages.length; pageIndex++) {
+        if (cancelled || previewGenerationRef.current !== generation) break;
+        try {
+          const image = await captureBlob(pageIndex);
+          if (!image) throw new Error('capture-target-not-ready');
+          if (cancelled || previewGenerationRef.current !== generation) break;
+          setCanonicalPreviews(current => {
+            if (previewGenerationRef.current !== generation) return current;
+            const next = [...current];
+            next[pageIndex] = { image, renderKey: canonicalRenderKey };
+            return next;
+          });
+        } catch (captureError) {
+          if (cancelled || previewGenerationRef.current !== generation) break;
+          console.error(`[brosur] export preparation ${pageIndex + 1} failed:`, captureError);
+          setPreviewErrors(current => {
+            const next = [...current];
+            next[pageIndex] = { message: errMsg(captureError), renderKey: canonicalRenderKey };
+            return next;
+          });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    loading,
+    previewReady,
+    activeImagePages,
+    canonicalRenderKey,
+    previewRetryNonce,
+  ]);
 
   // Surface the underlying error in the toast so iPhone users — who can't open
   // a console — still have a starting point for diagnosis. Truncate to keep
@@ -995,105 +992,48 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     return raw.length > 90 ? raw.slice(0, 87) + '…' : raw;
   }
 
-  function isShareActivationError(e: unknown): boolean {
-    const err = e as { name?: string; message?: string } | null;
-    const text = `${err?.name || ''} ${err?.message || ''}`;
-    return /NotAllowedError|user activation|user gesture|permission/i.test(text);
-  }
-
   function handleDownload(pageIndex: number) {
     if (!exportLabel) return;
-    const page = activeImagePages[pageIndex];
-    if (!page) return;
-    const cached = exportCacheRef.current.get(page.key);
-    if (cached) {
-      // Cache hit — fire download immediately, no await between click & action.
-      downloadBlob(cached.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, cached.ext));
+    const image = canonicalImageAt(pageIndex);
+    if (!image) {
+      showToast('File ekspor masih disiapkan, coba lagi sebentar');
       return;
     }
-    // Cache miss — capture inline and download. Spinner shown during wait.
-    setBusy({ kind: 'download', pageIndex });
-    (async () => {
-      try {
-        const image = await captureBlob(pageIndex);
-        if (!image) throw new Error('capture-failed');
-        rememberExport(page.key, image);
-        downloadBlob(image.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext));
-      } catch (e) {
-        console.error('[brosur] download failed:', e);
-        showToast(`Gagal generate gambar: ${errMsg(e)}`);
-      } finally {
-        setBusy(null);
-      }
-    })();
+    downloadBlob(image.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext));
   }
 
-  // Synchronous when cached. iOS Safari requires navigator.share() to be called
-  // inside the click's user-activation window; if the first capture misses that
-  // window, we keep the blob so the next Share tap can open the sheet instantly.
+  // The background export is already a Blob, so navigator.share remains inside
+  // the original user-activation window on iOS.
   function handleShare(pageIndex: number) {
     if (!exportLabel) return;
-    const page = activeImagePages[pageIndex];
-    if (!page) return;
-    const cached = exportCacheRef.current.get(page.key);
-
-    if (cached) {
-      const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, cached.ext);
-      const file = new File([cached.blob], filename, { type: cached.mime });
-      if (canShareFiles([file])) {
-        // Fire-and-forget within the click handler. No await above this line.
-        navigator.share({
-          files: [file],
-          title: `Brosur Paket Umroh ${exportLabel}`,
-          text: `Paket Umroh ${exportLabel} dari ${agent.name || 'Alhijaz'}`,
-        }).catch((err: any) => {
-          if (err?.name === 'AbortError') return; // user cancelled — silent
-          console.error('[brosur] share failed:', err);
-          showToast(`Gagal share: ${errMsg(err)}`);
-        });
-      } else {
-        downloadBlob(cached.blob, filename);
-        showToast(`Share tidak didukung, ${cached.ext.toUpperCase()} diunduh`);
-      }
+    const image = canonicalImageAt(pageIndex);
+    if (!image) {
+      showToast('File ekspor masih disiapkan, coba lagi sebentar');
       return;
     }
-
-    // Cache miss — capture inline. iOS will likely lose user activation here
-    // and surface NotAllowedError; we report it instead of silently swallowing.
+    const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext);
+    const file = new File([image.blob], filename, { type: image.mime });
+    if (!canShareFiles([file])) {
+      downloadBlob(image.blob, filename);
+      showToast(`Share tidak didukung, ${image.ext.toUpperCase()} diunduh`);
+      return;
+    }
     setBusy({ kind: 'share', pageIndex });
-    (async () => {
-      try {
-        const image = await captureBlob(pageIndex);
-        if (!image) throw new Error('capture-failed');
-        rememberExport(page.key, image);
-        const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext);
-        const file = new File([image.blob], filename, { type: image.mime });
-        if (canShareFiles([file])) {
-          try {
-            await navigator.share({
-              files: [file],
-              title: `Brosur Paket Umroh ${exportLabel}`,
-              text: `Paket Umroh ${exportLabel} dari ${agent.name || 'Alhijaz'}`,
-            });
-          } catch (err: any) {
-            if (err?.name === 'AbortError') return;
-            if (isShareActivationError(err)) {
-              showToast('Gambar siap, klik Share sekali lagi');
-              return;
-            }
-            throw err;
-          }
-        } else {
-          downloadBlob(image.blob, filename);
-          showToast(`Share tidak didukung, ${image.ext.toUpperCase()} diunduh`);
-        }
-      } catch (e) {
-        console.error('[brosur] share failed:', e);
-        showToast(`Gagal share: ${errMsg(e)}`);
-      } finally {
-        setBusy(null);
-      }
-    })();
+    try {
+      navigator.share({
+        files: [file],
+        title: `Brosur Paket Umroh ${exportLabel}`,
+        text: `Paket Umroh ${exportLabel} dari ${agent.name || 'Alhijaz'}`,
+      }).catch((shareError: any) => {
+        if (shareError?.name === 'AbortError') return;
+        console.error('[brosur] share failed:', shareError);
+        showToast(`Gagal share: ${errMsg(shareError)}`);
+      }).finally(() => setBusy(null));
+    } catch (shareError) {
+      setBusy(null);
+      console.error('[brosur] share failed:', shareError);
+      showToast(`Gagal share: ${errMsg(shareError)}`);
+    }
   }
 
   // ── Loading: skeleton placeholder ───────────────────────────────
@@ -1149,7 +1089,6 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     );
   }
 
-  const previewReady = previewScale > 0;
   const hasResults = filteredPackages.length > 0;
   const activeFilterCatalogBusy = catalogBusy && catalogMode === 'active-filter';
   const allReadyCatalogBusy = catalogBusy && catalogMode === 'all-ready';
@@ -1328,10 +1267,14 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                 Coba pilih nilai lain atau ganti dimensi filter.
               </p>
             </div>
-          ) : previewReady ? (
+          ) : (
             activeImagePages.map((page, index) => {
+              const previewCandidate = canonicalPreviews[index];
+              const errorCandidate = previewErrors[index];
+              const canonicalPreview = previewCandidate?.renderKey === canonicalRenderKey ? previewCandidate : null;
+              const previewError = errorCandidate?.renderKey === canonicalRenderKey ? errorCandidate.message : null;
+              const previewAvailable = !!canonicalPreview;
               const shareBusy = busy?.kind === 'share' && busy.pageIndex === index;
-              const downloadBusy = busy?.kind === 'download' && busy.pageIndex === index;
               const saveMenuOpen = saveMenuPageIndex === index;
 
               return (
@@ -1362,9 +1305,29 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                         transformOrigin: 'top left',
                       }}
                     >
-                      <DesignTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} displayMode={displayMode} />
+                      <div
+                        ref={(node) => { exportPageRefs.current[index] = node; }}
+                        data-brochure-preview-page={index}
+                        data-brochure-design={designId}
+                        style={{ width: BROCHURE_W, height: BROCHURE_H }}
+                      >
+                        <DesignTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} displayMode={displayMode} />
+                      </div>
                     </div>
                   </div>
+
+                  {previewError && (
+                    <div className="flex items-center justify-between gap-3 border-t border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                      <span>File ekspor belum siap.</span>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewRetryNonce(value => value + 1)}
+                        className="shrink-0 font-bold underline underline-offset-2"
+                      >
+                        Coba lagi
+                      </button>
+                    </div>
+                  )}
 
                   <div
                     style={{
@@ -1377,7 +1340,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                       <button
                         type="button"
                         onClick={() => setPromptPageIndex(index)}
-                        disabled={busy !== null || catalogBusy}
+                        disabled={!previewAvailable || busy !== null || catalogBusy}
                         className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700/70 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
                       >
                         <Wand2 size={16} />
@@ -1398,7 +1361,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                                 setSaveMenuPageIndex(null);
                                 handleShare(index);
                               }}
-                              disabled={busy !== null || catalogBusy}
+                              disabled={!previewAvailable || busy !== null || catalogBusy}
                               className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
                             >
                               {shareBusy ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" /> : <Share2 size={16} className="text-emerald-600 dark:text-emerald-400" />}
@@ -1411,22 +1374,26 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                                 setSaveMenuPageIndex(null);
                                 handleDownload(index);
                               }}
-                              disabled={busy !== null || catalogBusy}
+                              disabled={!previewAvailable || busy !== null || catalogBusy}
                               className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
                             >
-                              {downloadBusy ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" /> : <Download size={16} className="text-emerald-600 dark:text-emerald-400" />}
+                              {!previewAvailable && !previewError
+                                ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" />
+                                : <Download size={16} className="text-emerald-600 dark:text-emerald-400" />}
                               <span>Download</span>
                             </button>
                           </div>
                           <button
                             type="button"
                             onClick={() => setSaveMenuPageIndex(saveMenuOpen ? null : index)}
-                            disabled={busy !== null || catalogBusy}
+                            disabled={!previewAvailable || busy !== null || catalogBusy}
                             aria-haspopup="menu"
                             aria-expanded={saveMenuOpen}
                             className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
                           >
-                            {(shareBusy || downloadBusy) ? <Loader2 size={17} className="animate-spin" /> : <Download size={17} />}
+                            {(shareBusy || (!previewAvailable && !previewError))
+                              ? <Loader2 size={17} className="animate-spin" />
+                              : <Download size={17} />}
                             <span>Simpan</span>
                             <ChevronDown size={15} className={`transition-transform duration-200 ${saveMenuOpen ? 'rotate-180' : ''}`} />
                           </button>
@@ -1434,10 +1401,12 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                       ) : (
                         <button
                           onClick={() => handleDownload(index)}
-                          disabled={busy !== null || catalogBusy}
+                          disabled={!previewAvailable || busy !== null || catalogBusy}
                           className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
                         >
-                          {downloadBusy ? <Loader2 size={17} className="animate-spin" /> : <Download size={17} />}
+                          {!previewAvailable && !previewError
+                            ? <Loader2 size={17} className="animate-spin" />
+                            : <Download size={17} />}
                           <span>Download</span>
                         </button>
                       )}
@@ -1446,8 +1415,6 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                 </div>
               );
             })
-          ) : (
-            <BrochureSkeleton />
           )}
         </div>
       </div>
@@ -1471,28 +1438,6 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         context="schedule"
         title={promptPage && promptPageIndex !== null ? titleForPromptPage(promptPageIndex) : 'Brosur Paket Umroh'}
       />
-
-      {/* Off-screen full-size export node. Keep it rendered, not transparent, so export matches preview. */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          left: -(BROCHURE_W + 80),
-          top: 0,
-          width: BROCHURE_W,
-          pointerEvents: 'none',
-        }}
-      >
-        {activeImagePages.map((page, index) => (
-          <div
-            key={page.key}
-            ref={(node) => { exportPageRefs.current[index] = node; }}
-            style={{ width: BROCHURE_W, height: BROCHURE_H }}
-          >
-            <DesignTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} displayMode={displayMode} />
-          </div>
-        ))}
-      </div>
 
       {/* Off-screen catalog stage — exactly one page (cover or month) is mounted
           here at a time during PDF export, keeping peak memory to a single canvas. */}
