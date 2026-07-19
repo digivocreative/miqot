@@ -83,6 +83,10 @@ test('pesan kosong profil memakai feedPosts, bukan posts mentah (review fix Task
   // kunjungan profil berikutnya. posts.length===0 di sini akan salah anggap
   // sisa itu sebagai "ada kiriman" dan menampilkan pesan kosong feed umum,
   // bukan pesan kosong profil — harus feedPosts (yang sudah difilter).
-  assert.match(page, /profileSlug && !loading && !error && feedPosts\.length === 0 \? \(/);
-  assert.doesNotMatch(page, /profileSlug && !loading && !error && posts\.length === 0/);
+  // Cabang ini sudah berada di dalam `!loading && !error && feedPosts.length
+  // === 0`, jadi konjungsi itu diulang percuma; yang penting pembeda profil
+  // dipilih SETELAH feedPosts (bukan posts mentah) dinyatakan kosong.
+  assert.match(page, /\) : feedPosts\.length === 0 \? \([\s\S]{0,400}?profileSlug \? \(/);
+  assert.doesNotMatch(page, /\) : posts\.length === 0 \? \(/);
+  assert.doesNotMatch(page, /profileSlug && !loading && !error && feedPosts\.length === 0/);
 });

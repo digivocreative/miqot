@@ -8,6 +8,19 @@
 
 const MAX_RETRY = 2;
 
+// Inisial untuk avatar fallback (dipakai AgentAvatar di TerasPage dan header
+// profil Teras) — satu implementasi supaya keduanya tidak pernah berbeda.
+export function getAgentInitials(name: string | null | undefined): string {
+  return String(name || 'Agent')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(word => word.charAt(0))
+    .join('')
+    .toUpperCase() || 'A';
+}
+
 export function handleAgentPhotoError(
   img: HTMLImageElement,
   name: string | null | undefined,

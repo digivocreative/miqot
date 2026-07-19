@@ -16,6 +16,7 @@ const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 // Accessible name of the feed "buat kiriman" trigger — absent entirely in
 // profile mode (see the `!profileSlug` guard around the composer trigger).
 const COMPOSER_TRIGGER = 'Buat kiriman baru';
+const COMPOSER_PLACEHOLDER = 'Apa yang ingin dibagikan?';
 
 let viteServer;
 let browser;
@@ -84,11 +85,21 @@ function createProfileApi({
   members = [],
   generalPosts = [],
   profilePosts = {},
+  // Identitas halaman profil bergantung pada /members. `membersDelayMs`
+  // menahan responsnya (untuk menguji skeleton), `membersFail` membuatnya
+  // gagal seperti di lapangan (jaringan putus / 5xx) — catch-nya diam.
+  membersDelayMs = 0,
+  membersFail = false,
+  agent = makeAgent(),
 } = {}) {
   const api = {
     members: clone(members),
     generalPosts: clone(generalPosts),
     profilePosts: clone(profilePosts),
+    membersDelayMs,
+    membersFail,
+    agent: clone(agent),
+    createSequence: 0,
     requests: [],
   };
 
@@ -103,7 +114,30 @@ function createProfileApi({
     api.requests.push(record);
 
     if (record.method === 'GET' && record.pathname === '/api/community/members') {
+      if (api.membersDelayMs) {
+        await new Promise(resolve => setTimeout(resolve, api.membersDelayMs));
+      }
+      if (api.membersFail) {
+        await responseJson(route, { success: false, error: 'Gagal memuat anggota' }, 500);
+        return;
+      }
       await responseJson(route, { success: true, data: clone(api.members) });
+      return;
+    }
+
+    if (record.method === 'POST' && record.pathname === '/api/community/posts') {
+      api.createSequence += 1;
+      // Sengaja TIDAK dimasukkan ke generalPosts: post ini tetap "pending"
+      // (belum pernah dikonfirmasi respons feed) persis seperti sesaat setelah
+      // membuat kiriman di lapangan.
+      const created = makePost({
+        id: `created-${api.createSequence}`,
+        body: JSON.parse(request.postData() || '{}').body || '',
+        created_at: new Date(Date.parse('2026-07-18T09:00:00.000Z') + api.createSequence * 1000).toISOString(),
+        author: { name: api.agent.name, slug: api.agent.slug, photo: api.agent.photo },
+        is_own: true,
+      });
+      await responseJson(route, { success: true, data: clone(created) });
       return;
     }
 
@@ -277,6 +311,134 @@ describe('Teras profile browser contracts', { concurrency: false }, () => {
         '?agent=nila',
         'permintaan feed terakhir harus discope ke agent=nila',
       );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('a just-created post of your own never leaks onto another agent\'s profile (regression: pendingCreatedPostsRef)', { timeout: 45_000 }, async () => {
+    const api = createProfileApi({
+      members: [
+        { slug: 'nila', name: 'Nila Test', photo: null, phone: '628123456789' },
+      ],
+      generalPosts: [
+        makePost({ id: 'mention-post', body: 'halo @nila' }),
+      ],
+      // Nila belum menulis apa pun — profilnya harus kosong.
+      profilePosts: { nila: [] },
+    });
+    const app = await openApp({ api });
+    try {
+      // Buat kiriman sendiri. Respons feed umum tidak pernah memuatnya, jadi
+      // entri pendingCreatedPostsRef tetap hidup lintas navigasi.
+      await app.page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }).click();
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Kiriman saya sendiri');
+      await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
+      await dialog.waitFor({ state: 'detached', timeout: 10_000 });
+      await app.page.getByText('Kiriman saya sendiri', { exact: true }).waitFor();
+
+      await app.page.getByRole('link', { name: '@Nila Test', exact: true }).click();
+      await app.page.waitForFunction(() => window.location.pathname === '/teras/nila');
+
+      // Profil Nila kosong: empty state profil harus muncul, dan kiriman kita
+      // tidak boleh nongol di sana.
+      await app.page.getByText('Belum ada kiriman', { exact: true }).waitFor();
+      assert.equal(
+        await app.page.getByText('Kiriman saya sendiri', { exact: true }).count(),
+        0,
+        'kiriman pending milik sendiri tidak boleh muncul di profil agent lain',
+      );
+
+      // …dan tetap tidak muncul setelah keluar-masuk profil lagi.
+      await app.page.goBack();
+      await app.page.getByText('Kiriman saya sendiri', { exact: true }).waitFor();
+      await app.page.getByRole('link', { name: '@Nila Test', exact: true }).click();
+      await app.page.waitForFunction(() => window.location.pathname === '/teras/nila');
+      await app.page.getByText('Belum ada kiriman', { exact: true }).waitFor();
+      assert.equal(
+        await app.page.getByText('Kiriman saya sendiri', { exact: true }).count(),
+        0,
+        'kiriman pending tetap tidak boleh bocor setelah navigasi berulang',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('profile identity survives a slow or failing /members: skeleton first, then a slug-only header', { timeout: 45_000 }, async () => {
+    const api = createProfileApi({
+      members: [
+        { slug: 'nila', name: 'Nila Test', photo: null, phone: '628123456789' },
+      ],
+      membersDelayMs: 2000,
+      profilePosts: {
+        nila: [makePost({
+          id: 'nila-post-1',
+          body: 'Kiriman milik Nila',
+          author: { name: 'Nila Test', slug: 'nila', photo: null },
+        })],
+      },
+    });
+    const app = await openApp({ path: '/teras/nila', api, waitForTeras: false });
+    try {
+      // Selama roster masih jalan: skeleton identitas, bukan header kosong.
+      await app.page.locator('[data-teras-profile-header-skeleton]').waitFor({ timeout: 10_000 });
+      assert.equal(await app.page.locator('[data-teras-profile-header]').count(), 0);
+
+      // Setelah roster tiba: header asli dengan nama anggota.
+      await app.page.locator('[data-teras-profile-header]').waitFor({ timeout: 15_000 });
+      await app.page.getByText('Nila Test', { exact: true }).first().waitFor();
+      assert.equal(await app.page.locator('[data-teras-profile-header-skeleton]').count(), 0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('a failing /members still leaves the profile with an identity (slug header + document.title)', { timeout: 45_000 }, async () => {
+    const api = createProfileApi({
+      membersFail: true,
+      profilePosts: {
+        nila: [makePost({
+          id: 'nila-post-1',
+          body: 'Kiriman milik Nila',
+          author: { name: 'Nila Test', slug: 'nila', photo: null },
+        })],
+      },
+    });
+    const app = await openApp({ path: '/teras/nila', api, waitForTeras: false });
+    try {
+      const header = app.page.locator('[data-teras-profile-header]');
+      await header.waitFor({ timeout: 15_000 });
+      assert.match(await header.innerText(), /@nila/);
+      assert.equal(
+        await app.page.locator('[data-teras-profile-header-skeleton]').count(),
+        0,
+        'skeleton tidak boleh menggantung selamanya saat roster gagal',
+      );
+      // Tanpa nomor yang bisa dinormalisasi, tombol WhatsApp disembunyikan.
+      assert.equal(await app.page.locator('a[href^="https://wa.me/"]').count(), 0);
+      await app.page.waitForFunction(() => document.title === 'nila — Teras', null, { timeout: 10_000 });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('a WhatsApp number stored in raw local form still produces a working wa.me link', { timeout: 45_000 }, async () => {
+    const api = createProfileApi({
+      members: [
+        // Hanya /api/auth/register yang menormalisasi nomor; update profil/admin
+        // menyimpan apa adanya, jadi bentuk seperti ini benar-benar ada di DB.
+        { slug: 'nila', name: 'Nila Test', photo: null, phone: '0812-3456-7890' },
+      ],
+      profilePosts: { nila: [] },
+    });
+    const app = await openApp({ path: '/teras/nila', api, waitForTeras: false });
+    try {
+      const waLink = app.page.locator('a[href^="https://wa.me/"]');
+      await waLink.waitFor({ timeout: 15_000 });
+      assert.equal(await waLink.getAttribute('href'), 'https://wa.me/6281234567890');
     } finally {
       await app.close();
     }
