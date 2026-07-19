@@ -1129,6 +1129,11 @@ export default function TerasPage({
   const [composerLinkLoading, setComposerLinkLoading] = useState(false);
   const [composerDismissedUrl, setComposerDismissedUrl] = useState<string | null>(null);
   const linkPreviewControllerRef = useRef<AbortController | null>(null);
+  // URL yang sudah dicoba dan diketahui tidak punya preview (data: null) atau
+  // gagal diambil (bukan abort) — ref, bukan state, supaya tidak memicu ulang
+  // efek deteksi di bawah. Dicek sebelum fetch supaya edit lain di body tidak
+  // memicu fetch berulang + skeleton berkedip untuk URL yang sama.
+  const noPreviewUrlsRef = useRef<Set<string>>(new Set());
 
   const [mentionMembers, setMentionMembers] = useState<MentionMember[]>([]);
   // One popover at a time. context = 'composer' or a postId (comment bar).
@@ -1726,6 +1731,7 @@ export default function TerasPage({
     setComposerLinkLoading(false);
     setComposerDismissedUrl(null);
     linkPreviewControllerRef.current?.abort();
+    noPreviewUrlsRef.current.clear();
     composerRequestIdRef.current = null;
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
@@ -1819,6 +1825,8 @@ export default function TerasPage({
   // ADA di deps supaya efek bereaksi setelah fetch selesai, tapi itu tidak berputar
   // tanpa henti: begitu preview tersimpan, run berikutnya langsung match di cabang
   // dedupe (composerLinkPreview.url === url) dan berhenti tanpa setState lagi.
+  // noPreviewUrlsRef sengaja berupa ref (bukan state) supaya menandai "sudah
+  // dicoba, tidak ada preview" tidak ikut memicu efek ini lagi.
   useEffect(() => {
     if (!composerOpen) return;
     // Prioritas: bila ada media atau quote, jangan tampilkan preview.
@@ -1833,7 +1841,18 @@ export default function TerasPage({
       setComposerLinkLoading(false);
       return;
     }
-    if (composerLinkPreview && composerLinkPreview.url === url) return; // sudah diambil
+    if (composerLinkPreview && composerLinkPreview.url === url) return; // sudah diambil, jangan fetch ulang
+    // URL berbeda dari preview yang sedang tampil (atau belum pernah diambil) —
+    // buang kartu lama dulu supaya tidak menampilkan preview basi (punya URL
+    // lain) selama debounce/fetch berjalan, dan supaya skeleton bisa muncul.
+    if (composerLinkPreview) setComposerLinkPreview(null);
+    if (noPreviewUrlsRef.current.has(url)) {
+      // Sudah pernah dicoba untuk URL ini dan hasilnya tidak ada preview (atau
+      // gagal) — jangan fetch ulang setiap kali body berubah, jangan tampilkan
+      // skeleton (mencegah skeleton berkedip terus tanpa hasil).
+      setComposerLinkLoading(false);
+      return;
+    }
     let cancelled = false;
     setComposerLinkLoading(true);
     const timer = window.setTimeout(async () => {
@@ -1847,15 +1866,26 @@ export default function TerasPage({
           'Gagal memuat pratinjau tautan',
         );
         if (cancelled) return;
-        setComposerLinkPreview(result.data ?? null);
+        const preview = result.data ?? null;
+        if (!preview) noPreviewUrlsRef.current.add(url);
+        setComposerLinkPreview(preview);
       } catch (previewError) {
         if (previewError instanceof Error && previewError.name === 'AbortError') return;
-        if (!cancelled) setComposerLinkPreview(null);
+        if (!cancelled) {
+          // Kegagalan nyata (bukan abort) dianggap "tidak ada preview" supaya
+          // tidak retry loop pada tiap keystroke selama sisa sesi compose.
+          noPreviewUrlsRef.current.add(url);
+          setComposerLinkPreview(null);
+        }
       } finally {
         if (!cancelled) setComposerLinkLoading(false);
       }
     }, 600);
-    return () => { cancelled = true; window.clearTimeout(timer); };
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      linkPreviewControllerRef.current?.abort();
+    };
   }, [composerBody, composerOpen, composerMedia.length, composerQuote, composerDismissedUrl, composerLinkPreview]);
 
   const openComposer = (openPhotoPicker = false) => {
@@ -2920,6 +2950,9 @@ export default function TerasPage({
                   )}
                   {composerLinkPreview && composerMedia.length === 0 && !composerQuote && (
                     <div className="relative">
+                      {/* Tanpa gambar, sudut kanan-atas kartu berisi teks (domain/judul) —
+                          sediakan baris kosong di atas kartu supaya tombol ✕ tidak menimpa teks. */}
+                      {!composerLinkPreview.image && <div aria-hidden="true" className="h-8" />}
                       <LinkPreviewCard preview={composerLinkPreview} />
                       <button
                         type="button"
@@ -2928,7 +2961,9 @@ export default function TerasPage({
                           setComposerDismissedUrl(composerLinkPreview.url);
                           setComposerLinkPreview(null);
                         }}
-                        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                        className={composerLinkPreview.image
+                          ? 'absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80'
+                          : 'absolute right-2 top-0.5 flex h-7 w-7 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300'}
                       >
                         <X size={14} />
                       </button>
