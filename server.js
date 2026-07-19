@@ -3997,7 +3997,7 @@ async function loadCommunityMembers() {
   const slugs = communityMemberSlugs();
   const { data, error } = await supabase
     .from('agents')
-    .select('id, slug, name, photo, telegram_chat_id, notification_prefs')
+    .select('id, slug, name, photo, phone, telegram_chat_id, notification_prefs')
     .in('slug', slugs);
   if (error) {
     console.error('[community] load members error:', error.message);
@@ -4694,7 +4694,7 @@ app.get('/api/community/members', dbLoadShedGuard, authMiddleware, async (req, r
     const members = await loadCommunityMembers();
     const data = members
       .filter(m => m.slug && m.name)
-      .map(m => ({ slug: m.slug, name: m.name, photo: m.photo || null }));
+      .map(m => ({ slug: m.slug, name: m.name, photo: m.photo || null, phone: m.phone || null }));
     res.json({ success: true, data });
   } catch (err) {
     console.error('[community] members error:', err);
@@ -4816,11 +4816,27 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       return res.status(400).json({ error: 'Cursor feed tidak valid' });
     }
 
+    // Mode profil: /teras/<slug> memakai feed yang sama, difilter satu agent.
+    const profileSlug = typeof req.query.agent === 'string'
+      ? req.query.agent.trim().toLowerCase()
+      : '';
+    let profileMember = null;
+    if (profileSlug) {
+      const members = await loadCommunityMembers();
+      profileMember = members.find(m => String(m.slug || '').toLowerCase() === profileSlug) || null;
+      if (!profileMember) {
+        return res.status(404).json({ error: 'Agent tidak ditemukan di Teras' });
+      }
+    }
+
     const buildPostsQuery = (includeMedia, includeQuote) => {
       let query = supabase
         .from('community_posts')
         .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .is('deleted_at', null);
+      if (profileMember) {
+        query = query.eq('agent_id', profileMember.id);
+      }
       if (before?.postId) {
         query = query.or(
           `created_at.lt.${before.createdAt},and(created_at.eq.${before.createdAt},id.lt.${before.postId})`,
