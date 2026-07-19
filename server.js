@@ -24,6 +24,7 @@ import { buildBerangkatMendatang, computeUmrohKomisi } from './lib/laporan-stats
 import { collapseBookingOutstanding } from './lib/booking-outstanding.js';
 import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate, sendOpsAlert } from './telegram-notifier.js';
 import { createResendInboundHandler, RESERVED_EMAIL_LOCAL_PARTS, ALIAS_DOMAIN } from './email-alias.js';
+import { isReservedAgentSlug } from './lib/agent-slug.js';
 import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { handleCardExport } from './lib/card-export.js';
 import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCacheableHtmlDocument, JAMAAH_DOCUMENT_TYPES } from './lib/jamaah-document-cache.js';
@@ -60,7 +61,11 @@ import {
   normalizeCalendarJam,
 } from './lib/calendar-jam.js';
 import { requireCommunityAccess, communityMemberSlugs } from './lib/community-access.js';
-import { extractCommunityMentions, COMMUNITY_MENTION_LIMIT } from './lib/community-mentions.js';
+import {
+  extractCommunityMentions,
+  unrecordedMentionRows,
+  COMMUNITY_MENTION_LIMIT,
+} from './lib/community-mentions.js';
 import { isTerasShortCode, communityShortCodeBounds } from './lib/teras-share.js';
 import {
   isBlockedAddress,
@@ -191,7 +196,7 @@ const JAMAAH_UPSERT_BATCH = resolveJamaahUpsertBatch(process.env);
 const JAMAAH_DIFF_COLUMNS = 'id, id_umroh, nama, jk, wa, tgl_lahir, paket, bayar, sisa, tgl_berangkat, tgl_daftar, hijriah_year, synced_at, perlengkapan, dokumen, no_paspor, paspor_expired, capi_last_bayar, notes, notes_updated_at, agent_id, capi_purchase_status, jm_id, diskon_kantor, diskon_marketing';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
-const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'top-partner', 'rahmah-1-juli-2026']);
+const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'top-partner', 'rahmah-1-juli-2026', 'teras']);
 const TOUR_LEADER_PREP_TABLE = 'booking_persiapan';
 const RAHMAH_JULI_PUBLIC_SLUG = 'rahmah-1-juli-2026';
 const RAHMAH_JULI_META_TITLE = 'Kloter 9 | Rahmah 1-9 Juli 2026 | Alhijaz Indowisata';
@@ -2614,7 +2619,6 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Self-registration (public, no auth)
-const RESERVED_SLUGS = ['admin', 'login', 'register', 'dashboard', 'api', 'compare', 'reset-password', 'f'];
 
 app.post('/api/auth/register', async (req, res) => {
   const { slug, name, phone, email, password } = req.body;
@@ -2637,7 +2641,7 @@ app.post('/api/auth/register', async (req, res) => {
   if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(cleanedSlug) && cleanedSlug.length > 1) {
     return res.status(400).json({ error: 'Slug hanya boleh huruf kecil, angka, dan strip (tidak boleh diawali/diakhiri strip)' });
   }
-  if (RESERVED_SLUGS.includes(cleanedSlug) || RESERVED_EMAIL_LOCAL_PARTS.includes(cleanedSlug)) {
+  if (isReservedAgentSlug(cleanedSlug) || RESERVED_EMAIL_LOCAL_PARTS.includes(cleanedSlug)) {
     return res.status(400).json({ error: 'Slug ini tidak tersedia' });
   }
 
@@ -3160,8 +3164,7 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
     if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(cleanSlug) && cleanSlug.length > 1) {
       return res.status(400).json({ error: 'Username hanya boleh huruf kecil, angka, dan strip' });
     }
-    const RESERVED_SLUGS = ['admin', 'login', 'register', 'dashboard', 'api', 'compare', 'reset-password', 'f'];
-    if (RESERVED_SLUGS.includes(cleanSlug) || RESERVED_EMAIL_LOCAL_PARTS.includes(cleanSlug)) {
+    if (isReservedAgentSlug(cleanSlug) || RESERVED_EMAIL_LOCAL_PARTS.includes(cleanSlug)) {
       return res.status(400).json({ error: 'Username ini tidak tersedia' });
     }
 
@@ -4046,26 +4049,45 @@ async function recordCommunityMentions({ body, authorAgent, postId, commentId = 
       }));
     if (!rows.length) return;
 
-    // Idempotent: a retried POST (same client_id) must not duplicate rows.
-    const conflictTarget = commentId
-      ? 'mentioned_agent_id,comment_id'
-      : 'mentioned_agent_id,post_id';
-    const { error } = await supabase
+    // Idempotent: a retried POST (same client_id) must not duplicate rows or
+    // re-notify. This is a read-then-insert rather than an upsert on purpose —
+    // the unique guards are partial indexes (post-level vs comment-level), and
+    // Postgres cannot infer those from an `on_conflict` column list, so an
+    // upsert here fails with 42P10 and no mention is ever recorded.
+    const recordedQuery = supabase
       .from('community_mentions')
-      .upsert(rows, { onConflict: conflictTarget, ignoreDuplicates: true });
+      .select('mentioned_agent_id')
+      .eq('post_id', postId);
+    const { data: recorded, error: recordedError } = await (commentId
+      ? recordedQuery.eq('comment_id', commentId)
+      : recordedQuery.is('comment_id', null));
+    if (recordedError) {
+      if (!isCommunityMentionSchemaMissing(recordedError)) {
+        console.error('[community] read mentions error:', recordedError.message);
+      }
+      return;
+    }
+    const fresh = unrecordedMentionRows(rows, (recorded || []).map(row => row.mentioned_agent_id));
+    if (!fresh.length) return;
+
+    const { error } = await supabase.from('community_mentions').insert(fresh);
     if (error) {
-      if (!isCommunityMentionSchemaMissing(error)) {
+      // 23505: a concurrent request won the race — already recorded, so the
+      // notification is theirs to send, not ours.
+      if (error.code !== '23505' && !isCommunityMentionSchemaMissing(error)) {
         console.error('[community] record mentions error:', error.message);
       }
       return;
     }
 
+    const notified = new Set(fresh.map(row => row.mentioned_agent_id));
     const authorName = authorAgent.name || 'Seseorang';
     const snippet = communityMentionSnippet(body);
     const link = `${communityPublicOrigin()}/dashboard/teras/post/${postId}`;
     for (const slug of slugs) {
       const member = bySlug.get(slug);
-      if (!member?.telegram_chat_id) continue;
+      if (!member || !notified.has(member.id)) continue;
+      if (!member.telegram_chat_id) continue;
       const prefs = member.notification_prefs || {};
       if (prefs.community_mentions === false) continue;
       const text = `🔔 <b>${escapeHtml(authorName)}</b> menyebut kamu di Teras`
@@ -4124,6 +4146,14 @@ function isCommunityQuoteSchemaMissing(error) {
     && /does not exist|could not find|schema cache/i.test(message);
 }
 
+function isCommunityLinkPreviewSchemaMissing(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || error?.details || '');
+  if (!['42703', 'PGRST204'].includes(code)) return false;
+  return /link_preview/i.test(message)
+    && /does not exist|could not find|schema cache/i.test(message);
+}
+
 function communityQuotedPostPayload(row) {
   if (!row || row.deleted_at) return { available: false };
   return {
@@ -4135,6 +4165,14 @@ function communityQuotedPostPayload(row) {
     is_system: !!row.is_system,
     author: communityAuthorProfile(row.agent),
   };
+}
+
+function communityLinkPreviewPayload(row) {
+  if (!row) return null;
+  // Aturan prioritas: media atau quote menang atas link preview.
+  const hasMedia = normalizeStoredCommunityMedia(row.media, row.photo_url).length > 0;
+  if (hasMedia || row.quoted_post_id) return null;
+  return sanitizeLinkPreview(row.link_preview);
 }
 
 function normalizeStoredCommunityMedia(value, photoUrl = null) {
@@ -4405,10 +4443,30 @@ async function loadCommunityTeaserSharedData() {
     if (recentAvatars.length === 3) break;
   }
 
+  // Mentions inside the snippet, so the card can render pills with the member's
+  // current display name. Resolved against the snippet (not the full body) so the
+  // payload matches exactly what the card renders after truncation.
+  let latestSnippet = '';
+  let latestMentions = [];
+  if (latestPost) {
+    latestSnippet = Array.from(String(latestPost.body || '')).slice(0, 120).join('');
+    const members = await loadCommunityMembers();
+    const memberBySlug = new Map(
+      members.filter(m => m.slug && m.name).map(m => [String(m.slug).toLowerCase(), m]),
+    );
+    latestMentions = extractCommunityMentions(
+      latestSnippet,
+      memberBySlug.keys(),
+      null,
+      COMMUNITY_MENTION_LIMIT,
+    ).map(slug => ({ slug, name: memberBySlug.get(slug).name }));
+  }
+
   const data = {
     latest: latestPost ? {
       author: { name: latestAuthor.name, photo: latestAuthor.photo },
-      body_snippet: Array.from(String(latestPost.body || '')).slice(0, 120).join(''),
+      body_snippet: latestSnippet,
+      mentions: latestMentions,
       created_at: latestPost.created_at,
     } : null,
     today_count: Number(todayResult.count) || 0,
