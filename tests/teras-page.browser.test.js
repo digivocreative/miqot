@@ -1657,6 +1657,37 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
+  test('admin bisa menghapus kiriman dan komentar agent lain', { timeout: 30_000 }, async () => {
+    const admin = makeAgent({ slug: 'bagas', name: 'Bagas', role: 'admin' });
+    const api = createCommunityApi({
+      agent: admin,
+      posts: [makePost({ id: 'foreign-post', body: 'Kiriman agent lain', comment_count: 1 })],
+      comments: { 'foreign-post': [makeComment({ id: 'foreign-comment', body: 'Komentar agent lain' })] },
+    });
+    const app = await openApp({ agent: admin, api });
+    try {
+      const article = app.page.locator('article').filter({ hasText: 'Kiriman agent lain' });
+
+      // Komentar agent lain: admin dapat tombol hapus meski is_own = false.
+      await article.getByRole('button', { name: 'Komentari', exact: true }).click();
+      await article.getByText('Komentar agent lain', { exact: true }).waitFor();
+      app.page.once('dialog', dialog => dialog.accept());
+      await article.getByRole('button', { name: 'Hapus komentar' }).click();
+      await article.getByText('Komentar agent lain', { exact: true }).waitFor({ state: 'detached' });
+      assert.equal(matchingRequests(api, 'DELETE', '/api/community/comments/foreign-comment').length, 1);
+
+      // Kiriman agent lain: menu admin punya "Laporkan" sekaligus "Hapus".
+      await article.getByRole('button', { name: 'Buka menu kiriman' }).click();
+      assert.equal(await article.getByRole('menuitem', { name: 'Laporkan' }).count(), 1);
+      await article.getByRole('menuitem', { name: 'Hapus' }).click();
+      await article.getByRole('button', { name: 'Konfirmasi hapus kiriman' }).click();
+      await article.waitFor({ state: 'detached' });
+      assert.equal(matchingRequests(api, 'DELETE', '/api/community/posts/foreign-post').length, 1);
+    } finally {
+      await app.close();
+    }
+  });
+
   test('konfirmasi hapus menutupi post di bawahnya, bukan tertimpa tombol menunya', { timeout: 30_000 }, async () => {
     const agent = makeAgent();
     const own = overrides => makePost({

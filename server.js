@@ -31,7 +31,7 @@ import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCachea
 import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { syncCalendar, enrichKeberangkatanWithKumpul, enrichCalendarPaxJamaah } from './calendar-api.js';
 import { probePublicCalendarPrimary } from './lib/calendar-public-source.js';
-import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, generatePackageValueAgentCardPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
+import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, generatePackageValueAgentCardPng, generateTerasPostOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
@@ -60,7 +60,7 @@ import {
   calendarJamForEvent,
   normalizeCalendarJam,
 } from './lib/calendar-jam.js';
-import { requireCommunityAccess } from './lib/community-access.js';
+import { requireCommunityAccess, canModerateCommunityContent } from './lib/community-access.js';
 import {
   extractCommunityMentions,
   unrecordedMentionRows,
@@ -71,7 +71,7 @@ import {
   countUnreadNotifications,
   NOTIFICATION_LIMIT,
 } from './lib/community-notifications.js';
-import { isTerasShortCode, communityShortCodeBounds } from './lib/teras-share.js';
+import { isTerasShortCode, communityShortCodeBounds, terasPreviewExcerpt } from './lib/teras-share.js';
 import {
   isBlockedAddress,
   isAllowedPreviewUrl,
@@ -5722,7 +5722,7 @@ app.delete('/api/community/posts/:id', authMiddleware, async (req, res) => {
       .maybeSingle();
     if (findError) throw findError;
     if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
-    if (post.agent_id !== agent.id && agent.role !== 'admin') {
+    if (!canModerateCommunityContent(agent, post)) {
       return res.status(403).json({ error: 'Anda tidak boleh menghapus postingan ini' });
     }
     if (post.deleted_at) return res.json({ success: true });
@@ -5760,7 +5760,7 @@ app.delete('/api/community/comments/:id', authMiddleware, async (req, res) => {
       .maybeSingle();
     if (findError) throw findError;
     if (!comment) return res.status(404).json({ error: 'Komentar tidak ditemukan' });
-    if (comment.agent_id !== agent.id && agent.role !== 'admin') {
+    if (!canModerateCommunityContent(agent, comment)) {
       return res.status(403).json({ error: 'Anda tidak boleh menghapus komentar ini' });
     }
     if (comment.deleted_at) return res.json({ success: true });
@@ -19219,6 +19219,81 @@ app.get('/og/flight/:code.png', async (req, res) => {
   }
 });
 
+/**
+ * Resolve a "/teras/<code>" share code to the little bit of post data a link
+ * preview needs. Runs unauthenticated (crawlers never carry a session), so the
+ * select is deliberately narrow — author identity, a short excerpt, and counts.
+ * The page itself stays login-gated; only this teaser is public.
+ */
+async function loadTerasSharePreview(code) {
+  if (!isTerasShortCode(code)) return null;
+  const { lo, hi } = communityShortCodeBounds(code);
+
+  const selectPost = (includeMedia) => supabase
+    .from('community_posts')
+    .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}is_system, created_at, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+    .gte('id', lo)
+    .lte('id', hi)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  let { data: post, error } = await selectPost(true);
+  if (isCommunityMediaSchemaMissing(error)) ({ data: post, error } = await selectPost(false));
+  if (error) throw error;
+  if (!post) return null;
+
+  const [reactionResult, commentResult] = await Promise.all([
+    supabase.from('community_post_reactions').select('post_id', { count: 'exact', head: true }).eq('post_id', post.id),
+    supabase.from('community_post_comments').select('post_id', { count: 'exact', head: true }).eq('post_id', post.id).is('deleted_at', null),
+  ]);
+
+  return {
+    id: post.id,
+    body: post.body,
+    isSystem: !!post.is_system,
+    createdAt: post.created_at,
+    hasMedia: !!post.photo_url || (Array.isArray(post.media) && post.media.length > 0),
+    authorName: post.agent?.name || null,
+    authorSlug: post.agent?.slug || null,
+    authorPhoto: post.agent?.photo || null,
+    reactionCount: reactionResult.count || 0,
+    commentCount: commentResult.count || 0,
+  };
+}
+
+// Teras share-link OG card. Each shared post gets its own preview so a link
+// dropped in a WhatsApp group reads as a post, not as a bare app URL.
+app.get('/og/teras/:code.png', async (req, res) => {
+  try {
+    const code = String(req.params.code || '').toLowerCase();
+    const preview = await loadTerasSharePreview(code);
+    if (!preview) return res.status(404).type('text/plain').send('not found');
+
+    const authorPhotoBuffer = await loadAgentPhotoBuffer(preview.authorPhoto, preview.authorSlug);
+    const png = await generateTerasPostOgPng({
+      authorName: preview.authorName,
+      authorSlug: preview.authorSlug,
+      authorPhotoBuffer,
+      body: preview.body,
+      createdAt: preview.createdAt,
+      reactionCount: preview.reactionCount,
+      commentCount: preview.commentCount,
+      hasMedia: preview.hasMedia,
+      isSystem: preview.isSystem,
+    });
+
+    return res.set({
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+    }).send(png);
+  } catch (err) {
+    console.error('[og/teras] generation failed:', err.message);
+    return res.status(500).type('text/plain').send('og generation failed');
+  }
+});
+
 // Serve static assets from dist/ first, then fallback to public/
 // This ensures uploaded files (e.g. agent photos in public/agents/)
 // are always accessible, even if they were added after the last build.
@@ -19470,6 +19545,79 @@ app.get('/f/:code', async (req, res, next) => {
   } catch (err) {
     console.error('[FlightShare] OG injection error:', err.message);
     next(); // fallback ke SPA
+  }
+});
+
+// Teras share link "/teras/<code>" — serve the SPA shell with post-specific meta
+// so WhatsApp/Telegram previews show who posted and a teaser. The page itself is
+// still the login-gated SPA; only these tags are readable without a session.
+app.get('/teras/:code', async (req, res, next) => {
+  try {
+    const code = String(req.params.code || '').toLowerCase();
+    if (!isTerasShortCode(code)) return next();
+
+    const preview = await loadTerasSharePreview(code);
+    if (!preview) return next(); // unknown/deleted post → generic SPA meta
+
+    const origin = `${req.protocol}://${req.get('host')}`;
+    const authorName = String(preview.authorName || 'Agent Alhijaz').trim() || 'Agent Alhijaz';
+    const excerpt = terasPreviewExcerpt(preview.body)
+      || (preview.hasMedia ? `${authorName} membagikan foto di Teras.` : `${authorName} membagikan kabar di Teras.`);
+
+    const rawTitle = preview.isSystem
+      ? 'Pengumuman Teras — Komunitas Agent Alhijaz'
+      : `${authorName} di Teras — Komunitas Agent Alhijaz`;
+    const rawDescription = `${excerpt} — Masuk sebagai agent Alhijaz untuk membaca lengkap dan ikut berdiskusi.`;
+    const imageVersion = crypto.createHash('sha1')
+      .update(JSON.stringify([preview.id, preview.body, preview.authorName, preview.authorPhoto,
+        preview.reactionCount, preview.commentCount, preview.hasMedia]))
+      .digest('hex').slice(0, 10);
+
+    const pageUrl = `${origin}/teras/${encodeURIComponent(code)}`;
+    const title = escapeHtmlAttr(rawTitle);
+    const description = escapeHtmlAttr(rawDescription);
+    const canonicalUrl = escapeHtmlAttr(pageUrl);
+    const ogImageUrl = escapeHtmlAttr(`${origin}/og/teras/${encodeURIComponent(code)}.png?v=${imageVersion}`);
+    const imageAlt = escapeHtmlAttr(`Kiriman ${authorName} di Teras, komunitas agent Alhijaz Indowisata`);
+
+    let html = getIndexHtml();
+    html = html.replace(/<title>[^<]*<\/title>/i, `<title>${title}</title>`);
+    html = html.replace(
+      /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i,
+      `<meta name="description" content="${description}" />`
+    );
+    html = html.replace(/<meta\s+property="og:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+    html = html.replace(/<meta\s+name="twitter:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+    html = html.replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '');
+
+    const metaTags = `
+      <link rel="canonical" href="${canonicalUrl}" />
+      <meta name="robots" content="noindex, nofollow" />
+      <meta property="og:title" content="${title}" />
+      <meta property="og:description" content="${description}" />
+      <meta property="og:type" content="article" />
+      <meta property="og:url" content="${canonicalUrl}" />
+      <meta property="og:site_name" content="Alhijaz Indowisata" />
+      <meta property="og:image" content="${ogImageUrl}" />
+      <meta property="og:image:width" content="1200" />
+      <meta property="og:image:height" content="630" />
+      <meta property="og:image:type" content="image/png" />
+      <meta property="og:image:alt" content="${imageAlt}" />
+      <meta name="twitter:card" content="summary_large_image" />
+      <meta name="twitter:title" content="${title}" />
+      <meta name="twitter:description" content="${description}" />
+      <meta name="twitter:image" content="${ogImageUrl}" />
+      <meta name="twitter:image:alt" content="${imageAlt}" />
+    `;
+    html = html.replace('</head>', `${metaTags}\n</head>`);
+
+    res.set('Content-Type', 'text/html');
+    // Previews may be cached by the chat app; keep the origin itself revalidating.
+    res.set('Cache-Control', 'public, max-age=0, must-revalidate');
+    return res.send(html);
+  } catch (err) {
+    console.error('[TerasShare] OG injection error:', err.message);
+    return next(); // fallback ke SPA
   }
 });
 

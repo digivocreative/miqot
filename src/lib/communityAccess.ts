@@ -4,3 +4,14 @@
 export function isCommunityEnabledForAgent(slug?: string | null): boolean {
   return Boolean(String(slug || '').trim());
 }
+
+// Kembar klien dari canModerateCommunityContent di lib/community-access.js:
+// tombol "Hapus" muncul untuk penulisnya sendiri, atau untuk admin pada
+// kiriman/komentar agent lain. Server tetap yang menegakkan aturannya.
+export function canDeleteCommunityEntry(
+  agent: { role?: string | null } | null | undefined,
+  entry: { is_own?: boolean } | null | undefined,
+): boolean {
+  if (entry?.is_own) return true;
+  return agent?.role === 'admin';
+}

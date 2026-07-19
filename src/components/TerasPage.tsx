@@ -47,6 +47,7 @@ import { MentionText } from './MentionText';
 import { MentionAutocomplete } from './MentionAutocomplete';
 import { MentionHighlightLayer } from './MentionHighlightLayer';
 import { TerasProfileHeader, TerasProfileHeaderSkeleton } from './TerasProfileHeader';
+import { canDeleteCommunityEntry } from '../lib/communityAccess';
 import {
   extractMentionSlugs,
   detectMentionQuery,
@@ -3364,7 +3365,7 @@ export default function TerasPage({
             const commentPanel = commentPanels[post.id];
             const commentsOpen = isDetailView ? true : !!commentPanel?.open;
             const commentInputLength = Array.from(commentPanel?.input.trim() || '').length;
-            const canDeletePost = post.is_own || agent.role === 'admin';
+            const canDeletePost = canDeleteCommunityEntry(agent, post);
             const totalReactions = post.reactions.suka + post.reactions.selamat + post.reactions.aamiin;
             const reactionIsBusy = reactionBusy.has(post.id);
             const likePopped = likePopId === post.id && !!post.my_reaction && !reduceMotion;
@@ -3803,7 +3804,7 @@ export default function TerasPage({
                             <p className="min-w-0 py-1 text-[11px] text-gray-500 dark:text-slate-400">Belum ada komentar — jadilah yang pertama membalas.</p>
                           </div>
                         ) : commentPanel.comments.map(comment => {
-                          const canDeleteComment = comment.is_own || agent.role === 'admin';
+                          const canDeleteComment = canDeleteCommunityEntry(agent, comment);
                           const commentAuthorName = comment.author.name || 'Agent';
                           const commentAuthorSlug = comment.author.slug;
                           return (

@@ -4,7 +4,26 @@ import { readFileSync } from 'node:fs';
 import {
   isCommunityEnabledForAgent,
   requireCommunityAccess,
+  canModerateCommunityContent,
 } from '../lib/community-access.js';
+
+test('admin dapat menghapus konten agent lain, agent biasa hanya miliknya', () => {
+  const admin = { id: 'admin-id', slug: 'bagas', role: 'admin' };
+  const agent = { id: 'agent-id', slug: 'agent-lain', role: 'agent' };
+  const foreignRow = { id: 'post-1', agent_id: 'orang-lain' };
+  const ownRow = { id: 'post-2', agent_id: 'agent-id' };
+
+  assert.equal(canModerateCommunityContent(admin, foreignRow), true);
+  assert.equal(canModerateCommunityContent(admin, ownRow), true);
+  assert.equal(canModerateCommunityContent(agent, ownRow), true);
+  assert.equal(canModerateCommunityContent(agent, foreignRow), false);
+  // Baris tanpa penulis (mis. post sistem) tetap hanya boleh disentuh admin.
+  assert.equal(canModerateCommunityContent(agent, { id: 'post-3', agent_id: null }), false);
+  assert.equal(canModerateCommunityContent(admin, { id: 'post-3', agent_id: null }), true);
+  // Tanpa agent terautentikasi, tidak ada yang boleh menghapus.
+  assert.equal(canModerateCommunityContent(null, ownRow), false);
+  assert.equal(canModerateCommunityContent({ role: 'admin' }, foreignRow), false);
+});
 
 test('Teras is enabled for every agent with a slug', () => {
   assert.equal(isCommunityEnabledForAgent('nikita'), true);

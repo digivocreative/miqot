@@ -8,6 +8,8 @@ import {
   terasShareUrl,
   isTerasShortCode,
   communityShortCodeBounds,
+  TERAS_PREVIEW_EXCERPT_LEN,
+  terasPreviewExcerpt,
 } from '../lib/teras-share.js';
 
 const FULL_ID = '9fc969b0-2465-4ae0-bbba-56e606a84914';
@@ -42,6 +44,28 @@ test('isTerasShortCode accepts only exactly 8 hex chars', () => {
   assert.equal(isTerasShortCode('9fc969b0a'), false, 'too long');
   assert.equal(isTerasShortCode('9fc969gz'), false, 'non-hex');
   assert.equal(isTerasShortCode(12345678), false, 'not a string');
+});
+
+test('terasPreviewExcerpt collapses whitespace and passes short bodies through', () => {
+  assert.equal(terasPreviewExcerpt('Assalamualaikum\n\nkabar   baik'), 'Assalamualaikum kabar baik');
+  assert.equal(terasPreviewExcerpt('  '), '');
+  assert.equal(terasPreviewExcerpt(null), '');
+});
+
+test('terasPreviewExcerpt caps the crawler-visible teaser and never leaks the rest', () => {
+  const body = `${'kabar jamaah '.repeat(40)}RAHASIA`;
+  const excerpt = terasPreviewExcerpt(body);
+  assert.ok(excerpt.length <= TERAS_PREVIEW_EXCERPT_LEN + 1, `got ${excerpt.length}`);
+  assert.ok(excerpt.endsWith('…'), 'truncation is visible');
+  assert.ok(!excerpt.includes('RAHASIA'), 'tail of a long post stays behind the login gate');
+});
+
+test('terasPreviewExcerpt breaks on a word boundary when one is close enough', () => {
+  const body = `${'a'.repeat(100)} sebuah kalimat panjang yang harus dipotong di sini`;
+  // The only space sits past 60% of the limit, so the cut lands on it.
+  assert.equal(terasPreviewExcerpt(body), `${'a'.repeat(100)} sebuah kalimat…`);
+  // No usable space early on → hard cut rather than a near-empty excerpt.
+  assert.equal(terasPreviewExcerpt('x'.repeat(200)), `${'x'.repeat(120)}…`);
 });
 
 test('communityShortCodeBounds brackets every UUID starting with the code', () => {
