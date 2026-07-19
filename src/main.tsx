@@ -189,6 +189,8 @@ if (isPwaHost) {
   }
 }
 
+import { parseTerasPath } from './lib/terasRoutes'
+
 // Simple path-based routing (only /:slug/kalkulasi is valid, not bare /kalkulasi)
 const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)
 const isLogin = segments.length === 1 && segments[0] === 'login'
@@ -197,9 +199,11 @@ const isDashboard = segments.length >= 1 && segments[0] === 'dashboard'
 const isResetPassword = segments.length === 1 && segments[0] === 'reset-password'
 const isFlightShare = segments.length >= 2 && segments[0] === 'f'
 const flightShareCode = isFlightShare ? segments[1] : null
-// Short Teras share link "/teras/<code>" → login-gated post detail in dashboard.
-const isTerasShare = segments.length >= 2 && segments[0] === 'teras'
-const terasShareCode = isTerasShare ? segments[1] : null
+// "/teras/<code>" = link share post (lama); "/teras/<slug>" = profil agent.
+const terasRoute = parseTerasPath(window.location.pathname)
+const isTerasShare = terasRoute?.kind === 'share'
+const terasShareCode = terasRoute?.kind === 'share' ? terasRoute.code : null
+const isTerasProfile = terasRoute?.kind === 'profile'
 // On custom domain the agent is implicit, so /kalkulasi and /compare may be single-segment.
 const serverAgentContext = (window as unknown as { __AGENT_CONTEXT__?: { customDomain?: string | null; slug?: string } }).__AGENT_CONTEXT__
 const isCustomDomainHost = !!serverAgentContext?.customDomain
@@ -269,7 +273,9 @@ function LoginRouter() {
     try {
       const stored = sessionStorage.getItem('teras_share_next')
       sessionStorage.removeItem('teras_share_next')
-      if (stored && stored.startsWith('/dashboard/teras/post/')) next = stored
+      if (stored && (stored.startsWith('/dashboard/teras/post/') || parseTerasPath(stored)?.kind === 'profile')) {
+        next = stored
+      }
     } catch { /* ignore */ }
     window.location.href = next
     return null
@@ -332,6 +338,11 @@ function DashboardRouter() {
   }
 
   if (!session) {
+    try {
+      if (parseTerasPath(window.location.pathname)?.kind === 'profile') {
+        sessionStorage.setItem('teras_share_next', window.location.pathname)
+      }
+    } catch { /* ignore */ }
     window.location.href = '/login'
     return null
   }
@@ -428,7 +439,7 @@ if (isPwaHost && isSsrLandingPath) {
         window.location.replace(target)
         return null
       }
-      if (isDashboard) return <DashboardRouter />
+      if (isDashboard || isTerasProfile) return <DashboardRouter />
       if (isCapi) {
         // Redirect /:slug/capi to /dashboard/settings/capi
         window.location.replace('/dashboard/settings/capi')
