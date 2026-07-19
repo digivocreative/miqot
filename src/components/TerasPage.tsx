@@ -86,6 +86,7 @@ interface CommunityPost {
   comment_count: number;
   quote_count?: number;
   quoted_post?: QuotedPostPreview | null;
+  link_preview?: LinkPreview | null;
   is_own: boolean;
 }
 
@@ -102,6 +103,15 @@ interface QuotedPostPreview {
   created_at?: string;
   is_system?: boolean;
   author?: CommunityAuthor;
+}
+
+interface LinkPreview {
+  url: string;
+  canonical_url?: string;
+  title?: string;
+  description?: string;
+  image?: string;
+  site_name?: string;
 }
 
 interface CommunityComment {
@@ -473,6 +483,56 @@ function PostSkeleton({ withMedia = false }: { withMedia?: boolean }) {
 }
 
 type PostMediaFit = 'natural' | 'height' | 'cover';
+
+function LinkPreviewCard({ preview }: { preview: LinkPreview }) {
+  const [imageBroken, setImageBroken] = useState(false);
+  const href = preview.canonical_url || preview.url;
+  let domain = preview.site_name;
+  if (!domain) {
+    try {
+      domain = new URL(preview.url).hostname.replace(/^www\./, '');
+    } catch {
+      domain = preview.url;
+    }
+  }
+  const showImage = !!preview.image && !imageBroken;
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer nofollow"
+      onClick={event => event.stopPropagation()}
+      className="mt-2 block min-w-0 overflow-hidden rounded-2xl border border-gray-200/80 bg-white transition-colors hover:bg-gray-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:hover:bg-slate-900"
+    >
+      {showImage && (
+        <img
+          src={preview.image}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="aspect-[1.91/1] w-full object-cover"
+          onError={() => setImageBroken(true)}
+        />
+      )}
+      <div className="px-3.5 py-3">
+        <div className="truncate text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-slate-500">
+          {domain}
+        </div>
+        {preview.title && (
+          <div className="mt-0.5 line-clamp-2 text-[14px] font-bold leading-[1.4] text-gray-900 dark:text-white">
+            {preview.title}
+          </div>
+        )}
+        {preview.description && (
+          <div className="mt-0.5 line-clamp-2 text-[13px] leading-[1.4] text-gray-500 dark:text-slate-400">
+            {preview.description}
+          </div>
+        )}
+      </div>
+    </a>
+  );
+}
 
 function QuotedPostCard({
   quoted,
@@ -3187,6 +3247,10 @@ export default function TerasPage({
                           openMediaViewer(quoted.media, index, quotedAuthor, trigger);
                         }}
                       />
+                    )}
+
+                    {post.link_preview && postMedia.length === 0 && !post.quoted_post && (
+                      <LinkPreviewCard preview={post.link_preview} />
                     )}
 
                     <div className="relative -ml-2 mt-1 flex items-center gap-1">
