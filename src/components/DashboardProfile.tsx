@@ -6,6 +6,7 @@ import PhotoCropModal from './PhotoCropModal';
 import PinInput from './PinInput';
 import { validateName, validatePhone, validateEmail, validateWebsite, cleanPhone, cleanWebsite } from '../utils/validation';
 import { trackEvent } from '../utils/analytics';
+import { isCommunityEnabledForAgent } from '../lib/communityAccess';
 
 interface AgentProfile {
   slug: string;
@@ -53,6 +54,7 @@ const NOTIFICATION_GROUPS = [
       { key: 'ringkasan_mingguan', emoji: '📊', label: 'Ringkasan Mingguan', desc: 'Laporan mingguan setiap Senin' },
       { key: 'flight_status',      emoji: '✈️', label: 'Status Penerbangan', desc: 'Delay, pembatalan, gate berubah' },
       { key: 'kurs_dollar',        emoji: '🇺🇸', label: 'Kurs Dollar',         desc: 'Update kurs USD & SAR setiap pagi' },
+      { key: 'community_mentions', emoji: '💬', label: 'Sebutan Teras',       desc: 'Saat agent lain menyebut (@) kamu di Teras' },
     ]
   },
 ];
@@ -64,6 +66,15 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
   const [statusLoading, setStatusLoading] = useState(true);
   const [prefs, setPrefs] = useState<Record<string, boolean>>({});
   const [prefsLoading, setPrefsLoading] = useState(true);
+  // Teras-only prefs (e.g. mentions) are hidden from agents without community access.
+  const notificationGroups = NOTIFICATION_GROUPS
+    .map(group => ({
+      ...group,
+      items: group.items.filter(
+        item => item.key !== 'community_mentions' || isCommunityEnabledForAgent(agent.slug),
+      ),
+    }))
+    .filter(group => group.items.length > 0);
   const [showDisconnect, setShowDisconnect] = useState(false);
   const [closingDisconnect, setClosingDisconnect] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -244,7 +255,7 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
           {/* Toggle list — notification preferences */}
           {prefsLoading ? (
             <NotificationPrefsSkeleton />
-          ) : NOTIFICATION_GROUPS.map(group => (
+          ) : notificationGroups.map(group => (
               <div key={group.label}>
                 <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500 mb-2 mt-5 px-1">
                   {group.label}

@@ -84,10 +84,13 @@ untuk di-paste; pola sama `scripts/migrate-community-post-media.js`).
   diam-diam (post tetap sukses) bila tabel belum ada. Tidak 503 — mention adalah
   lapisan tambahan, bukan syarat post.
 
-### Rendering (GET feed / detail / comments)
-Tiap post & komentar sertakan `mentions: [{slug, name}]` diturunkan dari
-`extractCommunityMentions(body, memberSlugs, null)` ∩ anggota (resolve nama).
-Tidak perlu query tabel `community_mentions` untuk render.
+### Rendering (klien, bukan server)
+Keputusan implementasi: pill di-render **di klien** dari daftar `/members` yang
+sudah diambil untuk autocomplete (slug→nama). Server **tidak** perlu menambah
+`mentions` ke tiap respons post/komentar — jauh lebih sedikit sentuhan & setara.
+Konsekuensi ringan: `@slug` yang penargetnya sudah keluar dari allowlist jatuh
+jadi teks biasa (dianggap benar). Tabel `community_mentions` tak dipakai untuk
+render.
 
 ### Inbox in-app
 - `GET /api/community/mentions` → `[{id, post_id, comment_id, author:{name,photo},

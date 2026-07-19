@@ -197,6 +197,9 @@ const isDashboard = segments.length >= 1 && segments[0] === 'dashboard'
 const isResetPassword = segments.length === 1 && segments[0] === 'reset-password'
 const isFlightShare = segments.length >= 2 && segments[0] === 'f'
 const flightShareCode = isFlightShare ? segments[1] : null
+// Short Teras share link "/teras/<code>" → login-gated post detail in dashboard.
+const isTerasShare = segments.length >= 2 && segments[0] === 'teras'
+const terasShareCode = isTerasShare ? segments[1] : null
 // On custom domain the agent is implicit, so /kalkulasi and /compare may be single-segment.
 const serverAgentContext = (window as unknown as { __AGENT_CONTEXT__?: { customDomain?: string | null; slug?: string } }).__AGENT_CONTEXT__
 const isCustomDomainHost = !!serverAgentContext?.customDomain
@@ -214,7 +217,7 @@ const isSsrLandingPath = segments.length === 2 && (segments[1] === 'umroh' || se
 
 // Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
 import { getFilterModeFromSlug } from '@/utils'
-const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f', 'top-partner', 'rahmah-1-juli-2026']
+const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f', 'teras', 'top-partner', 'rahmah-1-juli-2026']
 const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'bio', 'jamaah']
 
 // ── Auto-redirect: logged-in agents go straight to dashboard ──
@@ -261,8 +264,14 @@ function LoginRouter() {
   }, [])
 
   if (session) {
-    // Setelah login berhasil, redirect ke /dashboard
-    window.location.href = '/dashboard'
+    // Setelah login berhasil, honor tujuan share Teras (kalau ada), else /dashboard.
+    let next = '/dashboard'
+    try {
+      const stored = sessionStorage.getItem('teras_share_next')
+      sessionStorage.removeItem('teras_share_next')
+      if (stored && stored.startsWith('/dashboard/teras/post/')) next = stored
+    } catch { /* ignore */ }
+    window.location.href = next
     return null
   }
   return <LoginPage onLogin={(s) => setSession(s)} />
@@ -410,6 +419,14 @@ if (isPwaHost && isSsrLandingPath) {
       if (isResetPassword) return <ResetPasswordPage />
       if (isFlightShare && flightShareCode) {
         return <FlightSharePage code={flightShareCode} />
+      }
+      if (isTerasShare && terasShareCode) {
+        // Redirect ke post detail (login-gated). Simpan tujuan agar penerima
+        // yang belum login mendarat di post ini setelah masuk (lihat LoginRouter).
+        const target = `/dashboard/teras/post/${encodeURIComponent(terasShareCode)}`
+        try { sessionStorage.setItem('teras_share_next', target) } catch { /* ignore */ }
+        window.location.replace(target)
+        return null
       }
       if (isDashboard) return <DashboardRouter />
       if (isCapi) {

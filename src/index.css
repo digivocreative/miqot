@@ -392,3 +392,101 @@ body.page-entering > #root {
     transform: scale(1.4);
   }
 }
+
+/* ── Teras Plyr video player: brand accent + ratio-preserving layout modes ── */
+.teras-plyr {
+  /* Aksen hitam netral (bukan hijau) */
+  --plyr-color-main: #171717;
+  --plyr-video-control-color: #fff;
+  --plyr-video-control-color-hover: #fff;
+  --plyr-video-control-background-hover: rgba(0, 0, 0, 0.6);
+  --plyr-range-fill-background: #f3f4f6;
+  --plyr-range-thumb-background: #fff;
+  --plyr-video-progress-buffered-background: rgba(255, 255, 255, 0.35);
+  --plyr-tooltip-background: rgba(15, 23, 42, 0.9);
+  --plyr-tooltip-color: #fff;
+  --plyr-video-background: transparent;
+}
+.teras-plyr .plyr {
+  border-radius: inherit;
+}
+.teras-plyr .plyr--video {
+  background: transparent;
+}
+/* Beri napas di kiri/kanan supaya tombol play tidak mepet/terpotong sudut membulat */
+.teras-plyr .plyr--video .plyr__controls {
+  padding-left: 14px;
+  padding-right: 14px;
+  padding-bottom: 10px;
+  gap: 2px;
+}
+/* Progress bar tidak boleh kolaps di player sempit */
+.teras-plyr .plyr__progress__container {
+  min-width: 3rem;
+}
+/* fit: natural ratio, capped height (single media) */
+.teras-plyr-fit .plyr,
+.teras-plyr-fit .plyr__video-wrapper {
+  width: fit-content;
+  min-width: 15rem;
+  max-width: 100%;
+}
+.teras-plyr-fit .plyr video {
+  display: block;
+  height: auto;
+  width: auto;
+  margin: 0 auto;
+  max-width: 100%;
+  max-height: 30rem;
+}
+/* strip: fixed-height horizontal rail item, natural width */
+.teras-plyr-strip {
+  height: 100%;
+}
+.teras-plyr-strip .plyr,
+.teras-plyr-strip .plyr__video-wrapper {
+  height: 100%;
+  width: fit-content;
+  min-width: var(--teras-plyr-minw, 9rem);
+  max-width: 100%;
+}
+.teras-plyr-strip .plyr video {
+  display: block;
+  height: 100%;
+  width: auto;
+  margin: 0 auto;
+  min-width: var(--teras-plyr-minw, 9rem);
+  max-width: 80vw;
+  object-fit: contain;
+}
+/* fill: cover the parent box (pair grid) */
+.teras-plyr-fill,
+.teras-plyr-fill .plyr,
+.teras-plyr-fill .plyr__video-wrapper {
+  height: 100%;
+  width: 100%;
+}
+.teras-plyr-fill .plyr video {
+  height: 100%;
+  width: 100%;
+  object-fit: contain;
+}
+/* viewer: fullscreen media viewer, capped to viewport */
+.teras-plyr-viewer {
+  max-width: 100%;
+  max-height: 100%;
+}
+.teras-plyr-viewer .plyr,
+.teras-plyr-viewer .plyr__video-wrapper {
+  width: fit-content;
+  min-width: 18rem;
+  max-width: 100%;
+}
+.teras-plyr-viewer .plyr video {
+  display: block;
+  height: auto;
+  width: auto;
+  margin: 0 auto;
+  max-width: 100%;
+  max-height: calc(100dvh - 10rem);
+}

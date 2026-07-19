@@ -8,6 +8,11 @@ TG_TOKEN="${TELEGRAM_DEPLOY_BOT_TOKEN:?TELEGRAM_DEPLOY_BOT_TOKEN not set}"
 TG_CHAT_ID="${TELEGRAM_DEPLOY_CHAT_ID:?TELEGRAM_DEPLOY_CHAT_ID not set}"
 
 send_telegram() {
+  if [[ -z "${TG_TOKEN}" || -z "${TG_CHAT_ID}" ]]; then
+    echo "==> Telegram notification skipped: TG_TOKEN/TELEGRAM_BOT_TOKEN or TG_CHAT_ID/TELEGRAM_CHAT_ID is not configured"
+    return 0
+  fi
+
   local message="$1"
   curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
     -d chat_id="${TG_CHAT_ID}" \

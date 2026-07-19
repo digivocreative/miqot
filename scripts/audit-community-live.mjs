@@ -25,7 +25,6 @@ const supabase = createClient(supabaseUrl, serviceRoleKey);
 const auditId = `teras-audit-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 const createdPostIds = new Set();
 const createdCommentIds = new Set();
-const uploadedPaths = new Set();
 const checks = [];
 
 function pass(label) {
@@ -60,14 +59,6 @@ async function requireRows(query, label) {
   return data;
 }
 
-function publicStoragePath(publicUrl) {
-  const marker = '/agent-photos/';
-  const pathname = new URL(publicUrl).pathname;
-  const markerIndex = pathname.indexOf(marker);
-  assert.ok(markerIndex >= 0, `URL storage tidak dikenali: ${publicUrl}`);
-  return decodeURIComponent(pathname.slice(markerIndex + marker.length));
-}
-
 async function cleanup() {
   const postIds = [...createdPostIds];
   const commentIds = [...createdCommentIds];
@@ -83,10 +74,6 @@ async function cleanup() {
     }
     const { error } = await supabase.from('community_posts').delete().in('id', postIds);
     if (error) console.error(`Cleanup post gagal: ${error.message}`);
-  }
-  if (uploadedPaths.size > 0) {
-    const { error } = await supabase.storage.from('agent-photos').remove([...uploadedPaths]);
-    if (error) console.error(`Cleanup foto gagal: ${error.message}`);
   }
 }
 
@@ -117,7 +104,6 @@ try {
   await api('/api/community/feed', { token: otherToken, expected: 403 });
   const gatedId = crypto.randomUUID();
   await api('/api/community/posts', { token: otherToken, method: 'POST', body: { body: 'Ditolak gate' }, expected: 403 });
-  await api('/api/community/photo', { token: otherToken, method: 'POST', body: { image_data: 'invalid' }, expected: 403 });
   await api(`/api/community/posts/${gatedId}/reaction`, { token: otherToken, method: 'POST', body: { reaction: 'suka' }, expected: 403 });
   await api(`/api/community/posts/${gatedId}/comments`, { token: otherToken, expected: 403 });
   await api(`/api/community/posts/${gatedId}/comments`, { token: otherToken, method: 'POST', body: { body: 'Ditolak gate' }, expected: 403 });
@@ -273,39 +259,6 @@ try {
   await api(`/api/community/comments/${comment.id}`, { token: nikitaToken, method: 'DELETE' });
   await api(`/api/community/comments/${comment.id}`, { token: nikitaToken, method: 'DELETE' });
   pass('komentar load, buat/retry idempoten, count, validasi, dan soft-delete idempoten berjalan');
-
-  const pngDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
-  const uploadId = crypto.randomUUID();
-  const uploadBody = { image_data: pngDataUrl, upload_id: uploadId };
-  const uploaded = await api('/api/community/photo', {
-    token: nikitaToken,
-    method: 'POST',
-    body: uploadBody,
-  });
-  assert.ok(uploaded.url);
-  uploadedPaths.add(publicStoragePath(uploaded.url));
-  const uploadRetry = await api('/api/community/photo', {
-    token: nikitaToken,
-    method: 'POST',
-    body: uploadBody,
-  });
-  assert.equal(uploadRetry.url, uploaded.url);
-  await api('/api/community/photo', {
-    token: nikitaToken,
-    method: 'POST',
-    body: { image_data: 'data:image/png;base64,bm90LWEtcG5n' },
-    expected: 400,
-  });
-  const photoPostResult = await api('/api/community/posts', {
-    token: nikitaToken,
-    method: 'POST',
-    body: { body: `Post foto ${auditId}`, photo_url: uploaded.url },
-    expected: 201,
-  });
-  const photoPost = photoPostResult.data;
-  createdPostIds.add(photoPost.id);
-  assert.equal(photoPost.photo_url, uploaded.url);
-  pass('upload foto tervalidasi dan URL-nya diterima saat membuat post');
 
   const sharedFixtureTimestamp = new Date(Date.now() - 10_000).toISOString();
   const fixtureRows = Array.from({ length: 23 }, (_, index) => ({

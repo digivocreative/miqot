@@ -144,6 +144,15 @@ function getTabFromPath(): TabId {
   return 'home';
 }
 
+function getTerasPostIdFromPath(): string | null {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  // /dashboard/teras/post/:id
+  if (segments[0] === 'dashboard' && segments[1] === 'teras' && segments[2] === 'post' && segments[3]) {
+    return decodeURIComponent(segments[3]);
+  }
+  return null;
+}
+
 function getSubTabFromPath(): 'umroh' | 'haji' | 'daftar' | 'edit' {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
   // /dashboard/jamaah/haji
@@ -209,6 +218,7 @@ function getCurrentDocumentTitle(): string {
   const sub = getAIToolsSubFromPath();
   if (sub === 'landing-page') return 'Landing Page';
   if (sub === 'landing-page/custom-domain') return 'Custom Domain';
+  if (getTerasPostIdFromPath()) return 'Kiriman';
   return TAB_TITLES[getTabFromPath()] || 'Dashboard';
 }
 
@@ -498,7 +508,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   useEffect(() => {
     window.history.replaceState({ tab: activeTab }, '', window.location.pathname + window.location.search + window.location.hash);
     const aiSub = getAIToolsSubFromPath();
-    document.title = (activeTab === 'ai-tools' && aiSub === 'voice-over')
+    document.title = (activeTab === 'teras' && getTerasPostIdFromPath())
+      ? 'Kiriman'
+      : (activeTab === 'ai-tools' && aiSub === 'voice-over')
       ? 'Voice Over'
       : (activeTab === 'ai-tools' && aiSub === 'business-card')
       ? 'Kartu Nama'
@@ -581,6 +593,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     const activeCard = MENU_CARDS.find(c => c.id === activeTab);
     const jamaahSub = activeTab === 'jamaah' ? getSubTabFromPath() : null;
     const isJamaahEdit = activeTab === 'jamaah' && jamaahSub === 'edit';
+    const terasPostId = activeTab === 'teras' ? getTerasPostIdFromPath() : null;
     return (
       <div className={`min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 transition-colors dark:from-slate-900 dark:to-slate-950 ${activeTab === 'teras' ? 'flex min-h-[100dvh] flex-col' : ''}`}>
         {/* Sub-page header */}
@@ -588,9 +601,15 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           <div className={`${activeTab === 'teras' ? 'max-w-2xl pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]' : 'max-w-lg py-3'} mx-auto flex items-center gap-3 px-4`}>
             <button
               type="button"
-              aria-label="Kembali ke dashboard"
-              title="Kembali ke dashboard"
+              aria-label={terasPostId ? 'Kembali ke Teras' : 'Kembali ke dashboard'}
+              title={terasPostId ? 'Kembali ke Teras' : 'Kembali ke dashboard'}
               onClick={() => {
+                // Detail kiriman Teras → kembali ke feed (header = breadcrumb)
+                if (terasPostId) {
+                  if (window.history.state?.terasFromFeed) window.history.back();
+                  else navigatePath('/dashboard/teras', { replace: true });
+                  return;
+                }
                 // Jamaah sub-pages → back to /dashboard/jamaah list
                 if (activeTab === 'jamaah' && (jamaahSub === 'daftar' || jamaahSub === 'edit')) {
                   navigatePath('/dashboard/jamaah');
@@ -661,6 +680,21 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                         <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">
                           {jamaahEditHeader?.title || 'Memuat jamaah...'}
                         </h1>
+                      </div>
+                    </>
+                  );
+                }
+                if (terasPostId) {
+                  return (
+                    <>
+                      {activeCard && (
+                        <div className={`w-8 h-8 rounded-lg ${activeCard.bgLight} ${activeCard.bgDark} flex items-center justify-center border ${activeCard.borderLight} ${activeCard.borderDark}`}>
+                          <activeCard.icon size={16} className={activeCard.color} />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-medium text-gray-400 dark:text-slate-500 truncate">Teras</p>
+                        <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">Kiriman</h1>
                       </div>
                     </>
                   );
@@ -805,12 +839,16 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             }} displayMode={brosurDisplayMode} />
           )}
           {activeTab === 'teras' && terasEnabled && (
-            <TerasPage agent={{
-              slug: agentData.slug,
-              name: agentData.name,
-              photo: agentData.photo,
-              role: agentData.role,
-            }} />
+            <TerasPage
+              agent={{
+                slug: agentData.slug,
+                name: agentData.name,
+                photo: agentData.photo,
+                role: agentData.role,
+              }}
+              postId={terasPostId}
+              onNavigate={navigatePath}
+            />
           )}
           {activeTab === 'agents' && isAdmin && (
             <div className="px-4 pt-4">

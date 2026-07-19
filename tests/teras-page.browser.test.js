@@ -9,7 +9,11 @@ import { createServer } from 'vite';
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const ONE_PIXEL_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 const LANDSCAPE_SVG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#0f766e"/></svg>')}`;
-const COMPOSER_PROMPT = 'Apa yang baru, Bu?';
+// Accessible name of the feed "buat kiriman" trigger (the visible rotating
+// TypingPrompt is aria-hidden, so the sr-only label is the stable name).
+const COMPOSER_TRIGGER = 'Buat kiriman baru';
+// Placeholder of the composer textarea.
+const COMPOSER_PLACEHOLDER = 'Apa yang ingin dibagikan?';
 
 let viteServer;
 let browser;
@@ -186,11 +190,6 @@ function createCommunityApi({
       return;
     }
 
-    if (record.method === 'POST' && record.pathname === '/api/community/photo') {
-      await responseJson(route, { success: true, url: 'https://cdn.example.test/community/photo.jpg' });
-      return;
-    }
-
     if (record.method === 'POST' && record.pathname === '/api/community/media') {
       const extension = record.contentType.startsWith('video/') ? 'mp4' : 'jpg';
       await responseJson(route, {
@@ -318,7 +317,7 @@ async function openApp({
     });
     if (waitForTeras) {
       await page.getByRole('button', {
-        name: COMPOSER_PROMPT,
+        name: COMPOSER_TRIGGER,
         exact: true,
       }).waitFor({ timeout: 30_000 });
     }
@@ -345,12 +344,12 @@ function matchingRequests(api, method, pathname) {
 
 async function submitTextPost(page, body) {
   await page.getByRole('button', {
-    name: COMPOSER_PROMPT,
+    name: COMPOSER_TRIGGER,
     exact: true,
   }).click();
   const dialog = page.getByRole('dialog', { name: 'Buat Kiriman' });
   await dialog.waitFor();
-  await dialog.getByPlaceholder(COMPOSER_PROMPT).fill(body);
+  await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill(body);
   await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
   await dialog.waitFor({ state: 'detached', timeout: 10_000 });
 }
@@ -479,6 +478,57 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
+  test('closing the composer releases the page lock immediately, not only when the exit animation completes', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({ posts: [makePost({ body: 'Kiriman lama' })] });
+    const app = await openApp({ api });
+    try {
+      const appRoot = app.page.locator('#root');
+      await app.page.getByText('Kiriman lama', { exact: true }).waitFor();
+
+      await app.page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }).click();
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+      assert.equal(await appRoot.evaluate(el => el.inert), true, 'membuka composer harus mengunci #root (inert)');
+
+      // Close with an empty body (no discard confirm) and, from the same tick,
+      // watch every frame of the exit animation. inert must already be false
+      // while the composer is still mounted/animating out — the lock release must
+      // not wait for AnimatePresence#onExitComplete (which can fail to fire and
+      // strand #root inert → whole app unclickable but still scrollable).
+      await dialog.getByRole('button', { name: 'Batal' }).click();
+      const heldInertDuringExit = await app.page.evaluate(() => new Promise(resolve => {
+        const root = document.getElementById('root');
+        const dialogPresent = () => !!document.querySelector('[role="dialog"][aria-modal="true"]');
+        let held = false;
+        const tick = () => {
+          const present = dialogPresent();
+          if (present && root?.inert === true) held = true;
+          if (!present) { resolve(held); return; }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }));
+      assert.equal(heldInertDuringExit, false, 'inert harus dilepas saat composer mulai menutup, bukan menunggu animasi keluar selesai');
+
+      await dialog.waitFor({ state: 'detached' });
+      assert.equal(await appRoot.evaluate(el => el.inert), false);
+      assert.equal(await app.page.evaluate(() => document.body.style.overflow), '');
+      assert.equal(await app.page.locator('[data-teras-root]').getAttribute('aria-hidden'), null);
+
+      // The feed must be interactive again: a reaction click reaches the network.
+      const reactionRequest = app.page.waitForRequest(
+        request => request.method() === 'POST'
+          && request.url().includes('/api/community/posts/post-1/reaction'),
+        { timeout: 3000 },
+      );
+      await app.page.locator('article').filter({ hasText: 'Kiriman lama' })
+        .getByRole('button', { name: 'Suka' }).click();
+      await reactionRequest;
+    } finally {
+      await app.close();
+    }
+  });
+
   test('media trigger opens the picker, resizes a photo to JPEG, and keeps upload and post idempotency keys separate', { timeout: 30_000 }, async () => {
     const api = createCommunityApi();
     const app = await openApp({
@@ -524,7 +574,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         'toolbar media harus berada sebelum preview agar tidak terdorong ke bawah',
       );
       assert.equal(await dialog.getByText('1/4', { exact: true }).count(), 1);
-      await dialog.getByPlaceholder(COMPOSER_PROMPT).fill('Kiriman dengan foto');
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Kiriman dengan foto');
       const sendButton = dialog.getByRole('button', { name: 'Kirim kiriman' });
       await sendButton.waitFor({ state: 'visible' });
       await app.page.waitForFunction(button => !button.disabled, await sendButton.elementHandle());
@@ -624,7 +674,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         'preview kedua harus berada di sisi kanan preview pertama');
       assert.ok(Math.abs(firstPreviewBox.width - secondPreviewBox.width) < 1,
         'preview composer dua media harus berbagi lebar secara seimbang');
-      await dialog.getByPlaceholder(COMPOSER_PROMPT).fill('Dua foto berurutan');
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Dua foto berurutan');
       const sendButton = dialog.getByRole('button', { name: 'Kirim kiriman' });
       await app.page.waitForFunction(button => !button.disabled, await sendButton.elementHandle());
       await sendButton.click();
@@ -683,7 +733,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
       await dialog.getByLabel('Pratinjau video 1').waitFor();
-      await dialog.getByPlaceholder(COMPOSER_PROMPT).fill('Video singkat perjalanan');
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Video singkat perjalanan');
       await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
       await dialog.waitFor({ state: 'detached', timeout: 10_000 });
 
@@ -979,7 +1029,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       for (const button of [
         app.page.getByRole('button', { name: 'Kembali ke dashboard' }),
         app.page.getByRole('button', { name: 'Gunakan mode terang' }),
-        app.page.getByRole('button', { name: COMPOSER_PROMPT, exact: true }),
+        app.page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }),
         app.page.getByRole('button', { name: 'Tambahkan foto atau video' }),
       ]) {
         const box = await button.boundingBox();
@@ -1506,9 +1556,9 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       });
       const composerApp = await openApp({ api: composerApi, viewport: { width: 360, height: 800 } });
       opened.push(composerApp);
-      await composerApp.page.getByRole('button', { name: COMPOSER_PROMPT, exact: true }).click();
+      await composerApp.page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }).click();
       const dialog = composerApp.page.getByRole('dialog', { name: 'Buat Kiriman' });
-      await dialog.getByPlaceholder(COMPOSER_PROMPT).fill('Uji error panjang');
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Uji error panjang');
       await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
       const composerAlert = dialog.getByRole('alert').filter({ hasText: longError });
       await composerAlert.waitFor();
@@ -1563,7 +1613,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         element => getComputedStyle(element).transform === 'none',
         await dialog.elementHandle(),
       );
-      await dialog.getByPlaceholder(COMPOSER_PROMPT).fill('Uji fokus saat upload');
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Uji fokus saat upload');
       const sendButton = dialog.getByRole('button', { name: 'Kirim kiriman' });
       await app.page.waitForFunction(button => !button.disabled, await sendButton.elementHandle());
 
@@ -1612,7 +1662,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     });
     try {
       const trigger = app.page.getByRole('button', {
-        name: COMPOSER_PROMPT,
+        name: COMPOSER_TRIGGER,
         exact: true,
       });
       const triggerHandle = await trigger.elementHandle();
@@ -1633,7 +1683,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.equal(await app.page.evaluate(() => document.body.style.overflow), 'hidden');
       await app.page.waitForFunction(() => document.activeElement?.tagName === 'TEXTAREA');
 
-      const textarea = dialog.getByPlaceholder(COMPOSER_PROMPT);
+      const textarea = dialog.getByPlaceholder(COMPOSER_PLACEHOLDER);
       const attachment = dialog.getByRole('button', { name: 'Tambahkan foto atau video' });
       const cancelButton = dialog.getByRole('button', { name: 'Batal', exact: true });
       const audienceMessage = dialog.getByText('Tampil untuk semua agent Alhijaz', { exact: true });
@@ -1687,7 +1737,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       await trigger.click();
       dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
-      await dialog.getByPlaceholder(COMPOSER_PROMPT).fill('Draft belum dikirim');
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Draft belum dikirim');
 
       app.page.once('dialog', confirmation => confirmation.dismiss());
       await app.page.keyboard.press('Escape');
@@ -1708,10 +1758,10 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       viewport: { width: 360, height: 800 },
     });
     try {
-      await app.page.getByRole('button', { name: COMPOSER_PROMPT, exact: true }).click();
+      await app.page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }).click();
       const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
       await dialog.waitFor();
-      const textarea = dialog.getByPlaceholder(COMPOSER_PROMPT);
+      const textarea = dialog.getByPlaceholder(COMPOSER_PLACEHOLDER);
       const textareaHandle = await textarea.elementHandle();
       assert.ok(textareaHandle, 'textarea composer harus tersedia');
 
@@ -1743,6 +1793,60 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       await textarea.fill('a'.repeat(1850));
       await dialog.getByText('1850/2000', { exact: true }).waitFor();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('Bagikan shares a short /teras/<code> link via Web Share, with a copy fallback', { timeout: 30_000 }, async () => {
+    const fullId = '9fc969b0-2465-4ae0-bbba-56e606a84914';
+    const api = createCommunityApi({
+      posts: [makePost({ id: fullId, body: 'Kiriman untuk dibagikan' })],
+    });
+    const app = await openApp({ api, waitForTeras: false });
+    try {
+      await app.page.getByText('Kiriman untuk dibagikan', { exact: true }).waitFor({ timeout: 30_000 });
+
+      // Every card exposes a Bagikan control alongside Suka/Komentari/Quote.
+      const shareButton = app.page.getByRole('button', { name: 'Bagikan' }).first();
+      await shareButton.waitFor();
+
+      // Primary path: Web Share API receives the short, dashboard-less URL.
+      await app.page.evaluate(() => {
+        window.__shared = [];
+        navigator.share = data => {
+          window.__shared.push(data);
+          return Promise.resolve();
+        };
+      });
+      await shareButton.click();
+      const shared = await app.page.evaluate(() => window.__shared);
+      assert.equal(shared.length, 1, 'navigator.share dipanggil sekali');
+      assert.match(shared[0].url, /^https?:\/\/[^/]+\/teras\/9fc969b0$/,
+        'URL share = /teras/<8 hex pertama id>, tanpa /dashboard');
+
+      // Sharing is client-only — it must not hit any API endpoint.
+      assert.equal(
+        api.requests.filter(r => r.pathname.startsWith('/api/community/posts/')
+          && r.method !== 'GET').length,
+        0,
+        'Bagikan tidak melakukan mutasi server',
+      );
+
+      // Fallback path: no Web Share → copy to clipboard + toast.
+      await app.page.evaluate(() => {
+        delete navigator.share;
+        window.__copied = [];
+        navigator.clipboard.writeText = text => {
+          window.__copied.push(text);
+          return Promise.resolve();
+        };
+      });
+      await shareButton.click();
+      await app.page.getByText('Link disalin', { exact: true }).waitFor();
+      const copied = await app.page.evaluate(() => window.__copied);
+      assert.equal(copied.length, 1);
+      assert.match(copied[0], /\/teras\/9fc969b0$/);
     } finally {
       await app.close();
     }

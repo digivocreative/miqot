@@ -22,7 +22,7 @@ AS $$
 DECLARE
   item JSONB;
 BEGIN
-  IF jsonb_typeof(value) <> 'array' OR jsonb_array_length(value) > 4 THEN
+  IF jsonb_typeof(value) <> 'array' OR jsonb_array_length(value) > 10 THEN
     RETURN false;
   END IF;
 

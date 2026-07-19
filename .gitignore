@@ -16,3 +16,6 @@ exports/
 
 # pre-cutover env backup (old secrets) — keep local, never commit
 .env.cutover-bak
+
+# runtime log artifact
+server.log

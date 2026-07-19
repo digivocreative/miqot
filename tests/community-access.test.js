@@ -65,7 +65,6 @@ test('every community API route uses the Teras feature gate', () => {
     ['GET /api/community/feed', /app\.get\('\/api\/community\/feed'/],
     ['POST /api/community/posts', /app\.post\('\/api\/community\/posts'/],
     ['POST /api/community/media', /app\.post\('\/api\/community\/media'/],
-    ['POST /api/community/photo', /app\.post\('\/api\/community\/photo'/],
     ['POST /api/community/posts/:id/reaction', /app\.post\('\/api\/community\/posts\/:id\/reaction'/],
     ['GET /api/community/posts/:id/comments', /app\.get\('\/api\/community\/posts\/:id\/comments'/],
     ['POST /api/community/posts/:id/comments', /app\.post\('\/api\/community\/posts\/:id\/comments'/],
@@ -359,20 +358,17 @@ test('community mutations preserve idempotency keys and handle retry conflicts',
   const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
   const postRouteStart = serverSource.indexOf("app.post('/api/community/posts',");
   const mediaRouteStart = serverSource.indexOf("app.post('/api/community/media',");
-  const photoRouteStart = serverSource.indexOf("app.post('/api/community/photo',");
   const reactionRouteStart = serverSource.indexOf("app.post('/api/community/posts/:id/reaction',");
   const commentRouteStart = serverSource.indexOf("app.post('/api/community/posts/:id/comments',");
   const deletePostRouteStart = serverSource.indexOf("app.delete('/api/community/posts/:id',");
 
   assert.ok(postRouteStart >= 0 && mediaRouteStart > postRouteStart);
-  assert.ok(mediaRouteStart >= 0 && photoRouteStart > mediaRouteStart);
-  assert.ok(photoRouteStart >= 0 && reactionRouteStart > photoRouteStart);
+  assert.ok(mediaRouteStart >= 0 && reactionRouteStart > mediaRouteStart);
   assert.ok(reactionRouteStart >= 0 && commentRouteStart > reactionRouteStart);
   assert.ok(commentRouteStart >= 0 && deletePostRouteStart > commentRouteStart);
 
   const postRouteSource = serverSource.slice(postRouteStart, mediaRouteStart);
-  const mediaRouteSource = serverSource.slice(mediaRouteStart, photoRouteStart);
-  const photoRouteSource = serverSource.slice(photoRouteStart, reactionRouteStart);
+  const mediaRouteSource = serverSource.slice(mediaRouteStart, reactionRouteStart);
   const reactionRouteSource = serverSource.slice(reactionRouteStart, commentRouteStart);
   const commentRouteSource = serverSource.slice(commentRouteStart, deletePostRouteStart);
 
@@ -417,10 +413,6 @@ test('community mutations preserve idempotency keys and handle retry conflicts',
   assert.match(
     serverSource,
     /buildPostsQuery = \(includeMedia\)[\s\S]*?isCommunityMediaSchemaMissing\(postsError\)[\s\S]*?buildPostsQuery\(false\)[\s\S]*?normalizeStoredCommunityMedia\(post\.media, post\.photo_url\)/,
-  );
-  assert.match(
-    photoRouteSource,
-    /const uploadId = req\.body\?\.upload_id;[\s\S]*?isCommunityUuid\(uploadId\)[\s\S]*?`community\/\$\{agent\.slug\}-\$\{uploadId \|\| Date\.now\(\)\}\.\$\{ext\}`[\s\S]*?upsert:\s*true/,
   );
   assert.match(
     commentRouteSource,
