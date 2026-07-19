@@ -54,6 +54,28 @@ test('linkifySegments: a URL ending in /@slug is not swallowed weirdly (whole UR
   ]);
 });
 
+test('linkifySegments: an uppercase HTTPS:// scheme is linkified too', () => {
+  const segments = linkifySegments('cek HTTPS://x.id/a ya');
+  assert.deepEqual(segments, [
+    { type: 'text', value: 'cek ' },
+    { type: 'link', value: 'HTTPS://x.id/a', href: 'HTTPS://x.id/a' },
+    { type: 'text', value: ' ya' },
+  ]);
+});
+
+test('linkifySegments: a closing paren that balances one INSIDE the URL is kept (Wikipedia-style link)', () => {
+  const segments = linkifySegments('lihat https://en.wikipedia.org/wiki/Foo_(disambiguation) ya');
+  assert.deepEqual(segments, [
+    { type: 'text', value: 'lihat ' },
+    {
+      type: 'link',
+      value: 'https://en.wikipedia.org/wiki/Foo_(disambiguation)',
+      href: 'https://en.wikipedia.org/wiki/Foo_(disambiguation)',
+    },
+    { type: 'text', value: ' ya' },
+  ]);
+});
+
 test('stripUrlFromBody: URL at the end is trimmed with no dangling space', () => {
   assert.equal(stripUrlFromBody('lihat ini https://x.id/a', 'https://x.id/a'), 'lihat ini');
 });
@@ -87,4 +109,31 @@ test('stripUrlFromBody: empty/null url returns body unchanged', () => {
 test('stripUrlFromBody: removing a URL on its own line does not leave stray blank lines', () => {
   const body = 'baris satu\n\nhttps://x.id/a\n\nbaris tiga';
   assert.equal(stripUrlFromBody(body, 'https://x.id/a'), 'baris satu\n\nbaris tiga');
+});
+
+test('stripUrlFromBody: does not corrupt a longer URL that shares the removed URL as a prefix', () => {
+  const result = stripUrlFromBody('cek https://x.id/a dan https://x.id/abc juga', 'https://x.id/a');
+  assert.equal(result, 'cek dan https://x.id/abc juga');
+  // The surviving URL must still be fully intact and linkifiable, not
+  // truncated into a dangling "bc" fragment.
+  assert.deepEqual(
+    linkifySegments(result).filter(segment => segment.type === 'link'),
+    [{ type: 'link', value: 'https://x.id/abc', href: 'https://x.id/abc' }],
+  );
+});
+
+test('stripUrlFromBody: removal still works when the URL is followed by a newline', () => {
+  assert.equal(stripUrlFromBody('lihat https://x.id/a\nbaris baru', 'https://x.id/a'), 'lihat\nbaris baru');
+});
+
+test('stripUrlFromBody: removal still works when the URL is followed by trailing "." or ","', () => {
+  assert.equal(stripUrlFromBody('lihat https://x.id/a. oke', 'https://x.id/a'), 'lihat . oke');
+  assert.equal(stripUrlFromBody('lihat https://x.id/a, oke', 'https://x.id/a'), 'lihat , oke');
+});
+
+test('stripUrlFromBody: an occurrence glued to preceding text (no boundary) is left alone', () => {
+  assert.equal(
+    stripUrlFromBody('cekhttps://x.id/a checked', 'https://x.id/a'),
+    'cekhttps://x.id/a checked',
+  );
 });

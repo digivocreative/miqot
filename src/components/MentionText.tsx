@@ -1,4 +1,4 @@
-import { toMentionSegments, type MentionMember } from '../lib/communityMentions';
+import { toMentionSegments, type MentionMember, type MentionSegment } from '../lib/communityMentions';
 import { linkifySegments } from '../../lib/teras-linkify.js';
 import { terasProfilePath } from '../lib/terasRoutes';
 
@@ -47,6 +47,21 @@ function renderMentionPill(
   );
 }
 
+/**
+ * Shared by both the plain (`!linkify`) path and the per-text-segment pass
+ * inside the `linkify` path, so the mention-pill-vs-plain-text branching
+ * (and its `renderMentionPill` call) lives in exactly one place.
+ */
+function renderMentionSegments(segments: MentionSegment[], onOpenProfile?: (slug: string) => void) {
+  return segments.map((segment, index) =>
+    segment.type === 'mention' ? (
+      renderMentionPill(segment, index, onOpenProfile)
+    ) : (
+      <span key={index}>{segment.value}</span>
+    ),
+  );
+}
+
 export function MentionText({
   body,
   memberBySlug,
@@ -61,17 +76,7 @@ export function MentionText({
   if (!linkify) {
     const segments = toMentionSegments(body, memberBySlug);
     if (!segments.some(segment => segment.type === 'mention')) return <>{body}</>;
-    return (
-      <>
-        {segments.map((segment, index) =>
-          segment.type === 'mention' ? (
-            renderMentionPill(segment, index, onOpenProfile)
-          ) : (
-            <span key={index}>{segment.value}</span>
-          ),
-        )}
-      </>
-    );
+    return <>{renderMentionSegments(segments, onOpenProfile)}</>;
   }
 
   const linkSegments = linkifySegments(body);
@@ -97,13 +102,7 @@ export function MentionText({
           <span key={linkIndex}>
             {mentionSegments.length === 0
               ? linkSegment.value
-              : mentionSegments.map((segment, index) =>
-                  segment.type === 'mention' ? (
-                    renderMentionPill(segment, index, onOpenProfile)
-                  ) : (
-                    <span key={index}>{segment.value}</span>
-                  ),
-                )}
+              : renderMentionSegments(mentionSegments, onOpenProfile)}
           </span>
         );
       })}
