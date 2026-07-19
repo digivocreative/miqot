@@ -1,5 +1,6 @@
 import { toMentionSegments, type MentionMember } from '../lib/communityMentions';
 import { linkifySegments } from '../../lib/teras-linkify.js';
+import { terasProfilePath } from '../lib/terasRoutes';
 
 /**
  * Render a post/comment body with `@slug` tokens shown as pills of the member's
@@ -11,15 +12,51 @@ import { linkifySegments } from '../../lib/teras-linkify.js';
  * inside the resulting text segments — the mention regex allows `@` right
  * after `/`, so a URL like `https://x.com/@bagas` would otherwise be
  * misrendered as an `@bagas` mention pill if mentions ran first.
+ *
+ * With `onOpenProfile`, each mention pill becomes a link to the member's Teras
+ * profile; without it the pill stays inert (the pre-profile behaviour), which
+ * keeps every other caller of `MentionText` unaffected.
  */
+function renderMentionPill(
+  segment: { type: 'mention'; slug: string; name: string },
+  key: number,
+  onOpenProfile?: (slug: string) => void,
+) {
+  const className = 'font-semibold text-emerald-600 dark:text-emerald-400';
+  if (!onOpenProfile) {
+    return (
+      <span key={key} className={className}>
+        @{segment.name}
+      </span>
+    );
+  }
+  return (
+    <a
+      key={key}
+      href={terasProfilePath(segment.slug)}
+      className={`${className} hover:underline`}
+      onClick={event => {
+        // Klik di dalam kartu post juga membuka detail post; jangan dua-duanya.
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenProfile(segment.slug);
+      }}
+    >
+      @{segment.name}
+    </a>
+  );
+}
+
 export function MentionText({
   body,
   memberBySlug,
   linkify = false,
+  onOpenProfile,
 }: {
   body: string;
   memberBySlug: Map<string, MentionMember>;
   linkify?: boolean;
+  onOpenProfile?: (slug: string) => void;
 }) {
   if (!linkify) {
     const segments = toMentionSegments(body, memberBySlug);
@@ -28,12 +65,7 @@ export function MentionText({
       <>
         {segments.map((segment, index) =>
           segment.type === 'mention' ? (
-            <span
-              key={index}
-              className="font-semibold text-emerald-600 dark:text-emerald-400"
-            >
-              @{segment.name}
-            </span>
+            renderMentionPill(segment, index, onOpenProfile)
           ) : (
             <span key={index}>{segment.value}</span>
           ),
@@ -67,12 +99,7 @@ export function MentionText({
               ? linkSegment.value
               : mentionSegments.map((segment, index) =>
                   segment.type === 'mention' ? (
-                    <span
-                      key={index}
-                      className="font-semibold text-emerald-600 dark:text-emerald-400"
-                    >
-                      @{segment.name}
-                    </span>
+                    renderMentionPill(segment, index, onOpenProfile)
                   ) : (
                     <span key={index}>{segment.value}</span>
                   ),
