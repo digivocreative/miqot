@@ -336,7 +336,7 @@ function AgentAvatar({
   const imageSize = size === 'comment' ? 28 : 40;
 
   return (
-    <div className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-100 font-bold text-emerald-700 ring-2 ring-pink-300 dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-pink-500/70 ${sizeClass}`}>
+    <div className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-100 font-bold text-emerald-700 ring-1 ring-black/[0.06] dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-white/10 ${sizeClass}`}>
       {photo && !fallback ? (
         <img
           src={photo}
@@ -617,6 +617,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
   const pageRootRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerFormRef = useRef<HTMLFormElement>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const composerStatusRef = useRef<HTMLDivElement>(null);
   const composerTriggerRef = useRef<HTMLElement | null>(null);
   const composerControllerRef = useRef<AbortController | null>(null);
@@ -1033,6 +1034,14 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
       document.removeEventListener('keydown', handleComposerKeyDown);
     };
   }, [composerOpen]);
+
+  useLayoutEffect(() => {
+    if (!composerOpen) return;
+    const textarea = composerTextareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [composerBody, composerOpen]);
 
   useEffect(() => {
     if (!composerOpen) return;
@@ -1584,6 +1593,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                   </div>
 
                   <textarea
+                    ref={composerTextareaRef}
                     autoFocus
                     aria-label="Isi kiriman"
                     value={composerBody}
@@ -1594,7 +1604,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                     disabled={composerBusy}
                     maxLength={2100}
                     placeholder={COMPOSER_PROMPT}
-                    className="mt-1.5 min-h-[88px] w-full resize-none bg-transparent text-[17px] leading-relaxed text-gray-900 outline-none placeholder:text-gray-500 disabled:opacity-60 dark:text-white dark:placeholder:text-slate-400"
+                    className="mt-1.5 min-h-[88px] w-full resize-none overflow-hidden bg-transparent text-[17px] leading-relaxed text-gray-900 outline-none placeholder:text-gray-500 disabled:opacity-60 dark:text-white dark:placeholder:text-slate-400"
                   />
 
                   {composerBodyLength > 2000 && (
@@ -1621,7 +1631,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                           : 'text-gray-500 dark:text-slate-400'
                       }`}
                     >
-                      {composerBodyLength}/2000
+                      {composerBodyLength >= 1800 ? `${composerBodyLength}/2000` : ''}
                     </span>
                   </div>
 

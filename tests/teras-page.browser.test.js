@@ -1701,4 +1701,50 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await app.close();
     }
   });
+
+  test('composer textarea grows with content and shows the counter only near the limit', { timeout: 30_000 }, async () => {
+    const app = await openApp({
+      api: createCommunityApi(),
+      viewport: { width: 360, height: 800 },
+    });
+    try {
+      await app.page.getByRole('button', { name: COMPOSER_PROMPT, exact: true }).click();
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+      const textarea = dialog.getByPlaceholder(COMPOSER_PROMPT);
+      const textareaHandle = await textarea.elementHandle();
+      assert.ok(textareaHandle, 'textarea composer harus tersedia');
+
+      const initialHeight = await textarea.evaluate(element => element.clientHeight);
+      assert.ok(initialHeight >= 80, 'textarea kosong harus mempertahankan tinggi minimum');
+      assert.equal(await dialog.getByText('/2000').count(), 0,
+        'counter karakter tidak perlu tampil saat masih jauh dari batas');
+
+      await textarea.fill(Array.from({ length: 14 }, (_, index) => `Baris ${index + 1}`).join('\n'));
+      await app.page.waitForFunction(
+        element => element.clientHeight > 200,
+        textareaHandle,
+      );
+      const grownMetrics = await textarea.evaluate(element => ({
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+      }));
+      assert.ok(grownMetrics.scrollHeight <= grownMetrics.clientHeight + 1,
+        'textarea harus tumbuh mengikuti isi, bukan scroll internal');
+
+      const attachment = dialog.getByRole('button', { name: 'Tambahkan foto atau video' });
+      const [textareaBox, attachmentBox] = await Promise.all([
+        textarea.boundingBox(),
+        attachment.boundingBox(),
+      ]);
+      assert.ok(textareaBox && attachmentBox, 'geometri composer yang tumbuh harus dapat diukur');
+      assert.ok(Math.abs(attachmentBox.y - (textareaBox.y + textareaBox.height)) < 40,
+        'toolbar media harus tetap menempel di bawah teks yang tumbuh');
+
+      await textarea.fill('a'.repeat(1850));
+      await dialog.getByText('1850/2000', { exact: true }).waitFor();
+    } finally {
+      await app.close();
+    }
+  });
 });
