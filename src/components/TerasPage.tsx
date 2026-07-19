@@ -39,6 +39,7 @@ import {
 import { handleAgentPhotoError } from '../lib/agent-photo';
 import { videoPreviewSrc, videoPreviewFallbackSrc } from '../lib/videoPoster';
 import { terasShareUrl, isTerasShortCode } from '../../lib/teras-share.js';
+import { stripUrlFromBody } from '../../lib/teras-linkify.js';
 import PlyrVideo from './PlyrVideo';
 import { getAuthHeaders } from './LoginPage';
 import { MentionText } from './MentionText';
@@ -751,7 +752,7 @@ function PostBody({
             marginTop: `${compact ? POST_BODY_PARAGRAPH_GAP_COMPACT_EM : POST_BODY_PARAGRAPH_GAP_EM}em`,
           }}
         >
-          <MentionText body={paragraph} memberBySlug={memberBySlug} />
+          <MentionText body={paragraph} memberBySlug={memberBySlug} linkify />
         </span>
       ))}
     </>
@@ -3603,12 +3604,27 @@ export default function TerasPage({
                       </time>
                     </div>
 
-                    <PostBody
-                      body={post.body}
-                      memberBySlug={memberBySlug}
-                      reserveMenuSpace={!post.is_system}
-                      clamp={!isDetailView}
-                    />
+                    {(() => {
+                      // Kartu preview sudah mewakili URL-nya (ala Threads) — begitu
+                      // kartu tampil, URL yang sama disembunyikan dari teks body.
+                      // Penjaga di sini HARUS sama persis dengan penjaga LinkPreviewCard
+                      // di bawah supaya keduanya selalu sepakat kartu tampil atau tidak.
+                      const showsPreviewCard = !!post.link_preview && postMedia.length === 0 && !post.quoted_post;
+                      const displayBody = showsPreviewCard
+                        ? stripUrlFromBody(post.body, post.link_preview!.url)
+                        : post.body;
+                      // Dihitung di titik panggil, bukan di dalam PostBody: PostBody
+                      // memakai useLayoutEffect/useState untuk mengukur tinggi lipatan,
+                      // early-return di dalamnya akan melanggar urutan hook React.
+                      return displayBody ? (
+                        <PostBody
+                          body={displayBody}
+                          memberBySlug={memberBySlug}
+                          reserveMenuSpace={!post.is_system}
+                          clamp={!isDetailView}
+                        />
+                      ) : null;
+                    })()}
 
                     {postMedia.length > 0 && (
                       <div>
@@ -3836,7 +3852,7 @@ export default function TerasPage({
                                     </button>
                                   )}
                                 </div>
-                                <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300"><MentionText body={comment.body} memberBySlug={memberBySlug} /></p>
+                                <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300"><MentionText body={comment.body} memberBySlug={memberBySlug} linkify /></p>
                                 {(comment.media?.length ?? 0) > 0 && (
                                   <div className="mt-1.5 flex snap-x gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                     {(comment.media || []).map((item, index) => (
