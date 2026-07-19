@@ -32,6 +32,14 @@ test('feed tanpa query agent tetap memakai jalur lama (tanpa filter)', () => {
   assert.match(handler, /if \(profileMember\) \{\s*query = query\.eq\('agent_id', profileMember\.id\);/);
 });
 
+test('agent query berulang (array) ditolak dengan 400 dan pesan Indonesia', () => {
+  const handler = feedHandler(read('server.js'));
+  assert.match(
+    handler,
+    /if \(req\.query\.agent !== undefined && typeof req\.query\.agent !== 'string'\) \{\s*return res\.status\(400\)\.json\(\{ error: 'Parameter agent tidak valid' \}\);\s*\}/,
+  );
+});
+
 test('members mengembalikan phone untuk tombol WhatsApp', () => {
   const server = read('server.js');
   assert.match(server, /\.select\('id, slug, name, photo, phone, telegram_chat_id, notification_prefs'\)/);

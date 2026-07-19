@@ -4816,7 +4816,10 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       return res.status(400).json({ error: 'Cursor feed tidak valid' });
     }
 
-    // Mode profil: /teras/<slug> memakai feed yang sama, difilter satu agent.
+    // Profile mode: /teras/<slug> reuses the same feed, filtered to one agent.
+    if (req.query.agent !== undefined && typeof req.query.agent !== 'string') {
+      return res.status(400).json({ error: 'Parameter agent tidak valid' });
+    }
     const profileSlug = typeof req.query.agent === 'string'
       ? req.query.agent.trim().toLowerCase()
       : '';
