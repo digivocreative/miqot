@@ -1,5 +1,25 @@
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { AtSign, Bell, Heart, MessageCircle, X } from 'lucide-react';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+
+const PANEL_MAX_WIDTH = 320; // 20rem
+const PANEL_MARGIN = 8;
+
+/**
+ * Where the floating panel sits. Anchoring to the bell alone is not enough: in the
+ * home header the bell is ~96px from the screen edge (theme + logout sit to its
+ * right), so a right-aligned panel of full width runs off the left edge on narrow
+ * screens. The right offset is therefore clamped so both edges stay on screen.
+ */
+function measurePanelAnchor(button: HTMLElement | null) {
+  if (!button || typeof window === 'undefined') return null;
+  const rect = button.getBoundingClientRect();
+  const width = Math.min(PANEL_MAX_WIDTH, window.innerWidth - PANEL_MARGIN * 2);
+  const rightFromBell = window.innerWidth - rect.right;
+  const right = Math.min(Math.max(PANEL_MARGIN, rightFromBell), window.innerWidth - width - PANEL_MARGIN);
+  return { top: rect.bottom + PANEL_MARGIN, right, width };
+}
 
 import { handleAgentPhotoError } from '../lib/agent-photo';
 import { formatNotificationText, timeAgo, type TerasNotification } from '../lib/communityNotifications';
@@ -71,18 +91,76 @@ export default function NotificationBell({
   onOpenPost: (postId: string) => void;
 }) {
   const { button: sizeButtonClass, icon: iconSize } = SIZE_CLASSES[size];
+  const reduceMotion = useReducedMotion();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [anchor, setAnchor] = useState<{ top: number; right: number; width: number } | null>(null);
+  // Portal target is resolved after mount so the component stays render-safe
+  // wherever `document` isn't available yet.
+  const [panelHost, setPanelHost] = useState<HTMLElement | null>(null);
+  useEffect(() => setPanelHost(document.body), []);
+
+  const remeasure = useCallback(() => setAnchor(measurePanelAnchor(buttonRef.current)), []);
+
+  // Swallowing the dismissing press's click is what a full-screen overlay used to
+  // do for free: without it, tapping outside closes the panel AND opens whatever
+  // sat under the finger. It deliberately lives outside the open-scoped effect —
+  // closing flips `open` to false immediately, and that effect's cleanup would
+  // otherwise disarm the trap before the click it was armed for ever arrives.
+  const armClickSwallow = useCallback(() => {
+    const swallowClick = (click: MouseEvent) => {
+      click.preventDefault();
+      click.stopPropagation();
+    };
+    document.addEventListener('click', swallowClick, { capture: true, once: true });
+    // A press that never becomes a click (a drag, a scroll) would leave the trap
+    // armed and eat some unrelated click later, so it also expires on its own.
+    window.setTimeout(() => document.removeEventListener('click', swallowClick, { capture: true }), 350);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    remeasure();
+    // The header is sticky, so the bell can travel while the panel is open.
+    window.addEventListener('resize', remeasure);
+    window.addEventListener('scroll', remeasure, true);
+    return () => {
+      window.removeEventListener('resize', remeasure);
+      window.removeEventListener('scroll', remeasure, true);
+    };
+  }, [open, remeasure]);
+
   useEffect(() => {
     if (!open) return;
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
+    // Closing on outside click uses a document listener rather than a full-screen
+    // overlay element: the bell lives inside a `backdrop-blur` header, and
+    // backdrop-filter makes that header the containing block for `position: fixed`
+    // children — an overlay would shrink to the header strip and never catch
+    // clicks in the page body. Same pattern as the post menus in TerasPage.
+    const handleOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      // Clicks on the bell itself are the button's own toggle, not "outside" —
+      // and the panel is portaled to <body>, so it needs its own containment check.
+      if (target && (rootRef.current?.contains(target) || panelRef.current?.contains(target))) return;
+      onClose();
+      armClickSwallow();
+    };
     document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
-  }, [open, onClose]);
+    document.addEventListener('pointerdown', handleOutsidePointer);
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('pointerdown', handleOutsidePointer);
+    };
+  }, [open, onClose, armClickSwallow]);
 
   return (
-    <div className="relative shrink-0">
+    <div ref={rootRef} className="relative shrink-0">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => (open ? onClose() : onOpen())}
         aria-label="Notifikasi"
@@ -98,20 +176,30 @@ export default function NotificationBell({
         )}
       </button>
 
-      {open && (
-        <>
-          <button
-            type="button"
-            aria-hidden="true"
-            tabIndex={-1}
-            onClick={onClose}
-            className="fixed inset-0 z-40 cursor-default"
-          />
-          <div
-            role="dialog"
-            aria-label="Notifikasi"
-            className="absolute right-0 top-full z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-xl dark:border-slate-700 dark:bg-slate-900"
-          >
+      {panelHost && createPortal(
+        <AnimatePresence>
+          {open && anchor && (
+            <motion.div
+              ref={panelRef}
+              role="dialog"
+              aria-label="Notifikasi"
+              // Portal ke <body>: header memakai backdrop-blur, yang menjadikannya
+              // containing block bagi anak `fixed` sekaligus stacking context — di
+              // dalamnya panel ikut terpotong dan bisa tertimbun pil "kiriman baru".
+              // Tumbuh dari sudut tombol, bukan dari tengah, agar terbaca keluar dari bel.
+              style={{
+                position: 'fixed',
+                top: anchor.top,
+                right: anchor.right,
+                width: anchor.width,
+                transformOrigin: 'top right',
+              }}
+              initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.95, y: -8 }}
+              animate={reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
+              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.95, y: -8 }}
+              transition={{ duration: reduceMotion ? 0.12 : 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="z-[60] overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            >
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5 dark:border-slate-800">
               <p className="text-[13px] font-bold text-gray-900 dark:text-white">Notifikasi</p>
               <button
@@ -159,8 +247,10 @@ export default function NotificationBell({
                 })
               )}
             </div>
-          </div>
-        </>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        panelHost,
       )}
     </div>
   );
