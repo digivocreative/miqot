@@ -5157,6 +5157,16 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
     const photoUrl = media.find(item => item.type === 'image')?.url || null;
     const requiresMediaSchema = media.length > 1 || media.some(item => item.type === 'video');
 
+    // Link preview: hanya bila TIDAK ada media & TIDAK ada quote (prioritas).
+    let linkPreview = null;
+    if (media.length === 0 && !quotedPostId && req.body?.link_preview != null) {
+      const candidate = sanitizeLinkPreview(req.body.link_preview);
+      // URL preview wajib benar-benar muncul di body teks.
+      if (candidate && body.includes(candidate.url)) {
+        linkPreview = candidate;
+      }
+    }
+
     const basePostPayload = {
       ...(clientId ? { id: clientId } : {}),
       agent_id: agent.id,
@@ -5164,6 +5174,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       photo_url: photoUrl,
       is_system: false,
       ...(quotedPostId ? { quoted_post_id: quotedPostId } : {}),
+      ...(linkPreview ? { link_preview: linkPreview } : {}),
     };
     let includeMediaColumn = true;
     let includeObsoleteType = false;
@@ -5192,6 +5203,9 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       }
       if (quotedPostId && isCommunityQuoteSchemaMissing(insertError)) {
         return res.status(503).json({ error: 'Migrasi quote Teras belum diterapkan' });
+      }
+      if (linkPreview && isCommunityLinkPreviewSchemaMissing(insertError)) {
+        return res.status(503).json({ error: 'Migrasi link preview Teras belum diterapkan' });
       }
       // Compatibility for installations that already ran the pre-final Teras
       // draft, where `type` was NOT NULL. Keep that obsolete value server-side.
@@ -5253,6 +5267,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       comment_count: 0,
       quote_count: 0,
       quoted_post: quotedPostId ? communityQuotedPostPayload(quotedPostRow) : null,
+      link_preview: linkPreview,
       is_own: true,
     };
     res.status(201).json({ success: true, data });
