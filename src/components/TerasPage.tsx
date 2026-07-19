@@ -358,7 +358,7 @@ function AgentAvatar({
 
 function PostSkeleton({ withMedia = false }: { withMedia?: boolean }) {
   return (
-    <div className="relative animate-pulse border-b border-gray-100 bg-white px-4 py-4 motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900">
+    <div data-teras-skeleton-post className="relative animate-pulse border-b border-gray-100 bg-white px-4 py-3 motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900">
       <div className="absolute right-2 top-0 h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
       <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
         <div className="h-10 w-10 shrink-0 rounded-full bg-gray-200 dark:bg-slate-700" />
@@ -373,9 +373,9 @@ function PostSkeleton({ withMedia = false }: { withMedia?: boolean }) {
             <div className="h-3.5 w-2/3 rounded bg-gray-100 dark:bg-slate-700/70" />
           </div>
           {withMedia && (
-            <div data-teras-skeleton-media className="mt-3 aspect-[4/5] max-h-[34rem] rounded-2xl bg-gray-100 dark:bg-slate-800" />
+            <div data-teras-skeleton-media className="mt-2 aspect-[4/3] max-h-[24rem] rounded-xl bg-gray-100 dark:bg-slate-800" />
           )}
-          <div className="mt-1 flex gap-1 border-t border-gray-50 py-1 dark:border-slate-800">
+          <div className="mt-1 flex gap-1 py-0.5">
             <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
             <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
           </div>
@@ -444,7 +444,7 @@ function PostMediaRail({
             playsInline
             preload="metadata"
             aria-label={`Video ${index + 1} dari ${media.length} kiriman ${authorName}`}
-            className={`${preserveIntrinsicRatio ? 'block max-h-[34rem]' : 'h-full'} w-full bg-black object-contain`}
+            className={`${preserveIntrinsicRatio ? 'block max-h-[22rem]' : 'h-full'} w-full bg-black object-contain`}
           />
           <button
             type="button"
@@ -474,7 +474,7 @@ function PostMediaRail({
             ? `Foto kiriman ${authorName}`
             : `Foto ${index + 1} dari ${media.length} kiriman ${authorName}`}
           loading="lazy"
-          className={`${preserveIntrinsicRatio ? 'block max-h-[34rem] object-contain' : 'h-full object-cover'} w-full bg-gray-100 transition-transform duration-300 group-active:scale-[0.985] motion-reduce:transition-none dark:bg-slate-950`}
+          className={`${preserveIntrinsicRatio ? 'block max-h-[22rem] object-contain' : 'h-full object-cover'} w-full bg-gray-100 transition-transform duration-300 group-active:scale-[0.985] motion-reduce:transition-none dark:bg-slate-950`}
         />
       </button>
     );
@@ -482,7 +482,7 @@ function PostMediaRail({
 
   if (media.length === 1) {
     return (
-      <div className="mt-2.5 max-h-[34rem] overflow-hidden rounded-2xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950">
+      <div data-media-layout="single" className="mt-2 max-h-[22rem] overflow-hidden rounded-xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950">
         {renderMedia(media[0], 0, true)}
       </div>
     );
@@ -490,11 +490,11 @@ function PostMediaRail({
 
   if (media.length === 2) {
     return (
-      <div className="mt-2.5 grid grid-cols-2 gap-1.5" role="group" aria-label={`2 media kiriman ${authorName} ditampilkan berdampingan`}>
+      <div data-media-layout="pair" className="mt-2 grid grid-cols-2 gap-1" role="group" aria-label={`2 media kiriman ${authorName} ditampilkan berdampingan`}>
         {media.map((item, index) => (
           <div
             key={`${item.type}-${item.url}-${index}`}
-            className="aspect-[4/5] max-h-[34rem] overflow-hidden rounded-2xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950"
+            className="aspect-[4/5] max-h-[24rem] overflow-hidden rounded-xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950"
           >
             {renderMedia(item, index)}
           </div>
@@ -504,7 +504,7 @@ function PostMediaRail({
   }
 
   return (
-    <div className="relative mt-2.5" aria-label={`Media kiriman ${authorName}, ${media.length} item`}>
+    <div data-media-layout="carousel" className="relative mt-2" aria-label={`Media kiriman ${authorName}, ${media.length} item`}>
       <div
         ref={railRef}
         role="region"
@@ -522,19 +522,18 @@ function PostMediaRail({
             scrollToIndex(activeIndex + 1);
           }
         }}
-        className="flex snap-x snap-mandatory gap-1.5 overflow-x-auto overscroll-x-contain scroll-smooth rounded-2xl outline-none motion-reduce:scroll-auto [scrollbar-width:none] focus-visible:ring-2 focus-visible:ring-emerald-500/60 [&::-webkit-scrollbar]:hidden"
+        className="flex snap-x snap-mandatory gap-1 overflow-x-auto overscroll-x-contain scroll-smooth rounded-xl outline-none motion-reduce:scroll-auto [scrollbar-width:none] focus-visible:ring-2 focus-visible:ring-emerald-500/60 [&::-webkit-scrollbar]:hidden"
       >
         {media.map((item, index) => (
           <div
             key={`${item.type}-${item.url}-${index}`}
             data-media-slide
-            className="aspect-[4/5] max-h-[34rem] shrink-0 snap-start overflow-hidden rounded-2xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950"
-            style={{ flexBasis: '82%' }}
+            className="aspect-[4/3] max-h-[24rem] shrink-0 basis-[86%] snap-start overflow-hidden rounded-xl border border-gray-100 bg-gray-100 [scroll-snap-stop:always] dark:border-slate-700 dark:bg-slate-950"
           >
             {renderMedia(item, index)}
           </div>
         ))}
-        <div aria-hidden="true" className="w-[18%] shrink-0" />
+        <div aria-hidden="true" className="w-[14%] shrink-0" />
       </div>
 
       <span
@@ -572,11 +571,17 @@ function PostMediaRail({
 
 function CommentSkeleton() {
   return (
-    <div className="space-y-2.5 py-2" aria-label="Memuat komentar" aria-busy="true">
+    <div className="py-1.5" aria-label="Memuat komentar" aria-busy="true">
       {[0, 1].map(item => (
-        <div key={item} className="flex animate-pulse items-start gap-2 motion-reduce:animate-none">
-          <div className="h-7 w-7 rounded-full bg-gray-200 dark:bg-slate-700" />
-          <div className="h-12 flex-1 rounded-2xl bg-gray-100 dark:bg-slate-900" />
+        <div key={item} className="mt-2 grid animate-pulse grid-cols-[40px_minmax(0,1fr)] gap-x-3 motion-reduce:animate-none">
+          <div className="flex flex-col items-center">
+            <div className="h-7 w-7 rounded-full bg-gray-200 dark:bg-slate-700" />
+            <div aria-hidden="true" className="mt-1.5 -mb-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
+          </div>
+          <div className="min-w-0 space-y-2 py-1">
+            <div className="h-2.5 w-24 rounded-full bg-gray-200 dark:bg-slate-700" />
+            <div className="h-2.5 w-4/5 rounded-full bg-gray-100 dark:bg-slate-800" />
+          </div>
         </div>
       ))}
     </div>
@@ -1569,7 +1574,14 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                 </div>
 
                 <div className="min-w-0">
-                  <p className="truncate text-[13px] font-bold text-gray-900 dark:text-white">{agent.name}</p>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <p className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-900 dark:text-white">{agent.name}</p>
+                    {composerMedia.length > 0 && (
+                      <span className="shrink-0 text-[10px] font-semibold tabular-nums text-gray-500 dark:text-slate-400">
+                        {composerMedia.length}/{MAX_COMMUNITY_MEDIA}
+                      </span>
+                    )}
+                  </div>
 
                   <textarea
                     autoFocus
@@ -1582,14 +1594,14 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                     disabled={composerBusy}
                     maxLength={2100}
                     placeholder={COMPOSER_PROMPT}
-                    className="mt-2 min-h-[104px] w-full resize-none bg-transparent text-[17px] leading-relaxed text-gray-900 outline-none placeholder:text-gray-500 disabled:opacity-60 dark:text-white dark:placeholder:text-slate-400"
+                    className="mt-1.5 min-h-[88px] w-full resize-none bg-transparent text-[17px] leading-relaxed text-gray-900 outline-none placeholder:text-gray-500 disabled:opacity-60 dark:text-white dark:placeholder:text-slate-400"
                   />
 
                   {composerBodyLength > 2000 && (
                     <p className="mb-2 text-[10px] font-medium text-red-500 dark:text-red-400">Isi kiriman maksimal 2000 karakter</p>
                   )}
 
-                  <div className="flex min-h-11 items-center gap-1 pb-1">
+                  <div className="flex min-h-11 items-center gap-1">
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
@@ -1600,24 +1612,38 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                     >
                       <ImageIcon size={22} />
                     </button>
-                    {composerMedia.length > 0 && (
-                      <span className="rounded-full bg-gray-100 px-2 py-1 text-[10px] font-semibold tabular-nums text-gray-500 dark:bg-slate-800 dark:text-slate-400">
-                        {composerMedia.length}/{MAX_COMMUNITY_MEDIA}
-                      </span>
-                    )}
+                    <span className="flex-1" />
+                    <span
+                      aria-live="polite"
+                      className={`text-[10px] font-semibold tabular-nums ${
+                        composerBodyLength > 2000
+                          ? 'text-red-500 dark:text-red-400'
+                          : 'text-gray-500 dark:text-slate-400'
+                      }`}
+                    >
+                      {composerBodyLength}/2000
+                    </span>
                   </div>
 
                   {composerMedia.length > 0 && (
                     <div
                       role="group"
-                      className="mb-3 flex snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain rounded-2xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                      data-composer-media-layout={composerMedia.length === 1 ? 'single' : composerMedia.length === 2 ? 'pair' : 'carousel'}
+                      className={composerMedia.length === 2
+                        ? 'mb-2 grid grid-cols-2 gap-1'
+                        : 'mb-2 flex snap-x snap-mandatory gap-1 overflow-x-auto overscroll-x-contain rounded-xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'}
                       aria-label={`${composerMedia.length} media kiriman dipilih`}
                     >
                       {composerMedia.map((item, index) => (
                         <div
                           key={item.id}
-                          className="relative aspect-[4/5] max-h-[420px] shrink-0 snap-start overflow-hidden rounded-2xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950"
-                          style={{ flexBasis: composerMedia.length === 1 ? '100%' : '78%' }}
+                          className={`relative overflow-hidden rounded-xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950 ${
+                            composerMedia.length === 1
+                              ? 'max-h-[22rem] w-full shrink-0 snap-start'
+                              : composerMedia.length === 2
+                                ? 'aspect-[3/4] min-w-0'
+                                : 'aspect-[4/3] max-h-[22rem] shrink-0 basis-[86%] snap-start [scroll-snap-stop:always]'
+                          }`}
                         >
                           {item.type === 'video' ? (
                             <video
@@ -1626,13 +1652,13 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                               playsInline
                               preload="metadata"
                               aria-label={`Pratinjau video ${index + 1}`}
-                              className="h-full w-full bg-black object-contain"
+                              className={`${composerMedia.length === 1 ? 'block max-h-[22rem]' : 'h-full'} w-full bg-black object-contain`}
                             />
                           ) : (
                             <img
                               src={item.previewUrl}
                               alt={composerMedia.length === 1 ? 'Pratinjau foto kiriman' : `Pratinjau foto ${index + 1}`}
-                              className="h-full w-full object-cover"
+                              className={`${composerMedia.length === 1 ? 'block max-h-[22rem] object-contain' : 'h-full object-cover'} w-full`}
                             />
                           )}
                           <button
@@ -1660,6 +1686,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                           )}
                         </div>
                       ))}
+                      {composerMedia.length > 2 && <div aria-hidden="true" className="w-[14%] shrink-0" />}
                     </div>
                   )}
 
@@ -1833,7 +1860,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
         onChange={handleMediaSelection}
       />
 
-      <section className="border-b border-gray-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+      <section className="border-b border-gray-100 bg-white px-4 py-2 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center gap-2.5">
           <AgentAvatar name={agent.name} photo={agent.photo} />
           <button
@@ -1897,7 +1924,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
               <article
                 key={post.id}
                 data-post-id={post.id}
-                className={`relative border-b bg-white px-4 py-4 dark:bg-slate-900 ${
+                className={`relative border-b bg-white px-4 pb-2.5 pt-3.5 dark:bg-slate-900 ${
                   post.is_system
                     ? 'border-emerald-500/25 dark:border-emerald-500/25'
                     : 'border-gray-100 dark:border-slate-800'
@@ -2015,11 +2042,11 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                       <AgentAvatar name={authorName} photo={post.author.photo} />
                     )}
                     {commentsOpen && (
-                      <div aria-hidden="true" className="mt-1.5 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
+                      <div data-thread-rail="post" aria-hidden="true" className="mt-1.5 -mb-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
                     )}
                   </div>
 
-                  <div className="min-w-0">
+                  <div data-post-content className="min-w-0">
                     <div className={`flex min-w-0 items-center gap-1.5 ${post.is_system ? '' : 'pr-10'}`}>
                       <p className="min-w-0 truncate text-[14px] font-bold text-gray-900 dark:text-white">{authorName}</p>
                       {post.is_system && (
@@ -2036,7 +2063,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
 
                     <p
                       data-post-body
-                      className="mt-1.5 whitespace-pre-wrap break-words text-[15px] leading-[1.5] text-gray-800 dark:text-slate-200"
+                      className="mt-1.5 whitespace-pre-wrap break-words text-base leading-[1.5] text-gray-800 dark:text-slate-200"
                     >
                       {!post.is_system && <span aria-hidden="true" className="float-right h-6 w-11" />}
                       {post.body}
@@ -2052,7 +2079,7 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                       </div>
                     )}
 
-                    <div className="relative mt-1 flex items-center gap-1 py-1">
+                    <div className="relative mt-1 flex items-center gap-1">
                       <button
                         type="button"
                         aria-disabled={reactionIsBusy}
@@ -2093,15 +2120,17 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                     </div>
 
                     {!commentsOpen && post.comment_count > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => toggleComments(post.id)}
-                        aria-expanded="false"
-                        aria-controls={`teras-comments-${post.id}`}
-                        className="flex min-h-11 items-center text-[12.5px] font-medium text-gray-500 transition-colors active:text-gray-700 dark:text-slate-400 dark:active:text-slate-200"
-                      >
-                        {post.comment_count} balasan
-                      </button>
+                      <div data-reply-summary-row className="flex min-h-11 items-center">
+                        <button
+                          type="button"
+                          onClick={() => toggleComments(post.id)}
+                          aria-expanded="false"
+                          aria-controls={`teras-comments-${post.id}`}
+                          className="flex min-h-11 items-center text-[12.5px] font-medium text-gray-500 transition-colors active:text-gray-700 dark:text-slate-400 dark:active:text-slate-200"
+                        >
+                          {post.comment_count} balasan
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -2128,17 +2157,19 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                     ) : (
                       <>
                         {commentPanel.comments.length === 0 ? (
-                          <div className="mt-3 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
-                            <div aria-hidden="true" />
+                          <div className="mt-2 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
+                            <div aria-hidden="true" className="flex flex-col items-center">
+                              <div data-thread-rail="empty" className="-my-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
+                            </div>
                             <p className="min-w-0 py-1 text-[11px] text-gray-500 dark:text-slate-400">Belum ada komentar.</p>
                           </div>
                         ) : commentPanel.comments.map(comment => {
                           const canDeleteComment = comment.is_own || agent.role === 'admin';
                           return (
-                            <div key={comment.id} className="mt-3 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
+                            <div key={comment.id} data-comment-row className="mt-2 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
                               <div className="flex flex-col items-center">
                                 <AgentAvatar name={comment.author.name || 'Agent'} photo={comment.author.photo} size="comment" />
-                                <div aria-hidden="true" className="mt-1.5 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
+                                <div data-thread-rail="comment" aria-hidden="true" className="mt-1.5 -mb-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
                               </div>
                               <div className="min-w-0">
                                 <div className="flex min-w-0 items-center gap-1.5">
@@ -2176,9 +2207,12 @@ export default function TerasPage({ agent }: { agent: TerasAgent }) {
                           {commentPanel.sending ? 'Sedang mengirim komentar.' : ''}
                         </p>
 
-                        <div className="mt-3 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
-                          <div className="flex justify-center pt-2">
-                            <AgentAvatar name={agent.name} photo={agent.photo} size="comment" />
+                        <div data-thread-input className="mt-2 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
+                          <div className="relative flex justify-center pt-2">
+                            <div data-thread-rail="input" aria-hidden="true" className="absolute left-1/2 top-0 h-5 w-px -translate-x-1/2 bg-gray-200 dark:bg-slate-700" />
+                            <div className="relative z-10">
+                              <AgentAvatar name={agent.name} photo={agent.photo} size="comment" />
+                            </div>
                           </div>
                           <div className="flex min-w-0 items-center gap-2 border-b border-gray-200 pb-2 dark:border-slate-700">
                             <input

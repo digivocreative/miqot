@@ -611,6 +611,19 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
       await dialog.getByAltText('Pratinjau foto 1').waitFor();
       await dialog.getByAltText('Pratinjau foto 2').waitFor();
+      const composerMediaGroup = dialog.getByRole('group', { name: '2 media kiriman dipilih' });
+      assert.equal(await composerMediaGroup.getAttribute('data-composer-media-layout'), 'pair');
+      const [firstPreviewBox, secondPreviewBox] = await Promise.all([
+        dialog.getByAltText('Pratinjau foto 1').boundingBox(),
+        dialog.getByAltText('Pratinjau foto 2').boundingBox(),
+      ]);
+      assert.ok(firstPreviewBox && secondPreviewBox, 'preview composer dua media harus dapat diukur');
+      assert.ok(Math.abs(firstPreviewBox.y - secondPreviewBox.y) < 1,
+        'preview composer dua media harus sejajar vertikal');
+      assert.ok(secondPreviewBox.x > firstPreviewBox.x + firstPreviewBox.width,
+        'preview kedua harus berada di sisi kanan preview pertama');
+      assert.ok(Math.abs(firstPreviewBox.width - secondPreviewBox.width) < 1,
+        'preview composer dua media harus berbagi lebar secara seimbang');
       await dialog.getByPlaceholder(COMPOSER_PROMPT).fill('Dua foto berurutan');
       const sendButton = dialog.getByRole('button', { name: 'Kirim kiriman' });
       await app.page.waitForFunction(button => !button.disabled, await sendButton.elementHandle());
@@ -718,11 +731,26 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       const rail = article.getByRole('region', { name: '3 media. Geser ke samping untuk melihat semuanya.' });
       await rail.waitFor();
+      assert.equal(await article.locator('[data-media-layout="carousel"]').count(), 1);
       const geometry = await rail.evaluate(element => ({
         clientWidth: element.clientWidth,
         scrollWidth: element.scrollWidth,
+        scrollSnapType: getComputedStyle(element).scrollSnapType,
       }));
       assert.ok(geometry.scrollWidth > geometry.clientWidth, 'tiga media harus dapat digeser horizontal');
+      assert.match(geometry.scrollSnapType, /mandatory/, 'carousel harus memakai mandatory snap');
+      const [railBox, firstSlideBox, secondSlideBox] = await Promise.all([
+        rail.boundingBox(),
+        rail.locator('[data-media-slide]').nth(0).boundingBox(),
+        rail.locator('[data-media-slide]').nth(1).boundingBox(),
+      ]);
+      assert.ok(railBox && firstSlideBox && secondSlideBox, 'geometri carousel harus dapat diukur');
+      assert.ok(firstSlideBox.width / railBox.width >= 0.84 && firstSlideBox.width / railBox.width <= 0.88,
+        'slide carousel harus memakai sekitar 86% lebar rail');
+      assert.ok(firstSlideBox.width / firstSlideBox.height >= 1.3,
+        'carousel multi-media harus memakai rasio ringkas mendekati 4:3');
+      assert.ok(secondSlideBox.x < railBox.x + railBox.width,
+        'sebagian slide berikutnya harus terlihat sebagai affordance swipe');
 
       const video = article.getByLabel('Video 2 dari 3 kiriman Agent Lain', { exact: true });
       assert.equal(await video.getAttribute('controls'), '');
@@ -827,6 +855,22 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.ok(bodyBox.width >= 270 && bodyBox.x + bodyBox.width <= 345,
         'isi post harus tetap memakai lebar kolom penuh pada viewport 360px');
 
+      const articlePadding = await textArticle.evaluate(element => {
+        const style = getComputedStyle(element);
+        return {
+          top: style.paddingTop,
+          right: style.paddingRight,
+          bottom: style.paddingBottom,
+          left: style.paddingLeft,
+        };
+      });
+      assert.deepEqual(articlePadding, {
+        top: '14px',
+        right: '16px',
+        bottom: '10px',
+        left: '16px',
+      }, 'padding post harus mengikuti density mockup Threads');
+
       const [textStyle, mediaStyle] = await Promise.all([
         textArticle.getByText('Teks ringkas', { exact: true }).evaluate(element => {
           const style = getComputedStyle(element);
@@ -856,8 +900,24 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.equal((await commentButton.innerText()).trim(), '4');
       assert.equal(await likeButton.locator('svg.lucide-heart').count(), 1);
       assert.equal(await commentButton.locator('svg.lucide-message-circle').count(), 1);
-      await textArticle.getByRole('button', { name: '4 balasan', exact: true }).waitFor();
-      const likeBox = await likeButton.boundingBox();
+      const replySummaryButton = textArticle.getByRole('button', { name: '4 balasan', exact: true });
+      await replySummaryButton.waitFor();
+      const [replySummaryRowBox, replySummaryButtonBox, likeBox, commentBox] = await Promise.all([
+        textArticle.locator('[data-reply-summary-row]').boundingBox(),
+        replySummaryButton.boundingBox(),
+        likeButton.boundingBox(),
+        commentButton.boundingBox(),
+      ]);
+      assert.ok(replySummaryRowBox && replySummaryRowBox.height >= 44,
+        'ringkasan balasan harus menyediakan baris sentuh penuh');
+      assert.ok(replySummaryButtonBox && replySummaryButtonBox.height >= 44,
+        'ringkasan balasan tetap harus memiliki hit-area minimal 44px');
+      assert.ok(likeBox && commentBox && replySummaryButtonBox
+        && replySummaryButtonBox.y >= Math.max(
+          likeBox.y + likeBox.height,
+          commentBox.y + commentBox.height,
+        ) - 0.5,
+      'hit-area ringkasan balasan tidak boleh menimpa aksi Suka atau Komentari');
       assert.ok(likeBox && Math.abs(likeBox.x - bodyBox.x) <= 1,
         'aksi post harus tetap sejajar dengan isi post');
       for (const button of [likeButton, commentButton]) {
@@ -1221,14 +1281,33 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await article.getByRole('button', { name: '1 balasan', exact: true }).click();
       const serverComment = article.getByText('Komentar dari server', { exact: true });
       await serverComment.waitFor();
-      assert.equal(await article.locator('[data-thread-connector]').count(), 1,
-        'garis thread harus muncul saat panel balasan terbuka');
+      const threadRails = article.locator('[data-thread-rail]');
+      assert.ok(await threadRails.count() >= 3,
+        'rail thread harus menyambungkan post, balasan, dan input saat panel terbuka');
+      const railCenters = await Promise.all(['post', 'comment', 'input'].map(kind => (
+        article.locator(`[data-thread-rail="${kind}"]`).first().evaluate(element => {
+          const rect = element.getBoundingClientRect();
+          return rect.left + rect.width / 2;
+        })
+      )));
+      assert.ok(Math.max(...railCenters) - Math.min(...railCenters) <= 1,
+        'semua segmen rail thread harus berada pada sumbu avatar yang sama');
+      assert.equal(
+        await article.locator('[data-comment-row]').first().evaluate(element => getComputedStyle(element).marginTop),
+        '8px',
+        'jarak antarbalasan harus kompak',
+      );
+      assert.equal(
+        await article.locator('[data-thread-input]').evaluate(element => getComputedStyle(element).marginTop),
+        '8px',
+        'jarak menuju input balasan harus kompak',
+      );
       assert.doesNotMatch(await serverComment.evaluate(element => element.parentElement?.className || ''), /rounded|bg-|border/,
         'isi balasan harus flat tanpa bubble');
       assert.equal(matchingRequests(api, 'GET', '/api/community/posts/comments-post/comments').length, 1);
 
       await article.getByRole('button', { name: 'Komentari', exact: true }).click();
-      assert.equal(await article.locator('[data-thread-connector]').count(), 0);
+      assert.equal(await article.locator('[data-thread-rail]').count(), 0);
       await article.getByRole('button', { name: '1 balasan', exact: true }).waitFor();
       await article.getByRole('button', { name: 'Komentari', exact: true }).click();
       await article.getByText('Komentar dari server', { exact: true }).waitFor();
@@ -1275,6 +1354,38 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.equal(matchingRequests(api, 'DELETE', '/api/community/comments/created-comment-1').length, 1);
       await article.getByRole('button', { name: 'Komentari', exact: true }).click();
       await article.getByRole('button', { name: '1 balasan', exact: true }).waitFor();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('empty comments keep a one-pixel thread rail aligned with the reply input', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      posts: [makePost({
+        id: 'empty-comments-post',
+        body: 'Uji komentar kosong',
+        comment_count: 0,
+      })],
+      comments: { 'empty-comments-post': [] },
+    });
+    const app = await openApp({ api, viewport: { width: 360, height: 800 } });
+    try {
+      const article = app.page.locator('article').filter({ hasText: 'Uji komentar kosong' });
+      await article.getByRole('button', { name: 'Komentari', exact: true }).click();
+      await article.getByText('Belum ada komentar.', { exact: true }).waitFor();
+
+      const [emptyRailBox, inputRailBox] = await Promise.all([
+        article.locator('[data-thread-rail="empty"]').boundingBox(),
+        article.locator('[data-thread-rail="input"]').boundingBox(),
+      ]);
+      assert.ok(emptyRailBox && emptyRailBox.width <= 1.5 && emptyRailBox.height > 0,
+        'rail komentar kosong harus tetap berupa garis vertikal satu piksel');
+      assert.ok(inputRailBox
+        && Math.abs(
+          (emptyRailBox.x + emptyRailBox.width / 2)
+          - (inputRailBox.x + inputRailBox.width / 2),
+        ) <= 1,
+      'rail komentar kosong dan input harus berada pada sumbu avatar yang sama');
     } finally {
       await app.close();
     }

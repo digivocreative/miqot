@@ -310,6 +310,10 @@ test('Teras Threads presentation uses a single Heart reaction and the new compos
 });
 
 test('Teras thread rail uses a continuous grid instead of an absolute connector', () => {
+  const layoutSource = readFileSync(
+    new URL('../src/components/DashboardLayout.tsx', import.meta.url),
+    'utf8',
+  );
   const pageSource = readFileSync(
     new URL('../src/components/TerasPage.tsx', import.meta.url),
     'utf8',
@@ -318,6 +322,16 @@ test('Teras thread rail uses a continuous grid instead of an absolute connector'
   assert.doesNotMatch(pageSource, /ml-\[68px\]/);
   assert.doesNotMatch(pageSource, /left-\[35px\]/);
   assert.match(pageSource, /grid-cols-\[40px_minmax\(0,1fr\)\]/);
+  assert.match(pageSource, /data-thread-rail="post"/);
+  assert.match(pageSource, /data-thread-rail="comment"/);
+  assert.match(pageSource, /data-thread-rail="input"/);
+  assert.match(pageSource, /data-comment-row/);
+  assert.match(pageSource, /data-reply-summary-row/);
+  assert.match(pageSource, /data-media-layout="pair"/);
+  assert.match(pageSource, /data-media-layout="carousel"/);
+  assert.match(pageSource, /data-composer-media-layout/);
+  assert.match(layoutSource, /data-teras-skeleton-post/);
+  assert.doesNotMatch(layoutSource, /ml-\[68px\]/);
 });
 
 test('Vite proxies community API to local Express before the generic API fallback', () => {

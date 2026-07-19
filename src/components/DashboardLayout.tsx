@@ -33,7 +33,7 @@ function setLocalStorageItem(key: string, value: string): void {
 function TerasPageSkeleton() {
   return (
     <div className="w-full bg-white pb-8 dark:bg-slate-900" aria-label="Memuat halaman Teras" aria-busy="true">
-      <div className="animate-pulse border-b border-gray-100 bg-white px-4 py-3 motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900">
+      <div className="animate-pulse border-b border-gray-100 bg-white px-4 py-2 motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center gap-2.5">
           <div className="h-10 w-10 shrink-0 rounded-full bg-gray-200 dark:bg-slate-700" />
           <div className="h-11 flex-1 rounded-full border border-gray-100 bg-white dark:border-slate-700 dark:bg-slate-900" />
@@ -44,11 +44,13 @@ function TerasPageSkeleton() {
       {[0, 1, 2].map(item => (
         <div
           key={item}
-          className="animate-pulse border-b border-gray-100 bg-white motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900"
+          data-teras-skeleton-post
+          className="relative animate-pulse border-b border-gray-100 bg-white px-4 py-3 motion-reduce:animate-none dark:border-slate-800 dark:bg-slate-900"
         >
-          <div className="relative flex items-start gap-3 px-4 pt-4">
+          <div className="absolute right-2 top-0 h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
+          <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
             <div className="h-10 w-10 shrink-0 rounded-full bg-gray-200 dark:bg-slate-700" />
-            <div className="min-w-0 flex-1 pb-4">
+            <div className="min-w-0">
               <div className="flex items-center gap-2 pr-10">
                 <div className="h-3 w-28 rounded bg-gray-200 dark:bg-slate-700" />
                 <div className="h-2.5 w-12 rounded bg-gray-100 dark:bg-slate-700/70" />
@@ -58,15 +60,14 @@ function TerasPageSkeleton() {
                 <div className="h-3.5 w-5/6 rounded bg-gray-100 dark:bg-slate-700/70" />
                 <div className="h-3.5 w-2/3 rounded bg-gray-100 dark:bg-slate-700/70" />
               </div>
+              {item === 0 && (
+                <div data-teras-skeleton-media className="mt-2 aspect-[4/3] max-h-[24rem] rounded-xl bg-gray-100 dark:bg-slate-800" />
+              )}
+              <div className="mt-1 flex gap-1 py-0.5">
+                <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
+                <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
+              </div>
             </div>
-            <div className="absolute right-2 top-0 h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
-          </div>
-          {item === 0 && (
-            <div data-teras-skeleton-media className="ml-[68px] mr-4 aspect-[4/5] max-h-[34rem] rounded-2xl bg-gray-100 dark:bg-slate-800" />
-          )}
-          <div className="ml-[68px] mr-4 flex gap-1 border-t border-gray-50 py-1 dark:border-slate-800">
-            <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
-            <div className="h-11 w-11 rounded-full bg-gray-100 dark:bg-slate-800" />
           </div>
         </div>
       ))}
