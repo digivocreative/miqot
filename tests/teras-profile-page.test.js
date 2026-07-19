@@ -58,6 +58,23 @@ test('header profil punya fallback identitas dari slug dan skeleton saat roster 
   assert.match(page, /document\.title = `\$\{profileMember\?\.name \|\| profileSlug\} — Teras`;/);
 });
 
+test('header dan judul profil fabrikasi disembunyikan saat feed 404 dan slug tidak ada di roster', () => {
+  const page = read('src/components/TerasPage.tsx');
+  // profileNotFound = feed sudah mengonfirmasi 404 DAN roster tidak (belum)
+  // punya member ini — beda dari kasus fallback biasa (roster gagal/lambat
+  // tapi feed sukses), yang tetap harus jatuh ke header berbasis slug.
+  assert.match(page, /const profileNotFound = !!profileSlug && !!error && !profileMember;/);
+  // Header (skeleton maupun fallback slug) tidak boleh dirender sama sekali
+  // di atas pesan error saat profileNotFound true.
+  assert.match(page, /\{profileSlug && !profileNotFound \? \(/);
+  // document.title tidak boleh diisi dari slug ("ghost — Teras") saat
+  // profileNotFound — balik ke judul default "Teras".
+  assert.match(
+    page,
+    /if \(profileNotFound\) \{\s*\n\s*document\.title = 'Teras';\s*\n\s*return;\s*\n\s*\}/,
+  );
+});
+
 test('postCountLabel (statistik profil, di luar scope spec) sudah dibuang', () => {
   const header = read('src/components/TerasProfileHeader.tsx');
   const page = read('src/components/TerasPage.tsx');
@@ -71,7 +88,20 @@ test('kiriman pending tidak pernah bocor ke profil agent lain', () => {
   // pendingCreatedPostsRef tidak akan pernah dihapus oleh serverIds — kiriman
   // sendiri akan menempel di profil orang lain lintas navigasi dan menutupi
   // empty state "Belum ada kiriman".
-  assert.match(page, /const pendingPosts = profileSlug\s*\n\s*\? \[\]\s*\n\s*: Array\.from\(pendingCreatedPostsRef\.current\.values\(\)\)/);
+  assert.match(page, /const isOtherAgentProfile = !!profileSlug && profileSlug\.toLowerCase\(\) !== agent\.slug\.toLowerCase\(\);/);
+  assert.match(page, /const pendingPosts = isOtherAgentProfile\s*\n\s*\? \[\]\s*\n\s*: Array\.from\(pendingCreatedPostsRef\.current\.values\(\)\)/);
+});
+
+test('kiriman pending sendiri tetap tampil di profil sendiri (bukan hanya di feed lain)', () => {
+  const page = read('src/components/TerasPage.tsx');
+  // Bug lama: guard di atas menyamakan "mode profil" dengan "profil orang
+  // lain", jadi kiriman yang baru saja kita buat langsung hilang begitu kita
+  // buka profil sendiri, sampai respons `?agent=<kita>` menyusul dan
+  // mengonfirmasinya. pendingCreatedPostsRef ada justru untuk menutupi jeda
+  // staleness itu — guard harus dibandingkan case-insensitive terhadap
+  // agent.slug (identitas viewer), bukan sekadar `!!profileSlug`.
+  assert.match(page, /const pendingPosts = isOtherAgentProfile\s*\n\s*\? \[\]/);
+  assert.doesNotMatch(page, /const pendingPosts = profileSlug\s*\n\s*\? \[\]/);
 });
 
 test('strip komposer (termasuk tombol kotak masuk mention) tidak dirender di mode profil', () => {

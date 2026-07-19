@@ -91,6 +91,10 @@ function createProfileApi({
   membersDelayMs = 0,
   membersFail = false,
   agent = makeAgent(),
+  // Slugs for which /api/community/feed?agent=<slug> must 404, mirroring
+  // the server's real response for an unknown or deleted agent (server.js:
+  // `res.status(404).json({ error: 'Agent tidak ditemukan di Teras' })`).
+  notFoundSlugs = [],
 } = {}) {
   const api = {
     members: clone(members),
@@ -99,6 +103,7 @@ function createProfileApi({
     membersDelayMs,
     membersFail,
     agent: clone(agent),
+    notFoundSlugs: [...notFoundSlugs],
     createSequence: 0,
     requests: [],
   };
@@ -144,6 +149,10 @@ function createProfileApi({
     if (record.method === 'GET' && record.pathname === '/api/community/feed') {
       const agentSlug = url.searchParams.get('agent');
       if (agentSlug) {
+        if (api.notFoundSlugs.includes(agentSlug)) {
+          await responseJson(route, { error: 'Agent tidak ditemukan di Teras' }, 404);
+          return;
+        }
         await responseJson(route, {
           success: true,
           data: clone(api.profilePosts[agentSlug] || []),
@@ -500,6 +509,72 @@ describe('Teras profile browser contracts', { concurrency: false }, () => {
       );
       await article.getByRole('button', { name: 'Suka', exact: true }).click();
       await reactionRequest;
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('a just-created post shows immediately on your OWN profile even before the scoped feed response catches up (regression: pendingPosts was force-emptied for all profiles, including your own)', { timeout: 45_000 }, async () => {
+    const agent = makeAgent({ slug: 'nikita', name: 'Nikita Test' });
+    const api = createProfileApi({
+      agent,
+      // Server hasn't caught up yet: ?agent=nikita still answers empty, just
+      // like the real staleness window pendingCreatedPostsRef exists to cover.
+      profilePosts: { nikita: [] },
+    });
+    const app = await openApp({ api, agent });
+    try {
+      await app.page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }).click();
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Kiriman langsung di profil sendiri');
+      await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
+      await dialog.waitFor({ state: 'detached', timeout: 10_000 });
+      await app.page.getByText('Kiriman langsung di profil sendiri', { exact: true }).waitFor();
+
+      // Navigate to our own profile via the post's own author link.
+      await app.page.getByRole('link', { name: 'Nikita Test', exact: true }).first().click();
+      await app.page.waitForFunction(() => window.location.pathname === '/teras/nikita');
+
+      // The scoped feed (?agent=nikita) came back empty, but the pending post
+      // must still render — it must NOT show the "Belum ada kiriman" empty
+      // state, and the post body must be visible.
+      await app.page.getByText('Kiriman langsung di profil sendiri', { exact: true }).waitFor({ timeout: 10_000 });
+      assert.equal(
+        await app.page.getByText('Belum ada kiriman', { exact: true }).count(),
+        0,
+        'profil sendiri tidak boleh menampilkan empty state saat ada kiriman pending',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('an unknown/deleted slug 404s: only the error message shows, no fabricated header or document.title', { timeout: 45_000 }, async () => {
+    const api = createProfileApi({
+      // No 'members' entry for 'ghost' either — roster genuinely has nobody
+      // by that slug, matching an unknown or deleted agent.
+      notFoundSlugs: ['ghost'],
+    });
+    const app = await openApp({ path: '/teras/ghost', api, waitForTeras: false });
+    try {
+      await app.page.getByText('Agent tidak ditemukan di Teras', { exact: true }).waitFor({ timeout: 15_000 });
+
+      assert.equal(
+        await app.page.locator('[data-teras-profile-header]').count(),
+        0,
+        'header profil fabrikasi (nama/avatar/@slug) tidak boleh dirender saat 404',
+      );
+      assert.equal(
+        await app.page.locator('[data-teras-profile-header-skeleton]').count(),
+        0,
+        'skeleton identitas tidak boleh menggantung selamanya saat sudah pasti 404',
+      );
+      assert.notEqual(
+        await app.page.evaluate(() => document.title),
+        'ghost — Teras',
+        'document.title tidak boleh mengarang identitas dari slug saat 404',
+      );
     } finally {
       await app.close();
     }
