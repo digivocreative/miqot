@@ -736,7 +736,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
 
   // Rasterize the same full-size DOM node used by the live preview. Fonts are
   // embedded from deterministic local sources before the SVG is painted.
-  async function captureCanvasFromElement(target: HTMLElement, scale: number = EXPORT_SCALE): Promise<HTMLCanvasElement> {
+  async function captureCanvasFromElement(target: HTMLElement, scale: number = EXPORT_SCALE, signal?: AbortSignal): Promise<HTMLCanvasElement> {
     await waitForFonts();
     await waitForImages(target);
     await waitForNextPaint();
@@ -753,6 +753,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
       // keeps export readiness responsive on Safari.
       maxAttempts: 1,
       minimumAttempts: 1,
+      signal,
     });
     const expectedW = Math.round(BROCHURE_W * scale);
     const expectedH = Math.round(BROCHURE_H * scale);
@@ -764,17 +765,33 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     return canvas;
   }
 
-  async function captureBlob(pageIndex: number): Promise<ExportedImage | null> {
+  async function captureBlob(pageIndex: number, signal?: AbortSignal): Promise<ExportedImage | null> {
     const target = exportPageRefs.current[pageIndex];
     if (!target) return null;
-    const canvas = await captureCanvasFromElement(target);
+    const canvas = await captureCanvasFromElement(target, EXPORT_SCALE, signal);
     const blob = await canvasToBlob(canvas);
     return { blob, ext: EXPORT_EXT, mime: blob.type || EXPORT_MIME };
   }
 
+  // Tunggu blob kanonik halaman ini siap (atau gagal). Dipakai modal "Buat
+  // Ulang AI": tombolnya aktif segera setelah halaman tampil, modal punya UI
+  // pending sendiri, dan file referensi tetap byte-identik dengan hasil Simpan.
+  async function waitForCanonicalImage(pageIndex: number, timeoutMs = 45_000): Promise<ExportedImage | null> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const renderKey = canonicalRenderKeyRef.current;
+      const preview = canonicalPreviewsRef.current[pageIndex];
+      if (preview?.renderKey === renderKey) return preview.image;
+      const previewError = previewErrorsRef.current[pageIndex];
+      if (previewError?.renderKey === renderKey) return null;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    return null;
+  }
+
   async function buildPromptReferenceFile(pageIndex: number): Promise<File | null> {
     if (!exportLabel) return null;
-    const image = canonicalImageAt(pageIndex);
+    const image = await waitForCanonicalImage(pageIndex);
     if (!image) return null;
 
     const filename = filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext);
@@ -919,6 +936,15 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   }), [activeImagePages, designId, displayMode, showFullDate, brochureVariant, agent]);
   const previewReady = previewScale > 0;
 
+  // Cermin state utk fungsi async yang menunggu blob siap (waitForCanonicalImage)
+  // tanpa perlu re-subscribe React state.
+  const canonicalPreviewsRef = useRef<Array<CanonicalPreview | null>>([]);
+  const previewErrorsRef = useRef<Array<CanonicalPreviewError | null>>([]);
+  const canonicalRenderKeyRef = useRef(canonicalRenderKey);
+  useEffect(() => { canonicalPreviewsRef.current = canonicalPreviews; }, [canonicalPreviews]);
+  useEffect(() => { previewErrorsRef.current = previewErrors; }, [previewErrors]);
+  useEffect(() => { canonicalRenderKeyRef.current = canonicalRenderKey; }, [canonicalRenderKey]);
+
   function canonicalImageAt(pageIndex: number): ExportedImage | null {
     const preview = canonicalPreviews[pageIndex];
     return preview?.renderKey === canonicalRenderKey ? preview.image : null;
@@ -934,6 +960,10 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   useEffect(() => {
     const generation = ++previewGenerationRef.current;
     let cancelled = false;
+    // Ganti desain/filter membatalkan capture generasi lama: item antrean yang
+    // basi dilepas begitu gilirannya tiba, sehingga tap desain beruntun tidak
+    // menumpuk belasan capture (di WebKit satu capture bisa berdetik-detik).
+    const abortController = new AbortController();
 
     if (loading || !previewReady || activeImagePages.length === 0) {
       setCanonicalPreviews([]);
@@ -952,7 +982,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
       for (let pageIndex = 0; pageIndex < activeImagePages.length; pageIndex++) {
         if (cancelled || previewGenerationRef.current !== generation) break;
         try {
-          const image = await captureBlob(pageIndex);
+          const image = await captureBlob(pageIndex, abortController.signal);
           if (!image) throw new Error('capture-target-not-ready');
           if (cancelled || previewGenerationRef.current !== generation) break;
           setCanonicalPreviews(current => {
@@ -975,6 +1005,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
 
     return () => {
       cancelled = true;
+      abortController.abort();
     };
   }, [
     loading,
@@ -1337,10 +1368,13 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                     }}
                   >
                     <div className="grid grid-cols-2 gap-2">
+                      {/* Tidak menunggu blob ekspor: modal punya UI pending
+                          sendiri dan file referensi ditunggu di sana
+                          (waitForCanonicalImage), tetap identik dgn Simpan. */}
                       <button
                         type="button"
                         onClick={() => setPromptPageIndex(index)}
-                        disabled={!previewAvailable || busy !== null || catalogBusy}
+                        disabled={busy !== null || catalogBusy}
                         className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700/70 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
                       >
                         <Wand2 size={16} />

@@ -251,6 +251,53 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
     }
   });
 
+  test('rapid design switching settles instead of loading endlessly', { timeout: 150_000 }, async () => {
+    const context = await browser.newContext({
+      acceptDownloads: true,
+      viewport: { width: 520, height: 900 },
+    });
+    const page = await context.newPage();
+    await page.addInitScript(() => localStorage.setItem('brosurDesignId', 'classic'));
+    await page.route('**/api/ai-tools/brosur-jadwal-bulan', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify(apiPayload),
+    }));
+
+    try {
+      await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html`);
+      const enabledDownload = 'button:has-text("Download"):not([disabled])';
+      await page.waitForSelector(enabledDownload, { timeout: 60_000 });
+
+      // Jelajahi semua desain dengan cepat — capture generasi lama harus
+      // dibatalkan, bukan mengantre di depan capture desain aktif.
+      for (const label of ['Boarding Pass', 'Serambi Nabawi', 'Klasik', 'Tasbih Hijau']) {
+        await page.getByRole('button', { name: label, exact: true }).click();
+        await page.waitForTimeout(300);
+      }
+
+      // "Buat Ulang AI" tidak menunggu blob ekspor: modal menunggunya sendiri.
+      assert.equal(
+        await page.getByRole('button', { name: 'Buat Ulang AI' }).isEnabled(),
+        true,
+        'tombol Buat Ulang AI harus tetap aktif segera setelah ganti desain',
+      );
+
+      const settleStart = Date.now();
+      await page.waitForSelector(enabledDownload, { timeout: 60_000 });
+      console.log(`rapid switch settled in ${((Date.now() - settleStart) / 1000).toFixed(1)}s`);
+
+      // Unduhan setelah settle harus berupa brosur utuh desain terakhir.
+      const result = await downloadDetails(page);
+      assert.equal(result.metadata.format, 'jpeg');
+      assert.equal(result.metadata.width, 1080);
+      assert.equal(result.metadata.height, 1620);
+      assert.ok(result.maxDeviation > 10, 'hasil setelah rapid switch tidak boleh kanvas polos');
+    } finally {
+      await context.close();
+    }
+  });
+
   test('native share reuses the prepared export Blob in SEAT mode', { timeout: 60_000 }, async () => {
     const context = await browser.newContext({
       acceptDownloads: true,
