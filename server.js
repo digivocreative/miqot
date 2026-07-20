@@ -67,6 +67,11 @@ import {
   COMMUNITY_MENTION_LIMIT,
 } from './lib/community-mentions.js';
 import {
+  buildThreadChain,
+  collectThreadMentions,
+  normalizeThreadSegments,
+} from './lib/community-thread-compose.js';
+import {
   mergeNotifications,
   countUnreadNotifications,
   NOTIFICATION_LIMIT,
@@ -4038,26 +4043,27 @@ function isCommunityMentionSchemaMissing(error) {
 
 // Record @mentions for a freshly-created post or comment and fire the Telegram
 // nudge. Never throws — mentions are an additive layer, not a post prerequisite.
-async function recordCommunityMentions({ body, authorAgent, postId, commentId = null }) {
+async function recordCommunityMentions({ segments, authorAgent, commentId = null }) {
   try {
     const members = await loadCommunityMembers();
     if (!members.length) return;
     const bySlug = new Map(members.map(m => [String(m.slug).toLowerCase(), m]));
-    const slugs = extractCommunityMentions(
-      body,
+    const mentions = collectThreadMentions(
+      segments,
       bySlug.keys(),
       authorAgent.slug,
       COMMUNITY_MENTION_LIMIT,
     );
-    if (!slugs.length) return;
+    if (!mentions.length) return;
 
-    const rows = slugs
-      .map(slug => bySlug.get(slug))
-      .filter(Boolean)
-      .map(member => ({
-        mentioned_agent_id: member.id,
+    const postIds = [...new Set(segments.map(segment => segment.postId))];
+    const rows = mentions
+      .map(mention => ({ member: bySlug.get(mention.slug), postId: mention.postId }))
+      .filter(entry => entry.member)
+      .map(entry => ({
+        mentioned_agent_id: entry.member.id,
         author_agent_id: authorAgent.id,
-        post_id: postId,
+        post_id: entry.postId,
         comment_id: commentId,
       }));
     if (!rows.length) return;
@@ -4070,7 +4076,7 @@ async function recordCommunityMentions({ body, authorAgent, postId, commentId = 
     const recordedQuery = supabase
       .from('community_mentions')
       .select('mentioned_agent_id')
-      .eq('post_id', postId);
+      .in('post_id', postIds);
     const { data: recorded, error: recordedError } = await (commentId
       ? recordedQuery.eq('comment_id', commentId)
       : recordedQuery.is('comment_id', null));
@@ -4095,14 +4101,15 @@ async function recordCommunityMentions({ body, authorAgent, postId, commentId = 
 
     const notified = new Set(fresh.map(row => row.mentioned_agent_id));
     const authorName = authorAgent.name || 'Seseorang';
-    const snippet = communityMentionSnippet(body);
-    const link = `${communityPublicOrigin()}/dashboard/teras/post/${postId}`;
-    for (const slug of slugs) {
-      const member = bySlug.get(slug);
+    const bodyByPostId = new Map(segments.map(segment => [segment.postId, segment.body]));
+    for (const mention of mentions) {
+      const member = bySlug.get(mention.slug);
       if (!member || !notified.has(member.id)) continue;
       if (!member.telegram_chat_id) continue;
       const prefs = member.notification_prefs || {};
       if (prefs.community_mentions === false) continue;
+      const snippet = communityMentionSnippet(bodyByPostId.get(mention.postId) || '');
+      const link = `${communityPublicOrigin()}/dashboard/teras/post/${mention.postId}`;
       const text = `🔔 <b>${escapeHtml(authorName)}</b> menyebut kamu di Teras`
         + (snippet ? `\n\n${escapeHtml(snippet)}` : '')
         + `\n\n${link}`;
@@ -5508,7 +5515,10 @@ async function createCommunityPostRow({
       && existingPost.photo_url === photoUrl
       && communityMediaEquals(existingMedia, media)
     ) {
-      return { post: existingPost, error: null, threadSchemaMissing: false };
+      // `reused`: baris ini sudah ada sebelum permintaan ini (retry idempoten).
+      // Pembuat utas TIDAK boleh me-rollback baris seperti ini — ia bukan
+      // miliknya untuk dihapus.
+      return { post: existingPost, error: null, threadSchemaMissing: false, reused: true };
     }
     return { post: null, error: { code: 'DUPLICATE_CLIENT_ID' }, threadSchemaMissing: false };
   }
@@ -5516,21 +5526,20 @@ async function createCommunityPostRow({
   return { post: createdPost, error: insertError, threadSchemaMissing: false };
 }
 
-app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' }), async (req, res) => {
+app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' }), async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     if (!requireCommunityAccess(agent, res)) return;
 
-    const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
-    const bodyLength = Array.from(body).length;
-    if (bodyLength < 1 || bodyLength > 500) {
-      return res.status(400).json({ error: 'Isi posting wajib 1–500 karakter' });
-    }
-    const clientId = req.body?.client_id;
-    if (clientId !== undefined && !isCommunityUuid(clientId)) {
-      return res.status(400).json({ error: 'ID kiriman tidak valid' });
-    }
+    const { segments: rawSegments, error: segmentError } = normalizeThreadSegments(req.body);
+    if (segmentError) return res.status(400).json({ error: segmentError });
+
+    // Segmen pertama memegang identitas utas: quote, link preview, dan @semua
+    // hanya dinilai dari sini.
+    const body = rawSegments[0].body;
+    const clientId = rawSegments[0].clientId || undefined;
+    const isThread = rawSegments.length > 1;
 
     // Broadcast @semua: token dibaca dari body oleh server — klien tidak
     // dipercaya menandai kirimannya sendiri. Kuota diperiksa SEBELUM insert
@@ -5570,26 +5579,35 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
     const mediaPrefixes = communityMediaPublicPrefixes();
     if (!mediaPrefixes.length) throw new Error('Public URL media Teras tidak tersedia');
 
-    const hasMediaPayload = req.body?.media !== undefined;
-    let media;
-    if (hasMediaPayload) {
-      media = normalizeCommunityMediaInput(req.body.media, mediaPrefixes, agent.slug);
-      if (!media) {
-        return res.status(400).json({ error: `Media kiriman tidak valid atau melebihi ${COMMUNITY_MAX_MEDIA_ITEMS} item` });
+    const segmentMedia = [];
+    for (let i = 0; i < rawSegments.length; i += 1) {
+      const segment = rawSegments[i];
+      let segmentMediaList;
+      if (segment.media !== undefined) {
+        segmentMediaList = normalizeCommunityMediaInput(segment.media, mediaPrefixes, agent.slug);
+        if (!segmentMediaList) {
+          return res.status(400).json({
+            error: isThread
+              ? `Media kiriman ke-${i + 1} tidak valid atau melebihi ${COMMUNITY_MAX_MEDIA_ITEMS} item`
+              : `Media kiriman tidak valid atau melebihi ${COMMUNITY_MAX_MEDIA_ITEMS} item`,
+          });
+        }
+      } else if (segment.photoUrl !== undefined) {
+        if (typeof segment.photoUrl !== 'string') {
+          return res.status(400).json({ error: 'URL foto tidak valid' });
+        }
+        segmentMediaList = normalizeCommunityMediaInput(
+          [{ type: 'image', url: segment.photoUrl }],
+          mediaPrefixes,
+          agent.slug,
+        );
+        if (!segmentMediaList) return res.status(400).json({ error: 'URL foto tidak valid' });
+      } else {
+        segmentMediaList = [];
       }
-    } else if (req.body?.photo_url !== undefined) {
-      if (typeof req.body.photo_url !== 'string') {
-        return res.status(400).json({ error: 'URL foto tidak valid' });
-      }
-      media = normalizeCommunityMediaInput(
-        [{ type: 'image', url: req.body.photo_url }],
-        mediaPrefixes,
-        agent.slug,
-      );
-      if (!media) return res.status(400).json({ error: 'URL foto tidak valid' });
-    } else {
-      media = [];
+      segmentMedia.push(segmentMediaList);
     }
+    const media = segmentMedia[0];
     const photoUrl = media.find(item => item.type === 'image')?.url || null;
 
     // Link preview: hanya bila TIDAK ada media & TIDAK ada quote (prioritas).
@@ -5602,42 +5620,102 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       }
     }
 
-    const {
-      post: createdPost,
-      error: insertError,
-      quoteSchemaMissing,
-      broadcastSchemaMissing,
-      mediaSchemaRequiredMissing,
-    } = await createCommunityPostRow({
-      clientId,
-      agentId: agent.id,
-      body,
-      media,
-      photoUrl,
-      quotedPostId,
-      mentionsEveryone,
-      linkPreview,
-    });
-    if (mediaSchemaRequiredMissing) {
-      return res.status(503).json({ error: 'Migrasi media Teras belum diterapkan' });
-    }
-    if (quoteSchemaMissing) {
-      return res.status(503).json({ error: 'Migrasi quote Teras belum diterapkan' });
-    }
-    if (broadcastSchemaMissing) {
-      return res.status(503).json({ error: COMMUNITY_BROADCAST_MIGRATION_ERROR });
-    }
-    if (insertError?.code === 'DUPLICATE_CLIENT_ID') {
-      return res.status(409).json({ error: 'ID kiriman sudah digunakan' });
-    }
-    if (insertError) throw insertError;
+    const chain = buildThreadChain(rawSegments);
+    const segmentPostIds = [];
+    // Hanya baris yang BENAR-BENAR dibuat permintaan ini yang boleh di-rollback;
+    // baris hasil retry idempoten sudah ada sebelumnya.
+    const rollbackIds = [];
+    let createdPost = null;
+    let failure = null;
 
+    for (let i = 0; i < chain.length; i += 1) {
+      const link = chain[i];
+      const segmentMediaList = segmentMedia[i];
+      const {
+        post,
+        error,
+        reused,
+        threadSchemaMissing,
+        quoteSchemaMissing,
+        broadcastSchemaMissing,
+        mediaSchemaRequiredMissing,
+      } = await createCommunityPostRow({
+        clientId: link.clientId || undefined,
+        agentId: agent.id,
+        body: link.body,
+        media: segmentMediaList,
+        photoUrl: segmentMediaList.find(item => item.type === 'image')?.url || null,
+        // Kutipan, link preview, dan @semua adalah milik utas, bukan segmen.
+        quotedPostId: i === 0 ? quotedPostId : null,
+        mentionsEveryone: i === 0 ? mentionsEveryone : false,
+        linkPreview: i === 0 ? linkPreview : null,
+        parentPostId: link.parentPostId,
+        rootPostId: link.rootPostId,
+      });
+      if (error) {
+        failure = {
+          error,
+          threadSchemaMissing,
+          quoteSchemaMissing,
+          broadcastSchemaMissing,
+          mediaSchemaRequiredMissing,
+        };
+        break;
+      }
+      segmentPostIds.push(post.id);
+      if (!reused) rollbackIds.push(post.id);
+      if (i === 0) createdPost = post;
+    }
+
+    if (failure) {
+      // Semua-atau-tidak-sama-sekali. Aman dihapus permanen: utas ini berumur
+      // detik, belum bisa direaksi atau dikomentari siapa pun.
+      if (rollbackIds.length > 0) {
+        const { error: rollbackError } = await supabase
+          .from('community_posts')
+          .delete()
+          .in('id', rollbackIds);
+        if (rollbackError) {
+          // Satu-satunya jalan menuju keadaan tak konsisten. Harus berisik.
+          console.error(
+            '[community] ROLLBACK UTAS GAGAL — baris yatim perlu dibersihkan manual:',
+            rollbackIds.join(', '),
+            rollbackError.message,
+          );
+        }
+      }
+      // Urutan cabang 503/409 dipertahankan persis seperti sebelum utas ada.
+      if (failure.mediaSchemaRequiredMissing) {
+        return res.status(503).json({ error: 'Migrasi media Teras belum diterapkan' });
+      }
+      if (failure.quoteSchemaMissing) {
+        return res.status(503).json({ error: 'Migrasi quote Teras belum diterapkan' });
+      }
+      if (failure.broadcastSchemaMissing) {
+        return res.status(503).json({ error: COMMUNITY_BROADCAST_MIGRATION_ERROR });
+      }
+      // Segmen pertama tidak pernah menyertakan kolom utas, jadi flag ini baru
+      // muncul di segmen ke-2 — akar sudah terlanjur tersimpan dan sudah
+      // di-rollback di atas.
+      if (failure.threadSchemaMissing) {
+        return res.status(503).json({ error: 'Migrasi utas Teras belum diterapkan' });
+      }
+      if (failure.error?.code === 'DUPLICATE_CLIENT_ID') {
+        return res.status(409).json({ error: 'ID kiriman sudah digunakan' });
+      }
+      throw failure.error;
+    }
+
+    // Pill "kiriman baru" menghitung baris feed, dan feed hanya menampilkan
+    // segmen pertama — jadi satu utas menaikkan head sekali.
     bumpCommunityFeedHead(createdPost);
 
     await recordCommunityMentions({
-      body: createdPost.body,
+      segments: chain.map((link, i) => ({
+        postId: segmentPostIds[i],
+        body: link.body,
+      })),
       authorAgent: agent,
-      postId: createdPost.id,
     });
 
     const data = {
@@ -5652,6 +5730,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       quote_count: 0,
       quoted_post: quotedPostId ? communityQuotedPostPayload(quotedPostRow) : null,
       link_preview: linkPreview,
+      thread_count: chain.length > 1 ? chain.length : 0,
       is_own: true,
     };
     res.status(201).json({ success: true, data });
@@ -5895,9 +5974,8 @@ app.post('/api/community/posts/:id/comments', authMiddleware, express.json({ lim
     if (error) throw error;
 
     await recordCommunityMentions({
-      body: createdComment.body,
+      segments: [{ postId: post.id, body: createdComment.body }],
       authorAgent: agent,
-      postId: post.id,
       commentId: createdComment.id,
     });
 
