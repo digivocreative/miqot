@@ -449,6 +449,7 @@ app.use('/api/umrah/ocr-ktp', express.json({ limit: '16mb' }));
 // specific mutation paths first so their tighter limits take precedence.
 app.use('/api/community/read', express.json({ limit: '2kb' }));
 app.use('/api/community/posts/:id/reaction', express.json({ limit: '2kb' }));
+app.use('/api/community/notification-prefs', express.json({ limit: '2kb' }));
 app.use('/api/community/posts/:id/comments', express.json({ limit: '8kb' }));
 app.use('/api/community/posts', express.json({ limit: '32kb' }));
 // Webhook Resend Inbound butuh raw body (verifikasi signature Svix) — harus
