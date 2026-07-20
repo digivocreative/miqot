@@ -98,6 +98,14 @@ interface CommunityPost {
   is_own: boolean;
   /** Total segmen utas ini; 0 atau undefined berarti kiriman biasa. */
   thread_count?: number;
+  /**
+   * Seluruh segmen utas, terurut waktu — hanya dikirim oleh
+   * `GET /api/community/posts/:id`, null/undefined untuk kiriman biasa.
+   * Item di sini lebih miskin dari kiriman tingkat-atas (tanpa `quoted_post`,
+   * `link_preview`, `thread_count`), jadi segmen yang sedang dibuka selalu
+   * digabung balik dengan objek tingkat-atas — lihat `detailChain`.
+   */
+  thread?: CommunityPost[] | null;
 }
 
 interface CommunityMedia {
@@ -2519,8 +2527,31 @@ export default function TerasPage({
     // Skip while detailPostId is still a share code — the deep-link loader will
     // canonicalize the URL to the full id, then this runs against the real id.
     if (!detailPostId || isTerasShortCode(detailPostId)) return;
-    ensureCommentsOpen(detailPostId);
-  }, [detailPostId, ensureCommentsOpen]);
+    // Sasaran komentar = segmen PERTAMA rantai, bukan segmen yang dibuka —
+    // kalau tidak, membuka segmen ke-3 memuat/mengirim komentar ke segmen ke-3.
+    // `posts` ikut jadi dependensi supaya ini berjalan ulang begitu kiriman
+    // (beserta `thread`-nya) selesai diambil pada deep-link.
+    const target = postsRef.current.find(post => post.id === detailPostId);
+    // Kiriman belum termuat (deep-link): tunggu. Membuka panel sekarang berarti
+    // memuat komentar untuk id yang dibuka, padahal begitu `thread` tiba
+    // sasarannya bisa jadi segmen lain — dua permintaan komentar untuk satu
+    // halaman. Efek ini berjalan ulang saat `posts` berubah.
+    if (!target) return;
+    const anchorId = target.thread && target.thread.length > 1
+      ? target.thread[0].id
+      : detailPostId;
+    ensureCommentsOpen(anchorId);
+  }, [detailPostId, posts, ensureCommentsOpen]);
+
+  // Segmen yang tautannya diklik disorot sebentar supaya mata menemukannya di
+  // dalam rantai, lalu sorotannya dilepas.
+  const [highlightSegmentId, setHighlightSegmentId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!detailPostId) return undefined;
+    setHighlightSegmentId(detailPostId);
+    const timer = window.setTimeout(() => setHighlightSegmentId(null), 1500);
+    return () => window.clearTimeout(timer);
+  }, [detailPostId]);
 
   // Deep-link/reload: kiriman belum ada di feed yang termuat, ambil satuan.
   useEffect(() => {
@@ -3511,7 +3542,19 @@ export default function TerasPage({
   const isDetailView = detailPostId !== null;
   const detailPost = detailPostId ? posts.find(post => post.id === detailPostId) || null : null;
   const feedPosts = posts.filter(post => !detailOnlyIdsRef.current.has(post.id));
-  const visiblePosts = isDetailView ? (detailPost ? [detailPost] : []) : feedPosts;
+  // Rantai utas halaman detail. Payload `thread` lebih miskin dari kiriman
+  // tingkat-atas (tanpa quoted_post/link_preview/thread_count), jadi segmen
+  // yang id-nya sama dengan kiriman yang dibuka ditukar dengan objek penuh —
+  // dengan begitu segmen yang sedang dibuka selalu tampil utuh.
+  const detailChain: CommunityPost[] = detailPost
+    ? (detailPost.thread && detailPost.thread.length > 1
+      ? detailPost.thread.map(segment => (segment.id === detailPost.id ? detailPost : segment))
+      : [detailPost])
+    : [];
+  const visiblePosts = isDetailView ? detailChain : feedPosts;
+  // Komentar SELALU menempel ke segmen pertama rantai, dari segmen mana pun
+  // halaman detail dibuka.
+  const commentAnchorId = isDetailView ? (detailChain[0]?.id ?? detailPostId) : null;
 
   const handlePostAreaClick = (event: MouseEvent<HTMLElement>, postId: string) => {
     const target = event.target;
@@ -3691,9 +3734,21 @@ export default function TerasPage({
 
       {(isDetailView ? detailPost !== null : !loading && !error && feedPosts.length > 0) && (
         <div>
-          {visiblePosts.map(post => {
-            const commentPanel = commentPanels[post.id];
+          {visiblePosts.map((post, segmentIndex) => {
+            // Di feed sasaran komentar = kiriman itu sendiri; di detail selalu
+            // segmen pertama rantai.
+            const commentTargetId = commentAnchorId || post.id;
+            const isLastSegment = segmentIndex === visiblePosts.length - 1;
+            // Rantai (>1 segmen) hanya mungkin di tampilan detail.
+            const isChainSegment = isDetailView && visiblePosts.length > 1;
+            // Garis penyambung antar-avatar: dipasang di semua segmen KECUALI
+            // yang terakhir (setelah segmen terakhir tidak ada apa-apa lagi
+            // untuk disambung).
+            const chainRailBelow = isChainSegment && !isLastSegment;
+            const commentPanel = commentPanels[commentTargetId];
             const commentsOpen = isDetailView ? true : !!commentPanel?.open;
+            // Satu kolom komentar saja, di bawah segmen terakhir.
+            const showCommentPanel = commentsOpen && (!isDetailView || isLastSegment);
             const commentInputLength = Array.from(commentPanel?.input.trim() || '').length;
             const canDeletePost = canDeleteCommunityEntry(agent, post);
             const totalReactions = post.reactions.suka + post.reactions.selamat + post.reactions.aamiin;
@@ -3716,11 +3771,20 @@ export default function TerasPage({
                   event.preventDefault();
                   openPostDetail(post.id);
                 }}
+                data-thread-segment={isChainSegment ? segmentIndex : undefined}
                 className={`relative border-b bg-white px-4 pb-2.5 pt-3.5 dark:bg-slate-900 ${
                   post.is_system
                     ? 'border-emerald-500/25 dark:border-emerald-500/25'
                     : 'border-gray-100 dark:border-slate-800'
-                } ${isDetailView ? '' : 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/50'}`}
+                } ${isDetailView ? '' : 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/50'} ${
+                  // Di tengah rantai pemisah antar-kartu dilepas: yang menyambung
+                  // segmen adalah garis vertikal di kolom avatar, bukan garis batas.
+                  chainRailBelow ? 'border-b-0' : ''
+                } ${
+                  isChainSegment && highlightSegmentId === post.id
+                    ? 'rounded-xl ring-2 ring-emerald-400/40'
+                    : ''
+                }`}
               >
                 {post.is_system && (
                   <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-emerald-500/[0.07] to-transparent" />
@@ -3869,12 +3933,15 @@ export default function TerasPage({
                       <AgentAvatar name={authorName} photo={post.author.photo} />
                     )}
                     <AnimatePresence initial={false}>
-                      {commentsOpen && (
+                      {(commentsOpen || chainRailBelow) && (
                         <motion.div
                           key="post-rail"
-                          data-thread-rail="post"
+                          data-thread-rail={chainRailBelow ? 'thread' : 'post'}
                           aria-hidden="true"
-                          className="mt-1.5 -mb-2 w-px flex-1 bg-gray-200 dark:bg-slate-700"
+                          // -mb-6 menembus padding bawah kartu dan padding atas
+                          // kartu berikutnya, sehingga garisnya benar-benar
+                          // menyambung ke avatar segmen sesudahnya.
+                          className={`mt-1.5 w-px flex-1 bg-gray-200 dark:bg-slate-700 ${chainRailBelow ? '-mb-6' : '-mb-2'}`}
                           initial={reduceMotion ? false : { opacity: 0 }}
                           animate={{ opacity: 1 }}
                           exit={{ opacity: 0 }}
@@ -4035,11 +4102,11 @@ export default function TerasPage({
                       <motion.button
                         type="button"
                         onClick={() => {
-                          if (isDetailView) focusCommentInput(post.id);
+                          if (isDetailView) focusCommentInput(commentTargetId);
                           else toggleComments(post.id);
                         }}
                         aria-expanded={commentsOpen}
-                        aria-controls={`teras-comments-${post.id}`}
+                        aria-controls={`teras-comments-${commentTargetId}`}
                         aria-label="Komentari"
                         title="Komentari"
                         whileTap={reduceMotion ? undefined : { scale: 0.9 }}
@@ -4110,10 +4177,10 @@ export default function TerasPage({
                 </div>
 
                 <AnimatePresence initial={false}>
-                {commentsOpen && commentPanel && (
+                {showCommentPanel && commentPanel && (
                   <motion.div
                     key="comments"
-                    id={`teras-comments-${post.id}`}
+                    id={`teras-comments-${commentTargetId}`}
                     aria-busy={commentPanel.sending}
                     className="min-w-0"
                     // Clip only while the height animates. Keeping overflow
@@ -4131,7 +4198,7 @@ export default function TerasPage({
                         <p className="min-w-0 [overflow-wrap:anywhere]">{commentPanel.error}</p>
                         <button
                           type="button"
-                          onClick={() => void loadComments(post.id)}
+                          onClick={() => void loadComments(commentTargetId)}
                           className="mt-2 min-h-11 rounded-lg bg-red-500 px-3 font-bold text-white dark:bg-red-500"
                         >
                           Coba Lagi
@@ -4197,7 +4264,7 @@ export default function TerasPage({
                                     <button
                                       type="button"
                                       disabled={deletingCommentId === comment.id}
-                                      onClick={() => void deleteComment(post.id, comment.id)}
+                                      onClick={() => void deleteComment(commentTargetId, comment.id)}
                                       aria-label="Hapus komentar"
                                       title="Hapus komentar"
                                       className="-my-3 -mr-2 flex min-h-11 min-w-11 shrink-0 items-center justify-center text-gray-500 transition-colors hover:text-red-500 active:text-red-500 disabled:opacity-50 dark:text-slate-400 dark:hover:text-red-400 dark:active:text-red-400"
@@ -4269,7 +4336,7 @@ export default function TerasPage({
                           <div className="min-w-0">
                           <div className="flex min-w-0 items-end gap-1.5 pb-1">
                             <div className="relative min-w-0 flex-1 rounded-3xl border border-gray-200 bg-gray-50 transition-colors focus-within:border-emerald-400/70 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-500/15 dark:border-slate-700 dark:bg-slate-800/60 dark:focus-within:border-emerald-500/50 dark:focus-within:bg-slate-900">
-                            {mentionState?.context === post.id && (
+                            {mentionState?.context === commentTargetId && (
                               <MentionAutocomplete
                                 items={mentionItems}
                                 activeIndex={mentionState.index}
@@ -4286,17 +4353,17 @@ export default function TerasPage({
                                 className="py-[11px] text-[13.5px] leading-snug"
                               />
                               <textarea
-                                id={`teras-comment-input-${post.id}`}
+                                id={`teras-comment-input-${commentTargetId}`}
                                 rows={1}
                                 value={commentPanel.input}
                                 readOnly={commentPanel.sending}
                                 aria-disabled={commentPanel.sending}
                                 onChange={event => {
-                                  updateCommentInput(post.id, event.target.value);
+                                  updateCommentInput(commentTargetId, event.target.value);
                                   autoGrowCommentInput(event.target);
-                                  detectMention(post.id, event.target);
+                                  detectMention(commentTargetId, event.target);
                                 }}
-                                onKeyDown={event => handleCommentKeyDown(event, post.id)}
+                                onKeyDown={event => handleCommentKeyDown(event, commentTargetId)}
                                 onScroll={event => {
                                   const layer = event.currentTarget.previousElementSibling as HTMLElement | null;
                                   if (layer) layer.scrollTop = event.currentTarget.scrollTop;
@@ -4309,7 +4376,7 @@ export default function TerasPage({
                               </div>
                               <button
                                 type="button"
-                                onClick={() => openCommentMediaPicker(post.id)}
+                                onClick={() => openCommentMediaPicker(commentTargetId)}
                                 disabled={commentPanel.sending || commentPanel.media.length >= MAX_COMMUNITY_MEDIA}
                                 aria-label="Tambah foto atau video ke komentar"
                                 title="Tambah foto atau video"
@@ -4365,7 +4432,7 @@ export default function TerasPage({
                                     )}
                                     <button
                                       type="button"
-                                      onClick={() => removeCommentMedia(post.id, item.id)}
+                                      onClick={() => removeCommentMedia(commentTargetId, item.id)}
                                       disabled={commentPanel.sending}
                                       aria-label={`Hapus ${item.type === 'video' ? 'video' : 'foto'} komentar ${index + 1}`}
                                       title="Hapus media"
@@ -4397,7 +4464,7 @@ export default function TerasPage({
                                     || commentInputLength < 1
                                     || commentInputLength > MAX_COMMUNITY_COMMENT_CHARS
                                     || commentPanel.media.some(item => item.status !== 'ready')}
-                                  onClick={() => void sendComment(post.id)}
+                                  onClick={() => void sendComment(commentTargetId)}
                                   aria-label="Kirim komentar"
                                   title="Kirim komentar"
                                   initial={reduceMotion ? false : { scale: 0.5, opacity: 0 }}
