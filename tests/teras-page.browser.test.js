@@ -2602,6 +2602,134 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
+  test('mengklik kartu utas di feed membuka rantai penuh, bukan hanya segmen akar', { timeout: 30_000 }, async () => {
+    // Jalur navigasi UTAMA: klik kartu di feed. Item feed hanya membawa
+    // `thread_count` (server tidak pernah menyertakan `thread` di feed), jadi
+    // kalau pengambilan detail dilewatkan hanya karena kirimannya sudah ada di
+    // state, halaman detail cuma menampilkan segmen akar.
+    const author = { name: 'Agent Lain', slug: 'agent-lain', photo: null };
+    const threadSegments = [
+      'Segmen pertama utas.',
+      'Segmen kedua utas.',
+      'Segmen ketiga utas.',
+    ].map((body, index) => makePost({
+      id: `utas-${index + 1}`,
+      body,
+      author,
+      created_at: `2026-07-18T08:0${index}:00.000Z`,
+    }));
+    const feedRoot = { ...clone(threadSegments[0]), thread_count: 3 };
+    const detailRoot = {
+      ...clone(threadSegments[0]),
+      thread_count: 3,
+      thread: clone(threadSegments),
+    };
+    const api = createCommunityApi({
+      posts: [feedRoot],
+      onRequest: async ({ record, route }) => {
+        if (record.method === 'GET' && record.pathname === '/api/community/posts/utas-1') {
+          await responseJson(route, { success: true, data: clone(detailRoot) });
+          return true;
+        }
+        return false;
+      },
+    });
+    const app = await openApp({ api });
+    try {
+      const { page } = app;
+      const cards = page.locator('[data-post-id]');
+      await page.locator('[data-post-id="utas-1"]').waitFor({ timeout: 15_000 });
+      assert.equal(await cards.count(), 1, 'feed hanya menampilkan segmen akar');
+
+      await page.locator('[data-post-id="utas-1"]').getByText('Segmen pertama utas.').click();
+
+      await page.locator('[data-post-id="utas-3"]').waitFor({ timeout: 15_000 });
+      assert.deepEqual(
+        await cards.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-post-id'))),
+        ['utas-1', 'utas-2', 'utas-3'],
+        'seluruh rantai harus tampil terurut walau utas dibuka dari feed',
+      );
+      for (const [index, body] of ['Segmen pertama utas.', 'Segmen kedua utas.', 'Segmen ketiga utas.'].entries()) {
+        assert.match(
+          await cards.nth(index).innerText(),
+          new RegExp(body.replace('.', '\\.')),
+          `badan segmen ${index + 1} harus tampil`,
+        );
+      }
+      assert.equal(
+        matchingRequests(api, 'GET', '/api/community/posts/utas-1').length,
+        1,
+        'rantai diambil sekali saja, bukan berulang',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('tombol Suka di segmen yang bukan segmen yang dibuka mengirim reaksi segmen itu', { timeout: 30_000 }, async () => {
+    // Tiap segmen membawa baris reaksinya sendiri. Kalau segmen selain yang
+    // dibuka tidak ikut jadi warga state kiriman, tombolnya tetap terender dan
+    // bisa diklik tapi tidak melakukan apa pun — diam-diam.
+    const author = { name: 'Agent Lain', slug: 'agent-lain', photo: null };
+    const threadSegments = [
+      'Segmen pertama utas.',
+      'Segmen kedua utas.',
+      'Segmen ketiga utas.',
+    ].map((body, index) => makePost({
+      id: `utas-${index + 1}`,
+      body,
+      author,
+      created_at: `2026-07-18T08:0${index}:00.000Z`,
+    }));
+    const openedSegment = {
+      ...clone(threadSegments[1]),
+      thread_count: 3,
+      thread: clone(threadSegments),
+    };
+    const api = createCommunityApi({
+      onRequest: async ({ record, route }) => {
+        if (record.method === 'GET' && record.pathname === '/api/community/posts/utas-2') {
+          await responseJson(route, { success: true, data: clone(openedSegment) });
+          return true;
+        }
+        return false;
+      },
+    });
+    const app = await openApp({ api, path: '/dashboard/teras/post/utas-2', waitForTeras: false });
+    try {
+      const { page } = app;
+      await page.locator('[data-post-id="utas-3"]').waitFor({ timeout: 15_000 });
+
+      const likeOnLastSegment = page
+        .locator('[data-post-id="utas-3"]')
+        .getByRole('button', { name: 'Suka', exact: true });
+      assert.equal(await likeOnLastSegment.getAttribute('aria-pressed'), 'false');
+
+      await likeOnLastSegment.click();
+      await page.waitForFunction(button => (
+        button.getAttribute('aria-pressed') === 'true' && button.textContent?.trim() === '1'
+      ), await likeOnLastSegment.elementHandle(), { timeout: 10_000 });
+
+      assert.deepEqual(
+        matchingRequests(api, 'POST', '/api/community/posts/utas-3/reaction').map(request => request.body),
+        [{ reaction: 'suka' }],
+        'reaksi harus dikirim untuk id segmen yang tombolnya diklik',
+      );
+      assert.equal(
+        matchingRequests(api, 'POST', '/api/community/posts/utas-2/reaction').length,
+        0,
+        'reaksi tidak boleh nyasar ke segmen yang kebetulan dibuka',
+      );
+      // Segmen lain tidak ikut berubah.
+      assert.equal(
+        await page.locator('[data-post-id="utas-1"]').getByRole('button', { name: 'Suka', exact: true }).getAttribute('aria-pressed'),
+        'false',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
   test('Enter memilih anggota saat popover mention dibuka di segmen non-pertama', { timeout: 30_000 }, async () => {
     // Baris @semua HANYA muncul di segmen pertama, jadi indeks item bergeser
     // antar-segmen. Query "@s" cocok untuk keduanya: di segmen pertama @semua

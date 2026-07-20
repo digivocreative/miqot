@@ -1275,6 +1275,11 @@ export default function TerasPage({
   const feedLoadedRef = useRef(false);
   const commentPanelsRef = useRef<Record<string, CommentPanelState>>({});
   const detailOnlyIdsRef = useRef<Set<string>>(new Set());
+  // Percobaan pengambilan detail yang sedang/sudah berjalan untuk tampilan
+  // detail yang sekarang terbuka. `posts` adalah dependensi efeknya, jadi tanpa
+  // penanda ini respons yang TIDAK membawa `thread` (kolom utas belum
+  // dimigrasi, atau utas dihapus) akan memicu pengambilan tanpa henti.
+  const detailFetchStateRef = useRef<{ key: string; done: boolean } | null>(null);
   const previousDetailIdRef = useRef<string | null>(postId);
   const feedScrollYRef = useRef(0);
   const restoreComposerPageState = useCallback((restoreFocus = true) => {
@@ -2553,10 +2558,33 @@ export default function TerasPage({
     return () => window.clearTimeout(timer);
   }, [detailPostId]);
 
-  // Deep-link/reload: kiriman belum ada di feed yang termuat, ambil satuan.
+  // Ambil kiriman satuan bila (a) belum ada di feed yang termuat (deep-link /
+  // reload) ATAU (b) sudah ada tapi rantai utasnya belum ikut termuat. Feed
+  // hanya membawa `thread_count`; `thread` HANYA ada di
+  // `GET /api/community/posts/:id`. Tanpa syarat (b) rantai cuma muncul lewat
+  // deep-link — membuka utas dengan mengklik kartunya di feed (jalur navigasi
+  // utama) hanya menampilkan segmen akar.
   useEffect(() => {
-    if (!detailPostId || loading) return;
-    if (postsRef.current.some(post => post.id === detailPostId)) return;
+    if (!detailPostId) {
+      detailFetchStateRef.current = null;
+      return;
+    }
+    if (loading) return;
+    const cached = postsRef.current.find(post => post.id === detailPostId);
+    const needsThread = !!cached
+      && (cached.thread_count || 0) > 1
+      && !(cached.thread && cached.thread.length > 1);
+    if (cached && !needsThread) return;
+    const fetchKey = `${detailPostId}|${detailFetchTick}`;
+    const fetchState = detailFetchStateRef.current;
+    // Percobaan yang sudah selesai tidak diulang. Yang belum selesai boleh
+    // dijalankan ulang: cleanup efek ini membatalkan permintaan lama setiap
+    // `posts` berubah, jadi kalau di sini kita berhenti, permintaan itu hilang
+    // tanpa pengganti.
+    if (fetchState && fetchState.key === fetchKey && fetchState.done) return;
+    if (!fetchState || fetchState.key !== fetchKey) {
+      detailFetchStateRef.current = { key: fetchKey, done: false };
+    }
 
     let cancelled = false;
     const controller = new AbortController();
@@ -2572,10 +2600,37 @@ export default function TerasPage({
         if (!payload.data) throw new Error('Kiriman tidak ditemukan');
         if (cancelled) return;
         const fetchedPost = payload.data;
-        detailOnlyIdsRef.current.add(fetchedPost.id);
-        setPosts(current => current.some(post => post.id === fetchedPost.id)
-          ? current
-          : [...current, fetchedPost]);
+        // Seluruh segmen rantai dijadikan warga `posts`. Semua operasi kartu
+        // (reaksi, hapus, jumlah komentar) mencari kirimannya di `posts` —
+        // segmen yang tidak ada di sana hanya bisa dilihat, tidak bisa
+        // disentuh.
+        const chain = Array.isArray(fetchedPost.thread) && fetchedPost.thread.length > 1
+          ? fetchedPost.thread
+          : null;
+        // Urutan penting: item `thread` dulu, objek tingkat-atas TERAKHIR,
+        // supaya segmen yang sedang dibuka memakai payload yang lebih kaya.
+        // Tiap segmen ikut membawa rantainya sendiri agar membuka segmen mana
+        // pun langsung merender rantai penuh tanpa permintaan tambahan.
+        const incoming = chain
+          ? [...chain, fetchedPost].map(item => ({ ...item, thread: chain, thread_count: chain.length }))
+          : [fetchedPost];
+        setPosts(current => {
+          const next = [...current];
+          for (const item of incoming) {
+            const index = next.findIndex(post => post.id === item.id);
+            if (index === -1) {
+              detailOnlyIdsRef.current.add(item.id);
+              next.push(item);
+              continue;
+            }
+            // Gabung, jangan timpa: item `thread` tidak membawa
+            // `quoted_post`/`link_preview`, dan respons detail tidak membawa
+            // `thread_count` — field yang tidak ada di payload dipertahankan
+            // dari entri lama yang lebih kaya.
+            next[index] = { ...next[index], ...item };
+          }
+          return next;
+        });
         // Cold "/teras/<code>" link: detailPostId is an 8-char share code, but
         // everything downstream keys off the full post id. Canonicalize the URL
         // so the detail view (and comments) resolve against the real id.
@@ -2584,9 +2639,20 @@ export default function TerasPage({
         }
       } catch (detailFetchError) {
         if (cancelled || (detailFetchError instanceof Error && detailFetchError.name === 'AbortError')) return;
-        setDetailError(errorMessage(detailFetchError, 'Gagal memuat kiriman'));
+        // Kiriman sudah ada di layar (kita hanya menyusul rantainya): jangan
+        // ganti halaman yang tampil dengan banner galat — cukup biarkan
+        // segmen akar yang sudah terrender.
+        if (!cached) setDetailError(errorMessage(detailFetchError, 'Gagal memuat kiriman'));
       } finally {
-        if (!cancelled) setDetailLoading(false);
+        if (!cancelled) {
+          // Ditandai selesai HANYA kalau tidak dibatalkan; permintaan yang
+          // dibatalkan (mis. `posts` berubah di tengah jalan) harus boleh
+          // diulang oleh jalannya efek berikutnya.
+          if (detailFetchStateRef.current?.key === fetchKey) {
+            detailFetchStateRef.current = { key: fetchKey, done: true };
+          }
+          setDetailLoading(false);
+        }
       }
     })();
     return () => {
@@ -3542,15 +3608,18 @@ export default function TerasPage({
   const isDetailView = detailPostId !== null;
   const detailPost = detailPostId ? posts.find(post => post.id === detailPostId) || null : null;
   const feedPosts = posts.filter(post => !detailOnlyIdsRef.current.has(post.id));
-  // Rantai utas halaman detail. Payload `thread` lebih miskin dari kiriman
-  // tingkat-atas (tanpa quoted_post/link_preview/thread_count), jadi segmen
-  // yang id-nya sama dengan kiriman yang dibuka ditukar dengan objek penuh —
-  // dengan begitu segmen yang sedang dibuka selalu tampil utuh.
-  const detailChain: CommunityPost[] = detailPost
-    ? (detailPost.thread && detailPost.thread.length > 1
-      ? detailPost.thread.map(segment => (segment.id === detailPost.id ? detailPost : segment))
-      : [detailPost])
-    : [];
+  // Rantai utas halaman detail. `thread` dipakai HANYA sebagai daftar id dan
+  // urutannya; objek yang dirender selalu diambil dari `posts` — di sanalah
+  // reaksi, penghapusan, dan jumlah komentar tiap segmen hidup. Segmen yang
+  // sudah dihapus otomatis lenyap dari rantai karena tidak ada lagi di `posts`.
+  const detailChain: CommunityPost[] = (() => {
+    if (!detailPost) return [];
+    if (!detailPost.thread || detailPost.thread.length <= 1) return [detailPost];
+    const chain = detailPost.thread
+      .map(segment => posts.find(post => post.id === segment.id))
+      .filter((segment): segment is CommunityPost => !!segment);
+    return chain.length > 0 ? chain : [detailPost];
+  })();
   const visiblePosts = isDetailView ? detailChain : feedPosts;
   // Komentar SELALU menempel ke segmen pertama rantai, dari segmen mana pun
   // halaman detail dibuka.
