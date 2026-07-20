@@ -16,6 +16,8 @@ import { isCommunityEnabledForAgent } from '../lib/communityAccess';
 import { parseTerasPath } from '../lib/terasRoutes';
 import NotificationBell from './NotificationBell';
 import { useTerasNotifications } from '../hooks/useTerasNotifications';
+import TerasNotificationSettings from './TerasNotificationSettings';
+import { useTerasNotificationPrefs } from '../hooks/useTerasNotificationPrefs';
 
 function getLocalStorageItem(key: string): string | null {
   try {
@@ -588,6 +590,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const isAdmin = agentData.role === 'admin';
   const terasEnabled = isCommunityEnabledForAgent(agentData.slug);
   const notifications = useTerasNotifications(terasEnabled);
+  const notifPrefs = useTerasNotificationPrefs(terasEnabled);
   const openNotificationPost = (postId: string) => {
     navigatePath(`/dashboard/teras/post/${encodeURIComponent(postId)}`);
   };
@@ -804,6 +807,21 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 onOpen={notifications.openPanel}
                 onClose={notifications.closePanel}
                 onOpenPost={openNotificationPost}
+              />
+            )}
+
+            {terasEnabled && (
+              <TerasNotificationSettings
+                size={compactHeader ? 'compact' : 'header'}
+                prefs={notifPrefs.prefs}
+                telegramConnected={notifPrefs.telegramConnected}
+                open={notifPrefs.open}
+                loading={notifPrefs.loading}
+                loaded={notifPrefs.loaded}
+                error={notifPrefs.error}
+                onOpen={notifPrefs.openSheet}
+                onClose={notifPrefs.closeSheet}
+                onToggle={notifPrefs.toggle}
               />
             )}
 
@@ -1115,6 +1133,20 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 onOpen={notifications.openPanel}
                 onClose={notifications.closePanel}
                 onOpenPost={openNotificationPost}
+              />
+            )}
+            {terasEnabled && (
+              <TerasNotificationSettings
+                size="home"
+                prefs={notifPrefs.prefs}
+                telegramConnected={notifPrefs.telegramConnected}
+                open={notifPrefs.open}
+                loading={notifPrefs.loading}
+                loaded={notifPrefs.loaded}
+                error={notifPrefs.error}
+                onOpen={notifPrefs.openSheet}
+                onClose={notifPrefs.closeSheet}
+                onToggle={notifPrefs.toggle}
               />
             )}
             <button

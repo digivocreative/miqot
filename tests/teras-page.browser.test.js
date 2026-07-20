@@ -2430,4 +2430,94 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await app.close();
     }
   });
+
+  function notificationPrefsPayload(overrides = {}) {
+    return {
+      success: true,
+      data: {
+        prefs: {
+          teras_bell_mention: true, teras_bell_comment: true,
+          teras_bell_reaction: true, teras_bell_broadcast: true,
+          community_mentions: true, teras_tg_comment: false,
+          teras_tg_reaction: false, teras_tg_broadcast: false,
+        },
+        telegram_connected: false,
+        ...overrides,
+      },
+    };
+  }
+
+  test('gerigi membuka sheet dan meredupkan kolom Telegram saat belum tersambung', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      onRequest: async ({ record, route }) => {
+        if (record.method === 'GET' && record.pathname === '/api/community/notification-prefs') {
+          await responseJson(route, notificationPrefsPayload({ telegram_connected: false }));
+          return true;
+        }
+        return false;
+      },
+    });
+    const app = await openApp({ api });
+    try {
+      await app.page.getByRole('button', { name: 'Pengaturan notifikasi Teras' }).click();
+      // Aksesibilitas dialog ini diberi nama lewat aria-labelledby -> <h2>, yang
+      // teksnya "Notifikasi Teras" — bukan "Pengaturan notifikasi Teras" seperti
+      // dugaan awal (itu nama tombol gerigi, bukan judul sheet).
+      const sheet = app.page.getByRole('dialog', { name: 'Notifikasi Teras' });
+      await sheet.waitFor();
+      await sheet.getByText('Telegram belum tersambung').waitFor();
+
+      const tgSwitch = sheet.getByRole('switch', { name: 'Reaksi ke Telegram' });
+      assert.equal(await tgSwitch.isDisabled(), true, 'kolom Telegram tidak boleh bisa diketuk sebelum tersambung');
+      assert.equal(await tgSwitch.getAttribute('aria-checked'), 'false');
+
+      const bellSwitch = sheet.getByRole('switch', { name: 'Reaksi di lonceng' });
+      assert.equal(await bellSwitch.isDisabled(), false, 'kolom lonceng harus tetap bisa diketuk');
+      assert.equal(await bellSwitch.getAttribute('aria-checked'), 'true');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('saklar kembali ke posisi semula saat penyimpanan gagal', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      onRequest: async ({ record, route }) => {
+        if (record.pathname !== '/api/community/notification-prefs') return false;
+        if (record.method === 'GET') {
+          await responseJson(route, notificationPrefsPayload({ telegram_connected: true }));
+          return true;
+        }
+        if (record.method === 'PUT') {
+          await responseJson(route, { error: 'boom' }, 500);
+          return true;
+        }
+        return false;
+      },
+    });
+    const app = await openApp({ api });
+    try {
+      await app.page.getByRole('button', { name: 'Pengaturan notifikasi Teras' }).click();
+      const sheet = app.page.getByRole('dialog', { name: 'Notifikasi Teras' });
+      await sheet.waitFor();
+
+      const bellSwitch = sheet.getByRole('switch', { name: 'Reaksi di lonceng' });
+      await bellSwitch.waitFor();
+      assert.equal(await bellSwitch.getAttribute('aria-checked'), 'true');
+
+      await bellSwitch.click();
+      // Penyimpanan optimistis: saklar berubah seketika, sebelum PUT selesai.
+      // Kalau baris ini tidak pernah jadi 'false', asersi "kembali ke true"
+      // di bawah akan lulus meski saklarnya tidak pernah benar-benar merespons klik.
+      assert.equal(await bellSwitch.getAttribute('aria-checked'), 'false', 'saklar harus berubah seketika (optimistis) sebelum PUT selesai');
+
+      await sheet.getByRole('alert').waitFor();
+      assert.equal(await bellSwitch.getAttribute('aria-checked'), 'true', 'saklar harus kembali ke posisi semula setelah PUT gagal');
+
+      const putRequests = matchingRequests(api, 'PUT', '/api/community/notification-prefs');
+      assert.equal(putRequests.length, 1);
+      assert.deepEqual(putRequests[0].body, { teras_bell_reaction: false });
+    } finally {
+      await app.close();
+    }
+  });
 });

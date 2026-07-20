@@ -76,7 +76,23 @@ import {
   countUnreadNotifications,
   NOTIFICATION_LIMIT,
 } from './lib/community-notifications.js';
+import {
+  DEFAULT_TERAS_NOTIFICATION_PREFS,
+  TERAS_TG_SENT_AT_KEY,
+  bellSourceFlags,
+  enabledTelegramKeysTurnedOn,
+  filterTerasPrefUpdates,
+  normalizeTerasNotificationPrefs,
+  telegramSourceFlags,
+} from './lib/teras-notification-prefs.js';
 import { isTerasShortCode, communityShortCodeBounds, terasPreviewExcerpt } from './lib/teras-share.js';
+import {
+  TERAS_DIGEST_LOOKBACK_MS,
+  TERAS_DIGEST_WINDOW_MS,
+  buildTerasDigestMessages,
+  clampWatermarkMs,
+  computeOwnerDigestWatermarks,
+} from './lib/teras-telegram-digest.js';
 import {
   hasEveryoneMention,
   jakartaDayStartIso,
@@ -445,6 +461,7 @@ app.use('/api/umrah/ocr-ktp', express.json({ limit: '16mb' }));
 // specific mutation paths first so their tighter limits take precedence.
 app.use('/api/community/read', express.json({ limit: '2kb' }));
 app.use('/api/community/posts/:id/reaction', express.json({ limit: '2kb' }));
+app.use('/api/community/notification-prefs', express.json({ limit: '2kb' }));
 app.use('/api/community/posts/:id/comments', express.json({ limit: '8kb' }));
 app.use('/api/community/posts', express.json({ limit: '32kb' }));
 // Webhook Resend Inbound butuh raw body (verifikasi signature Svix) — harus
@@ -4043,10 +4060,17 @@ function isCommunityMentionSchemaMissing(error) {
 
 // Record @mentions for a freshly-created post or comment and fire the Telegram
 // nudge. Never throws — mentions are an additive layer, not a post prerequisite.
+//
+// Returns the Set of agent ids that were actually sent a Telegram push here.
+// Callers that also fan out a broadcast (@semua) for the same post must
+// exclude this set — a personal @nama push is more specific than the
+// broadcast, and the bell already drops the broadcast for the same reason
+// (see dedupeBroadcastsAgainstMentions in lib/community-notifications.js).
 async function recordCommunityMentions({ segments, authorAgent, commentId = null }) {
+  const pushedAgentIds = new Set();
   try {
     const members = await loadCommunityMembers();
-    if (!members.length) return;
+    if (!members.length) return pushedAgentIds;
     const bySlug = new Map(members.map(m => [String(m.slug).toLowerCase(), m]));
     const mentions = collectThreadMentions(
       segments,
@@ -4054,7 +4078,7 @@ async function recordCommunityMentions({ segments, authorAgent, commentId = null
       authorAgent.slug,
       COMMUNITY_MENTION_LIMIT,
     );
-    if (!mentions.length) return;
+    if (!mentions.length) return pushedAgentIds;
 
     const postIds = [...new Set(segments.map(segment => segment.postId))];
     const rows = mentions
@@ -4066,7 +4090,7 @@ async function recordCommunityMentions({ segments, authorAgent, commentId = null
         post_id: entry.postId,
         comment_id: commentId,
       }));
-    if (!rows.length) return;
+    if (!rows.length) return pushedAgentIds;
 
     // Idempotent: a retried POST (same client_id) must not duplicate rows or
     // re-notify. This is a read-then-insert rather than an upsert on purpose —
@@ -4084,10 +4108,10 @@ async function recordCommunityMentions({ segments, authorAgent, commentId = null
       if (!isCommunityMentionSchemaMissing(recordedError)) {
         console.error('[community] read mentions error:', recordedError.message);
       }
-      return;
+      return pushedAgentIds;
     }
     const fresh = unrecordedMentionRows(rows, (recorded || []).map(row => row.mentioned_agent_id));
-    if (!fresh.length) return;
+    if (!fresh.length) return pushedAgentIds;
 
     const { error } = await supabase.from('community_mentions').insert(fresh);
     if (error) {
@@ -4096,7 +4120,7 @@ async function recordCommunityMentions({ segments, authorAgent, commentId = null
       if (error.code !== '23505' && !isCommunityMentionSchemaMissing(error)) {
         console.error('[community] record mentions error:', error.message);
       }
-      return;
+      return pushedAgentIds;
     }
 
     const notified = new Set(fresh.map(row => row.mentioned_agent_id));
@@ -4107,16 +4131,19 @@ async function recordCommunityMentions({ segments, authorAgent, commentId = null
       if (!member || !notified.has(member.id)) continue;
       if (!member.telegram_chat_id) continue;
       const prefs = member.notification_prefs || {};
-      if (prefs.community_mentions === false) continue;
+      if (!telegramSourceFlags(prefs).mentions) continue;
       const snippet = communityMentionSnippet(bodyByPostId.get(mention.postId) || '');
       const link = `${communityPublicOrigin()}/dashboard/teras/post/${mention.postId}`;
       const text = `🔔 <b>${escapeHtml(authorName)}</b> menyebut kamu di Teras`
         + (snippet ? `\n\n${escapeHtml(snippet)}` : '')
         + `\n\n${link}`;
       sendTelegramMessageDirect(member.telegram_chat_id, text).catch(() => {});
+      pushedAgentIds.add(member.id);
     }
+    return pushedAgentIds;
   } catch (err) {
     console.error('[community] record mentions unexpected error:', err.message);
+    return pushedAgentIds;
   }
 }
 
@@ -4124,6 +4151,62 @@ function communityMentionSnippet(body, max = 120) {
   const text = String(body || '').replace(/\s+/g, ' ').trim();
   if (text.length <= max) return text;
   return `${text.slice(0, max - 1)}…`;
+}
+
+/**
+ * Broadcast @semua dikirim instan — satu peristiwa tunggal, tidak ada yang perlu
+ * digabung, dan menundanya membatalkan alasan @semua dipakai.
+ *
+ * Penulisnya sendiri tidak diberi tahu, begitu juga agen yang sudah menerima
+ * push personal @nama untuk kiriman yang sama (excludeAgentIds — lihat
+ * recordCommunityMentions). Kegagalan satu chat_id tidak boleh menggagalkan
+ * pembuatan kiriman, jadi seluruh badan fungsi ini menelan error.
+ */
+async function notifyCommunityBroadcastTelegram({ post, authorAgent, excludeAgentIds }) {
+  try {
+    // Query langsung ke `agents`, BUKAN lewat cache 60 detik loadCommunityMembers():
+    // preferensi teras_tg_broadcast yang baru saja dimatikan agen harus berlaku
+    // seketika untuk pengumuman ini, bukan menunggu cache itu kedaluwarsa.
+    // Cakupannya tetap sama dengan loadCommunityMembers() — slug & name wajib
+    // ada — supaya agen tanpa profil Teras yang valid tidak dikirimi tautan
+    // ke feed yang tidak bisa mereka buka.
+    const { data: members, error } = await supabase
+      .from('agents')
+      .select('id, slug, name, telegram_chat_id, notification_prefs')
+      .not('telegram_chat_id', 'is', null)
+      .not('slug', 'is', null)
+      .not('name', 'is', null)
+      .neq('id', authorAgent.id);
+    if (error) throw error;
+
+    const excluded = excludeAgentIds instanceof Set ? excludeAgentIds : new Set(excludeAgentIds || []);
+    const recipients = (members || []).filter(member => (
+      String(member.slug || '').trim()
+      && String(member.name || '').trim()
+      && !excluded.has(member.id)
+      && telegramSourceFlags(member.notification_prefs).broadcasts
+    ));
+
+    const authorName = authorAgent.name || 'Seseorang';
+    const snippet = communityMentionSnippet(post.body);
+    const link = `${communityPublicOrigin()}/dashboard/teras/post/${post.id}`;
+    const text = `📢 <b>${escapeHtml(authorName)}</b> mengirim pengumuman untuk semua agent`
+      + (snippet ? `\n\n${escapeHtml(snippet)}` : '')
+      + `\n\n${link}`;
+
+    // Berurutan, bukan serentak: roster besar yang dikirimi sekaligus akan
+    // membanjiri Telegram dan kena rate limit. Kegagalan satu agen dicatat
+    // (bukan dibuang diam-diam lewat .catch(() => {})) tapi tidak menghentikan
+    // pengiriman ke agen berikutnya.
+    for (const member of recipients) {
+      const delivered = await sendTelegramMessageDirect(member.telegram_chat_id, text);
+      if (!delivered) {
+        console.warn('[community] broadcast telegram gagal terkirim ke', member.id);
+      }
+    }
+  } catch (err) {
+    console.error('[community] broadcast telegram error:', err.message);
+  }
 }
 
 function communityPublicOrigin() {
@@ -4852,17 +4935,23 @@ const TERAS_NOTIF_SEEN_KEY = 'teras_notif_seen_at';
 // anyway, so a bigger window would only cost bandwidth.
 const NOTIFICATION_SCAN_LIMIT = 120;
 
-// Read the watermark straight from the row, not from the TTL agent cache —
-// a stale cache here would make the badge reappear right after it was cleared.
-async function readTerasNotifSeenAt(agentId) {
+// Baca watermark dan preferensi sekaligus. Keduanya ada di baris agen yang
+// sama, jadi dua query terpisah hanya menggandakan beban tanpa manfaat.
+// Sengaja tidak lewat cache agen ber-TTL: cache basi di sini membuat badge
+// muncul lagi tepat setelah dibersihkan.
+async function readTerasNotifState(agentId) {
   const { data, error } = await supabase
     .from('agents')
     .select('notification_prefs')
     .eq('id', agentId)
     .single();
   if (error) throw error;
-  const value = (data?.notification_prefs || {})[TERAS_NOTIF_SEEN_KEY];
-  return typeof value === 'string' && value ? value : null;
+  const prefs = data?.notification_prefs || {};
+  const value = prefs[TERAS_NOTIF_SEEN_KEY];
+  return {
+    seenAt: typeof value === 'string' && value ? value : null,
+    prefs,
+  };
 }
 
 async function writeTerasNotifSeenAt(agentId, iso) {
@@ -4885,8 +4974,10 @@ async function writeTerasNotifSeenAt(agentId, iso) {
 // regardless (list path). Mentions tolerate a missing table, and broadcasts
 // tolerate a missing `mentions_everyone` column, so the bell still works on
 // an environment where those migrations were never applied.
-async function loadTerasNotificationSources(agent, { since, limit }) {
-  const mentionQuery = supabase
+async function loadTerasNotificationSources(agent, { since, limit, prefs }) {
+  const flags = bellSourceFlags(prefs);
+
+  const mentionQuery = !flags.mentions ? null : supabase
     .from('community_mentions')
     .select(`id, post_id, comment_id, created_at,
       author:agents!community_mentions_author_agent_id_fkey(name, photo),
@@ -4896,7 +4987,7 @@ async function loadTerasNotificationSources(agent, { since, limit }) {
     .order('created_at', { ascending: false })
     .limit(limit);
 
-  const commentQuery = supabase
+  const commentQuery = !flags.comments ? null : supabase
     .from('community_post_comments')
     .select(`id, post_id, created_at, body,
       author:agents(name, photo),
@@ -4908,7 +4999,7 @@ async function loadTerasNotificationSources(agent, { since, limit }) {
     .order('created_at', { ascending: false })
     .limit(limit);
 
-  const reactionQuery = supabase
+  const reactionQuery = !flags.reactions ? null : supabase
     .from('community_post_reactions')
     .select(`post_id, agent_id, created_at,
       author:agents(name, photo),
@@ -4922,7 +5013,7 @@ async function loadTerasNotificationSources(agent, { since, limit }) {
   // Broadcast @semua dari agent lain. Penulisnya sendiri tidak diberi tahu, dan
   // kiriman terhapus hilang dari lonceng seperti sumber lain. Segmen lanjutan
   // utas tidak pernah jadi sumber lonceng — @semua hanya dihormati di segmen 1.
-  const broadcastQuery = supabase
+  const broadcastQuery = !flags.broadcasts ? null : supabase
     .from('community_posts')
     .select('id, body, created_at, author:agents!community_posts_agent_id_fkey(name, photo)')
     .eq('mentions_everyone', true)
@@ -4933,14 +5024,18 @@ async function loadTerasNotificationSources(agent, { since, limit }) {
     .limit(limit);
 
   if (since) {
-    mentionQuery.gt('created_at', since);
-    commentQuery.gt('created_at', since);
-    reactionQuery.gt('created_at', since);
-    broadcastQuery.gt('created_at', since);
+    mentionQuery?.gt('created_at', since);
+    commentQuery?.gt('created_at', since);
+    reactionQuery?.gt('created_at', since);
+    broadcastQuery?.gt('created_at', since);
   }
 
+  const empty = { data: [], error: null };
   const [mentionResult, commentResult, reactionResult, broadcastResult] = await Promise.all([
-    mentionQuery, commentQuery, reactionQuery, broadcastQuery,
+    mentionQuery ?? empty,
+    commentQuery ?? empty,
+    reactionQuery ?? empty,
+    broadcastQuery ?? empty,
   ]);
 
   if (mentionResult.error && !isCommunityMentionSchemaMissing(mentionResult.error)) {
@@ -4994,16 +5089,92 @@ async function loadTerasNotificationSources(agent, { since, limit }) {
   return { mentions, comments, reactions, broadcasts };
 }
 
+app.get('/api/community/notification-prefs', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const { data, error } = await supabase
+      .from('agents')
+      .select('notification_prefs, telegram_chat_id')
+      .eq('id', agent.id)
+      .single();
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      data: {
+        prefs: normalizeTerasNotificationPrefs(data?.notification_prefs || {}),
+        telegram_connected: !!data?.telegram_chat_id,
+      },
+    });
+  } catch (err) {
+    console.error('[community] notification prefs get error:', err);
+    res.status(500).json({ error: 'Gagal memuat pengaturan notifikasi' });
+  }
+});
+
+app.put('/api/community/notification-prefs', authMiddleware, express.json({ limit: '2kb' }), async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const updates = filterTerasPrefUpdates(req.body);
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'Tidak ada preferensi valid yang diupdate' });
+    }
+
+    const { data: existing, error: fetchErr } = await supabase
+      .from('agents')
+      .select('notification_prefs, telegram_chat_id')
+      .eq('id', agent.id)
+      .single();
+    if (fetchErr) throw fetchErr;
+
+    const stored = existing?.notification_prefs || {};
+    // Menyalakan sebuah kanal Telegram memajukan watermark ke sekarang: tanpa
+    // ini, sapuan berikutnya akan mengirim seluruh riwayat 24 jam terakhir ke
+    // agen yang baru saja mengaktifkannya.
+    const turnedOn = enabledTelegramKeysTurnedOn(stored, updates);
+    const merged = {
+      ...stored,
+      ...updates,
+      ...(turnedOn.length > 0 ? { [TERAS_TG_SENT_AT_KEY]: new Date().toISOString() } : {}),
+    };
+
+    const { error: updateErr } = await supabase
+      .from('agents')
+      .update({ notification_prefs: merged })
+      .eq('id', agent.id);
+    if (updateErr) throw updateErr;
+
+    invalidateAgentCache();
+    res.json({
+      success: true,
+      data: {
+        prefs: normalizeTerasNotificationPrefs(merged),
+        telegram_connected: !!existing?.telegram_chat_id,
+      },
+    });
+  } catch (err) {
+    console.error('[community] notification prefs update error:', err);
+    res.status(500).json({ error: 'Gagal menyimpan pengaturan notifikasi' });
+  }
+});
+
 app.get('/api/community/notifications/head', dbLoadShedGuard, authMiddleware, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     if (!requireCommunityAccess(agent, res)) return;
 
-    const seenAt = await readTerasNotifSeenAt(agent.id);
+    const { seenAt, prefs } = await readTerasNotifState(agent.id);
     const sources = await loadTerasNotificationSources(agent, {
       since: seenAt,
       limit: NOTIFICATION_SCAN_LIMIT,
+      prefs,
     });
     res.json({ success: true, data: { unread_count: countUnreadNotifications(sources) } });
   } catch (err) {
@@ -5022,10 +5193,11 @@ app.get('/api/community/notifications', dbLoadShedGuard, authMiddleware, async (
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     if (!requireCommunityAccess(agent, res)) return;
 
-    const seenAt = await readTerasNotifSeenAt(agent.id);
+    const { seenAt, prefs } = await readTerasNotifState(agent.id);
     const sources = await loadTerasNotificationSources(agent, {
       since: null,
       limit: NOTIFICATION_LIMIT,
+      prefs,
     });
     res.json({
       success: true,
@@ -5060,7 +5232,7 @@ app.post('/api/community/notifications/seen', authMiddleware, express.json({ lim
     const agent = await getAgentById(req.user.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     if (!requireCommunityAccess(agent, res)) return;
-    const previousSeenAt = await readTerasNotifSeenAt(agent.id);
+    const { seenAt: previousSeenAt } = await readTerasNotifState(agent.id);
     const seenAt = resolveTerasNotifSeenAt(req.body?.seen_at, previousSeenAt);
     await writeTerasNotifSeenAt(agent.id, seenAt);
     res.json({ success: true });
@@ -5722,6 +5894,14 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
     const rollbackIds = [];
     let createdPost = null;
     let failure = null;
+    // A retried POST (same client_id, e.g. a client-side timeout retry after
+    // the first attempt actually succeeded) surfaces as `reused` on the root
+    // segment (i === 0) and is treated as a success rather than an error. It
+    // must NOT be treated as a fresh post for side effects:
+    // recordCommunityMentions self-guards via the community_mentions table,
+    // but the broadcast fan-out below has no such table to dedupe against,
+    // so it is gated on this flag instead.
+    let isFreshPostInsert = true;
 
     for (let i = 0; i < chain.length; i += 1) {
       const link = chain[i];
@@ -5762,7 +5942,11 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
         break;
       }
       segmentPostIds.push(post.id);
-      if (!reused) rollbackIds.push(post.id);
+      if (!reused) {
+        rollbackIds.push(post.id);
+      } else if (i === 0) {
+        isFreshPostInsert = false;
+      }
       if (i === 0) createdPost = post;
     }
 
@@ -5812,7 +5996,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
     // segmen pertama — jadi satu utas menaikkan head sekali.
     bumpCommunityFeedHead(createdPost);
 
-    await recordCommunityMentions({
+    const mentionPushedAgentIds = await recordCommunityMentions({
       segments: chain.map((link, i) => ({
         postId: segmentPostIds[i],
         body: link.body,
@@ -5836,6 +6020,21 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
       is_own: true,
     };
     res.status(201).json({ success: true, data });
+
+    // Fan-out runs after the author's response is sent: notifyCommunityBroadcastTelegram
+    // sends sequentially (one fetch per recipient) to respect Telegram's rate limit, and
+    // awaiting it here would hold the author's POST open for seconds on a large roster.
+    // Not awaited — this is fire-and-forget background work on a long-lived server with
+    // in-process cron jobs, so it is safe to let it continue after the response. The
+    // function already catches its own errors internally and never throws; this .catch
+    // is a defensive backstop only. A notification failure must never fail post creation.
+    if (mentionsEveryone && isFreshPostInsert) {
+      notifyCommunityBroadcastTelegram({
+        post: createdPost,
+        authorAgent: agent,
+        excludeAgentIds: mentionPushedAgentIds,
+      }).catch(err => console.error('[community] broadcast telegram fan-out error:', err));
+    }
   } catch (err) {
     console.error('[community] create post error:', err);
     res.status(500).json({ error: 'Gagal membuat postingan' });
@@ -6741,6 +6940,213 @@ if (shouldRunBackgroundJobs()) cron.schedule('* * * * *', async () => {
     }
   } finally {
     customDomainCronRunning = false;
+  }
+});
+
+let terasDigestSweepRunning = false;
+
+/**
+ * Sapuan digest Telegram Teras.
+ *
+ * Dua query GLOBAL per menit untuk seluruh sistem, bukan satu query per agen —
+ * inilah sebabnya fitur ini tidak butuh tabel antrian. Watermark disimpan di
+ * baris agen, jadi restart dan deploy tidak menduplikasi maupun menghilangkan
+ * pesan; timer di memori akan bocor pada keduanya.
+ */
+async function runTerasTelegramDigestSweep() {
+  const now = Date.now();
+  const cutoffIso = new Date(now - TERAS_DIGEST_WINDOW_MS).toISOString();
+  const floorIso = new Date(now - TERAS_DIGEST_LOOKBACK_MS).toISOString();
+
+  const [commentResult, reactionResult] = await Promise.all([
+    supabase
+      .from('community_post_comments')
+      .select('id, post_id, agent_id, created_at, author:agents(name), post:community_posts!inner(agent_id, deleted_at)')
+      .gte('created_at', floorIso)
+      .lte('created_at', cutoffIso)
+      .is('deleted_at', null)
+      .is('post.deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(500),
+    supabase
+      .from('community_post_reactions')
+      .select('post_id, agent_id, created_at, author:agents(name), post:community_posts!inner(agent_id, deleted_at)')
+      .gte('created_at', floorIso)
+      .lte('created_at', cutoffIso)
+      .is('post.deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(500),
+  ]);
+
+  if (commentResult.error) throw commentResult.error;
+  if (reactionResult.error) throw reactionResult.error;
+
+  // Diagnostik: kalau query menyentuh batas 500, ada baris yang tidak
+  // terambil sama sekali sweep ini — operator perlu tahu sistem sudah
+  // tumbuh melewati batas ini (lihat catatan watermark per-owner di bawah
+  // untuk kenapa ini tidak sampai menghilangkan notifikasi).
+  if ((commentResult.data || []).length === 500) {
+    console.warn('[teras-digest] query komentar mencapai batas 500 baris, kemungkinan ada baris yang terpotong');
+  }
+  if ((reactionResult.data || []).length === 500) {
+    console.warn('[teras-digest] query reaksi mencapai batas 500 baris, kemungkinan ada baris yang terpotong');
+  }
+
+  const comments = (commentResult.data || []).map(row => ({
+    id: row.id,
+    post_id: row.post_id,
+    created_at: row.created_at,
+    owner_agent_id: row.post?.agent_id,
+    actor_agent_id: row.agent_id,
+    actor_name: row.author?.name || null,
+  }));
+  const reactions = (reactionResult.data || []).map(row => ({
+    post_id: row.post_id,
+    created_at: row.created_at,
+    owner_agent_id: row.post?.agent_id,
+    actor_agent_id: row.agent_id,
+    actor_name: row.author?.name || null,
+  }));
+
+  // Plafon lintas-query: komentar dan reaksi diambil lewat dua query terpisah,
+  // masing-masing .order('created_at', ascending).limit(500), dan masing-masing
+  // bisa terpotong pada batas yang BERBEDA. Watermark per-owner di atas hanya
+  // menutup kebocoran DALAM satu query (owner tidak pernah melompati barisnya
+  // sendiri yang belum terambil) — tapi kedua tipe pesan dipagari oleh SATU
+  // teras_tg_sent_at yang sama di lib/teras-telegram-digest.js. Kalau query
+  // komentar terpotong di T_c sementara query reaksi tidak terpotong dan
+  // mengirim owner X sebuah reaksi dengan latest_at R > T_c, watermark X akan
+  // maju ke R — dan komentar X pada (T_c, R] yang belum sempat terambil jadi
+  // terlewat PERMANEN begitu backlog surut sampai ke situ. Makanya watermark
+  // hasil akhir harus dijepit ke plafon terendah dari kedua query.
+  function fetchCeilingMs(rows, limit) {
+    if (rows.length !== limit) return Infinity; // tidak terpotong → tidak ada plafon
+    // -1ms: baris lain yang berbagi milidetik PERSIS dengan baris batas belum
+    // tentu ikut terambil (order dalam satu milidetik tidak dijamin stabil di
+    // Postgres). Menggeser plafon mundur 1ms membuat baris semilidetik itu
+    // tetap dianggap "belum diproses" oleh watermark, bukan "sudah". Kalau
+    // backlog tetap ≥500 antar sweep, batas truncation tetap sama — pemilik
+    // baris batas dijepit ke boundary-1ms tiap sweep dan terima duplikat
+    // digest sekali per menit, sampai baris age out dari jendela 24-jam.
+    // Risiko sengaja: duplikat bisa dipulihkan (agen lihat dua kali), notifikasi
+    // hilang diam-diam tidak bisa.
+    return new Date(rows[rows.length - 1].created_at).getTime() - 1;
+  }
+  const commentCeilingMs = fetchCeilingMs(comments, 500);
+  const reactionCeilingMs = fetchCeilingMs(reactions, 500);
+  const effectiveCeilingMs = clampWatermarkMs(commentCeilingMs, reactionCeilingMs);
+
+  const ownerIds = [...new Set([...comments, ...reactions].map(row => row.owner_agent_id).filter(Boolean))];
+  if (ownerIds.length === 0) return { sent: 0, owners: 0 };
+
+  const { data: ownerRows, error: ownerError } = await supabase
+    .from('agents')
+    .select('id, telegram_chat_id, notification_prefs')
+    .in('id', ownerIds)
+    .not('telegram_chat_id', 'is', null);
+  if (ownerError) throw ownerError;
+
+  const owners = (ownerRows || []).map(row => ({
+    id: row.id,
+    chat_id: row.telegram_chat_id,
+    prefs: row.notification_prefs || {},
+    sent_at: (row.notification_prefs || {})[TERAS_TG_SENT_AT_KEY] || null,
+  }));
+  if (owners.length === 0) return { sent: 0, owners: 0 };
+
+  // Balasan yang juga menyebut pemilik kiriman sudah terkirim instan lewat
+  // jalur mention; ambil sebutan pada jendela yang sama untuk membuangnya.
+  let mentions = [];
+  const mentionResult = await supabase
+    .from('community_mentions')
+    .select('comment_id, mentioned_agent_id')
+    .gte('created_at', floorIso)
+    .lte('created_at', cutoffIso)
+    .in('mentioned_agent_id', owners.map(owner => owner.id))
+    .limit(500);
+  if (mentionResult.error) {
+    if (!isCommunityMentionSchemaMissing(mentionResult.error)) throw mentionResult.error;
+  } else {
+    mentions = mentionResult.data || [];
+  }
+
+  const messages = buildTerasDigestMessages({
+    comments, reactions, mentions, owners, origin: communityPublicOrigin(),
+  });
+  if (messages.length === 0) return { sent: 0, owners: owners.length };
+
+  // Watermark per-owner: tiap owner naik ke maksimum latest_at dari
+  // pesan-pesannya sendiri yang benar-benar terkirim, BUKAN ke cutoffIso
+  // global, dan dijepit ke effectiveCeilingMs (lihat komentar plafon
+  // lintas-query di atas) supaya tidak melompati baris milik owner lain yang
+  // sama-sama terpotong tapi belum jadi pesan. Memakai cutoffIso di sini akan
+  // membuat baris yang terpotong itu dilewati permanen oleh watermark check
+  // di lib/teras-telegram-digest.js.
+  // Kirim tiap pesan dengan isolasi per pesan: satu chat_id yang memblokir bot
+  // tidak boleh membatalkan pengiriman ke agen lain. Ini persis kegagalan yang
+  // dulu membekukan retensi analytics. Hasil delivered/gagalnya dikumpulkan
+  // dulu, lalu watermark dihitung lewat computeOwnerDigestWatermarks (murni,
+  // lib/teras-telegram-digest.js) — supaya perhitungan watermark termasuk
+  // penjepitan akibat kegagalan (lihat komentarnya) bisa diuji tanpa DB/jaringan.
+  const deliveries = [];
+  for (const message of messages) {
+    let delivered = false;
+    try {
+      delivered = await sendTelegramMessageDirect(message.chat_id, message.text);
+      if (!delivered) console.warn('[teras-digest] Telegram menolak pesan ke', message.agent_id);
+    } catch (err) {
+      console.warn('[teras-digest] gagal kirim ke', message.agent_id, err.message);
+    }
+    deliveries.push({ agent_id: message.agent_id, latest_at: message.latest_at, delivered });
+  }
+
+  const deliveredOwnerWatermarks = computeOwnerDigestWatermarks(deliveries, effectiveCeilingMs);
+
+  for (const [ownerId, watermark] of deliveredOwnerWatermarks) {
+    try {
+      const { data: fresh, error: freshError } = await supabase
+        .from('agents')
+        .select('notification_prefs')
+        .eq('id', ownerId)
+        .single();
+      if (freshError) throw freshError;
+      const storedPrefs = fresh?.notification_prefs || {};
+      const storedSentAt = storedPrefs[TERAS_TG_SENT_AT_KEY] || null;
+      // Jangan pernah mundur: penjepitan plafon di atas seharusnya tidak
+      // pernah menghasilkan watermark yang lebih awal dari yang sudah
+      // tersimpan (grup pesan sudah difilter > owner.sent_at oleh
+      // lib/teras-telegram-digest.js sebelum sampai sini), tapi ini kondisi
+      // tepi yang murah untuk dijaga — mis. plafon jatuh sangat dekat dengan
+      // floorIso ketika sweep tertinggal jauh. Kalau ternyata mundur, lewati
+      // update ini sepenuhnya; watermark yang tersimpan tetap berlaku.
+      if (storedSentAt && new Date(watermark).getTime() <= new Date(storedSentAt).getTime()) {
+        continue;
+      }
+      const merged = { ...storedPrefs, [TERAS_TG_SENT_AT_KEY]: watermark };
+      const { error: updateError } = await supabase
+        .from('agents')
+        .update({ notification_prefs: merged })
+        .eq('id', ownerId);
+      if (updateError) throw updateError;
+    } catch (err) {
+      console.warn('[teras-digest] gagal memajukan watermark', ownerId, err.message);
+    }
+  }
+
+  return { sent: messages.length, owners: owners.length };
+}
+
+if (shouldRunBackgroundJobs()) cron.schedule('* * * * *', async () => {
+  if (terasDigestSweepRunning) return;
+  if (isDbDegraded()) return; // shed: jangan tembak DB saat restart
+  terasDigestSweepRunning = true;
+  try {
+    const result = await runTerasTelegramDigestSweep();
+    if (result.sent > 0) console.log(`[teras-digest] terkirim ${result.sent} pesan`);
+  } catch (err) {
+    console.error('[teras-digest] sweep error:', err.message);
+  } finally {
+    terasDigestSweepRunning = false;
   }
 });
 
@@ -12598,20 +13004,24 @@ function markFlightNotifSent(flightId, changeType) {
 
 async function sendTelegramMessageDirect(chatId, text, options = {}) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !chatId) return;
+  if (!token || !chatId) return false;
   try {
     const body = {
       chat_id: chatId, text,
       parse_mode: 'HTML', disable_web_page_preview: true,
     };
     if (options.reply_markup) body.reply_markup = options.reply_markup;
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
     });
+    const payload = await response.json().catch(() => null);
+    return response.ok && payload?.ok === true;
   } catch (err) {
-    console.error(`[FlightNotif] Telegram send error:`, err.message);
+    console.error(`[Telegram] sendMessage error:`, err.message);
+    return false;
   }
 }
 
