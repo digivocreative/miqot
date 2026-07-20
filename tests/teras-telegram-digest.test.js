@@ -148,34 +148,44 @@ test('tiga balasan pada satu kiriman jadi satu pesan berjumlah', () => {
 });
 
 test('dua pemilik dengan masing-masing kiriman terisolasi satu sama lain', () => {
+  // Catatan: satu post_id yang sama dipakai oleh DUA owner_agent_id berbeda
+  // tidak mungkin terjadi di data produksi (satu kiriman selalu punya tepat
+  // satu pemilik). Kasus ini sengaja dibuat mustahil supaya benar-benar
+  // menguji bahwa kunci pengelompokan di groupByOwnerAndPost menyertakan
+  // owner.id, bukan cuma post_id — memagari kontrak "satu pesan per pemilik
+  // per kiriman" dari refactor yang diam-diam menghapus owner.id dari kunci.
+  // Kalau dua kiriman punya post_id berbeda (kasus nyata), pengelompokan
+  // per post_id saja sudah cukup memisahkan pesan, jadi tesnya tidak akan
+  // pernah gagal walau owner.id dihapus dari kunci — makanya post_id dibuat
+  // sama di sini.
   const owner1 = owner({ id: 'owner-1', chat_id: '12345' });
   const owner2 = owner({ id: 'owner-2', chat_id: '67890' });
   const messages = buildTerasDigestMessages({
     comments: [],
     reactions: [
       reaction({ post_id: 'p1', owner_agent_id: 'owner-1', actor_agent_id: 'a1', actor_name: 'Rina' }),
-      reaction({ post_id: 'p2', owner_agent_id: 'owner-2', actor_agent_id: 'a2', actor_name: 'Budi' }),
+      reaction({ post_id: 'p1', owner_agent_id: 'owner-2', actor_agent_id: 'a2', actor_name: 'Budi' }),
     ],
     mentions: [],
     owners: [owner1, owner2],
     origin: ORIGIN,
   });
 
-  assert.equal(messages.length, 2, 'harus ada dua pesan terpisah');
+  assert.equal(messages.length, 2, 'harus ada dua pesan terpisah walau post_id sama');
 
-  const msg1 = messages.find(m => m.post_id === 'p1');
-  const msg2 = messages.find(m => m.post_id === 'p2');
+  const msg1 = messages.find(m => m.agent_id === 'owner-1');
+  const msg2 = messages.find(m => m.agent_id === 'owner-2');
 
-  assert.ok(msg1, 'harus ada pesan untuk p1');
-  assert.ok(msg2, 'harus ada pesan untuk p2');
+  assert.ok(msg1, 'harus ada pesan untuk owner-1');
+  assert.ok(msg2, 'harus ada pesan untuk owner-2');
 
-  assert.equal(msg1.agent_id, 'owner-1', 'pesan p1 harus ke agent owner-1');
-  assert.equal(msg1.chat_id, '12345', 'pesan p1 harus ke chat_id owner-1');
-  assert.match(msg1.text, /Rina/, 'pesan p1 harus sebutkan aktor Rina');
+  assert.equal(msg1.chat_id, '12345', 'pesan owner-1 harus ke chat_id miliknya');
+  assert.equal(msg1.post_id, 'p1');
+  assert.match(msg1.text, /Rina/, 'pesan owner-1 harus sebutkan aktor Rina, bukan tercampur Budi');
 
-  assert.equal(msg2.agent_id, 'owner-2', 'pesan p2 harus ke agent owner-2');
-  assert.equal(msg2.chat_id, '67890', 'pesan p2 harus ke chat_id owner-2');
-  assert.match(msg2.text, /Budi/, 'pesan p2 harus sebutkan aktor Budi');
+  assert.equal(msg2.chat_id, '67890', 'pesan owner-2 harus ke chat_id miliknya');
+  assert.equal(msg2.post_id, 'p1');
+  assert.match(msg2.text, /Budi/, 'pesan owner-2 harus sebutkan aktor Budi, bukan tercampur Rina');
 });
 
 test('aktor yang sama muncul berkali-kali dihitung sebagai satu dalam N lainnya', () => {
