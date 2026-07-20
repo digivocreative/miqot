@@ -1,5 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { AtSign, Heart, Megaphone, MessageCircle, Bell, Send, Settings, Timer, X } from 'lucide-react';
+import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { TerasPrefKey, TerasPrefs } from '../hooks/useTerasNotificationPrefs';
@@ -57,11 +58,29 @@ export default function TerasNotificationSettings({
 }) {
   const reduceMotion = useReducedMotion();
   const sizing = SIZE_CLASSES[size];
+  const headingId = useId();
+  const gearButtonRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    closeButtonRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      gearButtonRef.current?.focus();
+    };
+  }, [open, onClose]);
 
   return (
     <>
       <button
         type="button"
+        ref={gearButtonRef}
         onClick={onOpen}
         aria-label="Pengaturan notifikasi Teras"
         title="Pengaturan notifikasi Teras"
@@ -90,7 +109,7 @@ export default function TerasNotificationSettings({
                 key="teras-prefs-sheet"
                 role="dialog"
                 aria-modal="true"
-                aria-label="Pengaturan notifikasi Teras"
+                aria-labelledby={headingId}
                 className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl border-t border-gray-100 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
                 initial={reduceMotion ? { opacity: 0 } : { y: '100%' }}
                 animate={reduceMotion ? { opacity: 1 } : { y: 0 }}
@@ -102,8 +121,14 @@ export default function TerasNotificationSettings({
                 </div>
 
                 <div className="flex items-center justify-between px-4 pb-3 pt-2.5">
-                  <h2 className="text-sm font-bold text-gray-900 dark:text-white">Notifikasi Teras</h2>
-                  <button type="button" onClick={onClose} aria-label="Tutup" className="text-gray-400 dark:text-slate-500">
+                  <h2 id={headingId} className="text-sm font-bold text-gray-900 dark:text-white">Notifikasi Teras</h2>
+                  <button
+                    type="button"
+                    ref={closeButtonRef}
+                    onClick={onClose}
+                    aria-label="Tutup"
+                    className="text-gray-400 dark:text-slate-500"
+                  >
                     <X size={17} />
                   </button>
                 </div>
@@ -115,7 +140,7 @@ export default function TerasNotificationSettings({
                 </div>
 
                 <div className="border-t border-gray-100 px-4 py-0.5 dark:border-slate-700">
-                  {loading && <p className="py-6 text-center text-[13px] text-gray-400">Memuat…</p>}
+                  {loading && <p className="py-6 text-center text-[13px] text-gray-400 dark:text-slate-500">Memuat…</p>}
                   {!loading && ROWS.map(row => {
                     const Icon = row.icon;
                     return (
@@ -143,19 +168,19 @@ export default function TerasNotificationSettings({
                   })}
                 </div>
 
-                {!telegramConnected && (
+                {!loading && !telegramConnected && (
                   <a
                     href="/dashboard/settings/telegram"
                     className="flex items-center gap-2.5 border-t border-gray-100 bg-emerald-50 px-4 py-3 dark:border-slate-700 dark:bg-emerald-900/20"
                   >
-                    <Send size={15} className="text-sky-500" />
+                    <Send size={15} className="text-sky-500 dark:text-sky-400" />
                     <span className="flex-1 text-[12px] font-medium text-gray-600 dark:text-slate-300">Telegram belum tersambung</span>
                     <span className="text-[12px] font-bold text-emerald-700 dark:text-emerald-300">Sambungkan</span>
                   </a>
                 )}
 
                 {error && (
-                  <p role="alert" className="border-t border-gray-100 px-4 py-2 text-[12px] font-medium text-red-500 dark:border-slate-700">{error}</p>
+                  <p role="alert" className="border-t border-gray-100 px-4 py-2 text-[12px] font-medium text-red-500 dark:border-slate-700 dark:text-red-400">{error}</p>
                 )}
 
                 <div className="flex items-start gap-2 border-t border-gray-100 bg-gray-50 px-4 pb-[max(1.4rem,env(safe-area-inset-bottom))] pt-3 dark:border-slate-700 dark:bg-slate-950">

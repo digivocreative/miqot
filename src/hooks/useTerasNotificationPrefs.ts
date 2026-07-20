@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import { getAuthHeaders } from '../components/LoginPage';
 
@@ -36,6 +36,11 @@ export function useTerasNotificationPrefs(enabled: boolean) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Per-key request counter: guards against an in-flight PUT for `key` resolving
+  // after a newer PUT for the *same* key was already sent (or already landed).
+  // Keys are tracked independently so a slow response for one switch can never
+  // suppress or clobber the outcome of a different switch.
+  const requestSeqRef = useRef<Partial<Record<TerasPrefKey, number>>>({});
 
   const openSheet = useCallback(async () => {
     if (!enabled) return;
@@ -64,22 +69,34 @@ export function useTerasNotificationPrefs(enabled: boolean) {
 
   const toggle = useCallback(async (key: TerasPrefKey) => {
     const previous = prefs[key];
-    setPrefs(current => ({ ...current, [key]: !previous }));
+    const next = !previous;
+    const seq = (requestSeqRef.current[key] ?? 0) + 1;
+    requestSeqRef.current[key] = seq;
+    const isLatest = () => requestSeqRef.current[key] === seq;
+
+    setPrefs(current => ({ ...current, [key]: next }));
     setError(null);
     try {
       const response = await fetch('/api/community/notification-prefs', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ [key]: !previous }),
+        body: JSON.stringify({ [key]: next }),
       });
       const payload = (await response.json()) as PrefsPayload;
       if (!response.ok || payload.success === false || !payload.data) {
         throw new Error(payload.error ?? `Request failed: ${response.status}`);
       }
-      setPrefs(payload.data.prefs);
+      // Merge only this key: a differently-keyed request in flight at the same
+      // time may have already applied a newer value elsewhere in `prefs`, and a
+      // full-object replace here would silently stomp it.
+      if (isLatest()) {
+        setPrefs(current => ({ ...current, [key]: payload.data!.prefs[key] }));
+      }
     } catch {
-      setPrefs(current => ({ ...current, [key]: previous }));
-      setError('Gagal menyimpan. Coba lagi.');
+      if (isLatest()) {
+        setPrefs(current => ({ ...current, [key]: previous }));
+        setError('Gagal menyimpan. Coba lagi.');
+      }
     }
   }, [prefs]);
 
