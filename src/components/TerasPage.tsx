@@ -47,6 +47,7 @@ import { MentionText } from './MentionText';
 import { MentionAutocomplete, resolveMentionPlacement } from './MentionAutocomplete';
 import { MentionHighlightLayer } from './MentionHighlightLayer';
 import { TerasProfileHeader, TerasProfileHeaderSkeleton } from './TerasProfileHeader';
+import ComposerSegment from './teras/ComposerSegment';
 import { canDeleteCommunityEntry } from '../lib/communityAccess';
 import {
   extractMentionSlugs,
@@ -150,6 +151,30 @@ interface ComposerMedia {
   error?: string;
 }
 
+/**
+ * Satu segmen composer. `key` untuk React, `id` untuk server (`client_id`).
+ * `id` dibuat saat segmen LAHIR, bukan saat submit — itu yang membuat
+ * kirim-ulang setelah galat idempoten di server.
+ */
+interface ComposerSegmentState {
+  key: string;
+  id: string;
+  body: string;
+  media: ComposerMedia[];
+}
+
+function blankComposerSegment(): ComposerSegmentState {
+  const id = window.crypto.randomUUID();
+  return { key: id, id, body: '', media: [] };
+}
+
+/** Lepas SEMUA object-URL pratinjau di segmen yang diberikan. */
+function revokeSegmentPreviews(segments: ComposerSegmentState[]) {
+  segments.forEach(segment => segment.media.forEach(item => {
+    if (item.previewUrl.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl);
+  }));
+}
+
 interface ApiEnvelope<T> {
   success?: boolean;
   data?: T;
@@ -197,6 +222,14 @@ const COMPOSER_PROMPTS = [
 ];
 const COMPOSER_PLACEHOLDER = 'Apa yang ingin dibagikan?';
 const MAX_COMMUNITY_BODY_CHARS = 500;
+// Sama dengan batas server (lib/community-thread-compose.js).
+const MAX_THREAD_SEGMENTS = 5;
+// Konteks popover mention milik composer diberi awalan + key segmen, supaya
+// menyebut orang di segmen 2 tidak menyisipkan teks ke segmen 1.
+const COMPOSER_MENTION_PREFIX = 'composer:';
+const composerMentionContext = (segmentKey: string) => `${COMPOSER_MENTION_PREFIX}${segmentKey}`;
+const isComposerMentionContext = (context: string) => context.startsWith(COMPOSER_MENTION_PREFIX);
+const composerMentionSegmentKey = (context: string) => context.slice(COMPOSER_MENTION_PREFIX.length);
 const MAX_COMMUNITY_COMMENT_CHARS = 300;
 // Small buffer over the limit so pasted text isn't silently truncated —
 // the counter turns red and submit stays disabled until it's trimmed.
@@ -1089,8 +1122,11 @@ export default function TerasPage({
   const [error, setError] = useState<string | null>(null);
 
   const [composerOpen, setComposerOpen] = useState(false);
-  const [composerBody, setComposerBody] = useState('');
-  const [composerMedia, setComposerMedia] = useState<ComposerMedia[]>([]);
+  // Satu utas = daftar segmen. Selalu minimal satu elemen: seluruh render
+  // mengasumsikan composerSegments[0] ada.
+  const [composerSegments, setComposerSegments] = useState<ComposerSegmentState[]>(
+    () => [blankComposerSegment()],
+  );
   const [composerBusy, setComposerBusy] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [composerQuote, setComposerQuote] = useState<QuotedPostPreview | null>(null);
@@ -1111,7 +1147,8 @@ export default function TerasPage({
   const [membersLoading, setMembersLoading] = useState(true);
   // Jatah @semua hari ini. Hanya untuk label picker — server tetap otoritasnya.
   const [broadcastQuota, setBroadcastQuota] = useState<{ unlimited: boolean; allowed: boolean } | null>(null);
-  // One popover at a time. context = 'composer' or a postId (comment bar).
+  // One popover at a time. context = `composer:<key segmen>` or a postId
+  // (comment bar).
   const [mentionState, setMentionState] = useState<
     { context: string; query: string; start: number; index: number; placement: 'top' | 'bottom' } | null
   >(null);
@@ -1183,11 +1220,21 @@ export default function TerasPage({
   const commentFileInputRef = useRef<HTMLInputElement>(null);
   const commentMediaTargetRef = useRef<string | null>(null);
   const composerFormRef = useRef<HTMLFormElement>(null);
-  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  // Textarea tiap segmen, di-key oleh key segmen (BUKAN indeks: indeks bergeser
+  // saat segmen di tengah dihapus).
+  const composerTextareaNodesRef = useRef<Map<string, HTMLTextAreaElement>>(new Map());
+  // Segmen mana yang sedang membuka pemilih berkas (pola sama dengan
+  // commentMediaTargetRef).
+  const composerMediaTargetRef = useRef<string | null>(null);
   const composerStatusRef = useRef<HTMLDivElement>(null);
   const composerTriggerRef = useRef<HTMLElement | null>(null);
   const composerControllerRef = useRef<AbortController | null>(null);
-  const composerRequestIdRef = useRef<string | null>(null);
+  // client_id segmen yang sudah pernah dikirim ke server. Menggantikan
+  // composerRequestIdRef yang lama: dulu setiap perubahan membatalkan satu
+  // client_id, sekarang perubahan hanya me-refresh id segmen yang bersangkutan
+  // — dan hanya kalau id itu memang sudah pernah terkirim, supaya kirim-ulang
+  // tanpa edit tetap idempoten.
+  const composerSentIdsRef = useRef<Set<string>>(new Set());
   const closeComposerRef = useRef<() => void>(() => {});
   const composerPageStateRef = useRef<{
     previousOverflow: string;
@@ -1207,7 +1254,10 @@ export default function TerasPage({
   const reactionPendingRef = useRef<Set<string>>(new Set());
   const commentSendingRef = useRef<Set<string>>(new Set());
   const toastTimerRef = useRef<number | null>(null);
-  const composerMediaRef = useRef<ComposerMedia[]>([]);
+  // Cermin sinkron dari composerSegments. Dipakai di jalur async (unggah,
+  // pemilihan berkas) dan untuk URL.revokeObjectURL saat batal — pembersihan
+  // WAJIB menyapu seluruh segmen, bukan satu.
+  const composerSegmentsRef = useRef<ComposerSegmentState[]>(composerSegments);
   const mediaViewerDialogRef = useRef<HTMLDivElement>(null);
   const mediaViewerTriggerRef = useRef<HTMLElement | null>(null);
   const postsRef = useRef<CommunityPost[]>([]);
@@ -1238,8 +1288,63 @@ export default function TerasPage({
   }, [posts]);
 
   useEffect(() => {
-    composerMediaRef.current = composerMedia;
-  }, [composerMedia]);
+    composerSegmentsRef.current = composerSegments;
+  }, [composerSegments]);
+
+  // Setter tunggal: menjaga composerSegmentsRef tetap sinkron pada saat yang
+  // sama dengan state, karena jalur async di bawah membacanya segera setelah
+  // menulis (pola yang sama dipakai composerMediaRef sebelumnya).
+  const updateComposerSegments = useCallback((
+    updater: (current: ComposerSegmentState[]) => ComposerSegmentState[],
+  ) => {
+    setComposerSegments(current => {
+      const next = updater(current);
+      composerSegmentsRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const updateSegmentMedia = useCallback((
+    segmentKey: string,
+    updater: (items: ComposerMedia[]) => ComposerMedia[],
+  ) => {
+    updateComposerSegments(current => current.map(segment => (
+      segment.key === segmentKey ? { ...segment, media: updater(segment.media) } : segment
+    )));
+  }, [updateComposerSegments]);
+
+  /**
+   * Segmen yang client_id-nya sudah pernah dikirim harus berganti id begitu
+   * isinya berubah: server menolak client_id yang sama dengan isi berbeda
+   * (DUPLICATE_CLIENT_ID). Segmen yang belum pernah dikirim mempertahankan id
+   * kelahirannya, supaya kirim-ulang setelah galat tetap idempoten.
+   */
+  const freshenSentSegment = (segment: ComposerSegmentState): ComposerSegmentState => (
+    composerSentIdsRef.current.has(segment.id)
+      ? { ...segment, id: window.crypto.randomUUID() }
+      : segment
+  );
+
+  const setSegmentBody = useCallback((segmentKey: string, body: string) => {
+    updateComposerSegments(current => current.map(segment => (
+      segment.key === segmentKey ? freshenSentSegment({ ...segment, body }) : segment
+    )));
+  }, [updateComposerSegments]);
+
+  const invalidateSegmentIdentity = useCallback((segmentKey: string) => {
+    updateComposerSegments(current => current.map(segment => (
+      segment.key === segmentKey ? freshenSentSegment(segment) : segment
+    )));
+  }, [updateComposerSegments]);
+
+  const findComposerSegment = useCallback((segmentKey: string | null) => (
+    segmentKey ? composerSegmentsRef.current.find(segment => segment.key === segmentKey) || null : null
+  ), []);
+
+  // Quote & pratinjau tautan milik segmen pertama, jadi deteksi URL hanya
+  // memindai segmen pertama.
+  const composerFirstBody = composerSegments[0]?.body ?? '';
+  const composerFirstMediaCount = composerSegments[0]?.media.length ?? 0;
 
   useEffect(() => {
     commentPanelsRef.current = commentPanels;
@@ -1595,9 +1700,7 @@ export default function TerasPage({
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
     composerControllerRef.current?.abort();
     restoreComposerPageState(false);
-    composerMediaRef.current.forEach(item => {
-      if (item.previewUrl.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl);
-    });
+    revokeSegmentPreviews(composerSegmentsRef.current);
     commentControllersRef.current.forEach(controller => controller.abort());
     commentControllersRef.current.clear();
   }, [restoreComposerPageState]);
@@ -1703,13 +1806,15 @@ export default function TerasPage({
   }, [closePostMenu, menuOpenPostId]);
 
   const resetComposer = useCallback(() => {
-    composerMediaRef.current.forEach(item => {
-      if (item.previewUrl.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl);
-    });
-    composerMediaRef.current = [];
+    revokeSegmentPreviews(composerSegmentsRef.current);
+    // Kembali ke SATU segmen kosong, bukan larik kosong: render mengasumsikan
+    // composerSegments[0] selalu ada.
+    const fresh = [blankComposerSegment()];
+    composerSegmentsRef.current = fresh;
+    setComposerSegments(fresh);
+    composerTextareaNodesRef.current.clear();
+    composerMediaTargetRef.current = null;
     setComposerOpen(false);
-    setComposerBody('');
-    setComposerMedia([]);
     setComposerError(null);
     setComposerQuote(null);
     setComposerLinkPreview(null);
@@ -1717,15 +1822,23 @@ export default function TerasPage({
     setComposerDismissedUrl(null);
     linkPreviewControllerRef.current?.abort();
     noPreviewUrlsRef.current.clear();
-    composerRequestIdRef.current = null;
+    composerSentIdsRef.current.clear();
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
 
   const closeComposer = useCallback(() => {
     if (composerBusy) return;
-    if ((composerBody.trim() || composerMedia.length > 0) && !window.confirm('Buang draft kiriman ini?')) return;
+    // Cek SEMUA segmen: utas 4 segmen tidak boleh dibuang tanpa tanya hanya
+    // karena segmen pertama kebetulan kosong.
+    const hasComposerContent = composerSegments.some(
+      segment => segment.body.trim() || segment.media.length > 0,
+    );
+    const discardMessage = composerSegments.length > 1
+      ? 'Buang utas ini?'
+      : 'Buang draft kiriman ini?';
+    if (hasComposerContent && !window.confirm(discardMessage)) return;
     resetComposer();
-  }, [composerBody, composerBusy, composerMedia.length, resetComposer]);
+  }, [composerSegments, composerBusy, resetComposer]);
   closeComposerRef.current = closeComposer;
 
   useLayoutEffect(() => {
@@ -1784,13 +1897,8 @@ export default function TerasPage({
     };
   }, [composerOpen, restoreComposerPageState]);
 
-  useLayoutEffect(() => {
-    if (!composerOpen) return;
-    const textarea = composerTextareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = 'auto';
-    textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [composerBody, composerOpen]);
+  // Auto-grow textarea kini milik ComposerSegment (tiap segmen mengurus
+  // tingginya sendiri), jadi efek tunggal yang dulu ada di sini dihapus.
 
   useEffect(() => {
     if (!composerOpen) return;
@@ -1815,12 +1923,12 @@ export default function TerasPage({
   useEffect(() => {
     if (!composerOpen) return;
     // Prioritas: bila ada media atau quote, jangan tampilkan preview.
-    if (composerMedia.length > 0 || composerQuote) {
+    if (composerFirstMediaCount > 0 || composerQuote) {
       setComposerLinkPreview(null);
       setComposerLinkLoading(false);
       return;
     }
-    const url = firstUrl(composerBody);
+    const url = firstUrl(composerFirstBody);
     if (!url || url === composerDismissedUrl) {
       setComposerLinkPreview(null);
       setComposerLinkLoading(false);
@@ -1871,7 +1979,7 @@ export default function TerasPage({
       window.clearTimeout(timer);
       linkPreviewControllerRef.current?.abort();
     };
-  }, [composerBody, composerOpen, composerMedia.length, composerQuote, composerDismissedUrl, composerLinkPreview]);
+  }, [composerFirstBody, composerOpen, composerFirstMediaCount, composerQuote, composerDismissedUrl, composerLinkPreview]);
 
   const openComposer = (openPhotoPicker = false) => {
     // Mode profil (/teras/<slug>) tidak punya composer sheet (lihat guard
@@ -1886,12 +1994,21 @@ export default function TerasPage({
       : null;
     setComposerOpen(true);
     setComposerError(null);
-    if (openPhotoPicker) fileInputRef.current?.click();
+    if (openPhotoPicker) {
+      // Pemilih berkas yang dibuka bersamaan dengan composer selalu milik
+      // segmen pertama.
+      composerMediaTargetRef.current = composerSegmentsRef.current[0]?.key ?? null;
+      fileInputRef.current?.click();
+    }
+  };
+
+  const openComposerMediaPicker = (segmentKey: string) => {
+    composerMediaTargetRef.current = segmentKey;
+    fileInputRef.current?.click();
   };
 
   const openQuoteComposer = (post: CommunityPost) => {
     if (profileSlug) return;
-    composerRequestIdRef.current = null;
     setComposerQuote({
       available: true,
       id: post.id,
@@ -1904,31 +2021,29 @@ export default function TerasPage({
     openComposer(false);
   };
 
-  const removeComposerMedia = (mediaId: string) => {
-    composerRequestIdRef.current = null;
-    const removed = composerMediaRef.current.find(item => item.id === mediaId);
+  const removeComposerMedia = (segmentKey: string, mediaId: string) => {
+    invalidateSegmentIdentity(segmentKey);
+    const removed = findComposerSegment(segmentKey)?.media.find(item => item.id === mediaId);
     if (removed?.previewUrl.startsWith('blob:')) URL.revokeObjectURL(removed.previewUrl);
-    setComposerMedia(current => {
-      const next = current.filter(item => item.id !== mediaId);
-      composerMediaRef.current = next;
-      return next;
-    });
+    updateSegmentMedia(segmentKey, items => items.filter(item => item.id !== mediaId));
     setComposerError(current => removed?.status === 'error' ? null : current);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleMediaSelection = async (event: ChangeEvent<HTMLInputElement>) => {
+    const segmentKey = composerMediaTargetRef.current;
+    const targetSegment = findComposerSegment(segmentKey);
     const selectedFiles = Array.from(event.target.files || []);
     event.target.value = '';
-    if (selectedFiles.length === 0) return;
+    if (!segmentKey || !targetSegment || selectedFiles.length === 0) return;
 
-    const availableSlots = Math.max(0, MAX_COMMUNITY_MEDIA - composerMediaRef.current.length);
+    const availableSlots = Math.max(0, MAX_COMMUNITY_MEDIA - targetSegment.media.length);
     if (availableSlots === 0) {
       setComposerError(`Maksimal ${MAX_COMMUNITY_MEDIA} foto atau video per kiriman`);
       return;
     }
 
-    composerRequestIdRef.current = null;
+    invalidateSegmentIdentity(segmentKey);
     const validationErrors: string[] = [];
     const additions: ComposerMedia[] = [];
 
@@ -1967,12 +2082,14 @@ export default function TerasPage({
       return;
     }
 
-    setComposerMedia(current => {
-      const next = [...current, ...additions];
-      composerMediaRef.current = next;
-      return next;
-    });
+    updateSegmentMedia(segmentKey, items => [...items, ...additions]);
     setComposerError(validationErrors.length > 0 ? validationErrors.join('. ') : null);
+
+    // Item bisa dihapus (atau segmennya dibuang) selama pemrosesan foto —
+    // cek keberadaannya di segmen yang sama sebelum menulis balik.
+    const stillPresent = (mediaId: string) => (
+      findComposerSegment(segmentKey)?.media.some(item => item.id === mediaId) === true
+    );
 
     await mapWithConcurrency(additions.filter(item => item.type === 'image'), 1, async item => {
       const sourceFile = item.uploadBlob as File;
@@ -1983,24 +2100,16 @@ export default function TerasPage({
           throw new Error('Ukuran foto setelah diproses masih lebih dari 3MB');
         }
         const uploadBlob = dataUrlToBlob(resized);
-        if (!composerMediaRef.current.some(currentItem => currentItem.id === item.id)) return;
-        setComposerMedia(current => {
-          const next = current.map(currentItem => currentItem.id === item.id
-            ? { ...currentItem, uploadBlob, status: 'ready' as const, error: undefined }
-            : currentItem);
-          composerMediaRef.current = next;
-          return next;
-        });
+        if (!stillPresent(item.id)) return;
+        updateSegmentMedia(segmentKey, items => items.map(currentItem => currentItem.id === item.id
+          ? { ...currentItem, uploadBlob, status: 'ready' as const, error: undefined }
+          : currentItem));
       } catch (photoError) {
         const message = errorMessage(photoError, 'Foto tidak dapat diproses');
-        if (!composerMediaRef.current.some(currentItem => currentItem.id === item.id)) return;
-        setComposerMedia(current => {
-          const next = current.map(currentItem => currentItem.id === item.id
-            ? { ...currentItem, status: 'error' as const, error: message }
-            : currentItem);
-          composerMediaRef.current = next;
-          return next;
-        });
+        if (!stillPresent(item.id)) return;
+        updateSegmentMedia(segmentKey, items => items.map(currentItem => currentItem.id === item.id
+          ? { ...currentItem, status: 'error' as const, error: message }
+          : currentItem));
         setComposerError(message);
       }
     });
@@ -2109,30 +2218,51 @@ export default function TerasPage({
 
   const handleCreatePost = async (event: FormEvent) => {
     event.preventDefault();
-    const body = composerBody.trim();
-    const bodyLength = Array.from(body).length;
-    if (bodyLength < 1 || bodyLength > MAX_COMMUNITY_BODY_CHARS || composerBusy) return;
-    const mediaSnapshot = composerMediaRef.current;
-    const unavailableMedia = mediaSnapshot.find(item => item.status !== 'ready');
+    if (composerBusy) return;
+    const snapshot = composerSegmentsRef.current;
+    // Segmen benar-benar kosong (tanpa teks DAN tanpa media) dibuang; segmen
+    // bermedia tanpa teks sudah dicegah oleh composerCanSubmit, jadi ia tidak
+    // pernah hilang diam-diam bersama medianya.
+    const sendable = snapshot.filter(segment => segment.body.trim() || segment.media.length > 0);
+    if (sendable.length === 0 || sendable.length > MAX_THREAD_SEGMENTS) return;
+    const invalidLength = sendable.some(segment => {
+      const length = Array.from(segment.body.trim()).length;
+      return length < 1 || length > MAX_COMMUNITY_BODY_CHARS;
+    });
+    if (invalidLength) return;
+    const unavailableMedia = sendable
+      .flatMap(segment => segment.media)
+      .find(item => item.status !== 'ready');
     if (unavailableMedia) {
       setComposerError(unavailableMedia.error || 'Tunggu media selesai diproses');
       return;
     }
 
-    const requestId = composerRequestIdRef.current || window.crypto.randomUUID();
-    composerRequestIdRef.current = requestId;
     const controller = new AbortController();
     composerControllerRef.current?.abort();
     composerControllerRef.current = controller;
     setComposerBusy(true);
     setComposerError(null);
     try {
-      const uploadedMedia = await mapWithConcurrency(mediaSnapshot, 2, async item => {
-        if (item.url) return { type: item.type, url: item.url } satisfies CommunityMedia;
+      const setItemStatus = (segmentKey: string, itemId: string, patch: Partial<ComposerMedia>) => {
+        updateSegmentMedia(segmentKey, items => items.map(mediaItem => (
+          mediaItem.id === itemId ? { ...mediaItem, ...patch } : mediaItem
+        )));
+      };
 
-        setComposerMedia(current => current.map(currentItem => currentItem.id === item.id
-          ? { ...currentItem, status: 'uploading' as const }
-          : currentItem));
+      // Datar dulu, supaya batas konkurensi 2 berlaku untuk seluruh utas —
+      // bukan 2 per segmen.
+      const flatMedia = sendable.flatMap(segment => segment.media.map(item => ({
+        segmentKey: segment.key,
+        item,
+      })));
+
+      const uploadedFlat = await mapWithConcurrency(flatMedia, 2, async ({ segmentKey, item }) => {
+        if (item.url) {
+          return { segmentKey, media: { type: item.type, url: item.url } satisfies CommunityMedia };
+        }
+
+        setItemStatus(segmentKey, item.id, { status: 'uploading' });
         const upload = await requestJson<never>(
           '/api/community/media',
           {
@@ -2149,18 +2279,33 @@ export default function TerasPage({
           MEDIA_UPLOAD_TIMEOUT_MS,
         );
         if (typeof upload.url !== 'string' || !upload.url) throw new Error('URL media tidak tersedia');
-        setComposerMedia(current => {
-          const next = current.map(currentItem => currentItem.id === item.id
-            ? { ...currentItem, status: 'ready' as const, url: upload.url, error: undefined }
-            : currentItem);
-          composerMediaRef.current = next;
-          return next;
-        });
-        return { type: item.type, url: upload.url } satisfies CommunityMedia;
+        setItemStatus(segmentKey, item.id, { status: 'ready', url: upload.url, error: undefined });
+        return { segmentKey, media: { type: item.type, url: upload.url } satisfies CommunityMedia };
       });
 
-      const legacyPhotoUrl = uploadedMedia.find(item => item.type === 'image')?.url;
-      const postMentions = extractMentionSlugs(body, memberSlugs);
+      const uploadedBySegmentKey = new Map<string, CommunityMedia[]>();
+      for (const entry of uploadedFlat) {
+        const list = uploadedBySegmentKey.get(entry.segmentKey) || [];
+        list.push(entry.media);
+        uploadedBySegmentKey.set(entry.segmentKey, list);
+      }
+
+      const segmentsPayload = sendable.map((segment, index) => {
+        const uploaded = uploadedBySegmentKey.get(segment.key) || [];
+        const legacyPhotoUrl = uploaded.find(item => item.type === 'image')?.url;
+        return {
+          client_id: segment.id,
+          body: segment.body.trim(),
+          ...(uploaded.length > 0 ? { media: uploaded } : {}),
+          ...(index === 0 && legacyPhotoUrl ? { photo_url: legacyPhotoUrl } : {}),
+        };
+      });
+      const firstBody = segmentsPayload[0].body;
+      const firstHasMedia = (uploadedBySegmentKey.get(sendable[0].key) || []).length > 0;
+      // Sekali sebuah client_id dikirim, mengedit segmennya harus melahirkan id
+      // baru (lihat setSegmentBody) — kalau tidak, kirim-ulang setelah edit
+      // ditolak server sebagai duplikat.
+      segmentsPayload.forEach(segment => composerSentIdsRef.current.add(segment.client_id));
 
       const created = await requestJson<CommunityPost>(
         '/api/community/posts',
@@ -2168,15 +2313,12 @@ export default function TerasPage({
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: JSON.stringify({
-            body,
-            client_id: requestId,
-            ...(uploadedMedia.length > 0 ? { media: uploadedMedia } : {}),
-            ...(legacyPhotoUrl ? { photo_url: legacyPhotoUrl } : {}),
+            // Selalu bentuk `segments`, termasuk untuk satu segmen: satu jalur kode.
+            segments: segmentsPayload,
             ...(composerQuote?.id ? { quoted_post_id: composerQuote.id } : {}),
-            ...(composerLinkPreview && uploadedMedia.length === 0 && !composerQuote
+            ...(composerLinkPreview && !firstHasMedia && !composerQuote
               ? { link_preview: composerLinkPreview }
               : {}),
-            ...(postMentions.length ? { mentions: postMentions } : {}),
           }),
           signal: controller.signal,
         },
@@ -2199,17 +2341,18 @@ export default function TerasPage({
       // hari ini — ambil ulang supaya picker tidak mangkrak di label lama.
       // Senyap by design (lihat fetchBroadcastQuota); tidak boleh mematikan
       // komposer kalau gagal.
-      if (hasEveryoneMention(body)) void fetchBroadcastQuota();
+      if (hasEveryoneMention(firstBody)) void fetchBroadcastQuota();
     } catch (createError) {
       if (createError instanceof Error && createError.name === 'AbortError') return;
       const message = errorMessage(createError, 'Gagal membuat kiriman');
-      setComposerMedia(current => {
-        const next = current.map(item => item.status === 'uploading'
-          ? { ...item, status: 'ready' as const, error: message }
-          : item);
-        composerMediaRef.current = next;
-        return next;
-      });
+      // Sapu SEMUA segmen: item yang tergantung di 'uploading' bisa ada di
+      // segmen mana pun dalam utas.
+      updateComposerSegments(current => current.map(segment => ({
+        ...segment,
+        media: segment.media.map(item => (
+          item.status === 'uploading' ? { ...item, status: 'ready' as const, error: message } : item
+        )),
+      })));
       setComposerError(message);
       showToast(message, 'error');
     } finally {
@@ -2557,7 +2700,7 @@ export default function TerasPage({
   );
 
   const mentionParticipantSlugs = useCallback((context: string): string[] => {
-    if (context === 'composer') return [];
+    if (isComposerMentionContext(context)) return [];
     const slugs: string[] = [];
     const post = postsRef.current.find(item => item.id === context);
     if (post?.author?.slug) slugs.push(post.author.slug);
@@ -2577,8 +2720,8 @@ export default function TerasPage({
   }, [mentionState, mentionCandidates, mentionParticipantSlugs]);
 
   const getMentionTextarea = (context: string): HTMLTextAreaElement | null =>
-    context === 'composer'
-      ? composerTextareaRef.current
+    isComposerMentionContext(context)
+      ? composerTextareaNodesRef.current.get(composerMentionSegmentKey(context)) || null
       : (document.getElementById(`teras-comment-input-${context}`) as HTMLTextAreaElement | null);
 
   const detectMention = useCallback((context: string, element: HTMLTextAreaElement) => {
@@ -2604,9 +2747,10 @@ export default function TerasPage({
       const currentValue = element ? element.value : '';
       const caret = element?.selectionStart ?? currentValue.length;
       const { text, caret: nextCaret } = applyMentionSelection(currentValue, state.start, caret, member.slug);
-      if (state.context === 'composer') {
-        composerRequestIdRef.current = null;
-        setComposerBody(text);
+      // Sisipkan ke segmen yang popover-nya sedang terbuka — bukan selalu
+      // segmen pertama.
+      if (isComposerMentionContext(state.context)) {
+        setSegmentBody(composerMentionSegmentKey(state.context), text);
       } else {
         updateCommentInput(state.context, text);
       }
@@ -2615,7 +2759,7 @@ export default function TerasPage({
         if (!node) return;
         node.focus();
         node.setSelectionRange(nextCaret, nextCaret);
-        if (state.context === 'composer') {
+        if (isComposerMentionContext(state.context)) {
           node.style.height = 'auto';
           node.style.height = `${node.scrollHeight}px`;
         } else {
@@ -2624,7 +2768,7 @@ export default function TerasPage({
       });
       return null;
     });
-  }, [updateCommentInput]);
+  }, [setSegmentBody, updateCommentInput]);
 
   const applyEveryoneMention = useCallback(() => {
     setMentionState(state => {
@@ -2633,10 +2777,12 @@ export default function TerasPage({
       const currentValue = element ? element.value : '';
       const caret = element?.selectionStart ?? currentValue.length;
       const { text, caret: nextCaret } = applyMentionSelection(currentValue, state.start, caret, 'semua');
-      composerRequestIdRef.current = null;
-      setComposerBody(text);
+      // `@semua` hanya ditawarkan di konteks composer, tapi tetap pakai
+      // state.context supaya segmen yang benar yang menerima teksnya.
+      if (!isComposerMentionContext(state.context)) return null;
+      setSegmentBody(composerMentionSegmentKey(state.context), text);
       requestAnimationFrame(() => {
-        const node = getMentionTextarea('composer');
+        const node = getMentionTextarea(state.context);
         if (!node) return;
         node.focus();
         node.setSelectionRange(nextCaret, nextCaret);
@@ -2645,7 +2791,7 @@ export default function TerasPage({
       });
       return null;
     });
-  }, []);
+  }, [setSegmentBody]);
 
   const everyoneOption = useMemo(() => {
     const quota = broadcastQuota || { unlimited: false, allowed: true };
@@ -2664,7 +2810,8 @@ export default function TerasPage({
   // Sebelumnya ada kondisi ganda (mentionItems.length > 0 ATAU query cocok)
   // yang membuat `@semua` merebut posisi 0 untuk query apa pun yang punya
   // kandidat anggota — Enter pada "@bag" menyisipkan "@semua", bukan "@bagas".
-  const everyoneMatches = mentionState?.context === 'composer'
+  const everyoneMatches = !!mentionState
+    && isComposerMentionContext(mentionState.context)
     && 'semua'.startsWith(mentionState.query.toLowerCase());
 
   const handleMentionKeyDown = (
@@ -2827,11 +2974,178 @@ export default function TerasPage({
     }
   };
 
-  const composerBodyLength = Array.from(composerBody.trim()).length;
-  const composerCanSubmit = composerBodyLength >= 1
-    && composerBodyLength <= MAX_COMMUNITY_BODY_CHARS
+  const composerFirstLength = Array.from(composerFirstBody.trim()).length;
+  const composerOverLimitIndex = composerSegments.findIndex(
+    segment => Array.from(segment.body.trim()).length > MAX_COMMUNITY_BODY_CHARS,
+  );
+  // Segmen bermedia tanpa teks tidak dibuang diam-diam: kiriman Teras selalu
+  // wajib berteks, dan membuang media yang sudah diunggah itu kehilangan senyap.
+  const composerMediaWithoutTextIndex = composerSegments.findIndex(
+    segment => segment.body.trim().length === 0 && segment.media.length > 0,
+  );
+  const composerCanSubmit = composerFirstLength >= 1
+    && composerOverLimitIndex === -1
+    && composerMediaWithoutTextIndex === -1
     && !composerBusy
-    && composerMedia.every(item => item.status === 'ready');
+    && composerSegments.every(segment => segment.media.every(item => item.status === 'ready'));
+
+  const handleSegmentChange = (index: number, body: string, element: HTMLTextAreaElement) => {
+    const segment = composerSegments[index];
+    if (!segment) return;
+    setSegmentBody(segment.key, body);
+    detectMention(composerMentionContext(segment.key), element);
+  };
+
+  const handleSegmentKeyDown = (index: number, event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const segment = composerSegments[index];
+    if (!segment) return;
+    handleMentionKeyDown(event, composerMentionContext(segment.key));
+  };
+
+  const handleSegmentAdd = () => {
+    if (composerSegmentsRef.current.length >= MAX_THREAD_SEGMENTS) return;
+    const segment = blankComposerSegment();
+    updateComposerSegments(current => (
+      current.length >= MAX_THREAD_SEGMENTS ? current : [...current, segment]
+    ));
+    window.requestAnimationFrame(() => {
+      composerTextareaNodesRef.current.get(segment.key)?.focus();
+    });
+  };
+
+  const handleSegmentRemove = (index: number) => {
+    // Segmen pertama tidak bisa dihapus: ia memegang identitas utas (quote,
+    // pratinjau tautan, kuota @semua).
+    if (index === 0) return;
+    const target = composerSegmentsRef.current[index];
+    if (!target || composerSegmentsRef.current.length <= 1) return;
+    // Revoke di luar updater state: updater bisa dijalankan dua kali (StrictMode)
+    // dan revoke ganda pada URL yang sama bukan operasi yang aman diulang.
+    revokeSegmentPreviews([target]);
+    composerTextareaNodesRef.current.delete(target.key);
+    if (composerMediaTargetRef.current === target.key) composerMediaTargetRef.current = null;
+    setMentionState(prev => (
+      prev && prev.context === composerMentionContext(target.key) ? null : prev
+    ));
+    updateComposerSegments(current => (
+      current.length <= 1 ? current : current.filter(segment => segment.key !== target.key)
+    ));
+  };
+
+  const registerComposerTextarea = (segmentKey: string, node: HTMLTextAreaElement | null) => {
+    if (node) composerTextareaNodesRef.current.set(segmentKey, node);
+    else composerTextareaNodesRef.current.delete(segmentKey);
+  };
+
+  const renderComposerToolbar = (segment: ComposerSegmentState) => (
+    <button
+      type="button"
+      onClick={() => openComposerMediaPicker(segment.key)}
+      disabled={composerBusy || segment.media.length >= MAX_COMMUNITY_MEDIA}
+      title="Tambah foto atau video (JPG/PNG/WEBP, MP4/MOV/WEBM)"
+      className="-ml-2 flex min-h-9 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 dark:active:bg-slate-800"
+    >
+      <ImageIcon size={18} strokeWidth={1.8} />
+      Foto/Video
+    </button>
+  );
+
+  const renderComposerMedia = (segment: ComposerSegmentState) => {
+    const media = segment.media;
+    if (media.length === 0) return null;
+    return (
+      <div
+        role="group"
+        data-composer-media-layout={media.length === 1 ? 'single' : 'strip'}
+        className={media.length === 1
+          ? 'mb-2'
+          : 'mb-2 flex snap-x gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'}
+        aria-label={`${media.length} media kiriman dipilih`}
+      >
+        {media.map((item, index) => (
+          <div
+            key={item.id}
+            className={`relative overflow-hidden rounded-xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950 ${
+              media.length === 1
+                ? (item.type === 'video' ? 'w-fit max-w-full' : 'max-h-[22rem] w-full')
+                : 'h-64 w-auto shrink-0 snap-start'
+            }`}
+          >
+            {item.type === 'video' ? (
+              <PlyrVideo
+                src={item.previewUrl}
+                ariaLabel={`Pratinjau video ${index + 1}`}
+                mode={media.length === 1 ? 'fit' : 'strip'}
+              />
+            ) : (
+              <img
+                src={item.previewUrl}
+                alt={media.length === 1 ? 'Pratinjau foto kiriman' : `Pratinjau foto ${index + 1}`}
+                className={media.length === 1
+                  ? 'block max-h-[22rem] w-full object-contain'
+                  : 'block h-full w-auto max-w-[80vw] object-contain'}
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => removeComposerMedia(segment.key, item.id)}
+              disabled={composerBusy}
+              aria-label={`Hapus ${item.type === 'video' ? 'video' : 'foto'} ${index + 1}`}
+              title="Hapus media"
+              className="absolute right-1 top-1 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/60 text-white shadow-sm backdrop-blur-sm transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"
+            >
+              <X size={15} />
+            </button>
+            {(item.status === 'processing' || item.status === 'uploading') && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 text-white">
+                <div className="flex items-center gap-2 rounded-full bg-black/60 px-3 py-2 text-[11px] font-semibold backdrop-blur-sm">
+                  <Loader2 size={14} className="animate-spin" />
+                  {item.status === 'uploading' ? 'Mengunggah media' : 'Memproses foto'}
+                </div>
+              </div>
+            )}
+            {item.status === 'error' && (
+              <div className="pointer-events-none absolute inset-x-2 bottom-2 min-w-0 rounded-xl bg-red-600/90 px-3 py-2 text-[10px] font-semibold text-white shadow-sm [overflow-wrap:anywhere]">
+                {item.error || 'Media tidak dapat diproses'}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // Quote & pratinjau tautan hanya milik segmen pertama.
+  const composerFirstSegmentFooter = (
+    <>
+      {composerQuote && <QuotedPostCard quoted={composerQuote} />}
+
+      {composerLinkLoading && !composerLinkPreview && (
+        <div className="mt-2 h-16 animate-pulse rounded-xl bg-gray-100 dark:bg-slate-800" />
+      )}
+      {composerLinkPreview && composerFirstMediaCount === 0 && !composerQuote && (
+        <div className="relative">
+          {/* Tanpa gambar, sudut kanan-atas kartu berisi teks (domain/judul) —
+              sediakan baris kosong di atas kartu supaya tombol ✕ tidak menimpa teks. */}
+          {!composerLinkPreview.image && <div aria-hidden="true" className="h-8" />}
+          <LinkPreviewCard preview={composerLinkPreview} />
+          <button
+            type="button"
+            aria-label="Buang pratinjau tautan"
+            onClick={() => {
+              setComposerDismissedUrl(composerLinkPreview.url);
+              setComposerLinkPreview(null);
+            }}
+            className={composerLinkPreview.image
+              ? 'absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80'
+              : 'absolute right-2 top-0.5 flex h-7 w-7 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300'}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+    </>
+  );
 
   const composerSheet = typeof document === 'undefined' ? null : createPortal(
     <AnimatePresence onExitComplete={() => restoreComposerPageState(true)}>
@@ -2889,183 +3203,80 @@ export default function TerasPage({
 
           <div className="flex-1 overflow-x-hidden overflow-y-auto">
             <div className="mx-auto w-full max-w-2xl px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
-              <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
-                <div className="flex flex-col items-center">
-                  <AgentAvatar name={agent.name} photo={agent.photo} />
-                  <div aria-hidden="true" className="mt-2 min-h-12 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
-                </div>
-
-                <div className="min-w-0">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <p className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-900 dark:text-white">{agent.name}</p>
-                    {composerMedia.length > 0 && (
-                      <span className="shrink-0 text-[10px] font-semibold tabular-nums text-gray-500 dark:text-slate-400">
-                        {composerMedia.length}/{MAX_COMMUNITY_MEDIA}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="relative mt-1.5">
+              {composerSegments.map((segment, index) => (
+                <ComposerSegment
+                  key={segment.key}
+                  index={index}
+                  total={composerSegments.length}
+                  value={segment}
+                  maxChars={MAX_COMMUNITY_BODY_CHARS}
+                  hardCap={COMPOSER_BODY_HARD_CAP}
+                  disabled={composerBusy}
+                  placeholder={COMPOSER_PLACEHOLDER}
+                  autoFocus={index === 0}
+                  authorName={agent.name}
+                  avatar={<AgentAvatar name={agent.name} photo={agent.photo} />}
+                  mediaCount={segment.media.length}
+                  maxMedia={MAX_COMMUNITY_MEDIA}
+                  textareaRef={node => registerComposerTextarea(segment.key, node)}
+                  onChange={handleSegmentChange}
+                  onKeyDown={handleSegmentKeyDown}
+                  onRemove={handleSegmentRemove}
+                  overlay={(
                     <MentionHighlightLayer
-                      text={composerBody}
+                      text={segment.body}
                       memberBySlug={postMemberBySlug}
                       className="p-0 text-[17px] leading-relaxed"
                     />
-                    <textarea
-                      ref={composerTextareaRef}
-                      autoFocus
-                      aria-label="Isi kiriman"
-                      value={composerBody}
-                      onChange={event => {
-                        composerRequestIdRef.current = null;
-                        setComposerBody(event.target.value);
-                        detectMention('composer', event.target);
-                      }}
-                      onKeyDown={event => { handleMentionKeyDown(event, 'composer'); }}
-                      disabled={composerBusy}
-                      maxLength={COMPOSER_BODY_HARD_CAP}
-                      placeholder={COMPOSER_PLACEHOLDER}
-                      className="relative min-h-[88px] w-full resize-none overflow-hidden bg-transparent p-0 text-[17px] leading-relaxed text-gray-900 outline-none placeholder:text-gray-500 disabled:opacity-60 dark:text-white dark:placeholder:text-slate-400"
-                    />
-                    {mentionState?.context === 'composer' && (mentionItems.length > 0 || everyoneMatches) && (
+                  )}
+                  popover={mentionState?.context === composerMentionContext(segment.key)
+                    && (mentionItems.length > 0 || everyoneMatches)
+                    ? (
                       <MentionAutocomplete
                         items={mentionItems}
                         activeIndex={mentionState.index}
                         onSelect={applyMention}
-                        onHoverIndex={index => setMentionState(s => (s ? { ...s, index } : s))}
+                        onHoverIndex={hoverIndex => setMentionState(s => (s ? { ...s, index: hoverIndex } : s))}
                         placement="bottom"
                         everyone={everyoneMatches ? everyoneOption : null}
                       />
-                    )}
-                  </div>
+                    )
+                    : null}
+                  toolbar={renderComposerToolbar(segment)}
+                  hint={index === 0 ? (
+                    <p className="mb-2 text-[10px] leading-relaxed text-gray-400 dark:text-slate-500">
+                      Maks. {MAX_COMMUNITY_MEDIA} media · Foto 3MB · Video 20MB
+                    </p>
+                  ) : null}
+                  mediaGrid={renderComposerMedia(segment)}
+                  footer={index === 0 ? composerFirstSegmentFooter : null}
+                />
+              ))}
 
-                  {composerBodyLength > MAX_COMMUNITY_BODY_CHARS && (
-                    <p className="mb-2 text-[10px] font-medium text-red-500 dark:text-red-400">Isi kiriman maksimal {MAX_COMMUNITY_BODY_CHARS} karakter</p>
-                  )}
+              <div className="pl-[52px]">
+                <button
+                  type="button"
+                  onClick={handleSegmentAdd}
+                  disabled={composerBusy || composerSegments.length >= MAX_THREAD_SEGMENTS}
+                  className="-ml-2 mb-3 flex min-h-11 items-center gap-2 rounded-full px-2.5 py-1.5 text-[12px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                >
+                  <span aria-hidden="true" className="text-base leading-none">+</span>
+                  {composerSegments.length >= MAX_THREAD_SEGMENTS
+                    ? `Maksimum ${MAX_THREAD_SEGMENTS} kiriman per utas`
+                    : 'Tambah ke utas'}
+                </button>
 
-                  <div className="flex min-h-11 items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={composerBusy || composerMedia.length >= MAX_COMMUNITY_MEDIA}
-                      title="Tambah foto atau video (JPG/PNG/WEBP, MP4/MOV/WEBM)"
-                      className="-ml-2 flex min-h-9 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 dark:active:bg-slate-800"
-                    >
-                      <ImageIcon size={18} strokeWidth={1.8} />
-                      Foto/Video
-                    </button>
-                    <span className="flex-1" />
-                    <span
-                      aria-live="polite"
-                      className={`text-[10px] font-semibold tabular-nums ${
-                        composerBodyLength > MAX_COMMUNITY_BODY_CHARS
-                          ? 'text-red-500 dark:text-red-400'
-                          : 'text-gray-500 dark:text-slate-400'
-                      }`}
-                    >
-                      {composerBodyLength}/{MAX_COMMUNITY_BODY_CHARS}
-                    </span>
-                  </div>
-
-                  <p className="mb-2 text-[10px] leading-relaxed text-gray-400 dark:text-slate-500">
-                    Maks. {MAX_COMMUNITY_MEDIA} media · Foto 3MB · Video 20MB
+                {composerMediaWithoutTextIndex !== -1 && (
+                  <p className="mb-3 text-[10px] font-medium text-red-500 dark:text-red-400">
+                    Segmen {composerMediaWithoutTextIndex + 1} perlu teks
                   </p>
+                )}
 
-                  {composerMedia.length > 0 && (
-                    <div
-                      role="group"
-                      data-composer-media-layout={composerMedia.length === 1 ? 'single' : 'strip'}
-                      className={composerMedia.length === 1
-                        ? 'mb-2'
-                        : 'mb-2 flex snap-x gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'}
-                      aria-label={`${composerMedia.length} media kiriman dipilih`}
-                    >
-                      {composerMedia.map((item, index) => (
-                        <div
-                          key={item.id}
-                          className={`relative overflow-hidden rounded-xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950 ${
-                            composerMedia.length === 1
-                              ? (item.type === 'video' ? 'w-fit max-w-full' : 'max-h-[22rem] w-full')
-                              : 'h-64 w-auto shrink-0 snap-start'
-                          }`}
-                        >
-                          {item.type === 'video' ? (
-                            <PlyrVideo
-                              src={item.previewUrl}
-                              ariaLabel={`Pratinjau video ${index + 1}`}
-                              mode={composerMedia.length === 1 ? 'fit' : 'strip'}
-                            />
-                          ) : (
-                            <img
-                              src={item.previewUrl}
-                              alt={composerMedia.length === 1 ? 'Pratinjau foto kiriman' : `Pratinjau foto ${index + 1}`}
-                              className={composerMedia.length === 1
-                                ? 'block max-h-[22rem] w-full object-contain'
-                                : 'block h-full w-auto max-w-[80vw] object-contain'}
-                            />
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => removeComposerMedia(item.id)}
-                            disabled={composerBusy}
-                            aria-label={`Hapus ${item.type === 'video' ? 'video' : 'foto'} ${index + 1}`}
-                            title="Hapus media"
-                            className="absolute right-1 top-1 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/60 text-white shadow-sm backdrop-blur-sm transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"
-                          >
-                            <X size={15} />
-                          </button>
-                          {(item.status === 'processing' || item.status === 'uploading') && (
-                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 text-white">
-                              <div className="flex items-center gap-2 rounded-full bg-black/60 px-3 py-2 text-[11px] font-semibold backdrop-blur-sm">
-                                <Loader2 size={14} className="animate-spin" />
-                                {item.status === 'uploading' ? 'Mengunggah media' : 'Memproses foto'}
-                              </div>
-                            </div>
-                          )}
-                          {item.status === 'error' && (
-                            <div className="pointer-events-none absolute inset-x-2 bottom-2 min-w-0 rounded-xl bg-red-600/90 px-3 py-2 text-[10px] font-semibold text-white shadow-sm [overflow-wrap:anywhere]">
-                              {item.error || 'Media tidak dapat diproses'}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {composerQuote && <QuotedPostCard quoted={composerQuote} />}
-
-                  {composerLinkLoading && !composerLinkPreview && (
-                    <div className="mt-2 h-16 animate-pulse rounded-xl bg-gray-100 dark:bg-slate-800" />
-                  )}
-                  {composerLinkPreview && composerMedia.length === 0 && !composerQuote && (
-                    <div className="relative">
-                      {/* Tanpa gambar, sudut kanan-atas kartu berisi teks (domain/judul) —
-                          sediakan baris kosong di atas kartu supaya tombol ✕ tidak menimpa teks. */}
-                      {!composerLinkPreview.image && <div aria-hidden="true" className="h-8" />}
-                      <LinkPreviewCard preview={composerLinkPreview} />
-                      <button
-                        type="button"
-                        aria-label="Buang pratinjau tautan"
-                        onClick={() => {
-                          setComposerDismissedUrl(composerLinkPreview.url);
-                          setComposerLinkPreview(null);
-                        }}
-                        className={composerLinkPreview.image
-                          ? 'absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80'
-                          : 'absolute right-2 top-0.5 flex h-7 w-7 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300'}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  )}
-
-                  {composerError && (
-                    <div role="alert" aria-live="assertive" className="mb-3 min-w-0 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 [overflow-wrap:anywhere] dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
-                      {composerError}
-                    </div>
-                  )}
-
-                </div>
+                {composerError && (
+                  <div role="alert" aria-live="assertive" className="mb-3 min-w-0 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 [overflow-wrap:anywhere] dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
+                    {composerError}
+                  </div>
+                )}
               </div>
             </div>
           </div>
