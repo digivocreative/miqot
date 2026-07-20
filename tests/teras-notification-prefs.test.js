@@ -73,3 +73,19 @@ test('saklar Telegram yang sudah menyala tidak dihitung baru', () => {
     [],
   );
 });
+
+test('sumber yang dimatikan hilang dari gating lonceng', () => {
+  const prefs = normalizeTerasNotificationPrefs({
+    teras_bell_reaction: false,
+    teras_bell_broadcast: false,
+  });
+  assert.deepEqual(bellSourceFlags(prefs), {
+    mentions: true, comments: true, reactions: false, broadcasts: false,
+  });
+});
+
+test('gating lonceng tidak terpengaruh saklar Telegram', () => {
+  const prefs = normalizeTerasNotificationPrefs({ teras_tg_reaction: true, community_mentions: false });
+  assert.equal(bellSourceFlags(prefs).reactions, true);
+  assert.equal(bellSourceFlags(prefs).mentions, true);
+});
