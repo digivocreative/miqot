@@ -4134,6 +4134,38 @@ function communityMentionSnippet(body, max = 120) {
   return `${text.slice(0, max - 1)}…`;
 }
 
+/**
+ * Broadcast @semua dikirim instan — satu peristiwa tunggal, tidak ada yang perlu
+ * digabung, dan menundanya membatalkan alasan @semua dipakai.
+ *
+ * Penulisnya sendiri tidak diberi tahu. Kegagalan satu chat_id tidak boleh
+ * menggagalkan pembuatan kiriman, jadi seluruh badan fungsi ini menelan error.
+ */
+async function notifyCommunityBroadcastTelegram({ post, authorAgent }) {
+  try {
+    const { data: members, error } = await supabase
+      .from('agents')
+      .select('id, telegram_chat_id, notification_prefs')
+      .not('telegram_chat_id', 'is', null)
+      .neq('id', authorAgent.id);
+    if (error) throw error;
+
+    const authorName = authorAgent.name || 'Seseorang';
+    const snippet = communityMentionSnippet(post.body);
+    const link = `${communityPublicOrigin()}/dashboard/teras/post/${post.id}`;
+    const text = `📢 <b>${escapeHtml(authorName)}</b> mengirim pengumuman untuk semua agent`
+      + (snippet ? `\n\n${escapeHtml(snippet)}` : '')
+      + `\n\n${link}`;
+
+    for (const member of members || []) {
+      if (!telegramSourceFlags(member.notification_prefs).broadcasts) continue;
+      sendTelegramMessageDirect(member.telegram_chat_id, text).catch(() => {});
+    }
+  } catch (err) {
+    console.error('[community] broadcast telegram error:', err.message);
+  }
+}
+
 function communityPublicOrigin() {
   const explicit = process.env.PUBLIC_APP_ORIGIN || process.env.APP_ORIGIN;
   if (explicit) return explicit.replace(/\/+$/, '');
@@ -5605,6 +5637,13 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       break;
     }
 
+    // A retried POST (same client_id, e.g. a client-side timeout retry after
+    // the first attempt actually succeeded) lands here and is treated as a
+    // success rather than an error. It must NOT be treated as a fresh post
+    // for side effects: recordCommunityMentions self-guards via the
+    // community_mentions table, but the broadcast fan-out below has no such
+    // table to dedupe against, so it is gated on this flag instead.
+    let isFreshPostInsert = true;
     if (insertError?.code === '23505' && clientId) {
       const loadExistingPost = includeMedia => supabase
         .from('community_posts')
@@ -5627,6 +5666,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       ) {
         createdPost = existingPost;
         insertError = null;
+        isFreshPostInsert = false;
       } else {
         return res.status(409).json({ error: 'ID kiriman sudah digunakan' });
       }
@@ -5640,6 +5680,10 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       authorAgent: agent,
       postId: createdPost.id,
     });
+
+    if (mentionsEveryone && isFreshPostInsert) {
+      await notifyCommunityBroadcastTelegram({ post: createdPost, authorAgent: agent });
+    }
 
     const data = {
       ...createdPost,
