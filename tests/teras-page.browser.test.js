@@ -102,6 +102,12 @@ function createCommunityApi({
   morePages = new Map(),
   comments = {},
   members = [],
+  broadcastQuota = {
+    unlimited: false,
+    used_today: 0,
+    remaining: 1,
+    resets_at: '2026-07-21T17:00:00.000Z',
+  },
   onRequest,
 } = {}) {
   const api = {
@@ -110,6 +116,7 @@ function createCommunityApi({
     nextCursor,
     morePages,
     members: clone(members),
+    broadcastQuota: clone(broadcastQuota),
     comments: new Map(Object.entries(comments).map(([postId, value]) => [postId, clone(value)])),
     requests: [],
     createSequence: 0,
@@ -161,6 +168,11 @@ function createCommunityApi({
 
     if (record.method === 'GET' && record.pathname === '/api/community/members') {
       await responseJson(route, { success: true, data: clone(api.members) });
+      return;
+    }
+
+    if (record.method === 'GET' && record.pathname === '/api/community/broadcast-quota') {
+      await responseJson(route, { success: true, data: clone(api.broadcastQuota) });
       return;
     }
 
@@ -2230,6 +2242,40 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       // Every option must be clickable, not just the ones that survived the clip.
       const options = listbox.getByRole('option');
       assert.equal(await options.count(), 3, 'ketiga anggota harus tampil');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('item @semua di komposer bisa dipilih dengan Enter tanpa mouse', { timeout: 30_000 }, async () => {
+    // Query "semua" tak cocok dengan anggota manapun, jadi @semua jadi
+    // satu-satunya baris yang tampil — tepat celah keyboard yang diperbaiki.
+    const api = createCommunityApi({
+      members: [{ slug: 'bagas', name: 'Bagas', photo: null, phone: null }],
+    });
+    const app = await openApp({ api });
+    try {
+      await app.page.getByRole('button', {
+        name: COMPOSER_TRIGGER,
+        exact: true,
+      }).click();
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+      const textarea = dialog.getByPlaceholder(COMPOSER_PLACEHOLDER);
+      await textarea.click();
+      await textarea.type('@semua');
+
+      const listbox = app.page.getByRole('listbox', { name: 'Sebut anggota' });
+      await listbox.waitFor({ timeout: 10_000 });
+      assert.equal(await listbox.getByRole('option').count(), 1, '@semua harus jadi satu-satunya baris');
+
+      await app.page.keyboard.press('Enter');
+
+      await app.page.waitForFunction(() => {
+        const node = document.activeElement;
+        return !!node && 'value' in node && String(node.value).includes('@semua ');
+      }, null, { timeout: 5_000 });
+      assert.match(await textarea.inputValue(), /^@semua /);
     } finally {
       await app.close();
     }

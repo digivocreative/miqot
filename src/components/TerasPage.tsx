@@ -2646,24 +2646,43 @@ export default function TerasPage({
     };
   }, [broadcastQuota, applyEveryoneMention]);
 
+  // Hanya konteks komposer punya item broadcast `@semua`; kolom komentar
+  // tidak pernah menampilkannya (lihat prop `everyone` di render-nya di
+  // bawah). Cermin dari kondisi render itu supaya navigasi keyboard dan
+  // tampilan selalu sepakat soal item mana yang sedang ada di layar.
+  const mentionEveryoneVisible = mentionState?.context === 'composer'
+    && (mentionItems.length > 0 || 'semua'.startsWith(mentionState.query.toLowerCase()));
+
   const handleMentionKeyDown = (
     event: KeyboardEvent<HTMLTextAreaElement>,
     context: string,
   ): boolean => {
-    if (!mentionState || mentionState.context !== context || mentionItems.length === 0) return false;
+    if (!mentionState || mentionState.context !== context) return false;
+    // Ruang indeks tunggal: [item @semua (bila ada)] + mentionItems. Untuk
+    // kolom komentar (tanpa broadcast) offset = 0, jadi perilakunya identik
+    // dengan sebelum perubahan ini.
+    const everyoneOffset = mentionEveryoneVisible ? 1 : 0;
+    const totalOptions = everyoneOffset + mentionItems.length;
+    if (totalOptions === 0) return false;
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setMentionState(s => (s ? { ...s, index: (s.index + 1) % mentionItems.length } : s));
+      setMentionState(s => (s ? { ...s, index: (s.index + 1) % totalOptions } : s));
       return true;
     }
     if (event.key === 'ArrowUp') {
       event.preventDefault();
-      setMentionState(s => (s ? { ...s, index: (s.index - 1 + mentionItems.length) % mentionItems.length } : s));
+      setMentionState(s => (s ? { ...s, index: (s.index - 1 + totalOptions) % totalOptions } : s));
       return true;
     }
     if (event.key === 'Enter' || event.key === 'Tab') {
       event.preventDefault();
-      applyMention(mentionItems[mentionState.index] || mentionItems[0]);
+      if (everyoneOffset === 1 && mentionState.index === 0) {
+        // Sama seperti klik mouse pada item nonaktif: tidak melakukan apa-apa,
+        // popover tetap terbuka.
+        if (!everyoneOption.disabled) applyEveryoneMention();
+        return true;
+      }
+      applyMention(mentionItems[mentionState.index - everyoneOffset] || mentionItems[0]);
       return true;
     }
     if (event.key === 'Escape') {
@@ -2887,7 +2906,7 @@ export default function TerasPage({
                       placeholder={COMPOSER_PLACEHOLDER}
                       className="relative min-h-[88px] w-full resize-none overflow-hidden bg-transparent p-0 text-[17px] leading-relaxed text-gray-900 outline-none placeholder:text-gray-500 disabled:opacity-60 dark:text-white dark:placeholder:text-slate-400"
                     />
-                    {mentionState?.context === 'composer' && (mentionItems.length > 0 || 'semua'.startsWith(mentionState.query.toLowerCase())) && (
+                    {mentionState?.context === 'composer' && mentionEveryoneVisible && (
                       <MentionAutocomplete
                         items={mentionItems}
                         activeIndex={mentionState.index}

@@ -74,41 +74,53 @@ export function MentionAutocomplete({
 }) {
   if (!items.length && !everyone) return null;
   const position = placement === 'top' ? 'bottom-full mb-1' : 'top-full mt-1';
+  // Ruang indeks tunggal: item @semua (bila ada) selalu di posisi 0, anggota
+  // bergeser satu. Cermin dari offset yang dipakai handleMentionKeyDown di
+  // TerasPage.tsx supaya sorotan keyboard dan mouse selalu sepakat.
+  const memberOffset = everyone ? 1 : 0;
   return (
     <div
       role="listbox"
       aria-label="Sebut anggota"
       className={`absolute left-0 z-30 max-h-56 w-[min(20rem,100%)] overflow-y-auto overscroll-contain rounded-2xl border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900 ${position}`}
     >
-      {everyone && (
-        <button
-          type="button"
-          role="option"
-          aria-selected={false}
-          aria-disabled={everyone.disabled}
-          onMouseDown={event => {
-            event.preventDefault();
-            if (!everyone.disabled) everyone.onSelect();
-          }}
-          className={`flex w-full items-center gap-2.5 border-b border-gray-100 px-3 py-1.5 text-left transition-colors dark:border-slate-700 ${
-            everyone.disabled ? 'opacity-50' : 'hover:bg-gray-50 dark:hover:bg-slate-800/60'
-          }`}
-        >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[11px] font-bold text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
-            @
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13.5px] font-semibold text-gray-900 dark:text-white">
-              @semua
+      {everyone && (() => {
+        const everyoneActive = activeIndex === 0;
+        return (
+          <button
+            type="button"
+            role="option"
+            aria-selected={everyoneActive}
+            aria-disabled={everyone.disabled}
+            onMouseDown={event => {
+              event.preventDefault();
+              if (!everyone.disabled) everyone.onSelect();
+            }}
+            onMouseEnter={() => onHoverIndex(0)}
+            className={`flex w-full items-center gap-2.5 border-b border-gray-100 px-3 py-1.5 text-left transition-colors dark:border-slate-700 ${
+              everyone.disabled
+                ? 'opacity-50'
+                : everyoneActive
+                  ? 'bg-emerald-50 dark:bg-emerald-900/30'
+                  : 'hover:bg-gray-50 dark:hover:bg-slate-800/60'
+            }`}
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[11px] font-bold text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
+              @
             </span>
-            <span className="block truncate text-[11.5px] text-gray-500 dark:text-slate-400">
-              beri tahu semua agent · {everyone.label}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13.5px] font-semibold text-gray-900 dark:text-white">
+                @semua
+              </span>
+              <span className="block truncate text-[11.5px] text-gray-500 dark:text-slate-400">
+                beri tahu semua agent · {everyone.label}
+              </span>
             </span>
-          </span>
-        </button>
-      )}
+          </button>
+        );
+      })()}
       {items.map((member, index) => {
-        const active = index === activeIndex;
+        const active = index + memberOffset === activeIndex;
         return (
           <button
             key={member.slug}
@@ -120,7 +132,7 @@ export function MentionAutocomplete({
               event.preventDefault();
               onSelect(member);
             }}
-            onMouseEnter={() => onHoverIndex(index)}
+            onMouseEnter={() => onHoverIndex(index + memberOffset)}
             className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors ${
               active ? 'bg-emerald-50 dark:bg-emerald-900/30' : 'hover:bg-gray-50 dark:hover:bg-slate-800/60'
             }`}
