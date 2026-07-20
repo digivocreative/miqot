@@ -82,6 +82,11 @@ import {
 } from './lib/teras-notification-prefs.js';
 import { isTerasShortCode, communityShortCodeBounds, terasPreviewExcerpt } from './lib/teras-share.js';
 import {
+  TERAS_DIGEST_LOOKBACK_MS,
+  TERAS_DIGEST_WINDOW_MS,
+  buildTerasDigestMessages,
+} from './lib/teras-telegram-digest.js';
+import {
   hasEveryoneMention,
   jakartaDayStartIso,
   resolveBroadcastQuota,
@@ -6530,6 +6535,148 @@ if (shouldRunBackgroundJobs()) cron.schedule('* * * * *', async () => {
     }
   } finally {
     customDomainCronRunning = false;
+  }
+});
+
+let terasDigestSweepRunning = false;
+
+/**
+ * Sapuan digest Telegram Teras.
+ *
+ * Dua query GLOBAL per menit untuk seluruh sistem, bukan satu query per agen —
+ * inilah sebabnya fitur ini tidak butuh tabel antrian. Watermark disimpan di
+ * baris agen, jadi restart dan deploy tidak menduplikasi maupun menghilangkan
+ * pesan; timer di memori akan bocor pada keduanya.
+ */
+async function runTerasTelegramDigestSweep() {
+  const now = Date.now();
+  const cutoffIso = new Date(now - TERAS_DIGEST_WINDOW_MS).toISOString();
+  const floorIso = new Date(now - TERAS_DIGEST_LOOKBACK_MS).toISOString();
+
+  const [commentResult, reactionResult] = await Promise.all([
+    supabase
+      .from('community_post_comments')
+      .select('id, post_id, agent_id, created_at, author:agents(name), post:community_posts!inner(agent_id, deleted_at)')
+      .gte('created_at', floorIso)
+      .lte('created_at', cutoffIso)
+      .is('deleted_at', null)
+      .is('post.deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(500),
+    supabase
+      .from('community_post_reactions')
+      .select('post_id, agent_id, created_at, author:agents(name), post:community_posts!inner(agent_id, deleted_at)')
+      .gte('created_at', floorIso)
+      .lte('created_at', cutoffIso)
+      .is('post.deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(500),
+  ]);
+
+  if (commentResult.error) throw commentResult.error;
+  if (reactionResult.error) throw reactionResult.error;
+
+  const comments = (commentResult.data || []).map(row => ({
+    id: row.id,
+    post_id: row.post_id,
+    created_at: row.created_at,
+    owner_agent_id: row.post?.agent_id,
+    actor_agent_id: row.agent_id,
+    actor_name: row.author?.name || null,
+  }));
+  const reactions = (reactionResult.data || []).map(row => ({
+    post_id: row.post_id,
+    created_at: row.created_at,
+    owner_agent_id: row.post?.agent_id,
+    actor_agent_id: row.agent_id,
+    actor_name: row.author?.name || null,
+  }));
+
+  const ownerIds = [...new Set([...comments, ...reactions].map(row => row.owner_agent_id).filter(Boolean))];
+  if (ownerIds.length === 0) return { sent: 0, owners: 0 };
+
+  const { data: ownerRows, error: ownerError } = await supabase
+    .from('agents')
+    .select('id, telegram_chat_id, notification_prefs')
+    .in('id', ownerIds)
+    .not('telegram_chat_id', 'is', null);
+  if (ownerError) throw ownerError;
+
+  const owners = (ownerRows || []).map(row => ({
+    id: row.id,
+    chat_id: row.telegram_chat_id,
+    prefs: row.notification_prefs || {},
+    sent_at: (row.notification_prefs || {})[TERAS_TG_SENT_AT_KEY] || null,
+  }));
+  if (owners.length === 0) return { sent: 0, owners: 0 };
+
+  // Balasan yang juga menyebut pemilik kiriman sudah terkirim instan lewat
+  // jalur mention; ambil sebutan pada jendela yang sama untuk membuangnya.
+  let mentions = [];
+  const mentionResult = await supabase
+    .from('community_mentions')
+    .select('comment_id, mentioned_agent_id')
+    .gte('created_at', floorIso)
+    .lte('created_at', cutoffIso)
+    .in('mentioned_agent_id', owners.map(owner => owner.id))
+    .limit(500);
+  if (mentionResult.error) {
+    if (!isCommunityMentionSchemaMissing(mentionResult.error)) throw mentionResult.error;
+  } else {
+    mentions = mentionResult.data || [];
+  }
+
+  const messages = buildTerasDigestMessages({
+    comments, reactions, mentions, owners, origin: communityPublicOrigin(),
+  });
+  if (messages.length === 0) return { sent: 0, owners: owners.length };
+
+  const deliveredOwners = new Set();
+  for (const message of messages) {
+    // Isolasi per pesan: satu chat_id yang memblokir bot tidak boleh
+    // membatalkan pengiriman ke agen lain. Ini persis kegagalan yang dulu
+    // membekukan retensi analytics.
+    try {
+      await sendTelegramMessageDirect(message.chat_id, message.text);
+      deliveredOwners.add(message.agent_id);
+    } catch (err) {
+      console.warn('[teras-digest] gagal kirim ke', message.agent_id, err.message);
+    }
+  }
+
+  for (const ownerId of deliveredOwners) {
+    try {
+      const { data: fresh, error: freshError } = await supabase
+        .from('agents')
+        .select('notification_prefs')
+        .eq('id', ownerId)
+        .single();
+      if (freshError) throw freshError;
+      const merged = { ...(fresh?.notification_prefs || {}), [TERAS_TG_SENT_AT_KEY]: cutoffIso };
+      const { error: updateError } = await supabase
+        .from('agents')
+        .update({ notification_prefs: merged })
+        .eq('id', ownerId);
+      if (updateError) throw updateError;
+    } catch (err) {
+      console.warn('[teras-digest] gagal memajukan watermark', ownerId, err.message);
+    }
+  }
+
+  return { sent: messages.length, owners: owners.length };
+}
+
+if (shouldRunBackgroundJobs()) cron.schedule('* * * * *', async () => {
+  if (terasDigestSweepRunning) return;
+  if (isDbDegraded()) return; // shed: jangan tembak DB saat restart
+  terasDigestSweepRunning = true;
+  try {
+    const result = await runTerasTelegramDigestSweep();
+    if (result.sent > 0) console.log(`[teras-digest] terkirim ${result.sent} pesan`);
+  } catch (err) {
+    console.error('[teras-digest] sweep error:', err.message);
+  } finally {
+    terasDigestSweepRunning = false;
   }
 });
 
