@@ -71,6 +71,15 @@ import {
   countUnreadNotifications,
   NOTIFICATION_LIMIT,
 } from './lib/community-notifications.js';
+import {
+  DEFAULT_TERAS_NOTIFICATION_PREFS,
+  TERAS_TG_SENT_AT_KEY,
+  bellSourceFlags,
+  enabledTelegramKeysTurnedOn,
+  filterTerasPrefUpdates,
+  normalizeTerasNotificationPrefs,
+  telegramSourceFlags,
+} from './lib/teras-notification-prefs.js';
 import { isTerasShortCode, communityShortCodeBounds, terasPreviewExcerpt } from './lib/teras-share.js';
 import {
   hasEveryoneMention,
@@ -4886,6 +4895,81 @@ async function loadTerasNotificationSources(agent, { since, limit }) {
 
   return { mentions, comments, reactions, broadcasts };
 }
+
+app.get('/api/community/notification-prefs', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const { data, error } = await supabase
+      .from('agents')
+      .select('notification_prefs, telegram_chat_id')
+      .eq('id', agent.id)
+      .single();
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      data: {
+        prefs: normalizeTerasNotificationPrefs(data?.notification_prefs || {}),
+        telegram_connected: !!data?.telegram_chat_id,
+      },
+    });
+  } catch (err) {
+    console.error('[community] notification prefs get error:', err);
+    res.status(500).json({ error: 'Gagal memuat pengaturan notifikasi' });
+  }
+});
+
+app.put('/api/community/notification-prefs', authMiddleware, express.json({ limit: '2kb' }), async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const updates = filterTerasPrefUpdates(req.body);
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'Tidak ada preferensi valid yang diupdate' });
+    }
+
+    const { data: existing, error: fetchErr } = await supabase
+      .from('agents')
+      .select('notification_prefs, telegram_chat_id')
+      .eq('id', agent.id)
+      .single();
+    if (fetchErr) throw fetchErr;
+
+    const stored = existing?.notification_prefs || {};
+    // Menyalakan sebuah kanal Telegram memajukan watermark ke sekarang: tanpa
+    // ini, sapuan berikutnya akan mengirim seluruh riwayat 24 jam terakhir ke
+    // agen yang baru saja mengaktifkannya.
+    const turnedOn = enabledTelegramKeysTurnedOn(stored, updates);
+    const merged = {
+      ...stored,
+      ...updates,
+      ...(turnedOn.length > 0 ? { [TERAS_TG_SENT_AT_KEY]: new Date().toISOString() } : {}),
+    };
+
+    const { error: updateErr } = await supabase
+      .from('agents')
+      .update({ notification_prefs: merged })
+      .eq('id', agent.id);
+    if (updateErr) throw updateErr;
+
+    invalidateAgentCache();
+    res.json({
+      success: true,
+      data: {
+        prefs: normalizeTerasNotificationPrefs(merged),
+        telegram_connected: !!existing?.telegram_chat_id,
+      },
+    });
+  } catch (err) {
+    console.error('[community] notification prefs update error:', err);
+    res.status(500).json({ error: 'Gagal menyimpan pengaturan notifikasi' });
+  }
+});
 
 app.get('/api/community/notifications/head', dbLoadShedGuard, authMiddleware, async (req, res) => {
   try {
