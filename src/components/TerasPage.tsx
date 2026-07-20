@@ -2803,15 +2803,22 @@ export default function TerasPage({
     };
   }, [broadcastQuota, applyEveryoneMention]);
 
-  // Hanya konteks komposer punya item broadcast `@semua`, dan hanya saat
-  // query kosong atau cocok awalan "sem" — satu sumber kebenaran dipakai di
-  // render (item mana yang tampil) DAN keyboard (offset indeks), supaya
-  // keduanya tidak bisa berbeda pendapat soal item mana yang sedang di layar.
+  // Hanya SEGMEN PERTAMA komposer yang boleh menawarkan `@semua` — server
+  // (server.js) cuma pernah mengevaluasi broadcast dari rawSegments[0].body,
+  // jadi kalau item ini muncul di segmen ke-2 dst dan dipilih, kiriman
+  // terkirim tanpa broadcast sama sekali: kuota tak terpakai, tanpa
+  // notifikasi, tanpa error yang kelihatan.
+  // Dan hanya saat query kosong atau cocok awalan "sem" — satu sumber
+  // kebenaran dipakai di render (item mana yang tampil) DAN keyboard (offset
+  // indeks), supaya keduanya tidak bisa berbeda pendapat soal item mana yang
+  // sedang di layar.
   // Sebelumnya ada kondisi ganda (mentionItems.length > 0 ATAU query cocok)
   // yang membuat `@semua` merebut posisi 0 untuk query apa pun yang punya
   // kandidat anggota — Enter pada "@bag" menyisipkan "@semua", bukan "@bagas".
+  const firstComposerSegment = composerSegments[0];
   const everyoneMatches = !!mentionState
-    && isComposerMentionContext(mentionState.context)
+    && !!firstComposerSegment
+    && mentionState.context === composerMentionContext(firstComposerSegment.key)
     && 'semua'.startsWith(mentionState.query.toLowerCase());
 
   const handleMentionKeyDown = (
@@ -3003,7 +3010,12 @@ export default function TerasPage({
   };
 
   const handleSegmentAdd = () => {
-    if (composerSegmentsRef.current.length >= MAX_THREAD_SEGMENTS) return;
+    // Cap 5-segmen dicek di dalam updater fungsional, bukan lewat
+    // composerSegmentsRef di sini: ref itu baru sinkron setelah effect
+    // berjalan, jadi dua klik dalam tick yang sama bisa lolos cek berbasis
+    // ref (masih baca nilai lama) dan masing-masing men-queue satu append.
+    // Updater fungsional selalu menerima state terakhir yang sudah otoritatif
+    // (termasuk hasil append dari klik sebelumnya), jadi cek cap harus di situ.
     const segment = blankComposerSegment();
     updateComposerSegments(current => (
       current.length >= MAX_THREAD_SEGMENTS ? current : [...current, segment]
