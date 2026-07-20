@@ -6603,6 +6603,32 @@ async function runTerasTelegramDigestSweep() {
     actor_name: row.author?.name || null,
   }));
 
+  // Plafon lintas-query: komentar dan reaksi diambil lewat dua query terpisah,
+  // masing-masing .order('created_at', ascending).limit(500), dan masing-masing
+  // bisa terpotong pada batas yang BERBEDA. Watermark per-owner di atas hanya
+  // menutup kebocoran DALAM satu query (owner tidak pernah melompati barisnya
+  // sendiri yang belum terambil) — tapi kedua tipe pesan dipagari oleh SATU
+  // teras_tg_sent_at yang sama di lib/teras-telegram-digest.js. Kalau query
+  // komentar terpotong di T_c sementara query reaksi tidak terpotong dan
+  // mengirim owner X sebuah reaksi dengan latest_at R > T_c, watermark X akan
+  // maju ke R — dan komentar X pada (T_c, R] yang belum sempat terambil jadi
+  // terlewat PERMANEN begitu backlog surut sampai ke situ. Makanya watermark
+  // hasil akhir harus dijepit ke plafon terendah dari kedua query.
+  function fetchCeilingMs(rows, limit) {
+    if (rows.length !== limit) return Infinity; // tidak terpotong → tidak ada plafon
+    // -1ms: baris lain yang berbagi milidetik PERSIS dengan baris batas belum
+    // tentu ikut terambil (order dalam satu milidetik tidak dijamin stabil di
+    // Postgres). Menggeser plafon mundur 1ms membuat baris semilidetik itu
+    // tetap dianggap "belum diproses" oleh watermark, bukan "sudah". Akibatnya
+    // sweep berikutnya bisa mengirim ulang grup pada milidetik itu (duplikat)
+    // — itu risiko yang sengaja diambil: duplikat bisa dipulihkan (agen lihat
+    // dua kali), notifikasi yang diam-diam hilang tidak bisa.
+    return new Date(rows[rows.length - 1].created_at).getTime() - 1;
+  }
+  const commentCeilingMs = fetchCeilingMs(comments, 500);
+  const reactionCeilingMs = fetchCeilingMs(reactions, 500);
+  const effectiveCeilingMs = Math.min(commentCeilingMs, reactionCeilingMs);
+
   const ownerIds = [...new Set([...comments, ...reactions].map(row => row.owner_agent_id).filter(Boolean))];
   if (ownerIds.length === 0) return { sent: 0, owners: 0 };
 
@@ -6644,11 +6670,9 @@ async function runTerasTelegramDigestSweep() {
 
   // Watermark per-owner: tiap owner naik ke maksimum latest_at dari
   // pesan-pesannya sendiri yang benar-benar terkirim, BUKAN ke cutoffIso
-  // global. Kedua query di atas terurut created_at ASCENDING dan dibatasi
-  // .limit(500) — kalau terpotong, baris yang hilang selalu yang PALING BARU
-  // (created_at >= baris terakhir yang terambil). Watermark per-owner tidak
-  // pernah melompati baris tersebut karena nilainya dibatasi oleh baris yang
-  // benar-benar diproses untuk owner itu. Memakai cutoffIso di sini akan
+  // global, dan dijepit ke effectiveCeilingMs (lihat komentar plafon
+  // lintas-query di atas) supaya tidak melompati baris milik owner lain yang
+  // sama-sama terpotong tapi belum jadi pesan. Memakai cutoffIso di sini akan
   // membuat baris yang terpotong itu dilewati permanen oleh watermark check
   // di lib/teras-telegram-digest.js.
   const deliveredOwnerWatermarks = new Map();
@@ -6659,9 +6683,14 @@ async function runTerasTelegramDigestSweep() {
     try {
       const delivered = await sendTelegramMessageDirect(message.chat_id, message.text);
       if (delivered) {
+        // Jepit ke plafon lintas-query sebelum dibandingkan — min() lalu
+        // max() gabungan sama dengan max() lalu min() karena plafonnya
+        // konstan untuk seluruh sweep, jadi urutan penjepitan di sini tidak
+        // mengubah hasil akhir per owner.
+        const candidateMs = Math.min(new Date(message.latest_at).getTime(), effectiveCeilingMs);
         const prevWatermark = deliveredOwnerWatermarks.get(message.agent_id);
-        if (!prevWatermark || new Date(message.latest_at).getTime() > new Date(prevWatermark).getTime()) {
-          deliveredOwnerWatermarks.set(message.agent_id, message.latest_at);
+        if (!prevWatermark || candidateMs > new Date(prevWatermark).getTime()) {
+          deliveredOwnerWatermarks.set(message.agent_id, new Date(candidateMs).toISOString());
         }
       } else {
         console.warn('[teras-digest] Telegram menolak pesan ke', message.agent_id);
@@ -6679,7 +6708,19 @@ async function runTerasTelegramDigestSweep() {
         .eq('id', ownerId)
         .single();
       if (freshError) throw freshError;
-      const merged = { ...(fresh?.notification_prefs || {}), [TERAS_TG_SENT_AT_KEY]: watermark };
+      const storedPrefs = fresh?.notification_prefs || {};
+      const storedSentAt = storedPrefs[TERAS_TG_SENT_AT_KEY] || null;
+      // Jangan pernah mundur: penjepitan plafon di atas seharusnya tidak
+      // pernah menghasilkan watermark yang lebih awal dari yang sudah
+      // tersimpan (grup pesan sudah difilter > owner.sent_at oleh
+      // lib/teras-telegram-digest.js sebelum sampai sini), tapi ini kondisi
+      // tepi yang murah untuk dijaga — mis. plafon jatuh sangat dekat dengan
+      // floorIso ketika sweep tertinggal jauh. Kalau ternyata mundur, lewati
+      // update ini sepenuhnya; watermark yang tersimpan tetap berlaku.
+      if (storedSentAt && new Date(watermark).getTime() <= new Date(storedSentAt).getTime()) {
+        continue;
+      }
+      const merged = { ...storedPrefs, [TERAS_TG_SENT_AT_KEY]: watermark };
       const { error: updateError } = await supabase
         .from('agents')
         .update({ notification_prefs: merged })
