@@ -487,11 +487,11 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await submitTextPost(app.page, 'Kiriman B');
       const createRequests = matchingRequests(api, 'POST', '/api/community/posts');
       assert.equal(createRequests.length, 2);
-      assert.deepEqual(createRequests.map(request => request.body.body), ['Kiriman A', 'Kiriman B']);
+      assert.deepEqual(createRequests.map(request => request.body.segments[0].body), ['Kiriman A', 'Kiriman B']);
       assert.equal(createRequests[0].authorization, 'Bearer browser-test-token');
-      assert.match(createRequests[0].body.client_id, /^[0-9a-f-]{36}$/i);
-      assert.match(createRequests[1].body.client_id, /^[0-9a-f-]{36}$/i);
-      assert.notEqual(createRequests[0].body.client_id, createRequests[1].body.client_id);
+      assert.match(createRequests[0].body.segments[0].client_id, /^[0-9a-f-]{36}$/i);
+      assert.match(createRequests[1].body.segments[0].client_id, /^[0-9a-f-]{36}$/i);
+      assert.notEqual(createRequests[0].body.segments[0].client_id, createRequests[1].body.segments[0].client_id);
 
       await responseJson(initialFeedRoute, {
         success: true,
@@ -620,10 +620,10 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.equal(postRequests[0].authorization, 'Bearer browser-test-token');
       assert.equal(mediaRequests[0].contentType, 'image/jpeg');
       assert.match(mediaRequests[0].uploadId, /^[0-9a-f-]{36}$/i);
-      assert.notEqual(postRequests[0].body.client_id, mediaRequests[0].uploadId);
-      assert.equal(postRequests[0].body.body, 'Kiriman dengan foto');
-      assert.equal(postRequests[0].body.photo_url, 'https://cdn.example.test/community/media-1.jpg');
-      assert.deepEqual(postRequests[0].body.media, [{
+      assert.notEqual(postRequests[0].body.segments[0].client_id, mediaRequests[0].uploadId);
+      assert.equal(postRequests[0].body.segments[0].body, 'Kiriman dengan foto');
+      assert.equal(postRequests[0].body.segments[0].photo_url, 'https://cdn.example.test/community/media-1.jpg');
+      assert.deepEqual(postRequests[0].body.segments[0].media, [{
         type: 'image',
         url: 'https://cdn.example.test/community/media-1.jpg',
       }]);
@@ -716,8 +716,8 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.equal(uploads.length, 2);
       assert.equal(new Set(uploads.map(upload => upload.uploadId)).size, 2);
       assert.ok(uploads.every(upload => upload.contentType === 'image/jpeg'));
-      assert.ok(uploads.every(upload => upload.uploadId !== postRequest.body.client_id));
-      assert.deepEqual(postRequest.body.media, [
+      assert.ok(uploads.every(upload => upload.uploadId !== postRequest.body.segments[0].client_id));
+      assert.deepEqual(postRequest.body.segments[0].media, [
         { type: 'image', url: 'https://cdn.example.test/community/first.jpg' },
         { type: 'image', url: 'https://cdn.example.test/community/second.jpg' },
       ]);
@@ -772,11 +772,11 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const postRequest = matchingRequests(api, 'POST', '/api/community/posts')[0];
       assert.equal(upload.contentType, 'video/mp4');
       assert.deepEqual(upload.bodyBuffer, sourceVideo);
-      assert.deepEqual(postRequest.body.media, [{
+      assert.deepEqual(postRequest.body.segments[0].media, [{
         type: 'video',
         url: 'https://cdn.example.test/community/media-1.mp4',
       }]);
-      assert.equal(postRequest.body.photo_url, undefined);
+      assert.equal(postRequest.body.segments[0].photo_url, undefined);
 
       const createdArticle = app.page.locator('article').filter({ hasText: 'Video singkat perjalanan' });
       const renderedVideo = createdArticle.getByLabel('Video 1 dari 1 kiriman Nikita Test');
