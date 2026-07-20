@@ -158,6 +158,40 @@ test('broadcast @semua muncul di lonceng dan dihitung sekali', () => {
   assert.equal(countUnreadNotifications(sources), 1);
 });
 
+test('mention level-komentar pada kiriman ber-broadcast tidak membatalkan entri broadcast level-post', () => {
+  // Beda dengan test di atas: mention di sini adalah balasan KOMENTAR
+  // (comment_id: 'c1') pada kiriman broadcast, bukan mention level-post
+  // (comment_id: null). dedupeBroadcastsAgainstMentions hanya boleh
+  // mengecualikan mention level-post dari hitungan — mention komentar dan
+  // broadcast post adalah dua peristiwa berbeda dan harus tetap dua entri.
+  const sources = {
+    mentions: [
+      {
+        id: 'm1',
+        post_id: 'post-b1',
+        comment_id: 'c1',
+        created_at: '2026-07-20T04:00:00.000Z',
+        actor: { name: 'Rina', photo: null },
+        snippet: 'balasan @bagas di kiriman @semua',
+      },
+    ],
+    comments: [],
+    reactions: [],
+    broadcasts: [
+      {
+        post_id: 'post-b1',
+        created_at: '2026-07-20T03:00:00.000Z',
+        actor: { name: 'Bagas', photo: null },
+        snippet: 'Besok kumpul jam 8 ya',
+      },
+    ],
+  };
+  const items = mergeNotifications(sources, null);
+  assert.equal(items.length, 2, 'mention komentar dan broadcast post tetap dua notifikasi terpisah');
+  assert.deepEqual(items.map(i => i.type).sort(), ['broadcast', 'mention']);
+  assert.equal(countUnreadNotifications(sources), 2);
+});
+
 test('mention personal mengalahkan broadcast pada kiriman yang sama', () => {
   const sources = {
     mentions: [

@@ -5301,17 +5301,28 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
  * dihapus IKUT dihitung — kalau tidak, hapus-lalu-kirim-lagi jadi jatah tak
  * terbatas. Kolom yang belum dimigrasi diperlakukan sebagai "belum pernah",
  * jadi endpoint ini tidak pernah menggagalkan komposer.
+ *
+ * `excludePostId`: retry idempoten mengirim ulang POST dengan `client_id`
+ * yang sama (mis. respons pertama hilang di jaringan). Kirimannya sendiri
+ * sudah tersimpan dari percobaan pertama, jadi kecualikan dari hitungan di
+ * sini — kalau tidak, retry menghitung kirimannya sendiri lalu ditolak 403
+ * padahal sudah live. Parameter terpisah (bukan ditambahkan ke signature
+ * loadBroadcastQuota) supaya endpoint GET /broadcast-quota, yang tidak
+ * punya konsep client_id, tetap memanggil loadBroadcastQuota(agent) apa
+ * adanya dan tidak pernah mengecualikan apa pun.
  */
-async function loadBroadcastQuota(agent) {
+async function loadBroadcastQuotaExcluding(agent, excludePostId) {
   const dayStart = jakartaDayStartIso(new Date());
   let usedToday = 0;
   if (agent.role !== 'admin') {
-    const { count, error } = await supabase
+    let query = supabase
       .from('community_posts')
       .select('id', { count: 'exact', head: true })
       .eq('agent_id', agent.id)
       .eq('mentions_everyone', true)
       .gte('created_at', dayStart);
+    if (excludePostId) query = query.neq('id', excludePostId);
+    const { count, error } = await query;
     if (error && !isCommunityBroadcastSchemaMissing(error)) throw error;
     usedToday = error ? 0 : (count || 0);
   }
@@ -5324,6 +5335,10 @@ async function loadBroadcastQuota(agent) {
     // Jatah berikutnya terbuka pada tengah malam WIB setelah dayStart.
     resets_at: new Date(new Date(dayStart).getTime() + 24 * 60 * 60 * 1000).toISOString(),
   };
+}
+
+async function loadBroadcastQuota(agent) {
+  return loadBroadcastQuotaExcluding(agent, null);
 }
 
 app.get('/api/community/broadcast-quota', dbLoadShedGuard, authMiddleware, async (req, res) => {
@@ -5360,7 +5375,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
     // supaya penolakan tidak meninggalkan kiriman setengah jadi.
     const mentionsEveryone = hasEveryoneMention(body);
     if (mentionsEveryone) {
-      const quota = await loadBroadcastQuota(agent);
+      const quota = await loadBroadcastQuotaExcluding(agent, clientId || null);
       if (!quota.allowed) {
         return res.status(403).json({ error: 'Jatah @semua hari ini sudah dipakai. Coba lagi besok.' });
       }

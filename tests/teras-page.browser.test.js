@@ -2281,6 +2281,47 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
+  test('mengetik @bag lalu Enter menyisipkan @bagas, bukan @semua', { timeout: 30_000 }, async () => {
+    // Regresi temuan 1: mentionEveryoneVisible lama bernilai true bila
+    // mentionItems.length > 0 ATAU query berawalan "sem" — jadi item @semua
+    // ikut nangkring di posisi 0 untuk QUERY APA PUN yang punya kandidat
+    // anggota, sementara detectMention mereset index ke 0 tiap ketikan.
+    // Enter pada "@bag" (yang cocok anggota "bagas", bukan "semua") lantas
+    // menyisipkan @semua, bukan mention personal yang dimaksud.
+    const api = createCommunityApi({
+      members: [{ slug: 'bagas', name: 'Bagas', photo: null, phone: null }],
+    });
+    const app = await openApp({ api });
+    try {
+      await app.page.getByRole('button', {
+        name: COMPOSER_TRIGGER,
+        exact: true,
+      }).click();
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+      const textarea = dialog.getByPlaceholder(COMPOSER_PLACEHOLDER);
+      await textarea.click();
+      await textarea.type('@bag');
+
+      const listbox = app.page.getByRole('listbox', { name: 'Sebut anggota' });
+      await listbox.waitFor({ timeout: 10_000 });
+
+      await app.page.keyboard.press('Enter');
+
+      await app.page.waitForFunction(() => {
+        const node = document.activeElement;
+        return !!node && 'value' in node && String(node.value).includes('@bagas ');
+      }, null, { timeout: 5_000 });
+      assert.match(
+        await textarea.inputValue(),
+        /^@bagas /,
+        'Enter pada query "@bag" harus menyisipkan mention anggota "bagas", bukan broadcast @semua',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
   test('@semua tampil di komposer dengan label jatah, tidak di kolom balasan', { timeout: 30_000 }, async () => {
     const post = makePost({ id: 'broadcast-post', body: 'Uji broadcast', comment_count: 1 });
     const api = createCommunityApi({
@@ -2342,6 +2383,49 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await first.waitFor({ timeout: 10_000 });
       assert.match(await first.innerText(), /jatah hari ini habis/);
       assert.equal(await first.getAttribute('aria-disabled'), 'true');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('@semua di komentar tidak dirender sebagai pill mention', { timeout: 30_000 }, async () => {
+    // Temuan 2: memberBySlug dulu punya entri sintetis "semua" yang dipakai
+    // juga untuk merender komentar — @semua di komentar ikut dapat gaya pill
+    // (span emerald semibold, lihat renderMentionPill di MentionText.tsx),
+    // padahal di komentar @semua tidak melakukan apa pun dan tidak boleh
+    // tampak seolah melakukan sesuatu. Penanda yang benar-benar bisa gagal:
+    // kelas warna pill (.text-emerald-600) melekat pada teks "semua" atau
+    // tidak — bukan sekadar keberadaan teks "@semua" itu sendiri.
+    const post = makePost({ id: 'comment-semua-post', body: 'Uji semua di komentar', comment_count: 1 });
+    const api = createCommunityApi({
+      posts: [post],
+      comments: {
+        'comment-semua-post': [makeComment({
+          id: 'c-semua',
+          body: '@bagas cek dong @semua di komentar ya',
+        })],
+      },
+      members: [{ slug: 'bagas', name: 'Bagas', photo: null, phone: null }],
+    });
+    const app = await openApp({ api, viewport: { width: 670, height: 780 } });
+    try {
+      const article = app.page.locator('article').filter({ hasText: 'Uji semua di komentar' });
+      await article.getByRole('button', { name: 'Komentari', exact: true }).click();
+      const commentParagraph = article.locator('p').filter({ hasText: 'di komentar ya' });
+      await commentParagraph.waitFor();
+
+      // Kontrol positif: mention anggota nyata ("@bagas" -> anggota "Bagas")
+      // HARUS tetap jadi pill, supaya penanda .text-emerald-600 ini terbukti
+      // benar-benar mendeteksi pill (bukan selalu 0 apa pun yang terjadi).
+      const bagasPill = commentParagraph.locator('.text-emerald-600', { hasText: 'Bagas' });
+      assert.equal(await bagasPill.count(), 1, 'mention anggota nyata di komentar tetap harus jadi pill');
+
+      // @semua di komentar tidak boleh dapat gaya pill yang sama.
+      const semuaPill = commentParagraph.locator('.text-emerald-600', { hasText: 'semua' });
+      assert.equal(await semuaPill.count(), 0, '@semua di komentar tidak boleh dirender sebagai pill mention');
+
+      // Teksnya sendiri tetap tampil apa adanya (plain text), bukan dibuang.
+      assert.match(await commentParagraph.innerText(), /@semua/, 'token @semua tetap tampil sebagai teks biasa');
     } finally {
       await app.close();
     }

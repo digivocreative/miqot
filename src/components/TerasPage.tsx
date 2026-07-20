@@ -1116,13 +1116,19 @@ export default function TerasPage({
     { context: string; query: string; start: number; index: number; placement: 'top' | 'bottom' } | null
   >(null);
   const memberBySlug = useMemo(() => {
-    const map = new Map(mentionMembers.map(member => [member.slug.toLowerCase(), member]));
-    // `@semua` bukan anggota, tapi harus tampil sebagai pill di isi kiriman.
-    // Entri sintetis ini membuat parser mention yang sudah ada mengenalinya
-    // tanpa aturan khusus di tiga tempat render.
+    return new Map(mentionMembers.map(member => [member.slug.toLowerCase(), member]));
+  }, [mentionMembers]);
+  // `@semua` bukan anggota nyata — hanya berlaku sebagai pill di KIRIMAN
+  // (badan post + overlay sorotan komposer). Peta terpisah ini menyalin
+  // memberBySlug lalu menambahkan entri sintetis, supaya komentar, overlay
+  // komentar, dan profileMember (peta bersih) tidak pernah melihat "semua"
+  // sebagai anggota — mencegah profil hantu di /dashboard/teras/semua dan
+  // pill palsu di komentar.
+  const postMemberBySlug = useMemo(() => {
+    const map = new Map(memberBySlug);
     map.set('semua', { slug: 'semua', name: 'semua', photo: null });
     return map;
-  }, [mentionMembers]);
+  }, [memberBySlug]);
   const memberSlugs = useMemo(() => mentionMembers.map(member => member.slug), [mentionMembers]);
 
   // Server (/api/community/feed) lowercase-kan agent query param dan slug
@@ -2189,6 +2195,11 @@ export default function TerasPage({
       setLoading(false);
       resetComposer();
       showToast('Kiriman terbagikan di Teras', 'success');
+      // Kiriman ber-`@semua` yang baru sukses terkirim memakai jatah broadcast
+      // hari ini — ambil ulang supaya picker tidak mangkrak di label lama.
+      // Senyap by design (lihat fetchBroadcastQuota); tidak boleh mematikan
+      // komposer kalau gagal.
+      if (hasEveryoneMention(body)) void fetchBroadcastQuota();
     } catch (createError) {
       if (createError instanceof Error && createError.name === 'AbortError') return;
       const message = errorMessage(createError, 'Gagal membuat kiriman');
@@ -2646,12 +2657,15 @@ export default function TerasPage({
     };
   }, [broadcastQuota, applyEveryoneMention]);
 
-  // Hanya konteks komposer punya item broadcast `@semua`; kolom komentar
-  // tidak pernah menampilkannya (lihat prop `everyone` di render-nya di
-  // bawah). Cermin dari kondisi render itu supaya navigasi keyboard dan
-  // tampilan selalu sepakat soal item mana yang sedang ada di layar.
-  const mentionEveryoneVisible = mentionState?.context === 'composer'
-    && (mentionItems.length > 0 || 'semua'.startsWith(mentionState.query.toLowerCase()));
+  // Hanya konteks komposer punya item broadcast `@semua`, dan hanya saat
+  // query kosong atau cocok awalan "sem" — satu sumber kebenaran dipakai di
+  // render (item mana yang tampil) DAN keyboard (offset indeks), supaya
+  // keduanya tidak bisa berbeda pendapat soal item mana yang sedang di layar.
+  // Sebelumnya ada kondisi ganda (mentionItems.length > 0 ATAU query cocok)
+  // yang membuat `@semua` merebut posisi 0 untuk query apa pun yang punya
+  // kandidat anggota — Enter pada "@bag" menyisipkan "@semua", bukan "@bagas".
+  const everyoneMatches = mentionState?.context === 'composer'
+    && 'semua'.startsWith(mentionState.query.toLowerCase());
 
   const handleMentionKeyDown = (
     event: KeyboardEvent<HTMLTextAreaElement>,
@@ -2661,7 +2675,7 @@ export default function TerasPage({
     // Ruang indeks tunggal: [item @semua (bila ada)] + mentionItems. Untuk
     // kolom komentar (tanpa broadcast) offset = 0, jadi perilakunya identik
     // dengan sebelum perubahan ini.
-    const everyoneOffset = mentionEveryoneVisible ? 1 : 0;
+    const everyoneOffset = everyoneMatches ? 1 : 0;
     const totalOptions = everyoneOffset + mentionItems.length;
     if (totalOptions === 0) return false;
     if (event.key === 'ArrowDown') {
@@ -2714,24 +2728,31 @@ export default function TerasPage({
     return () => controller.abort();
   }, []);
 
+  // Dipanggil saat mount DAN sesudah kiriman ber-`@semua` sukses terkirim —
+  // tanpa refetch di titik kedua, label picker mangkrak di "1× sehari"
+  // setelah jatah agent hari itu terpakai. Kegagalan harus senyap di kedua
+  // titik panggil: tanpa label, item @semua tetap bisa dicoba dan server
+  // yang menegakkan kuota; refetch yang gagal tidak boleh mematikan komposer.
+  const fetchBroadcastQuota = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const payload = await requestJson<{ unlimited: boolean; used_today: number; remaining: number | null; resets_at: string }>(
+        '/api/community/broadcast-quota',
+        { headers: getAuthHeaders(), signal },
+        'Gagal memeriksa jatah',
+      );
+      if (payload?.data) {
+        setBroadcastQuota({ unlimited: !!payload.data.unlimited, allowed: payload.data.remaining !== 0 });
+      }
+    } catch {
+      /* senyap — tanpa label, item @semua tetap bisa dipakai dan server yang menolak */
+    }
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
-    (async () => {
-      try {
-        const payload = await requestJson<{ unlimited: boolean; used_today: number; remaining: number | null; resets_at: string }>(
-          '/api/community/broadcast-quota',
-          { headers: getAuthHeaders(), signal: controller.signal },
-          'Gagal memeriksa jatah',
-        );
-        if (payload?.data) {
-          setBroadcastQuota({ unlimited: !!payload.data.unlimited, allowed: payload.data.remaining !== 0 });
-        }
-      } catch {
-        /* senyap — tanpa label, item @semua tetap bisa dipakai dan server yang menolak */
-      }
-    })();
+    void fetchBroadcastQuota(controller.signal);
     return () => controller.abort();
-  }, []);
+  }, [fetchBroadcastQuota]);
 
   const deleteComment = async (postId: string, commentId: string) => {
     if (deletingCommentId || !window.confirm('Hapus komentar ini?')) return;
@@ -2887,7 +2908,7 @@ export default function TerasPage({
                   <div className="relative mt-1.5">
                     <MentionHighlightLayer
                       text={composerBody}
-                      memberBySlug={memberBySlug}
+                      memberBySlug={postMemberBySlug}
                       className="p-0 text-[17px] leading-relaxed"
                     />
                     <textarea
@@ -2906,14 +2927,14 @@ export default function TerasPage({
                       placeholder={COMPOSER_PLACEHOLDER}
                       className="relative min-h-[88px] w-full resize-none overflow-hidden bg-transparent p-0 text-[17px] leading-relaxed text-gray-900 outline-none placeholder:text-gray-500 disabled:opacity-60 dark:text-white dark:placeholder:text-slate-400"
                     />
-                    {mentionState?.context === 'composer' && mentionEveryoneVisible && (
+                    {mentionState?.context === 'composer' && (mentionItems.length > 0 || everyoneMatches) && (
                       <MentionAutocomplete
                         items={mentionItems}
                         activeIndex={mentionState.index}
                         onSelect={applyMention}
                         onHoverIndex={index => setMentionState(s => (s ? { ...s, index } : s))}
                         placement="bottom"
-                        everyone={everyoneOption}
+                        everyone={everyoneMatches ? everyoneOption : null}
                       />
                     )}
                   </div>
@@ -3683,7 +3704,7 @@ export default function TerasPage({
                       return displayBody ? (
                         <PostBody
                           body={displayBody}
-                          memberBySlug={memberBySlug}
+                          memberBySlug={postMemberBySlug}
                           reserveMenuSpace={!post.is_system}
                           clamp={!isDetailView}
                           openProfile={openProfile}
