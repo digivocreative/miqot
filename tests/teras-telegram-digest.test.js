@@ -188,6 +188,43 @@ test('dua pemilik dengan masing-masing kiriman terisolasi satu sama lain', () =>
   assert.match(msg2.text, /Budi/, 'pesan owner-2 harus sebutkan aktor Budi, bukan tercampur Rina');
 });
 
+test('latest_at pada reaksi adalah timestamp terbaru dalam grup, bukan baris pertama atau terakhir diproses', () => {
+  // Sengaja tidak berurutan secara kronologis: baris tertua duluan, baris
+  // terbaru di TENGAH, baris terakhir yang diproses bukan yang terbaru.
+  // Implementasi naif "baris terakhir menang" akan menghasilkan 10:03 (baris
+  // terakhir dalam array), bukan 10:05 (baris terbaru sesungguhnya) — dan
+  // implementasi naif "baris pertama menang" akan menghasilkan 10:01.
+  const reactions = [
+    reaction({ actor_agent_id: 'a1', actor_name: 'Rina', created_at: '2026-07-20T10:01:00Z' }),
+    reaction({ actor_agent_id: 'a2', actor_name: 'Budi', created_at: '2026-07-20T10:05:00Z' }),
+    reaction({ actor_agent_id: 'a3', actor_name: 'Citra', created_at: '2026-07-20T10:03:00Z' }),
+  ];
+  const messages = buildTerasDigestMessages({ comments: [], reactions, mentions: [], owners: [owner()], origin: ORIGIN });
+
+  assert.equal(messages.length, 1);
+  assert.equal(
+    messages[0].latest_at,
+    '2026-07-20T10:05:00Z',
+    'latest_at harus timestamp terbaru dalam grup, bukan baris pertama (10:01) atau baris terakhir diproses (10:03)',
+  );
+});
+
+test('latest_at pada komentar adalah timestamp terbaru dalam grup, bukan baris pertama atau terakhir diproses', () => {
+  const comments = [
+    comment({ id: 'c1', actor_agent_id: 'a1', created_at: '2026-07-20T10:02:00Z' }),
+    comment({ id: 'c2', actor_agent_id: 'a2', created_at: '2026-07-20T10:07:00Z' }),
+    comment({ id: 'c3', actor_agent_id: 'a3', created_at: '2026-07-20T10:04:00Z' }),
+  ];
+  const messages = buildTerasDigestMessages({ comments, reactions: [], mentions: [], owners: [owner()], origin: ORIGIN });
+
+  assert.equal(messages.length, 1);
+  assert.equal(
+    messages[0].latest_at,
+    '2026-07-20T10:07:00Z',
+    'latest_at harus timestamp terbaru dalam grup, bukan baris pertama (10:02) atau baris terakhir diproses (10:04)',
+  );
+});
+
 test('aktor yang sama muncul berkali-kali dihitung sebagai satu dalam N lainnya', () => {
   const reactions = [
     reaction({ post_id: 'p1', actor_agent_id: 'a1', actor_name: 'Rina', created_at: '2026-07-20T10:00:00Z' }),

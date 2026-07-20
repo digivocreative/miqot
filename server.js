@@ -6576,6 +6576,17 @@ async function runTerasTelegramDigestSweep() {
   if (commentResult.error) throw commentResult.error;
   if (reactionResult.error) throw reactionResult.error;
 
+  // Diagnostik: kalau query menyentuh batas 500, ada baris yang tidak
+  // terambil sama sekali sweep ini — operator perlu tahu sistem sudah
+  // tumbuh melewati batas ini (lihat catatan watermark per-owner di bawah
+  // untuk kenapa ini tidak sampai menghilangkan notifikasi).
+  if ((commentResult.data || []).length === 500) {
+    console.warn('[teras-digest] query komentar mencapai batas 500 baris, kemungkinan ada baris yang terpotong');
+  }
+  if ((reactionResult.data || []).length === 500) {
+    console.warn('[teras-digest] query reaksi mencapai batas 500 baris, kemungkinan ada baris yang terpotong');
+  }
+
   const comments = (commentResult.data || []).map(row => ({
     id: row.id,
     post_id: row.post_id,
@@ -6631,7 +6642,16 @@ async function runTerasTelegramDigestSweep() {
   });
   if (messages.length === 0) return { sent: 0, owners: owners.length };
 
-  const deliveredOwners = new Set();
+  // Watermark per-owner: tiap owner naik ke maksimum latest_at dari
+  // pesan-pesannya sendiri yang benar-benar terkirim, BUKAN ke cutoffIso
+  // global. Kedua query di atas terurut created_at ASCENDING dan dibatasi
+  // .limit(500) — kalau terpotong, baris yang hilang selalu yang PALING BARU
+  // (created_at >= baris terakhir yang terambil). Watermark per-owner tidak
+  // pernah melompati baris tersebut karena nilainya dibatasi oleh baris yang
+  // benar-benar diproses untuk owner itu. Memakai cutoffIso di sini akan
+  // membuat baris yang terpotong itu dilewati permanen oleh watermark check
+  // di lib/teras-telegram-digest.js.
+  const deliveredOwnerWatermarks = new Map();
   for (const message of messages) {
     // Isolasi per pesan: satu chat_id yang memblokir bot tidak boleh
     // membatalkan pengiriman ke agen lain. Ini persis kegagalan yang dulu
@@ -6639,7 +6659,10 @@ async function runTerasTelegramDigestSweep() {
     try {
       const delivered = await sendTelegramMessageDirect(message.chat_id, message.text);
       if (delivered) {
-        deliveredOwners.add(message.agent_id);
+        const prevWatermark = deliveredOwnerWatermarks.get(message.agent_id);
+        if (!prevWatermark || new Date(message.latest_at).getTime() > new Date(prevWatermark).getTime()) {
+          deliveredOwnerWatermarks.set(message.agent_id, message.latest_at);
+        }
       } else {
         console.warn('[teras-digest] Telegram menolak pesan ke', message.agent_id);
       }
@@ -6648,7 +6671,7 @@ async function runTerasTelegramDigestSweep() {
     }
   }
 
-  for (const ownerId of deliveredOwners) {
+  for (const [ownerId, watermark] of deliveredOwnerWatermarks) {
     try {
       const { data: fresh, error: freshError } = await supabase
         .from('agents')
@@ -6656,7 +6679,7 @@ async function runTerasTelegramDigestSweep() {
         .eq('id', ownerId)
         .single();
       if (freshError) throw freshError;
-      const merged = { ...(fresh?.notification_prefs || {}), [TERAS_TG_SENT_AT_KEY]: cutoffIso };
+      const merged = { ...(fresh?.notification_prefs || {}), [TERAS_TG_SENT_AT_KEY]: watermark };
       const { error: updateError } = await supabase
         .from('agents')
         .update({ notification_prefs: merged })
