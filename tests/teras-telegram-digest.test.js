@@ -146,3 +146,54 @@ test('tiga balasan pada satu kiriman jadi satu pesan berjumlah', () => {
   assert.equal(messages.length, 1);
   assert.match(messages[0].text, /3 balasan baru/);
 });
+
+test('dua pemilik dengan masing-masing kiriman terisolasi satu sama lain', () => {
+  const owner1 = owner({ id: 'owner-1', chat_id: '12345' });
+  const owner2 = owner({ id: 'owner-2', chat_id: '67890' });
+  const messages = buildTerasDigestMessages({
+    comments: [],
+    reactions: [
+      reaction({ post_id: 'p1', owner_agent_id: 'owner-1', actor_agent_id: 'a1', actor_name: 'Rina' }),
+      reaction({ post_id: 'p2', owner_agent_id: 'owner-2', actor_agent_id: 'a2', actor_name: 'Budi' }),
+    ],
+    mentions: [],
+    owners: [owner1, owner2],
+    origin: ORIGIN,
+  });
+
+  assert.equal(messages.length, 2, 'harus ada dua pesan terpisah');
+
+  const msg1 = messages.find(m => m.post_id === 'p1');
+  const msg2 = messages.find(m => m.post_id === 'p2');
+
+  assert.ok(msg1, 'harus ada pesan untuk p1');
+  assert.ok(msg2, 'harus ada pesan untuk p2');
+
+  assert.equal(msg1.agent_id, 'owner-1', 'pesan p1 harus ke agent owner-1');
+  assert.equal(msg1.chat_id, '12345', 'pesan p1 harus ke chat_id owner-1');
+  assert.match(msg1.text, /Rina/, 'pesan p1 harus sebutkan aktor Rina');
+
+  assert.equal(msg2.agent_id, 'owner-2', 'pesan p2 harus ke agent owner-2');
+  assert.equal(msg2.chat_id, '67890', 'pesan p2 harus ke chat_id owner-2');
+  assert.match(msg2.text, /Budi/, 'pesan p2 harus sebutkan aktor Budi');
+});
+
+test('aktor yang sama muncul berkali-kali dihitung sebagai satu dalam N lainnya', () => {
+  const reactions = [
+    reaction({ post_id: 'p1', actor_agent_id: 'a1', actor_name: 'Rina', created_at: '2026-07-20T10:00:00Z' }),
+    reaction({ post_id: 'p1', actor_agent_id: 'a1', actor_name: 'Rina', created_at: '2026-07-20T10:01:00Z' }),
+    reaction({ post_id: 'p1', actor_agent_id: 'a2', actor_name: 'Budi', created_at: '2026-07-20T10:02:00Z' }),
+    reaction({ post_id: 'p1', actor_agent_id: 'a3', actor_name: 'Citra', created_at: '2026-07-20T10:03:00Z' }),
+  ];
+  const messages = buildTerasDigestMessages({
+    comments: [],
+    reactions,
+    mentions: [],
+    owners: [owner()],
+    origin: ORIGIN,
+  });
+
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].type, 'reaction');
+  assert.match(messages[0].text, /dan 2 lainnya/, 'harus sebutkan 2 lainnya bukan 3, karena a1 hanya dihitung sekali');
+});
