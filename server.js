@@ -6619,10 +6619,12 @@ async function runTerasTelegramDigestSweep() {
     // -1ms: baris lain yang berbagi milidetik PERSIS dengan baris batas belum
     // tentu ikut terambil (order dalam satu milidetik tidak dijamin stabil di
     // Postgres). Menggeser plafon mundur 1ms membuat baris semilidetik itu
-    // tetap dianggap "belum diproses" oleh watermark, bukan "sudah". Akibatnya
-    // sweep berikutnya bisa mengirim ulang grup pada milidetik itu (duplikat)
-    // — itu risiko yang sengaja diambil: duplikat bisa dipulihkan (agen lihat
-    // dua kali), notifikasi yang diam-diam hilang tidak bisa.
+    // tetap dianggap "belum diproses" oleh watermark, bukan "sudah". Kalau
+    // backlog tetap ≥500 antar sweep, batas truncation tetap sama — pemilik
+    // baris batas dijepit ke boundary-1ms tiap sweep dan terima duplikat
+    // digest sekali per menit, sampai baris age out dari jendela 24-jam.
+    // Risiko sengaja: duplikat bisa dipulihkan (agen lihat dua kali), notifikasi
+    // hilang diam-diam tidak bisa.
     return new Date(rows[rows.length - 1].created_at).getTime() - 1;
   }
   const commentCeilingMs = fetchCeilingMs(comments, 500);
