@@ -188,3 +188,25 @@ test('penulis tidak menyebut dirinya sendiri', () => {
   );
   assert.deepEqual(mentions, []);
 });
+
+test('iterator single-use (Map.keys) diterima di seluruh segmen utas', () => {
+  const bySlug = new Map([['budi', 1], ['siti', 2]]);
+  const mentions = collectThreadMentions(
+    [
+      { postId: ID_A, body: 'halo @budi' },
+      { postId: ID_B, body: 'halo @siti' },
+    ],
+    bySlug.keys(),
+    'nikita',
+    10,
+  );
+  assert.deepEqual(
+    mentions,
+    [
+      { slug: 'budi', postId: ID_A },
+      { slug: 'siti', postId: ID_B },
+    ],
+    'iterator exhausted pada segmen 1 akan mencegah mention segmen 2+ ditemukan; ' +
+    'memberSlugs harus di-materialize menjadi Set sebelum loop agar tetap iterabel',
+  );
+});
