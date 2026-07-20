@@ -156,9 +156,15 @@ Komponen `TerasNotificationSettings` memasang tombol gerigi di dua header
 gerbang `terasEnabled`, dengan tiga varian ukuran yang sama seperti
 `NotificationBell` (`compact` / `header` / `home`).
 
-Panelnya di-portal dan memakai ulang penjepitan tepi layar `measurePanelAnchor`
-milik lonceng. Logika itu diangkat ke helper bersama alih-alih disalin — aturan
-posisinya sudah teruji dan tidak boleh punya dua versi.
+Permukaannya adalah **bottom sheet selebar layar**, bukan panel mengambang seperti
+lonceng. Alasannya terukur: panel mengambang 330 px menyisakan 140 px untuk label
+di layar 360 px — "Pengumuman @semua" melipat dan keterangannya menyesakkan. Sheet
+selebar layar memberi 174 px, cukup satu baris untuk judul dan keterangan, dan
+lebih mudah dijangkau satu tangan.
+
+Konsekuensinya `measurePanelAnchor` milik lonceng tidak dipakai di sini — sheet
+tidak perlu penjangkaran ke tombolnya. Tidak ada helper bersama yang perlu
+diangkat.
 
 Perilaku:
 
@@ -168,7 +174,9 @@ Perilaku:
   toast. Tidak ada tombol "Simpan".
 - Satu baris penjelas: komentar dan reaksi dikirim terkumpul tiap 10 menit.
 
-Rancangan visualnya digarap terpisah di Pencil Dev.
+Rancangan visualnya ada di `~/Downloads/teras.pen`, empat layar: bottom sheet
+terang (390 px), uji lebar sempit (360 px), varian gelap, dan keadaan Telegram
+belum tersambung.
 
 ## Pengujian
 
