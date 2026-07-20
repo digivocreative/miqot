@@ -76,3 +76,28 @@ test('server memakai guard skema broadcast, bukan menembakkan galat mentah', () 
   assert.match(source, /Migrasi @semua Teras belum diterapkan/,
     'pesan 503 pra-migrasi harus persis seperti spec');
 });
+
+test('POST kiriman menegakkan kuota @semua sebelum menyimpan', () => {
+  const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  const handlerStart = source.indexOf("app.post('/api/community/posts'");
+  assert.ok(handlerStart > 0, 'handler POST kiriman harus ada');
+  const handler = source.slice(handlerStart, handlerStart + 12000);
+
+  assert.match(handler, /hasEveryoneMention\(body\)/,
+    'token dibaca dari body server, bukan dari flag kiriman klien');
+  assert.match(handler, /Jatah @semua hari ini sudah dipakai\. Coba lagi besok\./,
+    'penolakan kuota memakai kalimat spec');
+  assert.match(handler, /mentions_everyone/,
+    'kolom tanda ikut disisipkan');
+
+  const quotaCheck = handler.indexOf('Jatah @semua hari ini sudah dipakai');
+  const insert = handler.indexOf('.from(\'community_posts\')\n        .insert(');
+  assert.ok(quotaCheck > 0 && (insert === -1 || quotaCheck < insert),
+    'kuota diperiksa sebelum insert, bukan sesudah');
+});
+
+test('endpoint kuota broadcast tersedia untuk komposer', () => {
+  const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  assert.match(source, /app\.get\('\/api\/community\/broadcast-quota'/);
+  assert.match(source, /async function loadBroadcastQuota\(agent\)/);
+});

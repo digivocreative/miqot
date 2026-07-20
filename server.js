@@ -73,6 +73,11 @@ import {
 } from './lib/community-notifications.js';
 import { isTerasShortCode, communityShortCodeBounds, terasPreviewExcerpt } from './lib/teras-share.js';
 import {
+  hasEveryoneMention,
+  jakartaDayStartIso,
+  resolveBroadcastQuota,
+} from './lib/community-broadcast.js';
+import {
   isBlockedAddress,
   isAllowedPreviewUrl,
   parseOpenGraph,
@@ -5268,6 +5273,49 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
   }
 });
 
+/**
+ * Berapa kali agent sudah broadcast hari ini (kalender WIB). Kiriman yang sudah
+ * dihapus IKUT dihitung — kalau tidak, hapus-lalu-kirim-lagi jadi jatah tak
+ * terbatas. Kolom yang belum dimigrasi diperlakukan sebagai "belum pernah",
+ * jadi endpoint ini tidak pernah menggagalkan komposer.
+ */
+async function loadBroadcastQuota(agent) {
+  const dayStart = jakartaDayStartIso(new Date());
+  let usedToday = 0;
+  if (agent.role !== 'admin') {
+    const { count, error } = await supabase
+      .from('community_posts')
+      .select('id', { count: 'exact', head: true })
+      .eq('agent_id', agent.id)
+      .eq('mentions_everyone', true)
+      .gte('created_at', dayStart);
+    if (error && !isCommunityBroadcastSchemaMissing(error)) throw error;
+    usedToday = error ? 0 : (count || 0);
+  }
+  const quota = resolveBroadcastQuota({ role: agent.role, usedToday });
+  return {
+    unlimited: quota.unlimited,
+    allowed: quota.allowed,
+    remaining: quota.unlimited ? null : quota.remaining,
+    used_today: usedToday,
+    // Jatah berikutnya terbuka pada tengah malam WIB setelah dayStart.
+    resets_at: new Date(new Date(dayStart).getTime() + 24 * 60 * 60 * 1000).toISOString(),
+  };
+}
+
+app.get('/api/community/broadcast-quota', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+    const quota = await loadBroadcastQuota(agent);
+    res.json({ success: true, data: quota });
+  } catch (err) {
+    console.error('[community] broadcast quota error:', err);
+    res.status(500).json({ error: 'Gagal memeriksa jatah @semua' });
+  }
+});
+
 app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' }), async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
@@ -5282,6 +5330,17 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
     const clientId = req.body?.client_id;
     if (clientId !== undefined && !isCommunityUuid(clientId)) {
       return res.status(400).json({ error: 'ID kiriman tidak valid' });
+    }
+
+    // Broadcast @semua: token dibaca dari body oleh server — klien tidak
+    // dipercaya menandai kirimannya sendiri. Kuota diperiksa SEBELUM insert
+    // supaya penolakan tidak meninggalkan kiriman setengah jadi.
+    const mentionsEveryone = hasEveryoneMention(body);
+    if (mentionsEveryone) {
+      const quota = await loadBroadcastQuota(agent);
+      if (!quota.allowed) {
+        return res.status(403).json({ error: 'Jatah @semua hari ini sudah dipakai. Coba lagi besok.' });
+      }
     }
 
     const quotedPostIdRaw = req.body?.quoted_post_id;
@@ -5351,6 +5410,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       photo_url: photoUrl,
       is_system: false,
       ...(quotedPostId ? { quoted_post_id: quotedPostId } : {}),
+      ...(mentionsEveryone ? { mentions_everyone: true } : {}),
     };
     let includeMediaColumn = true;
     let includeObsoleteType = false;
@@ -5386,6 +5446,9 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       }
       if (quotedPostId && isCommunityQuoteSchemaMissing(insertError)) {
         return res.status(503).json({ error: 'Migrasi quote Teras belum diterapkan' });
+      }
+      if (mentionsEveryone && isCommunityBroadcastSchemaMissing(insertError)) {
+        return res.status(503).json({ error: COMMUNITY_BROADCAST_MIGRATION_ERROR });
       }
       if (includeLinkPreview && isCommunityLinkPreviewSchemaMissing(insertError)) {
         includeLinkPreview = false;
