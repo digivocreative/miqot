@@ -9,6 +9,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
@@ -693,12 +694,15 @@ function PostBody({
   reserveMenuSpace,
   clamp,
   openProfile,
+  trailing,
 }: {
   body: string;
   memberBySlug: Map<string, MentionMember>;
   reserveMenuSpace: boolean;
   clamp: boolean;
   openProfile?: (slug: string) => void;
+  /** Disisipkan inline di ujung paragraf terakhir (mis. chip "1/N" utas). */
+  trailing?: ReactNode;
 }) {
   const [openedByUser, setOpenedByUser] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
@@ -763,6 +767,7 @@ function PostBody({
           }}
         >
           <MentionText body={paragraph} memberBySlug={memberBySlug} linkify onOpenProfile={openProfile} />
+          {trailing && index === paragraphs.length - 1 ? trailing : null}
         </span>
       ))}
     </>
@@ -4102,6 +4107,19 @@ export default function TerasPage({
                       // Dihitung di titik panggil, bukan di dalam PostBody: PostBody
                       // memakai useLayoutEffect/useState untuk mengukur tinggi lipatan,
                       // early-return di dalamnya akan melanggar urutan hook React.
+                      // Chip "1/N" ala Threads: mengekor inline di ujung teks,
+                      // bukan blok di bawahnya. Feed menampilkan segmen pertama,
+                      // jadi posisinya selalu 1 dari total.
+                      const threadChip = !isDetailView && (post.thread_count || 0) > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => openPostDetail(post.id)}
+                          aria-label={`Utas — kiriman 1 dari ${post.thread_count}, buka utas`}
+                          className="ml-1.5 inline-flex translate-y-[1px] items-center rounded-full bg-gray-100 px-2 py-[3px] align-middle text-[11px] font-semibold leading-none tabular-nums text-gray-500 ring-1 ring-inset ring-gray-200/80 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-100"
+                        >
+                          1/{post.thread_count}
+                        </button>
+                      ) : null;
                       return displayBody ? (
                         <PostBody
                           body={displayBody}
@@ -4109,8 +4127,9 @@ export default function TerasPage({
                           reserveMenuSpace={!post.is_system}
                           clamp={!isDetailView}
                           openProfile={openProfile}
+                          trailing={threadChip}
                         />
-                      ) : null;
+                      ) : threadChip;
                     })()}
 
                     {postMedia.length > 0 && (
@@ -4142,21 +4161,6 @@ export default function TerasPage({
 
                     {post.link_preview && postMedia.length === 0 && !post.quoted_post && (
                       <LinkPreviewCard preview={post.link_preview} />
-                    )}
-
-                    {!isDetailView && (post.thread_count || 0) > 1 && (
-                      // Chip "1/N" ala Threads: feed menampilkan segmen pertama,
-                      // jadi posisinya selalu 1 dari total. Tetap tombol (bukan
-                      // span) supaya keyboard bisa membuka utas, konsisten dengan
-                      // tombol aksi kartu lain.
-                      <button
-                        type="button"
-                        onClick={() => openPostDetail(post.id)}
-                        aria-label={`Utas — kiriman 1 dari ${post.thread_count}, buka utas`}
-                        className="mt-1.5 inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums leading-none text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                      >
-                        1/{post.thread_count}
-                      </button>
                     )}
 
                     <div className="relative -ml-2 mt-1 flex items-center gap-1">
