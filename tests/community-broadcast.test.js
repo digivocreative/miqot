@@ -99,5 +99,5 @@ test('POST kiriman menegakkan kuota @semua sebelum menyimpan', () => {
 test('endpoint kuota broadcast tersedia untuk komposer', () => {
   const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
   assert.match(source, /app\.get\('\/api\/community\/broadcast-quota'/);
-  assert.match(source, /async function loadBroadcastQuota\(agent\)/);
+  assert.match(source, /async function loadBroadcastQuota\(/);
 });

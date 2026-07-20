@@ -5311,7 +5311,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
  * punya konsep client_id, tetap memanggil loadBroadcastQuota(agent) apa
  * adanya dan tidak pernah mengecualikan apa pun.
  */
-async function loadBroadcastQuotaExcluding(agent, excludePostId) {
+async function loadBroadcastQuota(agent, { excludePostId = null } = {}) {
   const dayStart = jakartaDayStartIso(new Date());
   let usedToday = 0;
   if (agent.role !== 'admin') {
@@ -5335,10 +5335,6 @@ async function loadBroadcastQuotaExcluding(agent, excludePostId) {
     // Jatah berikutnya terbuka pada tengah malam WIB setelah dayStart.
     resets_at: new Date(new Date(dayStart).getTime() + 24 * 60 * 60 * 1000).toISOString(),
   };
-}
-
-async function loadBroadcastQuota(agent) {
-  return loadBroadcastQuotaExcluding(agent, null);
 }
 
 app.get('/api/community/broadcast-quota', dbLoadShedGuard, authMiddleware, async (req, res) => {
@@ -5375,7 +5371,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
     // supaya penolakan tidak meninggalkan kiriman setengah jadi.
     const mentionsEveryone = hasEveryoneMention(body);
     if (mentionsEveryone) {
-      const quota = await loadBroadcastQuotaExcluding(agent, clientId || null);
+      const quota = await loadBroadcastQuota(agent, { excludePostId: clientId || null });
       if (!quota.allowed) {
         return res.status(403).json({ error: 'Jatah @semua hari ini sudah dipakai. Coba lagi besok.' });
       }
