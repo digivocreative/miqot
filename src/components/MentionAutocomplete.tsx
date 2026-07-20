@@ -59,14 +59,20 @@ export function MentionAutocomplete({
   onSelect,
   onHoverIndex,
   placement = 'bottom',
+  everyone,
 }: {
   items: MentionMember[];
   activeIndex: number;
   onSelect: (member: MentionMember) => void;
   onHoverIndex: (index: number) => void;
   placement?: 'top' | 'bottom';
+  /**
+   * Item broadcast `@semua`. Hanya diisi komposer kiriman — kolom komentar
+   * membiarkannya undefined karena di sana `@semua` tidak melakukan apa pun.
+   */
+  everyone?: { label: string; disabled: boolean; onSelect: () => void } | null;
 }) {
-  if (!items.length) return null;
+  if (!items.length && !everyone) return null;
   const position = placement === 'top' ? 'bottom-full mb-1' : 'top-full mt-1';
   return (
     <div
@@ -74,6 +80,33 @@ export function MentionAutocomplete({
       aria-label="Sebut anggota"
       className={`absolute left-0 z-30 max-h-56 w-[min(20rem,100%)] overflow-y-auto overscroll-contain rounded-2xl border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900 ${position}`}
     >
+      {everyone && (
+        <button
+          type="button"
+          role="option"
+          aria-selected={false}
+          aria-disabled={everyone.disabled}
+          onMouseDown={event => {
+            event.preventDefault();
+            if (!everyone.disabled) everyone.onSelect();
+          }}
+          className={`flex w-full items-center gap-2.5 border-b border-gray-100 px-3 py-1.5 text-left transition-colors dark:border-slate-700 ${
+            everyone.disabled ? 'opacity-50' : 'hover:bg-gray-50 dark:hover:bg-slate-800/60'
+          }`}
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[11px] font-bold text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
+            @
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13.5px] font-semibold text-gray-900 dark:text-white">
+              @semua
+            </span>
+            <span className="block truncate text-[11.5px] text-gray-500 dark:text-slate-400">
+              beri tahu semua agent · {everyone.label}
+            </span>
+          </span>
+        </button>
+      )}
       {items.map((member, index) => {
         const active = index === activeIndex;
         return (

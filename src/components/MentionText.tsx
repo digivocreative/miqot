@@ -23,7 +23,8 @@ function renderMentionPill(
   onOpenProfile?: (slug: string) => void,
 ) {
   const className = 'font-semibold text-emerald-600 dark:text-emerald-400';
-  if (!onOpenProfile) {
+  // `@semua` bukan agent — tidak ada profil untuk dibuka.
+  if (!onOpenProfile || segment.slug === 'semua') {
     return (
       <span key={key} className={className}>
         @{segment.name}

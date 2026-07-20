@@ -55,6 +55,7 @@ import {
   rankMentionCandidates,
   type MentionMember,
 } from '../lib/communityMentions';
+import { broadcastQuotaLabel, hasEveryoneMention } from '../../lib/community-broadcast.js';
 
 type ReactionType = 'suka' | 'selamat' | 'aamiin';
 type CommunityMediaType = 'image' | 'video';
@@ -1108,14 +1109,20 @@ export default function TerasPage({
   // jadi mode profil butuh membedakan "belum tahu" (skeleton) dari "sudah tahu
   // dan slug ini memang tidak ada di roster" (header fallback dari slug).
   const [membersLoading, setMembersLoading] = useState(true);
+  // Jatah @semua hari ini. Hanya untuk label picker — server tetap otoritasnya.
+  const [broadcastQuota, setBroadcastQuota] = useState<{ unlimited: boolean; allowed: boolean } | null>(null);
   // One popover at a time. context = 'composer' or a postId (comment bar).
   const [mentionState, setMentionState] = useState<
     { context: string; query: string; start: number; index: number; placement: 'top' | 'bottom' } | null
   >(null);
-  const memberBySlug = useMemo(
-    () => new Map(mentionMembers.map(member => [member.slug.toLowerCase(), member])),
-    [mentionMembers],
-  );
+  const memberBySlug = useMemo(() => {
+    const map = new Map(mentionMembers.map(member => [member.slug.toLowerCase(), member]));
+    // `@semua` bukan anggota, tapi harus tampil sebagai pill di isi kiriman.
+    // Entri sintetis ini membuat parser mention yang sudah ada mengenalinya
+    // tanpa aturan khusus di tiga tempat render.
+    map.set('semua', { slug: 'semua', name: 'semua', photo: null });
+    return map;
+  }, [mentionMembers]);
   const memberSlugs = useMemo(() => mentionMembers.map(member => member.slug), [mentionMembers]);
 
   // Server (/api/community/feed) lowercase-kan agent query param dan slug
@@ -2608,6 +2615,37 @@ export default function TerasPage({
     });
   }, [updateCommentInput]);
 
+  const applyEveryoneMention = useCallback(() => {
+    setMentionState(state => {
+      if (!state) return null;
+      const element = getMentionTextarea(state.context);
+      const currentValue = element ? element.value : '';
+      const caret = element?.selectionStart ?? currentValue.length;
+      const { text, caret: nextCaret } = applyMentionSelection(currentValue, state.start, caret, 'semua');
+      composerRequestIdRef.current = null;
+      setComposerBody(text);
+      requestAnimationFrame(() => {
+        const node = getMentionTextarea('composer');
+        if (!node) return;
+        node.focus();
+        node.setSelectionRange(nextCaret, nextCaret);
+        node.style.height = 'auto';
+        node.style.height = `${node.scrollHeight}px`;
+      });
+      return null;
+    });
+  }, []);
+
+  const everyoneOption = useMemo(() => {
+    const quota = broadcastQuota || { unlimited: false, allowed: true };
+    const label = broadcastQuotaLabel({ unlimited: quota.unlimited, allowed: quota.allowed, remaining: quota.allowed ? 1 : 0 });
+    return {
+      label,
+      disabled: !quota.unlimited && !quota.allowed,
+      onSelect: () => applyEveryoneMention(),
+    };
+  }, [broadcastQuota, applyEveryoneMention]);
+
   const handleMentionKeyDown = (
     event: KeyboardEvent<HTMLTextAreaElement>,
     context: string,
@@ -2652,6 +2690,25 @@ export default function TerasPage({
         // Selesai (sukses maupun gagal): mode profil berhenti menampilkan
         // skeleton identitas dan jatuh ke header fallback berbasis slug.
         if (!controller.signal.aborted) setMembersLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const payload = await requestJson<{ unlimited: boolean; used_today: number; remaining: number | null; resets_at: string }>(
+          '/api/community/broadcast-quota',
+          { headers: getAuthHeaders(), signal: controller.signal },
+          'Gagal memeriksa jatah',
+        );
+        if (payload?.data) {
+          setBroadcastQuota({ unlimited: !!payload.data.unlimited, allowed: payload.data.remaining !== 0 });
+        }
+      } catch {
+        /* senyap — tanpa label, item @semua tetap bisa dipakai dan server yang menolak */
       }
     })();
     return () => controller.abort();
@@ -2830,13 +2887,14 @@ export default function TerasPage({
                       placeholder={COMPOSER_PLACEHOLDER}
                       className="relative min-h-[88px] w-full resize-none overflow-hidden bg-transparent p-0 text-[17px] leading-relaxed text-gray-900 outline-none placeholder:text-gray-500 disabled:opacity-60 dark:text-white dark:placeholder:text-slate-400"
                     />
-                    {mentionState?.context === 'composer' && (
+                    {mentionState?.context === 'composer' && (mentionItems.length > 0 || 'semua'.startsWith(mentionState.query.toLowerCase())) && (
                       <MentionAutocomplete
                         items={mentionItems}
                         activeIndex={mentionState.index}
                         onSelect={applyMention}
                         onHoverIndex={index => setMentionState(s => (s ? { ...s, index } : s))}
                         placement="bottom"
+                        everyone={everyoneOption}
                       />
                     )}
                   </div>
