@@ -96,6 +96,8 @@ interface CommunityPost {
   quoted_post?: QuotedPostPreview | null;
   link_preview?: LinkPreview | null;
   is_own: boolean;
+  /** Total segmen utas ini; 0 atau undefined berarti kiriman biasa. */
+  thread_count?: number;
 }
 
 interface CommunityMedia {
@@ -3964,6 +3966,16 @@ export default function TerasPage({
 
                     {post.link_preview && postMedia.length === 0 && !post.quoted_post && (
                       <LinkPreviewCard preview={post.link_preview} />
+                    )}
+
+                    {!isDetailView && (post.thread_count || 0) > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => openPostDetail(post.id)}
+                        className="mt-1.5 block text-[12.5px] font-bold text-emerald-600 hover:underline dark:text-emerald-400"
+                      >
+                        Utas · {post.thread_count} kiriman
+                      </button>
                     )}
 
                     <div className="relative -ml-2 mt-1 flex items-center gap-1">
