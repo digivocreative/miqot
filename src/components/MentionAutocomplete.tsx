@@ -19,6 +19,35 @@ function Avatar({ member }: { member: MentionMember }) {
   );
 }
 
+/** Room the picker wants: max-h-56 (224px) plus its 4px offset from the field. */
+export const MENTION_PICKER_SPACE = 228;
+
+/**
+ * Pick the side the picker opens to, measured against the nearest clipping
+ * boxes rather than the window: the comment bar lives inside the dashboard
+ * scroller, so "there is room above" is only true within that scroller.
+ * Opening into a clipped area is what cuts the list in half.
+ */
+export function resolveMentionPlacement(element: HTMLElement): 'top' | 'bottom' {
+  const anchor = element.getBoundingClientRect();
+  let clipTop = 0;
+  let clipBottom = window.innerHeight;
+  let node = element.parentElement;
+  while (node && node !== document.body) {
+    const style = getComputedStyle(node);
+    if (style.overflowX !== 'visible' || style.overflowY !== 'visible') {
+      const rect = node.getBoundingClientRect();
+      clipTop = Math.max(clipTop, rect.top);
+      clipBottom = Math.min(clipBottom, rect.bottom);
+    }
+    node = node.parentElement;
+  }
+  const above = anchor.top - clipTop;
+  const below = clipBottom - anchor.bottom;
+  if (above >= MENTION_PICKER_SPACE) return 'top';
+  return below > above ? 'bottom' : 'top';
+}
+
 /**
  * Presentational @mention picker. Anchors to its relatively-positioned parent;
  * the owner decides placement (above the comment bar, below the composer). All

@@ -101,6 +101,7 @@ function createCommunityApi({
   nextCursor = null,
   morePages = new Map(),
   comments = {},
+  members = [],
   onRequest,
 } = {}) {
   const api = {
@@ -108,6 +109,7 @@ function createCommunityApi({
     posts: clone(posts),
     nextCursor,
     morePages,
+    members: clone(members),
     comments: new Map(Object.entries(comments).map(([postId, value]) => [postId, clone(value)])),
     requests: [],
     createSequence: 0,
@@ -154,6 +156,11 @@ function createCommunityApi({
         data: clone(api.posts),
         next_cursor: api.nextCursor,
       });
+      return;
+    }
+
+    if (record.method === 'GET' && record.pathname === '/api/community/members') {
+      await responseJson(route, { success: true, data: clone(api.members) });
       return;
     }
 
@@ -2155,6 +2162,74 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.match(shared[0].url, /\/teras\/9fc969b0$/);
       // A completed native share closes the dialog.
       await dialog.waitFor({ state: 'detached' });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('daftar mention di kolom balasan tidak terpotong panel komentar', { timeout: 30_000 }, async () => {
+    const post = makePost({ id: 'mention-post', body: 'Uji mention balasan', comment_count: 1 });
+    const api = createCommunityApi({
+      posts: [post],
+      comments: { 'mention-post': [makeComment({ body: 'Balasan pertama' })] },
+      members: [
+        { slug: 'bagas', name: 'Bagas', photo: null, phone: null },
+        { slug: 'agent-lain', name: 'Agent Lain', photo: null, phone: null },
+        { slug: 'rahmah', name: 'Rahmah Utami', photo: null, phone: null },
+      ],
+    });
+    const app = await openApp({ api, viewport: { width: 670, height: 780 } });
+    try {
+      const article = app.page.locator('article').filter({ hasText: 'Uji mention balasan' });
+      await article.getByRole('button', { name: 'Komentari', exact: true }).click();
+      const input = article.locator('textarea[id^="teras-comment-input-"]').first();
+      await input.waitFor();
+      // Let the panel's open animation settle: it clips while the height moves.
+      await app.page.waitForFunction(() => {
+        const panel = document.querySelector('[id^="teras-comments-"]');
+        return !!panel && getComputedStyle(panel).opacity === '1';
+      }, null, { timeout: 5_000 });
+      await input.click();
+      await input.type('@');
+
+      const listbox = app.page.getByRole('listbox', { name: 'Sebut anggota' });
+      await listbox.waitFor({ timeout: 10_000 });
+
+      // The picker is absolutely positioned inside the comment panel, which
+      // animates its height and therefore has to clip while opening. Anything
+      // that still clips once the panel is open cuts the picker in half.
+      const clipping = await listbox.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        let clip = { top: -Infinity, bottom: Infinity };
+        let culprit = null;
+        let node = element.parentElement;
+        while (node && node !== document.body) {
+          const style = getComputedStyle(node);
+          if (style.overflowY !== 'visible' || style.overflowX !== 'visible') {
+            const rect = node.getBoundingClientRect();
+            if (rect.top > clip.top) { clip = { ...clip, top: rect.top }; }
+            if (rect.bottom < clip.bottom) { clip = { ...clip, bottom: rect.bottom }; }
+            if (box.top < rect.top - 0.5 || box.bottom > rect.bottom + 0.5) {
+              culprit = `${node.tagName.toLowerCase()}.${String(node.className || '').split(' ').slice(0, 3).join('.')}`;
+            }
+          }
+          node = node.parentElement;
+        }
+        return {
+          hiddenAbove: Math.max(0, Math.round(clip.top - box.top)),
+          hiddenBelow: Math.max(0, Math.round(box.bottom - clip.bottom)),
+          culprit,
+        };
+      });
+
+      assert.equal(clipping.hiddenAbove, 0,
+        `daftar mention terpotong ${clipping.hiddenAbove}px di atas oleh ${clipping.culprit}`);
+      assert.equal(clipping.hiddenBelow, 0,
+        `daftar mention terpotong ${clipping.hiddenBelow}px di bawah oleh ${clipping.culprit}`);
+
+      // Every option must be clickable, not just the ones that survived the clip.
+      const options = listbox.getByRole('option');
+      assert.equal(await options.count(), 3, 'ketiga anggota harus tampil');
     } finally {
       await app.close();
     }

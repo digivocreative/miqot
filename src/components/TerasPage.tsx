@@ -44,7 +44,7 @@ import { firstUrl, stripUrlFromBody } from '../../lib/teras-linkify.js';
 import PlyrVideo from './PlyrVideo';
 import { getAuthHeaders } from './LoginPage';
 import { MentionText } from './MentionText';
-import { MentionAutocomplete } from './MentionAutocomplete';
+import { MentionAutocomplete, resolveMentionPlacement } from './MentionAutocomplete';
 import { MentionHighlightLayer } from './MentionHighlightLayer';
 import { TerasProfileHeader, TerasProfileHeaderSkeleton } from './TerasProfileHeader';
 import { canDeleteCommunityEntry } from '../lib/communityAccess';
@@ -1110,7 +1110,7 @@ export default function TerasPage({
   const [membersLoading, setMembersLoading] = useState(true);
   // One popover at a time. context = 'composer' or a postId (comment bar).
   const [mentionState, setMentionState] = useState<
-    { context: string; query: string; start: number; index: number } | null
+    { context: string; query: string; start: number; index: number; placement: 'top' | 'bottom' } | null
   >(null);
   const memberBySlug = useMemo(
     () => new Map(mentionMembers.map(member => [member.slug.toLowerCase(), member])),
@@ -2566,7 +2566,14 @@ export default function TerasPage({
   const detectMention = useCallback((context: string, element: HTMLTextAreaElement) => {
     const found = detectMentionQuery(element.value, element.selectionStart ?? element.value.length);
     if (found && mentionMembers.length > 0) {
-      setMentionState({ context, query: found.query, start: found.start, index: 0 });
+      setMentionState(prev => ({
+        context,
+        query: found.query,
+        start: found.start,
+        index: 0,
+        // Decided once per open so the list doesn't jump sides mid-typing.
+        placement: prev && prev.context === context ? prev.placement : resolveMentionPlacement(element),
+      }));
     } else {
       setMentionState(prev => (prev && prev.context === context ? null : prev));
     }
@@ -3775,10 +3782,13 @@ export default function TerasPage({
                     key="comments"
                     id={`teras-comments-${post.id}`}
                     aria-busy={commentPanel.sending}
-                    className="min-w-0 overflow-hidden"
-                    initial={reduceMotion ? false : { height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={reduceMotion ? { opacity: 0 } : { height: 0, opacity: 0 }}
+                    className="min-w-0"
+                    // Clip only while the height animates. Keeping overflow
+                    // hidden afterwards would cut the @mention picker, which
+                    // opens upward out of this panel's box.
+                    initial={reduceMotion ? false : { height: 0, opacity: 0, overflow: 'hidden' }}
+                    animate={{ height: 'auto', opacity: 1, transitionEnd: { overflow: 'visible' } }}
+                    exit={reduceMotion ? { opacity: 0 } : { height: 0, opacity: 0, overflow: 'hidden' }}
                     transition={reduceMotion ? { duration: 0 } : { duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                   >
                     {commentPanel.loading ? (
@@ -3932,7 +3942,7 @@ export default function TerasPage({
                                 activeIndex={mentionState.index}
                                 onSelect={applyMention}
                                 onHoverIndex={index => setMentionState(s => (s ? { ...s, index } : s))}
-                                placement="top"
+                                placement={mentionState.placement}
                               />
                             )}
                             <div className="flex min-h-11 min-w-0 items-end px-3.5">
