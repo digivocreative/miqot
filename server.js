@@ -4239,6 +4239,72 @@ function normalizeStoredCommunityMedia(value, photoUrl = null) {
   return legacyPhotoUrl ? [{ type: 'image', url: legacyPhotoUrl }] : [];
 }
 
+/**
+ * Reaksi, jumlah komentar, dan jumlah kutipan untuk sekumpulan kiriman —
+ * dihitung lewat query batched `.in(postIds)`, bukan satu query per kiriman.
+ * Dipakai baik oleh linimasa (GET /api/community/feed) maupun oleh
+ * segmen-segmen utas di GET /api/community/posts/:id, supaya agregasi ini
+ * tidak dobel-tulis di dua tempat dan berisiko melenceng satu sama lain.
+ *
+ * `includeQuoteCounts` dimatikan kalau kolom `quoted_post_id` belum ada di
+ * skema (lihat isCommunityQuoteSchemaMissing di pemanggil) — memaksa query
+ * ini jalan pada skema lama hanya akan gagal dengan alasan yang sama.
+ */
+async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuoteCounts = true } = {}) {
+  const reactionCounts = new Map(postIds.map(id => [id, { suka: 0, selamat: 0, aamiin: 0 }]));
+  const myReactions = new Map(postIds.map(id => [id, null]));
+  const reactionSampleNames = new Map(postIds.map(id => [id, null]));
+  const commentCounts = new Map(postIds.map(id => [id, 0]));
+  const quoteCounts = new Map(postIds.map(id => [id, 0]));
+  if (postIds.length === 0) {
+    return { reactionCounts, myReactions, reactionSampleNames, commentCounts, quoteCounts };
+  }
+
+  const [reactionResult, commentResult, quoteResult] = await Promise.all([
+    supabase
+      .from('community_post_reactions')
+      .select('post_id, reaction, agent_id, agent:agents(name)')
+      .in('post_id', postIds),
+    supabase
+      .from('community_post_comments')
+      .select('post_id')
+      .in('post_id', postIds)
+      .is('deleted_at', null),
+    includeQuoteCounts
+      ? supabase
+        .from('community_posts')
+        .select('quoted_post_id')
+        .in('quoted_post_id', postIds)
+        .is('deleted_at', null)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (reactionResult.error) throw reactionResult.error;
+  if (commentResult.error) throw commentResult.error;
+  if (quoteResult.error) throw quoteResult.error;
+
+  for (const row of reactionResult.data || []) {
+    const counts = reactionCounts.get(row.post_id);
+    if (!counts || !COMMUNITY_REACTION_TYPES.includes(row.reaction)) continue;
+    counts[row.reaction] += 1;
+    if (row.agent_id === viewerAgentId) {
+      myReactions.set(row.post_id, row.reaction);
+    } else if (!reactionSampleNames.get(row.post_id)) {
+      const sampleName = communityAuthorProfile(row.agent).name;
+      if (sampleName) reactionSampleNames.set(row.post_id, sampleName);
+    }
+  }
+  for (const row of commentResult.data || []) {
+    if (!commentCounts.has(row.post_id)) continue;
+    commentCounts.set(row.post_id, commentCounts.get(row.post_id) + 1);
+  }
+  for (const row of quoteResult.data || []) {
+    if (quoteCounts.has(row.quoted_post_id)) {
+      quoteCounts.set(row.quoted_post_id, quoteCounts.get(row.quoted_post_id) + 1);
+    }
+  }
+  return { reactionCounts, myReactions, reactionSampleNames, commentCounts, quoteCounts };
+}
+
 // Allowed public URL prefixes for Teras media. Bunny CDN is the primary
 // storage; the Supabase prefix stays accepted so media uploaded before the
 // Bunny switch (and dev environments without Bunny credentials) keep working.
@@ -5102,50 +5168,13 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
     if (postsError) throw postsError;
 
     const postIds = (posts || []).map(post => post.id);
-    let reactionRows = [];
-    let commentRows = [];
-    if (postIds.length > 0) {
-      const [reactionResult, commentResult] = await Promise.all([
-        supabase
-          .from('community_post_reactions')
-          .select('post_id, reaction, agent_id, agent:agents(name)')
-          .in('post_id', postIds),
-        supabase
-          .from('community_post_comments')
-          .select('post_id')
-          .in('post_id', postIds)
-          .is('deleted_at', null),
-      ]);
-      if (reactionResult.error) throw reactionResult.error;
-      if (commentResult.error) throw commentResult.error;
-      reactionRows = reactionResult.data || [];
-      commentRows = commentResult.data || [];
-    }
-
-    const reactionCounts = new Map(postIds.map(postId => [postId, {
-      suka: 0,
-      selamat: 0,
-      aamiin: 0,
-    }]));
-    const myReactions = new Map(postIds.map(postId => [postId, null]));
-    const reactionSampleNames = new Map(postIds.map(postId => [postId, null]));
-    for (const row of reactionRows) {
-      const counts = reactionCounts.get(row.post_id);
-      if (!counts || !COMMUNITY_REACTION_TYPES.includes(row.reaction)) continue;
-      counts[row.reaction] += 1;
-      if (row.agent_id === req.user.id) {
-        myReactions.set(row.post_id, row.reaction);
-      } else if (!reactionSampleNames.get(row.post_id)) {
-        const sampleName = communityAuthorProfile(row.agent).name;
-        if (sampleName) reactionSampleNames.set(row.post_id, sampleName);
-      }
-    }
-
-    const commentCounts = new Map(postIds.map(postId => [postId, 0]));
-    for (const row of commentRows) {
-      if (!commentCounts.has(row.post_id)) continue;
-      commentCounts.set(row.post_id, commentCounts.get(row.post_id) + 1);
-    }
+    const {
+      reactionCounts,
+      myReactions,
+      reactionSampleNames,
+      commentCounts,
+      quoteCounts,
+    } = await loadCommunityEngagementMaps(postIds, req.user.id, { includeQuoteCounts: includeQuote });
 
     const quotedIds = includeQuote
       ? [...new Set((posts || []).map(post => post.quoted_post_id).filter(Boolean))]
@@ -5164,21 +5193,6 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       quotedRows = rows || [];
     }
     const quotedById = new Map(quotedRows.map(row => [row.id, row]));
-
-    const quoteCounts = new Map(postIds.map(postId => [postId, 0]));
-    if (includeQuote && postIds.length > 0) {
-      const { data: quoteRows, error: quoteCountError } = await supabase
-        .from('community_posts')
-        .select('quoted_post_id')
-        .in('quoted_post_id', postIds)
-        .is('deleted_at', null);
-      if (quoteCountError) throw quoteCountError;
-      for (const row of quoteRows || []) {
-        if (quoteCounts.has(row.quoted_post_id)) {
-          quoteCounts.set(row.quoted_post_id, quoteCounts.get(row.quoted_post_id) + 1);
-        }
-      }
-    }
 
     // Jumlah segmen lanjutan tiap utas. Pola yang sama dengan quoteCounts di
     // atas: satu query untuk seluruh halaman, dihitung di aplikasi — tanpa N+1
@@ -5365,14 +5379,37 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
         throw threadError;
       }
       if ((threadRows || []).length > 1) {
-        thread = threadRows.map(row => ({
-          id: row.id,
-          body: row.body,
-          media: normalizeStoredCommunityMedia(row.media, row.photo_url),
-          created_at: row.created_at,
-          agent_id: row.agent_id,
-          author: communityAuthorProfile(row.agent),
-        }));
+        // Setiap segmen butuh baris reaksinya sendiri (TerasCard dipakai ulang
+        // per segmen) — hitung lewat helper yang sama dengan linimasa, satu
+        // set query batched untuk seluruh rantai (maksimal 5 baris), bukan
+        // satu query per segmen.
+        const threadIds = threadRows.map(row => row.id);
+        const {
+          reactionCounts: threadReactionCounts,
+          myReactions: threadMyReactions,
+          reactionSampleNames: threadReactionSampleNames,
+          commentCounts: threadCommentCounts,
+          quoteCounts: threadQuoteCounts,
+        } = await loadCommunityEngagementMaps(threadIds, req.user.id, { includeQuoteCounts: includeQuote });
+        thread = threadRows.map(row => {
+          const rowMedia = normalizeStoredCommunityMedia(row.media, row.photo_url);
+          return {
+            id: row.id,
+            body: row.body,
+            photo_url: row.photo_url || rowMedia.find(item => item.type === 'image')?.url || null,
+            media: rowMedia,
+            is_system: row.is_system,
+            created_at: row.created_at,
+            agent_id: row.agent_id,
+            author: communityAuthorProfile(row.agent),
+            reactions: threadReactionCounts.get(row.id),
+            my_reaction: threadMyReactions.get(row.id),
+            reaction_sample_name: threadReactionSampleNames.get(row.id),
+            comment_count: threadCommentCounts.get(row.id) || 0,
+            quote_count: threadQuoteCounts.get(row.id) || 0,
+            is_own: row.agent_id === agent.id,
+          };
+        });
       }
     }
 
