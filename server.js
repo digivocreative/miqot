@@ -5180,6 +5180,26 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       }
     }
 
+    // Jumlah segmen lanjutan tiap utas. Pola yang sama dengan quoteCounts di
+    // atas: satu query untuk seluruh halaman, dihitung di aplikasi — tanpa N+1
+    // dan tanpa kolom denormalisasi yang bisa basi.
+    const threadCounts = new Map(postIds.map(postId => [postId, 0]));
+    if (includeThread && postIds.length > 0) {
+      const { data: threadRows, error: threadCountError } = await supabase
+        .from('community_posts')
+        .select('root_post_id')
+        .in('root_post_id', postIds)
+        .is('deleted_at', null);
+      if (threadCountError && !isCommunityThreadSchemaMissing(threadCountError)) {
+        throw threadCountError;
+      }
+      for (const row of threadRows || []) {
+        if (threadCounts.has(row.root_post_id)) {
+          threadCounts.set(row.root_post_id, threadCounts.get(row.root_post_id) + 1);
+        }
+      }
+    }
+
     const data = (posts || []).map(post => {
       const media = normalizeStoredCommunityMedia(post.media, post.photo_url);
       return {
@@ -5195,6 +5215,7 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
         reaction_sample_name: reactionSampleNames.get(post.id),
         comment_count: commentCounts.get(post.id) || 0,
         quote_count: quoteCounts.get(post.id) || 0,
+        thread_count: threadCounts.get(post.id) ? threadCounts.get(post.id) + 1 : 0,
         quoted_post: includeQuote && post.quoted_post_id
           ? communityQuotedPostPayload(quotedById.get(post.quoted_post_id))
           : null,
@@ -5234,20 +5255,23 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       return query.gte('id', lo).lte('id', hi).order('created_at', { ascending: true }).limit(1);
     };
 
-    const buildPostQuery = (includeMedia, includeQuote, includeLinkPreview) => applyPostIdFilter(
+    const buildPostQuery = (includeMedia, includeQuote, includeLinkPreview, includeThread) => applyPostIdFilter(
       supabase
         .from('community_posts')
-        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'root_post_id, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .is('deleted_at', null),
     ).maybeSingle();
 
     let includeMedia = true;
     let includeQuote = true;
     let includeLinkPreview = true;
+    let includeThread = true;
     let post = null;
     let postError = null;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      ({ data: post, error: postError } = await buildPostQuery(includeMedia, includeQuote, includeLinkPreview));
+    // 4 kolom yang bisa mundur (media, quote, link preview, thread) -> hingga
+    // 4 percobaan gagal + 1 percobaan sukses = 5, sama seperti buildPostsQuery.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      ({ data: post, error: postError } = await buildPostQuery(includeMedia, includeQuote, includeLinkPreview, includeThread));
       if (includeMedia && isCommunityMediaSchemaMissing(postError)) {
         includeMedia = false;
         continue;
@@ -5258,6 +5282,10 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       }
       if (includeLinkPreview && isCommunityLinkPreviewSchemaMissing(postError)) {
         includeLinkPreview = false;
+        continue;
+      }
+      if (includeThread && isCommunityThreadSchemaMissing(postError)) {
+        includeThread = false;
         continue;
       }
       break;
@@ -5319,6 +5347,35 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       quoteCount = (quoteRows || []).length;
     }
 
+    // Membuka segmen mana pun memberi rantai yang sama. `root_post_id` segmen
+    // pertama bernilai NULL, jadi akarnya adalah dirinya sendiri. Kalau
+    // buildPostQuery di atas sudah menyimpulkan kolom utas tidak ada
+    // (includeThread === false), lewati saja — query ini pasti gagal dengan
+    // alasan yang sama, jadi tidak perlu diulang.
+    let thread = null;
+    if (includeThread) {
+      const threadRootId = post.root_post_id || post.id;
+      const { data: threadRows, error: threadError } = await supabase
+        .from('community_posts')
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .or(`id.eq.${threadRootId},root_post_id.eq.${threadRootId}`)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: true });
+      if (threadError && !isCommunityThreadSchemaMissing(threadError)) {
+        throw threadError;
+      }
+      if ((threadRows || []).length > 1) {
+        thread = threadRows.map(row => ({
+          id: row.id,
+          body: row.body,
+          media: normalizeStoredCommunityMedia(row.media, row.photo_url),
+          created_at: row.created_at,
+          agent_id: row.agent_id,
+          author: communityAuthorProfile(row.agent),
+        }));
+      }
+    }
+
     const media = normalizeStoredCommunityMedia(post.media, post.photo_url);
     res.json({
       success: true,
@@ -5337,6 +5394,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
         quote_count: quoteCount,
         quoted_post: post.quoted_post_id ? quotedPost : null,
         link_preview: includeLinkPreview ? communityLinkPreviewPayload(post) : null,
+        thread,
         is_own: post.agent_id === agent.id,
       },
     });
