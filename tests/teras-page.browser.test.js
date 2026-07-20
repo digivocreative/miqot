@@ -2480,6 +2480,14 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
   });
 
   test('saklar kembali ke posisi semula saat penyimpanan gagal', { timeout: 30_000 }, async () => {
+    // PUT sengaja ditahan (bukan dijawab langsung) alih-alih dijawab seketika:
+    // di mesin yang sedang sibuk, jawaban instan membuat flip-optimistis lalu
+    // rollback selesai dalam hitungan sub-milidetik -- lebih cepat daripada
+    // round-trip CDP mana pun bisa mengamatinya, jadi baca/tunggu apa pun tetap
+    // race. Menahan responsnya (pola yang sama dipakai tes rollback reaksi Heart
+    // di atas) membuat status optimistis bertahan sampai kita sengaja selesaikan,
+    // sehingga waitForFunction di bawah punya sesuatu yang nyata untuk ditunggu.
+    let failedPutRoute;
     const api = createCommunityApi({
       onRequest: async ({ record, route }) => {
         if (record.pathname !== '/api/community/notification-prefs') return false;
@@ -2488,7 +2496,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
           return true;
         }
         if (record.method === 'PUT') {
-          await responseJson(route, { error: 'boom' }, 500);
+          failedPutRoute = route;
           return true;
         }
         return false;
@@ -2506,9 +2514,19 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       await bellSwitch.click();
       // Penyimpanan optimistis: saklar berubah seketika, sebelum PUT selesai.
-      // Kalau baris ini tidak pernah jadi 'false', asersi "kembali ke true"
-      // di bawah akan lulus meski saklarnya tidak pernah benar-benar merespons klik.
-      assert.equal(await bellSwitch.getAttribute('aria-checked'), 'false', 'saklar harus berubah seketika (optimistis) sebelum PUT selesai');
+      // React men-set state dan re-render secara async, jadi satu baca sinkron
+      // bisa mendahului DOM -- tunggu atributnya sampai benar-benar 'false',
+      // dengan timeout yang gagal kalau tidak pernah tiba. Kalau atribut ini
+      // tidak pernah jadi 'false', asersi "kembali ke true" di bawah akan lulus
+      // meski saklarnya tidak pernah benar-benar merespons klik.
+      await app.page.waitForFunction(
+        (element) => element.getAttribute('aria-checked') === 'false',
+        await bellSwitch.elementHandle(),
+        { timeout: 5_000 },
+      );
+
+      assert.ok(failedPutRoute, 'PUT harus tertahan agar rollback optimistic dapat diuji');
+      await responseJson(failedPutRoute, { error: 'boom' }, 500);
 
       await sheet.getByRole('alert').waitFor();
       assert.equal(await bellSwitch.getAttribute('aria-checked'), 'true', 'saklar harus kembali ke posisi semula setelah PUT gagal');
