@@ -119,6 +119,28 @@ test('quote atau link preview di segmen selain pertama ditolak', () => {
   );
 });
 
+test('@semua diketik tangan di segmen selain pertama ditolak', () => {
+  assert.equal(
+    normalizeThreadSegments({
+      segments: [
+        { client_id: ID_A, body: 'Satu' },
+        { client_id: ID_B, body: 'Menyapa @semua di sini' },
+      ],
+    }).error,
+    '@semua hanya boleh di kiriman pertama',
+  );
+});
+
+test('@semua di segmen pertama tetap sah', () => {
+  const { error } = normalizeThreadSegments({
+    segments: [
+      { client_id: ID_A, body: 'Halo @semua' },
+      { client_id: ID_B, body: 'Dua' },
+    ],
+  });
+  assert.equal(error, null);
+});
+
 test('buildThreadChain merantai parent dan root', () => {
   const { segments } = normalizeThreadSegments({
     segments: [

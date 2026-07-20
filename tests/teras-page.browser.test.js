@@ -191,11 +191,18 @@ function createCommunityApi({
 
     if (record.method === 'POST' && record.pathname === '/api/community/posts') {
       api.createSequence += 1;
+      // Komposer selalu mengirim `segments[]` (satu elemen untuk kiriman
+      // biasa) dan server membalas SEGMEN PERTAMA rantai. Bentuk lama
+      // (`body`/`media` di akar) tetap didukung supaya stub ini bisa dipakai
+      // untuk memalsukan respons gaya lama.
+      const segments = Array.isArray(record.body?.segments) ? record.body.segments : null;
+      const firstSegment = segments?.[0] || record.body || {};
       const created = makePost({
         id: `created-${api.createSequence}`,
-        body: record.body?.body || '',
-        photo_url: record.body?.photo_url || null,
-        media: clone(record.body?.media || []),
+        body: firstSegment.body || '',
+        photo_url: firstSegment.photo_url || null,
+        media: clone(firstSegment.media || []),
+        thread_count: segments ? segments.length : 1,
         created_at: new Date(Date.parse('2026-07-18T09:00:00.000Z') + api.createSequence * 1000).toISOString(),
         author: {
           name: api.agent.name,
@@ -480,11 +487,11 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await submitTextPost(app.page, 'Kiriman B');
       const createRequests = matchingRequests(api, 'POST', '/api/community/posts');
       assert.equal(createRequests.length, 2);
-      assert.deepEqual(createRequests.map(request => request.body.body), ['Kiriman A', 'Kiriman B']);
+      assert.deepEqual(createRequests.map(request => request.body.segments[0].body), ['Kiriman A', 'Kiriman B']);
       assert.equal(createRequests[0].authorization, 'Bearer browser-test-token');
-      assert.match(createRequests[0].body.client_id, /^[0-9a-f-]{36}$/i);
-      assert.match(createRequests[1].body.client_id, /^[0-9a-f-]{36}$/i);
-      assert.notEqual(createRequests[0].body.client_id, createRequests[1].body.client_id);
+      assert.match(createRequests[0].body.segments[0].client_id, /^[0-9a-f-]{36}$/i);
+      assert.match(createRequests[1].body.segments[0].client_id, /^[0-9a-f-]{36}$/i);
+      assert.notEqual(createRequests[0].body.segments[0].client_id, createRequests[1].body.segments[0].client_id);
 
       await responseJson(initialFeedRoute, {
         success: true,
@@ -613,10 +620,10 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.equal(postRequests[0].authorization, 'Bearer browser-test-token');
       assert.equal(mediaRequests[0].contentType, 'image/jpeg');
       assert.match(mediaRequests[0].uploadId, /^[0-9a-f-]{36}$/i);
-      assert.notEqual(postRequests[0].body.client_id, mediaRequests[0].uploadId);
-      assert.equal(postRequests[0].body.body, 'Kiriman dengan foto');
-      assert.equal(postRequests[0].body.photo_url, 'https://cdn.example.test/community/media-1.jpg');
-      assert.deepEqual(postRequests[0].body.media, [{
+      assert.notEqual(postRequests[0].body.segments[0].client_id, mediaRequests[0].uploadId);
+      assert.equal(postRequests[0].body.segments[0].body, 'Kiriman dengan foto');
+      assert.equal(postRequests[0].body.segments[0].photo_url, 'https://cdn.example.test/community/media-1.jpg');
+      assert.deepEqual(postRequests[0].body.segments[0].media, [{
         type: 'image',
         url: 'https://cdn.example.test/community/media-1.jpg',
       }]);
@@ -709,8 +716,8 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.equal(uploads.length, 2);
       assert.equal(new Set(uploads.map(upload => upload.uploadId)).size, 2);
       assert.ok(uploads.every(upload => upload.contentType === 'image/jpeg'));
-      assert.ok(uploads.every(upload => upload.uploadId !== postRequest.body.client_id));
-      assert.deepEqual(postRequest.body.media, [
+      assert.ok(uploads.every(upload => upload.uploadId !== postRequest.body.segments[0].client_id));
+      assert.deepEqual(postRequest.body.segments[0].media, [
         { type: 'image', url: 'https://cdn.example.test/community/first.jpg' },
         { type: 'image', url: 'https://cdn.example.test/community/second.jpg' },
       ]);
@@ -765,11 +772,11 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const postRequest = matchingRequests(api, 'POST', '/api/community/posts')[0];
       assert.equal(upload.contentType, 'video/mp4');
       assert.deepEqual(upload.bodyBuffer, sourceVideo);
-      assert.deepEqual(postRequest.body.media, [{
+      assert.deepEqual(postRequest.body.segments[0].media, [{
         type: 'video',
         url: 'https://cdn.example.test/community/media-1.mp4',
       }]);
-      assert.equal(postRequest.body.photo_url, undefined);
+      assert.equal(postRequest.body.segments[0].photo_url, undefined);
 
       const createdArticle = app.page.locator('article').filter({ hasText: 'Video singkat perjalanan' });
       const renderedVideo = createdArticle.getByLabel('Video 1 dari 1 kiriman Nikita Test');
@@ -2534,6 +2541,342 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const putRequests = matchingRequests(api, 'PUT', '/api/community/notification-prefs');
       assert.equal(putRequests.length, 1);
       assert.deepEqual(putRequests[0].body, { teras_bell_reaction: false });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('komposer mengirim utas sebagai segments[]', { timeout: 30_000 }, async () => {
+    const app = await openApp();
+    try {
+      const { page, api } = app;
+      await page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Ini konten pertama.');
+      await dialog.getByRole('button', { name: 'Tambah ke utas' }).click();
+      await dialog.getByPlaceholder('Tambahkan ke utas…').fill('Ini konten kedua.');
+      await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
+      await dialog.waitFor({ state: 'detached', timeout: 10_000 });
+
+      const [request] = matchingRequests(api, 'POST', '/api/community/posts');
+      assert.ok(request, 'kiriman harus terkirim');
+      assert.equal(request.body.segments.length, 2);
+      assert.deepEqual(
+        request.body.segments.map(segment => segment.body),
+        ['Ini konten pertama.', 'Ini konten kedua.'],
+      );
+      assert.ok(
+        request.body.segments.every(segment => typeof segment.client_id === 'string' && segment.client_id),
+        'tiap segmen wajib membawa client_id supaya rantai diketahui sebelum insert',
+      );
+      assert.notEqual(
+        request.body.segments[0].client_id,
+        request.body.segments[1].client_id,
+        'client_id antar-segmen harus berbeda',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('tombol tambah berhenti di 5 segmen', { timeout: 30_000 }, async () => {
+    const app = await openApp();
+    try {
+      const { page } = app;
+      await page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Satu');
+      for (let i = 0; i < 4; i += 1) {
+        await dialog.getByRole('button', { name: 'Tambah ke utas' }).click();
+      }
+      const maxedButton = dialog.getByRole('button', { name: 'Maksimum 5 kiriman per utas' });
+      await maxedButton.waitFor();
+      assert.equal(await maxedButton.isDisabled(), true, 'tombol tambah harus mati di segmen ke-5');
+      assert.equal(
+        await dialog.getByPlaceholder('Tambahkan ke utas…').count(),
+        4,
+        '1 segmen awal + 4 tambahan = 5',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('kiriman satu segmen tetap mengirim satu elemen segments', { timeout: 30_000 }, async () => {
+    const app = await openApp();
+    try {
+      const { page, api } = app;
+      await submitTextPost(page, 'Kiriman biasa');
+      const [request] = matchingRequests(api, 'POST', '/api/community/posts');
+      assert.ok(request, 'kiriman harus terkirim');
+      assert.equal(request.body.segments.length, 1);
+      assert.equal(request.body.segments[0].body, 'Kiriman biasa');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('halaman detail merender seluruh rantai utas, satu kolom komentar di segmen pertama', { timeout: 30_000 }, async () => {
+    const author = { name: 'Agent Lain', slug: 'agent-lain', photo: null };
+    // Payload `thread` lebih miskin dari kiriman tingkat-atas: item di sini
+    // sengaja dibuat "polos" (my_reaction null, tanpa reaksi) supaya penggabungan
+    // by-id untuk segmen yang dibuka benar-benar terbukti di bawah.
+    const threadSegments = [
+      'Segmen pertama utas.',
+      'Segmen kedua utas.',
+      'Segmen ketiga utas.',
+    ].map((body, index) => makePost({
+      id: `utas-${index + 1}`,
+      body,
+      author,
+      created_at: `2026-07-18T08:0${index}:00.000Z`,
+    }));
+    // Halaman dibuka dari segmen KEDUA — kasus yang paling mudah salah.
+    const openedSegment = {
+      ...clone(threadSegments[1]),
+      thread_count: 3,
+      thread: clone(threadSegments),
+      // Hanya ada di objek tingkat-atas, bukan di item `thread`.
+      my_reaction: 'suka',
+      reactions: { suka: 7, selamat: 0, aamiin: 0 },
+    };
+    const api = createCommunityApi({
+      onRequest: async ({ record, route }) => {
+        if (record.method === 'GET' && record.pathname === '/api/community/posts/utas-2') {
+          await responseJson(route, { success: true, data: clone(openedSegment) });
+          return true;
+        }
+        return false;
+      },
+    });
+    const app = await openApp({ api, path: '/dashboard/teras/post/utas-2', waitForTeras: false });
+    try {
+      const { page } = app;
+      const cards = page.locator('[data-post-id]');
+      await page.locator('[data-post-id="utas-3"]').waitFor({ timeout: 15_000 });
+
+      assert.equal(await cards.count(), 3, 'ketiga segmen utas harus tampil di halaman detail');
+      assert.deepEqual(
+        await cards.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-post-id'))),
+        ['utas-1', 'utas-2', 'utas-3'],
+        'segmen harus bertumpuk terurut waktu',
+      );
+      for (const [index, body] of ['Segmen pertama utas.', 'Segmen kedua utas.', 'Segmen ketiga utas.'].entries()) {
+        assert.match(
+          await cards.nth(index).innerText(),
+          new RegExp(body.replace('.', '\\.')),
+          `badan segmen ${index + 1} harus tampil`,
+        );
+      }
+
+      // Garis penyambung ada di antara segmen, tapi tidak menggantung setelah
+      // segmen terakhir.
+      assert.equal(await page.locator('[data-thread-rail="thread"]').count(), 2, 'garis penyambung hanya di antara segmen');
+      assert.equal(
+        await cards.nth(2).locator('[data-thread-rail="thread"]').count(),
+        0,
+        'segmen terakhir tidak boleh menggantungkan garis penyambung',
+      );
+
+      // Satu kolom komentar saja, di bawah segmen terakhir.
+      const commentInput = page.getByLabel('Tulis komentar');
+      assert.equal(await commentInput.count(), 1, 'kolom komentar hanya satu untuk seluruh rantai');
+      assert.equal(
+        await commentInput.evaluate(node => node.id),
+        'teras-comment-input-utas-1',
+        'kolom komentar harus menempel ke segmen PERTAMA rantai, bukan segmen yang dibuka',
+      );
+      assert.deepEqual(
+        matchingRequests(api, 'GET', '/api/community/posts/utas-1/comments').length,
+        1,
+        'komentar dimuat dari segmen pertama rantai',
+      );
+      assert.equal(
+        matchingRequests(api, 'GET', '/api/community/posts/utas-2/comments').length,
+        0,
+        'komentar tidak boleh dimuat dari segmen yang kebetulan dibuka',
+      );
+
+      // Penggabungan by-id: segmen yang dibuka memakai objek tingkat-atas yang
+      // lebih kaya (item `thread` untuk utas-2 tidak punya reaksi sama sekali).
+      const likeOnOpened = cards.nth(1).getByRole('button', { name: 'Suka', exact: true });
+      assert.equal(await likeOnOpened.getAttribute('aria-pressed'), 'true');
+      assert.match(await likeOnOpened.innerText(), /7/, 'jumlah reaksi segmen yang dibuka harus dari payload tingkat-atas');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('mengklik kartu utas di feed membuka rantai penuh, bukan hanya segmen akar', { timeout: 30_000 }, async () => {
+    // Jalur navigasi UTAMA: klik kartu di feed. Item feed hanya membawa
+    // `thread_count` (server tidak pernah menyertakan `thread` di feed), jadi
+    // kalau pengambilan detail dilewatkan hanya karena kirimannya sudah ada di
+    // state, halaman detail cuma menampilkan segmen akar.
+    const author = { name: 'Agent Lain', slug: 'agent-lain', photo: null };
+    const threadSegments = [
+      'Segmen pertama utas.',
+      'Segmen kedua utas.',
+      'Segmen ketiga utas.',
+    ].map((body, index) => makePost({
+      id: `utas-${index + 1}`,
+      body,
+      author,
+      created_at: `2026-07-18T08:0${index}:00.000Z`,
+    }));
+    const feedRoot = { ...clone(threadSegments[0]), thread_count: 3 };
+    const detailRoot = {
+      ...clone(threadSegments[0]),
+      thread_count: 3,
+      thread: clone(threadSegments),
+    };
+    const api = createCommunityApi({
+      posts: [feedRoot],
+      onRequest: async ({ record, route }) => {
+        if (record.method === 'GET' && record.pathname === '/api/community/posts/utas-1') {
+          await responseJson(route, { success: true, data: clone(detailRoot) });
+          return true;
+        }
+        return false;
+      },
+    });
+    const app = await openApp({ api });
+    try {
+      const { page } = app;
+      const cards = page.locator('[data-post-id]');
+      await page.locator('[data-post-id="utas-1"]').waitFor({ timeout: 15_000 });
+      assert.equal(await cards.count(), 1, 'feed hanya menampilkan segmen akar');
+
+      await page.locator('[data-post-id="utas-1"]').getByText('Segmen pertama utas.').click();
+
+      await page.locator('[data-post-id="utas-3"]').waitFor({ timeout: 15_000 });
+      assert.deepEqual(
+        await cards.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-post-id'))),
+        ['utas-1', 'utas-2', 'utas-3'],
+        'seluruh rantai harus tampil terurut walau utas dibuka dari feed',
+      );
+      for (const [index, body] of ['Segmen pertama utas.', 'Segmen kedua utas.', 'Segmen ketiga utas.'].entries()) {
+        assert.match(
+          await cards.nth(index).innerText(),
+          new RegExp(body.replace('.', '\\.')),
+          `badan segmen ${index + 1} harus tampil`,
+        );
+      }
+      assert.equal(
+        matchingRequests(api, 'GET', '/api/community/posts/utas-1').length,
+        1,
+        'rantai diambil sekali saja, bukan berulang',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('tombol Suka di segmen yang bukan segmen yang dibuka mengirim reaksi segmen itu', { timeout: 30_000 }, async () => {
+    // Tiap segmen membawa baris reaksinya sendiri. Kalau segmen selain yang
+    // dibuka tidak ikut jadi warga state kiriman, tombolnya tetap terender dan
+    // bisa diklik tapi tidak melakukan apa pun — diam-diam.
+    const author = { name: 'Agent Lain', slug: 'agent-lain', photo: null };
+    const threadSegments = [
+      'Segmen pertama utas.',
+      'Segmen kedua utas.',
+      'Segmen ketiga utas.',
+    ].map((body, index) => makePost({
+      id: `utas-${index + 1}`,
+      body,
+      author,
+      created_at: `2026-07-18T08:0${index}:00.000Z`,
+    }));
+    const openedSegment = {
+      ...clone(threadSegments[1]),
+      thread_count: 3,
+      thread: clone(threadSegments),
+    };
+    const api = createCommunityApi({
+      onRequest: async ({ record, route }) => {
+        if (record.method === 'GET' && record.pathname === '/api/community/posts/utas-2') {
+          await responseJson(route, { success: true, data: clone(openedSegment) });
+          return true;
+        }
+        return false;
+      },
+    });
+    const app = await openApp({ api, path: '/dashboard/teras/post/utas-2', waitForTeras: false });
+    try {
+      const { page } = app;
+      await page.locator('[data-post-id="utas-3"]').waitFor({ timeout: 15_000 });
+
+      const likeOnLastSegment = page
+        .locator('[data-post-id="utas-3"]')
+        .getByRole('button', { name: 'Suka', exact: true });
+      assert.equal(await likeOnLastSegment.getAttribute('aria-pressed'), 'false');
+
+      await likeOnLastSegment.click();
+      await page.waitForFunction(button => (
+        button.getAttribute('aria-pressed') === 'true' && button.textContent?.trim() === '1'
+      ), await likeOnLastSegment.elementHandle(), { timeout: 10_000 });
+
+      assert.deepEqual(
+        matchingRequests(api, 'POST', '/api/community/posts/utas-3/reaction').map(request => request.body),
+        [{ reaction: 'suka' }],
+        'reaksi harus dikirim untuk id segmen yang tombolnya diklik',
+      );
+      assert.equal(
+        matchingRequests(api, 'POST', '/api/community/posts/utas-2/reaction').length,
+        0,
+        'reaksi tidak boleh nyasar ke segmen yang kebetulan dibuka',
+      );
+      // Segmen lain tidak ikut berubah.
+      assert.equal(
+        await page.locator('[data-post-id="utas-1"]').getByRole('button', { name: 'Suka', exact: true }).getAttribute('aria-pressed'),
+        'false',
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('Enter memilih anggota saat popover mention dibuka di segmen non-pertama', { timeout: 30_000 }, async () => {
+    // Baris @semua HANYA muncul di segmen pertama, jadi indeks item bergeser
+    // antar-segmen. Query "@s" cocok untuk keduanya: di segmen pertama @semua
+    // merebut posisi 0, di segmen kedua posisi 0 harus jadi milik anggota.
+    // Kalau offset keyboard tidak ikut konteks segmen, Enter di segmen kedua
+    // akan meleset (menyisipkan @semua atau tidak sama sekali).
+    const api = createCommunityApi({
+      members: [{ slug: 'sari', name: 'Sari', photo: null, phone: null }],
+    });
+    const app = await openApp({ api });
+    try {
+      const { page } = app;
+      await page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+      const first = dialog.getByPlaceholder(COMPOSER_PLACEHOLDER);
+      await first.fill('Segmen pertama.');
+      await dialog.getByRole('button', { name: 'Tambah ke utas' }).click();
+
+      const second = dialog.getByPlaceholder('Tambahkan ke utas…');
+      await second.click();
+      await second.type('@s');
+
+      const listbox = page.getByRole('listbox', { name: 'Sebut anggota' });
+      await listbox.waitFor({ timeout: 10_000 });
+      assert.equal(
+        await listbox.getByRole('option').count(),
+        1,
+        'segmen non-pertama tidak menawarkan @semua, jadi hanya anggota yang tampil',
+      );
+
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => {
+        const node = document.activeElement;
+        return !!node && 'value' in node && String(node.value).includes('@sari ');
+      }, null, { timeout: 5_000 });
+
+      assert.equal(await second.inputValue(), '@sari ', 'Enter harus menyisipkan mention anggota di segmen kedua');
+      assert.equal(await first.inputValue(), 'Segmen pertama.', 'segmen pertama tidak boleh ikut berubah');
     } finally {
       await app.close();
     }
