@@ -6105,11 +6105,17 @@ app.delete('/api/community/posts/:id', authMiddleware, async (req, res) => {
     if (!isCommunityUuid(req.params.id)) {
       return res.status(404).json({ error: 'Postingan tidak ditemukan' });
     }
-    const { data: post, error: findError } = await supabase
+    const loadPostForDelete = withThread => supabase
       .from('community_posts')
-      .select('id, agent_id, deleted_at')
+      .select(`id, agent_id, deleted_at${withThread ? ', parent_post_id, root_post_id' : ''}`)
       .eq('id', req.params.id)
       .maybeSingle();
+    let includeThread = true;
+    let { data: post, error: findError } = await loadPostForDelete(true);
+    if (isCommunityThreadSchemaMissing(findError)) {
+      includeThread = false;
+      ({ data: post, error: findError } = await loadPostForDelete(false));
+    }
     if (findError) throw findError;
     if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
     if (!canModerateCommunityContent(agent, post)) {
@@ -6117,15 +6123,36 @@ app.delete('/api/community/posts/:id', authMiddleware, async (req, res) => {
     }
     if (post.deleted_at) return res.json({ success: true });
 
-    const { error } = await supabase
-      .from('community_posts')
-      .update({
-        deleted_at: new Date().toISOString(),
-        deleted_by: agent.id,
-      })
-      .eq('id', post.id)
-      .is('deleted_at', null);
-    if (error) throw error;
+    // Menghapus segmen pertama (parent_post_id NULL) menghapus seluruh utas
+    // sekaligus: sisa segmen jadi yatim kalau tidak ikut disoftdelete — tak
+    // muncul di feed tapi masih hidup di tautan langsung/halaman detail.
+    // Segmen tengah dihapus sendirian; rantai tidak disusun ulang, segmen
+    // yang hilang cuma tak dirender. Kiriman biasa (bukan bagian utas apa
+    // pun) juga punya parent_post_id NULL sehingga masuk cabang ini juga —
+    // aman, karena root_post_id-nya tak pernah menunjuk siapa pun jadi
+    // .or(...) di bawah cuma kena dirinya sendiri.
+    const patch = {
+      deleted_at: new Date().toISOString(),
+      deleted_by: agent.id,
+    };
+    let deleteError;
+    if (includeThread && post.parent_post_id === null) {
+      // post.id berasal dari baris yang baru saja dibaca lewat eq('id', ...)
+      // di atas (sudah divalidasi UUID oleh isCommunityUuid), aman diselipkan
+      // ke string filter .or().
+      ({ error: deleteError } = await supabase
+        .from('community_posts')
+        .update(patch)
+        .or(`id.eq.${post.id},root_post_id.eq.${post.id}`)
+        .is('deleted_at', null));
+    } else {
+      ({ error: deleteError } = await supabase
+        .from('community_posts')
+        .update(patch)
+        .eq('id', post.id)
+        .is('deleted_at', null));
+    }
+    if (deleteError) throw deleteError;
 
     res.json({ success: true });
   } catch (err) {
