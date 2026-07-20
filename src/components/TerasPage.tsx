@@ -4145,12 +4145,17 @@ export default function TerasPage({
                     )}
 
                     {!isDetailView && (post.thread_count || 0) > 1 && (
+                      // Chip "1/N" ala Threads: feed menampilkan segmen pertama,
+                      // jadi posisinya selalu 1 dari total. Tetap tombol (bukan
+                      // span) supaya keyboard bisa membuka utas, konsisten dengan
+                      // tombol aksi kartu lain.
                       <button
                         type="button"
                         onClick={() => openPostDetail(post.id)}
-                        className="mt-1.5 block text-[12.5px] font-bold text-emerald-600 hover:underline dark:text-emerald-400"
+                        aria-label={`Utas — kiriman 1 dari ${post.thread_count}, buka utas`}
+                        className="mt-1.5 inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums leading-none text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
                       >
-                        Utas · {post.thread_count} kiriman
+                        1/{post.thread_count}
                       </button>
                     )}
 
