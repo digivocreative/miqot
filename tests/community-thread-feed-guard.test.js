@@ -45,11 +45,34 @@ test('hitung belum-dibaca menyaring segmen lanjutan', () => {
   assert.match(sliceAfter('let unreadQuery = supabase', 12), /parent_post_id/);
 });
 
-test('lookup kutipan TIDAK disaring', () => {
-  const block = sliceAfter('const buildQuotedQuery = includeMedia =>', 12);
-  assert.doesNotMatch(
-    block,
-    /parent_post_id/,
-    'mengutip satu segmen utas itu sah — jangan disaring',
+test('ketiga lookup kutipan TIDAK disaring', () => {
+  // Temukan semua deklarasi buildQuotedQuery di server.js
+  const marker = 'const buildQuotedQuery = ';
+  const quotedQueryDeclarations = [];
+  let searchStart = 0;
+
+  while (true) {
+    const index = source.indexOf(marker, searchStart);
+    if (index === -1) break;
+    quotedQueryDeclarations.push(index);
+    searchStart = index + 1;
+  }
+
+  // Harus ada tepat 3 deklarasi; jika berubah, perbaharui tes ini
+  assert.equal(
+    quotedQueryDeclarations.length,
+    3,
+    'harus ada 3 deklarasi buildQuotedQuery di server.js',
   );
+
+  // Setiap deklarasi harus TIDAK menyaring parent_post_id
+  // mengutip satu segmen utas (reply) itu fitur sah, jangan hapus
+  quotedQueryDeclarations.forEach((index, i) => {
+    const window = source.slice(index, index + 400);
+    assert.doesNotMatch(
+      window,
+      /parent_post_id/,
+      `deklarasi buildQuotedQuery #${i + 1} harus TIDAK menyaring parent_post_id`,
+    );
+  });
 });
