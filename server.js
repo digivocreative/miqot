@@ -5393,6 +5393,129 @@ app.get('/api/community/broadcast-quota', dbLoadShedGuard, authMiddleware, async
   }
 });
 
+// Satu insert kiriman, lengkap dengan degradasi skema yang sudah lama ada di
+// endpoint ini (kolom media, kolom `type` usang, kolom quote, kolom
+// mentions_everyone, link preview) dan penanganan 23505 idempoten untuk retry
+// ber-client_id yang sama. Dipanggil berulang oleh pembuat utas, jadi ia tidak
+// boleh menyentuh `res` maupun melempar — semua kondisi yang tadinya membalas
+// langsung (503) sekarang dikembalikan sebagai flag agar pemanggil yang
+// memutuskan responsnya.
+async function createCommunityPostRow({
+  clientId,
+  agentId,
+  body,
+  media,
+  photoUrl,
+  quotedPostId = null,
+  mentionsEveryone = false,
+  linkPreview = null,
+  parentPostId = null,
+  rootPostId = null,
+}) {
+  const basePostPayload = {
+    ...(clientId ? { id: clientId } : {}),
+    agent_id: agentId,
+    body,
+    photo_url: photoUrl,
+    is_system: false,
+    ...(quotedPostId ? { quoted_post_id: quotedPostId } : {}),
+    ...(mentionsEveryone ? { mentions_everyone: true } : {}),
+  };
+  const isThreadSegment = !!parentPostId;
+  // Kiriman dengan >1 media atau video WAJIB kolom media — mundur diam-diam
+  // akan membuang lampiran, jadi ini menolak jelas alih-alih itu (perilaku
+  // lama endpoint ini, dipertahankan di sini).
+  const requiresMediaSchema = media.length > 1 || media.some(item => item.type === 'video');
+
+  let includeMediaColumn = true;
+  let includeObsoleteType = false;
+  let includeLinkPreview = !!linkPreview;
+  // Kiriman biasa tidak butuh kolom utas sama sekali, jadi ia boleh mundur
+  // tanpa kolom itu. Segmen lanjutan tidak boleh — utas separuh jadi lebih
+  // buruk daripada penolakan yang jelas.
+  let includeThread = isThreadSegment || !!rootPostId;
+  let createdPost = null;
+  let insertError = null;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const postPayload = {
+      ...basePostPayload,
+      ...(includeMediaColumn ? { media } : {}),
+      ...(includeObsoleteType ? { type: media.length > 0 ? 'foto' : 'tips' } : {}),
+      ...(includeLinkPreview ? { link_preview: linkPreview } : {}),
+      ...(includeThread ? { parent_post_id: parentPostId, root_post_id: rootPostId } : {}),
+    };
+    const insertResult = await supabase
+      .from('community_posts')
+      .insert(postPayload)
+      .select(`id, body, photo_url, ${includeMediaColumn ? 'media, ' : ''}is_system, created_at`)
+      .single();
+    createdPost = insertResult.data;
+    insertError = insertResult.error;
+    if (!insertError) break;
+    if (includeMediaColumn && isCommunityMediaSchemaMissing(insertError)) {
+      if (requiresMediaSchema) {
+        return { post: null, error: insertError, threadSchemaMissing: false, mediaSchemaRequiredMissing: true };
+      }
+      includeMediaColumn = false;
+      continue;
+    }
+    if (quotedPostId && isCommunityQuoteSchemaMissing(insertError)) {
+      return { post: null, error: insertError, threadSchemaMissing: false, quoteSchemaMissing: true };
+    }
+    if (mentionsEveryone && isCommunityBroadcastSchemaMissing(insertError)) {
+      return { post: null, error: insertError, threadSchemaMissing: false, broadcastSchemaMissing: true };
+    }
+    if (includeLinkPreview && isCommunityLinkPreviewSchemaMissing(insertError)) {
+      includeLinkPreview = false;
+      continue;
+    }
+    if (includeThread && isCommunityThreadSchemaMissing(insertError)) {
+      if (isThreadSegment) return { post: null, error: insertError, threadSchemaMissing: true };
+      includeThread = false;
+      continue;
+    }
+    // Compatibility for installations that already ran the pre-final Teras
+    // draft, where `type` was NOT NULL. Keep that obsolete value server-side.
+    if (
+      !includeObsoleteType
+      && insertError?.code === '23502'
+      && /column "type"/i.test(insertError.message || '')
+    ) {
+      includeObsoleteType = true;
+      continue;
+    }
+    break;
+  }
+
+  if (insertError?.code === '23505' && clientId) {
+    const loadExistingPost = includeMedia => supabase
+      .from('community_posts')
+      .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}is_system, created_at`)
+      .eq('id', clientId)
+      .eq('agent_id', agentId)
+      .is('deleted_at', null)
+      .maybeSingle();
+    let { data: existingPost, error: existingError } = await loadExistingPost(true);
+    if (isCommunityMediaSchemaMissing(existingError)) {
+      ({ data: existingPost, error: existingError } = await loadExistingPost(false));
+    }
+    if (existingError) return { post: null, error: existingError, threadSchemaMissing: false };
+    const existingMedia = normalizeStoredCommunityMedia(existingPost?.media, existingPost?.photo_url);
+    if (
+      existingPost
+      && existingPost.body === body
+      && existingPost.photo_url === photoUrl
+      && communityMediaEquals(existingMedia, media)
+    ) {
+      return { post: existingPost, error: null, threadSchemaMissing: false };
+    }
+    return { post: null, error: { code: 'DUPLICATE_CLIENT_ID' }, threadSchemaMissing: false };
+  }
+
+  return { post: createdPost, error: insertError, threadSchemaMissing: false };
+}
+
 app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' }), async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
@@ -5468,7 +5591,6 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       media = [];
     }
     const photoUrl = media.find(item => item.type === 'image')?.url || null;
-    const requiresMediaSchema = media.length > 1 || media.some(item => item.type === 'video');
 
     // Link preview: hanya bila TIDAK ada media & TIDAK ada quote (prioritas).
     let linkPreview = null;
@@ -5480,95 +5602,33 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       }
     }
 
-    const basePostPayload = {
-      ...(clientId ? { id: clientId } : {}),
-      agent_id: agent.id,
+    const {
+      post: createdPost,
+      error: insertError,
+      quoteSchemaMissing,
+      broadcastSchemaMissing,
+      mediaSchemaRequiredMissing,
+    } = await createCommunityPostRow({
+      clientId,
+      agentId: agent.id,
       body,
-      photo_url: photoUrl,
-      is_system: false,
-      ...(quotedPostId ? { quoted_post_id: quotedPostId } : {}),
-      ...(mentionsEveryone ? { mentions_everyone: true } : {}),
-    };
-    let includeMediaColumn = true;
-    let includeObsoleteType = false;
-    // A link preview is decorative — on a deployment where the migration
-    // hasn't been applied yet, the post must still succeed (with
-    // link_preview: null in the response), same graceful-degradation pattern
-    // as includeMediaColumn/includeObsoleteType below. It must never block
-    // posting.
-    let includeLinkPreview = !!linkPreview;
-    let createdPost = null;
-    let insertError = null;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      const postPayload = {
-        ...basePostPayload,
-        ...(includeMediaColumn ? { media } : {}),
-        ...(includeObsoleteType ? { type: media.length > 0 ? 'foto' : 'tips' } : {}),
-        ...(includeLinkPreview ? { link_preview: linkPreview } : {}),
-      };
-      const insertResult = await supabase
-        .from('community_posts')
-        .insert(postPayload)
-        .select(`id, body, photo_url, ${includeMediaColumn ? 'media, ' : ''}is_system, created_at`)
-        .single();
-      createdPost = insertResult.data;
-      insertError = insertResult.error;
-
-      if (includeMediaColumn && isCommunityMediaSchemaMissing(insertError)) {
-        if (requiresMediaSchema) {
-          return res.status(503).json({ error: 'Migrasi media Teras belum diterapkan' });
-        }
-        includeMediaColumn = false;
-        continue;
-      }
-      if (quotedPostId && isCommunityQuoteSchemaMissing(insertError)) {
-        return res.status(503).json({ error: 'Migrasi quote Teras belum diterapkan' });
-      }
-      if (mentionsEveryone && isCommunityBroadcastSchemaMissing(insertError)) {
-        return res.status(503).json({ error: COMMUNITY_BROADCAST_MIGRATION_ERROR });
-      }
-      if (includeLinkPreview && isCommunityLinkPreviewSchemaMissing(insertError)) {
-        includeLinkPreview = false;
-        continue;
-      }
-      // Compatibility for installations that already ran the pre-final Teras
-      // draft, where `type` was NOT NULL. Keep that obsolete value server-side.
-      if (
-        !includeObsoleteType
-        && insertError?.code === '23502'
-        && /column "type"/i.test(insertError.message || '')
-      ) {
-        includeObsoleteType = true;
-        continue;
-      }
-      break;
+      media,
+      photoUrl,
+      quotedPostId,
+      mentionsEveryone,
+      linkPreview,
+    });
+    if (mediaSchemaRequiredMissing) {
+      return res.status(503).json({ error: 'Migrasi media Teras belum diterapkan' });
     }
-
-    if (insertError?.code === '23505' && clientId) {
-      const loadExistingPost = includeMedia => supabase
-        .from('community_posts')
-        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}is_system, created_at`)
-        .eq('id', clientId)
-        .eq('agent_id', agent.id)
-        .is('deleted_at', null)
-        .maybeSingle();
-      let { data: existingPost, error: existingError } = await loadExistingPost(true);
-      if (isCommunityMediaSchemaMissing(existingError)) {
-        ({ data: existingPost, error: existingError } = await loadExistingPost(false));
-      }
-      if (existingError) throw existingError;
-      const existingMedia = normalizeStoredCommunityMedia(existingPost?.media, existingPost?.photo_url);
-      if (
-        existingPost
-        && existingPost.body === body
-        && existingPost.photo_url === photoUrl
-        && communityMediaEquals(existingMedia, media)
-      ) {
-        createdPost = existingPost;
-        insertError = null;
-      } else {
-        return res.status(409).json({ error: 'ID kiriman sudah digunakan' });
-      }
+    if (quoteSchemaMissing) {
+      return res.status(503).json({ error: 'Migrasi quote Teras belum diterapkan' });
+    }
+    if (broadcastSchemaMissing) {
+      return res.status(503).json({ error: COMMUNITY_BROADCAST_MIGRATION_ERROR });
+    }
+    if (insertError?.code === 'DUPLICATE_CLIENT_ID') {
+      return res.status(409).json({ error: 'ID kiriman sudah digunakan' });
     }
     if (insertError) throw insertError;
 
@@ -5591,7 +5651,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       comment_count: 0,
       quote_count: 0,
       quoted_post: quotedPostId ? communityQuotedPostPayload(quotedPostRow) : null,
-      link_preview: includeLinkPreview ? linkPreview : null,
+      link_preview: linkPreview,
       is_own: true,
     };
     res.status(201).json({ success: true, data });
