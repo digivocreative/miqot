@@ -59,12 +59,12 @@ test('filter menolak kunci asing dan nilai non-boolean', () => {
   assert.deepEqual(filtered, { teras_bell_reaction: false, teras_tg_comment: true });
 });
 
-test('mendeteksi saklar Telegram yang baru dinyalakan', () => {
+test('mendeteksi saklar Telegram komentar/reaksi yang baru dinyalakan, mengabaikan community_mentions yang ikut dinyalakan', () => {
   const turnedOn = enabledTelegramKeysTurnedOn(
-    { community_mentions: true, teras_tg_comment: false, teras_tg_reaction: false },
-    { teras_tg_comment: true, teras_tg_reaction: false },
+    { community_mentions: false, teras_tg_comment: false, teras_tg_reaction: false },
+    { community_mentions: true, teras_tg_comment: true, teras_tg_reaction: false },
   );
-  assert.deepEqual(turnedOn, ['teras_tg_comment']);
+  assert.deepEqual(turnedOn, ['teras_tg_comment'], 'community_mentions bukan kanal yang dipagari watermark, tidak boleh ikut terhitung');
 });
 
 test('saklar Telegram yang sudah menyala tidak dihitung baru', () => {
@@ -72,6 +72,16 @@ test('saklar Telegram yang sudah menyala tidak dihitung baru', () => {
     enabledTelegramKeysTurnedOn({ teras_tg_comment: true }, { teras_tg_comment: true }),
     [],
   );
+});
+
+test('menyalakan community_mentions saja tidak memajukan watermark digest', () => {
+  // Sebutan dikirim instan, bukan lewat digest teras_tg_sent_at — menyalakannya
+  // sendirian tidak boleh membuang digest komentar/reaksi yang masih menunggu.
+  const turnedOn = enabledTelegramKeysTurnedOn(
+    { community_mentions: false },
+    { community_mentions: true },
+  );
+  assert.deepEqual(turnedOn, []);
 });
 
 test('sumber yang dimatikan hilang dari gating lonceng', () => {

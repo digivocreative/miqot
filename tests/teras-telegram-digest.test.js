@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTerasDigestMessages } from '../lib/teras-telegram-digest.js';
+import {
+  buildTerasDigestMessages,
+  computeOwnerDigestWatermarks,
+} from '../lib/teras-telegram-digest.js';
 
 const ORIGIN = 'https://app.test';
 
@@ -72,6 +75,24 @@ test('komentar yang juga sebutan tidak dikirim ulang', () => {
     origin: ORIGIN,
   });
   assert.deepEqual(messages, []);
+});
+
+test('balasan yang juga sebutan tetap dikirim lewat digest saat kanal sebutan pemilik mati', () => {
+  // Pemilik mematikan community_mentions (kanal sebutan instan) tapi menyalakan
+  // teras_tg_comment (digest komentar). Baris mention TETAP tercatat di DB
+  // terlepas dari preferensi, tapi push instannya tidak pernah dikirim karena
+  // kanalnya mati. Kalau dropCommentsAlreadySentAsMentions membuang komentar
+  // ini tanpa syarat (perilaku lama), balasan ini tidak sampai lewat kanal
+  // manapun — bug yang diperbaiki di sini.
+  const messages = buildTerasDigestMessages({
+    comments: [comment()],
+    reactions: [],
+    mentions: [{ comment_id: 'c1', mentioned_agent_id: 'owner-1' }],
+    owners: [owner({ prefs: { community_mentions: false, teras_tg_comment: true, teras_tg_reaction: true } })],
+    origin: ORIGIN,
+  });
+  assert.equal(messages.length, 1, 'balasan harus tetap sampai lewat digest komentar');
+  assert.equal(messages[0].type, 'comment');
 });
 
 test('sebutan untuk orang lain tidak membatalkan komentar milik pemilik', () => {
@@ -243,4 +264,55 @@ test('aktor yang sama muncul berkali-kali dihitung sebagai satu dalam N lainnya'
   assert.equal(messages.length, 1);
   assert.equal(messages[0].type, 'reaction');
   assert.match(messages[0].text, /dan 2 lainnya/, 'harus sebutkan 2 lainnya bukan 3, karena a1 hanya dihitung sekali');
+});
+
+test('watermark maju ke latest_at pesan yang berhasil terkirim', () => {
+  const watermarks = computeOwnerDigestWatermarks([
+    { agent_id: 'owner-1', latest_at: '2026-07-20T10:00:00.000Z', delivered: true },
+  ], Infinity);
+  assert.equal(watermarks.get('owner-1'), '2026-07-20T10:00:00.000Z');
+});
+
+test('pesan yang gagal tidak memajukan watermark sama sekali', () => {
+  const watermarks = computeOwnerDigestWatermarks([
+    { agent_id: 'owner-1', latest_at: '2026-07-20T10:00:00.000Z', delivered: false },
+  ], Infinity);
+  assert.equal(watermarks.has('owner-1'), false, 'tidak ada pesan berhasil untuk owner ini, tidak boleh ada watermark');
+});
+
+test('komentar gagal (T1) tidak boleh tertutup watermark oleh reaksi yang berhasil (T2 > T1) — bug asli', () => {
+  // Skenario persis dari laporan: pesan komentar owner pada T1 gagal terkirim,
+  // pesan reaksi owner yang sama pada T2 (lebih baru) berhasil. Implementasi
+  // naif "watermark = max(latest_at pesan berhasil)" akan memajukan watermark
+  // ke T2, menutup komentar T1 secara PERMANEN oleh cek `created_at <= sent_at`
+  // di lib/teras-telegram-digest.js — komentar itu tidak pernah dicoba ulang.
+  const T1 = '2026-07-20T10:00:00.000Z';
+  const T2 = '2026-07-20T10:05:00.000Z';
+  const watermarks = computeOwnerDigestWatermarks([
+    { agent_id: 'owner-1', latest_at: T1, delivered: false }, // komentar gagal
+    { agent_id: 'owner-1', latest_at: T2, delivered: true },  // reaksi berhasil
+  ], Infinity);
+
+  const watermark = watermarks.get('owner-1');
+  assert.ok(watermark, 'reaksi yang berhasil tetap harus menghasilkan watermark');
+  assert.ok(
+    new Date(watermark).getTime() < new Date(T1).getTime(),
+    `watermark (${watermark}) harus dijepit ke sebelum T1 (${T1}) supaya komentar yang gagal dicoba ulang, bukan maju ke T2`,
+  );
+});
+
+test('dua owner terisolasi: kegagalan owner lain tidak menjepit watermark owner ini', () => {
+  const watermarks = computeOwnerDigestWatermarks([
+    { agent_id: 'owner-1', latest_at: '2026-07-20T10:00:00.000Z', delivered: false },
+    { agent_id: 'owner-2', latest_at: '2026-07-20T10:05:00.000Z', delivered: true },
+  ], Infinity);
+  assert.equal(watermarks.get('owner-2'), '2026-07-20T10:05:00.000Z', 'owner-2 tidak boleh terkena plafon kegagalan owner-1');
+});
+
+test('watermark tetap dijepit ke plafon lintas-query truncation walau semua pesan berhasil', () => {
+  const ceilingMs = new Date('2026-07-20T10:02:00.000Z').getTime();
+  const watermarks = computeOwnerDigestWatermarks([
+    { agent_id: 'owner-1', latest_at: '2026-07-20T10:05:00.000Z', delivered: true },
+  ], ceilingMs);
+  assert.equal(watermarks.get('owner-1'), new Date(ceilingMs).toISOString());
 });

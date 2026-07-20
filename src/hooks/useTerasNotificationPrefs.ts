@@ -35,6 +35,12 @@ export function useTerasNotificationPrefs(enabled: boolean) {
   const [telegramConnected, setTelegramConnected] = useState(false);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Beda dengan `loading` (sedang memuat atau tidak): `loaded` menandai apakah
+  // GET terakhir benar-benar berhasil. Kalau gagal, `prefs` di atas masih
+  // DEFAULT_PREFS (atau nilai basi dari sesi sebelumnya) — posisi saklar yang
+  // TIDAK BOLEH ditampilkan seolah itu kebenaran. Komponen memakai ini untuk
+  // menampilkan error alih-alih matriks saklar saat load awal gagal.
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Per-key request counter: guards against an in-flight PUT for `key` resolving
   // after a newer PUT for the *same* key was already sent (or already landed).
@@ -55,8 +61,10 @@ export function useTerasNotificationPrefs(enabled: boolean) {
       }
       setPrefs(payload.data.prefs);
       setTelegramConnected(payload.data.telegram_connected);
+      setLoaded(true);
     } catch {
       setError('Gagal memuat pengaturan.');
+      setLoaded(false);
     } finally {
       setLoading(false);
     }
@@ -100,5 +108,5 @@ export function useTerasNotificationPrefs(enabled: boolean) {
     }
   }, [prefs]);
 
-  return { prefs, telegramConnected, open, loading, error, openSheet, closeSheet, toggle };
+  return { prefs, telegramConnected, open, loading, loaded, error, openSheet, closeSheet, toggle };
 }

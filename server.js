@@ -85,6 +85,8 @@ import {
   TERAS_DIGEST_LOOKBACK_MS,
   TERAS_DIGEST_WINDOW_MS,
   buildTerasDigestMessages,
+  clampWatermarkMs,
+  computeOwnerDigestWatermarks,
 } from './lib/teras-telegram-digest.js';
 import {
   hasEveryoneMention,
@@ -4053,10 +4055,17 @@ function isCommunityMentionSchemaMissing(error) {
 
 // Record @mentions for a freshly-created post or comment and fire the Telegram
 // nudge. Never throws — mentions are an additive layer, not a post prerequisite.
+//
+// Returns the Set of agent ids that were actually sent a Telegram push here.
+// Callers that also fan out a broadcast (@semua) for the same post must
+// exclude this set — a personal @nama push is more specific than the
+// broadcast, and the bell already drops the broadcast for the same reason
+// (see dedupeBroadcastsAgainstMentions in lib/community-notifications.js).
 async function recordCommunityMentions({ body, authorAgent, postId, commentId = null }) {
+  const pushedAgentIds = new Set();
   try {
     const members = await loadCommunityMembers();
-    if (!members.length) return;
+    if (!members.length) return pushedAgentIds;
     const bySlug = new Map(members.map(m => [String(m.slug).toLowerCase(), m]));
     const slugs = extractCommunityMentions(
       body,
@@ -4064,7 +4073,7 @@ async function recordCommunityMentions({ body, authorAgent, postId, commentId = 
       authorAgent.slug,
       COMMUNITY_MENTION_LIMIT,
     );
-    if (!slugs.length) return;
+    if (!slugs.length) return pushedAgentIds;
 
     const rows = slugs
       .map(slug => bySlug.get(slug))
@@ -4075,7 +4084,7 @@ async function recordCommunityMentions({ body, authorAgent, postId, commentId = 
         post_id: postId,
         comment_id: commentId,
       }));
-    if (!rows.length) return;
+    if (!rows.length) return pushedAgentIds;
 
     // Idempotent: a retried POST (same client_id) must not duplicate rows or
     // re-notify. This is a read-then-insert rather than an upsert on purpose —
@@ -4093,10 +4102,10 @@ async function recordCommunityMentions({ body, authorAgent, postId, commentId = 
       if (!isCommunityMentionSchemaMissing(recordedError)) {
         console.error('[community] read mentions error:', recordedError.message);
       }
-      return;
+      return pushedAgentIds;
     }
     const fresh = unrecordedMentionRows(rows, (recorded || []).map(row => row.mentioned_agent_id));
-    if (!fresh.length) return;
+    if (!fresh.length) return pushedAgentIds;
 
     const { error } = await supabase.from('community_mentions').insert(fresh);
     if (error) {
@@ -4105,7 +4114,7 @@ async function recordCommunityMentions({ body, authorAgent, postId, commentId = 
       if (error.code !== '23505' && !isCommunityMentionSchemaMissing(error)) {
         console.error('[community] record mentions error:', error.message);
       }
-      return;
+      return pushedAgentIds;
     }
 
     const notified = new Set(fresh.map(row => row.mentioned_agent_id));
@@ -4117,14 +4126,17 @@ async function recordCommunityMentions({ body, authorAgent, postId, commentId = 
       if (!member || !notified.has(member.id)) continue;
       if (!member.telegram_chat_id) continue;
       const prefs = member.notification_prefs || {};
-      if (prefs.community_mentions === false) continue;
+      if (!telegramSourceFlags(prefs).mentions) continue;
       const text = `🔔 <b>${escapeHtml(authorName)}</b> menyebut kamu di Teras`
         + (snippet ? `\n\n${escapeHtml(snippet)}` : '')
         + `\n\n${link}`;
       sendTelegramMessageDirect(member.telegram_chat_id, text).catch(() => {});
+      pushedAgentIds.add(member.id);
     }
+    return pushedAgentIds;
   } catch (err) {
     console.error('[community] record mentions unexpected error:', err.message);
+    return pushedAgentIds;
   }
 }
 
@@ -4138,17 +4150,35 @@ function communityMentionSnippet(body, max = 120) {
  * Broadcast @semua dikirim instan — satu peristiwa tunggal, tidak ada yang perlu
  * digabung, dan menundanya membatalkan alasan @semua dipakai.
  *
- * Penulisnya sendiri tidak diberi tahu. Kegagalan satu chat_id tidak boleh
- * menggagalkan pembuatan kiriman, jadi seluruh badan fungsi ini menelan error.
+ * Penulisnya sendiri tidak diberi tahu, begitu juga agen yang sudah menerima
+ * push personal @nama untuk kiriman yang sama (excludeAgentIds — lihat
+ * recordCommunityMentions). Kegagalan satu chat_id tidak boleh menggagalkan
+ * pembuatan kiriman, jadi seluruh badan fungsi ini menelan error.
  */
-async function notifyCommunityBroadcastTelegram({ post, authorAgent }) {
+async function notifyCommunityBroadcastTelegram({ post, authorAgent, excludeAgentIds }) {
   try {
+    // Query langsung ke `agents`, BUKAN lewat cache 60 detik loadCommunityMembers():
+    // preferensi teras_tg_broadcast yang baru saja dimatikan agen harus berlaku
+    // seketika untuk pengumuman ini, bukan menunggu cache itu kedaluwarsa.
+    // Cakupannya tetap sama dengan loadCommunityMembers() — slug & name wajib
+    // ada — supaya agen tanpa profil Teras yang valid tidak dikirimi tautan
+    // ke feed yang tidak bisa mereka buka.
     const { data: members, error } = await supabase
       .from('agents')
-      .select('id, telegram_chat_id, notification_prefs')
+      .select('id, slug, name, telegram_chat_id, notification_prefs')
       .not('telegram_chat_id', 'is', null)
+      .not('slug', 'is', null)
+      .not('name', 'is', null)
       .neq('id', authorAgent.id);
     if (error) throw error;
+
+    const excluded = excludeAgentIds instanceof Set ? excludeAgentIds : new Set(excludeAgentIds || []);
+    const recipients = (members || []).filter(member => (
+      String(member.slug || '').trim()
+      && String(member.name || '').trim()
+      && !excluded.has(member.id)
+      && telegramSourceFlags(member.notification_prefs).broadcasts
+    ));
 
     const authorName = authorAgent.name || 'Seseorang';
     const snippet = communityMentionSnippet(post.body);
@@ -4157,9 +4187,15 @@ async function notifyCommunityBroadcastTelegram({ post, authorAgent }) {
       + (snippet ? `\n\n${escapeHtml(snippet)}` : '')
       + `\n\n${link}`;
 
-    for (const member of members || []) {
-      if (!telegramSourceFlags(member.notification_prefs).broadcasts) continue;
-      sendTelegramMessageDirect(member.telegram_chat_id, text).catch(() => {});
+    // Berurutan, bukan serentak: roster besar yang dikirimi sekaligus akan
+    // membanjiri Telegram dan kena rate limit. Kegagalan satu agen dicatat
+    // (bukan dibuang diam-diam lewat .catch(() => {})) tapi tidak menghentikan
+    // pengiriman ke agen berikutnya.
+    for (const member of recipients) {
+      const delivered = await sendTelegramMessageDirect(member.telegram_chat_id, text);
+      if (!delivered) {
+        console.warn('[community] broadcast telegram gagal terkirim ke', member.id);
+      }
     }
   } catch (err) {
     console.error('[community] broadcast telegram error:', err.message);
@@ -5675,14 +5711,18 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
 
     bumpCommunityFeedHead(createdPost);
 
-    await recordCommunityMentions({
+    const mentionPushedAgentIds = await recordCommunityMentions({
       body: createdPost.body,
       authorAgent: agent,
       postId: createdPost.id,
     });
 
     if (mentionsEveryone && isFreshPostInsert) {
-      await notifyCommunityBroadcastTelegram({ post: createdPost, authorAgent: agent });
+      await notifyCommunityBroadcastTelegram({
+        post: createdPost,
+        authorAgent: agent,
+        excludeAgentIds: mentionPushedAgentIds,
+      });
     }
 
     const data = {
@@ -6673,7 +6713,7 @@ async function runTerasTelegramDigestSweep() {
   }
   const commentCeilingMs = fetchCeilingMs(comments, 500);
   const reactionCeilingMs = fetchCeilingMs(reactions, 500);
-  const effectiveCeilingMs = Math.min(commentCeilingMs, reactionCeilingMs);
+  const effectiveCeilingMs = clampWatermarkMs(commentCeilingMs, reactionCeilingMs);
 
   const ownerIds = [...new Set([...comments, ...reactions].map(row => row.owner_agent_id).filter(Boolean))];
   if (ownerIds.length === 0) return { sent: 0, owners: 0 };
@@ -6721,30 +6761,25 @@ async function runTerasTelegramDigestSweep() {
   // sama-sama terpotong tapi belum jadi pesan. Memakai cutoffIso di sini akan
   // membuat baris yang terpotong itu dilewati permanen oleh watermark check
   // di lib/teras-telegram-digest.js.
-  const deliveredOwnerWatermarks = new Map();
+  // Kirim tiap pesan dengan isolasi per pesan: satu chat_id yang memblokir bot
+  // tidak boleh membatalkan pengiriman ke agen lain. Ini persis kegagalan yang
+  // dulu membekukan retensi analytics. Hasil delivered/gagalnya dikumpulkan
+  // dulu, lalu watermark dihitung lewat computeOwnerDigestWatermarks (murni,
+  // lib/teras-telegram-digest.js) — supaya perhitungan watermark termasuk
+  // penjepitan akibat kegagalan (lihat komentarnya) bisa diuji tanpa DB/jaringan.
+  const deliveries = [];
   for (const message of messages) {
-    // Isolasi per pesan: satu chat_id yang memblokir bot tidak boleh
-    // membatalkan pengiriman ke agen lain. Ini persis kegagalan yang dulu
-    // membekukan retensi analytics.
+    let delivered = false;
     try {
-      const delivered = await sendTelegramMessageDirect(message.chat_id, message.text);
-      if (delivered) {
-        // Jepit ke plafon lintas-query sebelum dibandingkan — min() lalu
-        // max() gabungan sama dengan max() lalu min() karena plafonnya
-        // konstan untuk seluruh sweep, jadi urutan penjepitan di sini tidak
-        // mengubah hasil akhir per owner.
-        const candidateMs = Math.min(new Date(message.latest_at).getTime(), effectiveCeilingMs);
-        const prevWatermark = deliveredOwnerWatermarks.get(message.agent_id);
-        if (!prevWatermark || candidateMs > new Date(prevWatermark).getTime()) {
-          deliveredOwnerWatermarks.set(message.agent_id, new Date(candidateMs).toISOString());
-        }
-      } else {
-        console.warn('[teras-digest] Telegram menolak pesan ke', message.agent_id);
-      }
+      delivered = await sendTelegramMessageDirect(message.chat_id, message.text);
+      if (!delivered) console.warn('[teras-digest] Telegram menolak pesan ke', message.agent_id);
     } catch (err) {
       console.warn('[teras-digest] gagal kirim ke', message.agent_id, err.message);
     }
+    deliveries.push({ agent_id: message.agent_id, latest_at: message.latest_at, delivered });
   }
+
+  const deliveredOwnerWatermarks = computeOwnerDigestWatermarks(deliveries, effectiveCeilingMs);
 
   for (const [ownerId, watermark] of deliveredOwnerWatermarks) {
     try {

@@ -817,6 +817,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 telegramConnected={notifPrefs.telegramConnected}
                 open={notifPrefs.open}
                 loading={notifPrefs.loading}
+                loaded={notifPrefs.loaded}
                 error={notifPrefs.error}
                 onOpen={notifPrefs.openSheet}
                 onClose={notifPrefs.closeSheet}
@@ -1141,6 +1142,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 telegramConnected={notifPrefs.telegramConnected}
                 open={notifPrefs.open}
                 loading={notifPrefs.loading}
+                loaded={notifPrefs.loaded}
                 error={notifPrefs.error}
                 onOpen={notifPrefs.openSheet}
                 onClose={notifPrefs.closeSheet}

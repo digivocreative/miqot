@@ -44,13 +44,14 @@ function Switch({ checked, disabled, label, onToggle }: {
 }
 
 export default function TerasNotificationSettings({
-  size, prefs, telegramConnected, open, loading, error, onOpen, onClose, onToggle,
+  size, prefs, telegramConnected, open, loading, loaded, error, onOpen, onClose, onToggle,
 }: {
   size: 'compact' | 'header' | 'home';
   prefs: TerasPrefs;
   telegramConnected: boolean;
   open: boolean;
   loading: boolean;
+  loaded: boolean;
   error: string | null;
   onOpen: () => void;
   onClose: () => void;
@@ -141,7 +142,15 @@ export default function TerasNotificationSettings({
 
                 <div className="border-t border-gray-100 px-4 py-0.5 dark:border-slate-700">
                   {loading && <p className="py-6 text-center text-[13px] text-gray-400 dark:text-slate-500">Memuat…</p>}
-                  {!loading && ROWS.map(row => {
+                  {!loading && !loaded && (
+                    // Load awal gagal: JANGAN render matriks saklar sama sekali — nilainya
+                    // masih DEFAULT_PREFS (fabrikasi), bukan posisi asli agen. Tampilkan
+                    // error di sini, menggantikan baris, bukan berdampingan dengannya.
+                    <p role="alert" className="py-6 text-center text-[13px] font-medium text-red-500 dark:text-red-400">
+                      {error ?? 'Gagal memuat pengaturan.'}
+                    </p>
+                  )}
+                  {!loading && loaded && ROWS.map(row => {
                     const Icon = row.icon;
                     return (
                       <div key={row.bell} className="flex items-center gap-1.5 py-2.5">
@@ -168,7 +177,7 @@ export default function TerasNotificationSettings({
                   })}
                 </div>
 
-                {!loading && !telegramConnected && (
+                {!loading && loaded && !telegramConnected && (
                   <a
                     href="/dashboard/settings/telegram"
                     className="flex items-center gap-2.5 border-t border-gray-100 bg-emerald-50 px-4 py-3 dark:border-slate-700 dark:bg-emerald-900/20"
@@ -179,7 +188,7 @@ export default function TerasNotificationSettings({
                   </a>
                 )}
 
-                {error && (
+                {loaded && error && (
                   <p role="alert" className="border-t border-gray-100 px-4 py-2 text-[12px] font-medium text-red-500 dark:border-slate-700 dark:text-red-400">{error}</p>
                 )}
 

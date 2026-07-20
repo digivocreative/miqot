@@ -220,3 +220,34 @@ test('mention personal mengalahkan broadcast pada kiriman yang sama', () => {
   assert.equal(items[0].type, 'mention');
   assert.equal(countUnreadNotifications(sources), 1);
 });
+
+test('sumber yang dinonaktifkan hilang dari daftar dan dari hitungan badge', () => {
+  // Meniru pengkabelan gerbang di server: saat sebuah jenis peristiwa dimatikan
+  // lewat bellSourceFlags (mis. teras_bell_reaction: false), server tidak
+  // pernah mengisi array sumber itu — array-nya dikosongkan SEBELUM sampai ke
+  // mergeNotifications/countUnreadNotifications. File ini sebelumnya hanya
+  // menguji bahwa bellSourceFlags mengembalikan flag yang diberikan — bukan
+  // bahwa gerbangnya benar-benar mengosongkan daftar & badge. Tes ini menutup
+  // celah itu.
+  const sourcesAllOn = {
+    mentions: [{ id: 'm1', post_id: 'p1', comment_id: null, created_at: '2026-07-20T09:00:00Z', actor: actor('Rina'), snippet: 'halo' }],
+    comments: [{ id: 'c1', post_id: 'p2', created_at: '2026-07-20T08:00:00Z', actor: actor('Budi'), snippet: 'mantap' }],
+    reactions: [{ post_id: 'p3', agent_id: 'a3', created_at: '2026-07-20T07:00:00Z', actor: actor('Sari'), snippet: 'x' }],
+    broadcasts: [{ post_id: 'p4', created_at: '2026-07-20T06:00:00Z', actor: actor('Nina'), snippet: 'y' }],
+  };
+  const itemsAllOn = mergeNotifications(sourcesAllOn, null);
+  assert.deepEqual(itemsAllOn.map(i => i.type).sort(), ['broadcast', 'comment', 'mention', 'reaction']);
+  assert.equal(countUnreadNotifications(sourcesAllOn), 4);
+
+  // teras_bell_reaction dimatikan -> server mengosongkan `reactions` sebelum
+  // memanggil kedua fungsi ini, sumber lain tidak tersentuh.
+  const sourcesReactionOff = { ...sourcesAllOn, reactions: [] };
+  const itemsReactionOff = mergeNotifications(sourcesReactionOff, null);
+  assert.deepEqual(
+    itemsReactionOff.map(i => i.type).sort(),
+    ['broadcast', 'comment', 'mention'],
+    'sumber yang dimatikan tidak boleh muncul di daftar',
+  );
+  assert.equal(itemsReactionOff.some(i => i.type === 'reaction'), false);
+  assert.equal(countUnreadNotifications(sourcesReactionOff), 3, 'badge tidak boleh menghitung sumber yang dimatikan');
+});
