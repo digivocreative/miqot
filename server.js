@@ -446,7 +446,11 @@ app.use('/api/umrah/ocr-ktp', express.json({ limit: '16mb' }));
 app.use('/api/community/read', express.json({ limit: '2kb' }));
 app.use('/api/community/posts/:id/reaction', express.json({ limit: '2kb' }));
 app.use('/api/community/posts/:id/comments', express.json({ limit: '8kb' }));
-app.use('/api/community/posts', express.json({ limit: '32kb' }));
+// Ini batas yang berlaku, BUKAN yang di app.post('/api/community/posts', ...)
+// di bawah — parser path-scoped berjalan sebelum parser route-level, jadi
+// limit di route itu tidak pernah tereksekusi (jebakan ini sudah menggigit
+// repo ini 3x). 96kb: utas 5 segmen dengan metadata media bisa melewati 32kb.
+app.use('/api/community/posts', express.json({ limit: '96kb' }));
 // Webhook Resend Inbound butuh raw body (verifikasi signature Svix) — harus
 // terpasang SEBELUM parser JSON global di bawah
 app.use('/api/resend-inbound', express.raw({ type: '*/*', limit: '1mb' }));
@@ -4922,21 +4926,25 @@ async function loadTerasNotificationSources(agent, { since, limit }) {
   // Broadcast @semua dari agent lain. Penulisnya sendiri tidak diberi tahu, dan
   // kiriman terhapus hilang dari lonceng seperti sumber lain. Segmen lanjutan
   // utas tidak pernah jadi sumber lonceng — @semua hanya dihormati di segmen 1.
-  const broadcastQuery = supabase
-    .from('community_posts')
-    .select('id, body, created_at, author:agents!community_posts_agent_id_fkey(name, photo)')
-    .eq('mentions_everyone', true)
-    .neq('agent_id', agent.id)
-    .is('deleted_at', null)
-    .is('parent_post_id', null)
-    .order('created_at', { ascending: false })
-    .limit(limit);
+  // Lewat runCommunityRootQuery supaya /head yang di-poll tiap klien tidak
+  // 500 terus-menerus sebelum migrasi parent_post_id diterapkan.
+  const broadcastQuery = runCommunityRootQuery(withThread => {
+    let query = supabase
+      .from('community_posts')
+      .select('id, body, created_at, author:agents!community_posts_agent_id_fkey(name, photo)')
+      .eq('mentions_everyone', true)
+      .neq('agent_id', agent.id)
+      .is('deleted_at', null);
+    if (withThread) query = query.is('parent_post_id', null);
+    query = query.order('created_at', { ascending: false }).limit(limit);
+    if (since) query = query.gt('created_at', since);
+    return query;
+  });
 
   if (since) {
     mentionQuery.gt('created_at', since);
     commentQuery.gt('created_at', since);
     reactionQuery.gt('created_at', since);
-    broadcastQuery.gt('created_at', since);
   }
 
   const [mentionResult, commentResult, reactionResult, broadcastResult] = await Promise.all([
@@ -6140,10 +6148,15 @@ app.delete('/api/community/posts/:id', authMiddleware, async (req, res) => {
       // post.id berasal dari baris yang baru saja dibaca lewat eq('id', ...)
       // di atas (sudah divalidasi UUID oleh isCommunityUuid), aman diselipkan
       // ke string filter .or().
+      // Pertahanan berlapis: lingkupi pada penulis ASLI utas (post.agent_id),
+      // bukan agent yang meminta — endpoint ini juga melayani moderasi (admin
+      // menghapus kiriman agent lain), dan same-author-per-chain dijamin oleh
+      // konstruksi saat ini, tapi tidak ada yang menegakkannya di titik ini.
       ({ error: deleteError } = await supabase
         .from('community_posts')
         .update(patch)
         .or(`id.eq.${post.id},root_post_id.eq.${post.id}`)
+        .eq('agent_id', post.agent_id)
         .is('deleted_at', null));
     } else {
       ({ error: deleteError } = await supabase

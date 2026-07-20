@@ -3044,16 +3044,31 @@ export default function TerasPage({
         { method: 'DELETE', headers: getAuthHeaders() },
         'Gagal menghapus kiriman',
       );
-      setPosts(current => current.filter(post => post.id !== postId));
-      pendingCreatedPostsRef.current.delete(postId);
+      // Menghapus segmen pertama sebuah utas menghapus seluruh rantai di
+      // server. Kalau rantai itu sudah termuat di `posts` (halaman detail
+      // pernah dibuka), segmen lainnya harus ikut lenyap dari layar di sini —
+      // kalau tidak, mereka jadi kartu hantu yang masih bisa direaksi/
+      // dikomentari padahal barisnya sudah soft-deleted di server.
+      const target = postsRef.current.find(post => post.id === postId);
+      const isRootOfLoadedChain = !!target?.thread
+        && target.thread.length > 1
+        && target.thread[0]?.id === postId;
+      const idsToRemove = isRootOfLoadedChain
+        ? new Set(target!.thread!.map(segment => segment.id))
+        : new Set([postId]);
+      setPosts(current => current.filter(post => !idsToRemove.has(post.id)));
+      idsToRemove.forEach(id => pendingCreatedPostsRef.current.delete(id));
       setCommentPanels(current => {
         const next = { ...current };
-        delete next[postId];
+        idsToRemove.forEach(id => { delete next[id]; });
         return next;
       });
       setMenuOpenPostId(null);
       setConfirmDeletePostId(null);
-      if (detailPostId === postId) closePostDetail();
+      // Tutup detail bila segmen yang sedang ditampilkan ada di rantai yang
+      // baru saja dihapus — bukan hanya bila persis segmen yang diklik hapus,
+      // supaya menghapus segmen 1 saat sedang melihat segmen 2/3 pun menutup.
+      if (detailPostId && idsToRemove.has(detailPostId)) closePostDetail();
       showToast('Kiriman dihapus dari Teras', 'success');
     } catch (deleteError) {
       showToast(errorMessage(deleteError, 'Gagal menghapus kiriman'), 'error');
@@ -3336,7 +3351,13 @@ export default function TerasPage({
                   overlay={(
                     <MentionHighlightLayer
                       text={segment.body}
-                      memberBySlug={postMemberBySlug}
+                      // @semua cuma dihormati server di segmen pertama; kalau
+                      // segmen lain diberi peta yang sama, mengetik @semua
+                      // dengan tangan di sana merender pil emerald yang
+                      // menjanjikan broadcast padahal publish diam-diam
+                      // mengabaikannya. Segmen >1 pakai peta tanpa entri
+                      // sintetis "semua" supaya token itu dirender polos.
+                      memberBySlug={index === 0 ? postMemberBySlug : memberBySlug}
                       className="p-0 text-[17px] leading-relaxed"
                     />
                   )}
