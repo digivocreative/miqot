@@ -5717,14 +5717,6 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       postId: createdPost.id,
     });
 
-    if (mentionsEveryone && isFreshPostInsert) {
-      await notifyCommunityBroadcastTelegram({
-        post: createdPost,
-        authorAgent: agent,
-        excludeAgentIds: mentionPushedAgentIds,
-      });
-    }
-
     const data = {
       ...createdPost,
       photo_url: photoUrl,
@@ -5740,6 +5732,21 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '32kb' })
       is_own: true,
     };
     res.status(201).json({ success: true, data });
+
+    // Fan-out runs after the author's response is sent: notifyCommunityBroadcastTelegram
+    // sends sequentially (one fetch per recipient) to respect Telegram's rate limit, and
+    // awaiting it here would hold the author's POST open for seconds on a large roster.
+    // Not awaited — this is fire-and-forget background work on a long-lived server with
+    // in-process cron jobs, so it is safe to let it continue after the response. The
+    // function already catches its own errors internally and never throws; this .catch
+    // is a defensive backstop only. A notification failure must never fail post creation.
+    if (mentionsEveryone && isFreshPostInsert) {
+      notifyCommunityBroadcastTelegram({
+        post: createdPost,
+        authorAgent: agent,
+        excludeAgentIds: mentionPushedAgentIds,
+      }).catch(err => console.error('[community] broadcast telegram fan-out error:', err));
+    }
   } catch (err) {
     console.error('[community] create post error:', err);
     res.status(500).json({ error: 'Gagal membuat postingan' });
@@ -12694,6 +12701,7 @@ async function sendTelegramMessageDirect(chatId, text, options = {}) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
     });
     const payload = await response.json().catch(() => null);
     return response.ok && payload?.ok === true;
