@@ -2447,7 +2447,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await dialog.waitFor();
 
       await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Ini konten pertama.');
-      await dialog.getByRole('button', { name: 'Tambah ke utas' }).click();
+      await dialog.getByRole('button', { name: 'Tambahkan ke utas' }).click();
       await dialog.getByPlaceholder('Tambahkan ke utas…').fill('Ini konten kedua.');
       await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
       await dialog.waitFor({ state: 'detached', timeout: 10_000 });
@@ -2481,12 +2481,29 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const dialog = page.getByRole('dialog', { name: 'Buat Kiriman' });
       await dialog.waitFor();
       await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Satu');
-      for (let i = 0; i < 4; i += 1) {
-        await dialog.getByRole('button', { name: 'Tambah ke utas' }).click();
+      const addButton = dialog.getByRole('button', { name: 'Tambahkan ke utas' });
+
+      // Ala Threads: setelah menambah segmen kosong, "Tambahkan ke utas" mati
+      // sampai segmen terakhir itu diisi — menahan tumpukan kotak kosong.
+      await addButton.click();
+      assert.equal(
+        await addButton.isDisabled(),
+        true,
+        'tombol tambah harus mati selagi segmen terakhir masih kosong',
+      );
+      await dialog.getByPlaceholder('Tambahkan ke utas…').last().fill('Dua');
+
+      for (let i = 3; i <= 5; i += 1) {
+        await addButton.click();
+        await dialog.getByPlaceholder('Tambahkan ke utas…').last().fill(`Isi ${i}`);
       }
-      const maxedButton = dialog.getByRole('button', { name: 'Maksimum 5 kiriman per utas' });
-      await maxedButton.waitFor();
-      assert.equal(await maxedButton.isDisabled(), true, 'tombol tambah harus mati di segmen ke-5');
+
+      // Di segmen ke-5 barisnya menghilang sepenuhnya (bukan berubah jadi label).
+      assert.equal(
+        await dialog.getByRole('button', { name: 'Tambahkan ke utas' }).count(),
+        0,
+        'baris tambah harus hilang di segmen ke-5',
+      );
       assert.equal(
         await dialog.getByPlaceholder('Tambahkan ke utas…').count(),
         4,
@@ -2747,7 +2764,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await dialog.waitFor();
       const first = dialog.getByPlaceholder(COMPOSER_PLACEHOLDER);
       await first.fill('Segmen pertama.');
-      await dialog.getByRole('button', { name: 'Tambah ke utas' }).click();
+      await dialog.getByRole('button', { name: 'Tambahkan ke utas' }).click();
 
       const second = dialog.getByPlaceholder('Tambahkan ke utas…');
       await second.click();

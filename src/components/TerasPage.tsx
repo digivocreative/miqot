@@ -3110,6 +3110,17 @@ export default function TerasPage({
     && !composerBusy
     && composerSegments.every(segment => segment.media.every(item => item.status === 'ready'));
 
+  // Ala Threads: "Tambahkan ke utas" baru aktif setelah segmen TERAKHIR berisi
+  // teks. Saat composer baru dibuka, segmen terakhir = segmen pertama, jadi ini
+  // sekaligus memenuhi "post 1 kosong → belum aktif" dan menahan tumpukan kotak
+  // kosong beruntun.
+  const composerLastBodyLength = Array.from(
+    (composerSegments[composerSegments.length - 1]?.body || '').trim(),
+  ).length;
+  const composerCanAddSegment = !composerBusy
+    && composerSegments.length < MAX_THREAD_SEGMENTS
+    && composerLastBodyLength >= 1;
+
   const handleSegmentChange = (index: number, body: string, element: HTMLTextAreaElement) => {
     const segment = composerSegments[index];
     if (!segment) return;
@@ -3385,19 +3396,27 @@ export default function TerasPage({
                 />
               ))}
 
-              <div className="pl-[52px]">
+              {composerSegments.length < MAX_THREAD_SEGMENTS && (
                 <button
                   type="button"
                   onClick={handleSegmentAdd}
-                  disabled={composerBusy || composerSegments.length >= MAX_THREAD_SEGMENTS}
-                  className="-ml-2 mb-3 flex min-h-11 items-center gap-2 rounded-full px-2.5 py-1.5 text-[12px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                  disabled={!composerCanAddSegment}
+                  aria-label="Tambahkan ke utas"
+                  className="group mb-3 grid w-full grid-cols-[40px_minmax(0,1fr)] items-center gap-x-3 rounded-lg py-1 text-left transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <span aria-hidden="true" className="text-base leading-none">+</span>
-                  {composerSegments.length >= MAX_THREAD_SEGMENTS
-                    ? `Maksimum ${MAX_THREAD_SEGMENTS} kiriman per utas`
-                    : 'Tambah ke utas'}
+                  {/* Avatar kecil di kolom yang sama dengan avatar segmen, jadi
+                      garis penyambung dari segmen terakhir mengarah tepat ke
+                      sini — persis "Add to thread" di Threads. */}
+                  <span className="flex justify-center">
+                    <AgentAvatar name={agent.name} photo={agent.photo} size="comment" />
+                  </span>
+                  <span className="text-[15px] text-gray-500 group-enabled:group-hover:text-gray-700 dark:text-slate-400 dark:group-enabled:group-hover:text-slate-200">
+                    Tambahkan ke utas
+                  </span>
                 </button>
+              )}
 
+              <div className="pl-[52px]">
                 {composerMediaWithoutTextIndex !== -1 && (
                   <p className="mb-3 text-[10px] font-medium text-red-500 dark:text-red-400">
                     Segmen {composerMediaWithoutTextIndex + 1} perlu teks
