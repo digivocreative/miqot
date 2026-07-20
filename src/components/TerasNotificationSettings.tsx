@@ -145,7 +145,7 @@ export default function TerasNotificationSettings({
 
                 {!telegramConnected && (
                   <a
-                    href="/dashboard/telegram"
+                    href="/dashboard/settings/telegram"
                     className="flex items-center gap-2.5 border-t border-gray-100 bg-emerald-50 px-4 py-3 dark:border-slate-700 dark:bg-emerald-900/20"
                   >
                     <Send size={15} className="text-sky-500" />
