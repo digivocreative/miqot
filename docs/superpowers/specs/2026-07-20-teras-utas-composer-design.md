@@ -51,8 +51,11 @@ harus ikut diperbarui saat itu, bukan dihapus.
    ke segmen 1, apa pun segmen yang diklik. Reaksi tetap per-segmen.
 7. **Utas = satu peristiwa.** Pill "kiriman baru" naik sekali; mention dikumpul
    lintas-segmen, dedup per orang, satu notifikasi.
-8. **Konfirmasi buang** saat menutup composer, hanya kalau ada >1 segmen atau
-   ada media. Kiriman satu baris tetap ditutup instan seperti sekarang.
+8. **Konfirmasi buang diperluas ke semua segmen.** Konfirmasi ini **sudah ada**
+   (`'Buang draft kiriman ini?'`), tapi hanya memeriksa segmen tunggal; kalau
+   dibiarkan, menutup utas 4 segmen membuangnya tanpa tanya selama segmen 1
+   kebetulan kosong. Kondisinya jadi "ada segmen mana pun yang berisi teks atau
+   media", dan teksnya jadi "Buang utas ini?" saat segmen >1.
 9. **Hapus segmen 1 = hapus seluruh utas.** Hapus segmen tengah = hanya segmen
    itu.
 
@@ -252,8 +255,9 @@ Aturan interaksi:
   media yang sudah diunggah tanpa memberi tahu itu kehilangan senyap.
 - Tombol Post aktif kalau segmen 1 berisi. Labelnya tetap "Kirim" — jumlah sudah
   terbaca dari penghitung `n/5`.
-- Menutup composer meminta konfirmasi "Buang utas?" hanya kalau ada >1 segmen
-  atau ada media.
+- Konfirmasi tutup yang sudah ada (`TerasPage.tsx`, `'Buang draft kiriman ini?'`)
+  diperluas: kondisinya memeriksa **semua** segmen, dan teksnya jadi
+  "Buang utas ini?" saat segmen >1.
 
 **Kartu feed** (`TerasCard.tsx`): di bawah isi, sebelum baris reaksi, label
 `Utas · N kiriman` sebagai tombol yang membuka detail. Utas 1 segmen tak
