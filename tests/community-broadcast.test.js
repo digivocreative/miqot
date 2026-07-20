@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   EVERYONE_TOKEN,
   hasEveryoneMention,
@@ -56,4 +57,22 @@ test('slug "semua" tidak boleh diklaim agent', () => {
   assert.equal(isReservedAgentSlug('semua'), true);
   assert.equal(isReservedAgentSlug('SEMUA'), true);
   assert.equal(isReservedAgentSlug('semuanya'), false);
+});
+
+test('migrasi broadcast additive dan punya index untuk kuota serta lonceng', () => {
+  const sql = readFileSync(new URL('../migrations/20260725000000_community_broadcast.sql', import.meta.url), 'utf8');
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS mentions_everyone BOOLEAN NOT NULL DEFAULT false/i);
+  assert.match(sql, /community_posts_broadcast_quota_idx/);
+  assert.match(sql, /community_posts_broadcast_feed_idx/);
+  // Additive saja: kolom lama tidak boleh disentuh.
+  assert.doesNotMatch(sql, /DROP\s+(COLUMN|TABLE)/i);
+  assert.match(sql, /NOTIFY pgrst, 'reload schema'/);
+});
+
+test('server memakai guard skema broadcast, bukan menembakkan galat mentah', () => {
+  const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  assert.match(source, /function isCommunityBroadcastSchemaMissing\(error\)/,
+    'guard skema broadcast harus ada');
+  assert.match(source, /Migrasi @semua Teras belum diterapkan/,
+    'pesan 503 pra-migrasi harus persis seperti spec');
 });

@@ -4162,6 +4162,16 @@ function isCommunityLinkPreviewSchemaMissing(error) {
     && /does not exist|could not find|schema cache/i.test(message);
 }
 
+function isCommunityBroadcastSchemaMissing(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || error?.details || '');
+  if (!['42703', 'PGRST204'].includes(code)) return false;
+  return /mentions_everyone/i.test(message)
+    && /does not exist|could not find|schema cache/i.test(message);
+}
+
+const COMMUNITY_BROADCAST_MIGRATION_ERROR = 'Migrasi @semua Teras belum diterapkan';
+
 function communityQuotedPostPayload(row) {
   if (!row || row.deleted_at) return { available: false };
   return {
