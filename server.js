@@ -6637,8 +6637,12 @@ async function runTerasTelegramDigestSweep() {
     // membatalkan pengiriman ke agen lain. Ini persis kegagalan yang dulu
     // membekukan retensi analytics.
     try {
-      await sendTelegramMessageDirect(message.chat_id, message.text);
-      deliveredOwners.add(message.agent_id);
+      const delivered = await sendTelegramMessageDirect(message.chat_id, message.text);
+      if (delivered) {
+        deliveredOwners.add(message.agent_id);
+      } else {
+        console.warn('[teras-digest] Telegram menolak pesan ke', message.agent_id);
+      }
     } catch (err) {
       console.warn('[teras-digest] gagal kirim ke', message.agent_id, err.message);
     }
@@ -12534,20 +12538,23 @@ function markFlightNotifSent(flightId, changeType) {
 
 async function sendTelegramMessageDirect(chatId, text, options = {}) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !chatId) return;
+  if (!token || !chatId) return false;
   try {
     const body = {
       chat_id: chatId, text,
       parse_mode: 'HTML', disable_web_page_preview: true,
     };
     if (options.reply_markup) body.reply_markup = options.reply_markup;
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    const payload = await response.json().catch(() => null);
+    return response.ok && payload?.ok === true;
   } catch (err) {
-    console.error(`[FlightNotif] Telegram send error:`, err.message);
+    console.error(`[Telegram] sendMessage error:`, err.message);
+    return false;
   }
 }
 
