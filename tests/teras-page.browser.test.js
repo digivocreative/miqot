@@ -2280,4 +2280,70 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await app.close();
     }
   });
+
+  test('@semua tampil di komposer dengan label jatah, tidak di kolom balasan', { timeout: 30_000 }, async () => {
+    const post = makePost({ id: 'broadcast-post', body: 'Uji broadcast', comment_count: 1 });
+    const api = createCommunityApi({
+      posts: [post],
+      comments: { 'broadcast-post': [makeComment({ body: 'Balasan pertama' })] },
+      members: [{ slug: 'bagas', name: 'Bagas', photo: null, phone: null }],
+    });
+    const app = await openApp({ api, viewport: { width: 670, height: 780 } });
+    try {
+      await app.page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }).click();
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).type('@');
+
+      const listbox = app.page.getByRole('listbox', { name: 'Sebut anggota' });
+      await listbox.waitFor({ timeout: 10_000 });
+      const first = listbox.getByRole('option').first();
+      assert.match(await first.innerText(), /@semua/, 'item broadcast harus di posisi teratas');
+      assert.match(await first.innerText(), /1× sehari/, 'label jatah harus terlihat sebelum kirim');
+      assert.equal(await first.getAttribute('aria-disabled'), 'false');
+
+      // Memilihnya menyisipkan token ke isi kiriman.
+      await first.click();
+      assert.match(await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).inputValue(), /@semua\s/);
+
+      // Kolom balasan tidak menawarkan broadcast. Isi kiriman sudah tak
+      // kosong (token @semua tersisip), jadi menutup memicu konfirmasi
+      // "Buang draft kiriman ini?" — terima supaya komposer benar-benar tutup.
+      app.page.once('dialog', confirmation => confirmation.accept());
+      await dialog.getByRole('button', { name: 'Batal', exact: true }).click();
+      await dialog.waitFor({ state: 'detached' });
+      const article = app.page.locator('article').filter({ hasText: 'Uji broadcast' });
+      await article.getByRole('button', { name: 'Komentari', exact: true }).click();
+      const commentInput = article.locator('textarea[id^="teras-comment-input-"]').first();
+      await commentInput.waitFor();
+      await commentInput.type('@');
+      const commentListbox = app.page.getByRole('listbox', { name: 'Sebut anggota' });
+      await commentListbox.waitFor({ timeout: 10_000 });
+      assert.doesNotMatch(await commentListbox.innerText(), /@semua/,
+        '@semua tidak berlaku di komentar, jadi tidak boleh ditawarkan di sana');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('jatah habis menonaktifkan item @semua', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      posts: [makePost({ id: 'quota-post', body: 'Uji jatah' })],
+      members: [{ slug: 'bagas', name: 'Bagas', photo: null, phone: null }],
+      broadcastQuota: { unlimited: false, used_today: 1, remaining: 0, resets_at: '2026-07-21T17:00:00.000Z' },
+    });
+    const app = await openApp({ api, viewport: { width: 670, height: 780 } });
+    try {
+      await app.page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }).click();
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).type('@');
+      const first = app.page.getByRole('listbox', { name: 'Sebut anggota' }).getByRole('option').first();
+      await first.waitFor({ timeout: 10_000 });
+      assert.match(await first.innerText(), /jatah hari ini habis/);
+      assert.equal(await first.getAttribute('aria-disabled'), 'true');
+    } finally {
+      await app.close();
+    }
+  });
 });
