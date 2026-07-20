@@ -5662,6 +5662,10 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
         };
         break;
       }
+      if (!post) {
+        failure = { error: new Error('Kiriman tidak dikembalikan setelah insert') };
+        break;
+      }
       segmentPostIds.push(post.id);
       if (!reused) rollbackIds.push(post.id);
       if (i === 0) createdPost = post;
@@ -5674,7 +5678,10 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
         const { error: rollbackError } = await supabase
           .from('community_posts')
           .delete()
-          .in('id', rollbackIds);
+          .in('id', rollbackIds)
+          // Pertahanan berlapis pada penghapusan permanen: lingkupi pada pemilik,
+          // agar tidak ada risiko menghapus baris agen lain jika invariant berubah.
+          .eq('agent_id', agent.id);
         if (rollbackError) {
           // Satu-satunya jalan menuju keadaan tak konsisten. Harus berisik.
           console.error(
