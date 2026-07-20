@@ -4167,6 +4167,23 @@ function isCommunityLinkPreviewSchemaMissing(error) {
     && /does not exist|could not find|schema cache/i.test(message);
 }
 
+function isCommunityThreadSchemaMissing(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || error?.details || '');
+  if (!['42703', 'PGRST204'].includes(code)) return false;
+  return /parent_post_id|root_post_id/i.test(message)
+    && /does not exist|could not find|schema cache/i.test(message);
+}
+
+// Jalankan query daftar dengan filter "bukan segmen lanjutan". Kalau migrasi
+// utas belum diterapkan, ulangi tanpa filter — sebelum migrasi tidak ada utas,
+// jadi hasilnya identik.
+async function runCommunityRootQuery(build) {
+  const result = await build(true);
+  if (isCommunityThreadSchemaMissing(result.error)) return build(false);
+  return result;
+}
+
 function isCommunityBroadcastSchemaMissing(error) {
   const code = String(error?.code || '');
   const message = String(error?.message || error?.details || '');
@@ -4437,18 +4454,26 @@ async function loadCommunityTeaserSharedData() {
   const wibDate = new Date(now + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const startOfTodayWib = `${wibDate}T00:00:00+07:00`;
   const [latestResult, todayResult] = await Promise.all([
-    supabase
-      .from('community_posts')
-      .select('id, body, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, photo)')
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: false })
-      .limit(12),
-    supabase
-      .from('community_posts')
-      .select('id', { count: 'exact', head: true })
-      .is('deleted_at', null)
-      .gte('created_at', startOfTodayWib),
+    runCommunityRootQuery(withThread => {
+      let query = supabase
+        .from('community_posts')
+        .select('id, body, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, photo)')
+        .is('deleted_at', null);
+      if (withThread) query = query.is('parent_post_id', null);
+      return query
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(12);
+    }),
+    runCommunityRootQuery(withThread => {
+      let query = supabase
+        .from('community_posts')
+        .select('id', { count: 'exact', head: true })
+        .is('deleted_at', null)
+        .gte('created_at', startOfTodayWib);
+      if (withThread) query = query.is('parent_post_id', null);
+      return query;
+    }),
   ]);
   if (latestResult.error) throw latestResult.error;
   if (todayResult.error) throw todayResult.error;
@@ -4516,15 +4541,18 @@ app.get('/api/community/teaser', dbLoadShedGuard, authMiddleware, async (req, re
       .maybeSingle();
     if (readError) throw readError;
 
-    let unreadQuery = supabase
-      .from('community_posts')
-      .select('id', { count: 'exact', head: true })
-      .is('deleted_at', null)
-      .neq('agent_id', agent.id);
-    if (readState?.last_seen_at) {
-      unreadQuery = unreadQuery.gt('created_at', readState.last_seen_at);
-    }
-    const { count: unreadCount, error: unreadError } = await unreadQuery;
+    const { count: unreadCount, error: unreadError } = await runCommunityRootQuery(withThread => {
+      let unreadQuery = supabase
+        .from('community_posts')
+        .select('id', { count: 'exact', head: true })
+        .is('deleted_at', null)
+        .neq('agent_id', agent.id);
+      if (withThread) unreadQuery = unreadQuery.is('parent_post_id', null);
+      if (readState?.last_seen_at) {
+        unreadQuery = unreadQuery.gt('created_at', readState.last_seen_at);
+      }
+      return unreadQuery;
+    });
     if (unreadError) throw unreadError;
 
     res.json({
@@ -4567,14 +4595,18 @@ async function loadCommunityFeedHead() {
     return communityFeedHeadCache.entry.head;
   }
 
-  const { data, error } = await supabase
-    .from('community_posts')
-    .select('id, created_at')
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data, error } = await runCommunityRootQuery(withThread => {
+    let query = supabase
+      .from('community_posts')
+      .select('id, created_at')
+      .is('deleted_at', null);
+    if (withThread) query = query.is('parent_post_id', null);
+    return query
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+  });
   if (error) throw error;
 
   const head = data ? { latest_id: data.id, latest_created_at: data.created_at } : null;
@@ -4815,13 +4847,15 @@ async function loadTerasNotificationSources(agent, { since, limit }) {
     .limit(limit);
 
   // Broadcast @semua dari agent lain. Penulisnya sendiri tidak diberi tahu, dan
-  // kiriman terhapus hilang dari lonceng seperti sumber lain.
+  // kiriman terhapus hilang dari lonceng seperti sumber lain. Segmen lanjutan
+  // utas tidak pernah jadi sumber lonceng — @semua hanya dihormati di segmen 1.
   const broadcastQuery = supabase
     .from('community_posts')
     .select('id, body, created_at, author:agents!community_posts_agent_id_fkey(name, photo)')
     .eq('mentions_everyone', true)
     .neq('agent_id', agent.id)
     .is('deleted_at', null)
+    .is('parent_post_id', null)
     .order('created_at', { ascending: false })
     .limit(limit);
 
@@ -5006,11 +5040,15 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       }
     }
 
-    const buildPostsQuery = (includeMedia, includeQuote, includeLinkPreview) => {
+    const buildPostsQuery = (includeMedia, includeQuote, includeLinkPreview, includeThread) => {
       let query = supabase
         .from('community_posts')
         .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .is('deleted_at', null);
+      // Segmen lanjutan sebuah utas tidak pernah muncul di daftar — baik di
+      // linimasa maupun di profil. Utas tampil sebagai satu unit lewat kartu
+      // segmen pertamanya.
+      if (includeThread) query = query.is('parent_post_id', null);
       if (profileMember) {
         query = query.eq('agent_id', profileMember.id);
       }
@@ -5031,10 +5069,11 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
     let includeMedia = true;
     let includeQuote = true;
     let includeLinkPreview = true;
+    let includeThread = true;
     let posts = null;
     let postsError = null;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      ({ data: posts, error: postsError } = await buildPostsQuery(includeMedia, includeQuote, includeLinkPreview));
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      ({ data: posts, error: postsError } = await buildPostsQuery(includeMedia, includeQuote, includeLinkPreview, includeThread));
       if (includeMedia && isCommunityMediaSchemaMissing(postsError)) {
         includeMedia = false;
         continue;
@@ -5045,6 +5084,10 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       }
       if (includeLinkPreview && isCommunityLinkPreviewSchemaMissing(postsError)) {
         includeLinkPreview = false;
+        continue;
+      }
+      if (includeThread && isCommunityThreadSchemaMissing(postsError)) {
+        includeThread = false;
         continue;
       }
       break;
