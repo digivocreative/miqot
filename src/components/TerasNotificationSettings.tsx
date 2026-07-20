@@ -111,7 +111,7 @@ export default function TerasNotificationSettings({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={headingId}
-                className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl border-t border-gray-100 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+                className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md rounded-t-3xl border-t border-gray-100 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
                 initial={reduceMotion ? { opacity: 0 } : { y: '100%' }}
                 animate={reduceMotion ? { opacity: 1 } : { y: 0 }}
                 exit={reduceMotion ? { opacity: 0 } : { y: '100%' }}
