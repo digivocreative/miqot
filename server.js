@@ -4775,10 +4775,11 @@ async function writeTerasNotifSeenAt(agentId, iso) {
   if (updateError) throw updateError;
 }
 
-// Fetch the three sources in parallel. `since` narrows every source to rows
+// Fetch the four sources in parallel. `since` narrows every source to rows
 // newer than the watermark (badge path); pass null to fetch the latest N
-// regardless (list path). Mentions tolerate a missing table so the bell still
-// works on an environment where the mention migration was never applied.
+// regardless (list path). Mentions tolerate a missing table, and broadcasts
+// tolerate a missing `mentions_everyone` column, so the bell still works on
+// an environment where those migrations were never applied.
 async function loadTerasNotificationSources(agent, { since, limit }) {
   const mentionQuery = supabase
     .from('community_mentions')
@@ -4813,14 +4814,26 @@ async function loadTerasNotificationSources(agent, { since, limit }) {
     .order('created_at', { ascending: false })
     .limit(limit);
 
+  // Broadcast @semua dari agent lain. Penulisnya sendiri tidak diberi tahu, dan
+  // kiriman terhapus hilang dari lonceng seperti sumber lain.
+  const broadcastQuery = supabase
+    .from('community_posts')
+    .select('id, body, created_at, author:agents!community_posts_agent_id_fkey(name, photo)')
+    .eq('mentions_everyone', true)
+    .neq('agent_id', agent.id)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
   if (since) {
     mentionQuery.gt('created_at', since);
     commentQuery.gt('created_at', since);
     reactionQuery.gt('created_at', since);
+    broadcastQuery.gt('created_at', since);
   }
 
-  const [mentionResult, commentResult, reactionResult] = await Promise.all([
-    mentionQuery, commentQuery, reactionQuery,
+  const [mentionResult, commentResult, reactionResult, broadcastResult] = await Promise.all([
+    mentionQuery, commentQuery, reactionQuery, broadcastQuery,
   ]);
 
   if (mentionResult.error && !isCommunityMentionSchemaMissing(mentionResult.error)) {
@@ -4828,6 +4841,9 @@ async function loadTerasNotificationSources(agent, { since, limit }) {
   }
   if (commentResult.error) throw commentResult.error;
   if (reactionResult.error) throw reactionResult.error;
+  if (broadcastResult.error && !isCommunityBroadcastSchemaMissing(broadcastResult.error)) {
+    throw broadcastResult.error;
+  }
 
   const mentions = (mentionResult.error ? [] : (mentionResult.data || []))
     .map(row => {
@@ -4861,7 +4877,14 @@ async function loadTerasNotificationSources(agent, { since, limit }) {
     snippet: communityMentionSnippet(row.post?.body, 140),
   }));
 
-  return { mentions, comments, reactions };
+  const broadcasts = (broadcastResult.error ? [] : (broadcastResult.data || [])).map(row => ({
+    post_id: row.id,
+    created_at: row.created_at,
+    actor: communityAuthorProfile(row.author),
+    snippet: communityMentionSnippet(row.body, 140),
+  }));
+
+  return { mentions, comments, reactions, broadcasts };
 }
 
 app.get('/api/community/notifications/head', dbLoadShedGuard, authMiddleware, async (req, res) => {

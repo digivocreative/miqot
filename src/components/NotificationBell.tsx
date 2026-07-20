@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { AtSign, Bell, Heart, MessageCircle, X } from 'lucide-react';
+import { AtSign, Bell, Heart, Megaphone, MessageCircle, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -28,6 +28,7 @@ const TYPE_ICON: Record<string, typeof Bell> = {
   mention: AtSign,
   comment: MessageCircle,
   reaction: Heart,
+  broadcast: Megaphone,
 };
 
 function initials(name: string): string {

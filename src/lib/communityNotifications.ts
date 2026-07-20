@@ -1,4 +1,4 @@
-export type TerasNotificationType = 'mention' | 'comment' | 'reaction';
+export type TerasNotificationType = 'mention' | 'comment' | 'reaction' | 'broadcast';
 
 export interface TerasNotificationActor {
   name: string | null;
@@ -26,6 +26,9 @@ export function formatNotificationText(item: TerasNotification): string {
   const actor = item.actor?.name?.trim() || 'Seseorang';
   if (item.type === 'mention') {
     return item.comment_id ? `${actor} membalas menyebutmu` : `${actor} menyebutmu`;
+  }
+  if (item.type === 'broadcast') {
+    return `${actor} menyebut semua agent`;
   }
   if (item.type === 'comment') {
     return `${actor} berkomentar di postinganmu`;

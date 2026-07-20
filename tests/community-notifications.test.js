@@ -131,3 +131,58 @@ test('badge counts a mentioning comment once, not twice', () => {
 
   assert.equal(count, 2, '1 mention (terwakili c1) + 1 komentar murni (c2)');
 });
+
+test('broadcast @semua muncul di lonceng dan dihitung sekali', () => {
+  const sources = {
+    mentions: [],
+    comments: [],
+    reactions: [],
+    broadcasts: [
+      {
+        post_id: 'post-b1',
+        created_at: '2026-07-20T03:00:00.000Z',
+        actor: { name: 'Bagas', photo: null },
+        snippet: 'Besok kumpul jam 8 ya',
+      },
+    ],
+  };
+  const items = mergeNotifications(sources, '2026-07-20T02:00:00.000Z');
+  assert.equal(items.length, 1);
+  assert.equal(items[0].id, 'broadcast:post-b1');
+  assert.equal(items[0].type, 'broadcast');
+  assert.equal(items[0].post_id, 'post-b1');
+  assert.equal(items[0].comment_id, null);
+  assert.equal(items[0].actor_count, 1);
+  assert.equal(items[0].snippet, 'Besok kumpul jam 8 ya');
+  assert.equal(items[0].unread, true);
+  assert.equal(countUnreadNotifications(sources), 1);
+});
+
+test('mention personal mengalahkan broadcast pada kiriman yang sama', () => {
+  const sources = {
+    mentions: [
+      {
+        id: 'm1',
+        post_id: 'post-b1',
+        comment_id: null,
+        created_at: '2026-07-20T03:00:00.000Z',
+        actor: { name: 'Bagas', photo: null },
+        snippet: 'Halo @nikita @semua',
+      },
+    ],
+    comments: [],
+    reactions: [],
+    broadcasts: [
+      {
+        post_id: 'post-b1',
+        created_at: '2026-07-20T03:00:00.000Z',
+        actor: { name: 'Bagas', photo: null },
+        snippet: 'Halo @nikita @semua',
+      },
+    ],
+  };
+  const items = mergeNotifications(sources, null);
+  assert.equal(items.length, 1, 'satu kiriman = satu notifikasi');
+  assert.equal(items[0].type, 'mention');
+  assert.equal(countUnreadNotifications(sources), 1);
+});
