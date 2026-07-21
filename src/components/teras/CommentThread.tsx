@@ -108,8 +108,8 @@ export default function CommentThread({
                 kolom yang sama dengan induk), disambung rail vertikal di kolom
                 avatar (railBelow menyambung ke baris berikutnya dalam thread).
                 data-thread-rail="comment" hanya muncul saat ADA balasan —
-                komentar datar tetap tanpa rail. Balasan tingkat dua sengaja tak
-                dapat klik-buka-thread. */}
+                komentar datar tetap tanpa rail. Balasan juga dapat baris aksi
+                (reaksi/balas/kutip) & klik-buka-thread, sama seperti induk. */}
             {previewReplies.map((reply, index) => (
               <CommentRow
                 key={reply.id}
@@ -124,6 +124,15 @@ export default function CommentThread({
                 reduceMotion={!!reduceMotion}
                 isTopLevel={false}
                 railBelow={index < previewReplies.length - 1}
+                onOpenThreadRow={() => onOpenThread(reply.id)}
+                hideQuote={hideQuote}
+                actions={{
+                  myReaction: myReactions[reply.id] ?? null,
+                  reactionCount: reactionCounts[reply.id] ?? 0,
+                  replyCount: reply.reply_count ?? 0,
+                  onReact: reaction => onReact(reply.id, reaction),
+                  onQuote: () => onQuote(reply.id),
+                }}
               />
             ))}
             {remaining > 0 && (
