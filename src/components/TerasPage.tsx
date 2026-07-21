@@ -634,34 +634,6 @@ function mapCommentInPanel(
 }
 
 /**
- * Sisip balasan baru ke preview_replies komentar sasaran secara optimistic.
- * Kalau cuplikan sudah penuh (previewLimit server = 2), JANGAN ditambah --
- * cukup naikkan reply_count dan biarkan "Lihat N balasan lainnya" (dihitung
- * dari selisih reply_count - preview_replies.length di CommentThread.tsx)
- * yang bertambah. reply_count/preview_replies opsional di tipe (komentar
- * lama/hasil buat baru bisa tidak membawanya), jadi default ke 0/[] di sini
- * -- reply_count > 0 dengan preview_replies kosong itu valid, bukan bug.
- */
-function insertCommentReply(
-  comments: CommunityComment[],
-  targetCommentId: string,
-  reply: CommunityComment,
-): CommunityComment[] {
-  return comments.map(comment => {
-    if (comment.id !== targetCommentId) return comment;
-    const previewReplies = comment.preview_replies ?? [];
-    const nextPreview = previewReplies.length < COMMENT_REPLY_PREVIEW_LIMIT
-      ? [...previewReplies, reply]
-      : previewReplies;
-    return {
-      ...comment,
-      reply_count: (comment.reply_count ?? 0) + 1,
-      preview_replies: nextPreview,
-    };
-  });
-}
-
-/**
  * Hapus komentar top-level ATAU salah satu cuplikan balasannya. Balik array
  * baru plus penanda apakah yang dihapus itu top-level -- CommentRow
  * menampilkan tombol hapus untuk preview_replies juga, jadi comment_count
@@ -1449,9 +1421,6 @@ export default function TerasPage({
   const [commentPanels, setCommentPanels] = useState<Record<string, CommentPanelState>>({});
   const [reactionBusy, setReactionBusy] = useState<Set<string>>(new Set());
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
-  // Sasaran balas komentar berjenjang: kiriman induk + komentar yang dibalas +
-  // nama penulisnya (untuk chip "Membalas ke X"). null = balas top-level.
-  const [replyTarget, setReplyTarget] = useState<{ postId: string; commentId: string; authorName: string } | null>(null);
   const [menuOpenPostId, setMenuOpenPostId] = useState<string | null>(null);
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
@@ -3069,15 +3038,9 @@ export default function TerasPage({
     };
   }, [detailPostId, loading, posts, detailFetchTick, onNavigate]);
 
-  // client_id per KIRIMAN + SASARAN, bukan cuma kiriman: sejak balas
-  // berjenjang, sasaran (replyTarget) bisa berpindah tanpa mengubah teks --
-  // kalau di-key postId saja, memindah sasaran setelah kirim gagal memakai
-  // client_id lama dengan parent_post_id baru, dan pemulihan 23505 di server
-  // (yang mencocokkan parent) gagal jadi 409 alih-alih idempoten.
-  const commentRequestTargetId = (postId: string) =>
-    (replyTarget && replyTarget.postId === postId ? replyTarget.commentId : postId);
-  const commentRequestKey = (postId: string, targetId = commentRequestTargetId(postId)) =>
-    `${postId}:${targetId}`;
+  // client_id komentar di-key per kiriman. (Dulu juga per-sasaran balas
+  // berjenjang; balas kini lewat halaman komentar, jadi sasaran = kiriman.)
+  const commentRequestKey = (postId: string) => `${postId}:${postId}`;
 
   // Buang SEMUA entri client_id milik kiriman ini, bukan cuma sasaran yang
   // SEDANG aktif -- kalau kirim ke komentar A gagal (entri "postId:A"
@@ -3115,13 +3078,7 @@ export default function TerasPage({
       return;
     }
 
-    // Snapshot di awal, bukan dibaca ulang setelah kirim selesai: kalau user
-    // sempat pindah target balas (klik Balas komentar lain) sementara kiriman
-    // ini masih diproses, kiriman ini tetap ke target yang aktif SAAT tombol
-    // kirim ditekan -- bukan ke target yang belakangan.
-    const activeReplyTarget = replyTarget && replyTarget.postId === postId ? replyTarget : null;
-    const targetId = activeReplyTarget ? activeReplyTarget.commentId : postId;
-    const requestKey = commentRequestKey(postId, targetId);
+    const requestKey = commentRequestKey(postId);
 
     const requestId = commentRequestIdsRef.current.get(requestKey) || window.crypto.randomUUID();
     commentRequestIdsRef.current.set(requestKey, requestId);
@@ -3160,7 +3117,7 @@ export default function TerasPage({
 
       const commentMentions = extractMentionSlugs(body, memberSlugs);
       const created = await requestJson<CommunityComment>(
-        `/api/community/posts/${encodeURIComponent(targetId)}/comments`,
+        `/api/community/posts/${encodeURIComponent(postId)}/comments`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -3179,31 +3136,9 @@ export default function TerasPage({
         if (item.previewUrl.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl);
       });
       const newComment = created.data;
-      // Kalau ini balasan, cek dulu induknya masih ada di panel SEBELUM
-      // menyisip -- refreshFeed bisa saja mengosongkan commentPanels (jadi
-      // {}) sementara kiriman ini masih di jalan. insertCommentReply pada
-      // array kosong diam-diam tidak menyisipkan apa pun; menandai panel
-      // "loaded: true" dari hasil itu bikin UI bilang "Belum ada komentar"
-      // padahal balasannya sudah tersimpan di server. Jalur top-level tetap
-      // jujur pada skenario yang sama, jadi balasan diberi jaring pengaman
-      // setara: muat ulang alih-alih berbohong loaded=true. Keputusan ITU
-      // SENDIRI dievaluasi dari `current` di DALAM updater, bukan dari
-      // commentPanelsRef di luar (ref = state ter-commit terakhir, bisa basi).
-      const replyParentPresentApprox = !activeReplyTarget
-        || !!findCommentInPanel(commentPanelsRef.current[postId]?.comments ?? [], activeReplyTarget.commentId);
       setCommentPanels(current => {
         const currentPanel = current[postId] || emptyCommentPanel();
-        const replyParentPresent = !activeReplyTarget
-          || !!findCommentInPanel(currentPanel.comments, activeReplyTarget.commentId);
-        if (activeReplyTarget && !replyParentPresent) {
-          return {
-            ...current,
-            [postId]: { ...currentPanel, sending: false, input: '', media: [] },
-          };
-        }
-        const comments = activeReplyTarget
-          ? insertCommentReply(currentPanel.comments, activeReplyTarget.commentId, newComment)
-          : [...currentPanel.comments.filter(comment => comment.id !== newComment.id), newComment];
+        const comments = [...currentPanel.comments.filter(comment => comment.id !== newComment.id), newComment];
         return {
           ...current,
           [postId]: {
@@ -3216,22 +3151,11 @@ export default function TerasPage({
           },
         };
       });
-      if (activeReplyTarget && !replyParentPresentApprox) {
-        void loadComments(postId);
-      }
-      if (activeReplyTarget) {
-        // Bersih hanya kalau target belum berpindah lagi sejak kiriman ini
-        // mulai -- lihat catatan snapshot activeReplyTarget di atas.
-        setReplyTarget(current => (current === activeReplyTarget ? null : current));
-      } else {
-        // reply_count komentar sasaran sudah dinaikkan oleh insertCommentReply
-        // di atas; comment_count kiriman ini sendiri hanya menghitung komentar
-        // top-level (lihat GET /api/community/posts/:id/comments di server),
-        // jadi tidak ikut naik saat yang terkirim adalah balasan.
-        setPosts(current => current.map(post => post.id === postId
-          ? { ...post, comment_count: post.comment_count + 1 }
-          : post));
-      }
+      // comment_count kiriman hanya menghitung komentar top-level (lihat GET
+      // /api/community/posts/:id/comments di server).
+      setPosts(current => current.map(post => post.id === postId
+        ? { ...post, comment_count: post.comment_count + 1 }
+        : post));
       const commentInputEl = document.getElementById(`teras-comment-input-${postId}`);
       if (commentInputEl instanceof HTMLTextAreaElement) {
         commentInputEl.style.height = '';
@@ -3525,8 +3449,6 @@ export default function TerasPage({
           ? { ...post, comment_count: Math.max(0, post.comment_count - 1) }
           : post));
       }
-      // Komentar yang barusan dihapus tidak boleh tetap jadi sasaran balas.
-      setReplyTarget(current => (current?.commentId === commentId ? null : current));
     } catch (deleteError) {
       showToast(errorMessage(deleteError, 'Gagal menghapus komentar'), 'error');
     } finally {
@@ -3589,10 +3511,6 @@ export default function TerasPage({
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showToast]);
-
-  const handleCommentReplyTarget = useCallback((postId: string, commentId: string, authorName: string) => {
-    setReplyTarget({ postId, commentId, authorName });
-  }, []);
 
   // Sengaja BUKAN useCallback: openQuoteComposerForComment menutup profileSlug,
   // yang berubah tiap navigasi feed<->profil tanpa remount TerasPage. Prop
@@ -4469,7 +4387,6 @@ export default function TerasPage({
             const commentReactionMaps = commentPanel ? buildCommentReactionMaps(commentPanel.comments) : null;
             // Sasaran balas menempel ke panel komentar (commentTargetId =
             // segmen akar di detail), bukan ke segmen yang sedang dirender.
-            const activeCommentReplyTarget = replyTarget && replyTarget.postId === commentTargetId ? replyTarget : null;
             const canDeletePost = canDeleteCommunityEntry(agent, post);
             const totalReactions = post.reactions.suka + post.reactions.selamat + post.reactions.aamiin;
             const reactionIsBusy = reactionBusy.has(post.id);
@@ -5003,22 +4920,6 @@ export default function TerasPage({
                             </div>
                           </div>
                           <div className="min-w-0">
-                          {activeCommentReplyTarget && (
-                            <div className="mb-1.5 flex min-w-0 items-center gap-1.5">
-                              <span className="min-w-0 truncate rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                                Membalas ke {activeCommentReplyTarget.authorName}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => setReplyTarget(null)}
-                                aria-label="Batalkan balasan"
-                                title="Batalkan balasan"
-                                className="flex min-h-11 min-w-11 shrink-0 items-center justify-center text-gray-500 transition-colors hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-red-400"
-                              >
-                                <X size={13} />
-                              </button>
-                            </div>
-                          )}
                           <div className="flex min-w-0 items-end gap-1.5 pb-1">
                             <div className="relative min-w-0 flex-1 rounded-3xl border border-gray-200 bg-gray-50 transition-colors focus-within:border-emerald-400/70 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-500/15 dark:border-slate-700 dark:bg-slate-800/60 dark:focus-within:border-emerald-500/50 dark:focus-within:bg-slate-900">
                             {mentionState?.context === commentTargetId && (
@@ -5054,7 +4955,7 @@ export default function TerasPage({
                                   if (layer) layer.scrollTop = event.currentTarget.scrollTop;
                                 }}
                                 aria-label="Tulis komentar"
-                                placeholder={`Balas ke ${activeCommentReplyTarget ? activeCommentReplyTarget.authorName : authorName}…`}
+                                placeholder={`Balas ke ${authorName}…`}
                                 maxLength={COMMENT_BODY_HARD_CAP}
                                 className="relative block w-full resize-none overflow-hidden bg-transparent py-[11px] text-[13.5px] leading-snug text-gray-800 outline-none placeholder:text-gray-500 read-only:opacity-60 dark:text-white dark:placeholder:text-slate-400"
                               />
@@ -5179,12 +5080,10 @@ export default function TerasPage({
                             myReactions={commentReactionMaps?.myReactions ?? {}}
                             reactionCounts={commentReactionMaps?.reactionCounts ?? {}}
                             onReact={(commentId, reaction) => handleCommentReact(commentTargetId, commentId, reaction)}
-                            onReply={(commentId, replyAuthorName) => handleCommentReplyTarget(commentTargetId, commentId, replyAuthorName)}
                             onQuote={commentId => handleCommentQuote(commentTargetId, commentId)}
                             onDelete={commentId => void deleteComment(commentTargetId, commentId)}
                             onOpenThread={openPostDetail}
                             profileSlug={profileSlug}
-                            replyTargetId={activeCommentReplyTarget?.commentId ?? null}
                             renderBody={comment => (
                               <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300"><MentionText body={comment.body} memberBySlug={memberBySlug} linkify onOpenProfile={openProfile} /></p>
                             )}

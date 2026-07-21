@@ -14,12 +14,9 @@ interface CommentThreadProps {
   /** Jumlah reaksi per id komentar. */
   reactionCounts: Record<string, number>;
   onReact: (commentId: string, reaction: ReactionType | null) => void;
-  onReply: (commentId: string, authorName: string) => void;
   onQuote: (commentId: string) => void;
   onDelete: (commentId: string) => void;
   onOpenThread: (commentId: string) => void;
-  /** Komentar yang sedang jadi sasaran kolom balas, untuk penanda visual. */
-  replyTargetId: string | null;
   renderBody: (comment: CommunityComment) => ReactNode;
   renderMedia: (comment: CommunityComment) => ReactNode;
   formatTime: (iso: string) => string;
@@ -43,9 +40,7 @@ interface CommentRowActions {
   myReaction: ReactionType | null;
   reactionCount: number;
   replyCount: number;
-  isReplyTarget: boolean;
   onReact: (reaction: ReactionType | null) => void;
-  onReply: () => void;
   onQuote: () => void;
 }
 
@@ -59,11 +54,9 @@ export default function CommentThread({
   myReactions,
   reactionCounts,
   onReact,
-  onReply,
   onQuote,
   onDelete,
   onOpenThread,
-  replyTargetId,
   renderBody,
   renderMedia,
   formatTime,
@@ -109,9 +102,7 @@ export default function CommentThread({
               myReaction: myReactions[comment.id] ?? null,
               reactionCount: reactionCounts[comment.id] ?? 0,
               replyCount,
-              isReplyTarget: replyTargetId === comment.id,
               onReact: reaction => onReact(comment.id, reaction),
-              onReply: () => onReply(comment.id, comment.author.name || 'Agent'),
               onQuote: () => onQuote(comment.id),
             }}
           >
