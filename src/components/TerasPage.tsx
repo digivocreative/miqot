@@ -4258,6 +4258,19 @@ export default function TerasPage({
         )}
       </AnimatePresence>
 
+      {/* Layar konten (feed / detail / profil) dibungkus satu motion.div ber-key
+          per-tampilan. Saat pindah feed↔detail (atau antar-detail) key berubah,
+          React me-mount ulang subtree ini sehingga tampilan baru MASUK dengan
+          slide+fade — bukan lagi kartu yang sama yang "berubah bentuk" di tempat
+          (teks terpotong→penuh, chip utas hilang) di tengah potongan keras.
+          Skeleton komentar pun ikut memudar masuk sebagai satu kesatuan, bukan
+          menyembul belakangan. Menghormati prefers-reduced-motion. */}
+      <motion.div
+        key={isDetailView ? `teras-screen-detail-${detailPostId}` : 'teras-screen-feed'}
+        initial={reduceMotion ? false : { opacity: 0, x: isDetailView ? 16 : -16 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={reduceMotion ? { duration: 0 } : { duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+      >
       {isDetailView && !detailPost && (
         detailError ? (
           <div role="alert" aria-live="assertive" className="mx-4 mt-4 min-w-0 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
@@ -4389,7 +4402,16 @@ export default function TerasPage({
             // yang terakhir (setelah segmen terakhir tidak ada apa-apa lagi
             // untuk disambung).
             const chainRailBelow = isChainSegment && !isLastSegment;
-            const commentPanel = commentPanels[commentTargetId];
+            // Di tampilan detail panel komentar baru dibuka oleh efek yang jalan
+            // SETELAH render pertama (lihat ensureCommentsOpen). Tanpa penopang,
+            // frame pertama merender kartu tanpa bagian komentar sama sekali,
+            // lalu frame berikutnya menyelipkannya lewat animasi tinggi 0→auto —
+            // itulah kedipan saat masuk dari feed. Placeholder "loading" ini
+            // membuat bagian komentar sudah hadir (sebagai skeleton) sejak frame
+            // pertama, jadi AnimatePresence tidak menganimasikannya masuk dan
+            // skeleton langsung berganti konten di tempat.
+            const commentPanel = commentPanels[commentTargetId]
+              ?? (isDetailView ? { ...emptyCommentPanel(), loading: true } : undefined);
             const commentsOpen = isDetailView ? true : !!commentPanel?.open;
             // Satu kolom komentar saja, di bawah segmen terakhir.
             const showCommentPanel = commentsOpen && (!isDetailView || isLastSegment);
@@ -5164,6 +5186,7 @@ export default function TerasPage({
           )}
         </div>
       )}
+      </motion.div>
 
       </div>
 
