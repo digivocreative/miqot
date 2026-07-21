@@ -80,61 +80,66 @@ export default function CommentThread({
         const remaining = replyCount - previewReplies.length;
 
         return (
-          <CommentRow
-            key={comment.id}
-            comment={comment}
-            agent={agent}
-            deletingCommentId={deletingCommentId}
-            onDelete={onDelete}
-            onOpenProfile={onOpenProfile}
-            renderBody={renderBody}
-            renderMedia={renderMedia}
-            formatTime={formatTime}
-            reduceMotion={!!reduceMotion}
-            // Klik baris membuka halaman thread — HANYA komentar tingkat
-            // teratas (lihat komentar di atas CommentRow soal cuplikan
-            // tingkat dua yang sengaja dikecualikan).
-            onOpenThreadRow={() => onOpenThread(comment.id)}
-            isTopLevel
-            showRail={previewReplies.length > 0}
-            hideQuote={hideQuote}
-            actions={{
-              myReaction: myReactions[comment.id] ?? null,
-              reactionCount: reactionCounts[comment.id] ?? 0,
-              replyCount,
-              onReact: reaction => onReact(comment.id, reaction),
-              onQuote: () => onQuote(comment.id),
-            }}
-          >
-            {previewReplies.map(reply => (
-              <CommentRow
-                key={reply.id}
-                comment={reply}
-                agent={agent}
-                deletingCommentId={deletingCommentId}
-                onDelete={onDelete}
-                onOpenProfile={onOpenProfile}
-                renderBody={renderBody}
-                renderMedia={renderMedia}
-                formatTime={formatTime}
-                reduceMotion={!!reduceMotion}
-                isTopLevel={false}
-                showRail={false}
-                // Sengaja TIDAK diberi onOpenThreadRow: cuplikan balasan
-                // tingkat dua tidak dapat perilaku klik-untuk-buka-thread
-                // (indentasi berhenti di situ, lihat spec keputusan produk #3).
-              />
-            ))}
+          <div key={comment.id}>
+            <CommentRow
+              comment={comment}
+              agent={agent}
+              deletingCommentId={deletingCommentId}
+              onDelete={onDelete}
+              onOpenProfile={onOpenProfile}
+              renderBody={renderBody}
+              renderMedia={renderMedia}
+              formatTime={formatTime}
+              reduceMotion={!!reduceMotion}
+              // Klik baris membuka halaman thread — HANYA komentar tingkat teratas.
+              onOpenThreadRow={() => onOpenThread(comment.id)}
+              isTopLevel
+              hideQuote={hideQuote}
+              actions={{
+                myReaction: myReactions[comment.id] ?? null,
+                reactionCount: reactionCounts[comment.id] ?? 0,
+                replyCount,
+                onReact: reaction => onReact(comment.id, reaction),
+                onQuote: () => onQuote(comment.id),
+              }}
+            />
+            {/* Balasan bertingkat ala Threads: rail vertikal (border-l) sejajar
+                tepat di bawah avatar induk (ml-5 ≈ pusat avatar 40px), avatar
+                anak sejajar di kanan rail. data-thread-rail="comment" hanya ada
+                saat ADA balasan — komentar datar tetap tanpa rail. Balasan
+                tingkat dua sengaja tak dapat klik-buka-thread. */}
+            {previewReplies.length > 0 && (
+              <div
+                data-thread-rail="comment"
+                className="ml-5 mt-2 space-y-2 border-l border-gray-200 pl-3 dark:border-slate-700"
+              >
+                {previewReplies.map(reply => (
+                  <CommentRow
+                    key={reply.id}
+                    comment={reply}
+                    agent={agent}
+                    deletingCommentId={deletingCommentId}
+                    onDelete={onDelete}
+                    onOpenProfile={onOpenProfile}
+                    renderBody={renderBody}
+                    renderMedia={renderMedia}
+                    formatTime={formatTime}
+                    reduceMotion={!!reduceMotion}
+                    isTopLevel={false}
+                  />
+                ))}
+              </div>
+            )}
             {remaining > 0 && (
               <button
                 type="button"
                 onClick={() => onOpenThread(comment.id)}
-                className="mt-1 min-h-11 px-0.5 text-left text-[12px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400"
+                className="ml-8 mt-1 min-h-11 text-left text-[12px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400"
               >
                 Lihat {remaining} balasan lainnya
               </button>
             )}
-          </CommentRow>
+          </div>
         );
       })}
     </>
@@ -154,9 +159,7 @@ function CommentRow({
   actions,
   onOpenThreadRow,
   isTopLevel,
-  showRail,
   hideQuote,
-  children,
 }: {
   comment: CommunityComment;
   agent: { role?: string | null } | null;
@@ -175,14 +178,10 @@ function CommentRow({
    * teratas — lihat pemanggilan CommentRow di CommentThread di atas.
    */
   onOpenThreadRow?: () => void;
-  /** True untuk komentar tingkat teratas: dapat pemisah hairline; balasan nested tidak. */
+  /** True untuk komentar tingkat teratas: avatar 40px + pemisah hairline. Balasan nested: avatar 28px, tanpa pemisah. */
   isTopLevel: boolean;
-  /** Render rail grup vertikal di kolom avatar — hanya bila komentar punya balasan nested tampil. */
-  showRail: boolean;
   /** Sembunyikan tombol Kutip (mode profil publik — komposer tidak bisa dibuka dari sana). */
   hideQuote?: boolean;
-  /** Cuplikan balasan + tautan "lihat lainnya", dirender di bawah baris aksi (indentasi satu tingkat lewat nesting grid). */
-  children?: ReactNode;
 }) {
   const canDeleteComment = canDeleteCommunityEntry(agent, comment);
   const commentAuthorName = comment.author.name || 'Agent';
@@ -228,10 +227,13 @@ function CommentRow({
       aria-label={onOpenThreadRow ? `Buka balasan ${commentAuthorName}` : undefined}
       onClick={onOpenThreadRow ? handleRowClick : undefined}
       onKeyDown={onOpenThreadRow ? handleRowKeyDown : undefined}
-      className={`grid grid-cols-[40px_minmax(0,1fr)] gap-x-3 ${
-        // -mx-4 px-4: garis pemisah komentar teratas full-bleed (mepet tepi
-        // kartu), isi tetap ber-padding. Balasan nested tak pakai pemisah.
-        isTopLevel ? '-mx-4 border-t border-gray-100 px-4 pt-3 dark:border-slate-800' : 'mt-2'
+      className={`grid ${
+        // Top-level: avatar 40px + pemisah hairline full-bleed (-mx-4 px-4).
+        // Balasan nested: avatar 28px lebih ringkas; jarak & rail diatur
+        // container induk (border-l), jadi baris ini tak perlu margin/rail.
+        isTopLevel
+          ? '-mx-4 grid-cols-[40px_minmax(0,1fr)] gap-x-3 border-t border-gray-100 px-4 pt-3 dark:border-slate-800'
+          : 'grid-cols-[28px_minmax(0,1fr)] gap-x-2'
       } ${
         onOpenThreadRow ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/50' : ''
       }`}
@@ -248,13 +250,10 @@ function CommentRow({
             }}
             aria-label={`Lihat profil ${commentAuthorName}`}
           >
-            <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="post" />
+            <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size={isTopLevel ? 'post' : 'comment'} />
           </a>
         ) : (
-          <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="post" />
-        )}
-        {showRail && (
-          <div data-thread-rail="comment" aria-hidden="true" className="mt-1.5 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
+          <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size={isTopLevel ? 'post' : 'comment'} />
         )}
       </div>
       <div className="min-w-0">
@@ -378,8 +377,6 @@ function CommentRow({
             )}
           </div>
         )}
-
-        {children}
       </div>
     </div>
   );
